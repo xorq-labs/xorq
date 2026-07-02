@@ -487,11 +487,16 @@ def _catalog_pin_command(
             except FileNotFoundError as err:
                 # a relocating rebuild bundles local reads by opening them, so a
                 # missing source surfaces the same clean hint the build-level
-                # pin/unpin gives instead of a raw traceback.
+                # pin/unpin gives instead of a raw traceback. The loaded entry's
+                # extract dirs hold its already-bundled reads; a miss there is a
+                # vanished internal artifact, not a user source, so they join
+                # cache_dir as internal (temp is otherwise treated as source).
+                from xorq.catalog.expr_utils import _live_extract_dirs  # noqa: PLC0415
+
                 raise_for_missing_relocation_source(
                     err,
                     relocate_reads=relocate_reads,
-                    internal_dirs=(cache_dir,),
+                    internal_dirs=(cache_dir, *_live_extract_dirs),
                 )
             for moved in source_aliases:
                 catalog.add_alias(new_entry.name, moved, sync=False)

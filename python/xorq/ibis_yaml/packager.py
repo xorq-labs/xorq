@@ -56,14 +56,21 @@ class UvToolRunError(subprocess.CalledProcessError):
 
 def _inner_xorq_build_help(
     python_version: str, wheel_path: Path, requirements_path: Path
-) -> str:
-    """Return the inner ``xorq build --help`` stdout (``""`` if it failed).
+) -> tuple[int, str]:
+    """Return ``(returncode, stdout)`` of the inner ``xorq build --help``.
 
     A single ~200ms warm-cache call — negligible next to the build itself —
     whose output is grepped for option support below, so we probe the inner CLI
     once rather than once per option. The inner xorq is whatever version the
     wheel + requirements resolve to (often the published PyPI release), which
     may predate options this branch passes.
+
+    The returncode is returned alongside stdout so the caller can tell a genuine
+    old-version xorq (help succeeds, option absent) from a broken probe (help
+    exits non-zero): ``xorq build --help`` exits 0 on any version that has the
+    ``build`` subcommand, so a non-zero exit means the inner env is broken, not
+    that a feature is missing -- collapsing both to ``""`` would mislabel the
+    latter and silently degrade the build.
 
     TODO(post-release): remove the option probes that consume this once the
     published xorq on PyPI ships both --emit-build-path-to and --relocate-reads.
@@ -77,7 +84,7 @@ def _inner_xorq_build_help(
         with_requirements=requirements_path,
         check=False,
     )
-    return result.stdout if result.returncode == 0 else ""
+    return result.returncode, result.stdout
 
 
 PYPROJECT_NAME = "pyproject.toml"
@@ -483,11 +490,22 @@ class PackagedBuilder:
         # requirements resolve to and may predate options we pass. Grepping its
         # --help avoids a hard "No such option" failure (exit 2) on an older
         # published xorq.
-        inner_help = _inner_xorq_build_help(
+        inner_rc, inner_help = _inner_xorq_build_help(
             self.python_version,
             self.wheel_path,
             self.requirements_path,
         )
+        # `xorq build --help` exits 0 on any version with the build subcommand,
+        # so a non-zero exit is a broken inner env (unresolvable deps, import
+        # error), not a missing feature. The real `xorq build` below would fail
+        # too -- fail loudly here rather than silently degrade to a
+        # machine-local build behind a misleading "does not support" warning.
+        if inner_rc != 0:
+            raise RuntimeError(
+                f"inner `xorq build --help` failed (exit {inner_rc}); cannot "
+                "package. Check that the wheel + requirements resolve to a "
+                "runnable xorq."
+            )
         # TODO(post-release): remove emit-path fallback once the published
         # xorq on PyPI ships --emit-build-path-to.
         used_emit_file = "--emit-build-path-to" in inner_help

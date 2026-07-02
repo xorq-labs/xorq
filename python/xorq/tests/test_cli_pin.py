@@ -15,6 +15,7 @@ from xorq.cli import cli, pin_command, run_command
 from xorq.common.exceptions import IntegrityError
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.process_utils import subprocess_run
 from xorq.expr.relations import (
     CachedNode,
     CacheTag,
@@ -24,6 +25,27 @@ from xorq.expr.relations import (
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.types.core import Expr
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        pytest.param("pin", id="pin"),
+        pytest.param("unpin", id="unpin"),
+    ),
+)
+def test_pin_cli_help_smoke_subprocess(command: str) -> None:
+    """`xorq {pin,unpin} --help` must load via a real subprocess.
+
+    The other CLI tests here use in-process CliRunner, which never exercises
+    the real entrypoint and so hides an import-time cold-start regression from
+    the command's deferred imports. This spawns a real `xorq` to catch that.
+    """
+    (returncode, stdout, _stderr) = subprocess_run(
+        ["xorq", command, "--help"], text=True
+    )
+    assert returncode == 0, _stderr
+    assert command in stdout
 
 
 def caches_materialized(expr: Expr) -> bool:

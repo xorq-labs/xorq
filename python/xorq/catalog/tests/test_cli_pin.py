@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 from click.testing import CliRunner, Result
 
 import xorq.api as xo
@@ -17,7 +18,29 @@ from xorq.catalog.tests.conftest import alias_target_hash
 from xorq.catalog.zip_utils import extract_build_zip_to
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.process_utils import subprocess_run
 from xorq.expr.relations import CachedNode, CacheTag
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        pytest.param("pin", id="pin"),
+        pytest.param("unpin", id="unpin"),
+    ),
+)
+def test_catalog_pin_cli_help_smoke_subprocess(command: str) -> None:
+    """`xorq catalog {pin,unpin} --help` must load via a real subprocess.
+
+    The other catalog CLI tests here use the in-process CliRunner fixture, which
+    never exercises the real entrypoint and so hides an import-time cold-start
+    regression from the command's deferred imports. This spawns a real `xorq`.
+    """
+    (returncode, stdout, _stderr) = subprocess_run(
+        ["xorq", "catalog", command, "--help"], text=True
+    )
+    assert returncode == 0, _stderr
+    assert command in stdout
 
 
 def _cached_expr() -> Expr:

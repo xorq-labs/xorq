@@ -1644,6 +1644,27 @@ def test_artifact_store_copy_file_missing_source(tmp_path: pathlib.Path) -> None
         store.copy_file(tmp_path / "nonexistent.txt", "out.txt")
 
 
+def test_artifact_store_copy_file_same_path_is_noop(tmp_path: pathlib.Path) -> None:
+    """copy_file must no-op (not SameFileError) when source resolves to dest.
+
+    Rebuilding a relocated build into its own builds_dir resolves a bundled
+    read's source to the very dest it would write (e.g. a no-op pin, now that
+    relocated builds are hash-stable); shutil.copy2 raises SameFileError on that
+    self-copy, so the guard skips it. Pins this branch at the copy_file layer so
+    a future get_path/resolve change that breaks the equality check goes red
+    here, not only via a high-level pin round-trip.
+    """
+    store = ArtifactStore(root_path=tmp_path / "store")
+    dest = store.get_path("reads", "same.parquet")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("frozen content")
+
+    # source IS the dest (same resolved path) -- copy2 would raise SameFileError
+    result = store.copy_file(dest, "reads", "same.parquet")
+    assert result == dest
+    assert dest.read_text() == "frozen content"
+
+
 # ---------------------------------------------------------------------------
 # warn_on_local_path changes
 # ---------------------------------------------------------------------------
