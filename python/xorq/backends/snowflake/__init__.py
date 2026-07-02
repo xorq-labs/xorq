@@ -54,6 +54,12 @@ def wrapped_do_connect(self, create_object_udfs: bool = None, **kwargs: Any) -> 
 
 
 class Backend(IbisSnowflakeBackend):
+    def publish_strategy(self, mode):
+        """Incremental WAP publish mechanism for this backend (ADR-0017)."""
+        from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
+
+        return PublishStrategy.NATIVE_MERGE
+
     _top_level_methods = (
         "connect_env",
         "connect_env_mfa",
