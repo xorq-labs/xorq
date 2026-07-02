@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from xorq.catalog.content_store import ContentStoreConfig
 
 from xorq.cli import (
+    _get_cache_dir,
     _lazy_span,
     apply_pin_transform,
     raise_for_missing_relocation_source,
@@ -455,6 +456,10 @@ def _catalog_pin_command(
     ensure_materialized: bool = False,
     relocate_reads: bool = True,
 ) -> None:
+    # Resolve up front (like the build-level pin_command) so the load path and
+    # the internal-dir classification below agree; a None default cache dir would
+    # drop out of internal_dirs and mislabel a missing cache artifact as a source.
+    cache_dir = _get_cache_dir(cache_dir)
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
@@ -475,6 +480,15 @@ def _catalog_pin_command(
             cold_cache_hint="Execute the entry first or pass --ensure-materialized/-e.",
         )
         aliases = (alias,) if alias else ()
+        if relocate_reads:
+            # Relocated entries fuse to an empty result until #2133 lands; warn
+            # here, not only in docs and an xfail test.
+            click.echo(
+                "warning: the new entry bundles relocated reads; consuming it "
+                "via fuse/bind currently returns an empty result (#2133). Use "
+                "--no-relocate-reads if you need to fuse this entry.",
+                err=True,
+            )
         with catalog.maybe_synchronizing(sync):
             try:
                 new_entry = catalog.add(

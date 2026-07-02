@@ -555,3 +555,26 @@ def test_catalog_pin_no_relocate_reads_is_lean(
         build_dir = extract_build_zip_to(entry.catalog_path, td)
         reads_dir = Path(build_dir) / "reads"
         assert not reads_dir.exists() or not list(reads_dir.glob("*.parquet"))
+
+
+def test_catalog_pin_warns_about_fuse_gap_when_relocated(
+    runner: CliRunner, catalog: Catalog, catalog_path: str, tmp_path: Path
+) -> None:
+    # A pin re-adds with relocate_reads=True by default, which fuses to an empty
+    # result until #2133 lands; the command must warn at pin time (not only in
+    # docs + an xfail test). --no-relocate-reads produces a fuse-safe entry, so
+    # it must NOT warn.
+    src_name = _add_cached_entry(catalog)
+    cache_dir = tmp_path / "cache"
+    base_args = ["--path", catalog_path, "pin", src_name, "-e", "--no-sync"]
+
+    default = runner.invoke(cli, [*base_args, "--cache-dir", str(cache_dir / "a")])
+    assert default.exit_code == 0, default.output
+    assert "#2133" in default.output
+    assert "fuse" in default.output
+
+    lean = runner.invoke(
+        cli, [*base_args, "--cache-dir", str(cache_dir / "b"), "--no-relocate-reads"]
+    )
+    assert lean.exit_code == 0, lean.output
+    assert "#2133" not in lean.output
