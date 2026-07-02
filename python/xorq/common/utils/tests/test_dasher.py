@@ -205,14 +205,15 @@ def test_file_table_decimal_precision_distinguishes_schema_component(
     # ``[1]`` of the normalized tuple; comparing it directly isolates the
     # schema component from the path/stat component (which differs anyway
     # because the two files live at distinct paths).
-    pa_path, pb_path = tmp_path / "a.parquet", tmp_path / "b.parquet"
-    _decimal_parquet(pa_path, 18, 3)
-    _decimal_parquet(pb_path, 9, 2)
-    schema_a = HASHER.normalize(make_table(pa_path, "ta").op())[1]
-    schema_b = HASHER.normalize(make_table(pb_path, "tb").op())[1]
-    assert schema_a == ("ibis.Schema", (("x", "decimal(18, 3)"),))
-    assert schema_b == ("ibis.Schema", (("x", "decimal(9, 2)"),))
-    assert schema_a != schema_b
+    cases = (("a", 18, 3), ("b", 9, 2))
+    schemas = []
+    for name, precision, scale in cases:
+        path = tmp_path / f"{name}.parquet"
+        _decimal_parquet(path, precision, scale)
+        schema = HASHER.normalize(make_table(path, f"t{name}").op())[1]
+        assert schema == ("ibis.Schema", (("x", f"decimal({precision}, {scale})"),))
+        schemas.append(schema)
+    assert schemas[0] != schemas[1]
 
 
 # --- UDF counter independence ---------------------------------------------
