@@ -24,11 +24,20 @@ from xorq.catalog import constants as catalog_constants
 if TYPE_CHECKING:
     from xorq.catalog.content_store import ContentStoreConfig
 
+from xorq.cli import (
+    _get_cache_dir,
+    _lazy_span,
+    apply_pin_transform,
+    raise_for_missing_relocation_source,
+)
 from xorq.cli_options import (
+    _F,
+    apply_in_help_order,
     cache_dir_option,
     cache_strategy_options,
     code_option,
     content_store_option,
+    ensure_materialized_option,
     env_options,
     fuse_option,
     gcs_option,
@@ -36,6 +45,7 @@ from xorq.cli_options import (
     limit_option,
     output_options,
     params_option,
+    relocate_reads_option,
     rename_params_option,
     serve_options,
     sync_option,
@@ -431,6 +441,187 @@ def add_alias(ctx, name, alias, sync):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_alias = catalog.add_alias(name, alias, sync=sync)
         click.echo(f"Added alias {catalog_alias.alias!r} -> {name}")
+
+
+@_lazy_span("catalog.pin_command")
+def _catalog_pin_command(
+    ctx: click.Context,
+    entry: str,
+    *,
+    do_pin: bool,
+    sync: bool,
+    cache_dir: str | None,
+    alias: str | None,
+    move_aliases: bool,
+    ensure_materialized: bool = False,
+    relocate_reads: bool = True,
+) -> None:
+    # Resolve up front (like the build-level pin_command) so the load path and
+    # the internal-dir classification below agree; a None default cache dir would
+    # drop out of internal_dirs and mislabel a missing cache artifact as a source.
+    cache_dir = _get_cache_dir(cache_dir)
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        catalog_entry = _get_catalog_entry(catalog, entry)
+        source_aliases = (
+            tuple(ca.alias for ca in catalog_entry.aliases) if move_aliases else ()
+        )
+        # `load_expr` pins the entry's temp extract dir to the loaded expr's
+        # lifetime (weakref.finalize in load_expr_from_zip). The pinned/unpinned
+        # result keeps relocatable reads pointing into that dir, so we must hold
+        # `loaded` alive until the new entry is fully built -- otherwise it is
+        # GC'd, the extract dir is swept, and a relocating rebuild can't find the
+        # bundled reads.
+        loaded = catalog_entry.load_expr(cache_dir=cache_dir)
+        expr = apply_pin_transform(
+            loaded,
+            do_pin=do_pin,
+            ensure_materialized=ensure_materialized,
+            cold_cache_hint="Execute the entry first or pass --ensure-materialized/-e.",
+        )
+        aliases = (alias,) if alias else ()
+        if relocate_reads:
+            # Relocated entries fuse to an empty result until #2133 lands; warn
+            # here, not only in docs and an xfail test.
+            click.echo(
+                "warning: the new entry bundles relocated reads; consuming it "
+                "via fuse/bind currently returns an empty result (#2133). Use "
+                "--no-relocate-reads if you need to fuse this entry.",
+                err=True,
+            )
+        with catalog.maybe_synchronizing(sync):
+            try:
+                new_entry = catalog.add(
+                    expr,
+                    sync=False,
+                    aliases=aliases,
+                    exist_ok=True,
+                    relocate_reads=relocate_reads,
+                )
+            except FileNotFoundError as err:
+                # a relocating rebuild bundles local reads by opening them, so a
+                # missing source surfaces the same clean hint the build-level
+                # pin/unpin gives instead of a raw traceback. The loaded entry's
+                # extract dirs hold its already-bundled reads; a miss there is a
+                # vanished internal artifact, not a user source, so they join
+                # cache_dir as internal (temp is otherwise treated as source).
+                from xorq.catalog.expr_utils import _live_extract_dirs  # noqa: PLC0415
+
+                raise_for_missing_relocation_source(
+                    err,
+                    relocate_reads=relocate_reads,
+                    internal_dirs=(cache_dir, *_live_extract_dirs),
+                )
+            for moved in source_aliases:
+                catalog.add_alias(new_entry.name, moved, sync=False)
+    click.echo(new_entry.name)
+
+
+def _catalog_pin_shared_options(fn: _F) -> _F:
+    """Options common to `catalog pin` and `catalog unpin`.
+
+    The command's own docstring distinguishes the pinned/unpinned result, so the
+    help text here stays neutral ("the new entry").
+    """
+    return apply_in_help_order(
+        fn,
+        click.argument("entry", shell_complete=_complete_entry_or_alias_names),
+        sync_option,
+        cache_dir_option,
+        click.option(
+            "-a",
+            "--alias",
+            default=None,
+            help="Register this alias for the new entry.",
+        ),
+        click.option(
+            "--move-aliases",
+            is_flag=True,
+            help="Move all of the source entry's aliases onto the new entry.",
+        ),
+    )
+
+
+@cli.command("pin")
+@_catalog_pin_shared_options
+@ensure_materialized_option
+@relocate_reads_option(noun="entry", include_caches=True)
+@click.pass_context
+def pin(
+    ctx: click.Context,
+    entry: str,
+    sync: bool,
+    cache_dir: str | None,
+    alias: str | None,
+    move_aliases: bool,
+    ensure_materialized: bool,
+    relocate_reads: bool,
+) -> None:
+    """Freeze a catalog entry's caches and persist the result as a new entry.
+
+    Pinning changes the build hash, so it always yields a new content-named
+    entry rather than mutating the source. Use --alias to name it, or
+    --move-aliases to move every alias (e.g. `prod`) from the source entry onto
+    the pinned entry.
+
+    \b
+    Arguments:
+      ENTRY  An entry name or alias.
+
+    \b
+    Examples:
+      xorq catalog pin penguins-prod --alias penguins-pinned
+      xorq catalog pin penguins-prod --move-aliases
+    """
+    _catalog_pin_command(
+        ctx,
+        entry,
+        do_pin=True,
+        sync=sync,
+        cache_dir=cache_dir,
+        alias=alias,
+        move_aliases=move_aliases,
+        ensure_materialized=ensure_materialized,
+        relocate_reads=relocate_reads,
+    )
+
+
+@cli.command("unpin")
+@_catalog_pin_shared_options
+@relocate_reads_option(noun="entry")
+@click.pass_context
+def unpin(
+    ctx: click.Context,
+    entry: str,
+    sync: bool,
+    cache_dir: str | None,
+    alias: str | None,
+    move_aliases: bool,
+    relocate_reads: bool,
+) -> None:
+    """Thaw a pinned catalog entry and persist the result as a new entry.
+
+    Inverse of `xorq catalog pin`: rebuilds frozen cache reads back into
+    recomputable caches. Like pin, this yields a new content-named entry.
+
+    \b
+    Arguments:
+      ENTRY  An entry name or alias.
+
+    \b
+    Examples:
+      xorq catalog unpin penguins-pinned --move-aliases
+    """
+    _catalog_pin_command(
+        ctx,
+        entry,
+        do_pin=False,
+        sync=sync,
+        cache_dir=cache_dir,
+        alias=alias,
+        move_aliases=move_aliases,
+        relocate_reads=relocate_reads,
+    )
 
 
 @cli.command("remove-alias")

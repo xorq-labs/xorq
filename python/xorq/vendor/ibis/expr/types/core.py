@@ -1065,12 +1065,16 @@ class LETSQLAccessor:
 
         return walk_nodes((CachedNode,), self.expr)
 
-    def pin(self) -> ir.Expr:
+    def pin(self, ensure_materialized: bool = False) -> ir.Expr:
         """Freeze every `CachedNode` into a direct read of its cache location.
 
         Returns an equivalent expression that reads the materialized cache
         artifacts directly instead of re-deriving them. Each cache must already
         exist. Inverse of `unpin`.
+
+        Set `ensure_materialized` to populate any caches that are not yet
+        materialized (by executing the expression once) before freezing;
+        already-materialized caches are left untouched.
 
         A pinned expression is a *frozen read*, not a cache: cache-introspection
         accessors (`is_cached`, `has_cached`, `cached_nodes`, `uncached`) by
@@ -1080,7 +1084,7 @@ class LETSQLAccessor:
         """
         from xorq.expr.relations import pin_cache
 
-        return pin_cache(self.expr)
+        return pin_cache(self.expr, ensure_materialized=ensure_materialized)
 
     def unpin(self) -> ir.Expr:
         """Rebuild every pinned cache (`CacheTag`) back into its `CachedNode`.

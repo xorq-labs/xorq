@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections.abc
 import contextlib
 import datetime
@@ -7,20 +9,29 @@ import sys
 import traceback
 from functools import partial, wraps
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from xorq.cli_constants import DEFAULT_CACHE_TYPE, DEFAULT_OUTPUT_FORMAT, OutputFormats
 from xorq.cli_options import (
+    _F,
+    apply_in_help_order,
     cache_dir_option,
     cache_strategy_options,
+    ensure_materialized_option,
     limit_option,
     output_options,
     params_option,
+    relocate_reads_option,
     serve_options,
     unbind_options,
 )
 from xorq.init_templates import InitTemplates
+
+
+if TYPE_CHECKING:
+    from xorq.api import Expr
 
 
 @contextlib.contextmanager
@@ -162,6 +173,7 @@ def uv_build_command(
     all_extras=True,
     debug=False,
     emit_build_path_to=None,
+    relocate_reads=True,
 ):
     if project_path and pep723:
         raise click.UsageError("--project-path and --pep723 are mutually exclusive")
@@ -178,6 +190,7 @@ def uv_build_command(
         extras=extras,
         all_extras=all_extras,
         debug=debug,
+        relocate_reads=relocate_reads,
     )
     builder.build()
     if emit_build_path_to:
@@ -223,7 +236,7 @@ def build_command(
     builds_dir="builds",
     cache_dir=None,
     debug: bool = False,
-    relocate_reads: bool = False,
+    relocate_reads: bool = True,
     emit_build_path_to=None,
 ):
     """
@@ -857,6 +870,7 @@ def uv_group(ctx):
     is_flag=True,
     help="Output SQL files and other debug artifacts.",
 )
+@relocate_reads_option()
 @click.option(
     "--emit-build-path-to",
     type=click.Path(),
@@ -868,17 +882,18 @@ def uv_group(ctx):
     ),
 )
 def uv_build(
-    script_path,
-    expr_name,
-    builds_dir,
-    cache_dir,
-    project_path,
-    pep723,
-    extras,
-    all_extras,
-    debug,
-    emit_build_path_to,
-):
+    script_path: str,
+    expr_name: str,
+    builds_dir: str,
+    cache_dir: str | None,
+    project_path: str | None,
+    pep723: bool,
+    extras: tuple[str, ...],
+    all_extras: bool,
+    debug: bool,
+    relocate_reads: bool,
+    emit_build_path_to: str | None,
+) -> None:
     """Build an expression inside a uv-managed isolated environment.
 
     Mirrors `xorq build`, but runs inside a uv-managed environment seeded
@@ -909,6 +924,7 @@ def uv_build(
         all_extras=all_extras,
         debug=debug,
         emit_build_path_to=emit_build_path_to,
+        relocate_reads=relocate_reads,
     )
 
 
@@ -1092,11 +1108,7 @@ def uv_run_unbound(
     is_flag=True,
     help="Output SQL files and other debug artifacts.",
 )
-@click.option(
-    "--relocate-reads",
-    is_flag=True,
-    help="Bundle all local-file Read nodes into the build artifact.",
-)
+@relocate_reads_option()
 @click.option(
     "--emit-build-path-to",
     type=click.Path(),
@@ -1173,6 +1185,230 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """
     with maybe_unzip(build_path) as p:
         run_command(p, output_path, output_format, cache_dir, limit, raw_params)
+
+
+def raise_for_missing_relocation_source(
+    err: FileNotFoundError,
+    *,
+    relocate_reads: bool,
+    internal_dirs: tuple[str | Path | None, ...] = (),
+) -> None:
+    """Translate a missing bundle *source* into a clean CLI error, else re-raise.
+
+    Relocating a build content-hashes each local read by opening it, so a missing
+    source raises ``FileNotFoundError`` deep in the build. Only that case gets the
+    actionable message: an error with no filename, or one pointing inside a build
+    output / cache dir (a vanished artifact, an internal write), is unrelated and
+    surfaces raw rather than being mislabeled "source not found". Source files
+    themselves routinely live in a temp dir, so temp is *not* treated as internal.
+
+    Shared by the build-level and catalog-level pin/unpin commands. Call it from
+    inside an ``except FileNotFoundError`` block; it either raises a
+    ``ClickException`` or re-raises the original ``err``.
+
+    Classification is a path-prefix heuristic: a genuine source colocated under
+    ``cache_dir``/``builds_dir`` surfaces raw rather than with the hint. That
+    bias is deliberate -- a miss inside a managed dir is likelier a bug worth a
+    full traceback than a misplaced source.
+    """
+    if not relocate_reads or not err.filename:
+        raise err
+    culprit = Path(err.filename).resolve()
+    internal = tuple(Path(d).resolve() for d in internal_dirs if d is not None)
+    if any(culprit == d or culprit.is_relative_to(d) for d in internal):
+        raise err
+    raise click.ClickException(
+        f"cannot bundle reads: source file not found ({err.filename}). "
+        "Restore it, or re-run with --no-relocate-reads for a "
+        "machine-local artifact."
+    ) from err
+
+
+def apply_pin_transform(
+    expr: Expr,
+    *,
+    do_pin: bool,
+    ensure_materialized: bool = False,
+    cold_cache_hint: str = "",
+) -> Expr:
+    """Pin or unpin ``expr``, translating a cold-cache pin into a clean CLI error.
+
+    Shared by the build-level and catalog-level pin/unpin commands. When pinning
+    without ``ensure_materialized``, an unmaterialized cache raises
+    ``IntegrityError``; we re-raise it as a ``ClickException`` with
+    ``cold_cache_hint`` appended. Under ``ensure_materialized`` materialization is
+    guaranteed, so a stray ``IntegrityError`` is a real bug and surfaces raw.
+    """
+    if ensure_materialized and not do_pin:
+        raise click.ClickException(
+            "--ensure-materialized/-e only applies when pinning."
+        )
+    if not do_pin:
+        return expr.ls.unpin()
+    if ensure_materialized:
+        return expr.ls.pin(ensure_materialized=True)
+    from xorq.common.exceptions import IntegrityError  # noqa: PLC0415
+
+    try:
+        return expr.ls.pin()
+    except IntegrityError as err:
+        raise click.ClickException(f"{err}\n{cold_cache_hint}") from err
+
+
+@_lazy_span("cli.pin_command")
+def pin_command(
+    build_path: str,
+    *,
+    do_pin: bool,
+    builds_dir: str = "builds",
+    cache_dir: str | None = None,
+    ensure_materialized: bool = False,
+    relocate_reads: bool = True,
+) -> Path:
+    """Freeze (pin) or thaw (unpin) the caches of a build artifact.
+
+    Pinning replaces each materialized ``CachedNode`` with a direct read of its
+    cache file; unpinning is the inverse.
+
+    When ``ensure_materialized`` is set, any caches that are not yet populated
+    are materialized (by executing the expression) before pinning; caches that
+    are already materialized are left untouched, so no redundant work runs.
+
+    ``relocate_reads`` bundles local-file reads — including the pinned cache
+    parquet files — into the build so it is fully self-contained. Pass
+    ``--no-relocate-reads`` for a lean build where frozen cache reads stay
+    external and relocate via ``base_path`` at load time.
+
+    Relocation is one-way. Bundling a read replaces its original filesystem path
+    with a content-addressed ``reads/<hash>`` entry, discarding where the source
+    lived; on load that read resolves into the build's own (temporary) extract
+    dir, not the original file. So ``relocate_reads=False`` here cannot *un*-bundle
+    an already-relocated input -- it only avoids bundling reads that are still
+    machine-local. Because ``xorq build`` relocates by default, pinning/unpinning
+    an ordinary build stays relocated regardless of this flag; pass
+    ``--no-relocate-reads`` at ``xorq build`` time to keep a build lean end-to-end.
+    """
+    from xorq.ibis_yaml.compiler import build_expr, load_expr  # noqa: PLC0415
+
+    cache_dir = _get_cache_dir(cache_dir)
+    with maybe_unzip(build_path) as p:
+        expr = load_expr(p, cache_dir=cache_dir)
+        expr = apply_pin_transform(
+            expr,
+            do_pin=do_pin,
+            ensure_materialized=ensure_materialized,
+            cold_cache_hint=(
+                "Populate the caches first "
+                f"(xorq run {build_path} --cache-dir {cache_dir}) "
+                "or pass --ensure-materialized/-e."
+            ),
+        )
+        try:
+            out = build_expr(
+                expr,
+                builds_dir=builds_dir,
+                cache_dir=Path(cache_dir),
+                relocate_reads=relocate_reads,
+            )
+        except FileNotFoundError as err:
+            raise_for_missing_relocation_source(
+                err,
+                relocate_reads=relocate_reads,
+                internal_dirs=(builds_dir, cache_dir),
+            )
+    click.echo(out)
+    return out
+
+
+_PIN_BUILDS_DIR_OPTION = click.option(
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for the resulting build artifact.",
+)
+
+
+def _pin_shared_options(fn: _F) -> _F:
+    """Options common to `xorq pin` and `xorq unpin`.
+
+    The differing options (--ensure-materialized on pin only, and the pin/unpin
+    flavor of --relocate-reads) stay on each command.
+    """
+    return apply_in_help_order(
+        fn,
+        click.argument("build_path"),
+        _PIN_BUILDS_DIR_OPTION,
+        cache_dir_option,
+    )
+
+
+@cli.command("pin")
+@_pin_shared_options
+@ensure_materialized_option
+@relocate_reads_option(include_caches=True)
+def pin(
+    build_path: str,
+    builds_dir: str,
+    cache_dir: str | None,
+    ensure_materialized: bool,
+    relocate_reads: bool,
+) -> None:
+    """Freeze a build's caches into direct reads (pin).
+
+    Each materialized cache becomes a direct read of its cache file, so the
+    pinned build executes by reading artifacts instead of re-deriving them.
+    Combine with --relocate-reads to produce a self-contained, portable build.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to the build directory produced by `xorq build`.
+
+    \b
+    Examples:
+      # Pin a build whose caches are already materialized
+      xorq pin builds/f02d28198715 --cache-dir ./cache
+      # Materialize any missing caches, then pin into a portable bundle
+      xorq pin builds/f02d28198715 --cache-dir ./cache -e --relocate-reads
+    """
+    pin_command(
+        build_path,
+        do_pin=True,
+        builds_dir=builds_dir,
+        cache_dir=cache_dir,
+        ensure_materialized=ensure_materialized,
+        relocate_reads=relocate_reads,
+    )
+
+
+@cli.command("unpin")
+@_pin_shared_options
+@relocate_reads_option()
+def unpin(
+    build_path: str,
+    builds_dir: str,
+    cache_dir: str | None,
+    relocate_reads: bool,
+) -> None:
+    """Thaw a pinned build's frozen caches back into recomputable caches (unpin).
+
+    Inverse of `xorq pin`: each frozen cache read is rebuilt into its original
+    cache node, restoring the recompute-capable form.
+
+    \b
+    Arguments:
+      BUILD_PATH  Path to a pinned build directory.
+
+    \b
+    Examples:
+      xorq unpin builds/f02d28198715 --cache-dir ./cache
+    """
+    pin_command(
+        build_path,
+        do_pin=False,
+        builds_dir=builds_dir,
+        cache_dir=cache_dir,
+        relocate_reads=relocate_reads,
+    )
 
 
 @cli.command("run-cached")
