@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
@@ -44,7 +45,7 @@ def test_to_parquet_roundtrip(stub_con_with_table, tmp_path):
     stub_con_with_table.to_parquet(expr, out)
 
     assert out.exists()
-    written = pa.parquet.read_table(out)
+    written = pq.read_table(out)
     assert written.num_rows == 3
     assert set(written.column_names) == {"a", "b"}
 
