@@ -36,6 +36,10 @@ dependencies = [
     "parsy>=2",
     "python-dateutil>=2.8.2",
     "pytz>=2022.7",
+    # Floor must stay <25.21 so xorq co-installs with ibis 9.5 (CI compat
+    # matrix); that rules out the sqlglot builder API in writes/publish.py
+    # (exp.merge needs >=26), which authors statements as strings + parse_one
+    # instead — verified rendering identically across 24.0-28.6 (XOR-449).
     "sqlglot>=23.4,!=26.32.0,<28.7.0",
     "tomlkit>=0.12",
     "toolz>=0.11",

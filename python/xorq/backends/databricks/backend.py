@@ -123,6 +123,12 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
     name = "databricks"
     compiler = sc.databricks.compiler
 
+    def publish_strategy(self, mode):
+        """Incremental WAP publish mechanism (ADR-0017): Delta MERGE INTO."""
+        from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
+
+        return PublishStrategy.NATIVE_MERGE
+
     @property
     def current_catalog(self) -> str:
         with self._safe_raw_sql(sg.select(self.compiler.f.current_catalog())) as cur:

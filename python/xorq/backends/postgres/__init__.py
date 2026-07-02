@@ -39,6 +39,17 @@ class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
     compiler = compiler
 
+    def publish_strategy(self, mode):
+        """Incremental WAP publish mechanism (ADR-0017): native MERGE on pg 15+,
+        else in-transaction statement DML. ``self.version`` is a dotted string
+        like "15.4", so the major version is the part before the first dot.
+        """
+        from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
+
+        if int(self.version.split(".")[0]) >= 15:
+            return PublishStrategy.NATIVE_MERGE
+        return PublishStrategy.STATEMENT_DML
+
     @classmethod
     def connect_env(cls, **kwargs):
         from xorq.common.utils.postgres_utils import make_connection  # noqa: PLC0415
