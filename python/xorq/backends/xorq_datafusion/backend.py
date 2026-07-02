@@ -272,7 +272,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
 
     def _register_builtin_udfs(self) -> None:
-        from . import udfs  # noqa: PLC0415
+        from xorq.backends.xorq_datafusion import udfs  # noqa: PLC0415
 
         for name, func in inspect.getmembers(
             udfs,
