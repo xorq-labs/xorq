@@ -1,5 +1,6 @@
 """Tests for deferred sklearn metrics evaluation using Pipeline API."""
 
+import importlib
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -20,6 +21,23 @@ from xorq.expr.ml.pipeline_lib import Pipeline
 
 # Skip all tests in this module if sklearn is not installed
 sklearn = pytest.importorskip("sklearn")
+
+# Import submodules explicitly: older sklearn does not auto-import them, so
+# bare ``sklearn.datasets`` etc. would raise AttributeError at the floor.
+for _submodule in (
+    "base",
+    "cluster",
+    "datasets",
+    "ensemble",
+    "linear_model",
+    "metrics",
+    "model_selection",
+    "multiclass",
+    "pipeline",
+    "preprocessing",
+    "svm",
+):
+    importlib.import_module(f"sklearn.{_submodule}")
 
 # Access sklearn modules through the sklearn object to avoid E402 linting errors
 make_classification = sklearn.datasets.make_classification
@@ -1073,7 +1091,9 @@ mean_pinball_loss = sklearn.metrics.mean_pinball_loss
 mean_tweedie_deviance = sklearn.metrics.mean_tweedie_deviance
 d2_pinball_score = sklearn.metrics.d2_pinball_score
 d2_tweedie_score = sklearn.metrics.d2_tweedie_score
-d2_log_loss_score = sklearn.metrics.d2_log_loss_score
+# d2_log_loss_score was added in scikit-learn 1.5; keep the module importable
+# below that floor by degrading to None and skipping the dependent test.
+d2_log_loss_score = getattr(sklearn.metrics, "d2_log_loss_score", None)
 calinski_harabasz_score = sklearn.metrics.calinski_harabasz_score
 davies_bouldin_score = sklearn.metrics.davies_bouldin_score
 silhouette_score = sklearn.metrics.silhouette_score
@@ -1214,6 +1234,10 @@ def test_metric_fn_y_score_hinge_loss(classification_data):
     assert abs(result - expected) < 1e-10
 
 
+@pytest.mark.skipif(
+    d2_log_loss_score is None,
+    reason="sklearn.metrics.d2_log_loss_score added in scikit-learn 1.5",
+)
 def test_metric_fn_y_score_d2_log_loss_score(classification_data):
     train_df, test_df, feature_names = classification_data
     train_expr = api.register(train_df, "d2ll_train")
