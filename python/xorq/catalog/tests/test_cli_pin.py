@@ -384,14 +384,15 @@ def test_catalog_unpin_relocate_reads_bundles_source(
         assert list(reads_dir.glob("*.parquet"))
 
 
-def test_catalog_pin_unpin_default_relocate_roundtrip_file_backed(
+def test_catalog_pin_unpin_relocate_roundtrip_file_backed(
     runner: CliRunner, catalog: Catalog, catalog_path: str, tmp_path: Path
 ) -> None:
-    # Regression: with relocate-reads defaulting on, the default pin -> unpin
-    # round-trip of a file-backed entry must succeed. The pinned/unpinned exprs
-    # keep relocatable reads pointing into the loaded entry's temp extract dir;
-    # the command must hold the loaded expr alive until the rebuild copies them,
-    # or the extract dir is swept and the relocating rebuild fails.
+    # Regression: an explicit --relocate-reads pin -> unpin round-trip of a
+    # file-backed entry must succeed. The pinned/unpinned exprs keep relocatable
+    # reads pointing into the loaded entry's temp extract dir; the command must
+    # hold the loaded expr alive until the rebuild copies them, or the extract
+    # dir is swept and the relocating rebuild fails. (relocate_reads is opt-in
+    # for catalog entries now -- default is lean -- so pass it explicitly here.)
     src_name = _add_file_cached_entry(catalog, tmp_path / "data.parquet")
     cache_dir = tmp_path / "cache"
 
@@ -405,6 +406,7 @@ def test_catalog_pin_unpin_default_relocate_roundtrip_file_backed(
             "-e",
             "--cache-dir",
             str(cache_dir),
+            "--relocate-reads",
             "--no-sync",
         ],
     )
@@ -420,6 +422,7 @@ def test_catalog_pin_unpin_default_relocate_roundtrip_file_backed(
             pinned_name,
             "--cache-dir",
             str(cache_dir),
+            "--relocate-reads",
             "--no-sync",
         ],
     )
@@ -431,7 +434,7 @@ def test_catalog_pin_unpin_default_relocate_roundtrip_file_backed(
     expr = entry.load_expr(cache_dir=cache_dir)
     assert walk_nodes((CachedNode,), expr)
     assert not walk_nodes((CacheTag,), expr)
-    # the default-relocated unpinned form bundles its source read
+    # the relocated unpinned form bundles its source read
     with tempfile.TemporaryDirectory() as td:
         build_dir = extract_build_zip_to(entry.catalog_path, td)
         assert list((Path(build_dir) / "reads").glob("*.parquet"))
@@ -560,21 +563,21 @@ def test_catalog_pin_no_relocate_reads_is_lean(
 def test_catalog_pin_warns_about_fuse_gap_when_relocated(
     runner: CliRunner, catalog: Catalog, catalog_path: str, tmp_path: Path
 ) -> None:
-    # A pin re-adds with relocate_reads=True by default, which fuses to an empty
-    # result until #2133 lands; the command must warn at pin time (not only in
-    # docs + an xfail test). --no-relocate-reads produces a fuse-safe entry, so
+    # relocate_reads is opt-in for catalog entries (default lean/fuse-safe). An
+    # explicit --relocate-reads entry fuses to a hard error until #2133 lands, so
+    # the command must warn at pin time. The default (lean) entry is fuse-safe, so
     # it must NOT warn.
     src_name = _add_cached_entry(catalog)
     cache_dir = tmp_path / "cache"
     base_args = ["--path", catalog_path, "pin", src_name, "-e", "--no-sync"]
 
-    default = runner.invoke(cli, [*base_args, "--cache-dir", str(cache_dir / "a")])
-    assert default.exit_code == 0, default.output
-    assert "#2133" in default.output
-    assert "fuse" in default.output
-
-    lean = runner.invoke(
-        cli, [*base_args, "--cache-dir", str(cache_dir / "b"), "--no-relocate-reads"]
+    relocated = runner.invoke(
+        cli, [*base_args, "--cache-dir", str(cache_dir / "a"), "--relocate-reads"]
     )
-    assert lean.exit_code == 0, lean.output
-    assert "#2133" not in lean.output
+    assert relocated.exit_code == 0, relocated.output
+    assert "#2133" in relocated.output
+    assert "fuse" in relocated.output
+
+    default = runner.invoke(cli, [*base_args, "--cache-dir", str(cache_dir / "b")])
+    assert default.exit_code == 0, default.output
+    assert "#2133" not in default.output

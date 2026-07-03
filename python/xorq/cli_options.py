@@ -94,12 +94,12 @@ cache_dir_option = click.option(
 # flag, default, and structure stay identical across all of them. Only the noun
 # (build vs catalog entry) and whether frozen caches are in play (pin only) vary.
 def relocate_reads_option(
-    noun: str = "build", *, include_caches: bool = False
+    noun: str = "build", *, include_caches: bool = False, default: bool = True
 ) -> Callable[[_F], _F]:
     caches = " (including frozen caches)" if include_caches else ""
     return click.option(
         "--relocate-reads/--no-relocate-reads",
-        default=True,
+        default=default,
         show_default=True,
         help=(
             f"Bundle local-file Read nodes{caches} into the {noun} so it is "

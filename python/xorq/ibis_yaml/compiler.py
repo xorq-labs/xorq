@@ -120,18 +120,6 @@ def _is_relocatable_read(node: Any) -> bool:
     return any(k == "relocatable" and v for k, v in node.read_kwargs)
 
 
-def _recreate_read(node: Any, kwargs: dict | None, **arg_overrides: Any) -> Any:
-    """Rebuild a leaf ``Read`` with ``arg_overrides`` applied to its args.
-
-    ``Read`` is a graph leaf, so the ``kwargs`` ``replace_nodes`` passes in are
-    empty and ``arg_overrides`` is free to override the node's own args. Don't
-    reuse this for interior nodes -- there ``arg_overrides`` would clobber the
-    transformed children in ``kwargs``.
-    """
-    args = dict(zip(node.__argnames__, node.__args__)) | arg_overrides
-    return node.__recreate__((kwargs or {}) | args)
-
-
 def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
     """Mark local-file reads relocatable and bake their bundled ``read_path`` in.
 
@@ -155,6 +143,21 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
     reads also live on a non-pinned branch, so they are not exclusively pinned
     and are always marked.
     """
+    if not mark:
+        # mark=False never *marks* reads relocatable; it only bakes read_path into
+        # reads that are already relocatable but haven't had it baked yet. If none
+        # qualify, the pass is a structural no-op, so skip both the pinned-leaf
+        # walk and the full replace_nodes rebuild. This is the hot
+        # relocate_reads=False path -- every fuse/bind and Catalog.add build hits
+        # it, and the vast majority carry no already-relocatable reads. (The scan
+        # spans all reads, including pinned ones the rebuild would skip; that only
+        # ever makes us do a no-op rebuild we could have skipped, never skip a
+        # bake that was needed.)
+        if not any(
+            _is_relocatable_read(node) and "read_path" not in dict(node.read_kwargs)
+            for node in walk_nodes(Read, expr)
+        ):
+            return expr
     pinned = frozenset() if mark else exclusively_pinned_leaves(expr, (Read,))
 
     def _relocate(node, kwargs):
@@ -174,9 +177,9 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
                     read_kwargs,
                     (("read_path", relocatable_read_path_str(kw["hash_path"])),),
                 )
-                return _recreate_read(
-                    node, kwargs, read_kwargs=read_kwargs, **overrides
-                )
+                # Read is a graph leaf, so replace_nodes passes empty kwargs here
+                # and recreate can override the node's own args directly.
+                return recreate(node, read_kwargs=read_kwargs, **overrides)
         return node.__recreate__(kwargs) if kwargs else node
 
     op = replace_nodes(_relocate, expr.op())
