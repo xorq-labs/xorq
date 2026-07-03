@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def test_hash(sqlite_con: Backend, df: pd.DataFrame) -> None:
-    t = sqlite_con.create_table("test", df)
+    t = sqlite_con.create_table("test", df, overwrite=True)
     expr = t.mutate(my_hash=t.c.hash())
 
     assert not expr.execute().empty
@@ -25,10 +25,11 @@ def test_hash_pinned_values(sqlite_con: Backend, snapshot: Snapshot) -> None:
     # Pin the sqlite Hash op (ibis_hash_32 udf, a 32-bit blake2b digest) so an
     # unintended algorithm/encoding change is caught. Covers int/float/str
     # inputs, which hash distinctly even when their string forms match (int 1
-    # vs str "1"). Regenerate deliberately with --snapshot-update; a diff here
-    # is a reviewable behavioral break.
+    # vs str "1"). The 1e20 float pins the scientific-notation repr ("1e+20")
+    # the hash is taken over. Regenerate deliberately with --snapshot-update;
+    # a diff here is a reviewable behavioral break.
     t = xo.memtable(
-        {"i": [0, 1, 123], "f": [0.0, 1.0, 1.5], "s": ["", "a", "1"]}
+        {"i": [0, 1, 123], "f": [0.0, 1.5, 1e20], "s": ["", "a", "1"]}
     ).into_backend(sqlite_con)
     df = t.mutate(hi=t.i.hash(), hf=t.f.hash(), hs=t.s.hash()).execute()
     mapping = {
@@ -51,7 +52,7 @@ def test_hash_distinguishes_types(sqlite_con: Backend) -> None:
 
 def test_hash_null_propagates(sqlite_con: Backend) -> None:
     t = sqlite_con.create_table(
-        "test_hash_null", xo.memtable(pd.DataFrame({"c": ["a", None]}))
+        "test_hash_null", xo.memtable(pd.DataFrame({"c": ["a", None]})), overwrite=True
     )
     df = t.mutate(h=t.c.hash()).execute()
     assert df.loc[df["c"].isna(), "h"].isna().all()

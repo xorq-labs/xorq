@@ -257,7 +257,9 @@ def ibis_hash_32(x):
     #
     # The type name is folded into the payload so values that share a string
     # form across types do not collide (int 1, str "1" and float 1.0 all hash
-    # differently).
+    # differently). Floats use Python's repr, so extreme magnitudes hash by
+    # their scientific-notation form (1e20 -> "1e+20"); the hash is therefore
+    # format-dependent but platform-stable.
     payload = f"{type(x).__name__}:{x}".encode("utf-8")
     digest = hashlib.blake2b(payload, digest_size=4).digest()
     return int.from_bytes(digest, "little")
