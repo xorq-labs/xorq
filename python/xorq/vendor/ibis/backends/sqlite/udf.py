@@ -255,9 +255,11 @@ def ibis_hash_32(x):
     # compiles to SQLite's floating-point MOD, which loses precision on ints
     # wider than ~2^32.
     #
-    # The hash is taken over the string representation of x, so equal reprs
-    # collide (int 1 and str "1") and distinct reprs differ (float 1.0 -> "1.0").
-    digest = hashlib.blake2b(str(x).encode("utf-8"), digest_size=4).digest()
+    # The type name is folded into the payload so values that share a string
+    # form across types do not collide (int 1, str "1" and float 1.0 all hash
+    # differently).
+    payload = f"{type(x).__name__}:{x}".encode("utf-8")
+    digest = hashlib.blake2b(payload, digest_size=4).digest()
     return int.from_bytes(digest, "little")
 
 

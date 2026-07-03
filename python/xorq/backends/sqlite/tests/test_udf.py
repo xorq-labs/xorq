@@ -24,9 +24,9 @@ def test_hash(sqlite_con: Backend, df: pd.DataFrame) -> None:
 def test_hash_pinned_values(sqlite_con: Backend, snapshot: Snapshot) -> None:
     # Pin the sqlite Hash op (ibis_hash_32 udf, a 32-bit blake2b digest) so an
     # unintended algorithm/encoding change is caught. Covers int/float/str
-    # inputs: the hash is taken over str(x), so 1 (int) and "1" (str) collide
-    # while 1.0 (float) -> "1.0" differs. Regenerate deliberately with
-    # --snapshot-update; a diff here is a reviewable behavioral break.
+    # inputs, which hash distinctly even when their string forms match (int 1
+    # vs str "1"). Regenerate deliberately with --snapshot-update; a diff here
+    # is a reviewable behavioral break.
     t = xo.memtable(
         {"i": [0, 1, 123], "f": [0.0, 1.0, 1.5], "s": ["", "a", "1"]}
     ).into_backend(sqlite_con)
@@ -40,13 +40,13 @@ def test_hash_pinned_values(sqlite_con: Backend, snapshot: Snapshot) -> None:
     snapshot.assert_match(actual, "ibis_hash_32.json")
 
 
-def test_hash_is_over_string_repr(sqlite_con: Backend) -> None:
-    # str(x) hashing means equal reprs collide and distinct reprs differ:
-    # int 1 and str "1" match; float 1.0 ("1.0") does not.
+def test_hash_distinguishes_types(sqlite_con: Backend) -> None:
+    # Values with the same string form but different types must not collide:
+    # int 1, float 1.0 and str "1" all hash to distinct buckets.
     t = xo.memtable({"i": [1], "f": [1.0], "s": ["1"]}).into_backend(sqlite_con)
     df = t.mutate(hi=t.i.hash(), hf=t.f.hash(), hs=t.s.hash()).execute()
-    assert int(df["hi"][0]) == int(df["hs"][0])
-    assert int(df["hf"][0]) != int(df["hi"][0])
+    hashes = {int(df["hi"][0]), int(df["hf"][0]), int(df["hs"][0])}
+    assert len(hashes) == 3
 
 
 def test_hash_null_propagates(sqlite_con: Backend) -> None:
