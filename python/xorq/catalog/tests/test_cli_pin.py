@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import shutil
 import tempfile
 from pathlib import Path
@@ -12,6 +13,7 @@ from click.testing import CliRunner, Result
 import xorq.api as xo
 from xorq.api import Expr
 from xorq.caching import ParquetCache
+from xorq.catalog.bind import bind, fuse_catalog_source
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.tests.conftest import alias_target_hash
@@ -20,6 +22,7 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.process_utils import subprocess_run
 from xorq.expr.relations import CachedNode, CacheTag
+from xorq.vendor.ibis.expr import operations as ops
 
 
 @pytest.mark.parametrize(
@@ -55,12 +58,18 @@ def _add_cached_entry(catalog: Catalog, *aliases: str) -> str:
     return entry.name
 
 
-def _add_file_cached_entry(catalog: Catalog, parquet_path: Path) -> str:
+def _add_file_cached_entry(
+    catalog: Catalog, parquet_path: Path, relocate_reads: bool = True
+) -> str:
     pq.write_table(pa.table({"a": [1, 2, 3], "b": [4, 5, 6]}), parquet_path)
     con = xo.connect()
     cache = ParquetCache.from_kwargs(source=con)
     t = deferred_read_parquet(parquet_path, con, table_name="t")
-    entry = catalog.add(t.filter(t.a > 1).cache(cache=cache), sync=False)
+    entry = catalog.add(
+        t.filter(t.a > 1).cache(cache=cache),
+        sync=False,
+        relocate_reads=relocate_reads,
+    )
     return entry.name
 
 
@@ -527,7 +536,11 @@ def test_catalog_pin_no_relocate_reads_is_lean(
 ) -> None:
     # --no-relocate-reads must NOT bundle the source file (nor the frozen cache):
     # the result is a lean, machine-local entry whose reads stay absolute paths.
-    src_name = _add_file_cached_entry(catalog, tmp_path / "data.parquet")
+    # The source entry is created lean too -- relocation is irreversible, so a
+    # relocated source could not be thinned back to lean by --no-relocate-reads.
+    src_name = _add_file_cached_entry(
+        catalog, tmp_path / "data.parquet", relocate_reads=False
+    )
     cache_dir = tmp_path / "cache"
 
     result = runner.invoke(
@@ -560,24 +573,43 @@ def test_catalog_pin_no_relocate_reads_is_lean(
         assert not reads_dir.exists() or not list(reads_dir.glob("*.parquet"))
 
 
-def test_catalog_pin_warns_about_fuse_gap_when_relocated(
+def test_catalog_pin_relocated_entry_fuses_correctly(
     runner: CliRunner, catalog: Catalog, catalog_path: str, tmp_path: Path
 ) -> None:
-    # relocate_reads is opt-in for catalog entries (default lean/fuse-safe). An
-    # explicit --relocate-reads entry fuses to a hard error until #2133 lands, so
-    # the command must warn at pin time. The default (lean) entry is fuse-safe, so
-    # it must NOT warn.
-    src_name = _add_cached_entry(catalog)
+    # A relocated (default) pinned entry must consume correctly via fuse -- the
+    # default consumption path -- rather than warn or error (#2133).
+    src_name = _add_file_cached_entry(catalog, tmp_path / "data.parquet")
     cache_dir = tmp_path / "cache"
-    base_args = ["--path", catalog_path, "pin", src_name, "-e", "--no-sync"]
 
-    relocated = runner.invoke(
-        cli, [*base_args, "--cache-dir", str(cache_dir / "a"), "--relocate-reads"]
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "pin",
+            src_name,
+            "-e",
+            "--cache-dir",
+            str(cache_dir),
+            "--no-sync",
+        ],
     )
-    assert relocated.exit_code == 0, relocated.output
-    assert "#2133" in relocated.output
-    assert "fuse" in relocated.output
+    assert result.exit_code == 0, result.output
+    new_name = _last_line(result)
 
-    default = runner.invoke(cli, [*base_args, "--cache-dir", str(cache_dir / "b")])
-    assert default.exit_code == 0, default.output
-    assert "#2133" not in default.output
+    # the pinned entry bundles its relocated read ...
+    reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
+    entry = reloaded.get_catalog_entry(new_name)
+    with tempfile.TemporaryDirectory() as td:
+        build_dir = extract_build_zip_to(entry.catalog_path, td)
+        reads_dir = Path(build_dir) / "reads"
+        assert reads_dir.exists() and list(reads_dir.glob("*.parquet"))
+
+    # ... and it fuses to the correct, non-empty result.
+    schema = entry.load_expr(cache_dir=cache_dir).schema()
+    ub = ops.UnboundTable(name="ph", schema=schema).to_expr()
+    transform_entry = reloaded.add(ub.limit(10))
+    bound = bind(entry, transform_entry, cache_dir=str(cache_dir))
+    fused = fuse_catalog_source(bound)
+    gc.collect()
+    assert len(fused.execute()) == 2

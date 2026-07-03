@@ -454,7 +454,7 @@ def _catalog_pin_command(
     alias: str | None,
     move_aliases: bool,
     ensure_materialized: bool = False,
-    relocate_reads: bool = False,
+    relocate_reads: bool = True,
 ) -> None:
     # Resolve up front (like the build-level pin_command) so the load path and
     # the internal-dir classification below agree; a None default cache dir would
@@ -480,17 +480,6 @@ def _catalog_pin_command(
             cold_cache_hint="Execute the entry first or pass --ensure-materialized/-e.",
         )
         aliases = (alias,) if alias else ()
-        if relocate_reads:
-            # relocate_reads is opt-in for catalog entries (default lean) because
-            # a bundled read fuses to an empty result until #2133 lands -- and
-            # fuse is the default consumption path. Warn at pin time in addition
-            # to the hard guard fuse itself now raises (see fuse_catalog_source).
-            click.echo(
-                "warning: the new entry bundles relocated reads; consuming it "
-                "via fuse/bind currently raises until #2133 lands. Use the "
-                "default (--no-relocate-reads) unless you consume with --no-fuse.",
-                err=True,
-            )
         with catalog.maybe_synchronizing(sync):
             try:
                 new_entry = catalog.add(
@@ -547,7 +536,7 @@ def _catalog_pin_shared_options(fn: _F) -> _F:
 @cli.command("pin")
 @_catalog_pin_shared_options
 @ensure_materialized_option
-@relocate_reads_option(noun="entry", include_caches=True, default=False)
+@relocate_reads_option(noun="entry", include_caches=True)
 @click.pass_context
 def pin(
     ctx: click.Context,
@@ -590,7 +579,7 @@ def pin(
 
 @cli.command("unpin")
 @_catalog_pin_shared_options
-@relocate_reads_option(noun="entry", default=False)
+@relocate_reads_option(noun="entry")
 @click.pass_context
 def unpin(
     ctx: click.Context,

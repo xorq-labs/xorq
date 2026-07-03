@@ -424,7 +424,10 @@ def test_pinned_cache_relocates_to_new_cache_dir(
     pinned = expr.ls.pin()
     expected = pinned.execute()
 
-    build_path = build_expr(pinned, builds_dir=builds_dir)
+    # lean build: the frozen cache stays external and relocates via cache_dir.
+    # build_expr now defaults to relocate_reads=True (which would bundle the
+    # cache into the build instead); force the lean path here. See #2133.
+    build_path = build_expr(pinned, builds_dir=builds_dir, relocate_reads=False)
 
     # relocate the cache files; the original directory no longer exists
     dst = tmp_path / "cacheB"
@@ -1397,23 +1400,27 @@ def test_relocatable_read_multiple_joined(
 def test_relocatable_changes_build_hash(
     builds_dir: pathlib.Path, sample_parquet: pathlib.Path
 ) -> None:
-    """relocatable=True must produce a different build hash than the default."""
+    """relocatable=True must produce a different build hash than a lean read.
+
+    Built with ``relocate_reads=False`` (build_expr now defaults to True; see
+    #2133) so the only difference is the read's own ``relocatable=`` kwarg.
+    """
     plain = deferred_read_parquet(sample_parquet)
     reloc = deferred_read_parquet(sample_parquet, relocatable=True)
 
-    plain_path = build_expr(plain, builds_dir=builds_dir)
-    reloc_path = build_expr(reloc, builds_dir=builds_dir)
+    plain_path = build_expr(plain, builds_dir=builds_dir, relocate_reads=False)
+    reloc_path = build_expr(reloc, builds_dir=builds_dir, relocate_reads=False)
     assert plain_path.name != reloc_path.name
 
 
 def test_relocate_reads_flag_changes_build_hash(
     builds_dir: pathlib.Path, sample_parquet: pathlib.Path
 ) -> None:
-    """--relocate-reads must produce a different build hash than the default."""
+    """relocate_reads=True must produce a different build hash than =False."""
     t = deferred_read_parquet(sample_parquet)
-    default_path = build_expr(t, builds_dir=builds_dir)
+    lean_path = build_expr(t, builds_dir=builds_dir, relocate_reads=False)
     reloc_path = build_expr(t, builds_dir=builds_dir, relocate_reads=True)
-    assert default_path.name != reloc_path.name
+    assert lean_path.name != reloc_path.name
 
 
 def test_relocate_reads_build_is_load_rebuild_hash_stable(
@@ -1744,9 +1751,13 @@ def test_loaded_relocatable_is_read_not_database_table(
 def test_loaded_non_relocatable_becomes_database_table(
     builds_dir: pathlib.Path, sample_parquet: pathlib.Path
 ) -> None:
-    """After load, a non-relocatable Read should be resolved to a DatabaseTable."""
+    """After load, a non-relocatable Read should be resolved to a DatabaseTable.
+
+    Built with ``relocate_reads=False`` (build_expr now defaults to True, which
+    would mark the read relocatable and keep it a lazy Read; see #2133).
+    """
     t = deferred_read_parquet(sample_parquet)
-    build_path = build_expr(t, builds_dir=builds_dir)
+    build_path = build_expr(t, builds_dir=builds_dir, relocate_reads=False)
     loaded = load_expr(build_path)
 
     reads = [r for r in walk_nodes(Read, loaded) if "read_path" in dict(r.read_kwargs)]

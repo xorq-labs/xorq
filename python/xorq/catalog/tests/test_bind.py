@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import gc
 from pathlib import Path
 
 import pyarrow as pa
@@ -16,7 +19,6 @@ from xorq.catalog.bind import (
 )
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.composer import ExprComposer
-from xorq.common.exceptions import UnsupportedOperationError
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import CacheTag, HashingTag, Read, RemoteTable
@@ -847,19 +849,19 @@ def test_fuse_preserves_non_catalog_remote_table_inside_bind(catalog):
     assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
 
 
-def test_fuse_pinned_entry_with_relocated_read_raises(
+def test_fuse_pinned_entry_with_relocated_read(
     catalog: Catalog, tmp_path: Path
 ) -> None:
-    """Fusing an entry with a relocated (bundled) read raises, not silently empty.
+    """Fusing an entry with a relocated (bundled) read is correct, not empty.
 
-    ``xorq catalog pin --relocate-reads`` (or ``catalog.add(..., relocate_reads=
-    True)``) bundles the frozen cache into the build under ``reads/<hash>`` as a
-    relocated ``Read``. On the load path (``load_expr``) that read resolves
-    against the build's extract dir, but the fuse/bind execute path does not
-    relocate the bundled ``read_path`` the same way -- so a fused entry with such
-    a read would execute to a silently-empty result (#2133). Until that lands,
-    ``fuse_catalog_source`` fails loud instead. When #2133 is fixed, this guard
-    (and this test) should flip to asserting the fused result is correct.
+    ``xorq catalog pin --relocate-reads`` (the default) / ``catalog.add(...,
+    relocate_reads=True)`` bundles the frozen cache into the build under
+    ``reads/<hash>`` as a relocated ``Read``. ``_resolve_source`` loads each
+    entry via ``load_expr``, which rewrites that bundled read to an absolute
+    ``hash_path`` under the entry's extract dir *before* fuse strips the catalog
+    wrappers, and the extract dir is kept alive for the fused expr's lifetime. So
+    a fused, relocated entry executes to the same non-empty result as the eager
+    expr (#2133).
     """
     pq_path = tmp_path / "data.parquet"
     pq.write_table(pa.table({"x": [1, 2, 3], "y": [4, 5, 6]}), pq_path)
@@ -870,7 +872,6 @@ def test_fuse_pinned_entry_with_relocated_read_raises(
     cached = t.filter(t.x > 1).cache(cache=cache)
     cached.execute()  # materialize the cache so it can be pinned
 
-    # explicit opt-in to relocation (no longer the catalog default)
     pinned = cached.ls.pin()
     source_entry = catalog.add(pinned, relocate_reads=True)
 
@@ -887,17 +888,29 @@ def test_fuse_pinned_entry_with_relocated_read_raises(
     transform_entry = catalog.add(ub.limit(10))
     bound = bind(source_entry, transform_entry)
 
-    with pytest.raises(UnsupportedOperationError, match="2133"):
-        fuse_catalog_source(bound)
+    result = fuse_catalog_source(bound)
+    # fuse must strip catalog wrappers ...
+    catalog_tags = [
+        t
+        for t in (walk_nodes(HashingTag, result) or ())
+        if t.metadata.get("tag") in frozenset(CatalogTag)
+    ]
+    assert not catalog_tags
+    # ... and the fused result must equal the eager result and be non-empty.
+    gc.collect()  # drop the transient loaded-expr wrappers; extract dir must survive
+    expected = pinned.execute()
+    actual = result.execute()
+    assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
+    assert len(actual) == 2
 
 
 def test_fuse_lean_pinned_entry_is_correct(catalog: Catalog, tmp_path: Path) -> None:
-    """A lean (default) pinned entry fuses to the correct, non-empty result.
+    """A lean (``--no-relocate-reads``) pinned entry fuses to the correct result.
 
-    The catalog pin/add default is ``relocate_reads=False``: the frozen cache
-    stays external and relocates via ``base_path`` at load time, which the fuse
-    path resolves correctly. This is the default consumption path (``catalog run``
-    fuses by default), so it must not hit the #2133 relocated-read guard.
+    With ``relocate_reads=False`` the frozen cache stays external and relocates
+    via ``base_path`` at load time, which the fuse path resolves correctly. This
+    guards the lean path against regression now that the catalog default is
+    ``relocate_reads=True`` (see ``test_fuse_pinned_entry_with_relocated_read``).
     """
     pq_path = tmp_path / "data.parquet"
     pq.write_table(pa.table({"x": [1, 2, 3], "y": [4, 5, 6]}), pq_path)
@@ -909,7 +922,7 @@ def test_fuse_lean_pinned_entry_is_correct(catalog: Catalog, tmp_path: Path) -> 
     cached.execute()
 
     pinned = cached.ls.pin()
-    source_entry = catalog.add(pinned)  # default relocate_reads=False -> lean
+    source_entry = catalog.add(pinned, relocate_reads=False)  # explicit lean
 
     src_expr = _make_source_expr(source_entry)
     assert walk_nodes((CacheTag,), src_expr)
@@ -927,3 +940,55 @@ def test_fuse_lean_pinned_entry_is_correct(catalog: Catalog, tmp_path: Path) -> 
     actual = result.execute()
     assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
     assert len(actual) == 2
+
+
+def test_fuse_multi_origin_relocated_reads_are_correct(
+    catalog: Catalog, tmp_path: Path
+) -> None:
+    """Fuse composes two entries that each bundle a *different* relocated read.
+
+    Fuse is provenance-lossy and multi-origin: one fused expr can carry bundled
+    reads from several builds' extract dirs at once. Each source entry loads
+    independently, so its bundled reads resolve against *its own* extract dir,
+    and both dirs stay alive for the fused expr. The singular-"the"-extract-dir
+    framing would miss this case (#2133).
+    """
+    pq_a = tmp_path / "a.parquet"
+    pq_b = tmp_path / "b.parquet"
+    pq.write_table(pa.table({"x": [1, 2, 3], "y": [4, 5, 6]}), pq_a)
+    pq.write_table(pa.table({"x": [10, 20, 30], "y": [40, 50, 60]}), pq_b)
+
+    def make_pinned_entry(pq_path, tag):
+        con = xo.connect()
+        cache = ParquetCache.from_kwargs(
+            source=con, base_path=tmp_path / f"cache-{tag}"
+        )
+        t = deferred_read_parquet(pq_path, con, table_name=f"t_{tag}")
+        cached = t.filter(t.x > 1).cache(cache=cache)
+        cached.execute()
+        pinned = cached.ls.pin()
+        entry = catalog.add(pinned, relocate_reads=True)
+        return pinned, entry
+
+    pinned_a, source_a = make_pinned_entry(pq_a, "a")
+    pinned_b, source_b = make_pinned_entry(pq_b, "b")
+
+    # A single transform entry, reused for both sources (identical unbound
+    # transforms share a content hash, so add it once).
+    schema = pinned_a.schema()
+    ub = ops.UnboundTable(name="ph", schema=schema).to_expr()
+    transform_entry = catalog.add(ub.select("x", "y"))
+    bound_a = bind(source_a, transform_entry)
+    bound_b = bind(source_b, transform_entry)
+
+    fused_a = fuse_catalog_source(bound_a)
+    fused_b = fuse_catalog_source(bound_b)
+
+    # Combine both fused, relocated sources into one expression.
+    combined = fused_a.union(fused_b.into_backend(fused_a._find_backend()))
+
+    gc.collect()  # both origins' extract dirs must survive the fused expr
+    actual = combined.execute()
+    # A: x in [1,2,3] filtered x>1 -> {2,3}; B: x in [10,20,30] filtered -> all.
+    assert len(actual) == 5
+    assert set(actual["x"]) == {2, 3, 10, 20, 30}

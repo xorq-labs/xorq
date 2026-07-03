@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 from functools import reduce
+from typing import TYPE_CHECKING
 
 from xorq.catalog.enums import CatalogTag
-from xorq.common.exceptions import UnsupportedOperationError
 from xorq.common.utils.graph_utils import replace_nodes, replace_unbound, walk_nodes
-from xorq.expr.relations import HashingTag, Read, RemoteTable, gen_name
+from xorq.expr.relations import HashingTag, RemoteTable, gen_name
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.schema import Schema
+
+
+if TYPE_CHECKING:
+    from xorq.catalog.catalog import CatalogEntry
+    from xorq.vendor.ibis.backends import BaseBackend
+    from xorq.vendor.ibis.expr.types.core import Expr
 
 
 def _get_transform_schema_issues(
@@ -165,7 +171,13 @@ def _validate_one_catalog(source, transforms):
         raise ValueError(f"Got multiple catalogs: {', '.join(map(str, repo_paths))}")
 
 
-def bind(source, *transforms, con=None, alias=None):
+def bind(
+    source: "CatalogEntry | Expr",
+    *transforms: "CatalogEntry",
+    con: "BaseBackend | None" = None,
+    alias: str | None = None,
+    cache_dir: str | None = None,
+) -> "Expr":
     """Bind a source through one or more unbound transform entries.
 
     Parameters
@@ -179,13 +191,18 @@ def bind(source, *transforms, con=None, alias=None):
         Override the backend connection.
     alias : str, optional
         Override the source alias.
+    cache_dir : str, optional
+        Cache directory threaded into the entry load so a pinned cache's frozen
+        ``CacheTag`` is re-pointed at ``cache_dir`` (``replace_base_path``),
+        matching ``_make_source_expr``. Without it a lean pinned entry can't
+        relocate its external cache on the fuse/bind path (#2133).
     """
     if not transforms:
         raise ValueError("At least one transform entry is required.")
 
     _validate_one_catalog(source, transforms)
 
-    source_expr, resolved_con = _resolve_source(source, con, alias)
+    source_expr, resolved_con = _resolve_source(source, con, alias, cache_dir=cache_dir)
     source_schema = source_expr.as_table().schema()
     _validate_chain(source_schema, transforms)
 
@@ -280,22 +297,8 @@ def fuse_catalog_source(expr):
 
         result = replace_nodes(replacer, expr).to_expr()
         span.set_attribute("fused", True)
-        # #2133: the fuse/bind execute path does not relocate a bundled read's
-        # base_path the way load_expr does, so a fused entry containing a
-        # relocated (bundled) read executes to a silently-empty result. Fail loud
-        # instead: catalog pin/add default to lean entries, so this only fires on
-        # an explicit --relocate-reads opt-in. Remove this guard when #2133 lands.
-        bundled = [
-            r for r in walk_nodes(Read, result) if "read_path" in dict(r.read_kwargs)
-        ]
-        if bundled:
-            span.set_attribute("fused", False)
-            span.set_attribute("reason", "relocated_read_unsupported_in_fuse")
-            raise UnsupportedOperationError(
-                "cannot fuse a catalog entry containing bundled (relocated) "
-                "reads: the fuse/bind execute path does not yet resolve a "
-                "relocated read's base_path, so the result would be empty "
-                "(#2133). Re-create the entry with --no-relocate-reads (the "
-                "default), or consume it with --no-fuse."
-            )
+        # #2133: bundled (relocated) reads are already resolved before fuse runs.
+        # `_resolve_source` loads each source entry via `load_expr`, rewriting its
+        # reads to absolute paths under that entry's extract dir (kept alive for
+        # the fused expr; see `_pin_extract_dir_lifetime`), so no guard is needed.
         return result

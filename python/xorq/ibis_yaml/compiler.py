@@ -522,9 +522,10 @@ class ExprDumper:
     builds_dir = field(validator=instance_of(Path), converter=Path, default="./builds")
     cache_dir = field(validator=optional(instance_of(Path)), factory=get_xorq_cache_dir)
     debug = field(validator=instance_of(bool), default=False)
-    # Prefer True (to match the CLI), but the fuse/bind execute path doesn't yet
-    # resolve a relocated read's base_path; kept False until it does. See #2133.
-    relocate_reads = field(validator=instance_of(bool), default=False)
+    # Defaults True to match the CLI: bundle local-file reads so the build is
+    # self-contained. The fuse/bind execute path resolves bundled reads too (the
+    # extract dir is kept alive for the fused expr's lifetime); see #2133.
+    relocate_reads = field(validator=instance_of(bool), default=True)
     read_normalize_method = field(
         validator=is_callable(), default=normalize_read_path_stat
     )
