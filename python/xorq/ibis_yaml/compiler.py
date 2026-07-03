@@ -143,33 +143,21 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
     reads also live on a non-pinned branch, so they are not exclusively pinned
     and are always marked.
     """
-    args = dict(zip(node.__argnames__, node.__args__)) | arg_overrides
-    return node.__recreate__((kwargs or {}) | args)
-
-
-def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
-    """Mark local-file reads relocatable and bake their bundled ``read_path`` in.
-
-    One pre-hash pass (before ``canonicalize_expr``): ``read_path`` is normally
-    injected by the write phase, which is too late for the build hash, so a fresh
-    build would be named differently from every later load+rebuild. Baking the
-    content-derived ``read_path`` here -- it equals the write-phase value exactly
-    -- keeps a relocated build load+rebuild hash-stable.
-
-    ``mark`` (i.e. ``--relocate-reads``) flips local-file candidates to
-    ``relocatable=True``; reads already relocatable (e.g.
-    ``deferred_read_parquet(relocatable=True)``) get ``read_path`` baked whether
-    or not ``mark`` is set. Note this pass only ever *adds* relocation: there is
-    deliberately no un-marking branch, because relocation is lossy -- it replaces
-    a read's original path with a content hash, so once relocated the source
-    location is gone and ``mark=False`` cannot recover a lean, machine-local read.
-    When ``mark=True``, pinned cache reads (exclusively under a ``CacheTag``) are
-    bundled into the build alongside regular reads, making the pinned artifact
-    self-contained. When ``mark=False``, pinned reads are skipped and remain
-    portable via ``base_path`` relocation (``relocate_cache_tag``). DAG-shared
-    reads also live on a non-pinned branch, so they are not exclusively pinned
-    and are always marked.
-    """
+    if not mark:
+        # mark=False never *marks* reads relocatable; it only bakes read_path into
+        # reads that are already relocatable but haven't had it baked yet. If none
+        # qualify, the pass is a structural no-op, so skip both the pinned-leaf
+        # walk and the full replace_nodes rebuild. This is the hot
+        # relocate_reads=False path -- every fuse/bind and Catalog.add build hits
+        # it, and the vast majority carry no already-relocatable reads. (The scan
+        # spans all reads, including pinned ones the rebuild would skip; that only
+        # ever makes us do a no-op rebuild we could have skipped, never skip a
+        # bake that was needed.)
+        if not any(
+            _is_relocatable_read(node) and "read_path" not in dict(node.read_kwargs)
+            for node in walk_nodes(Read, expr)
+        ):
+            return expr
     pinned = frozenset() if mark else exclusively_pinned_leaves(expr, (Read,))
 
     def _relocate(node, kwargs):
@@ -189,9 +177,9 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
                     read_kwargs,
                     (("read_path", relocatable_read_path_str(kw["hash_path"])),),
                 )
-                return _recreate_read(
-                    node, kwargs, read_kwargs=read_kwargs, **overrides
-                )
+                # Read is a graph leaf, so replace_nodes passes empty kwargs here
+                # and recreate can override the node's own args directly.
+                return recreate(node, read_kwargs=read_kwargs, **overrides)
         return node.__recreate__(kwargs) if kwargs else node
 
     op = replace_nodes(_relocate, expr.op())
