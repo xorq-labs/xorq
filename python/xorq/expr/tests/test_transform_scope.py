@@ -431,12 +431,6 @@ def test_replacer_adopts_reader_cache_and_table() -> None:
     assert target.list_tables() == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="P1: _transform_expr adopts tee tables/drains into the scope only "
-    "after the remote pass returns, so a remote-pass failure leaks them. Fixed "
-    "by the unified-scope refactor, which removes this marker.",
-)
 def test_tee_resources_released_when_remote_pass_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

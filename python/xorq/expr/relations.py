@@ -4,7 +4,7 @@ import functools
 import operator
 import warnings
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import pyarrow as pa
 import toolz
@@ -27,6 +27,13 @@ from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node
 from xorq.writes import DrainingIterator, WriteThrough
+
+
+if TYPE_CHECKING:
+    # imported under TYPE_CHECKING to avoid a circular import: remote_table_exec
+    # imports from this module. Used only in the register_and_transform_tee_nodes
+    # annotation.
+    from xorq.expr.remote_table_exec import RemoteTableScope
 
 
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
@@ -801,6 +808,7 @@ _NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
 @tracer.start_as_current_span("register_and_transform_tee_nodes")
 def register_and_transform_tee_nodes(
     expr: Expr,
+    scope: RemoteTableScope | None = None,
 ) -> tuple[Expr, dict[str, BaseBackend], list[DrainingIterator]]:
     """Replace each surviving `TeeNode` with a backend table fed by the
     writer's ``write_through(batches)`` generator.
@@ -817,6 +825,12 @@ def register_and_transform_tee_nodes(
     consumption is done), and a list of `DrainingIterator` instances whose
     ``close()`` must be called after downstream execution completes so that
     the writer can finish consuming the stream.
+
+    If ``scope`` is provided, each table and drain is adopted into it *as it is
+    created*, so a later transform failure tears these resources down via the
+    shared scope. The ``created``/``drains`` tuple is still returned for
+    callers that own cleanup themselves. When ``scope`` is None the caller is
+    responsible for the returned resources (legacy behaviour).
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
 
@@ -844,11 +858,18 @@ def register_and_transform_tee_nodes(
         if node.drain:
             write_iter = DrainingIterator(write_iter)
             drains.append(write_iter)
+            if scope is not None:
+                scope.adopt_drain(write_iter)
         wrapped = pa.RecordBatchReader.from_batches(
             reader.schema,
             write_iter,
         )
         table_name = gen_name()
+        # adopt before registering (mirrors register_and_transform_remote_tables):
+        # a partial failure inside read_record_batches can't strand the placeholder,
+        # and drop_placeholder is a no-op if registration never landed.
+        if scope is not None:
+            scope.adopt_table(con, table_name)
         table = con.read_record_batches(wrapped, table_name=table_name)
         created[table_name] = con
         return table.op()

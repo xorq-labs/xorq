@@ -45,6 +45,7 @@ from xorq.expr.relations import (
     register_and_transform_tee_nodes,
 )
 from xorq.expr.remote_table_exec import (
+    RemoteTableScope,
     bind_scope_to_reader,
     register_and_transform_remote_tables,
 )
@@ -463,19 +464,23 @@ def _transform_expr(expr, params=None, **kwargs):
         else expr
     )
     expr = _remove_tag_nodes(expr)
-    expr = _register_and_transform_cache_tables(expr)
-    expr, tee_created, drains = register_and_transform_tee_nodes(expr)
-    expr, scope = register_and_transform_remote_tables(expr, **kwargs)
-    # Fold the tee-node materializations (placeholder tables + write-through
-    # drains) into the same scope so a single close() tears everything down.
-    # Drains close-then-join before any table drops (see RemoteTableScope.close).
-    for table_name, con in tee_created.items():
-        scope.adopt_table(con, table_name)
-    for drain in drains:
-        scope.adopt_drain(drain)
+    # One scope owns every resource the effectful passes materialize. It is
+    # created *before* the first effectful pass and threaded into each, so a
+    # failure in any pass tears down what *earlier* passes created -- not just
+    # its own. (Previously the scope was born inside the remote-tables pass and
+    # the tee pass's tables/drains were adopted only *after* it returned, so a
+    # remote-pass failure leaked the tee placeholder tables and drain threads.)
+    scope = RemoteTableScope()
     try:
+        expr = _register_and_transform_cache_tables(expr)
+        # tee adopts its tables/drains into the shared scope as it creates them;
+        # the returned tuple is ignored here (kept for standalone callers).
+        expr, _tee_created, _drains = register_and_transform_tee_nodes(
+            expr, scope=scope
+        )
+        expr, scope = register_and_transform_remote_tables(expr, scope=scope, **kwargs)
         expr = _transform_deferred_reads(expr)
-    except Exception:
+    except BaseException:
         scope.close()
         raise
     return (expr, scope)

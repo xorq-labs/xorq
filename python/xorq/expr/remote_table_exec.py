@@ -321,9 +321,13 @@ def bind_scope_to_reader(
 
 @tracer.start_as_current_span("register_and_transform_remote_tables")
 def register_and_transform_remote_tables(
-    expr: Expr, **kwargs: Any
+    expr: Expr, scope: RemoteTableScope | None = None, **kwargs: Any
 ) -> tuple[Expr, RemoteTableScope]:
-    scope = RemoteTableScope()
+    # Accept a caller-owned scope so resources materialized by *earlier*
+    # transform passes (e.g. tee placeholder tables) are torn down by this same
+    # scope if this pass fails. Falls back to a fresh scope for standalone use.
+    if scope is None:
+        scope = RemoteTableScope()
     # ``replacer``'s ``kwargs`` parameter (node-recreate args) shadows the
     # outer ``**kwargs``; capture the through-kwargs here so they reach
     # ``read_record_batches`` (e.g. Snowflake's ``database=(catalog, db)``).
