@@ -10,16 +10,20 @@ from __future__ import annotations
 
 import gc
 from collections.abc import Callable
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
 import pytest
 
 import xorq.api as xo
+import xorq.expr.api as expr_api
 import xorq.expr.remote_table_exec as remote_table_exec
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.expr.api import get_plans, to_pyarrow_batches
+from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.api import _transform_expr, get_plans, to_pyarrow_batches
+from xorq.expr.relations import RemoteTable
 from xorq.expr.remote_table_exec import (
     RemoteTableScope,
     bind_scope_to_reader,
@@ -29,6 +33,7 @@ from xorq.expr.remote_table_exec import (
 )
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.backends import BaseBackend
+from xorq.writes import ParquetWriteThrough
 
 
 pytest.importorskip("duckdb")
@@ -424,6 +429,73 @@ def test_replacer_adopts_reader_cache_and_table() -> None:
     finally:
         scope.close()
     assert target.list_tables() == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="P1: _transform_expr adopts tee tables/drains into the scope only "
+    "after the remote pass returns, so a remote-pass failure leaks them. Fixed "
+    "by the unified-scope refactor, which removes this marker.",
+)
+def test_tee_resources_released_when_remote_pass_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tee (pass 4) registers a placeholder table + drain *before* the remote
+    pass (pass 5) runs. In ``_transform_expr`` those tee resources are adopted
+    into the scope only *after* pass 5 returns, so a pass-5 failure tears down
+    an empty scope and leaks everything pass 4 created.
+
+    Regression guard for the ownership gap: any failure during transform must
+    release resources materialized by *earlier* passes, not just the failing
+    one. ``test_planning_failure_releases_resources`` covers a remote-only expr;
+    this covers the tee+remote interaction that the after-the-fact adoption in
+    ``_transform_expr`` gets wrong.
+    """
+    con = xo.connect()  # datafusion: re-entrant, safe for the streaming tee
+    t = con.register(
+        xo.memtable({"a": [1, 2, 3], "b": ["x", "y", "z"]}), table_name="t0"
+    )
+    teed = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
+    # a RemoteTable sibling so the (outer) remote pass has real work to fail on;
+    # the tee's own parent branch (t) has none, so the tee pass's internal
+    # recursion through to_pyarrow_batches stays intact.
+    rt = xo.memtable({"a": [4, 5], "b": ["p", "q"]}).into_backend(con, "rt_tbl")
+    expr = teed.union(rt)
+
+    # Accumulate every placeholder the tee pass registers across all (recursive)
+    # invocations -- the outer call registers the real one; inner recursive calls
+    # on the tee's parent register nothing.
+    created: dict = {}
+    real_tee = expr_api.register_and_transform_tee_nodes
+
+    def capturing_tee(inner_expr, **kwargs):
+        # **kwargs keeps this shim valid whether or not the pass takes a
+        # caller-owned ``scope`` (forwarded through unchanged).
+        result_expr, made, drains = real_tee(inner_expr, **kwargs)
+        created.update(made)
+        return result_expr, made, drains
+
+    # Fail the remote pass only when a RemoteTable is actually present, so the
+    # tee pass's recursion on its RemoteTable-free parent still succeeds and the
+    # failure lands at the *outer* pass 5 -- after pass 4 registered its table.
+    real_remote = expr_api.register_and_transform_remote_tables
+
+    def guarded_boom(inner_expr, **kwargs):
+        if walk_nodes(RemoteTable, inner_expr):
+            raise RuntimeError("remote pass failed")
+        return real_remote(inner_expr, **kwargs)
+
+    monkeypatch.setattr(expr_api, "register_and_transform_tee_nodes", capturing_tee)
+    monkeypatch.setattr(expr_api, "register_and_transform_remote_tables", guarded_boom)
+
+    with pytest.raises(RuntimeError, match="remote pass failed"):
+        _transform_expr(expr)
+
+    # the tee pass really did materialize a placeholder (guards against a vacuous
+    # assertion if tee handling changes)
+    assert created, "tee pass should have registered a placeholder table"
+    leaked = [name for name in created if name in con.list_tables()]
+    assert not leaked, f"tee placeholder tables leaked after pass-5 failure: {leaked}"
 
 
 def test_partial_read_record_batches_failure_drops_placeholder(
