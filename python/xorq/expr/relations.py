@@ -805,41 +805,30 @@ class Read(ops.DatabaseTable):
 _NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
 
 
-@tracer.start_as_current_span("register_and_transform_tee_nodes")
-def register_and_transform_tee_nodes(
+@tracer.start_as_current_span("register_and_transform_tee_nodes_into")
+def register_and_transform_tee_nodes_into(
     expr: Expr,
-) -> tuple[Expr, RemoteTableScope]:
+    scope: RemoteTableScope,
+) -> Expr:
     """Replace each surviving `TeeNode` with a backend table fed by the
-    writer's ``write_through(batches)`` generator.
+    writer's ``write_through(batches)`` generator, adopting every resource it
+    materializes into the caller-owned ``scope``.
 
     The writer wraps the parent's batch stream: it pulls, writes as a side
     effect, and yields each batch onward. Runs after cache resolution, so a
     downstream cache hit prunes the `TeeNode` before this pass sees it and
     the write never fires.
 
-    Returns ``(expr, scope)`` -- consistent with
-    ``register_and_transform_remote_tables``. The ``RemoteTableScope`` is the
-    single owner of every resource this pass materializes (upstream readers, the
-    intermediate pass-through tables registered on each parent backend, and the
-    write-through ``DrainingIterator`` drains); ``scope.close()`` drops the
-    tables and closes+joins the drains after downstream execution completes.
-
-    When a transform is in progress the scope is the ambient ``current_scope()``,
-    so a later-pass failure tears these resources down via the shared scope.
-    Standalone callers (no active ``transform_scope()``) get a fresh scope they
-    own and must ``close()``.
+    ``scope`` is the single owner of every resource this pass materializes
+    (upstream readers, the intermediate pass-through tables registered on each
+    parent backend, and the write-through ``DrainingIterator`` drains);
+    ``scope.close()`` drops the tables and closes+joins the drains after
+    downstream execution completes. The scope is threaded explicitly by the
+    caller (``_transform_expr``), so a failure in a *later* pass tears these
+    resources down via the shared scope. This function never closes ``scope`` --
+    teardown stays with the caller that created it.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
-    from xorq.expr.remote_table_exec import (  # noqa: PLC0415
-        RemoteTableScope,
-        current_scope,
-    )
-
-    # Adopt into the ambient transform scope so a later-pass failure releases
-    # what this pass materialized; standalone callers (no active scope) get a
-    # fresh one they own. The scope is the single source of truth -- no parallel
-    # created/drains bookkeeping to drift out of sync with it.
-    scope = current_scope() or RemoteTableScope()
 
     def replacer(node, kwargs):
         if not isinstance(node, TeeNode):
@@ -886,7 +875,29 @@ def register_and_transform_tee_nodes(
     # cached parent; into_backend/flight re-pull via to_pyarrow_batches), so its
     # TeeNodes still fire exactly once. replace_nodes would fire them twice.
     op = expr.op()
-    return op.replace(replacer).to_expr(), scope
+    return op.replace(replacer).to_expr()
+
+
+def register_and_transform_tee_nodes(
+    expr: Expr,
+) -> tuple[Expr, RemoteTableScope]:
+    """Standalone wrapper: transform ``expr`` into a fresh scope it returns.
+
+    For callers outside the transform pipeline (direct tests, one-off use).
+    Mirrors ``register_and_transform_remote_tables``: the returned scope owns
+    everything the pass materialized and the caller must ``close()`` it once the
+    transformed expr is consumed. Inside the pipeline, ``_transform_expr`` calls
+    ``register_and_transform_tee_nodes_into`` directly with its shared scope.
+    """
+    from xorq.expr.remote_table_exec import RemoteTableScope  # noqa: PLC0415
+
+    scope = RemoteTableScope()
+    try:
+        expr = register_and_transform_tee_nodes_into(expr, scope)
+    except BaseException:
+        scope.close()
+        raise
+    return expr, scope
 
 
 def render_backend(con: BaseBackend) -> str:

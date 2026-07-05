@@ -477,16 +477,18 @@ def test_tee_resources_released_when_remote_pass_fails(
     # Fail the remote pass only when a RemoteTable is actually present, so the
     # tee pass's recursion on its RemoteTable-free parent still succeeds and the
     # failure lands at the *outer* pass 5 -- after pass 4 registered its table.
-    real_remote = expr_api.register_and_transform_remote_tables
+    real_remote = expr_api.register_and_transform_remote_tables_into
 
-    def guarded_boom(inner_expr, **kwargs):
+    def guarded_boom(inner_expr, scope, **kwargs):
         if walk_nodes(RemoteTable, inner_expr):
             raise RuntimeError("remote pass failed")
-        return real_remote(inner_expr, **kwargs)
+        return real_remote(inner_expr, scope, **kwargs)
 
     monkeypatch.setattr(RemoteTableScope, "adopt_table", spy_table)
     monkeypatch.setattr(RemoteTableScope, "adopt_drain", spy_drain)
-    monkeypatch.setattr(expr_api, "register_and_transform_remote_tables", guarded_boom)
+    monkeypatch.setattr(
+        expr_api, "register_and_transform_remote_tables_into", guarded_boom
+    )
 
     with pytest.raises(RuntimeError, match="remote pass failed"):
         _transform_expr(expr)
@@ -505,7 +507,7 @@ def test_tee_resources_released_when_remote_pass_fails(
 
 def test_tee_adopts_upstream_reader_into_scope(tmp_path: Path) -> None:
     """The tee pass opens an upstream reader (``parent_expr.to_pyarrow_batches()``)
-    that holds a live backend cursor. It must be adopted into the ambient
+    that holds a live backend cursor. It must be adopted into the caller-owned
     transform scope so a later-pass failure closes it -- exactly as the remote
     pass adopts its reader (see ``test_replacer_adopts_reader_cache_and_table``).
 
@@ -518,13 +520,14 @@ def test_tee_adopts_upstream_reader_into_scope(tmp_path: Path) -> None:
     t = con.register(xo.memtable({"a": [1, 2, 3]}), table_name="t0")
     teed = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
 
-    with remote_table_exec.transform_scope() as scope:
-        expr_api.register_and_transform_tee_nodes(teed)
-        assert scope.reader_count >= 1, (
-            "tee upstream reader must be adopted into the ambient transform scope"
-        )
-        assert scope.table_count >= 1, "tee placeholder table must be adopted too"
-        placeholders = list(scope.table_names)
+    # thread an explicit scope into the pass, mirroring _transform_expr
+    scope = RemoteTableScope()
+    expr_api.register_and_transform_tee_nodes_into(teed, scope)
+    assert scope.reader_count >= 1, (
+        "tee upstream reader must be adopted into the transform scope"
+    )
+    assert scope.table_count >= 1, "tee placeholder table must be adopted too"
+    placeholders = list(scope.table_names)
     scope.close()
     # the placeholder(s) the tee pass registered are dropped (source tables t0 /
     # the memtable are not scope-owned and legitimately remain)
