@@ -443,7 +443,9 @@ def test_tee_resources_released_when_remote_pass_fails(
     release resources materialized by *earlier* passes, not just the failing
     one. ``test_planning_failure_releases_resources`` covers a remote-only expr;
     this covers the tee+remote interaction that the after-the-fact adoption in
-    ``_transform_expr`` gets wrong.
+    ``_transform_expr`` gets wrong. Both halves of what the tee pass creates are
+    checked: the placeholder *table* is dropped and the *drain* thread is
+    closed+joined (not left running).
     """
     con = xo.connect()  # datafusion: re-entrant, safe for the streaming tee
     t = con.register(
@@ -456,18 +458,21 @@ def test_tee_resources_released_when_remote_pass_fails(
     rt = xo.memtable({"a": [4, 5], "b": ["p", "q"]}).into_backend(con, "rt_tbl")
     expr = teed.union(rt)
 
-    # Accumulate every placeholder the tee pass registers across all (recursive)
-    # invocations -- the outer call registers the real one; inner recursive calls
-    # on the tee's parent register nothing.
-    created: dict = {}
-    real_tee = expr_api.register_and_transform_tee_nodes
+    # Capture what the tee pass adopts straight from the adoption boundary
+    # (RemoteTableScope.adopt_*), decoupled from the pass's return shape. The
+    # tee's parent (t) has no RemoteTable, so only the outer tee registers here.
+    adopted_tables: list[tuple] = []
+    adopted_drains: list = []
+    real_adopt_table = RemoteTableScope.adopt_table
+    real_adopt_drain = RemoteTableScope.adopt_drain
 
-    def capturing_tee(inner_expr, **kwargs):
-        # **kwargs keeps this shim valid whether or not the pass takes a
-        # caller-owned ``scope`` (forwarded through unchanged).
-        result_expr, made, drains = real_tee(inner_expr, **kwargs)
-        created.update(made)
-        return result_expr, made, drains
+    def spy_table(self, con_, name):
+        adopted_tables.append((con_, name))
+        return real_adopt_table(self, con_, name)
+
+    def spy_drain(self, drain):
+        adopted_drains.append(drain)
+        return real_adopt_drain(self, drain)
 
     # Fail the remote pass only when a RemoteTable is actually present, so the
     # tee pass's recursion on its RemoteTable-free parent still succeeds and the
@@ -479,17 +484,52 @@ def test_tee_resources_released_when_remote_pass_fails(
             raise RuntimeError("remote pass failed")
         return real_remote(inner_expr, **kwargs)
 
-    monkeypatch.setattr(expr_api, "register_and_transform_tee_nodes", capturing_tee)
+    monkeypatch.setattr(RemoteTableScope, "adopt_table", spy_table)
+    monkeypatch.setattr(RemoteTableScope, "adopt_drain", spy_drain)
     monkeypatch.setattr(expr_api, "register_and_transform_remote_tables", guarded_boom)
 
     with pytest.raises(RuntimeError, match="remote pass failed"):
         _transform_expr(expr)
 
-    # the tee pass really did materialize a placeholder (guards against a vacuous
-    # assertion if tee handling changes)
-    assert created, "tee pass should have registered a placeholder table"
-    leaked = [name for name in created if name in con.list_tables()]
+    # the tee pass really did materialize a placeholder + drain (guards against a
+    # vacuous assertion if tee handling changes)
+    assert adopted_tables, "tee pass should have adopted a placeholder table"
+    assert adopted_drains, "tee pass should have adopted a drain"
+    leaked = [name for (con_, name) in adopted_tables if name in con_.list_tables()]
     assert not leaked, f"tee placeholder tables leaked after pass-5 failure: {leaked}"
+    # scope.close() must close+join the drain (it feeds the placeholder), not
+    # leave the drain thread running -- `exhausted` flips True only once it has.
+    unjoined = [d for d in adopted_drains if not d.exhausted]
+    assert not unjoined, f"tee drain threads leaked after pass-5 failure: {unjoined}"
+
+
+def test_tee_adopts_upstream_reader_into_scope(tmp_path: Path) -> None:
+    """The tee pass opens an upstream reader (``parent_expr.to_pyarrow_batches()``)
+    that holds a live backend cursor. It must be adopted into the ambient
+    transform scope so a later-pass failure closes it -- exactly as the remote
+    pass adopts its reader (see ``test_replacer_adopts_reader_cache_and_table``).
+
+    This is a pre-existing leak: on ``main`` (and before this fix) the tee reader
+    was never adopted, so any post-tee failure abandoned it un-closed. Composes
+    with ``test_scope_close_closes_adopted_readers``, which proves adopted
+    readers are closed on ``scope.close()``.
+    """
+    con = xo.connect()  # datafusion: re-entrant, safe for the streaming tee
+    t = con.register(xo.memtable({"a": [1, 2, 3]}), table_name="t0")
+    teed = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
+
+    with remote_table_exec.transform_scope() as scope:
+        expr_api.register_and_transform_tee_nodes(teed)
+        assert scope.reader_count >= 1, (
+            "tee upstream reader must be adopted into the ambient transform scope"
+        )
+        assert scope.table_count >= 1, "tee placeholder table must be adopted too"
+        placeholders = list(scope.table_names)
+    scope.close()
+    # the placeholder(s) the tee pass registered are dropped (source tables t0 /
+    # the memtable are not scope-owned and legitimately remain)
+    remaining = [name for name in placeholders if name in con.list_tables()]
+    assert not remaining, f"tee placeholder tables not dropped: {remaining}"
 
 
 def test_partial_read_record_batches_failure_drops_placeholder(

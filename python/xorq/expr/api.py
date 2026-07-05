@@ -45,9 +45,9 @@ from xorq.expr.relations import (
     register_and_transform_tee_nodes,
 )
 from xorq.expr.remote_table_exec import (
-    RemoteTableScope,
     bind_scope_to_reader,
     register_and_transform_remote_tables,
+    transform_scope,
 )
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import api
@@ -464,25 +464,24 @@ def _transform_expr(expr, params=None, **kwargs):
         else expr
     )
     expr = _remove_tag_nodes(expr)
-    # One scope owns every resource the effectful passes materialize. It is
-    # created *before* the first effectful pass and threaded into each, so a
-    # failure in any pass tears down what *earlier* passes created -- not just
-    # its own. (Previously the scope was born inside the remote-tables pass and
-    # the tee pass's tables/drains were adopted only *after* it returned, so a
-    # remote-pass failure leaked the tee placeholder tables and drain threads.)
-    scope = RemoteTableScope()
-    try:
-        expr = _register_and_transform_cache_tables(expr)
-        # tee adopts its tables/drains into the shared scope as it creates them;
-        # the returned tuple is ignored here (kept for standalone callers).
-        expr, _tee_created, _drains = register_and_transform_tee_nodes(
-            expr, scope=scope
-        )
-        expr, scope = register_and_transform_remote_tables(expr, scope=scope, **kwargs)
-        expr = _transform_deferred_reads(expr)
-    except BaseException:
-        scope.close()
-        raise
+    # One ambient scope owns every resource the effectful passes materialize.
+    # Each pass adopts what it creates into ``current_scope()`` (no scope
+    # threading), so a failure in any pass tears down what *earlier* passes
+    # created -- not just its own. (Previously the scope was born inside the
+    # remote-tables pass and the tee pass's tables/drains were adopted only
+    # *after* it returned, so a remote-pass failure leaked the tee placeholder
+    # tables and drain threads.)
+    with transform_scope() as scope:
+        try:
+            expr = _register_and_transform_cache_tables(expr)
+            # tee/remote adopt into the ambient scope as they create resources;
+            # each returns that same scope, ignored here (we already hold it).
+            expr, _ = register_and_transform_tee_nodes(expr)
+            expr, _ = register_and_transform_remote_tables(expr, **kwargs)
+            expr = _transform_deferred_reads(expr)
+        except BaseException:
+            scope.close()
+            raise
     return (expr, scope)
 
 

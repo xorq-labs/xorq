@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import contextvars
 import functools
 import weakref
 from collections import Counter
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Any, Callable, NamedTuple
 
 import pyarrow as pa
@@ -281,6 +284,42 @@ class RemoteTableScope:
         self.close()
 
 
+_active_scope: contextvars.ContextVar[RemoteTableScope | None] = contextvars.ContextVar(
+    "xorq_active_transform_scope", default=None
+)
+
+
+def current_scope() -> RemoteTableScope | None:
+    """The ``RemoteTableScope`` owning resources for the in-progress transform.
+
+    Effectful transform passes adopt what they materialize into this ambient
+    scope (readers, caches, placeholder tables, drains) instead of threading a
+    ``scope`` argument through each one, so every pass shares a single owner and
+    a failure in *any* pass tears down what *earlier* passes created. Returns
+    ``None`` outside a ``transform_scope()`` block -- standalone callers that
+    own their own cleanup.
+    """
+    return _active_scope.get()
+
+
+@contextmanager
+def transform_scope() -> Generator[RemoteTableScope, None, None]:
+    """Bind a fresh ambient scope for the duration of a transform.
+
+    Nesting is safe: a re-entrant transform (cache resolution, ``into_backend``)
+    shadows the outer scope with its own and restores it on exit, so each
+    execution boundary owns exactly the resources it materialized. Teardown of
+    the yielded scope is the caller's: close it on failure, or hand it to the
+    result reader (``bind_scope_to_reader``) on success.
+    """
+    scope = RemoteTableScope()
+    token = _active_scope.set(scope)
+    try:
+        yield scope
+    finally:
+        _active_scope.reset(token)
+
+
 def bind_scope_to_reader(
     scope: RemoteTableScope,
     reader: pa.RecordBatchReader,
@@ -321,13 +360,13 @@ def bind_scope_to_reader(
 
 @tracer.start_as_current_span("register_and_transform_remote_tables")
 def register_and_transform_remote_tables(
-    expr: Expr, scope: RemoteTableScope | None = None, **kwargs: Any
+    expr: Expr, **kwargs: Any
 ) -> tuple[Expr, RemoteTableScope]:
-    # Accept a caller-owned scope so resources materialized by *earlier*
-    # transform passes (e.g. tee placeholder tables) are torn down by this same
-    # scope if this pass fails. Falls back to a fresh scope for standalone use.
-    if scope is None:
-        scope = RemoteTableScope()
+    # Adopt into the ambient transform scope (see ``current_scope``) so
+    # resources materialized by *earlier* passes (e.g. tee placeholder tables)
+    # are torn down by this same scope if this pass fails. Falls back to a fresh
+    # scope for standalone callers that own their own cleanup.
+    scope = current_scope() or RemoteTableScope()
     # ``replacer``'s ``kwargs`` parameter (node-recreate args) shadows the
     # outer ``**kwargs``; capture the through-kwargs here so they reach
     # ``read_record_batches`` (e.g. Snowflake's ``database=(catalog, db)``).

@@ -30,9 +30,9 @@ from xorq.writes import DrainingIterator, WriteThrough
 
 
 if TYPE_CHECKING:
-    # imported under TYPE_CHECKING to avoid a circular import: remote_table_exec
-    # imports from this module. Used only in the register_and_transform_tee_nodes
-    # annotation.
+    # under TYPE_CHECKING only: remote_table_exec imports from this module, so a
+    # module-level import would be circular. Used for the return annotation; the
+    # runtime use is a deferred import inside register_and_transform_tee_nodes.
     from xorq.expr.remote_table_exec import RemoteTableScope
 
 
@@ -808,8 +808,7 @@ _NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
 @tracer.start_as_current_span("register_and_transform_tee_nodes")
 def register_and_transform_tee_nodes(
     expr: Expr,
-    scope: RemoteTableScope | None = None,
-) -> tuple[Expr, dict[str, BaseBackend], list[DrainingIterator]]:
+) -> tuple[Expr, RemoteTableScope]:
     """Replace each surviving `TeeNode` with a backend table fed by the
     writer's ``write_through(batches)`` generator.
 
@@ -818,24 +817,29 @@ def register_and_transform_tee_nodes(
     downstream cache hit prunes the `TeeNode` before this pass sees it and
     the write never fires.
 
-    Returns ``(expr, created, drains)``: the transformed expression, a
-    ``{table_name: con}`` map of the intermediate pass-through tables
-    registered on each parent backend (these persist in the backend's
-    catalog until dropped, so callers must drop them once downstream
-    consumption is done), and a list of `DrainingIterator` instances whose
-    ``close()`` must be called after downstream execution completes so that
-    the writer can finish consuming the stream.
+    Returns ``(expr, scope)`` -- consistent with
+    ``register_and_transform_remote_tables``. The ``RemoteTableScope`` is the
+    single owner of every resource this pass materializes (upstream readers, the
+    intermediate pass-through tables registered on each parent backend, and the
+    write-through ``DrainingIterator`` drains); ``scope.close()`` drops the
+    tables and closes+joins the drains after downstream execution completes.
 
-    If ``scope`` is provided, each table and drain is adopted into it *as it is
-    created*, so a later transform failure tears these resources down via the
-    shared scope. The ``created``/``drains`` tuple is still returned for
-    callers that own cleanup themselves. When ``scope`` is None the caller is
-    responsible for the returned resources (legacy behaviour).
+    When a transform is in progress the scope is the ambient ``current_scope()``,
+    so a later-pass failure tears these resources down via the shared scope.
+    Standalone callers (no active ``transform_scope()``) get a fresh scope they
+    own and must ``close()``.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
+    from xorq.expr.remote_table_exec import (  # noqa: PLC0415
+        RemoteTableScope,
+        current_scope,
+    )
 
-    drains: list[DrainingIterator] = []
-    created: dict[str, BaseBackend] = {}
+    # Adopt into the ambient transform scope so a later-pass failure releases
+    # what this pass materialized; standalone callers (no active scope) get a
+    # fresh one they own. The scope is the single source of truth -- no parallel
+    # created/drains bookkeeping to drift out of sync with it.
+    scope = current_scope() or RemoteTableScope()
 
     def replacer(node, kwargs):
         if not isinstance(node, TeeNode):
@@ -853,13 +857,14 @@ def register_and_transform_tee_nodes(
                 "See ADR-0014.",
                 stacklevel=2,
             )
-        reader = parent_expr.to_pyarrow_batches()
+        # adopt the upstream reader too (mirrors register_and_transform_remote_tables):
+        # it holds a live backend cursor and would otherwise leak if a later pass
+        # fails before the stream is consumed.
+        reader = scope.adopt_reader(parent_expr.to_pyarrow_batches())
         write_iter = node.writer.write_through(reader)
         if node.drain:
             write_iter = DrainingIterator(write_iter)
-            drains.append(write_iter)
-            if scope is not None:
-                scope.adopt_drain(write_iter)
+            scope.adopt_drain(write_iter)
         wrapped = pa.RecordBatchReader.from_batches(
             reader.schema,
             write_iter,
@@ -868,10 +873,8 @@ def register_and_transform_tee_nodes(
         # adopt before registering (mirrors register_and_transform_remote_tables):
         # a partial failure inside read_record_batches can't strand the placeholder,
         # and drop_placeholder is a no-op if registration never landed.
-        if scope is not None:
-            scope.adopt_table(con, table_name)
+        scope.adopt_table(con, table_name)
         table = con.read_record_batches(wrapped, table_name=table_name)
-        created[table_name] = con
         return table.op()
 
     # op.replace, not replace_nodes: this replacer has side effects (registers
@@ -883,7 +886,7 @@ def register_and_transform_tee_nodes(
     # cached parent; into_backend/flight re-pull via to_pyarrow_batches), so its
     # TeeNodes still fire exactly once. replace_nodes would fire them twice.
     op = expr.op()
-    return op.replace(replacer).to_expr(), created, drains
+    return op.replace(replacer).to_expr(), scope
 
 
 def render_backend(con: BaseBackend) -> str:

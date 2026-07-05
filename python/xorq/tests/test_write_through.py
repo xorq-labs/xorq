@@ -677,11 +677,11 @@ def test_tee_transform_leaves_tee_inside_opaque_untouched(
     assert len(walk_nodes((TeeNode,), cached)) == 1
     assert len(cached.op().find(TeeNode)) == 0
 
-    transformed, created, drains = register_and_transform_tee_nodes(cached)
+    transformed, scope = register_and_transform_tee_nodes(cached)
 
     assert not target.exists(), "outer transform must not fire the buried write"
-    assert created == {}, "no pass-through table should be registered"
-    assert drains == []
+    assert scope.table_count == 0, "no pass-through table should be registered"
+    assert scope.drain_count == 0
     assert len(walk_nodes((TeeNode,), transformed)) == 1, (
         "TeeNode inside the opaque sub-expr must survive the outer transform"
     )
