@@ -11,11 +11,12 @@ import toolz
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
 from xorq.common.exceptions import IntegrityError
-from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
 )
+from xorq.expr.enums import Traversal
+from xorq.expr.transform import TransformCtx, TransformPass, apply_pass
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.backends import BaseBackend
@@ -805,14 +806,10 @@ class Read(ops.DatabaseTable):
 _NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
 
 
-@tracer.start_as_current_span("register_and_transform_tee_nodes_into")
-def register_and_transform_tee_nodes_into(
-    expr: Expr,
-    scope: RemoteTableScope,
-) -> Expr:
-    """Replace each surviving `TeeNode` with a backend table fed by the
-    writer's ``write_through(batches)`` generator, adopting every resource it
-    materializes into the caller-owned ``scope``.
+def _tee_replacer(scope: RemoteTableScope) -> Callable:
+    """Build the per-node replacer that turns each surviving `TeeNode` into a
+    backend table fed by the writer's ``write_through(batches)`` generator,
+    adopting every resource it materializes into the caller-owned ``scope``.
 
     The writer wraps the parent's batch stream: it pulls, writes as a side
     effect, and yields each batch onward. Runs after cache resolution, so a
@@ -822,7 +819,7 @@ def register_and_transform_tee_nodes_into(
     ``scope`` owns everything this pass materializes -- upstream readers, the
     pass-through tables registered on each parent backend, and the write-through
     ``DrainingIterator`` drains -- so a failure in a *later* pass still tears
-    them down. This function never closes ``scope``; teardown stays with the
+    them down. The replacer never closes ``scope``; teardown stays with the
     caller (``_transform_expr``) that created it.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
@@ -861,16 +858,39 @@ def register_and_transform_tee_nodes_into(
         table = con.read_record_batches(wrapped, table_name=table_name)
         return table.op()
 
-    # op.replace, not replace_nodes: this replacer has side effects (registers
-    # pass-through tables, starts writers), so it must fire only at *this*
-    # execution boundary. Descending into opaque sub-exprs (RemoteTable,
-    # CachedNode, Flight*, ExprScalarUDF) is deliberately avoided -- that is not
-    # a coverage gap: each opaque interior re-enters this transform at its own
-    # execution boundary (e.g. caching/storage.py resolves and re-transforms the
-    # cached parent; into_backend/flight re-pull via to_pyarrow_batches), so its
-    # TeeNodes still fire exactly once. replace_nodes would fire them twice.
-    op = expr.op()
-    return op.replace(replacer).to_expr()
+    return replacer
+
+
+# BOUNDARY (op.replace), not DESCEND: this replacer has side effects (registers
+# pass-through tables, starts writers), so it must fire only at *this* execution
+# boundary. Descending into opaque sub-exprs (RemoteTable, CachedNode, Flight*,
+# ExprScalarUDF) is deliberately avoided -- not a coverage gap: each opaque
+# interior re-enters this transform at its own execution boundary (e.g.
+# caching/storage.py resolves and re-transforms the cached parent;
+# into_backend/flight re-pull via to_pyarrow_batches), so its TeeNodes still fire
+# exactly once. DESCEND would fire them twice. Runs after cache: a cache hit
+# prunes the TeeNode before its write fires.
+TEE_PASS = TransformPass(
+    name="tee",
+    traversal=Traversal.BOUNDARY,
+    build=lambda expr, ctx: _tee_replacer(ctx.scope),
+    produces_resources=True,
+    after=("cache",),
+)
+
+
+def register_and_transform_tee_nodes_into(
+    expr: Expr,
+    scope: RemoteTableScope,
+) -> Expr:
+    """Apply :data:`TEE_PASS` against the caller-owned ``scope``.
+
+    Thin adapter over the shared driver so the standalone wrapper and the
+    ``_transform_expr`` pipeline apply the tee pass identically (same traversal,
+    same scope discipline). The scope is threaded explicitly by the caller;
+    this never closes it -- teardown stays with the caller that created it.
+    """
+    return apply_pass(TEE_PASS, expr, TransformCtx(scope=scope))
 
 
 def render_backend(con: BaseBackend) -> str:

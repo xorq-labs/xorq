@@ -17,13 +17,12 @@ import pyarrow as pa
 import pytest
 
 import xorq.api as xo
-import xorq.expr.api as expr_api
 import xorq.expr.remote_table_exec as remote_table_exec
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.api import _transform_expr, get_plans, to_pyarrow_batches
-from xorq.expr.relations import RemoteTable
+from xorq.expr.relations import RemoteTable, register_and_transform_tee_nodes_into
 from xorq.expr.remote_table_exec import (
     RemoteTableScope,
     bind_scope_to_reader,
@@ -471,19 +470,20 @@ def test_tee_resources_released_when_remote_pass_fails(
 
     # Fail the remote pass only when a RemoteTable is actually present, so the
     # tee pass's recursion on its RemoteTable-free parent still succeeds and the
-    # failure lands at the *outer* pass 5 -- after pass 4 registered its table.
-    real_remote = expr_api.register_and_transform_remote_tables_into
+    # failure lands at the *outer* remote pass -- after the tee pass registered
+    # its table. Inject at the builder the declarative driver invokes
+    # (REMOTE_PASS.build -> _remote_replacer), so the failure rides the real
+    # pipeline path.
+    real_remote_replacer = remote_table_exec._remote_replacer
 
-    def guarded_boom(inner_expr, scope, **kwargs):
+    def guarded_boom(inner_expr, scope, read_kwargs):
         if walk_nodes(RemoteTable, inner_expr):
             raise RuntimeError("remote pass failed")
-        return real_remote(inner_expr, scope, **kwargs)
+        return real_remote_replacer(inner_expr, scope, read_kwargs)
 
     monkeypatch.setattr(RemoteTableScope, "adopt_table", spy_table)
     monkeypatch.setattr(RemoteTableScope, "adopt_drain", spy_drain)
-    monkeypatch.setattr(
-        expr_api, "register_and_transform_remote_tables_into", guarded_boom
-    )
+    monkeypatch.setattr(remote_table_exec, "_remote_replacer", guarded_boom)
 
     with pytest.raises(RuntimeError, match="remote pass failed"):
         _transform_expr(expr)
@@ -514,7 +514,7 @@ def test_tee_adopts_upstream_reader_into_scope(tmp_path: Path) -> None:
 
     # thread an explicit scope into the pass, mirroring _transform_expr
     scope = RemoteTableScope()
-    expr_api.register_and_transform_tee_nodes_into(teed, scope)
+    register_and_transform_tee_nodes_into(teed, scope)
     assert scope.reader_count >= 1, (
         "tee upstream reader must be adopted into the transform scope"
     )

@@ -6,7 +6,7 @@ import functools
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 import pyarrow as pa
 import toolz
@@ -28,12 +28,14 @@ from xorq.common.utils.io_utils import (
 )
 from xorq.common.utils.otel_utils import get_current_span, tracer
 from xorq.common.utils.rbr_utils import otel_instrument_reader
+from xorq.expr.enums import Traversal
 from xorq.expr.ml import (
     calc_split_column,
     train_test_splits,
 )
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
+    TEE_PASS,
     CachedNode,
     CacheTag,
     FlightExpr,
@@ -42,13 +44,13 @@ from xorq.expr.relations import (
     Read,
     Tag,
     TeeNode,
-    register_and_transform_tee_nodes_into,
 )
 from xorq.expr.remote_table_exec import (
+    REMOTE_PASS,
     RemoteTableScope,
     bind_scope_to_reader,
-    register_and_transform_remote_tables_into,
 )
+from xorq.expr.transform import TransformCtx, TransformPass, run_transform_passes
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import api
 from xorq.vendor.ibis.expr.api import *  # noqa: F403
@@ -219,9 +221,9 @@ def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
     return SQLString(_cached_with_op(unbound, pretty, compiler))
 
 
-@tracer.start_as_current_span("_register_and_transform_cache_tables")
-def _register_and_transform_cache_tables(expr):
-    """This function will sequentially execute any cache node that is not already cached"""
+def _cache_replacer(expr: "ir.Expr") -> Callable:
+    """Build the BOUNDARY replacer that sequentially executes any CachedNode that
+    is not already cached (``set_default`` materializes as a side effect)."""
     op = expr.op()
     root_is_cached = isinstance(op, CachedNode)
 
@@ -250,17 +252,18 @@ def _register_and_transform_cache_tables(expr):
             )
         return node
 
-    # op.replace, not replace_nodes (see its docstring): cache resolution has
-    # side effects (set_default executes/materializes), so it must fire only at
-    # this execution boundary. CachedNodes inside opaque sub-exprs re-enter this
-    # pass when those sub-exprs execute -- descending here would double-resolve.
-    out = op.replace(fn)
-
-    return out.to_expr()
+    return fn
 
 
-@tracer.start_as_current_span("_transform_deferred_reads")
-def _transform_deferred_reads(expr):
+@tracer.start_as_current_span("_register_and_transform_cache_tables")
+def _register_and_transform_cache_tables(expr: "ir.Expr") -> "ir.Expr":
+    """This function will sequentially execute any cache node that is not already cached"""
+    return expr.op().replace(_cache_replacer(expr)).to_expr()
+
+
+def _deferred_reads_replacer() -> Callable:
+    """Build the BOUNDARY replacer that resolves each deferred `Read` via
+    ``make_dt()`` at this execution boundary."""
     span = get_current_span()
 
     def replace_read(node, _kwargs):
@@ -285,11 +288,15 @@ def _transform_deferred_reads(expr):
                 node = node.__recreate__(_kwargs)
         return node
 
-    # op.replace, not replace_nodes (see its docstring): make_dt resolves a
-    # deferred read at this execution boundary; reads inside opaque sub-exprs
-    # are resolved when those sub-exprs execute, so descending here is wrong.
-    expr = expr.op().replace(replace_read).to_expr()
-    return expr
+    return replace_read
+
+
+@tracer.start_as_current_span("_transform_deferred_reads")
+def _transform_deferred_reads(expr: "ir.Expr") -> "ir.Expr":
+    # op.replace, not replace_nodes: make_dt resolves a deferred read at this
+    # execution boundary; reads inside opaque sub-exprs are resolved when those
+    # sub-exprs execute, so descending here is wrong.
+    return expr.op().replace(_deferred_reads_replacer()).to_expr()
 
 
 @tracer.start_as_current_span("execute")
@@ -341,8 +348,10 @@ def execute(expr: ir.Expr, **kwargs: Any):
     return expr.__pandas_result__(df)
 
 
-@tracer.start_as_current_span("_remove_tag_nodes")
-def _remove_tag_nodes(expr):
+def _remove_tag_nodes_replacer() -> Callable:
+    """Build the DESCEND replacer that strips `Tag` wrappers, re-walking the
+    unwrapped parent so nested tags collapse to their first non-Tag ancestor."""
+
     def replacer(node, kwargs):
         if isinstance(node, Tag):
             while isinstance(node, Tag):
@@ -352,7 +361,12 @@ def _remove_tag_nodes(expr):
             node = node.__recreate__(kwargs)
         return node
 
-    return replace_nodes(replacer, expr).to_expr()
+    return replacer
+
+
+@tracer.start_as_current_span("_remove_tag_nodes")
+def _remove_tag_nodes(expr: "ir.Expr") -> "ir.Expr":
+    return replace_nodes(_remove_tag_nodes_replacer(), expr).to_expr()
 
 
 @tracer.start_as_current_span("_remove_tee_nodes")
@@ -449,36 +463,73 @@ def _resolve_params(params):
     return name_values
 
 
+# The tier-1 transform as a declarative, ordered table (see xorq.expr.transform).
+# Each record fixes its own traversal kind (DESCEND vs BOUNDARY) and ``after``
+# ordering, so the driver -- not a per-call-site convention -- picks the walk and
+# asserts the dependency chain: bind -> tags -> cache -> tee -> remote -> reads.
+# ``produces_resources`` passes (tee, remote) adopt into the shared scope; cache
+# materializes persistent parquet and owns nothing scope-tracked.
+_PASSES = (
+    TransformPass(
+        name="bind_params",
+        traversal=Traversal.DESCEND,
+        build=lambda expr, ctx: _bind_params_replacer(
+            _resolve_bind_op_params(expr, ctx.name_values)
+        ),
+        # Skip entirely when there is nothing to bind (no values, no params).
+        when=lambda expr, ctx: (
+            bool(ctx.name_values) or bool(walk_nodes(NamedScalarParameter, expr))
+        ),
+    ),
+    TransformPass(
+        name="remove_tags",
+        traversal=Traversal.DESCEND,
+        build=lambda expr, ctx: _remove_tag_nodes_replacer(),
+    ),
+    TransformPass(
+        name="cache",
+        traversal=Traversal.BOUNDARY,
+        build=lambda expr, ctx: _cache_replacer(expr),
+        after=("bind_params", "remove_tags"),
+    ),
+    TEE_PASS,
+    REMOTE_PASS,
+    TransformPass(
+        name="deferred_reads",
+        traversal=Traversal.BOUNDARY,
+        build=lambda expr, ctx: _deferred_reads_replacer(),
+        after=("remote",),
+    ),
+)
+
+
 @tracer.start_as_current_span("_transform_expr")
-def _transform_expr(expr, params=None, **kwargs):
+def _transform_expr(
+    expr: "ir.Expr", params: "dict | None" = None, **kwargs: Any
+) -> "tuple[ir.Expr, RemoteTableScope]":
     """Transform an expression for execution, binding any named scalar parameters.
 
     Returns ``(expr, scope)``: the scope owns every resource the transform
     materialized (upstream readers, StreamCaches, placeholder tables) and the
     caller must close it once the transformed expr is consumed.
+
+    One scope, created up front and carried in the ``TransformCtx``, owns every
+    resource the effectful passes materialize. Because all passes adopt into this
+    *same* scope, a failure in any pass tears down what *earlier* passes created
+    -- not just its own. The driver (``run_transform_passes``) selects each
+    pass's traversal from its record and asserts the ``after`` ordering.
     """
-    name_values = _resolve_params(params)
-    expr = (
-        bind_params(expr, name_values)
-        if name_values or walk_nodes(NamedScalarParameter, expr)
-        else expr
+    ctx = TransformCtx(
+        scope=RemoteTableScope(),
+        name_values=_resolve_params(params),
+        through_kwargs=kwargs,
     )
-    expr = _remove_tag_nodes(expr)
-    # One scope, created up front and threaded explicitly into the tee and
-    # remote passes, owns every teardown-able resource they materialize (the
-    # cache-table pass's tables are intentional artifacts, not scope-owned).
-    # Both passes adopt into this *same* scope, so a failure in any pass tears
-    # down what earlier passes created, not just its own.
-    scope = RemoteTableScope()
     try:
-        expr = _register_and_transform_cache_tables(expr)
-        expr = register_and_transform_tee_nodes_into(expr, scope)
-        expr = register_and_transform_remote_tables_into(expr, scope, **kwargs)
-        expr = _transform_deferred_reads(expr)
+        expr = run_transform_passes(expr, _PASSES, ctx)
     except BaseException:
-        scope.close()
+        ctx.scope.close()
         raise
-    return (expr, scope)
+    return (expr, ctx.scope)
 
 
 @contextmanager
@@ -787,6 +838,17 @@ def bind_params(expr, params: dict) -> "ir.Expr":
         If *params* contains names not found in *expr*, or values
         incompatible with the declared dtype.
     """
+    op_params = _resolve_bind_op_params(expr, params)
+    return replace_nodes(_bind_params_replacer(op_params), expr).to_expr()
+
+
+def _resolve_bind_op_params(expr: "ir.Expr", params: dict) -> dict:
+    """Validate ``params`` against ``expr``'s NamedScalarParameters and return the
+    ``{node: value}`` bindings (applying defaults for omitted ones).
+
+    Raises the same TypeError/ValueError as ``bind_params`` on extra names,
+    incompatible values, or missing required params.
+    """
     named = {node.label: node for node in walk_nodes(NamedScalarParameter, expr)}
 
     errors = []
@@ -813,11 +875,16 @@ def bind_params(expr, params: dict) -> "ir.Expr":
     if missing:
         raise ValueError(f"Missing required parameters: {', '.join(missing)}")
 
-    op_params = {
+    return {
         node: params.get(name, node.default)
         for name, node in named.items()
         if params.get(name, node.default) is not _MISSING
     }
+
+
+def _bind_params_replacer(op_params: dict) -> Callable:
+    """Build the DESCEND replacer that substitutes bound NamedScalarParameters
+    with their Literal values."""
 
     def replacer(node, kwargs):
         if kwargs:
@@ -826,4 +893,4 @@ def bind_params(expr, params: dict) -> "ir.Expr":
             return ops.Literal(value=op_params[node], dtype=node.dtype)
         return node
 
-    return replace_nodes(replacer, expr).to_expr()
+    return replacer
