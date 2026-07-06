@@ -13,10 +13,14 @@ from xorq.catalog.zip_utils import (
     extract_build_zip_to,
     make_zip_context,
 )
+from xorq.common.utils.logging_utils import get_logger
 
 
 if TYPE_CHECKING:
     from xorq.api import Expr
+
+
+logger = get_logger(__name__)
 
 
 # Tracks temp dirs that haven't been cleaned up yet.
@@ -72,6 +76,11 @@ def _pin_extract_dir_lifetime(expr: "Expr", td: str) -> None:
     survives rewrapping, so pin ``expr`` onto each backend it reads from; ``td``
     is then swept only once every expression derived from ``expr`` is gone.
     Backends are fresh per load (``Profile.get_con`` connects anew).
+
+    Note: anchoring makes ``expr``/``backend`` mutually referential, so ``td`` is
+    reclaimed by cyclic GC (or ``atexit``) rather than promptly at refcount-zero;
+    this is invisible for one-shot CLI runs but lets dirs linger in long-lived
+    processes (notebooks, servers) until a collection.
     """
     backends, _ = expr._find_backends()  # xorq-style: disable=protected-access
     for backend in backends:
@@ -82,8 +91,15 @@ def _pin_extract_dir_lifetime(expr: "Expr", td: str) -> None:
                 setattr(backend, _EXTRACT_DIR_ANCHOR_ATTR, anchors)
             anchors.append(expr)
         except AttributeError:
-            # A backend that refuses attribute assignment can't anchor `expr`;
-            # the weakref.finalize below still cleans up on direct consumption.
+            # Can't anchor `expr`, so only weakref.finalize remains -- the
+            # pre-#2133 behavior fuse/bind rewrapping defeats, silently reopening
+            # the empty-result bug. No backend hits this today; warn if one does.
+            logger.warning(
+                "backend %r rejected extract-dir anchoring; a fused/rebound "
+                "expr from this load may resolve relocated reads to an empty "
+                "result if its extract dir is swept early (#2133)",
+                type(backend).__name__,
+            )
             continue
     weakref.finalize(expr, _cleanup_one, td)
 

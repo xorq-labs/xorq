@@ -166,8 +166,10 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
             marking = mark and _is_relocatable_candidate(node)
             baking = _is_relocatable_read(node) and "read_path" not in kw
             if marking or baking:
-                if "hash_path" not in kw:
-                    raise ValueError("relocatable Read must have hash_path")
+                # Internal invariant (not user input): make_read_kwargs sets
+                # hash_path for every path-based read, and a relocatable read is
+                # always path-based, so absence means a malformed / hand-built node.
+                assert "hash_path" in kw, "relocatable Read must have hash_path"
                 read_kwargs = node.read_kwargs
                 overrides = {}
                 if marking:
@@ -593,15 +595,16 @@ class ExprDumper:
         self, read_node: Read
     ) -> tuple[Path, str, functools.partial]:
         kw = dict(read_node.read_kwargs)
-        if "hash_path" not in kw:
-            raise ValueError("relocatable Read must have hash_path")
+        # Internal invariant; see the matching guard in _prepare_relocatable_reads.
+        assert "hash_path" in kw, "relocatable Read must have hash_path"
         source_path = Path(kw["hash_path"])
         # relocatable_read_path is the single source of the (dir, filename)
-        # layout; relocatable_read_path_str is its joined form -- the *same*
-        # helper the pre-hash pass uses -- so the store path and the serialized
-        # read_path cannot drift.
+        # layout; join those same parts for the serialized read_path so both are
+        # derived from one call and cannot drift (this is exactly what
+        # relocatable_read_path_str -- the helper the pre-hash pass uses --
+        # computes, so the two passes still agree byte-for-byte).
         path_parts = relocatable_read_path(source_path)
-        read_path = relocatable_read_path_str(source_path)
+        read_path = "/".join(path_parts)
         path = self.artifact_store.get_path(*path_parts)
         writer = functools.partial(
             self.artifact_store.copy_file,

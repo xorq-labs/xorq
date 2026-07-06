@@ -503,8 +503,16 @@ def _catalog_pin_command(
                     relocate_reads=relocate_reads,
                     internal_dirs=(cache_dir, *_live_extract_dirs),
                 )
-            for moved in source_aliases:
-                catalog.add_alias(new_entry.name, moved, sync=False)
+            try:
+                for moved in source_aliases:
+                    catalog.add_alias(new_entry.name, moved, sync=False)
+            except Exception:
+                # An alias move failed after the entry was written and
+                # `maybe_synchronizing` does no rollback; remove the just-added
+                # entry so we restore the pre-operation state instead of orphaning
+                # it with the aliases still on the source, then re-raise.
+                catalog.remove(new_entry.name, sync=False)
+                raise
     click.echo(new_entry.name)
 
 

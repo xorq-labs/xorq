@@ -224,7 +224,11 @@ def test_deferred_reads_yaml(builds_dir, parquet_dir):
 
     expected_relation = find_relations(awards_players)[0]
 
-    build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
+    # Lean serialization: relocate_reads (now default-on) would bundle the read;
+    # this test asserts the non-relocated form (see #2133).
+    build_path = build_expr(
+        expr, builds_dir=builds_dir, debug=True, relocate_reads=False
+    )
     # read canonical profile name from the built profiles.yaml
     built_profiles = yaml12.parse_yaml(
         build_path.joinpath(DumpFiles.profiles).read_text()
@@ -684,7 +688,11 @@ def test_build_file_stability_local(
         .into_backend(con3, "joined_into")
         .filter(xo._.G == 1)
     )
-    build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
+    # Lean build: relocate_reads (now default-on) would add a reads/ dir and
+    # change every file hash; this test snapshots the non-relocated build (#2133).
+    build_path = build_expr(
+        expr, builds_dir=builds_dir, debug=True, relocate_reads=False
+    )
     actual = json.dumps(
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
@@ -720,8 +728,13 @@ def test_build_file_stability_and_relocatability(
     on = sorted(set(batting.columns).intersection(awards_players.columns))
     expr = awards_players.select(on).join(batting.select(on), predicates=on)
 
+    # "relocatability" here means path-independence via md5 normalization, not the
+    # relocate_reads bundling feature (now default-on) that would change hashes.
     build_dir = build_expr(
-        expr, builds_dir=builds_dir, read_normalize_method=normalize_read_path_md5sum
+        expr,
+        builds_dir=builds_dir,
+        read_normalize_method=normalize_read_path_md5sum,
+        relocate_reads=False,
     )
     actual = json.dumps(
         {
@@ -848,8 +861,13 @@ def test_generated_name_sanitization_parquet(
 
     batting_path = get_local_path(parquet_dir, "batting")
     expr = xo.deferred_read_parquet(batting_path)
+    # Lean build: relocate_reads (now default-on) would change the build name
+    # hash; this test snapshots the non-relocated name (see #2133).
     build_path = build_expr(
-        expr, builds_dir=builds_dir, read_normalize_method=normalize_read_path_md5sum
+        expr,
+        builds_dir=builds_dir,
+        read_normalize_method=normalize_read_path_md5sum,
+        relocate_reads=False,
     )
     loaded = load_expr(build_path)
 
