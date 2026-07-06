@@ -83,6 +83,15 @@ def _pin_extract_dir_lifetime(expr: "Expr", td: str) -> None:
     processes (notebooks, servers) until a collection.
     """
     backends, _ = expr._find_backends()  # xorq-style: disable=protected-access
+    if not backends:
+        # No backend to anchor onto, so only weakref.finalize remains -- the
+        # pre-#2133 behavior fuse/bind rewrapping defeats, silently reopening the
+        # empty-result bug. No load hits this today; warn if one does.
+        logger.warning(
+            "expr load produced no backends to anchor its extract dir onto; a "
+            "fused/rebound expr may resolve relocated reads to an empty result "
+            "if its extract dir is swept early (#2133)",
+        )
     for backend in backends:
         try:
             anchors = getattr(backend, _EXTRACT_DIR_ANCHOR_ATTR, None)

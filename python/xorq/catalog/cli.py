@@ -19,6 +19,7 @@ import attr
 import click
 
 from xorq.catalog import constants as catalog_constants
+from xorq.common.utils.logging_utils import get_logger
 
 
 if TYPE_CHECKING:
@@ -52,6 +53,9 @@ from xorq.cli_options import (
     unbind_options,
 )
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
+
+
+logger = get_logger(__name__)
 
 
 def click_handler(e: Exception) -> None:
@@ -510,8 +514,14 @@ def _catalog_pin_command(
                 # An alias move failed after the entry was written and
                 # `maybe_synchronizing` does no rollback; remove the just-added
                 # entry so we restore the pre-operation state instead of orphaning
-                # it with the aliases still on the source, then re-raise.
-                catalog.remove(new_entry.name, sync=False)
+                # it with the aliases still on the source, then re-raise. Guard the
+                # removal so a rollback failure doesn't mask the original error.
+                try:
+                    catalog.remove(new_entry.name, sync=False)
+                except Exception:
+                    logger.exception(
+                        "alias rollback: failed to remove %s", new_entry.name
+                    )
                 raise
     click.echo(new_entry.name)
 
