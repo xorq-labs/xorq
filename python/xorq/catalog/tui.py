@@ -43,7 +43,8 @@ from textual.widgets import (
 )
 
 from xorq.caching.storage import resolve_parquet_cache_path
-from xorq.catalog.catalog import CatalogEntry
+from xorq.catalog.catalog import Catalog, CatalogEntry
+from xorq.catalog.enums import CatalogInfix
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
 from xorq.config import options
@@ -414,15 +415,26 @@ def _get_catalog_list(catalog) -> tuple:
 
 
 @cache
-def _catalog_aliases_cached(catalog, yaml_mtime: float) -> tuple:
-    """Compute catalog aliases; auto-invalidates when yaml mtime changes."""
+def _catalog_aliases_cached(
+    catalog: Catalog, yaml_mtime: float, aliases_mtime: float
+) -> tuple:
+    """Compute catalog aliases; auto-invalidates when yaml or aliases/ changes."""
     return tuple(catalog.catalog_aliases)
 
 
-def _get_catalog_aliases(catalog) -> tuple:
-    """Return catalog aliases, recomputing only when the YAML file has changed."""
+def _get_catalog_aliases(catalog: Catalog) -> tuple:
+    """Return catalog aliases, recomputing only when they may have changed.
+
+    The YAML mtime alone misses a pure repoint of an existing alias to
+    another existing entry: that rewrites only the symlink under ``aliases/``
+    (the alias is already listed in catalog.yaml, so no yaml write happens).
+    Replacing a symlink updates its parent directory's mtime, so key on that
+    as well.
+    """
     yaml_mtime = catalog.catalog_yaml.yaml_path.stat().st_mtime
-    return _catalog_aliases_cached(catalog, yaml_mtime)
+    aliases_dir = catalog.repo_path.joinpath(CatalogInfix.ALIAS)
+    aliases_mtime = aliases_dir.stat().st_mtime if aliases_dir.exists() else 0.0
+    return _catalog_aliases_cached(catalog, yaml_mtime, aliases_mtime)
 
 
 @cache

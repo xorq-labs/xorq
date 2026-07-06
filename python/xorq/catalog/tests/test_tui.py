@@ -47,6 +47,7 @@ from xorq.catalog.tui import (
     _build_git_log_rows,
     _entry_info,
     _format_cached,
+    _get_catalog_aliases,
     _list_revisions_cached,
     _pygments_to_text,
     _pygments_tokens,
@@ -503,6 +504,69 @@ def test_refresh_moves_alias_repointed_to_new_entry(
             assert screen._row_cache[entry_c.name].aliases == ("latest",)
             assert "latest" not in _leaf_label_for(screen, entry_a.name)
             assert "latest" in _leaf_label_for(screen, entry_c.name)
+
+    _run(_test())
+
+
+def _alias_target(aliases: tuple, alias: str) -> str:
+    return next(ca.catalog_entry.name for ca in aliases if ca.alias == alias)
+
+
+def test_get_catalog_aliases_sees_pure_repoint(
+    catalog: Catalog, entry_a: CatalogEntry, entry_b: CatalogEntry
+) -> None:
+    """A pure repoint rewrites only the aliases/ symlink; catalog.yaml already
+    lists the alias, so its mtime alone must not key the cache."""
+    catalog.add_alias(entry_a.name, "latest")
+    yaml_path = catalog.catalog_yaml.yaml_path
+    yaml_mtime = yaml_path.stat().st_mtime
+
+    before = _get_catalog_aliases(catalog)
+    assert _alias_target(before, "latest") == entry_a.name
+
+    catalog.add_alias(entry_b.name, "latest")
+    # the repoint must not have rewritten catalog.yaml, or this test would
+    # pass via the yaml mtime without exercising the symlink-state key
+    assert yaml_path.stat().st_mtime == yaml_mtime
+
+    after = _get_catalog_aliases(catalog)
+    assert _alias_target(after, "latest") == entry_b.name
+
+
+def test_refresh_moves_alias_repointed_between_existing_entries(
+    catalog: Catalog, entry_a: CatalogEntry, entry_b: CatalogEntry
+) -> None:
+    """A pure repoint between two existing entries touches only the aliases/
+    symlink, not catalog.yaml; the refresh must still move the alias."""
+
+    async def _test():
+        catalog.add_alias(entry_a.name, "latest")
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = pilot.app.screen
+            rows = (
+                CatalogRowData(entry=entry_a, aliases=("latest",)),
+                CatalogRowData(entry=entry_b),
+            )
+            screen._row_cache = {r.row_key: r for r in rows}
+            screen._render_refresh(catalog.repo.working_dir, rows)
+            await settle(pilot)
+
+            # Prime the mtime-keyed alias cache with the pre-repoint state.
+            await asyncio.to_thread(screen._do_refresh_locked)
+            await settle(pilot)
+            assert screen._row_cache[entry_a.name].aliases == ("latest",)
+
+            catalog.add_alias(entry_b.name, "latest")
+
+            await asyncio.to_thread(screen._do_refresh_locked)
+            await settle(pilot)
+
+            assert screen._row_cache[entry_a.name].aliases == ()
+            assert screen._row_cache[entry_b.name].aliases == ("latest",)
+            assert "latest" not in _leaf_label_for(screen, entry_a.name)
+            assert "latest" in _leaf_label_for(screen, entry_b.name)
 
     _run(_test())
 
