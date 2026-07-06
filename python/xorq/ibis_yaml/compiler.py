@@ -583,6 +583,24 @@ class ExprDumper:
     def expr_hash(self):
         return self.expr_path.name
 
+    def _plan(
+        self,
+        write_fn: Callable[..., Path],
+        payload: Any,
+        path_parts: str | tuple[str, ...],
+        phase: WritePhase,
+        dedupable: bool = False,
+    ) -> WritePlan:
+        """Build a WritePlan whose path and deferred writer share one path_parts.
+
+        write_fn is an ArtifactStore method taking (payload, *path_parts); binding
+        both the path and the writer to the same parts keeps them from drifting.
+        """
+        parts = path_parts if isinstance(path_parts, tuple) else (path_parts,)
+        path = self.artifact_store.get_path(*parts)
+        writer = functools.partial(write_fn, payload, *parts)
+        return WritePlan(path, writer, phase, dedupable=dedupable)
+
     def _prepare_expr_file(self, expr: ir.Expr, profiles: dict) -> WritePlan:
         path = self.artifact_store.get_path(DumpFiles.expr)
         # phase EXPR: translation tokenizes memtable parquets, which the DATA
@@ -599,90 +617,63 @@ class ExprDumper:
         return WritePlan(path, writer, WritePhase.EXPR)
 
     def _prepare_sql_file(self, sql: str) -> WritePlan:
-        sql_hash = tokenize(sql)[: config.hash_length]
-        filename = f"{sql_hash}.sql"
-        path = self.artifact_store.get_path(filename)
-        writer = functools.partial(self.artifact_store.write_text, sql, filename)
-        return WritePlan(path, writer, WritePhase.ARTIFACT, dedupable=True)
+        filename = f"{tokenize(sql)[: config.hash_length]}.sql"
+        return self._plan(
+            self.artifact_store.write_text,
+            sql,
+            filename,
+            WritePhase.ARTIFACT,
+            dedupable=True,
+        )
 
     def _prepare_memtable(
         self, mt: InMemoryTable | DatabaseTable, which: BundledSourceTypes
     ) -> WritePlan:
         assert which in BundledSourceTypes
         table = mt.to_expr().to_pyarrow()
-        filename = f"{tokenize(table)}.parquet"
-        path_parts = (which, filename)
-        path = self.artifact_store.get_path(*path_parts)
-        writer = functools.partial(
+        return self._plan(
             self.artifact_store.write_parquet,
             table,
-            *path_parts,
+            (which, f"{tokenize(table)}.parquet"),
+            WritePhase.DATA,
+            dedupable=True,
         )
-        return WritePlan(path, writer, WritePhase.DATA, dedupable=True)
 
     def _prepare_relocatable_read(self, read_node: Read) -> WritePlan:
         kw = dict(read_node.read_kwargs)
         # Internal invariant; see the matching guard in _prepare_relocatable_reads.
         assert "hash_path" in kw, "relocatable Read must have hash_path"
         source_path = Path(kw["hash_path"])
-        # relocatable_read_path is the single source of the (dir, filename)
-        # layout; relocatable_read_path_str is its joined form -- the *same*
-        # helper the pre-hash pass uses -- so the store path and the serialized
-        # read_path cannot drift.
-        path_parts = relocatable_read_path(source_path)
-        read_path = relocatable_read_path_str(source_path)
-        path = self.artifact_store.get_path(*path_parts)
-        writer = functools.partial(
+        return self._plan(
             self.artifact_store.copy_file,
             source_path,
-            *path_parts,
+            relocatable_read_path(source_path),
+            WritePhase.DATA,
+            dedupable=True,
         )
-        return WritePlan(path, writer, WritePhase.DATA, dedupable=True)
 
-    def _prepare_sql_plans(
+    def _prepare_sql_bundle(
         self,
-        sql_plans: Dict[str, Any],
+        mapping: Dict[str, Any],
+        collection_key: str,
+        dump_file: DumpFiles,
     ) -> tuple[WritePlan, ...]:
-        queries = {}
-        sql_file_plans = []
-        for query_name, query_info in sql_plans["queries"].items():
-            plan = self._prepare_sql_file(query_info["sql"])
-            sql_file_plans.append(plan)
-            queries[query_name] = toolz.dissoc(query_info, "sql") | {
-                "sql_file": plan.path.name
-            }
-        updated_plans = {"queries": queries}
-        yaml_plan = WritePlan(
-            self.artifact_store.get_path(DumpFiles.sql),
-            functools.partial(
-                self.artifact_store.save_yaml,
-                updated_plans,
-                filename=DumpFiles.sql,
-            ),
-            WritePhase.ARTIFACT,
-        )
-        return (*sql_file_plans, yaml_plan)
+        """Plan one SQL file per entry, plus the index YAML naming those files.
 
-    def _prepare_deferred_reads(
-        self,
-        deferred_reads: Dict[str, Any],
-    ) -> tuple[WritePlan, ...]:
-        reads = {}
+        mapping is name -> info dict carrying a "sql" key; each entry's SQL is
+        spilled to its own content-addressed file and the info is rewritten to
+        reference that file by name under collection_key in dump_file.
+        """
+        items = {}
         sql_file_plans = []
-        for read_name, read_info in deferred_reads["reads"].items():
-            plan = self._prepare_sql_file(read_info["sql"])
+        for name, info in mapping.items():
+            plan = self._prepare_sql_file(info["sql"])
             sql_file_plans.append(plan)
-            reads[read_name] = toolz.dissoc(read_info, "sql") | {
-                "sql_file": plan.path.name
-            }
-        updated_reads = {"reads": reads}
-        yaml_plan = WritePlan(
-            self.artifact_store.get_path(DumpFiles.deferred_reads),
-            functools.partial(
-                self.artifact_store.save_yaml,
-                updated_reads,
-                filename=DumpFiles.deferred_reads,
-            ),
+            items[name] = toolz.dissoc(info, "sql") | {"sql_file": plan.path.name}
+        yaml_plan = self._plan(
+            self.artifact_store.write_yaml,
+            {collection_key: items},
+            dump_file,
             WritePhase.ARTIFACT,
         )
         return (*sql_file_plans, yaml_plan)
@@ -703,13 +694,12 @@ class ExprDumper:
         return metadata_json
 
     def _prepare_build_metadata_file(self) -> WritePlan:
-        path = self.artifact_store.get_path(DumpFiles.build_metadata)
-        writer = functools.partial(
+        return self._plan(
             self.artifact_store.write_text,
             self._make_build_metadata(),
             DumpFiles.build_metadata,
+            WritePhase.ARTIFACT,
         )
-        return WritePlan(path, writer, WritePhase.ARTIFACT)
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
         from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
@@ -730,28 +720,28 @@ class ExprDumper:
         return metadata.to_dict()
 
     def _prepare_expr_metadata_file(self, expr: ir.Expr) -> WritePlan:
-        path = self.artifact_store.get_path(DumpFiles.expr_metadata)
-        writer = functools.partial(
+        return self._plan(
             self.artifact_store.write_json,
             self._make_expr_metadata(expr),
             DumpFiles.expr_metadata,
+            WritePhase.ARTIFACT,
         )
-        return WritePlan(path, writer, WritePhase.ARTIFACT)
 
     def _prepare_profiles_file(self, profiles: dict) -> WritePlan:
-        path = self.artifact_store.get_path(DumpFiles.profiles)
-        writer = functools.partial(
-            self.artifact_store.save_yaml,
+        return self._plan(
+            self.artifact_store.write_yaml,
             profiles,
             DumpFiles.profiles,
+            WritePhase.ARTIFACT,
         )
-        return WritePlan(path, writer, WritePhase.ARTIFACT)
 
     def _prepare_debug_info(self) -> tuple[WritePlan, ...]:
         sql_plans, deferred_reads = generate_sql_plans(self.expr)
         return (
-            *self._prepare_sql_plans(sql_plans),
-            *self._prepare_deferred_reads(deferred_reads),
+            *self._prepare_sql_bundle(sql_plans["queries"], "queries", DumpFiles.sql),
+            *self._prepare_sql_bundle(
+                deferred_reads["reads"], "reads", DumpFiles.deferred_reads
+            ),
         )
 
     def _replace_tables(self, expr):
