@@ -23,7 +23,7 @@ from textual.widgets import DataTable, Input, Static, Tree
 import xorq.api as xo
 from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.bind import _eval_code
-from xorq.catalog.catalog import CatalogAlias
+from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
@@ -440,7 +440,76 @@ def test_unaliased_entry_uses_name_in_tree(catalog, entry_a):
     _run(_test())
 
 
-def test_cursor_move_updates_schema_preview(catalog, entry_a, entry_b):
+def _leaf_label_for(screen: CatalogScreen, entry_hash: str) -> str:
+    tree = screen.query_one("#catalog-tree", Tree)
+    return next(
+        str(leaf.label)
+        for branch in tree.root.children
+        for leaf in branch.children
+        if leaf.data == entry_hash
+    )
+
+
+def test_refresh_attaches_alias_added_after_entry_cached(
+    catalog: Catalog, entry_a: CatalogEntry
+) -> None:
+    """A refresh landing mid-add caches the entry before its alias write;
+    the next refresh must attach the alias to the cached row instead of
+    leaving the entry permanently rendered as a bare hash."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            # Phase 1 of the add: entry in catalog.yaml, alias not yet.
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+            assert screen._row_cache[entry_a.name].aliases == ()
+
+            # Phase 2: the alias write lands.
+            catalog.add_alias(entry_a.name, "my-model")
+
+            # Run the refresh body off the main thread, as the worker does.
+            await asyncio.to_thread(screen._do_refresh_locked)
+            await settle(pilot)
+
+            assert screen._row_cache[entry_a.name].aliases == ("my-model",)
+            assert "my-model" in _leaf_label_for(screen, entry_a.name)
+
+    _run(_test())
+
+
+def test_refresh_moves_alias_repointed_to_new_entry(
+    catalog: Catalog, entry_a: CatalogEntry
+) -> None:
+    """Adding a new revision under an existing alias re-points the alias;
+    the old entry's cached row must lose it and the new entry must show it."""
+
+    async def _test():
+        catalog.add_alias(entry_a.name, "latest")
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = pilot.app.screen
+            row = CatalogRowData(entry=entry_a, aliases=("latest",))
+            screen._row_cache = {row.row_key: row}
+            screen._render_refresh(catalog.repo.working_dir, (row,))
+            await settle(pilot)
+
+            entry_c = catalog.add(xo.memtable({"z": [1, 2]}), aliases=("latest",))
+
+            await asyncio.to_thread(screen._do_refresh_locked)
+            await settle(pilot)
+
+            assert screen._row_cache[entry_a.name].aliases == ()
+            assert screen._row_cache[entry_c.name].aliases == ("latest",)
+            assert "latest" not in _leaf_label_for(screen, entry_a.name)
+            assert "latest" in _leaf_label_for(screen, entry_c.name)
+
+    _run(_test())
+
+
+def test_cursor_move_updates_schema_preview(
+    catalog: Catalog, entry_a: CatalogEntry, entry_b: CatalogEntry
+) -> None:
     async def _test():
         app = _make_tui(catalog)
         rows = (
