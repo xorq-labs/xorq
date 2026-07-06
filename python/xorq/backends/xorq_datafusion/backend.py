@@ -495,7 +495,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         # Phase 1: resolve ir.Expr to a concrete type before dispatch.
         if isinstance(source, ir.Expr):
-            source = self._resolve_expr_for_register(source, **kwargs)
+            source = self._resolve_expr_for_register(source)
 
         table_name = table_name or gen_name("register")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
@@ -541,7 +541,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         return self.table(table_name)
 
-    def _resolve_expr_for_register(self, source: ir.Expr, **kwargs) -> Any:
+    def _resolve_expr_for_register(self, source: ir.Expr) -> Any:
         backends, has_unbound = source._find_backends()
         if has_unbound:
             raise ValueError(
@@ -553,16 +553,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if not backends:
             # Pure in-memory expr (e.g. memtable): materialize now.
             return self.execute(source)
-        backend = backends[0]
-        if not isinstance(backend, Backend):
-            # Cross-backend expr: leave as ir.Expr; match arms handle it.
-            return source
-        # Same-backend DataFusion expr: compile to native DataFrame to avoid
-        # nested tokio runtime panic that IbisTableProvider.scan() would cause.
-        backend._register_udfs(source)
-        backend._register_in_memory_tables(source)
-        raw_sql = backend.compile(source.as_table(), **kwargs)
-        return backend.con.sql(raw_sql)
+        # Leave as ir.Expr; match arms register via IbisTableProvider. This holds
+        # for same-backend DataFusion exprs too: xorq-datafusion supports a
+        # runtime-within-runtime, so IbisTableProvider.scan() re-entering the
+        # source backend no longer panics on a nested tokio runtime.
+        return source
 
     def _register_path(self, path: str, table_name: str, **kwargs: Any) -> ir.Table:
         if path.startswith(("parquet://", "parq://")) or path.endswith(
