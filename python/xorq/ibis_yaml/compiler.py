@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 import functools
 import json
@@ -7,7 +9,7 @@ import shutil
 import sys
 import warnings
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict, NamedTuple
 
 import toolz
 import yaml12
@@ -82,6 +84,7 @@ from xorq.ibis_yaml.enums import (
     ExprKind,
     RefEnum,
     RegistryEnum,
+    WritePhase,
 )
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
@@ -518,6 +521,20 @@ def _validate_normalize_method(instance: Any, attribute: Any, value: Any) -> Non
     validate(value)
 
 
+class WritePlan(NamedTuple):
+    """A single deferred write: where, how, when, and whether duplicates are safe.
+
+    dedupable marks content-addressed paths (parquet, SQL files) whose repeated
+    plans always write identical bytes, so dropping duplicates is lossless. Fixed
+    singleton files are not dedupable and colliding on one signals a bug.
+    """
+
+    path: Path
+    writer: Callable[[], Any]
+    phase: WritePhase
+    dedupable: bool = False
+
+
 @frozen
 class ExprDumper:
     """
@@ -566,9 +583,10 @@ class ExprDumper:
     def expr_hash(self):
         return self.expr_path.name
 
-    def _prepare_expr_file(self, expr, profiles):
+    def _prepare_expr_file(self, expr: ir.Expr, profiles: dict) -> WritePlan:
         path = self.artifact_store.get_path(DumpFiles.expr)
-        # we can't translate to yaml until the memtable parquets are written: they will be tokenized
+        # phase EXPR: translation tokenizes memtable parquets, which the DATA
+        # phase must have written first
         writer = toolz.compose(
             functools.partial(self.artifact_store.save_yaml, filename=DumpFiles.expr),
             functools.partial(
@@ -578,16 +596,18 @@ class ExprDumper:
                 self.cache_dir,
             ),
         )
-        return (path, writer)
+        return WritePlan(path, writer, WritePhase.EXPR)
 
-    def _prepare_sql_file(self, sql: str) -> str:
+    def _prepare_sql_file(self, sql: str) -> WritePlan:
         sql_hash = tokenize(sql)[: config.hash_length]
         filename = f"{sql_hash}.sql"
         path = self.artifact_store.get_path(filename)
         writer = functools.partial(self.artifact_store.write_text, sql, filename)
-        return (path, writer)
+        return WritePlan(path, writer, WritePhase.ARTIFACT, dedupable=True)
 
-    def _prepare_memtable(self, mt, which):
+    def _prepare_memtable(
+        self, mt: InMemoryTable | DatabaseTable, which: BundledSourceTypes
+    ) -> WritePlan:
         assert which in BundledSourceTypes
         table = mt.to_expr().to_pyarrow()
         filename = f"{tokenize(table)}.parquet"
@@ -598,11 +618,9 @@ class ExprDumper:
             table,
             *path_parts,
         )
-        return (path, writer)
+        return WritePlan(path, writer, WritePhase.DATA, dedupable=True)
 
-    def _prepare_relocatable_read(
-        self, read_node: Read
-    ) -> tuple[Path, str, functools.partial]:
+    def _prepare_relocatable_read(self, read_node: Read) -> WritePlan:
         kw = dict(read_node.read_kwargs)
         # Internal invariant; see the matching guard in _prepare_relocatable_reads.
         assert "hash_path" in kw, "relocatable Read must have hash_path"
@@ -619,47 +637,55 @@ class ExprDumper:
             source_path,
             *path_parts,
         )
-        return (path, read_path, writer)
+        return WritePlan(path, writer, WritePhase.DATA, dedupable=True)
 
     def _prepare_sql_plans(
         self,
         sql_plans: Dict[str, Any],
-    ) -> Dict[str, Any]:
+    ) -> tuple[WritePlan, ...]:
         queries = {}
-        path_to_writer = {}
+        sql_file_plans = []
         for query_name, query_info in sql_plans["queries"].items():
-            path, writer = self._prepare_sql_file(query_info["sql"])
-            path_to_writer[path] = writer
+            plan = self._prepare_sql_file(query_info["sql"])
+            sql_file_plans.append(plan)
             queries[query_name] = toolz.dissoc(query_info, "sql") | {
-                "sql_file": path.name
+                "sql_file": plan.path.name
             }
         updated_plans = {"queries": queries}
-        path_to_writer[self.artifact_store.get_path(DumpFiles.sql)] = functools.partial(
-            self.artifact_store.save_yaml,
-            updated_plans,
-            filename=DumpFiles.sql,
+        yaml_plan = WritePlan(
+            self.artifact_store.get_path(DumpFiles.sql),
+            functools.partial(
+                self.artifact_store.save_yaml,
+                updated_plans,
+                filename=DumpFiles.sql,
+            ),
+            WritePhase.ARTIFACT,
         )
-        return path_to_writer
+        return (*sql_file_plans, yaml_plan)
 
     def _prepare_deferred_reads(
         self,
         deferred_reads: Dict[str, Any],
-    ) -> Dict[str, Any]:
+    ) -> tuple[WritePlan, ...]:
         reads = {}
-        path_to_writer = {}
+        sql_file_plans = []
         for read_name, read_info in deferred_reads["reads"].items():
-            path, writer = self._prepare_sql_file(read_info["sql"])
-            path_to_writer[path] = writer
-            reads[read_name] = toolz.dissoc(read_info, "sql") | {"sql_file": path.name}
+            plan = self._prepare_sql_file(read_info["sql"])
+            sql_file_plans.append(plan)
+            reads[read_name] = toolz.dissoc(read_info, "sql") | {
+                "sql_file": plan.path.name
+            }
         updated_reads = {"reads": reads}
-        path_to_writer[self.artifact_store.get_path(DumpFiles.deferred_reads)] = (
+        yaml_plan = WritePlan(
+            self.artifact_store.get_path(DumpFiles.deferred_reads),
             functools.partial(
                 self.artifact_store.save_yaml,
                 updated_reads,
                 filename=DumpFiles.deferred_reads,
-            )
+            ),
+            WritePhase.ARTIFACT,
         )
-        return path_to_writer
+        return (*sql_file_plans, yaml_plan)
 
     @staticmethod
     def _make_build_metadata() -> str:
@@ -676,14 +702,14 @@ class ExprDumper:
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
 
-    def _prepare_build_metadata_file(self):
+    def _prepare_build_metadata_file(self) -> WritePlan:
         path = self.artifact_store.get_path(DumpFiles.build_metadata)
         writer = functools.partial(
             self.artifact_store.write_text,
             self._make_build_metadata(),
             DumpFiles.build_metadata,
         )
-        return path, writer
+        return WritePlan(path, writer, WritePhase.ARTIFACT)
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
         from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
@@ -703,30 +729,30 @@ class ExprDumper:
         metadata = evolve(metadata, sql_queries=sql_queries, lineage=lineage)
         return metadata.to_dict()
 
-    def _prepare_expr_metadata_file(self, expr):
+    def _prepare_expr_metadata_file(self, expr: ir.Expr) -> WritePlan:
         path = self.artifact_store.get_path(DumpFiles.expr_metadata)
         writer = functools.partial(
             self.artifact_store.write_json,
             self._make_expr_metadata(expr),
             DumpFiles.expr_metadata,
         )
-        return path, writer
+        return WritePlan(path, writer, WritePhase.ARTIFACT)
 
-    def _prepare_profiles_file(self, profiles):
+    def _prepare_profiles_file(self, profiles: dict) -> WritePlan:
         path = self.artifact_store.get_path(DumpFiles.profiles)
         writer = functools.partial(
             self.artifact_store.save_yaml,
             profiles,
             DumpFiles.profiles,
         )
-        return path, writer
+        return WritePlan(path, writer, WritePhase.ARTIFACT)
 
-    def _prepare_debug_info(self):
+    def _prepare_debug_info(self) -> tuple[WritePlan, ...]:
         sql_plans, deferred_reads = generate_sql_plans(self.expr)
-        path_to_writer0 = self._prepare_sql_plans(sql_plans)
-        path_to_writer1 = self._prepare_deferred_reads(deferred_reads)
-        path_to_writer = path_to_writer0 | path_to_writer1
-        return path_to_writer
+        return (
+            *self._prepare_sql_plans(sql_plans),
+            *self._prepare_deferred_reads(deferred_reads),
+        )
 
     def _replace_tables(self, expr):
         """Single-pass replacement of InMemoryTable and qualifying DatabaseTable nodes.
@@ -735,7 +761,7 @@ class ExprDumper:
         calls (_memtables_to_deferred_reads and _replace_inmemory_backend_tables)
         into one graph traversal and one replacement pass.
         """
-        path_to_writer = {}
+        plans = []
         replacements = {}
         for node in walk_nodes((InMemoryTable, DatabaseTable), expr):
             if isinstance(node, InMemoryTable):
@@ -747,15 +773,17 @@ class ExprDumper:
                 type_kwargs = {str(which): True}
                 con_kwargs = {}
             elif _is_relocatable_read(node):
-                path, read_path, writer = self._prepare_relocatable_read(node)
+                plan = self._prepare_relocatable_read(node)
+                which = BundledSourceTypes.read
+                read_path = f"{which}/{plan.path.name}"
                 new_kwargs = update_read_kwargs(
                     node.read_kwargs,
-                    (("hash_path", path), ("read_path", read_path)),
+                    (("hash_path", plan.path), ("read_path", read_path)),
                 )
                 args = dict(zip(node.__argnames__, node.__args__)) | {
                     "read_kwargs": new_kwargs
                 }
-                path_to_writer[path] = writer
+                plans.append(plan)
                 replacements[node] = node.__recreate__(args)
                 continue
             elif (
@@ -768,24 +796,43 @@ class ExprDumper:
                 type_kwargs = {}
                 con_kwargs = {"con": node.source}
 
-            path, writer = self._prepare_memtable(node, which)
+            plan = self._prepare_memtable(node, which)
             dr_op = make_read_op(
-                parquet_path=path,
+                parquet_path=plan.path,
                 read_kwargs={
                     "table_name": node.name,
                     "schema": node.schema,
                     **type_kwargs,
                     "normalize_method": normalize_read_path_md5sum,
-                    "read_path": str(Path(which, path.name)),
+                    "read_path": str(Path(which, plan.path.name)),
                 },
                 **con_kwargs,
             )
-            path_to_writer[path] = writer
+            plans.append(plan)
             replacements[node] = dr_op
         op = expr.op()
         if replacements:
             op = replace_nodes(replace_from_mapping(replacements), op)
-        return op.to_expr(), path_to_writer
+        return op.to_expr(), tuple(plans)
+
+    @staticmethod
+    def _execute_write_plans(plans: tuple[WritePlan, ...]) -> None:
+        """Run every plan's writer, sorted by phase, after deduping paths.
+
+        Content-addressed plans (dedupable) may target the same path more than
+        once with byte-identical output, so extra copies are dropped. Any other
+        path collision is a bug and raises rather than silently losing a writer.
+        """
+        by_path = {}
+        for plan in plans:
+            existing = by_path.get(plan.path)
+            if existing is not None:
+                if not (existing.dedupable and plan.dedupable):
+                    raise ValueError(f"conflicting write plans for {plan.path}")
+                continue
+            by_path[plan.path] = plan
+        for plan in sorted(by_path.values(), key=operator.attrgetter("phase")):
+            plan.writer()
 
     def dump_expr(self) -> str:
         from xorq.ibis_yaml.translate import (  # noqa: PLC0415
@@ -798,26 +845,21 @@ class ExprDumper:
         expr = self.expr
 
         # write in-memory data to build dir (single walk + single replacement pass)
-        expr, path_to_writer0 = self._replace_tables(expr)
+        expr, data_plans = self._replace_tables(expr)
 
         profiles = dehydrate_cons(find_all_sources(expr))
-        path_to_writer2 = dict(
-            (
-                self._prepare_expr_metadata_file(self.expr),
-                self._prepare_build_metadata_file(),
-                self._prepare_profiles_file(profiles),
-            )
+        plans = (
+            *data_plans,
+            self._prepare_expr_metadata_file(self.expr),
+            self._prepare_build_metadata_file(),
+            self._prepare_profiles_file(profiles),
+            # phase ordering guarantees this runs after the DATA parquets exist
+            self._prepare_expr_file(expr, profiles),
         )
-        path_to_writer = path_to_writer0 | path_to_writer2
         if self.debug:
             # write SQL plan and deferred-read artifacts if debug enabled
-            path_to_writer |= self._prepare_debug_info()
-        for writer in path_to_writer.values():
-            writer()
-
-        # expr must be written last
-        _, writer = self._prepare_expr_file(expr, profiles)
-        writer()
+            plans += self._prepare_debug_info()
+        self._execute_write_plans(plans)
         return self.expr_path
 
 

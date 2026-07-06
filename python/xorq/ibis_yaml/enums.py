@@ -1,4 +1,20 @@
+from __future__ import annotations
+
+import enum
+
 from xorq.common.compat import StrEnum
+
+
+class WritePhase(enum.IntEnum):
+    """Ordering for deferred writes; lower phases run first.
+
+    DATA content files must exist before the expr YAML is written, because
+    the translator tokenizes memtable parquets by content on the way out.
+    """
+
+    DATA = 0  # parquet + copied read files — tokenized by the expr YAML
+    ARTIFACT = 1  # metadata / profiles / debug SQL — order-independent
+    EXPR = 2  # expr YAML — must follow DATA so its inputs exist
 
 
 class DumpFiles(StrEnum):
