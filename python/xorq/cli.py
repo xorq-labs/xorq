@@ -284,23 +284,13 @@ def build_command(
                 f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
             )
 
-    try:
-        build_path = build_expr(
-            expr,
-            builds_dir=builds_dir,
-            cache_dir=Path(cache_dir),
-            debug=debug,
-            relocate_reads=relocate_reads,
-        )
-    except FileNotFoundError as err:
-        # relocate_reads (now the default) opens each local read to bundle it, so
-        # a missing source raises deep in the build; translate it to the same
-        # actionable message pin/unpin give instead of a raw traceback (#2117).
-        raise_for_missing_relocation_source(
-            err,
-            relocate_reads=relocate_reads,
-            internal_dirs=(builds_dir, cache_dir),
-        )
+    build_path = build_expr(
+        expr,
+        builds_dir=builds_dir,
+        cache_dir=Path(cache_dir),
+        debug=debug,
+        relocate_reads=relocate_reads,
+    )
     expr_hash = build_path.name
     span.add_event("build.outputs", {"expr_hash": expr_hash})
     print(

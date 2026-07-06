@@ -599,12 +599,11 @@ class ExprDumper:
         assert "hash_path" in kw, "relocatable Read must have hash_path"
         source_path = Path(kw["hash_path"])
         # relocatable_read_path is the single source of the (dir, filename)
-        # layout; join those same parts for the serialized read_path so both are
-        # derived from one call and cannot drift (this is exactly what
-        # relocatable_read_path_str -- the helper the pre-hash pass uses --
-        # computes, so the two passes still agree byte-for-byte).
+        # layout; relocatable_read_path_str is its joined form -- the *same*
+        # helper the pre-hash pass uses -- so the store path and the serialized
+        # read_path cannot drift.
         path_parts = relocatable_read_path(source_path)
-        read_path = "/".join(path_parts)
+        read_path = relocatable_read_path_str(source_path)
         path = self.artifact_store.get_path(*path_parts)
         writer = functools.partial(
             self.artifact_store.copy_file,
