@@ -4,7 +4,6 @@ import contextlib
 
 from attr import field, frozen
 from attr.validators import instance_of
-from public import public
 
 from xorq.caching.storage import (
     CacheStorage,
@@ -21,10 +20,11 @@ from xorq.caching.strategy import (
 from xorq.common.exceptions import XorqError
 
 
-__all__ = [  # noqa: PLE0604
+__all__ = [
     "ParquetCache",
     "ParquetSnapshotCache",
     "ParquetTTLSnapshotCache",
+    "ParquetDummySnapshotCache",
     "SourceCache",
     "SourceSnapshotCache",
     "GCSCache",
@@ -117,7 +117,6 @@ class Cache:
         return cls(strategy=strategy, storage=storage)
 
 
-@public
 @frozen
 class ParquetCache(Cache):
     """Cache expression results as Parquet files, re-hashing when source data changes.
@@ -143,7 +142,6 @@ class ParquetCache(Cache):
     storage_typ = ParquetStorage
 
 
-@public
 @frozen
 class ParquetSnapshotCache(Cache):
     """Cache expression results as Parquet files with a stable, snapshot key.
@@ -170,7 +168,6 @@ class ParquetSnapshotCache(Cache):
     storage_typ = ParquetStorage
 
 
-@public
 @frozen
 class ParquetTTLSnapshotCache(Cache):
     """Cache expression results as Parquet files with a stable key and a time-to-live.
@@ -197,13 +194,11 @@ class ParquetTTLSnapshotCache(Cache):
     storage_typ = ParquetTTLStorage
 
 
-@public
 @frozen
 class ParquetDummySnapshotCache(ParquetSnapshotCache):
     storage_typ = ParquetDummyStorage
 
 
-@public
 @frozen
 class SourceCache(Cache):
     """Cache expression results as a table in a source backend, with automatic invalidation.
@@ -223,7 +218,6 @@ class SourceCache(Cache):
     storage_typ = SourceStorage
 
 
-@public
 @frozen
 class SourceSnapshotCache(Cache):
     """Cache expression results as a table in a source backend, with a stable key.
@@ -243,7 +237,6 @@ class SourceSnapshotCache(Cache):
     storage_typ = SourceStorage
 
 
-@public
 @frozen
 class GCSCache(Cache):
     """Cache expression results as Parquet files in a Google Cloud Storage bucket.
