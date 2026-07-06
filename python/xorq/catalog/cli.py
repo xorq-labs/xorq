@@ -19,7 +19,6 @@ import attr
 import click
 
 from xorq.catalog import constants as catalog_constants
-from xorq.common.utils.logging_utils import get_logger
 
 
 if TYPE_CHECKING:
@@ -53,9 +52,6 @@ from xorq.cli_options import (
     unbind_options,
 )
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
-
-
-logger = get_logger(__name__)
 
 
 def click_handler(e: Exception) -> None:
@@ -519,7 +515,13 @@ def _catalog_pin_command(
                 try:
                     catalog.remove(new_entry.name, sync=False)
                 except Exception:
-                    logger.exception(
+                    # Imported lazily: a top-level logging_utils import pulls in
+                    # ~200ms of deps onto the `catalog --help` startup path.
+                    from xorq.common.utils.logging_utils import (  # noqa: PLC0415
+                        get_logger,
+                    )
+
+                    get_logger(__name__).exception(
                         "alias rollback: failed to remove %s", new_entry.name
                     )
                 raise
