@@ -1,7 +1,12 @@
+from __future__ import annotations
+
 import warnings
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 import pytest
 from batchcorder import StreamCache
 
@@ -58,6 +63,64 @@ def test_register_table_provider():
     # None table_name generates a name; returned table reflects it
     t = con.register_table_provider(source)
     assert t.get_name() in con.list_tables()
+
+
+def test_register_native_datafusion_dataframe() -> None:
+    # A native DataFusion DataFrame (result of con.con.sql) hits the DataFrame arm.
+    con = xo.connect()
+    con.register(pa.table({"a": [1, 2, 3]}), "base")
+    native = con.con.sql("SELECT a, a * 2 AS b FROM base")
+    t = con.register(native, "from_native_df")
+    assert "from_native_df" in con.list_tables()
+    assert t.execute()["b"].tolist() == [2, 4, 6]
+
+
+def test_register_pyarrow_dataset(tmp_path: Path) -> None:
+    # A pyarrow Dataset hits the ds.Dataset arm.
+    pq.write_table(pa.table({"a": [1, 2, 3]}), str(tmp_path / "p.parquet"))
+    con = xo.connect()
+    t = con.register(ds.dataset(str(tmp_path)), "from_dataset")
+    assert t.count().execute() == 3
+
+
+def test_register_cross_backend_column_expr() -> None:
+    # A bound non-table expr (column) hits the ir.Expr arm: materialized via
+    # the source backend's to_pyarrow_batches into a record-batch reader.
+    src = xo.duckdb.connect().create_table("d", pa.table({"a": [1, 2, 3]}))
+    con = xo.connect()
+    t = con.register(src.a, "from_col")
+    assert t.execute()["a"].tolist() == [1, 2, 3]
+
+
+def test_register_same_backend_expr_via_provider() -> None:
+    # A same-backend DataFusion expr now registers via IbisTableProvider
+    # (xorq-datafusion runtime-within-runtime) rather than compiling to a
+    # native DataFrame; scan() re-enters the same connection without panicking.
+    con = xo.connect()
+    base = con.register(pa.table({"a": [1, 2, 3], "b": [10, 20, 30]}), "base")
+    expr = base.filter(base.a > 1).mutate(c=base.b * 2)
+    reg = con.register(expr, "derived")
+    out = reg.execute()
+    assert out["a"].tolist() == [2, 3]
+    assert out["c"].tolist() == [40, 60]
+
+
+def test_register_provider_filter_pushdown() -> None:
+    # Filtering a provider-backed table pushes the predicate into
+    # IbisTableProvider.scan(filters), which re-applies it on the source side.
+    src = xo.duckdb.connect().create_table(
+        "d", pa.table({"a": [1, 2, 3, 4], "b": [10, 20, 30, 40]})
+    )
+    con = xo.connect()
+    reg = con.register(src, "prov")
+    out = reg.filter(reg.a > 2).execute()
+    assert out["a"].tolist() == [3, 4]
+
+
+def test_register_unknown_source_type_raises() -> None:
+    con = xo.connect()
+    with pytest.raises(ValueError, match="Unknown `source` type"):
+        con.register(object(), "bad")
 
 
 def test_read_record_batches_type_mismatch() -> None:
