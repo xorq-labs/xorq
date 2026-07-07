@@ -19,6 +19,13 @@ selects the traversal from the record (so no call site can pick the wrong walk),
 and :func:`run_transform_passes` folds the ordered table while asserting every
 ``after`` constraint holds -- a reorder now raises loudly instead of silently
 breaking correctness.
+
+Adjacent *fusable* passes -- pure structural rewrites (``DESCEND`` and
+``not produces_resources``) -- are coalesced into a single ``replace_nodes``
+walk whose composed replacer applies each pass's rewrite in table order at every
+node. This is the one place ``produces_resources`` is read: it keeps an
+effectful DESCEND pass out of the shared walk. Fusion only collapses *how many*
+graph traversals a run of pure rewrites costs, never their order or result.
 """
 
 from __future__ import annotations
@@ -96,6 +103,61 @@ class TransformPass:
     )
 
 
+def _is_fusable(pass_: TransformPass) -> bool:
+    """Whether ``pass_`` can share a single descend-walk with its neighbours.
+
+    True for a pure structural rewrite: it descends (``DESCEND``) and
+    materializes nothing (``not produces_resources``). This is the sole consumer
+    of ``produces_resources`` -- the flag exists to keep an effectful DESCEND
+    pass out of the fused walk, where its side effect would fire under a shared
+    traversal it does not own. A BOUNDARY pass is never fusable: it must fire
+    once, at the execution boundary (see :class:`~xorq.expr.enums.Traversal`).
+    """
+    return pass_.traversal is Traversal.DESCEND and not pass_.produces_resources
+
+
+def _fusion_groups(
+    passes: tuple[TransformPass, ...],
+) -> list[tuple[TransformPass, ...]]:
+    """Partition ``passes`` into ordered groups: each maximal run of adjacent
+    fusable passes becomes one group, every other pass a singleton. Order is
+    preserved, so passes still apply in table order."""
+    groups: list[tuple[TransformPass, ...]] = []
+    run: list[TransformPass] = []
+    for pass_ in passes:
+        if _is_fusable(pass_):
+            run.append(pass_)
+            continue
+        if run:
+            groups.append(tuple(run))
+            run = []
+        groups.append((pass_,))
+    if run:
+        groups.append(tuple(run))
+    return groups
+
+
+def _fuse_replacers(replacers: list[Replacer]) -> Replacer:
+    """Chain per-node replacers into one, applied in list order at each node.
+
+    The first replacer consumes the bottom-up recreate ``kwargs`` (rebuild with
+    already-transformed children); the rest see the resulting node with
+    ``kwargs=None`` so recreation happens exactly once. Applying r1-then-r2 at
+    each node of a single bottom-up walk equals r1-everywhere then r2-everywhere
+    because a fusable pass is a *node-local* rewrite -- its output at a node
+    depends only on that node and its already-transformed children, never on the
+    global post-r1 tree -- which the pure DESCEND passes satisfy.
+    """
+
+    def fused(node, kwargs):
+        node = replacers[0](node, kwargs)
+        for replacer in replacers[1:]:
+            node = replacer(node, None)
+        return node
+
+    return fused
+
+
 def apply_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> Expr:
     """Run a single pass, selecting the traversal from ``pass_.traversal``.
 
@@ -114,23 +176,56 @@ def apply_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> Expr:
         return expr.op().replace(replacer).to_expr()
 
 
+def _assert_after_ordering(passes: tuple[TransformPass, ...]) -> None:
+    """Raise unless every pass's ``after`` deps are positioned earlier in the
+    tuple. Positioning is by table order, not execution: a pass skipped via
+    ``when`` still counts as positioned, so a reorder raises immediately instead
+    of silently mis-transforming."""
+    positioned: set[str] = set()
+    for pass_ in passes:
+        missing = tuple(dep for dep in pass_.after if dep not in positioned)
+        if missing:
+            raise InternalError(
+                f"transform pass {pass_.name!r} must run after {missing}, "
+                f"but they are not positioned earlier (seen: {sorted(positioned)})"
+            )
+        positioned.add(pass_.name)
+
+
+def _apply_group(
+    expr: Expr, group: tuple[TransformPass, ...], ctx: TransformCtx
+) -> Expr:
+    """Apply one fusion group. A singleton (or a group whose ``when`` predicates
+    leave a single active pass) goes through :func:`apply_pass` unchanged; two or
+    more active passes share one ``replace_nodes`` walk under a composed replacer.
+    """
+    if len(group) == 1:
+        return apply_pass(group[0], expr, ctx)
+    # lazy import: see apply_pass.
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+
+    active = tuple(p for p in group if p.when is None or p.when(expr, ctx))
+    if not active:
+        return expr
+    if len(active) == 1:
+        return apply_pass(active[0], expr, ctx)
+    label = "+".join(p.name for p in active)
+    with tracer.start_as_current_span(f"transform.fuse[{label}]"):
+        replacers = [p.build(expr, ctx) for p in active]
+        return replace_nodes(_fuse_replacers(replacers), expr).to_expr()
+
+
 def run_transform_passes(
     expr: Expr, passes: tuple[TransformPass, ...], ctx: TransformCtx
 ) -> Expr:
     """Fold the ordered ``passes`` over ``expr``, asserting ``after`` deps.
 
-    The ordering constraints are checked against passes *already positioned*
-    earlier in the tuple (whether or not they no-op'd via ``when``), so a
-    reordered table raises immediately instead of silently mis-transforming.
+    Ordering is validated up front (:func:`_assert_after_ordering`), then passes
+    execute in fusion groups (:func:`_fusion_groups`): adjacent pure DESCEND
+    rewrites share one graph walk, everything else applies on its own. The result
+    is identical to applying every pass singly -- fusion only saves traversals.
     """
-    done: set[str] = set()
-    for pass_ in passes:
-        missing = tuple(dep for dep in pass_.after if dep not in done)
-        if missing:
-            raise InternalError(
-                f"transform pass {pass_.name!r} must run after {missing}, "
-                f"but they are not positioned earlier (seen: {sorted(done)})"
-            )
-        expr = apply_pass(pass_, expr, ctx)
-        done.add(pass_.name)
+    _assert_after_ordering(passes)
+    for group in _fusion_groups(passes):
+        expr = _apply_group(expr, group, ctx)
     return expr
