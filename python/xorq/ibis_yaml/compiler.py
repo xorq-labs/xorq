@@ -9,7 +9,7 @@ import shutil
 import sys
 import warnings
 from pathlib import Path
-from typing import Any, Callable, Dict, NamedTuple
+from typing import Any, Callable, Dict
 
 import toolz
 import yaml12
@@ -520,8 +520,8 @@ def _validate_normalize_method(instance: Any, attribute: Any, value: Any) -> Non
 
     validate(value)
 
-
-class WritePlan(NamedTuple):
+@frozen
+class WritePlan:
     """A single deferred write: where, how, when, and whether duplicates are safe.
 
     dedupable marks content-addressed paths (parquet, SQL files) whose repeated
@@ -529,10 +529,30 @@ class WritePlan(NamedTuple):
     singleton files are not dedupable and colliding on one signals a bug.
     """
 
-    path: Path
-    writer: Callable[[], Any]
-    phase: WritePhase
-    dedupable: bool = False
+    path = field(validator=instance_of(Path), converter=Path)
+    writer = field(validator=is_callable())
+    phase = field(validator=instance_of(WritePhase))
+    dedupable = field(validator=instance_of(bool), default=False)
+
+    @classmethod
+    def build(
+        cls,
+        artifact_store: "ArtifactStore",
+        write_fn: Callable[..., Path],
+        payload: Any,
+        path_parts: str | tuple[str, ...],
+        phase: WritePhase,
+        dedupable: bool = False,
+    ) -> "WritePlan":
+        """Build a WritePlan whose path and deferred writer share one path_parts.
+
+        write_fn is an ArtifactStore method taking (payload, *path_parts); binding
+        both the path and the writer to the same parts keeps them from drifting.
+        """
+        parts = path_parts if isinstance(path_parts, tuple) else (path_parts,)
+        path = artifact_store.get_path(*parts)
+        writer = functools.partial(write_fn, payload, *parts)
+        return cls(path, writer, phase, dedupable=dedupable)
 
 
 @frozen
@@ -583,24 +603,6 @@ class ExprDumper:
     def expr_hash(self):
         return self.expr_path.name
 
-    def _plan(
-        self,
-        write_fn: Callable[..., Path],
-        payload: Any,
-        path_parts: str | tuple[str, ...],
-        phase: WritePhase,
-        dedupable: bool = False,
-    ) -> WritePlan:
-        """Build a WritePlan whose path and deferred writer share one path_parts.
-
-        write_fn is an ArtifactStore method taking (payload, *path_parts); binding
-        both the path and the writer to the same parts keeps them from drifting.
-        """
-        parts = path_parts if isinstance(path_parts, tuple) else (path_parts,)
-        path = self.artifact_store.get_path(*parts)
-        writer = functools.partial(write_fn, payload, *parts)
-        return WritePlan(path, writer, phase, dedupable=dedupable)
-
     def _prepare_expr_file(self, expr: ir.Expr, profiles: dict) -> WritePlan:
         path = self.artifact_store.get_path(DumpFiles.expr)
         # phase EXPR: translation tokenizes memtable parquets, which the DATA
@@ -618,7 +620,8 @@ class ExprDumper:
 
     def _prepare_sql_file(self, sql: str) -> WritePlan:
         filename = f"{tokenize(sql)[: config.hash_length]}.sql"
-        return self._plan(
+        return WritePlan.build(
+            self.artifact_store,
             self.artifact_store.write_text,
             sql,
             filename,
@@ -631,7 +634,8 @@ class ExprDumper:
     ) -> WritePlan:
         assert which in BundledSourceTypes
         table = mt.to_expr().to_pyarrow()
-        return self._plan(
+        return WritePlan.build(
+            self.artifact_store,
             self.artifact_store.write_parquet,
             table,
             (which, f"{tokenize(table)}.parquet"),
@@ -644,7 +648,8 @@ class ExprDumper:
         # Internal invariant; see the matching guard in _prepare_relocatable_reads.
         assert "hash_path" in kw, "relocatable Read must have hash_path"
         source_path = Path(kw["hash_path"])
-        return self._plan(
+        return WritePlan.build(
+            self.artifact_store,
             self.artifact_store.copy_file,
             source_path,
             relocatable_read_path(source_path),
@@ -670,7 +675,8 @@ class ExprDumper:
             plan = self._prepare_sql_file(info["sql"])
             sql_file_plans.append(plan)
             items[name] = toolz.dissoc(info, "sql") | {"sql_file": plan.path.name}
-        yaml_plan = self._plan(
+        yaml_plan = WritePlan.build(
+            self.artifact_store,
             self.artifact_store.write_yaml,
             {collection_key: items},
             dump_file,
@@ -694,7 +700,8 @@ class ExprDumper:
         return metadata_json
 
     def _prepare_build_metadata_file(self) -> WritePlan:
-        return self._plan(
+        return WritePlan.build(
+            self.artifact_store,
             self.artifact_store.write_text,
             self._make_build_metadata(),
             DumpFiles.build_metadata,
@@ -720,7 +727,8 @@ class ExprDumper:
         return metadata.to_dict()
 
     def _prepare_expr_metadata_file(self, expr: ir.Expr) -> WritePlan:
-        return self._plan(
+        return WritePlan.build(
+            self.artifact_store,
             self.artifact_store.write_json,
             self._make_expr_metadata(expr),
             DumpFiles.expr_metadata,
@@ -728,7 +736,8 @@ class ExprDumper:
         )
 
     def _prepare_profiles_file(self, profiles: dict) -> WritePlan:
-        return self._plan(
+        return WritePlan.build(
+            self.artifact_store,
             self.artifact_store.write_yaml,
             profiles,
             DumpFiles.profiles,
