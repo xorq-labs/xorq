@@ -487,7 +487,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name
             The name of the table
         kwargs
-            Datafusion-specific keyword arguments
+            DataFusion-specific keyword arguments. Only applied to path and
+            record-batch-reader sources; ignored for expr, DataFrame, and
+            in-memory table sources.
 
         """
         import pandas as pd  # noqa: PLC0415
@@ -495,7 +497,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         # Phase 1: resolve ir.Expr to a concrete type before dispatch.
         if isinstance(source, ir.Expr):
-            source = self._resolve_expr_for_register(source, **kwargs)
+            source = self._resolve_expr_for_register(source)
 
         table_name = table_name or gen_name("register")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
@@ -541,7 +543,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         return self.table(table_name)
 
-    def _resolve_expr_for_register(self, source: ir.Expr, **kwargs) -> Any:
+    def _resolve_expr_for_register(self, source: ir.Expr) -> Any:
         backends, has_unbound = source._find_backends()
         if has_unbound:
             raise ValueError(
@@ -555,13 +557,16 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             return self.execute(source)
         backend = backends[0]
         if not isinstance(backend, Backend):
-            # Cross-backend expr: leave as ir.Expr; match arms handle it.
+            # Cross-backend expr: leave as ir.Expr; the match arms register it by
+            # executing on the source's own backend.
             return source
-        # Same-backend DataFusion expr: compile to native DataFrame to avoid
-        # nested tokio runtime panic that IbisTableProvider.scan() would cause.
+        # Same-backend DataFusion expr: compile to a native DataFrame instead of
+        # routing through IbisTableProvider. scan() would synchronously re-enter
+        # this connection, and a reentrant (>=3-level) expr then starves the
+        # tokio worker pool and deadlocks on core-limited runners (issue #1580).
         backend._register_udfs(source)
         backend._register_in_memory_tables(source)
-        raw_sql = backend.compile(source.as_table(), **kwargs)
+        raw_sql = backend.compile(source.as_table())
         return backend.con.sql(raw_sql)
 
     def _register_path(self, path: str, table_name: str, **kwargs: Any) -> ir.Table:

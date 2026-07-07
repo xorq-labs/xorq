@@ -1,7 +1,15 @@
+from __future__ import annotations
+
+import multiprocessing as mp
+import os
+import queue
 import warnings
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 import pytest
 from batchcorder import StreamCache
 
@@ -58,6 +66,123 @@ def test_register_table_provider():
     # None table_name generates a name; returned table reflects it
     t = con.register_table_provider(source)
     assert t.get_name() in con.list_tables()
+
+
+def test_register_native_datafusion_dataframe() -> None:
+    # A native DataFusion DataFrame (result of con.con.sql) hits the DataFrame arm.
+    con = xo.connect()
+    con.register(pa.table({"a": [1, 2, 3]}), "base")
+    native = con.con.sql("SELECT a, a * 2 AS b FROM base")
+    t = con.register(native, "from_native_df")
+    assert "from_native_df" in con.list_tables()
+    # sort: DataFusion does not guarantee row order without ORDER BY
+    out = t.execute().sort_values("a").reset_index(drop=True)
+    assert out["b"].tolist() == [2, 4, 6]
+
+
+def test_register_pyarrow_dataset(tmp_path: Path) -> None:
+    # A pyarrow Dataset hits the ds.Dataset arm.
+    pq.write_table(pa.table({"a": [1, 2, 3]}), str(tmp_path / "p.parquet"))
+    con = xo.connect()
+    t = con.register(ds.dataset(str(tmp_path)), "from_dataset")
+    assert t.count().execute() == 3
+
+
+def test_register_cross_backend_column_expr() -> None:
+    # A bound non-table expr (column) hits the ir.Expr arm: materialized via
+    # the source backend's to_pyarrow_batches into a record-batch reader.
+    src = xo.duckdb.connect().create_table("d", pa.table({"a": [1, 2, 3]}))
+    con = xo.connect()
+    t = con.register(src.a, "from_col")
+    assert sorted(t.execute()["a"].tolist()) == [1, 2, 3]
+
+
+def test_register_same_backend_expr_materialized() -> None:
+    # Same-backend exprs compile to a native DataFrame, not IbisTableProvider
+    # (see _resolve_expr_for_register / issue #1580).
+    con = xo.connect()
+    base = con.register(pa.table({"a": [1, 2, 3], "b": [10, 20, 30]}), "base")
+    expr = base.filter(base.a > 1).mutate(c=base.b * 2)
+    reg = con.register(expr, "derived")
+    # sort: DataFusion does not guarantee row order without ORDER BY
+    out = reg.execute().sort_values("a").reset_index(drop=True)
+    assert out["a"].tolist() == [2, 3]
+    assert out["c"].tolist() == [40, 60]
+
+
+def test_register_same_backend_expr_with_in_memory_table() -> None:
+    # A same-backend expr that joins in an ibis.memtable exercises the
+    # materialization path's _register_in_memory_tables call: the memtable must
+    # be registered on the connection before the expr compiles to SQL.
+    con = xo.connect()
+    base = con.register(pa.table({"a": [1, 2, 3]}), "base")
+    lookup = xo.memtable({"a": [2, 3], "tag": ["x", "y"]})
+    reg = con.register(base.join(lookup, "a"), "joined_mem")
+    # sort: DataFusion does not guarantee row order without ORDER BY
+    out = reg.execute().sort_values("a").reset_index(drop=True)
+    assert out["a"].tolist() == [2, 3]
+    assert out["tag"].tolist() == ["x", "y"]
+
+
+def test_register_provider_filter_pushdown() -> None:
+    # Filtering a provider-backed table pushes the predicate into
+    # IbisTableProvider.scan(filters), which re-applies it on the source side.
+    src = xo.duckdb.connect().create_table(
+        "d", pa.table({"a": [1, 2, 3, 4], "b": [10, 20, 30, 40]})
+    )
+    con = xo.connect()
+    reg = con.register(src, "prov")
+    out = reg.filter(reg.a > 2).execute().sort_values("a").reset_index(drop=True)
+    assert out["a"].tolist() == [3, 4]
+
+
+def _reentrant_depth3_child(result_q: mp.Queue) -> None:
+    # Pin to two cores BEFORE the tokio runtime is built -- the config under
+    # which the reentrant deadlock (#1580) reproduced. Take them from the
+    # current affinity set to stay valid inside an already-pinned container.
+    two_cpus = set(sorted(os.sched_getaffinity(0))[:2])
+    os.sched_setaffinity(0, two_cpus)
+
+    con = xo.connect()
+    t = con.register(pa.table({"a": [1, 2, 3, 4, 5]}), "base")
+    # Three-level same-backend registration: the shape that used to deadlock.
+    for i in range(3):
+        t = con.register(t.mutate(**{f"x{i}": t.a + i}), f"lvl{i}")
+    result_q.put(t.execute().shape)
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "sched_setaffinity") or len(os.sched_getaffinity(0)) < 2,
+    reason="needs Linux CPU-affinity control and >=2 available cores",
+)
+def test_reentrant_same_backend_register_no_deadlock_on_two_cores() -> None:
+    # Spawned, core-pinned child so a hang becomes a timeout->failure instead of
+    # blocking the suite. Success path is ~1s (spawn + import + connect +
+    # execute), so 10s is a wide margin.
+    timeout_s = 10
+    ctx = mp.get_context("spawn")
+    result_q = ctx.Queue()
+    proc = ctx.Process(target=_reentrant_depth3_child, args=(result_q,))
+    proc.start()
+    proc.join(timeout_s)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join()
+        pytest.fail(
+            f"reentrant same-backend register hung >{timeout_s}s "
+            "(issue #1580 tokio worker starvation)"
+        )
+    try:
+        shape = result_q.get(timeout=5)
+    except queue.Empty:
+        pytest.fail(f"child exited without a result (exitcode={proc.exitcode})")
+    assert shape == (5, 4)
+
+
+def test_register_unknown_source_type_raises() -> None:
+    con = xo.connect()
+    with pytest.raises(ValueError, match="Unknown `source` type"):
+        con.register(object(), "bad")
 
 
 def test_read_record_batches_type_mismatch() -> None:
