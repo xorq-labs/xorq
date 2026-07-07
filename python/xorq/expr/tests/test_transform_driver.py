@@ -185,6 +185,23 @@ def test_apply_pass_traversal_selected_from_record() -> None:
     assert len(descend_seen) > len(boundary_seen)
 
 
+def test_produces_resources_pass_requires_scope() -> None:
+    """A ``produces_resources`` pass run with ``ctx.scope is None`` fails loudly
+    (its replacer would otherwise ``AttributeError`` deep inside on
+    ``ctx.scope.adopt_*``)."""
+    t = xo.memtable({"a": [1, 2, 3]})
+    resource_pass = TransformPass(
+        name="needs_scope",
+        traversal=Traversal.BOUNDARY,
+        build=lambda expr, ctx: _identity_replacer(),
+        produces_resources=True,
+    )
+    with pytest.raises(
+        InternalError, match=r"produces resources but ctx.scope is None"
+    ):
+        apply_pass(resource_pass, t, TransformCtx())  # scope defaults to None
+
+
 # --- P4: fusion of adjacent pure DESCEND passes -----------------------------
 
 

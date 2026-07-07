@@ -179,6 +179,12 @@ def _apply_active_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> E
     # module level -- importing it here keeps that edge out of the import cycle.
     from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
+    if pass_.produces_resources and ctx.scope is None:
+        # A resource pass adopts into ctx.scope unconditionally; fail loudly here
+        # rather than with an opaque AttributeError deep inside the replacer.
+        raise InternalError(
+            f"transform pass {pass_.name!r} produces resources but ctx.scope is None"
+        )
     with tracer.start_as_current_span(f"transform.{pass_.name}"):
         try:
             replacer = pass_.build(expr, ctx)
