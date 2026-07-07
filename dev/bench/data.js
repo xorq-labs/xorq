@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783423604804,
+  "lastUpdate": 1783425553007,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -24786,6 +24786,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.08673838122678422",
             "extra": "mean: 1.6894090563999953 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "739ac70b63229d129e3a64f0759c89ef526664b4",
+          "message": "refactor(sqlite): replace cityhash with stdlib hashlib in hash udf (#2136)\n\n## What\n\nRemoves the `cityhash` dependency and reimplements the SQLite `Hash` op\nUDF using the standard library `hashlib.blake2b`.\n\n- `pyproject.toml` — drop `cityhash>=0.4.7,<1` from the `sqlite`\noptional group\n- `nix/xorq.nix` — drop the `cityhash` `overrideAttrs` build fixup\n- `uv.lock` — regenerated (`cityhash` removed)\n- `udf.py` — the UDF now returns a 32-bit `hashlib.blake2b` digest;\ndropped the inline `from cityhash import CityHash32`\n- **renamed** `city_hash_32` → `ibis_hash_32` (and its `visit_Hash` call\nsite) since it no longer wraps `CityHash32`\n- added a pinned snapshot test for the UDF output\n\n`cityhash` was verified to be used **nowhere else** in the codebase —\nthe sqlite UDF was its only consumer.\n\n## Why blake2b (and not the faster crc32)\n\n`Hash()` isn't just cosmetic — it feeds `train_test_splits`, which\nbuckets rows via `Hash().abs().mod(num_buckets)` and slices bucket\nranges into splits. That needs a hash with **strong avalanche** so\nbuckets are evenly distributed.\n\nAn earlier revision used `zlib.crc32` (much faster). It broke\n`test_train_test_split_parametrized[sqlite-*]`: crc32 is a checksum, not\na hash, and distributes poorly mod-N. For the 0.25 test split (buckets\n`[150, 200)`) it produced **0.254** vs the target 0.25 (>1% tolerance):\n\n| hash | test split frac (buckets [150,200), seed 42) |\n|------|--:|\n| cityhash (old) | 0.2475 |\n| **blake2b (new)** | **0.2495** |\n| crc32 | 0.2540 ❌ |\n| md5 | 0.2540 ❌ |\n\nblake2b matches (slightly beats) cityhash's distribution quality.\n`zlib.adler32` also passes the suite but only because its two-sum\nstructure happens to spread the test's *sequential* integer keys evenly\n— on varied keys it drifts to 0.254, so it's not a sound general-purpose\nchoice.\n\n## Why 32-bit\n\n`Hash().abs().mod(n)` compiles to SQLite's math-extension `MOD(ABS(...),\nn)`, which operates in **floating point**. A wider (64-bit) digest loses\nprecision in that `MOD` and skews the buckets (observed test split\ndrifting to 0.236). Keeping the digest 32-bit — as the original\n`CityHash32` was — keeps `MOD` exact. Verified per-row that SQLite's\nbucket == Python's `blake2b(...) % n` with a 32-bit digest.\n\n## Speed note\n\nblake2b is slower than crc32 per call, but the UDF runs inside SQLite's\nper-row Python dispatch (already microsecond-scale), and correctness of\nthe split distribution is the governing constraint here.\n\n## Not a breaking change for caches\n\nThe SQLite `Hash` UDF is used only for query-time train/test bucketing\n(`expr/ml/split_lib.py`, `cross_validation.py`). xorq cache keys are\ncomputed Python-side via `__dasher_tokenize__`, **not** this SQL UDF,\nand split membership is recomputed each execution rather than persisted\n— so changing the hash algorithm invalidates nothing on disk.\n\n## Test\n\n- `test_split_lib.py` (66 passed, 7 xfailed), `backends/sqlite/tests/` +\n`test_cross_validation.py` (86 passed) all green\n- new `test_hash_pinned_values` pins the UDF output via pytest-snapshot\n(json snapshot of input → hash) to catch future algorithm/encoding drift\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-07-07T07:53:31-04:00",
+          "tree_id": "6894f2599d2fb816e0016ab11b9480d907fc74f9",
+          "url": "https://github.com/xorq-labs/xorq/commit/739ac70b63229d129e3a64f0759c89ef526664b4"
+        },
+        "date": 1783425549922,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.838141996074578,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009638091569905954",
+            "extra": "mean: 113.14595312500586 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.508906662557921,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04808042377493732",
+            "extra": "mean: 398.57999300000415 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8114762149907441,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19160416371896133",
+            "extra": "mean: 1.2323220096000056 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.7688937698110663,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06224488590742602",
+            "extra": "mean: 361.1550616000102 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.095743076386713,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04362696491174186",
+            "extra": "mean: 323.0242223999994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.3335467336610063,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015112147730413718",
+            "extra": "mean: 299.9807952000026 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 145.6769726889555,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013059167733978297",
+            "extra": "mean: 6.864502889795533 msec\nrounds: 245"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.707184145945181,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0743641565411215",
+            "extra": "mean: 212.44123216666821 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 21.516675971987148,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008956937858699297",
+            "extra": "mean: 46.47558021052664 msec\nrounds: 19"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.825015970199805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02016563716168184",
+            "extra": "mean: 92.37861660000326 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 9.20927298826437,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021664951400323595",
+            "extra": "mean: 108.5862044999999 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.854153431831999,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02842309302444843",
+            "extra": "mean: 145.89693824999728 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 5.0804373580867725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013807152206228062",
+            "extra": "mean: 196.83344749999776 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.908311574072524,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01093286475537314",
+            "extra": "mean: 203.73604749999194 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.3664575165166966,
+            "unit": "iter/sec",
+            "range": "stddev: 0.054551120074314605",
+            "extra": "mean: 422.57255540000074 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.6256579465160295,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006435986608390985",
+            "extra": "mean: 275.8120083999984 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.763635978811006,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08733010047962934",
+            "extra": "mean: 567.0104329999958 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.7662600696540511,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09458595350312293",
+            "extra": "mean: 566.1680389999788 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6366758694233776,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11538334916918154",
+            "extra": "mean: 610.9945278000055 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.6623993893945808,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0975710775632305",
+            "extra": "mean: 601.5401632000021 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2331668635181758,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13942337766889204",
+            "extra": "mean: 810.9202651999908 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1477404033887504,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1355916677713789",
+            "extra": "mean: 871.2771608000025 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0450239886740411,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16091711667950445",
+            "extra": "mean: 956.9158324000114 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6228242136690421,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21321974235998356",
+            "extra": "mean: 1.6055894714000032 sec\nrounds: 5"
           }
         ]
       }
