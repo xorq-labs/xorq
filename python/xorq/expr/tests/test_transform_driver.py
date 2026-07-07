@@ -33,7 +33,7 @@ from xorq.expr.api import (
 )
 from xorq.expr.enums import Traversal
 from xorq.expr.operations import NamedScalarParameter
-from xorq.expr.relations import RemoteTable, Tag
+from xorq.expr.relations import TEE_PASS, RemoteTable, Tag, TeeNode
 from xorq.expr.remote_table_exec import RemoteTableScope
 from xorq.expr.transform import (
     TransformCtx,
@@ -234,6 +234,32 @@ def test_non_producer_pass_is_handed_a_scopeless_ctx() -> None:
 
     assert seen["prod"] is ctx.scope, "a producer's build sees the shared scope"
     assert seen["pure"] is None, "a non-producer's build is handed a scopeless ctx"
+
+
+def test_producer_that_never_adopts_is_not_flagged() -> None:
+    """The reverse of the gate -- a pass that declares ``produces_resources`` but
+    never adopts -- is deliberately *not* enforced (see ``_pass_ctx``). ``TEE_PASS``
+    is the false-positive trap: it has no ``when``, so it runs on every expr, and on
+    one with no ``TeeNode`` it legitimately adopts nothing. That zero-adopt run is
+    indistinguishable from a genuinely miswired producer, so a naive "a producer
+    must adopt at least one resource" check would misfire here. This pins that the
+    driver does *not* raise and touches nothing on this legitimate no-op."""
+    t = xo.memtable({"a": [1, 2, 3]})
+    assert not walk_nodes(TeeNode, t)  # precondition: nothing for tee to adopt
+    scope = RemoteTableScope()
+
+    out = apply_pass(TEE_PASS, t, TransformCtx(scope=scope))
+
+    # ran cleanly, adopted nothing, left the scope open and the expr unchanged.
+    assert (
+        scope.reader_count
+        == scope.cache_count
+        == scope.table_count
+        == scope.drain_count
+        == 0
+    )
+    assert not scope.closed
+    assert get_expr_hash(out) == get_expr_hash(t)
 
 
 # --- P4: fusion of adjacent pure DESCEND passes -----------------------------

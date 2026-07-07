@@ -175,7 +175,21 @@ def _pass_ctx(pass_: TransformPass, ctx: TransformCtx) -> TransformCtx:
     a non-producer gets a scopeless copy, so ``produces_resources`` is an enforced
     resource-ownership gate, not only a fusion gate: a pass that adopts into the
     scope without declaring it fails loudly (``scope is None``) instead of silently
-    leaking into a scope nobody expects it to own."""
+    leaking into a scope nobody expects it to own.
+
+    The gate is deliberately one-directional. It catches *undeclared* adoption
+    but not the reverse -- a pass that declares ``produces_resources`` yet never
+    calls ``scope.adopt_*`` -- and that reverse case cannot be caught here without
+    false positives: ``TEE_PASS`` is a producer with no ``when``, so it runs on
+    every expr and, on one with no ``TeeNode``, legitimately adopts nothing. That
+    zero-adopt run is runtime-indistinguishable from a producer miswired to never
+    touch the scope -- instrumenting the scope to count adopts flags both, and a
+    build-time "did it read ``ctx.scope``" probe is neither necessary (a replacer
+    may close over ``ctx`` and read ``scope`` only at walk time) nor sufficient
+    (reading the scope is not adopting). The only signal that separates them --
+    "an adoptable node was present yet ignored" -- is each pass's own domain
+    predicate (``isinstance(node, TeeNode)``, ``_has_boundary_remote_table``), not
+    anything the generic driver has. So this half is left unenforced by design."""
     if pass_.produces_resources:
         return ctx
     return ctx if ctx.scope is None else evolve(ctx, scope=None)
