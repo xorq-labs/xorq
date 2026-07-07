@@ -23,9 +23,13 @@ breaking correctness.
 Adjacent *fusable* passes -- pure structural rewrites (``DESCEND`` and
 ``not produces_resources``) -- are coalesced into a single ``replace_nodes``
 walk whose composed replacer applies each pass's rewrite in table order at every
-node. This is the one place ``produces_resources`` is read: it keeps an
-effectful DESCEND pass out of the shared walk. Fusion only collapses *how many*
-graph traversals a run of pure rewrites costs, never their order or result.
+node. Fusion only collapses *how many* graph traversals a run of pure rewrites
+costs, never their order or result.
+
+``produces_resources`` is read in two places: :func:`_is_fusable` (an effectful
+pass stays off the shared fused walk) and :func:`_pass_ctx` (only a declared
+producer is handed the scope, so a pass that adopts resources without declaring
+it fails loudly instead of silently leaking).
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from attr.validators import deep_iterable, instance_of, is_callable, optional
-from attrs import field, frozen
+from attrs import evolve, field, frozen
 
 from xorq.common.exceptions import InternalError
 from xorq.common.utils.otel_utils import tracer
@@ -73,9 +77,10 @@ class TransformCtx:
     """Per-transform context threaded to every pass builder.
 
     ``scope`` owns every resource the effectful passes materialize (created once,
-    up front, in ``_transform_expr``); it is ``None`` only when driving a subset
-    of passes that produce nothing (e.g. a lone pure pass in a test).
-    ``name_values`` are the resolved parameter bindings;
+    up front, in ``_transform_expr``). It is ``None`` when no scope is available
+    (driving pure passes in a test) and is *deliberately* swapped to ``None`` for
+    non-producer passes by :func:`_pass_ctx`, so only a declared producer can
+    adopt into it. ``name_values`` are the resolved parameter bindings;
     ``read_record_batches_kwargs`` are the backend read kwargs that must reach
     ``read_record_batches`` (e.g. Snowflake's ``database=``).
     """
@@ -107,11 +112,12 @@ def _is_fusable(pass_: TransformPass) -> bool:
     """Whether ``pass_`` can share a single descend-walk with its neighbours.
 
     True for a pure structural rewrite: it descends (``DESCEND``) and
-    materializes nothing (``not produces_resources``). This is the sole consumer
-    of ``produces_resources`` -- the flag exists to keep an effectful DESCEND
-    pass out of the fused walk, where its side effect would fire under a shared
-    traversal it does not own. A BOUNDARY pass is never fusable: it must fire
-    once, at the execution boundary (see :class:`~xorq.expr.enums.Traversal`).
+    materializes nothing (``not produces_resources``). ``produces_resources`` here
+    keeps an effectful DESCEND pass out of the fused walk, where its side effect
+    would fire under a shared traversal it does not own (the flag is also read by
+    :func:`_pass_ctx` to gate scope access). A BOUNDARY pass is never fusable: it
+    must fire once, at the execution boundary (see
+    :class:`~xorq.expr.enums.Traversal`).
     """
     return pass_.traversal is Traversal.DESCEND and not pass_.produces_resources
 
@@ -164,6 +170,17 @@ def _fuse_replacers(replacers: list[Replacer]) -> Replacer:
     return fused
 
 
+def _pass_ctx(pass_: TransformPass, ctx: TransformCtx) -> TransformCtx:
+    """The ctx a pass's ``build`` sees. A declared producer gets the shared scope;
+    a non-producer gets a scopeless copy, so ``produces_resources`` is an enforced
+    resource-ownership gate, not only a fusion gate: a pass that adopts into the
+    scope without declaring it fails loudly (``scope is None``) instead of silently
+    leaking into a scope nobody expects it to own."""
+    if pass_.produces_resources:
+        return ctx
+    return ctx if ctx.scope is None else evolve(ctx, scope=None)
+
+
 def _apply_active_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> Expr:
     """Build and run one pass whose ``when`` is already evaluated (or absent),
     selecting the walk from ``pass_.traversal``.
@@ -186,7 +203,7 @@ def _apply_active_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> E
         )
     with tracer.start_as_current_span(f"transform.{pass_.name}"):
         try:
-            replacer = pass_.build(expr, ctx)
+            replacer = pass_.build(expr, _pass_ctx(pass_, ctx))
             if pass_.traversal is Traversal.DESCEND:
                 return replace_nodes(replacer, expr).to_expr()
             return expr.op().replace(replacer).to_expr()
@@ -246,7 +263,8 @@ def _apply_group(
         return _apply_active_pass(active[0], expr, ctx)
     label = "+".join(p.name for p in active)
     with tracer.start_as_current_span(f"transform.fuse[{label}]"):
-        replacers = [p.build(expr, ctx) for p in active]
+        # fusable passes are non-producers, so each builds with a scopeless ctx.
+        replacers = [p.build(expr, _pass_ctx(p, ctx)) for p in active]
         return replace_nodes(_fuse_replacers(replacers), expr).to_expr()
 
 

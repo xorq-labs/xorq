@@ -202,6 +202,40 @@ def test_produces_resources_pass_requires_scope() -> None:
         apply_pass(resource_pass, t, TransformCtx())  # scope defaults to None
 
 
+def test_non_producer_pass_is_handed_a_scopeless_ctx() -> None:
+    """``produces_resources`` is an enforced resource-ownership gate: a declared
+    producer's ``build`` sees the shared scope, a non-producer's sees ``None`` --
+    so a pass that adopts into the scope without declaring it fails loudly instead
+    of silently leaking."""
+    t = xo.memtable({"a": [1, 2, 3]})
+    seen: dict[str, object] = {}
+
+    def record_scope(name):
+        def build(expr, ctx):
+            seen[name] = ctx.scope
+            return _identity_replacer()
+
+        return build
+
+    ctx = _ctx()  # carries a real RemoteTableScope
+    producer = TransformPass(
+        name="prod",
+        traversal=Traversal.BOUNDARY,
+        build=record_scope("prod"),
+        produces_resources=True,
+    )
+    non_producer = TransformPass(
+        name="pure",
+        traversal=Traversal.DESCEND,
+        build=record_scope("pure"),
+    )
+    apply_pass(producer, t, ctx)
+    apply_pass(non_producer, t, ctx)
+
+    assert seen["prod"] is ctx.scope, "a producer's build sees the shared scope"
+    assert seen["pure"] is None, "a non-producer's build is handed a scopeless ctx"
+
+
 # --- P4: fusion of adjacent pure DESCEND passes -----------------------------
 
 
