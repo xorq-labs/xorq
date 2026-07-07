@@ -94,9 +94,6 @@ let
       };
 
       pyprojectOverrides-base = final: prev: {
-        cityhash = prev.cityhash.overrideAttrs (
-          addResolved final (if python.pythonAtLeast "3.12" then [ "setuptools" ] else [ ])
-        );
         hash-cache = prev.hash-cache.overrideAttrs (addResolved final [ "hatchling" ]);
         xorq-hash-cache = prev.xorq-hash-cache.overrideAttrs (addResolved final [ "hatchling" ]);
         xorq-feature-utils = prev.xorq-feature-utils.overrideAttrs (addResolved final [ "hatchling" ]);
