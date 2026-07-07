@@ -806,7 +806,7 @@ class Read(ops.DatabaseTable):
 _NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
 
 
-def _tee_replacer(scope: RemoteTableScope) -> Replacer:
+def _make_tee_replacer(scope: RemoteTableScope) -> Replacer:
     """Build the per-node replacer that turns each surviving `TeeNode` into a
     backend table fed by the writer's ``write_through(batches)`` generator,
     adopting every resource it materializes into the caller-owned ``scope``.
@@ -867,7 +867,7 @@ def _tee_replacer(scope: RemoteTableScope) -> Replacer:
 TEE_PASS = TransformPass(
     name="tee",
     traversal=Traversal.BOUNDARY,
-    build=lambda expr, ctx: _tee_replacer(ctx.scope),
+    build=lambda expr, ctx: _make_tee_replacer(ctx.scope),
     produces_resources=True,
     after=("cache",),
 )

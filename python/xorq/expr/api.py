@@ -226,7 +226,7 @@ def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
     return SQLString(_cached_with_op(unbound, pretty, compiler))
 
 
-def _cache_replacer(expr: ir.Expr) -> Replacer:
+def _make_cache_replacer(expr: ir.Expr) -> Replacer:
     """Build the BOUNDARY replacer that sequentially executes any CachedNode that
     is not already cached (``set_default`` materializes as a side effect)."""
     op = expr.op()
@@ -260,7 +260,7 @@ def _cache_replacer(expr: ir.Expr) -> Replacer:
     return fn
 
 
-def _deferred_reads_replacer() -> Replacer:
+def _make_deferred_reads_replacer() -> Replacer:
     """Build the BOUNDARY replacer that resolves each deferred `Read` via
     ``make_dt()`` at this execution boundary."""
     span = get_current_span()
@@ -339,7 +339,7 @@ def execute(expr: ir.Expr, **kwargs: Any):
     return expr.__pandas_result__(df)
 
 
-def _remove_tag_nodes_replacer() -> Replacer:
+def _make_remove_tag_nodes_replacer() -> Replacer:
     """Build the DESCEND replacer that strips `Tag` wrappers, re-walking the
     unwrapped parent so nested tags collapse to their first non-Tag ancestor."""
 
@@ -357,7 +357,7 @@ def _remove_tag_nodes_replacer() -> Replacer:
 
 @tracer.start_as_current_span("_remove_tag_nodes")
 def _remove_tag_nodes(expr: ir.Expr) -> ir.Expr:
-    return replace_nodes(_remove_tag_nodes_replacer(), expr).to_expr()
+    return replace_nodes(_make_remove_tag_nodes_replacer(), expr).to_expr()
 
 
 @tracer.start_as_current_span("_remove_tee_nodes")
@@ -464,7 +464,7 @@ _PASSES = (
     TransformPass(
         name="bind_params",
         traversal=Traversal.DESCEND,
-        build=lambda expr, ctx: _bind_params_replacer(
+        build=lambda expr, ctx: _make_bind_params_replacer(
             _resolve_bind_op_params(expr, ctx.name_values)
         ),
         # Skip entirely when there is nothing to bind (no values, no params).
@@ -475,12 +475,12 @@ _PASSES = (
     TransformPass(
         name="remove_tags",
         traversal=Traversal.DESCEND,
-        build=lambda expr, ctx: _remove_tag_nodes_replacer(),
+        build=lambda expr, ctx: _make_remove_tag_nodes_replacer(),
     ),
     TransformPass(
         name="cache",
         traversal=Traversal.BOUNDARY,
-        build=lambda expr, ctx: _cache_replacer(expr),
+        build=lambda expr, ctx: _make_cache_replacer(expr),
         after=("bind_params", "remove_tags"),
     ),
     TEE_PASS,
@@ -488,7 +488,7 @@ _PASSES = (
     TransformPass(
         name="deferred_reads",
         traversal=Traversal.BOUNDARY,
-        build=lambda expr, ctx: _deferred_reads_replacer(),
+        build=lambda expr, ctx: _make_deferred_reads_replacer(),
         after=("remote",),
     ),
 )
@@ -828,7 +828,7 @@ def bind_params(expr, params: dict) -> "ir.Expr":
         incompatible with the declared dtype.
     """
     op_params = _resolve_bind_op_params(expr, params)
-    return replace_nodes(_bind_params_replacer(op_params), expr).to_expr()
+    return replace_nodes(_make_bind_params_replacer(op_params), expr).to_expr()
 
 
 def _resolve_bind_op_params(expr: ir.Expr, params: dict) -> dict:
@@ -871,7 +871,7 @@ def _resolve_bind_op_params(expr: ir.Expr, params: dict) -> dict:
     }
 
 
-def _bind_params_replacer(op_params: dict) -> Replacer:
+def _make_bind_params_replacer(op_params: dict) -> Replacer:
     """Build the DESCEND replacer that substitutes bound NamedScalarParameters
     with their Literal values."""
 
