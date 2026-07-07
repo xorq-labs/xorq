@@ -12,7 +12,7 @@ from xorq.common.compat import raise_collected_errors
 from xorq.common.utils.logging_utils import get_logger
 from xorq.expr.enums import Traversal
 from xorq.expr.relations import RemoteTable, gen_name
-from xorq.expr.transform import TransformCtx, TransformPass, apply_pass
+from xorq.expr.transform import Replacer, TransformCtx, TransformPass, apply_pass
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import operations as ops
@@ -320,13 +320,13 @@ def bind_scope_to_reader(
 
 
 def _remote_replacer(
-    expr: Expr, scope: RemoteTableScope, read_kwargs: dict
-) -> Callable:
+    expr: Expr, scope: RemoteTableScope, read_record_batches_kwargs: dict
+) -> Replacer:
     """Build the per-node replacer that swaps each `RemoteTable` for a placeholder
     table fed by a cached, cast stream, adopting every resource into the
     caller-owned ``scope``.
 
-    ``read_kwargs`` are the through-kwargs that must reach ``read_record_batches``
+    ``read_record_batches_kwargs`` are forwarded to ``read_record_batches``
     (e.g. Snowflake's ``database=(catalog, db)``). The replacer never closes
     ``scope`` -- teardown stays with the caller that created it.
     """
@@ -354,12 +354,12 @@ def _remote_replacer(
             # already declares it. Backends that genuinely use a schema
             # (xorq_datafusion, pyiceberg) default to the source's own schema.
             result = node.source.read_record_batches(
-                cache, table_name=table_name, **read_kwargs
+                cache, table_name=table_name, **read_record_batches_kwargs
             )
             return result.op()
 
         # ``replacer``'s ``kwargs`` (node-recreate args) shadows the builder's
-        # ``read_kwargs``; those are captured above so they reach the backend.
+        # ``read_record_batches_kwargs``; captured above so they reach the backend.
         if kwargs:
             node = node.__recreate__(kwargs)
 
@@ -368,14 +368,16 @@ def _remote_replacer(
     return replacer
 
 
-# BOUNDARY (op.replace), not DESCEND: mark_remote_table has side effects that must
-# not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr).
-# Runs after tee so a tee placeholder registered earlier is torn down by the same
-# shared scope if this pass fails.
+# BOUNDARY: mark_remote_table has side effects, so it must not descend into opaque
+# sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr) -- see Traversal. Runs after
+# tee so a tee placeholder registered earlier is torn down by the same shared scope
+# if this pass fails.
 REMOTE_PASS = TransformPass(
     name="remote",
     traversal=Traversal.BOUNDARY,
-    build=lambda expr, ctx: _remote_replacer(expr, ctx.scope, ctx.through_kwargs),
+    build=lambda expr, ctx: _remote_replacer(
+        expr, ctx.scope, ctx.read_record_batches_kwargs
+    ),
     produces_resources=True,
     after=("tee",),
 )
@@ -386,13 +388,17 @@ def register_and_transform_remote_tables_into(
 ) -> Expr:
     """Apply :data:`REMOTE_PASS` against the caller-owned ``scope``.
 
-    Thin adapter over the shared driver so the standalone wrapper and the
-    ``_transform_expr`` pipeline apply the remote pass identically. The scope is
-    threaded explicitly by the caller; this never closes it -- ownership and
-    teardown stay with the caller that created it.
+    Thin adapter for callers that apply the remote pass on its own (tests,
+    one-off use): it runs the same :data:`REMOTE_PASS` record through the shared
+    driver that ``_transform_expr`` folds over its whole pass table, so both
+    apply identical traversal and scope discipline. The scope is threaded
+    explicitly by the caller; this never closes it -- ownership and teardown
+    stay with the caller that created it.
     """
     return apply_pass(
-        REMOTE_PASS, expr, TransformCtx(scope=scope, through_kwargs=kwargs)
+        REMOTE_PASS,
+        expr,
+        TransformCtx(scope=scope, read_record_batches_kwargs=kwargs),
     )
 
 

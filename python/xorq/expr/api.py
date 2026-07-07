@@ -6,7 +6,7 @@ import functools
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 import pyarrow as pa
 import toolz
@@ -50,7 +50,12 @@ from xorq.expr.remote_table_exec import (
     RemoteTableScope,
     bind_scope_to_reader,
 )
-from xorq.expr.transform import TransformCtx, TransformPass, run_transform_passes
+from xorq.expr.transform import (
+    Replacer,
+    TransformCtx,
+    TransformPass,
+    run_transform_passes,
+)
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import api
 from xorq.vendor.ibis.expr.api import *  # noqa: F403
@@ -221,7 +226,7 @@ def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
     return SQLString(_cached_with_op(unbound, pretty, compiler))
 
 
-def _cache_replacer(expr: "ir.Expr") -> Callable:
+def _cache_replacer(expr: ir.Expr) -> Replacer:
     """Build the BOUNDARY replacer that sequentially executes any CachedNode that
     is not already cached (``set_default`` materializes as a side effect)."""
     op = expr.op()
@@ -256,12 +261,12 @@ def _cache_replacer(expr: "ir.Expr") -> Callable:
 
 
 @tracer.start_as_current_span("_register_and_transform_cache_tables")
-def _register_and_transform_cache_tables(expr: "ir.Expr") -> "ir.Expr":
+def _register_and_transform_cache_tables(expr: ir.Expr) -> ir.Expr:
     """This function will sequentially execute any cache node that is not already cached"""
     return expr.op().replace(_cache_replacer(expr)).to_expr()
 
 
-def _deferred_reads_replacer() -> Callable:
+def _deferred_reads_replacer() -> Replacer:
     """Build the BOUNDARY replacer that resolves each deferred `Read` via
     ``make_dt()`` at this execution boundary."""
     span = get_current_span()
@@ -292,10 +297,9 @@ def _deferred_reads_replacer() -> Callable:
 
 
 @tracer.start_as_current_span("_transform_deferred_reads")
-def _transform_deferred_reads(expr: "ir.Expr") -> "ir.Expr":
-    # op.replace, not replace_nodes: make_dt resolves a deferred read at this
-    # execution boundary; reads inside opaque sub-exprs are resolved when those
-    # sub-exprs execute, so descending here is wrong.
+def _transform_deferred_reads(expr: ir.Expr) -> ir.Expr:
+    # BOUNDARY: make_dt resolves each deferred read at this execution boundary
+    # (reads inside opaque sub-exprs resolve when those execute). See Traversal.
     return expr.op().replace(_deferred_reads_replacer()).to_expr()
 
 
@@ -348,7 +352,7 @@ def execute(expr: ir.Expr, **kwargs: Any):
     return expr.__pandas_result__(df)
 
 
-def _remove_tag_nodes_replacer() -> Callable:
+def _remove_tag_nodes_replacer() -> Replacer:
     """Build the DESCEND replacer that strips `Tag` wrappers, re-walking the
     unwrapped parent so nested tags collapse to their first non-Tag ancestor."""
 
@@ -365,7 +369,7 @@ def _remove_tag_nodes_replacer() -> Callable:
 
 
 @tracer.start_as_current_span("_remove_tag_nodes")
-def _remove_tag_nodes(expr: "ir.Expr") -> "ir.Expr":
+def _remove_tag_nodes(expr: ir.Expr) -> ir.Expr:
     return replace_nodes(_remove_tag_nodes_replacer(), expr).to_expr()
 
 
@@ -505,16 +509,14 @@ _PASSES = (
 
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(
-    expr: "ir.Expr", params: "dict | None" = None, **kwargs: Any
-) -> "tuple[ir.Expr, RemoteTableScope]":
+    expr: ir.Expr, params: dict | None = None, **kwargs: Any
+) -> tuple[ir.Expr, RemoteTableScope]:
     """Transform an expression for execution, binding any named scalar parameters.
 
-    Returns ``(expr, scope)``: the scope owns every resource the transform
-    materialized (upstream readers, StreamCaches, placeholder tables) and the
-    caller must close it once the transformed expr is consumed.
-
-    One scope, created up front and carried in the ``TransformCtx``, owns every
-    resource the effectful passes materialize. Because all passes adopt into this
+    Returns ``(expr, scope)``. One scope, created up front and carried in the
+    ``TransformCtx``, owns every resource the effectful passes materialize
+    (upstream readers, StreamCaches, placeholder tables); the caller must close
+    it once the transformed expr is consumed. Because all passes adopt into that
     *same* scope, a failure in any pass tears down what *earlier* passes created
     -- not just its own. The driver (``run_transform_passes``) selects each
     pass's traversal from its record and asserts the ``after`` ordering.
@@ -522,7 +524,7 @@ def _transform_expr(
     ctx = TransformCtx(
         scope=RemoteTableScope(),
         name_values=_resolve_params(params),
-        through_kwargs=kwargs,
+        read_record_batches_kwargs=kwargs,
     )
     try:
         expr = run_transform_passes(expr, _PASSES, ctx)
@@ -842,7 +844,7 @@ def bind_params(expr, params: dict) -> "ir.Expr":
     return replace_nodes(_bind_params_replacer(op_params), expr).to_expr()
 
 
-def _resolve_bind_op_params(expr: "ir.Expr", params: dict) -> dict:
+def _resolve_bind_op_params(expr: ir.Expr, params: dict) -> dict:
     """Validate ``params`` against ``expr``'s NamedScalarParameters and return the
     ``{node: value}`` bindings (applying defaults for omitted ones).
 
@@ -882,7 +884,7 @@ def _resolve_bind_op_params(expr: "ir.Expr", params: dict) -> dict:
     }
 
 
-def _bind_params_replacer(op_params: dict) -> Callable:
+def _bind_params_replacer(op_params: dict) -> Replacer:
     """Build the DESCEND replacer that substitutes bound NamedScalarParameters
     with their Literal values."""
 
