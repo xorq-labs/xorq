@@ -30,9 +30,9 @@ from xorq.writes import DrainingIterator, WriteThrough
 
 
 if TYPE_CHECKING:
-    # under TYPE_CHECKING only: remote_table_exec imports from this module, so a
-    # module-level import would be circular. Used for the return annotation; the
-    # runtime use is a deferred import inside register_and_transform_tee_nodes.
+    # A module-level import would be circular (remote_table_exec imports from
+    # here); only annotations need it, and `from __future__ import annotations`
+    # defers those to strings.
     from xorq.expr.remote_table_exec import RemoteTableScope
 
 
@@ -816,17 +816,14 @@ def register_and_transform_tee_nodes_into(
 
     The writer wraps the parent's batch stream: it pulls, writes as a side
     effect, and yields each batch onward. Runs after cache resolution, so a
-    downstream cache hit prunes the `TeeNode` before this pass sees it and
-    the write never fires.
+    downstream cache hit prunes the `TeeNode` before this pass sees it and the
+    write never fires.
 
-    ``scope`` is the single owner of every resource this pass materializes
-    (upstream readers, the intermediate pass-through tables registered on each
-    parent backend, and the write-through ``DrainingIterator`` drains);
-    ``scope.close()`` drops the tables and closes+joins the drains after
-    downstream execution completes. The scope is threaded explicitly by the
-    caller (``_transform_expr``), so a failure in a *later* pass tears these
-    resources down via the shared scope. This function never closes ``scope`` --
-    teardown stays with the caller that created it.
+    ``scope`` owns everything this pass materializes -- upstream readers, the
+    pass-through tables registered on each parent backend, and the write-through
+    ``DrainingIterator`` drains -- so a failure in a *later* pass still tears
+    them down. This function never closes ``scope``; teardown stays with the
+    caller (``_transform_expr``) that created it.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
 
@@ -846,9 +843,8 @@ def register_and_transform_tee_nodes_into(
                 "See ADR-0014.",
                 stacklevel=2,
             )
-        # adopt the upstream reader too (mirrors register_and_transform_remote_tables):
-        # it holds a live backend cursor and would otherwise leak if a later pass
-        # fails before the stream is consumed.
+        # adopt the reader (it holds a live backend cursor): a later-pass failure
+        # would otherwise leak it before the stream is consumed.
         reader = scope.adopt_reader(parent_expr.to_pyarrow_batches())
         write_iter = node.writer.write_through(reader)
         if node.drain:
@@ -859,9 +855,8 @@ def register_and_transform_tee_nodes_into(
             write_iter,
         )
         table_name = gen_name()
-        # adopt before registering (mirrors register_and_transform_remote_tables):
-        # a partial failure inside read_record_batches can't strand the placeholder,
-        # and drop_placeholder is a no-op if registration never landed.
+        # adopt before registering: a partial read_record_batches failure can't
+        # strand the placeholder (drop_placeholder no-ops if it never landed).
         scope.adopt_table(con, table_name)
         table = con.read_record_batches(wrapped, table_name=table_name)
         return table.op()
@@ -876,28 +871,6 @@ def register_and_transform_tee_nodes_into(
     # TeeNodes still fire exactly once. replace_nodes would fire them twice.
     op = expr.op()
     return op.replace(replacer).to_expr()
-
-
-def register_and_transform_tee_nodes(
-    expr: Expr,
-) -> tuple[Expr, RemoteTableScope]:
-    """Standalone wrapper: transform ``expr`` into a fresh scope it returns.
-
-    For callers outside the transform pipeline (direct tests, one-off use).
-    Mirrors ``register_and_transform_remote_tables``: the returned scope owns
-    everything the pass materialized and the caller must ``close()`` it once the
-    transformed expr is consumed. Inside the pipeline, ``_transform_expr`` calls
-    ``register_and_transform_tee_nodes_into`` directly with its shared scope.
-    """
-    from xorq.expr.remote_table_exec import RemoteTableScope  # noqa: PLC0415
-
-    scope = RemoteTableScope()
-    try:
-        expr = register_and_transform_tee_nodes_into(expr, scope)
-    except BaseException:
-        scope.close()
-        raise
-    return expr, scope
 
 
 def render_backend(con: BaseBackend) -> str:

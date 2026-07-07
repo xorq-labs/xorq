@@ -1,6 +1,6 @@
 """Contract tests for the batchcorder ``StreamCache`` primitive xorq relies on.
 
-``register_and_transform_remote_tables`` builds one ``StreamCache`` per
+``register_and_transform_remote_tables_into`` builds one ``StreamCache`` per
 RemoteTable and passes ``max_readers`` from ``count_remote_table_readers``.
 Three properties of that primitive are load-bearing for the fan-out fix and
 are pinned here directly (rather than only through a backend):

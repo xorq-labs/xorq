@@ -359,7 +359,7 @@ def _remove_tag_nodes(expr):
 def _remove_tee_nodes(expr: ir.Expr) -> ir.Expr:
     """Strip transparent `TeeNode`s to their parent (for SQL / hashing).
 
-    Execution keeps the `TeeNode` until `register_and_transform_tee_nodes`
+    Execution keeps the `TeeNode` until `register_and_transform_tee_nodes_into`
     fires the write, so this is only used off the execution path.
     """
 
@@ -464,13 +464,11 @@ def _transform_expr(expr, params=None, **kwargs):
         else expr
     )
     expr = _remove_tag_nodes(expr)
-    # One scope, created up front and threaded explicitly into every effectful
-    # pass, owns every resource those passes materialize. Because all passes
-    # adopt into this *same* scope as they create resources, a failure in any
-    # pass tears down what *earlier* passes created -- not just its own.
-    # (Previously the scope was born inside the remote-tables pass and the tee
-    # pass's tables/drains were adopted only *after* it returned, so a
-    # remote-pass failure leaked the tee placeholder tables and drain threads.)
+    # One scope, created up front and threaded explicitly into the tee and
+    # remote passes, owns every teardown-able resource they materialize (the
+    # cache-table pass's tables are intentional artifacts, not scope-owned).
+    # Both passes adopt into this *same* scope, so a failure in any pass tears
+    # down what earlier passes created, not just its own.
     scope = RemoteTableScope()
     try:
         expr = _register_and_transform_cache_tables(expr)

@@ -29,11 +29,11 @@ from xorq.expr.remote_table_exec import (
     bind_scope_to_reader,
     drop_placeholder,
     prepare_create_table_from_expr,
-    register_and_transform_remote_tables,
+    register_and_transform_remote_tables_into,
 )
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.backends import BaseBackend
-from xorq.writes import ParquetWriteThrough
+from xorq.writes import DrainingIterator, ParquetWriteThrough
 
 
 pytest.importorskip("duckdb")
@@ -420,7 +420,8 @@ def test_scope_close_closes_adopted_readers() -> None:
 def test_replacer_adopts_reader_cache_and_table() -> None:
     target = xo.duckdb.connect()
     expr = make_remote_expr(target)
-    _, scope = register_and_transform_remote_tables(expr.op().to_expr())
+    scope = RemoteTableScope()
+    register_and_transform_remote_tables_into(expr.op().to_expr(), scope)
     try:
         assert scope.reader_count == 1
         assert scope.cache_count == 1
@@ -434,18 +435,12 @@ def test_replacer_adopts_reader_cache_and_table() -> None:
 def test_tee_resources_released_when_remote_pass_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A tee (pass 4) registers a placeholder table + drain *before* the remote
-    pass (pass 5) runs. In ``_transform_expr`` those tee resources are adopted
-    into the scope only *after* pass 5 returns, so a pass-5 failure tears down
-    an empty scope and leaks everything pass 4 created.
-
-    Regression guard for the ownership gap: any failure during transform must
-    release resources materialized by *earlier* passes, not just the failing
-    one. ``test_planning_failure_releases_resources`` covers a remote-only expr;
-    this covers the tee+remote interaction that the after-the-fact adoption in
-    ``_transform_expr`` gets wrong. Both halves of what the tee pass creates are
-    checked: the placeholder *table* is dropped and the *drain* thread is
-    closed+joined (not left running).
+    """Any failure during transform must release resources materialized by
+    *earlier* passes, not just the failing one. The tee pass (4) registers a
+    placeholder table + drain before the remote pass (5) runs; here pass 5 fails
+    and both must still be torn down -- the table dropped and the drain thread
+    closed+joined. Complements ``test_planning_failure_releases_resources``
+    (remote-only) by exercising the tee+remote interaction.
     """
     con = xo.connect()  # datafusion: re-entrant, safe for the streaming tee
     t = con.register(
@@ -461,8 +456,8 @@ def test_tee_resources_released_when_remote_pass_fails(
     # Capture what the tee pass adopts straight from the adoption boundary
     # (RemoteTableScope.adopt_*), decoupled from the pass's return shape. The
     # tee's parent (t) has no RemoteTable, so only the outer tee registers here.
-    adopted_tables: list[tuple] = []
-    adopted_drains: list = []
+    adopted_tables: list[tuple[BaseBackend, str]] = []
+    adopted_drains: list[DrainingIterator] = []
     real_adopt_table = RemoteTableScope.adopt_table
     real_adopt_drain = RemoteTableScope.adopt_drain
 
@@ -507,12 +502,9 @@ def test_tee_resources_released_when_remote_pass_fails(
 
 def test_tee_adopts_upstream_reader_into_scope(tmp_path: Path) -> None:
     """The tee pass opens an upstream reader (``parent_expr.to_pyarrow_batches()``)
-    that holds a live backend cursor. It must be adopted into the caller-owned
-    transform scope so a later-pass failure closes it -- exactly as the remote
-    pass adopts its reader (see ``test_replacer_adopts_reader_cache_and_table``).
-
-    This is a pre-existing leak: on ``main`` (and before this fix) the tee reader
-    was never adopted, so any post-tee failure abandoned it un-closed. Composes
+    that holds a live backend cursor; it must be adopted into the caller-owned
+    scope so a later-pass failure closes it, exactly as the remote pass adopts
+    its reader (see ``test_replacer_adopts_reader_cache_and_table``). Composes
     with ``test_scope_close_closes_adopted_readers``, which proves adopted
     readers are closed on ``scope.close()``.
     """

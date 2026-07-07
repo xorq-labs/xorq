@@ -325,11 +325,10 @@ def register_and_transform_remote_tables_into(
 ) -> Expr:
     """Adopt every remote-table resource into the caller-owned ``scope``.
 
-    Threaded the shared transform scope explicitly (see ``_transform_expr``): a
-    failure in a *later* pass tears down what this pass materialized because all
-    passes share one owner. This function never closes ``scope`` -- ownership and
-    teardown stay with the caller that created it (``_transform_expr`` on the
-    pipeline path, ``register_and_transform_remote_tables`` for standalone use).
+    The caller threads one shared scope through every pass (see
+    ``_transform_expr``), so a failure in a *later* pass tears down what this one
+    materialized. This function never closes ``scope``; teardown stays with the
+    caller that created it.
     """
     # ``replacer``'s ``kwargs`` parameter (node-recreate args) shadows the
     # outer ``**kwargs``; capture the through-kwargs here so they reach
@@ -371,7 +370,7 @@ def register_and_transform_remote_tables_into(
         return node
 
     # Intentionally op.replace, not replace_nodes: mark_remote_table has side effects
-    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr)
+    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr).
     # The caller owns scope teardown, so a failure here just propagates.
     expr = op.replace(replacer).to_expr()
     if scope.table_count:
@@ -379,26 +378,6 @@ def register_and_transform_remote_tables_into(
             "remote_table.replace", {"remote_table.count": scope.table_count}
         )
     return expr
-
-
-def register_and_transform_remote_tables(
-    expr: Expr, **kwargs: Any
-) -> tuple[Expr, RemoteTableScope]:
-    """Standalone wrapper: transform ``expr`` into a fresh scope it returns.
-
-    For callers outside the transform pipeline (direct tests, one-off use). The
-    returned scope owns everything the pass materialized; the caller must
-    ``close()`` it once the transformed expr is consumed. Inside the pipeline,
-    ``_transform_expr`` calls ``register_and_transform_remote_tables_into``
-    directly with its shared scope instead.
-    """
-    scope = RemoteTableScope()
-    try:
-        expr = register_and_transform_remote_tables_into(expr, scope, **kwargs)
-    except BaseException:
-        scope.close()
-        raise
-    return expr, scope
 
 
 def prepare_create_table_from_expr(
