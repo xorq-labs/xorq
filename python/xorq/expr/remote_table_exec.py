@@ -10,6 +10,7 @@ from batchcorder import StreamCache
 
 from xorq.common.compat import raise_collected_errors
 from xorq.common.utils.logging_utils import get_logger
+from xorq.common.utils.otel_utils import get_current_span
 from xorq.expr.enums import Traversal
 from xorq.expr.relations import RemoteTable, gen_name
 from xorq.expr.transform import Replacer, TransformCtx, TransformPass
@@ -338,6 +339,15 @@ def _make_remote_replacer(
     # materializing walk. REMOTE_PASS's ``when`` keeps it (and this walk) from
     # running at all when no RemoteTable is reachable at this boundary.
     reader_counts = count_remote_table_readers(expr)
+
+    # ``reader_counts`` has one entry per boundary RemoteTable, so its length is
+    # the eventual ``scope.table_count``. Emit the historical
+    # ``remote_table.replace`` event on the active ``transform.remote`` span so
+    # trace/dashboards keyed on the RemoteTable fan-out keep firing.
+    if reader_counts:
+        get_current_span().add_event(
+            "remote_table.replace", {"remote_table.count": len(reader_counts)}
+        )
 
     def replacer(node, kwargs):
         if isinstance(node, RemoteTable):

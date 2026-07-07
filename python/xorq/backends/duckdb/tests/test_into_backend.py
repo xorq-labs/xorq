@@ -1,7 +1,7 @@
 """into_backend fan-out edge cases for the duckdb backend.
 
-The duckdb backend scans the StreamCache built by
-``register_and_transform_remote_tables`` directly, once per physical table
+The duckdb backend scans the StreamCache built by the remote pass
+(``REMOTE_PASS``) directly, once per physical table
 reference in the compiled SQL. ``max_readers`` must equal that scan count
 exactly: an under-count crashes with "Maximum number of readers reached", an
 over-count silently disables eviction. These tests pin the count for each

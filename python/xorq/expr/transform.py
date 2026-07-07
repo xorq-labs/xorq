@@ -140,40 +140,67 @@ def _fusion_groups(
 def _fuse_replacers(replacers: list[Replacer]) -> Replacer:
     """Chain per-node replacers into one, applied in list order at each node.
 
-    The first replacer consumes the bottom-up recreate ``kwargs`` (rebuild with
-    already-transformed children); the rest see the resulting node with
-    ``kwargs=None`` so recreation happens exactly once. Applying r1-then-r2 at
-    each node of a single bottom-up walk equals r1-everywhere then r2-everywhere
-    because a fusable pass is a *node-local* rewrite -- its output at a node
-    depends only on that node and its already-transformed children, never on the
-    global post-r1 tree -- which the pure DESCEND passes satisfy.
+    The fused replacer does the single bottom-up ``__recreate__`` (rebuild the
+    node with its already-transformed children) itself, then applies every pass
+    replacer to that recreated node with ``kwargs=None`` -- so recreation happens
+    exactly once *regardless of pass order*: no replacer has to be a
+    "kwargs-consuming head", so reordering the group (or adding a pass that skips
+    the recreate on some branch, as ``remove_tags`` does for a ``Tag``) cannot
+    silently drop the transformed children.
+
+    Applying r1-then-r2 at each node of one bottom-up walk equals r1-everywhere
+    then r2-everywhere because a fusable pass is a *node-local* rewrite -- its
+    output at a node depends only on that node and its already-transformed
+    children, never on the global post-r1 tree -- which pure DESCEND passes satisfy.
     """
 
     def fused(node, kwargs):
-        node = replacers[0](node, kwargs)
-        for replacer in replacers[1:]:
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        for replacer in replacers:
             node = replacer(node, None)
         return node
 
     return fused
 
 
-def apply_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> Expr:
-    """Run a single pass, selecting the traversal from ``pass_.traversal``.
+def _apply_active_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> Expr:
+    """Build and run one pass whose ``when`` is already evaluated (or absent),
+    selecting the walk from ``pass_.traversal``.
 
-    The caller owns ``ctx.scope`` teardown; a failure here just propagates.
+    A ``produces_resources`` pass may adopt readers/caches/tables into
+    ``ctx.scope`` before failing; on any exception the whole shared scope (this
+    pass's resources and earlier passes') is torn down before the error
+    propagates, so a direct caller that has not yet entered its own ``with scope:``
+    does not leak. ``close`` is idempotent, so an outer guard closing again is a
+    no-op.
     """
     # lazy: graph_utils imports xorq.expr.relations, which imports this module at
     # module level -- importing it here keeps that edge out of the import cycle.
     from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
+    with tracer.start_as_current_span(f"transform.{pass_.name}"):
+        try:
+            replacer = pass_.build(expr, ctx)
+            if pass_.traversal is Traversal.DESCEND:
+                return replace_nodes(replacer, expr).to_expr()
+            return expr.op().replace(replacer).to_expr()
+        except BaseException:
+            if pass_.produces_resources and ctx.scope is not None:
+                ctx.scope.close()
+            raise
+
+
+def apply_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> Expr:
+    """Run a single pass: skip it when its ``when`` predicate is False, else build
+    and walk it (selecting the traversal from ``pass_.traversal``).
+
+    A resource-producing pass tears its (and earlier passes') scope resources
+    down on failure; see :func:`_apply_active_pass`.
+    """
     if pass_.when is not None and not pass_.when(expr, ctx):
         return expr
-    with tracer.start_as_current_span(f"transform.{pass_.name}"):
-        replacer = pass_.build(expr, ctx)
-        if pass_.traversal is Traversal.DESCEND:
-            return replace_nodes(replacer, expr).to_expr()
-        return expr.op().replace(replacer).to_expr()
+    return _apply_active_pass(pass_, expr, ctx)
 
 
 def _assert_after_ordering(passes: tuple[TransformPass, ...]) -> None:
@@ -195,20 +222,23 @@ def _assert_after_ordering(passes: tuple[TransformPass, ...]) -> None:
 def _apply_group(
     expr: Expr, group: tuple[TransformPass, ...], ctx: TransformCtx
 ) -> Expr:
-    """Apply one fusion group. A singleton (or a group whose ``when`` predicates
-    leave a single active pass) goes through :func:`apply_pass` unchanged; two or
-    more active passes share one ``replace_nodes`` walk under a composed replacer.
+    """Apply one fusion group. A singleton goes through :func:`apply_pass`; a
+    group whose ``when`` predicates leave a single active pass runs that one pass
+    directly (its ``when`` already evaluated); two or more active passes share one
+    ``replace_nodes`` walk under a composed replacer.
     """
     if len(group) == 1:
         return apply_pass(group[0], expr, ctx)
-    # lazy import: see apply_pass.
+    # lazy import: see _apply_active_pass.
     from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
     active = tuple(p for p in group if p.when is None or p.when(expr, ctx))
     if not active:
         return expr
     if len(active) == 1:
-        return apply_pass(active[0], expr, ctx)
+        # ``when`` already evaluated above; skip ``apply_pass`` so its predicate
+        # (a graph walk) is not re-run.
+        return _apply_active_pass(active[0], expr, ctx)
     label = "+".join(p.name for p in active)
     with tracer.start_as_current_span(f"transform.fuse[{label}]"):
         replacers = [p.build(expr, ctx) for p in active]

@@ -343,17 +343,18 @@ def test_fused_bind_and_remove_tags_equals_sequential() -> None:
     assert get_expr_hash(fused) == get_expr_hash(sequential)
 
 
-def test_fuse_replacers_applies_in_order_once_each() -> None:
-    """``_fuse_replacers`` applies replacers left-to-right, and only the first
-    consumes the recreate ``kwargs`` (so a node is recreated exactly once)."""
+def test_fuse_replacers_applies_in_order_recreates_centrally() -> None:
+    """``_fuse_replacers`` applies replacers left-to-right and performs the single
+    ``__recreate__`` itself, so no individual replacer ever sees the recreate
+    ``kwargs`` -- recreation happens exactly once, independent of pass order."""
     order: list[str] = []
-    recreated: list[str] = []
+    saw_kwargs: list[str] = []
 
     def make(name):
         def replacer(node, kwargs):
             order.append(name)
             if kwargs:
-                recreated.append(name)
+                saw_kwargs.append(name)
                 node = node.__recreate__(kwargs)
             return node
 
@@ -364,4 +365,6 @@ def test_fuse_replacers_applies_in_order_once_each() -> None:
     graph_utils.replace_nodes(fused, t)
 
     assert order[:2] == ["first", "second"], "replacers apply in list order"
-    assert "second" not in recreated, "only the first replacer sees kwargs"
+    assert saw_kwargs == [], (
+        "_fuse_replacers recreates centrally; no replacer is handed the kwargs"
+    )

@@ -464,12 +464,12 @@ _PASSES = (
     TransformPass(
         name="bind_params",
         traversal=Traversal.DESCEND,
+        # No ``when`` gate: ``build`` (via ``_resolve_bind_op_params``) already
+        # walks for NamedScalarParameters and the replacer no-ops on empty
+        # bindings, so a gate would only duplicate that walk -- and this pass
+        # always fuses with ``remove_tags`` into one walk, so gating saves none.
         build=lambda expr, ctx: _make_bind_params_replacer(
             _resolve_bind_op_params(expr, ctx.name_values)
-        ),
-        # Skip entirely when there is nothing to bind (no values, no params).
-        when=lambda expr, ctx: (
-            bool(ctx.name_values) or bool(walk_nodes(NamedScalarParameter, expr))
         ),
     ),
     TransformPass(
