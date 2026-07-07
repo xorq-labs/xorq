@@ -13,6 +13,13 @@ class Traversal(StrEnum):
     boundary) and for passes resolved at the boundary (deferred reads). Choosing
     DESCEND for an effectful pass double-materializes -- a mistake this enum
     makes impossible outside these two values.
+
+    Stopping at opaque nodes is not a coverage gap: each opaque interior
+    (RemoteTable, CachedNode, Flight*, ExprScalarUDF) re-enters the transform at
+    its own execution boundary (caching resolves and re-transforms the cached
+    parent; into_backend/flight re-pull via ``to_pyarrow_batches``), so nodes
+    nested inside it still get transformed -- exactly once. DESCEND would fire
+    them a second time.
     """
 
     DESCEND = "descend"

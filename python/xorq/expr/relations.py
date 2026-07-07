@@ -16,7 +16,7 @@ from xorq.common.utils.rbr_utils import (
     instrument_reader,
 )
 from xorq.expr.enums import Traversal
-from xorq.expr.transform import TransformCtx, TransformPass, apply_pass
+from xorq.expr.transform import Replacer, TransformCtx, TransformPass, apply_pass
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.backends import BaseBackend
@@ -806,7 +806,7 @@ class Read(ops.DatabaseTable):
 _NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
 
 
-def _tee_replacer(scope: RemoteTableScope) -> Callable:
+def _tee_replacer(scope: RemoteTableScope) -> Replacer:
     """Build the per-node replacer that turns each surviving `TeeNode` into a
     backend table fed by the writer's ``write_through(batches)`` generator,
     adopting every resource it materializes into the caller-owned ``scope``.
@@ -861,15 +861,9 @@ def _tee_replacer(scope: RemoteTableScope) -> Callable:
     return replacer
 
 
-# BOUNDARY (op.replace), not DESCEND: this replacer has side effects (registers
-# pass-through tables, starts writers), so it must fire only at *this* execution
-# boundary. Descending into opaque sub-exprs (RemoteTable, CachedNode, Flight*,
-# ExprScalarUDF) is deliberately avoided -- not a coverage gap: each opaque
-# interior re-enters this transform at its own execution boundary (e.g.
-# caching/storage.py resolves and re-transforms the cached parent;
-# into_backend/flight re-pull via to_pyarrow_batches), so its TeeNodes still fire
-# exactly once. DESCEND would fire them twice. Runs after cache: a cache hit
-# prunes the TeeNode before its write fires.
+# BOUNDARY: this replacer has side effects (registers pass-through tables, starts
+# writers), so it must fire only at *this* execution boundary -- see Traversal.
+# Runs after cache: a cache hit prunes the TeeNode before its write fires.
 TEE_PASS = TransformPass(
     name="tee",
     traversal=Traversal.BOUNDARY,
@@ -885,10 +879,12 @@ def register_and_transform_tee_nodes_into(
 ) -> Expr:
     """Apply :data:`TEE_PASS` against the caller-owned ``scope``.
 
-    Thin adapter over the shared driver so the standalone wrapper and the
-    ``_transform_expr`` pipeline apply the tee pass identically (same traversal,
-    same scope discipline). The scope is threaded explicitly by the caller;
-    this never closes it -- teardown stays with the caller that created it.
+    Thin adapter for callers that apply the tee pass on its own (tests, one-off
+    use): it runs the same :data:`TEE_PASS` record through the shared driver
+    that ``_transform_expr`` folds over its whole pass table, so both apply
+    identical traversal and scope discipline. The scope is threaded explicitly
+    by the caller; this never closes it -- teardown stays with the caller that
+    created it.
     """
     return apply_pass(TEE_PASS, expr, TransformCtx(scope=scope))
 

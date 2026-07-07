@@ -476,10 +476,10 @@ def test_tee_resources_released_when_remote_pass_fails(
     # pipeline path.
     real_remote_replacer = remote_table_exec._remote_replacer
 
-    def guarded_boom(inner_expr, scope, read_kwargs):
+    def guarded_boom(inner_expr, scope, read_record_batches_kwargs):
         if walk_nodes(RemoteTable, inner_expr):
             raise RuntimeError("remote pass failed")
-        return real_remote_replacer(inner_expr, scope, read_kwargs)
+        return real_remote_replacer(inner_expr, scope, read_record_batches_kwargs)
 
     monkeypatch.setattr(RemoteTableScope, "adopt_table", spy_table)
     monkeypatch.setattr(RemoteTableScope, "adopt_drain", spy_drain)

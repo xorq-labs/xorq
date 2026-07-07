@@ -19,6 +19,7 @@ from typing import Callable
 import pytest
 
 import xorq.api as xo
+from xorq.common.exceptions import InternalError
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.enums import Traversal
 from xorq.expr.relations import RemoteTable
@@ -65,7 +66,7 @@ def test_run_transform_passes_raises_on_out_of_order() -> None:
             build=lambda expr, ctx: _identity_replacer(),
         ),
     )
-    with pytest.raises(AssertionError, match=r"must run after.*cache"):
+    with pytest.raises(InternalError, match=r"must run after.*cache"):
         run_transform_passes(t, passes, _ctx())
 
 
