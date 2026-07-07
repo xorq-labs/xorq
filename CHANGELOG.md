@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.33] - 2026-07-07
+### Details
+#### Added
+- Support unencrypted keypairs (empty passphrase) by @ghoersti in [#2134](https://github.com/xorq-labs/xorq/pull/2134)
+
+#### Changed
+- Freeze-time cache pinning by @dlovell in [#2111](https://github.com/xorq-labs/xorq/pull/2111)
+- Extract xorq_datafusion and databricks impls into submodules (#2066 phase 2) by @mesejo in [#2123](https://github.com/xorq-labs/xorq/pull/2123)
+- ADR-0015 build-hash/cache-hash split by @dlovell in [#2097](https://github.com/xorq-labs/xorq/pull/2097)
+- Standardize __all__, drop @public (#2066 phase 3) by @mesejo in [#2140](https://github.com/xorq-labs/xorq/pull/2140)
+- Replace cityhash with stdlib hashlib in hash udf by @mesejo in [#2136](https://github.com/xorq-labs/xorq/pull/2136)
+
+#### Fixed
+- Guard decimal precision in file-table schema component by @mesejo in [#2130](https://github.com/xorq-labs/xorq/pull/2130)
+- Skip empty commits; unify commit_context by @dlovell in [#2132](https://github.com/xorq-labs/xorq/pull/2132)
+
 ## [0.3.32] - 2026-06-30
 ### Details
 #### Added
