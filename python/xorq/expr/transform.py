@@ -180,8 +180,7 @@ def _apply_active_pass(pass_: TransformPass, expr: Expr, ctx: TransformCtx) -> E
     from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
 
     if pass_.produces_resources and ctx.scope is None:
-        # A resource pass adopts into ctx.scope unconditionally; fail loudly here
-        # rather than with an opaque AttributeError deep inside the replacer.
+        # loud error instead of an opaque AttributeError inside the replacer.
         raise InternalError(
             f"transform pass {pass_.name!r} produces resources but ctx.scope is None"
         )
