@@ -3,9 +3,10 @@ from xorq.internal import AbstractTableProvider
 
 
 class IbisTableProvider(AbstractTableProvider):
-    # scan() calls back into the source backend synchronously. xorq-datafusion
-    # supports a runtime-within-runtime, so this re-entry is safe even when the
-    # source is the same DataFusion connection (no nested tokio runtime panic).
+    # scan() calls back into the source backend synchronously, so a same-backend
+    # DataFusion expression re-enters the same connection and can starve the
+    # tokio worker pool (issue #1580). Callers must materialize those to native
+    # DataFrames before registration; only cross-backend tables reach here.
     def __init__(self, table: ir.Table) -> None:
         self.table = table
 

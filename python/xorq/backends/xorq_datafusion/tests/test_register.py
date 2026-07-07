@@ -95,10 +95,10 @@ def test_register_cross_backend_column_expr() -> None:
     assert t.execute()["a"].tolist() == [1, 2, 3]
 
 
-def test_register_same_backend_expr_via_provider() -> None:
-    # A same-backend DataFusion expr now registers via IbisTableProvider
-    # (xorq-datafusion runtime-within-runtime) rather than compiling to a
-    # native DataFrame; scan() re-enters the same connection without panicking.
+def test_register_same_backend_expr_materialized() -> None:
+    # A same-backend DataFusion expr is compiled to a native DataFrame rather
+    # than routed through IbisTableProvider, whose scan() would re-enter this
+    # connection and risk the reentrant tokio starvation of issue #1580.
     con = xo.connect()
     base = con.register(pa.table({"a": [1, 2, 3], "b": [10, 20, 30]}), "base")
     expr = base.filter(base.a > 1).mutate(c=base.b * 2)
@@ -121,16 +121,18 @@ def test_register_provider_filter_pushdown() -> None:
 
 
 def _reentrant_depth3_child(result_q: mp.Queue) -> None:
-    # Pin to two cores BEFORE the tokio runtime is built, so the DataFusion
-    # worker pool starves under nested provider scans (issue #1580). Picking
-    # from the current affinity set keeps this valid inside a pinned container.
+    # Pin to two cores BEFORE the tokio runtime is built: this is the config
+    # under which a reentrant provider scan would starve the worker pool
+    # (issue #1580). Picking from the current affinity set keeps this valid
+    # inside an already-pinned container.
     two_cpus = set(sorted(os.sched_getaffinity(0))[:2])
     os.sched_setaffinity(0, two_cpus)
 
     con = xo.connect()
     t = con.register(pa.table({"a": [1, 2, 3, 4, 5]}), "base")
-    # Each register() of a same-backend expr routes through IbisTableProvider;
-    # three levels deep, scan() re-enters the same connection recursively.
+    # Registering a same-backend expr three levels deep is the shape that used
+    # to deadlock when it routed through IbisTableProvider (scan() re-entering
+    # the same connection); it must now complete via native materialization.
     for i in range(3):
         t = con.register(t.mutate(**{f"x{i}": t.a + i}), f"lvl{i}")
     result_q.put(t.execute().shape)
@@ -140,16 +142,7 @@ def _reentrant_depth3_child(result_q: mp.Queue) -> None:
     not hasattr(os, "sched_setaffinity") or len(os.sched_getaffinity(0)) < 2,
     reason="needs Linux CPU-affinity control and >=2 available cores",
 )
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "issue #1580: a >=3-level reentrant same-backend expr registers each level "
-        "via IbisTableProvider.scan(), which synchronously re-enters the same "
-        "DataFusion connection and starves the two-worker tokio pool, deadlocking. "
-        "Remove this xfail once the same-backend register path no longer hangs."
-    ),
-)
-def test_reentrant_same_backend_register_deadlocks_on_two_cores() -> None:
+def test_reentrant_same_backend_register_no_deadlock_on_two_cores() -> None:
     # Runs in a spawned, core-pinned child; a hang surfaces as timeout->failure
     # instead of blocking the whole suite. Deterministic regardless of host core
     # count because the child forces exactly two cores. The success path

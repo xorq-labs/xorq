@@ -553,11 +553,19 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if not backends:
             # Pure in-memory expr (e.g. memtable): materialize now.
             return self.execute(source)
-        # Leave as ir.Expr; match arms register via IbisTableProvider. This holds
-        # for same-backend DataFusion exprs too: xorq-datafusion supports a
-        # runtime-within-runtime, so IbisTableProvider.scan() re-entering the
-        # source backend no longer panics on a nested tokio runtime.
-        return source
+        backend = backends[0]
+        if not isinstance(backend, Backend):
+            # Cross-backend expr: leave as ir.Expr; match arms register it via
+            # IbisTableProvider, which executes on the source's own backend.
+            return source
+        # Same-backend DataFusion expr: compile to a native DataFrame instead of
+        # routing through IbisTableProvider. scan() would synchronously re-enter
+        # this connection, and a reentrant (>=3-level) expr then starves the
+        # tokio worker pool and deadlocks on core-limited runners (issue #1580).
+        backend._register_udfs(source)
+        backend._register_in_memory_tables(source)
+        raw_sql = backend.compile(source.as_table())
+        return backend.con.sql(raw_sql)
 
     def _register_path(self, path: str, table_name: str, **kwargs: Any) -> ir.Table:
         if path.startswith(("parquet://", "parq://")) or path.endswith(
