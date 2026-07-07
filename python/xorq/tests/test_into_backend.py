@@ -16,7 +16,10 @@ import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import ParquetCache, SourceCache
 from xorq.common.exceptions import XorqError
-from xorq.expr.remote_table_exec import register_and_transform_remote_tables
+from xorq.expr.remote_table_exec import (
+    RemoteTableScope,
+    register_and_transform_remote_tables_into,
+)
 from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
@@ -261,7 +264,8 @@ def test_into_backend_duckdb(pg):
         .select(player_id="playerID", year_id="yearID_right")
     )
 
-    expr, scope = register_and_transform_remote_tables(expr)
+    scope = RemoteTableScope()
+    expr = register_and_transform_remote_tables_into(expr, scope)
     with scope:
         query = ibis.to_sql(expr, dialect="duckdb")
         res = ddb.con.sql(query).df()
@@ -278,7 +282,8 @@ def test_into_backend_duckdb_expr(pg: BaseBackend) -> None:
     t = pg.table("batting").into_backend(ddb, "ls_batting")
     expr = t.join(t, "playerID").limit(15).select(_.playerID * 2)
 
-    expr, scope = register_and_transform_remote_tables(expr)
+    scope = RemoteTableScope()
+    expr = register_and_transform_remote_tables_into(expr, scope)
     with scope:
         query = ibis.to_sql(expr, dialect="duckdb")
         res = ddb.con.sql(query).df()
@@ -294,7 +299,8 @@ def test_into_backend_duckdb_trino(trino_table):
     db_con = xo.duckdb.connect()
     expr = trino_table.head(10_000).into_backend(db_con).pipe(make_merged)
 
-    expr, scope = register_and_transform_remote_tables(expr)
+    scope = RemoteTableScope()
+    expr = register_and_transform_remote_tables_into(expr, scope)
     with scope:
         query = ibis.to_sql(expr, dialect="duckdb")
         df = db_con.con.sql(query).df()  # to bypass execute hotfix
@@ -316,7 +322,8 @@ def test_multiple_into_backend_duckdb_xorq(trino_table: ir.Table) -> None:
         .into_backend(ls_con)[lambda t: t.orderstatus == "F"]
     )
 
-    expr, scope = register_and_transform_remote_tables(expr)
+    scope = RemoteTableScope()
+    expr = register_and_transform_remote_tables_into(expr, scope)
     with scope:
         df = expr.execute()
 
