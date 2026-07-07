@@ -75,7 +75,9 @@ def test_register_native_datafusion_dataframe() -> None:
     native = con.con.sql("SELECT a, a * 2 AS b FROM base")
     t = con.register(native, "from_native_df")
     assert "from_native_df" in con.list_tables()
-    assert t.execute()["b"].tolist() == [2, 4, 6]
+    # sort: DataFusion does not guarantee row order without ORDER BY
+    out = t.execute().sort_values("a").reset_index(drop=True)
+    assert out["b"].tolist() == [2, 4, 6]
 
 
 def test_register_pyarrow_dataset(tmp_path: Path) -> None:
@@ -92,7 +94,7 @@ def test_register_cross_backend_column_expr() -> None:
     src = xo.duckdb.connect().create_table("d", pa.table({"a": [1, 2, 3]}))
     con = xo.connect()
     t = con.register(src.a, "from_col")
-    assert t.execute()["a"].tolist() == [1, 2, 3]
+    assert sorted(t.execute()["a"].tolist()) == [1, 2, 3]
 
 
 def test_register_same_backend_expr_materialized() -> None:
@@ -102,9 +104,24 @@ def test_register_same_backend_expr_materialized() -> None:
     base = con.register(pa.table({"a": [1, 2, 3], "b": [10, 20, 30]}), "base")
     expr = base.filter(base.a > 1).mutate(c=base.b * 2)
     reg = con.register(expr, "derived")
-    out = reg.execute()
+    # sort: DataFusion does not guarantee row order without ORDER BY
+    out = reg.execute().sort_values("a").reset_index(drop=True)
     assert out["a"].tolist() == [2, 3]
     assert out["c"].tolist() == [40, 60]
+
+
+def test_register_same_backend_expr_with_in_memory_table() -> None:
+    # A same-backend expr that joins in an ibis.memtable exercises the
+    # materialization path's _register_in_memory_tables call: the memtable must
+    # be registered on the connection before the expr compiles to SQL.
+    con = xo.connect()
+    base = con.register(pa.table({"a": [1, 2, 3]}), "base")
+    lookup = xo.memtable({"a": [2, 3], "tag": ["x", "y"]})
+    reg = con.register(base.join(lookup, "a"), "joined_mem")
+    # sort: DataFusion does not guarantee row order without ORDER BY
+    out = reg.execute().sort_values("a").reset_index(drop=True)
+    assert out["a"].tolist() == [2, 3]
+    assert out["tag"].tolist() == ["x", "y"]
 
 
 def test_register_provider_filter_pushdown() -> None:
@@ -115,7 +132,7 @@ def test_register_provider_filter_pushdown() -> None:
     )
     con = xo.connect()
     reg = con.register(src, "prov")
-    out = reg.filter(reg.a > 2).execute()
+    out = reg.filter(reg.a > 2).execute().sort_values("a").reset_index(drop=True)
     assert out["a"].tolist() == [3, 4]
 
 
