@@ -364,8 +364,8 @@ def _remove_tag_nodes(expr: ir.Expr) -> ir.Expr:
 def _remove_tee_nodes(expr: ir.Expr) -> ir.Expr:
     """Strip transparent `TeeNode`s to their parent (for SQL / hashing).
 
-    Execution keeps the `TeeNode` until `register_and_transform_tee_nodes_into`
-    fires the write, so this is only used off the execution path.
+    Execution keeps the `TeeNode` until the tee pass (`TEE_PASS`) fires the
+    write, so this is only used off the execution path.
     """
 
     def replacer(node, kwargs):
@@ -483,8 +483,11 @@ _PASSES = (
         build=lambda expr, ctx: _make_cache_replacer(expr),
         after=("bind_params", "remove_tags"),
     ),
-    TEE_PASS,
-    REMOTE_PASS,
+    # TEE_PASS / REMOTE_PASS are defined with their replacers; their ``after`` is
+    # echoed here so the whole chain reads in one place (the driver still checks
+    # each record's real ``after``, so an echo that drifts raises).
+    TEE_PASS,  # BOUNDARY; after=("cache",)
+    REMOTE_PASS,  # BOUNDARY; after=("tee",)
     TransformPass(
         name="deferred_reads",
         traversal=Traversal.BOUNDARY,

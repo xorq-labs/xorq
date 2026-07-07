@@ -16,7 +16,7 @@ from xorq.common.utils.rbr_utils import (
     instrument_reader,
 )
 from xorq.expr.enums import Traversal
-from xorq.expr.transform import Replacer, TransformCtx, TransformPass, apply_pass
+from xorq.expr.transform import Replacer, TransformPass
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.backends import BaseBackend
@@ -871,22 +871,6 @@ TEE_PASS = TransformPass(
     produces_resources=True,
     after=("cache",),
 )
-
-
-def register_and_transform_tee_nodes_into(
-    expr: Expr,
-    scope: RemoteTableScope,
-) -> Expr:
-    """Apply :data:`TEE_PASS` against the caller-owned ``scope``.
-
-    Thin adapter for callers that apply the tee pass on its own (tests, one-off
-    use): it runs the same :data:`TEE_PASS` record through the shared driver
-    that ``_transform_expr`` folds over its whole pass table, so both apply
-    identical traversal and scope discipline. The scope is threaded explicitly
-    by the caller; this never closes it -- teardown stays with the caller that
-    created it.
-    """
-    return apply_pass(TEE_PASS, expr, TransformCtx(scope=scope))
 
 
 def render_backend(con: BaseBackend) -> str:

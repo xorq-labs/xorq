@@ -22,11 +22,12 @@ from xorq.expr.api import (
     get_plans,
 )
 from xorq.expr.relations import (
+    TEE_PASS,
     HashingTag,
     TeeNode,
-    register_and_transform_tee_nodes_into,
 )
 from xorq.expr.remote_table_exec import RemoteTableScope
+from xorq.expr.transform import TransformCtx, apply_pass
 from xorq.writes import (
     BackendWriteThrough,
     DrainingIterator,
@@ -348,7 +349,7 @@ def test_tee_duckdb_warns_deadlock(tmp_path: Path) -> None:
     t = con.create_table("dd_warn", pa.table({"a": [1, 2, 3, 4]}))
     expr = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
     with pytest.warns(UserWarning, match="deadlock"):
-        register_and_transform_tee_nodes_into(expr, RemoteTableScope())
+        apply_pass(TEE_PASS, expr, TransformCtx(scope=RemoteTableScope()))
 
 
 def test_write_with_cache_upstream(tmp_path: Path) -> None:
@@ -664,12 +665,12 @@ def test_to_sql_strips_nested_tee_nodes(t: Table, tmp_path: Path) -> None:
 def test_tee_transform_leaves_tee_inside_opaque_untouched(
     t: Table, tmp_path: Path
 ) -> None:
-    """register_and_transform_tee_nodes_into uses op.replace, which deliberately
-    does not descend into opaque sub-exprs (here CachedNode.parent). A TeeNode buried
-    in an opaque node must survive the outer pass untouched and its write must not
-    fire: it is handled lazily when the opaque sub-expr executes (e.g. on a cache
-    miss). Guards against a regression to replace_nodes, which would descend and
-    fire the side-effecting write at the wrong time."""
+    """TEE_PASS is BOUNDARY (op.replace), which deliberately does not descend into
+    opaque sub-exprs (here CachedNode.parent). A TeeNode buried in an opaque node
+    must survive the outer pass untouched and its write must not fire: it is
+    handled lazily when the opaque sub-expr executes (e.g. on a cache miss).
+    Guards against a regression to DESCEND, which would descend and fire the
+    side-effecting write at the wrong time."""
     target = tmp_path / "opaque.parquet"
     cached = t.tee(ParquetWriteThrough(path=target)).cache()
 
@@ -679,7 +680,7 @@ def test_tee_transform_leaves_tee_inside_opaque_untouched(
     assert len(cached.op().find(TeeNode)) == 0
 
     scope = RemoteTableScope()
-    transformed = register_and_transform_tee_nodes_into(cached, scope)
+    transformed = apply_pass(TEE_PASS, cached, TransformCtx(scope=scope))
 
     assert not target.exists(), "outer transform must not fire the buried write"
     assert scope.table_count == 0, "no pass-through table should be registered"
