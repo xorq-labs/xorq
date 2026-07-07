@@ -5,6 +5,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
+from xorq.caching import ParquetCache
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.bind import (
     CatalogTag,
@@ -15,9 +16,10 @@ from xorq.catalog.bind import (
 )
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.composer import ExprComposer
+from xorq.common.exceptions import UnsupportedOperationError
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.expr.relations import HashingTag, Read, RemoteTable
+from xorq.expr.relations import CacheTag, HashingTag, Read, RemoteTable
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.expr import operations as ops
@@ -843,3 +845,85 @@ def test_fuse_preserves_non_catalog_remote_table_inside_bind(catalog):
     expected = bound.execute()
     actual = fused.execute()
     assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
+
+
+def test_fuse_pinned_entry_with_relocated_read_raises(
+    catalog: Catalog, tmp_path: Path
+) -> None:
+    """Fusing an entry with a relocated (bundled) read raises, not silently empty.
+
+    ``xorq catalog pin --relocate-reads`` (or ``catalog.add(..., relocate_reads=
+    True)``) bundles the frozen cache into the build under ``reads/<hash>`` as a
+    relocated ``Read``. On the load path (``load_expr``) that read resolves
+    against the build's extract dir, but the fuse/bind execute path does not
+    relocate the bundled ``read_path`` the same way -- so a fused entry with such
+    a read would execute to a silently-empty result (#2133). Until that lands,
+    ``fuse_catalog_source`` fails loud instead. When #2133 is fixed, this guard
+    (and this test) should flip to asserting the fused result is correct.
+    """
+    pq_path = tmp_path / "data.parquet"
+    pq.write_table(pa.table({"x": [1, 2, 3], "y": [4, 5, 6]}), pq_path)
+
+    con = xo.connect()
+    cache = ParquetCache.from_kwargs(source=con, base_path=tmp_path / "cache")
+    t = deferred_read_parquet(pq_path, con, table_name="t")
+    cached = t.filter(t.x > 1).cache(cache=cache)
+    cached.execute()  # materialize the cache so it can be pinned
+
+    # explicit opt-in to relocation (no longer the catalog default)
+    pinned = cached.ls.pin()
+    source_entry = catalog.add(pinned, relocate_reads=True)
+
+    # the pinned cache is a relocated Read bundled into the entry's build
+    src_expr = _make_source_expr(source_entry)
+    assert walk_nodes((CacheTag,), src_expr)
+    relocated = [
+        r for r in walk_nodes(Read, src_expr) if "read_path" in dict(r.read_kwargs)
+    ]
+    assert relocated, "pinned cache read should be bundled (relocated)"
+
+    schema = pinned.schema()
+    ub = ops.UnboundTable(name="ph", schema=schema).to_expr()
+    transform_entry = catalog.add(ub.limit(10))
+    bound = bind(source_entry, transform_entry)
+
+    with pytest.raises(UnsupportedOperationError, match="2133"):
+        fuse_catalog_source(bound)
+
+
+def test_fuse_lean_pinned_entry_is_correct(catalog: Catalog, tmp_path: Path) -> None:
+    """A lean (default) pinned entry fuses to the correct, non-empty result.
+
+    The catalog pin/add default is ``relocate_reads=False``: the frozen cache
+    stays external and relocates via ``base_path`` at load time, which the fuse
+    path resolves correctly. This is the default consumption path (``catalog run``
+    fuses by default), so it must not hit the #2133 relocated-read guard.
+    """
+    pq_path = tmp_path / "data.parquet"
+    pq.write_table(pa.table({"x": [1, 2, 3], "y": [4, 5, 6]}), pq_path)
+
+    con = xo.connect()
+    cache = ParquetCache.from_kwargs(source=con, base_path=tmp_path / "cache")
+    t = deferred_read_parquet(pq_path, con, table_name="t")
+    cached = t.filter(t.x > 1).cache(cache=cache)
+    cached.execute()
+
+    pinned = cached.ls.pin()
+    source_entry = catalog.add(pinned)  # default relocate_reads=False -> lean
+
+    src_expr = _make_source_expr(source_entry)
+    assert walk_nodes((CacheTag,), src_expr)
+    assert not [
+        r for r in walk_nodes(Read, src_expr) if "read_path" in dict(r.read_kwargs)
+    ], "lean entry must not bundle reads"
+
+    schema = pinned.schema()
+    ub = ops.UnboundTable(name="ph", schema=schema).to_expr()
+    transform_entry = catalog.add(ub.limit(10))
+    bound = bind(source_entry, transform_entry)
+
+    result = fuse_catalog_source(bound)
+    expected = pinned.execute()
+    actual = result.execute()
+    assert actual.reset_index(drop=True).equals(expected.reset_index(drop=True))
+    assert len(actual) == 2

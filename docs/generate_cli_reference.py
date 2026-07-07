@@ -78,6 +78,10 @@ MAIN_GROUPS = (
         "Serve",
         ("serve-flight-udxf", "serve-unbound"),
     ),
+    (
+        "Cache",
+        ("pin", "unpin"),
+    ),
 )
 
 CATALOG_GROUPS = (
@@ -102,6 +106,10 @@ CATALOG_GROUPS = (
     (
         "Composition and execution",
         ("compose", "run", "run-cached", "serve-unbound"),
+    ),
+    (
+        "Cache",
+        ("pin", "unpin"),
     ),
     (
         "Sync, audit, replay",

@@ -39,6 +39,7 @@ from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     relocatable_read_path,
+    relocatable_read_path_str,
 )
 from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
@@ -119,17 +120,66 @@ def _is_relocatable_read(node: Any) -> bool:
     return any(k == "relocatable" and v for k, v in node.read_kwargs)
 
 
-def _mark_reads_relocatable(expr: ir.Expr) -> ir.Expr:
-    """Inject ``relocatable=True`` into all local-file Read nodes."""
+def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
+    """Mark local-file reads relocatable and bake their bundled ``read_path`` in.
+
+    One pre-hash pass (before ``canonicalize_expr``): ``read_path`` is normally
+    injected by the write phase, which is too late for the build hash, so a fresh
+    build would be named differently from every later load+rebuild. Baking the
+    content-derived ``read_path`` here -- it equals the write-phase value exactly
+    -- keeps a relocated build load+rebuild hash-stable.
+
+    ``mark`` (i.e. ``--relocate-reads``) flips local-file candidates to
+    ``relocatable=True``; reads already relocatable (e.g.
+    ``deferred_read_parquet(relocatable=True)``) get ``read_path`` baked whether
+    or not ``mark`` is set. Note this pass only ever *adds* relocation: there is
+    deliberately no un-marking branch, because relocation is lossy -- it replaces
+    a read's original path with a content hash, so once relocated the source
+    location is gone and ``mark=False`` cannot recover a lean, machine-local read.
+    When ``mark=True``, pinned cache reads (exclusively under a ``CacheTag``) are
+    bundled into the build alongside regular reads, making the pinned artifact
+    self-contained. When ``mark=False``, pinned reads are skipped and remain
+    portable via ``base_path`` relocation (``relocate_cache_tag``). DAG-shared
+    reads also live on a non-pinned branch, so they are not exclusively pinned
+    and are always marked.
+    """
+    if not mark:
+        # mark=False never *marks* reads relocatable; it only bakes read_path into
+        # reads that are already relocatable but haven't had it baked yet. If none
+        # qualify, the pass is a structural no-op, so skip both the pinned-leaf
+        # walk and the full replace_nodes rebuild. This is the hot
+        # relocate_reads=False path -- every fuse/bind and Catalog.add build hits
+        # it, and the vast majority carry no already-relocatable reads. (The scan
+        # spans all reads, including pinned ones the rebuild would skip; that only
+        # ever makes us do a no-op rebuild we could have skipped, never skip a
+        # bake that was needed.)
+        if not any(
+            _is_relocatable_read(node) and "read_path" not in dict(node.read_kwargs)
+            for node in walk_nodes(Read, expr)
+        ):
+            return expr
+    pinned = frozenset() if mark else exclusively_pinned_leaves(expr, (Read,))
 
     def _relocate(node, kwargs):
-        if _is_relocatable_candidate(node):
-            new_kwargs = node.read_kwargs + (("relocatable", True),)
-            args = dict(zip(node.__argnames__, node.__args__)) | {
-                "read_kwargs": new_kwargs,
-                "normalize_method": normalize_read_path_md5sum,
-            }
-            return node.__recreate__((kwargs or {}) | args)
+        if isinstance(node, Read) and node not in pinned:
+            kw = dict(node.read_kwargs)
+            marking = mark and _is_relocatable_candidate(node)
+            baking = _is_relocatable_read(node) and "read_path" not in kw
+            if marking or baking:
+                if "hash_path" not in kw:
+                    raise ValueError("relocatable Read must have hash_path")
+                read_kwargs = node.read_kwargs
+                overrides = {}
+                if marking:
+                    read_kwargs += (("relocatable", True),)
+                    overrides["normalize_method"] = normalize_read_path_md5sum
+                read_kwargs = update_read_kwargs(
+                    read_kwargs,
+                    (("read_path", relocatable_read_path_str(kw["hash_path"])),),
+                )
+                # Read is a graph leaf, so replace_nodes passes empty kwargs here
+                # and recreate can override the node's own args directly.
+                return recreate(node, read_kwargs=read_kwargs, **overrides)
         return node.__recreate__(kwargs) if kwargs else node
 
     op = replace_nodes(_relocate, expr.op())
@@ -203,6 +253,12 @@ class ArtifactStore:
     def copy_file(self, source: pathlib.Path, *path_parts: str) -> pathlib.Path:
         dest = self.get_path(*path_parts)
         dest.parent.mkdir(parents=True, exist_ok=True)
+        # rebuilding a relocated build into its own builds_dir can resolve a
+        # bundled read's source to the very dest it would write (e.g. a no-op
+        # pin, now that relocated builds are hash-stable); copy2 would raise
+        # SameFileError, so skip the self-copy.
+        if dest.exists() and source.resolve() == dest.resolve():
+            return dest
         shutil.copy2(source, dest)
         return dest
 
@@ -466,15 +522,15 @@ class ExprDumper:
     builds_dir = field(validator=instance_of(Path), converter=Path, default="./builds")
     cache_dir = field(validator=optional(instance_of(Path)), factory=get_xorq_cache_dir)
     debug = field(validator=instance_of(bool), default=False)
+    # Prefer True (to match the CLI), but the fuse/bind execute path doesn't yet
+    # resolve a relocated read's base_path; kept False until it does. See #2133.
     relocate_reads = field(validator=instance_of(bool), default=False)
     read_normalize_method = field(
         validator=is_callable(), default=normalize_read_path_stat
     )
 
-    def __attrs_post_init__(self):
-        expr = self.expr
-        if self.relocate_reads:
-            expr = _mark_reads_relocatable(expr)
+    def __attrs_post_init__(self) -> None:
+        expr = _prepare_relocatable_reads(self.expr, mark=self.relocate_reads)
         expr = canonicalize_expr(expr, self.read_normalize_method)
         object.__setattr__(self, "expr", expr)
         attrname = "cache_dir"
@@ -534,19 +590,24 @@ class ExprDumper:
 
     def _prepare_relocatable_read(
         self, read_node: Read
-    ) -> tuple[Path, functools.partial]:
+    ) -> tuple[Path, str, functools.partial]:
         kw = dict(read_node.read_kwargs)
         if "hash_path" not in kw:
             raise ValueError("relocatable Read must have hash_path")
         source_path = Path(kw["hash_path"])
+        # relocatable_read_path is the single source of the (dir, filename)
+        # layout; relocatable_read_path_str is its joined form -- the *same*
+        # helper the pre-hash pass uses -- so the store path and the serialized
+        # read_path cannot drift.
         path_parts = relocatable_read_path(source_path)
+        read_path = relocatable_read_path_str(source_path)
         path = self.artifact_store.get_path(*path_parts)
         writer = functools.partial(
             self.artifact_store.copy_file,
             source_path,
             *path_parts,
         )
-        return (path, writer)
+        return (path, read_path, writer)
 
     def _prepare_sql_plans(
         self,
@@ -674,9 +735,7 @@ class ExprDumper:
                 type_kwargs = {str(which): True}
                 con_kwargs = {}
             elif _is_relocatable_read(node):
-                path, writer = self._prepare_relocatable_read(node)
-                which = BundledSourceTypes.read
-                read_path = f"{which}/{path.name}"
+                path, read_path, writer = self._prepare_relocatable_read(node)
                 new_kwargs = update_read_kwargs(
                     node.read_kwargs,
                     (("hash_path", path), ("read_path", read_path)),

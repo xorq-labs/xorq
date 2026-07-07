@@ -1,13 +1,22 @@
+from __future__ import annotations
+
 import atexit
 import shutil
 import tempfile
 import weakref
+from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from xorq.catalog.zip_utils import (
     extract_build_zip_to,
     make_zip_context,
 )
+
+
+if TYPE_CHECKING:
+    from xorq.api import Expr
 
 
 # Tracks temp dirs that haven't been cleaned up yet.
@@ -29,11 +38,11 @@ atexit.register(_cleanup_all)
 
 
 @contextmanager
-def build_expr_context(expr):
+def build_expr_context(expr: Expr, relocate_reads: bool = False) -> Iterator[Path]:
     from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
 
     with tempfile.TemporaryDirectory() as td:
-        build_dir = build_expr(expr, builds_dir=td)
+        build_dir = build_expr(expr, builds_dir=td, relocate_reads=relocate_reads)
         yield build_dir
 
 

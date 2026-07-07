@@ -54,15 +54,26 @@ class UvToolRunError(subprocess.CalledProcessError):
         return "\n\n".join(parts)
 
 
-def _inner_xorq_supports_emit_option(python_version, wheel_path, requirements_path):
-    """Check whether the resolved xorq CLI supports --emit-build-path-to.
+def _inner_xorq_build_help(
+    python_version: str, wheel_path: Path, requirements_path: Path
+) -> tuple[int, str]:
+    """Return ``(returncode, stdout)`` of the inner ``xorq build --help``.
 
-    Runs ``xorq build --help`` and looks for the flag in the output.
-    This is a ~200ms warm-cache call — negligible next to the build itself.
+    A single ~200ms warm-cache call — negligible next to the build itself —
+    whose output is grepped for option support below, so we probe the inner CLI
+    once rather than once per option. The inner xorq is whatever version the
+    wheel + requirements resolve to (often the published PyPI release), which
+    may predate options this branch passes.
 
-    TODO(post-release): remove once the published xorq on PyPI ships
-    --emit-build-path-to. This helper and its caller's stdout-parsing
-    branch become dead code at that point.
+    The returncode is returned alongside stdout so the caller can tell a genuine
+    old-version xorq (help succeeds, option absent) from a broken probe (help
+    exits non-zero): ``xorq build --help`` exits 0 on any version that has the
+    ``build`` subcommand, so a non-zero exit means the inner env is broken, not
+    that a feature is missing -- collapsing both to ``""`` would mislabel the
+    latter and silently degrade the build.
+
+    TODO(post-release): remove the option probes that consume this once the
+    published xorq on PyPI ships both --emit-build-path-to and --relocate-reads.
     """
     result = uv_tool_run(
         "xorq",
@@ -73,7 +84,7 @@ def _inner_xorq_supports_emit_option(python_version, wheel_path, requirements_pa
         with_requirements=requirements_path,
         check=False,
     )
-    return result.returncode == 0 and "--emit-build-path-to" in result.stdout
+    return result.returncode, result.stdout
 
 
 PYPROJECT_NAME = "pyproject.toml"
@@ -456,9 +467,10 @@ class PackagedBuilder:
         default=None,
     )
     debug = field(validator=instance_of(bool), default=False)
+    relocate_reads = field(validator=instance_of(bool), default=True)
 
     @property
-    def wheel_path(self):
+    def wheel_path(self) -> Path:
         return self.bundle.wheel_path
 
     @property
@@ -474,6 +486,52 @@ class PackagedBuilder:
         """Run xorq build and copy wheel + requirements into the build dir."""
         from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
 
+        # Probe the inner CLI once: it is whatever version the wheel +
+        # requirements resolve to and may predate options we pass. Grepping its
+        # --help avoids a hard "No such option" failure (exit 2) on an older
+        # published xorq.
+        inner_rc, inner_help = _inner_xorq_build_help(
+            self.python_version,
+            self.wheel_path,
+            self.requirements_path,
+        )
+        # `xorq build --help` exits 0 on any version with the build subcommand,
+        # so a non-zero exit is a broken inner env (unresolvable deps, import
+        # error), not a missing feature. The real `xorq build` below would fail
+        # too -- fail loudly here rather than silently degrade to a
+        # machine-local build behind a misleading "does not support" warning.
+        if inner_rc != 0:
+            raise RuntimeError(
+                f"inner `xorq build --help` failed (exit {inner_rc}); cannot "
+                "package. Check that the wheel + requirements resolve to a "
+                "runnable xorq."
+            )
+        # TODO(post-release): remove emit-path fallback once the published
+        # xorq on PyPI ships --emit-build-path-to.
+        used_emit_file = "--emit-build-path-to" in inner_help
+
+        # Match the inner `xorq build`'s relocate default explicitly so a
+        # packaged build is self-contained by default, and so
+        # `xorq uv build --no-relocate-reads` can opt out (same escape hatch as
+        # `xorq build`). Only pass the flag when the inner xorq is new enough to
+        # accept it; an older inner defaults to machine-local reads, so omitting
+        # it there is exactly the pre-relocation behavior. Passing it blindly
+        # would fail with "No such option: --relocate-reads".
+        if "--relocate-reads" in inner_help:
+            relocate_args = (
+                "--relocate-reads" if self.relocate_reads else "--no-relocate-reads",
+            )
+        else:
+            relocate_args = ()
+            if self.relocate_reads:
+                from xorq.common.utils.logging_utils import get_logger  # noqa: PLC0415
+
+                get_logger(__name__).warning(
+                    "inner xorq build does not support --relocate-reads; "
+                    "producing a machine-local build. Upgrade the packaged xorq "
+                    "to bundle reads into a portable artifact."
+                )
+
         base_args = (
             "xorq",
             "build",
@@ -484,14 +542,7 @@ class PackagedBuilder:
             self.builds_dir,
             *(("--cache-dir", self.cache_dir) if self.cache_dir else ()),
             *(("--debug",) if self.debug else ()),
-        )
-
-        # TODO(post-release): remove emit-path fallback once the published
-        # xorq on PyPI ships --emit-build-path-to.
-        used_emit_file = _inner_xorq_supports_emit_option(
-            self.python_version,
-            self.wheel_path,
-            self.requirements_path,
+            *relocate_args,
         )
 
         def get_build_path(used_emit_file, emit_path, result):

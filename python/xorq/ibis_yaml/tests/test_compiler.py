@@ -52,7 +52,7 @@ from xorq.ibis_yaml.compiler import (
     RefEnum,
     _extract_sql_queries,
     _is_relocatable_candidate,
-    _mark_reads_relocatable,
+    _prepare_relocatable_reads,
     _sanitize_generated_names,
     build_expr,
     load_expr,
@@ -442,6 +442,71 @@ def test_pinned_cache_relocates_to_new_cache_dir(
     assert any(str(dst) in p for p in read_paths)
     assert not any(str(src) in p for p in read_paths)
     assert relocated.execute().equals(expected)
+
+
+def test_pinned_cache_bundles_parquet_with_relocate_reads(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    con = xo.connect()
+    cache_dir = tmp_path / "cache"
+    cache = ParquetCache.from_kwargs(
+        source=con, relative_path="pins", base_path=cache_dir
+    )
+    expr = (
+        con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+        .filter(xo._.a > 1)
+        .cache(cache=cache)
+    )
+    expr.execute()
+    pinned = expr.ls.pin()
+    expected = pinned.execute()
+
+    build_path = build_expr(
+        pinned, builds_dir=builds_dir, cache_dir=cache_dir, relocate_reads=True
+    )
+
+    reads_dir = build_path / "reads"
+    assert reads_dir.exists()
+    bundled = list(reads_dir.glob("*.parquet"))
+    assert bundled, "cache parquet should be bundled under reads/"
+
+    # delete the original cache dir — the build must be self-contained
+    shutil.rmtree(cache_dir)
+
+    loaded = load_expr(build_path)
+    assert walk_nodes((CacheTag,), loaded)
+    assert loaded.execute().equals(expected)
+
+
+def test_pinned_cache_not_bundled_without_relocate_reads(
+    builds_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    con = xo.connect()
+    cache_dir = tmp_path / "cache"
+    cache = ParquetCache.from_kwargs(
+        source=con, relative_path="pins", base_path=cache_dir
+    )
+    expr = (
+        con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]}), "tbl")
+        .filter(xo._.a > 1)
+        .cache(cache=cache)
+    )
+    expr.execute()
+    pinned = expr.ls.pin()
+
+    build_path = build_expr(
+        pinned, builds_dir=builds_dir, cache_dir=cache_dir, relocate_reads=False
+    )
+
+    reads_dir = build_path / "reads"
+    bundled_parquets = list(reads_dir.glob("*.parquet")) if reads_dir.exists() else []
+    assert not bundled_parquets, (
+        "cache parquet should NOT be bundled without relocate_reads"
+    )
+
+    loaded = load_expr(build_path, cache_dir=cache_dir)
+    assert walk_nodes((CacheTag,), loaded)
+    assert loaded.execute().equals(pinned.execute())
 
 
 @pytest.mark.parametrize(
@@ -1351,6 +1416,24 @@ def test_relocate_reads_flag_changes_build_hash(
     assert default_path.name != reloc_path.name
 
 
+def test_relocate_reads_build_is_load_rebuild_hash_stable(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """A relocated build must be load+rebuild hash-stable.
+
+    The fresh build's hash is taken after read_path is baked in (see
+    _prepare_relocatable_reads), so it equals every later load+rebuild --
+    otherwise pin/unpin (which reload+rebuild) could never restore the original
+    `xorq build` hash for a file-backed build.
+    """
+    t = deferred_read_parquet(sample_parquet)
+    fresh = build_expr(t, builds_dir=builds_dir / "fresh", relocate_reads=True)
+    rebuilt = build_expr(
+        load_expr(fresh), builds_dir=builds_dir / "rebuilt", relocate_reads=True
+    )
+    assert fresh.name == rebuilt.name
+
+
 def test_relocatable_api_and_flag_produce_same_hash(
     builds_dir: pathlib.Path, sample_parquet: pathlib.Path
 ) -> None:
@@ -1419,8 +1502,8 @@ def test_relocatable_rebuild_from_loaded_expr(
     assert sorted(result.x.tolist()) == [1, 2, 3]
 
 
-def test_mark_reads_relocatable_skips_remote(sample_parquet: pathlib.Path) -> None:
-    """_mark_reads_relocatable should not inject relocatable for remote paths."""
+def test_prepare_relocatable_reads_skips_remote(sample_parquet: pathlib.Path) -> None:
+    """_prepare_relocatable_reads(mark=True) should not inject relocatable for remote paths."""
     local_t = deferred_read_parquet(sample_parquet)
     local_read = list(walk_nodes(Read, local_t))[0]
 
@@ -1434,7 +1517,7 @@ def test_mark_reads_relocatable_skips_remote(sample_parquet: pathlib.Path) -> No
     )
     expr = local_t.join(remote_read.to_expr(), "x")
 
-    marked = _mark_reads_relocatable(expr)
+    marked = _prepare_relocatable_reads(expr, mark=True)
     reads = list(walk_nodes(Read, marked))
     for read in reads:
         kw = dict(read.read_kwargs)
@@ -1561,6 +1644,27 @@ def test_artifact_store_copy_file_missing_source(tmp_path: pathlib.Path) -> None
         store.copy_file(tmp_path / "nonexistent.txt", "out.txt")
 
 
+def test_artifact_store_copy_file_same_path_is_noop(tmp_path: pathlib.Path) -> None:
+    """copy_file must no-op (not SameFileError) when source resolves to dest.
+
+    Rebuilding a relocated build into its own builds_dir resolves a bundled
+    read's source to the very dest it would write (e.g. a no-op pin, now that
+    relocated builds are hash-stable); shutil.copy2 raises SameFileError on that
+    self-copy, so the guard skips it. Pins this branch at the copy_file layer so
+    a future get_path/resolve change that breaks the equality check goes red
+    here, not only via a high-level pin round-trip.
+    """
+    store = ArtifactStore(root_path=tmp_path / "store")
+    dest = store.get_path("reads", "same.parquet")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("frozen content")
+
+    # source IS the dest (same resolved path) -- copy2 would raise SameFileError
+    result = store.copy_file(dest, "reads", "same.parquet")
+    assert result == dest
+    assert dest.read_text() == "frozen content"
+
+
 # ---------------------------------------------------------------------------
 # warn_on_local_path changes
 # ---------------------------------------------------------------------------
@@ -1650,15 +1754,15 @@ def test_loaded_non_relocatable_becomes_database_table(
 
 
 # ---------------------------------------------------------------------------
-# _mark_reads_relocatable is idempotent
+# _prepare_relocatable_reads(mark=True) is idempotent
 # ---------------------------------------------------------------------------
 
 
-def test_mark_reads_relocatable_is_idempotent(sample_parquet: pathlib.Path) -> None:
-    """Calling _mark_reads_relocatable twice should not double-wrap."""
+def test_prepare_relocatable_reads_is_idempotent(sample_parquet: pathlib.Path) -> None:
+    """Calling _prepare_relocatable_reads(mark=True) twice should not double-wrap."""
     t = deferred_read_parquet(sample_parquet)
-    once = _mark_reads_relocatable(t)
-    twice = _mark_reads_relocatable(once)
+    once = _prepare_relocatable_reads(t, mark=True)
+    twice = _prepare_relocatable_reads(once, mark=True)
 
     once_reads = list(walk_nodes(Read, once))
     twice_reads = list(walk_nodes(Read, twice))

@@ -3,8 +3,9 @@ from __future__ import annotations
 from functools import reduce
 
 from xorq.catalog.enums import CatalogTag
+from xorq.common.exceptions import UnsupportedOperationError
 from xorq.common.utils.graph_utils import replace_nodes, replace_unbound, walk_nodes
-from xorq.expr.relations import HashingTag, RemoteTable, gen_name
+from xorq.expr.relations import HashingTag, Read, RemoteTable, gen_name
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -279,4 +280,22 @@ def fuse_catalog_source(expr):
 
         result = replace_nodes(replacer, expr).to_expr()
         span.set_attribute("fused", True)
+        # #2133: the fuse/bind execute path does not relocate a bundled read's
+        # base_path the way load_expr does, so a fused entry containing a
+        # relocated (bundled) read executes to a silently-empty result. Fail loud
+        # instead: catalog pin/add default to lean entries, so this only fires on
+        # an explicit --relocate-reads opt-in. Remove this guard when #2133 lands.
+        bundled = [
+            r for r in walk_nodes(Read, result) if "read_path" in dict(r.read_kwargs)
+        ]
+        if bundled:
+            span.set_attribute("fused", False)
+            span.set_attribute("reason", "relocated_read_unsupported_in_fuse")
+            raise UnsupportedOperationError(
+                "cannot fuse a catalog entry containing bundled (relocated) "
+                "reads: the fuse/bind execute path does not yet resolve a "
+                "relocated read's base_path, so the result would be empty "
+                "(#2133). Re-create the entry with --no-relocate-reads (the "
+                "default), or consume it with --no-fuse."
+            )
         return result

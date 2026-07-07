@@ -58,10 +58,35 @@ def make_read_kwargs(f, *args, **kwargs):
 
 
 def relocatable_read_path(path: str | Path) -> tuple[str, str]:
+    """Path parts (``(<dir>, <filename>)``) of a bundled relocatable read.
+
+    Single source of truth for the on-disk layout of a relocated read: the
+    directory comes from ``BundledSourceTypes.read`` and the filename is the
+    content hash of the source. Both the pre-hash pass
+    (``_prepare_relocatable_reads``) and the write pass
+    (``ExprDumper._prepare_relocatable_read``) derive the serialized
+    ``read_path`` from this, so they cannot drift.
+    """
     from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+    from xorq.ibis_yaml.enums import BundledSourceTypes  # noqa: PLC0415
 
     path = Path(path)
-    return ("reads", f"{tokenize(normalize_read_path_md5sum(path))}{path.suffix}")
+    return (
+        BundledSourceTypes.read.value,
+        f"{tokenize(normalize_read_path_md5sum(path))}{path.suffix}",
+    )
+
+
+def relocatable_read_path_str(path: str | Path) -> str:
+    """Serialized ``read_path`` of a bundled relocatable read (``"reads/<hash>.ext"``).
+
+    Single source of the *joined* form of :func:`relocatable_read_path`, shared by
+    the pre-hash pass (``_prepare_relocatable_reads``) and the write pass
+    (``ExprDumper._prepare_relocatable_read``) so the ``read_path`` string cannot
+    drift between them -- byte-equality of the two is exactly what makes a
+    relocated build load+rebuild hash-stable.
+    """
+    return "/".join(relocatable_read_path(path))
 
 
 @toolz.curry
