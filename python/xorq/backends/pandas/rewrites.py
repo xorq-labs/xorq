@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from public import public
-
 import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
@@ -17,11 +15,23 @@ from xorq.vendor.ibis.expr.schema import Schema
 from xorq.vendor.ibis.util import gen_name
 
 
+__all__ = [
+    "PandasRename",
+    "PandasResetIndex",
+    "PandasJoin",
+    "PandasAsofJoin",
+    "PandasAggregate",
+    "PandasLimit",
+    "PandasScalarSubquery",
+    "PandasWindowFrame",
+    "PandasWindowFunction",
+]
+
+
 class PandasRelation(ops.Relation):
     pass
 
 
-@public
 class PandasRename(PandasRelation):
     parent: ops.Relation
     mapping: FrozenDict[str, str]
@@ -44,7 +54,6 @@ class PandasRename(PandasRelation):
         )
 
 
-@public
 class PandasResetIndex(PandasRelation):
     parent: ops.Relation
 
@@ -57,7 +66,6 @@ class PandasResetIndex(PandasRelation):
         return self.parent.schema
 
 
-@public
 class PandasJoin(PandasRelation):
     left: ops.Relation
     right: ops.Relation
@@ -74,14 +82,12 @@ class PandasJoin(PandasRelation):
         return self.left.schema | self.right.schema
 
 
-@public
 class PandasAsofJoin(PandasJoin):
     left_by: VarTuple[ops.Value]
     right_by: VarTuple[ops.Value]
     operator: type
 
 
-@public
 class PandasAggregate(PandasRelation):
     parent: ops.Relation
     groups: FrozenDict[str, ops.Field]
@@ -96,7 +102,6 @@ class PandasAggregate(PandasRelation):
         return Schema({k: v.dtype for k, v in self.values.items()})
 
 
-@public
 class PandasLimit(PandasRelation):
     parent: ops.Relation
     n: ops.Relation
@@ -111,7 +116,6 @@ class PandasLimit(PandasRelation):
         return self.parent.schema
 
 
-@public
 class PandasScalarSubquery(ops.Value):
     # variant with no integrity checks
     rel: ops.Relation
@@ -123,7 +127,6 @@ class PandasScalarSubquery(ops.Value):
         return self.rel.schema.types[0]
 
 
-@public
 class PandasWindowFrame(ops.Node):
     table: ops.Relation
     how: str
@@ -133,7 +136,6 @@ class PandasWindowFrame(ops.Node):
     order_by: VarTuple[ops.SortKey]
 
 
-@public
 class PandasWindowFunction(ops.Value):
     func: ops.Value
     frame: PandasWindowFrame

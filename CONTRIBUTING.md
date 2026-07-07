@@ -72,6 +72,43 @@ just up postgres # some of the tests use postgres
 python -m pytest # or pytest
 ```
 
+## Module and import conventions
+
+These rules keep the public API explicit and import time predictable across the
+package. They apply to first-party code under `python/xorq/`; vendored code
+under `python/xorq/vendor/` follows upstream conventions and is exempt.
+
+### Declaring the public API with `__all__`
+
+- Every `__init__.py` (and any module meant to be imported with `*`) declares
+  an explicit `__all__` listing the names it exports. This is the single source
+  of truth for the public surface and what IDEs and doc tooling read.
+- Do **not** use the `@public` decorator in first-party code. It mutates
+  `__all__` at runtime, which hides the public surface from static tools and
+  forces `# noqa: PLE0604`. `@public` remains only in vendored ibis.
+- Names absent from `__all__` are private: they can still be imported by their
+  fully qualified path, but they are excluded from `from module import *` and
+  are not part of the supported API.
+
+### Eager vs. lazy imports
+
+Top-level (eager, module-scope) imports are the default. Move an import into
+function scope (a "lazy" import) only for one of these reasons:
+
+- **Optional dependencies** — a backend or feature whose third-party package is
+  not a hard install requirement (e.g. `gcsfs`, `snowflake`, `pyiceberg`).
+  Deferring the import keeps `import xorq` working when the extra is absent and
+  surfaces the missing dependency only when the feature is actually used.
+- **Heavy imports** — packages with a large import cost that most code paths do
+  not touch, kept out of the base import time.
+- **Breaking an import cycle** — when a module-level import would create a
+  circular dependency.
+
+Core xorq modules and cheap standard-library imports load eagerly at module
+scope. Ruff enforces this split via `PLC0415` (import-outside-top-level): every
+deliberate lazy import must carry a `# noqa: PLC0415` comment, which makes each
+one an explicit, reviewable decision rather than an accident.
+
 ## Writing the commit
 
 xorq follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
