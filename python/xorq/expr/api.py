@@ -260,12 +260,6 @@ def _cache_replacer(expr: ir.Expr) -> Replacer:
     return fn
 
 
-@tracer.start_as_current_span("_register_and_transform_cache_tables")
-def _register_and_transform_cache_tables(expr: ir.Expr) -> ir.Expr:
-    """This function will sequentially execute any cache node that is not already cached"""
-    return expr.op().replace(_cache_replacer(expr)).to_expr()
-
-
 def _deferred_reads_replacer() -> Replacer:
     """Build the BOUNDARY replacer that resolves each deferred `Read` via
     ``make_dt()`` at this execution boundary."""
@@ -294,13 +288,6 @@ def _deferred_reads_replacer() -> Replacer:
         return node
 
     return replace_read
-
-
-@tracer.start_as_current_span("_transform_deferred_reads")
-def _transform_deferred_reads(expr: ir.Expr) -> ir.Expr:
-    # BOUNDARY: make_dt resolves each deferred read at this execution boundary
-    # (reads inside opaque sub-exprs resolve when those execute). See Traversal.
-    return expr.op().replace(_deferred_reads_replacer()).to_expr()
 
 
 @tracer.start_as_current_span("execute")
