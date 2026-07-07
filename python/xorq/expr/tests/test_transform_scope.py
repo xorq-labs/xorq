@@ -472,9 +472,9 @@ def test_tee_resources_released_when_remote_pass_fails(
     # tee pass's recursion on its RemoteTable-free parent still succeeds and the
     # failure lands at the *outer* remote pass -- after the tee pass registered
     # its table. Inject at the builder the declarative driver invokes
-    # (REMOTE_PASS.build -> _remote_replacer), so the failure rides the real
+    # (REMOTE_PASS.build -> _make_remote_replacer), so the failure rides the real
     # pipeline path.
-    real_remote_replacer = remote_table_exec._remote_replacer
+    real_remote_replacer = remote_table_exec._make_remote_replacer
 
     def guarded_boom(inner_expr, scope, read_record_batches_kwargs):
         if walk_nodes(RemoteTable, inner_expr):
@@ -483,7 +483,7 @@ def test_tee_resources_released_when_remote_pass_fails(
 
     monkeypatch.setattr(RemoteTableScope, "adopt_table", spy_table)
     monkeypatch.setattr(RemoteTableScope, "adopt_drain", spy_drain)
-    monkeypatch.setattr(remote_table_exec, "_remote_replacer", guarded_boom)
+    monkeypatch.setattr(remote_table_exec, "_make_remote_replacer", guarded_boom)
 
     with pytest.raises(RuntimeError, match="remote pass failed"):
         _transform_expr(expr)

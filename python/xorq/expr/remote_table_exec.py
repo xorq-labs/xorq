@@ -319,7 +319,7 @@ def bind_scope_to_reader(
     return out
 
 
-def _remote_replacer(
+def _make_remote_replacer(
     expr: Expr, scope: RemoteTableScope, read_record_batches_kwargs: dict
 ) -> Replacer:
     """Build the per-node replacer that swaps each `RemoteTable` for a placeholder
@@ -375,7 +375,7 @@ def _remote_replacer(
 REMOTE_PASS = TransformPass(
     name="remote",
     traversal=Traversal.BOUNDARY,
-    build=lambda expr, ctx: _remote_replacer(
+    build=lambda expr, ctx: _make_remote_replacer(
         expr, ctx.scope, ctx.read_record_batches_kwargs
     ),
     produces_resources=True,
