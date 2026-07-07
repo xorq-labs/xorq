@@ -96,9 +96,8 @@ def test_register_cross_backend_column_expr() -> None:
 
 
 def test_register_same_backend_expr_materialized() -> None:
-    # A same-backend DataFusion expr is compiled to a native DataFrame rather
-    # than routed through IbisTableProvider, whose scan() would re-enter this
-    # connection and risk the reentrant tokio starvation of issue #1580.
+    # Same-backend exprs compile to a native DataFrame, not IbisTableProvider
+    # (see _resolve_expr_for_register / issue #1580).
     con = xo.connect()
     base = con.register(pa.table({"a": [1, 2, 3], "b": [10, 20, 30]}), "base")
     expr = base.filter(base.a > 1).mutate(c=base.b * 2)
@@ -121,18 +120,15 @@ def test_register_provider_filter_pushdown() -> None:
 
 
 def _reentrant_depth3_child(result_q: mp.Queue) -> None:
-    # Pin to two cores BEFORE the tokio runtime is built: this is the config
-    # under which a reentrant provider scan would starve the worker pool
-    # (issue #1580). Picking from the current affinity set keeps this valid
-    # inside an already-pinned container.
+    # Pin to two cores BEFORE the tokio runtime is built -- the config under
+    # which the reentrant deadlock (#1580) reproduced. Take them from the
+    # current affinity set to stay valid inside an already-pinned container.
     two_cpus = set(sorted(os.sched_getaffinity(0))[:2])
     os.sched_setaffinity(0, two_cpus)
 
     con = xo.connect()
     t = con.register(pa.table({"a": [1, 2, 3, 4, 5]}), "base")
-    # Registering a same-backend expr three levels deep is the shape that used
-    # to deadlock when it routed through IbisTableProvider (scan() re-entering
-    # the same connection); it must now complete via native materialization.
+    # Three-level same-backend registration: the shape that used to deadlock.
     for i in range(3):
         t = con.register(t.mutate(**{f"x{i}": t.a + i}), f"lvl{i}")
     result_q.put(t.execute().shape)
@@ -143,10 +139,9 @@ def _reentrant_depth3_child(result_q: mp.Queue) -> None:
     reason="needs Linux CPU-affinity control and >=2 available cores",
 )
 def test_reentrant_same_backend_register_no_deadlock_on_two_cores() -> None:
-    # Runs in a spawned, core-pinned child; a hang surfaces as timeout->failure
-    # instead of blocking the whole suite. Deterministic regardless of host core
-    # count because the child forces exactly two cores. The success path
-    # (spawn + import + connect + execute) is ~1s, so 10s is a wide margin.
+    # Spawned, core-pinned child so a hang becomes a timeout->failure instead of
+    # blocking the suite. Success path is ~1s (spawn + import + connect +
+    # execute), so 10s is a wide margin.
     timeout_s = 10
     ctx = mp.get_context("spawn")
     result_q = ctx.Queue()
