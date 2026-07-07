@@ -12,7 +12,7 @@ from xorq.common.compat import raise_collected_errors
 from xorq.common.utils.logging_utils import get_logger
 from xorq.expr.enums import Traversal
 from xorq.expr.relations import RemoteTable, gen_name
-from xorq.expr.transform import Replacer, TransformPass
+from xorq.expr.transform import Replacer, TransformCtx, TransformPass
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import operations as ops
@@ -330,6 +330,13 @@ def _make_remote_replacer(
     (e.g. Snowflake's ``database=(catalog, db)``). The replacer never closes
     ``scope`` -- teardown stays with the caller that created it.
     """
+    # A required pre-pass, not a foldable extra walk: ``max_readers`` must be
+    # known when each ``StreamCache`` is constructed below (it is immutable after
+    # -- backed by a Rust ``_PyStreamCache``), and the count needs a *compiled*
+    # SQL AST because one graph reference can become several physical scans (a
+    # self-join over one RemoteTable). So it cannot be merged into the
+    # materializing walk. REMOTE_PASS's ``when`` keeps it (and this walk) from
+    # running at all when no RemoteTable is reachable at this boundary.
     reader_counts = count_remote_table_readers(expr)
 
     def replacer(node, kwargs):
@@ -368,6 +375,20 @@ def _make_remote_replacer(
     return replacer
 
 
+def _has_boundary_remote_table(expr: Expr, ctx: TransformCtx) -> bool:
+    """Whether a ``RemoteTable`` is reachable at *this* execution boundary.
+
+    Uses ``op.find`` (not the opaque-descending ``walk_nodes``) so it matches the
+    pass's own ``op.replace`` reach exactly: a RemoteTable buried inside an opaque
+    sub-expr (e.g. ``CachedNode.parent``) is transformed when that node executes,
+    not here, so the pass -- and its ``count_remote_table_readers`` pre-walk plus
+    SQL compile -- would only no-op on it. Skipping keeps both walks off every
+    expr that has no boundary RemoteTable (the common case, and any remote nested
+    only inside a cache).
+    """
+    return bool(expr.op().find(RemoteTable))
+
+
 # BOUNDARY: mark_remote_table has side effects, so it must not descend into opaque
 # sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr) -- see Traversal. Runs after
 # tee so a tee placeholder registered earlier is torn down by the same shared scope
@@ -379,6 +400,7 @@ REMOTE_PASS = TransformPass(
         expr, ctx.scope, ctx.read_record_batches_kwargs
     ),
     produces_resources=True,
+    when=_has_boundary_remote_table,
     after=("tee",),
 )
 
