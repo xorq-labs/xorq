@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import multiprocessing as mp
+import os
+import queue
 import warnings
 from pathlib import Path
 
@@ -115,6 +118,60 @@ def test_register_provider_filter_pushdown() -> None:
     reg = con.register(src, "prov")
     out = reg.filter(reg.a > 2).execute()
     assert out["a"].tolist() == [3, 4]
+
+
+def _reentrant_depth3_child(result_q: mp.Queue) -> None:
+    # Pin to two cores BEFORE the tokio runtime is built, so the DataFusion
+    # worker pool starves under nested provider scans (issue #1580). Picking
+    # from the current affinity set keeps this valid inside a pinned container.
+    two_cpus = set(sorted(os.sched_getaffinity(0))[:2])
+    os.sched_setaffinity(0, two_cpus)
+
+    con = xo.connect()
+    t = con.register(pa.table({"a": [1, 2, 3, 4, 5]}), "base")
+    # Each register() of a same-backend expr routes through IbisTableProvider;
+    # three levels deep, scan() re-enters the same connection recursively.
+    for i in range(3):
+        t = con.register(t.mutate(**{f"x{i}": t.a + i}), f"lvl{i}")
+    result_q.put(t.execute().shape)
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "sched_setaffinity") or len(os.sched_getaffinity(0)) < 2,
+    reason="needs Linux CPU-affinity control and >=2 available cores",
+)
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "issue #1580: a >=3-level reentrant same-backend expr registers each level "
+        "via IbisTableProvider.scan(), which synchronously re-enters the same "
+        "DataFusion connection and starves the two-worker tokio pool, deadlocking. "
+        "Remove this xfail once the same-backend register path no longer hangs."
+    ),
+)
+def test_reentrant_same_backend_register_deadlocks_on_two_cores() -> None:
+    # Runs in a spawned, core-pinned child; a hang surfaces as timeout->failure
+    # instead of blocking the whole suite. Deterministic regardless of host core
+    # count because the child forces exactly two cores. The success path
+    # (spawn + import + connect + execute) is ~1s, so 10s is a wide margin.
+    timeout_s = 10
+    ctx = mp.get_context("spawn")
+    result_q = ctx.Queue()
+    proc = ctx.Process(target=_reentrant_depth3_child, args=(result_q,))
+    proc.start()
+    proc.join(timeout_s)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join()
+        pytest.fail(
+            f"reentrant same-backend register hung >{timeout_s}s "
+            "(issue #1580 tokio worker starvation)"
+        )
+    try:
+        shape = result_q.get(timeout=5)
+    except queue.Empty:
+        pytest.fail(f"child exited without a result (exitcode={proc.exitcode})")
+    assert shape == (5, 4)
 
 
 def test_register_unknown_source_type_raises() -> None:
