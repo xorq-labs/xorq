@@ -23,11 +23,9 @@ def test_hash(sqlite_con: Backend, df: pd.DataFrame) -> None:
 
 def test_hash_pinned_values(sqlite_con: Backend, snapshot: Snapshot) -> None:
     # Pin the sqlite Hash op (ibis_hash_32 udf, a 32-bit blake2b digest) so an
-    # unintended algorithm/encoding change is caught. Covers int/float/str
-    # inputs, which hash distinctly even when their string forms match (int 1
-    # vs str "1"). The 1e20 float pins the scientific-notation repr ("1e+20")
-    # the hash is taken over. Regenerate deliberately with --snapshot-update;
-    # a diff here is a reviewable behavioral break.
+    # unintended algorithm/encoding change is caught. The 1e20 float pins the
+    # scientific-notation repr ("1e+20") the hash is taken over. Regenerate
+    # deliberately with --snapshot-update; a diff here is a behavioral break.
     t = xo.memtable(
         {"i": [0, 1, 123], "f": [0.0, 1.5, 1e20], "s": ["", "a", "1"]}
     ).into_backend(sqlite_con)

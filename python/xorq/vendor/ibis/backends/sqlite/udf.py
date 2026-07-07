@@ -247,19 +247,18 @@ def uuid():
 
 @udf(skip_if_exists=True, deterministic=True)
 def ibis_hash_32(x):
-    if x is None:
-        return None
-    # 32-bit blake2b digest backing the Hash op. blake2b gives strong avalanche
-    # (needed for even bucketing in train/test splits); a checksum such as crc32
-    # distributes poorly mod-N. Kept 32-bit because downstream Hash().abs().mod()
-    # compiles to SQLite's floating-point MOD, which loses precision on ints
-    # wider than ~2^32.
-    #
-    # The type name is folded into the payload so values that share a string
-    # form across types do not collide (int 1, str "1" and float 1.0 all hash
-    # differently). Floats use Python's repr, so extreme magnitudes hash by
-    # their scientific-notation form (1e20 -> "1e+20"); the hash is therefore
-    # format-dependent but platform-stable.
+    """32-bit blake2b digest backing the SQLite Hash op.
+
+    blake2b is used for its strong avalanche (needed for even bucketing in
+    train/test splits); a checksum such as crc32 distributes poorly mod-N.
+    Kept 32-bit to match the original CityHash32 range and stay well inside
+    double's exact-integer range, so the downstream floating-point
+    ``MOD(ABS(...), n)`` stays exact.
+
+    The type name is folded into the payload so values sharing a string form
+    across types do not collide (see ``test_hash_distinguishes_types``). Floats
+    use Python's repr, so the digest is format-dependent but platform-stable.
+    """
     payload = f"{type(x).__name__}:{x}".encode("utf-8")
     digest = hashlib.blake2b(payload, digest_size=4).digest()
     return int.from_bytes(digest, "little")
