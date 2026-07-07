@@ -487,7 +487,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name
             The name of the table
         kwargs
-            Datafusion-specific keyword arguments
+            DataFusion-specific keyword arguments. Only applied to path and
+            record-batch-reader sources; ignored for expr, DataFrame, and
+            in-memory table sources.
 
         """
         import pandas as pd  # noqa: PLC0415
@@ -555,8 +557,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             return self.execute(source)
         backend = backends[0]
         if not isinstance(backend, Backend):
-            # Cross-backend expr: leave as ir.Expr; match arms register it via
-            # IbisTableProvider, which executes on the source's own backend.
+            # Cross-backend expr: leave as ir.Expr; the match arms register it by
+            # executing on the source's own backend.
             return source
         # Same-backend DataFusion expr: compile to a native DataFrame instead of
         # routing through IbisTableProvider. scan() would synchronously re-enter
