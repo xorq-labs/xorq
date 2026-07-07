@@ -22,14 +22,15 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.api import _transform_expr, get_plans, to_pyarrow_batches
-from xorq.expr.relations import RemoteTable, register_and_transform_tee_nodes_into
+from xorq.expr.relations import TEE_PASS, RemoteTable
 from xorq.expr.remote_table_exec import (
+    REMOTE_PASS,
     RemoteTableScope,
     bind_scope_to_reader,
     drop_placeholder,
     prepare_create_table_from_expr,
-    register_and_transform_remote_tables_into,
 )
+from xorq.expr.transform import TransformCtx, apply_pass
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.writes import DrainingIterator, ParquetWriteThrough
@@ -420,7 +421,7 @@ def test_replacer_adopts_reader_cache_and_table() -> None:
     target = xo.duckdb.connect()
     expr = make_remote_expr(target)
     scope = RemoteTableScope()
-    register_and_transform_remote_tables_into(expr.op().to_expr(), scope)
+    apply_pass(REMOTE_PASS, expr.op().to_expr(), TransformCtx(scope=scope))
     try:
         assert scope.reader_count == 1
         assert scope.cache_count == 1
@@ -514,7 +515,7 @@ def test_tee_adopts_upstream_reader_into_scope(tmp_path: Path) -> None:
 
     # thread an explicit scope into the pass, mirroring _transform_expr
     scope = RemoteTableScope()
-    register_and_transform_tee_nodes_into(teed, scope)
+    apply_pass(TEE_PASS, teed, TransformCtx(scope=scope))
     assert scope.reader_count >= 1, (
         "tee upstream reader must be adopted into the transform scope"
     )

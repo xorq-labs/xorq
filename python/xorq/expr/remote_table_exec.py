@@ -12,7 +12,7 @@ from xorq.common.compat import raise_collected_errors
 from xorq.common.utils.logging_utils import get_logger
 from xorq.expr.enums import Traversal
 from xorq.expr.relations import RemoteTable, gen_name
-from xorq.expr.transform import Replacer, TransformCtx, TransformPass, apply_pass
+from xorq.expr.transform import Replacer, TransformPass
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import operations as ops
@@ -381,25 +381,6 @@ REMOTE_PASS = TransformPass(
     produces_resources=True,
     after=("tee",),
 )
-
-
-def register_and_transform_remote_tables_into(
-    expr: Expr, scope: RemoteTableScope, **kwargs: Any
-) -> Expr:
-    """Apply :data:`REMOTE_PASS` against the caller-owned ``scope``.
-
-    Thin adapter for callers that apply the remote pass on its own (tests,
-    one-off use): it runs the same :data:`REMOTE_PASS` record through the shared
-    driver that ``_transform_expr`` folds over its whole pass table, so both
-    apply identical traversal and scope discipline. The scope is threaded
-    explicitly by the caller; this never closes it -- ownership and teardown
-    stay with the caller that created it.
-    """
-    return apply_pass(
-        REMOTE_PASS,
-        expr,
-        TransformCtx(scope=scope, read_record_batches_kwargs=kwargs),
-    )
 
 
 def prepare_create_table_from_expr(

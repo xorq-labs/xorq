@@ -214,7 +214,7 @@ def test_read_record_batches_stream_cache_extra_columns_raises() -> None:
     # A StreamCache must already hold the logical columns: cast only retypes,
     # it cannot drop columns, and wrapping a second cache to project would
     # double-buffer and defeat eviction. Column projection belongs upstream,
-    # before the cache (as register_and_transform_remote_tables_into does).
+    # before the cache (as the remote pass, REMOTE_PASS, does).
     con = xo.connect()
     batch = pa.record_batch({"a": [1, 2], "extra": [9, 9]})
     reader = pa.RecordBatchReader.from_batches(batch.schema, [batch])

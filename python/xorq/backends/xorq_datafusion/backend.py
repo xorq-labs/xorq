@@ -814,7 +814,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 # bound still drives eviction. cast only retypes -- it requires
                 # matching field names -- so column projection must already have
                 # happened upstream, before the cache (the remote-table path does
-                # this; see register_and_transform_remote_tables_into). Wrapping a
+                # this; see the remote pass, REMOTE_PASS). Wrapping a
                 # second StreamCache here to drop columns would double-buffer the
                 # data and defeat eviction, so we let cast raise on a name
                 # mismatch rather than accommodate it.

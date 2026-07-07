@@ -1855,7 +1855,7 @@ def test_execution_handles_remote_table_in_computed_kwargs_expr(
 ) -> None:
     """RemoteTables nested inside ExprScalarUDF.computed_kwargs_expr must be
     materialized lazily when the UDF is compiled, not during the outer
-    register_and_transform_remote_tables_into pass (which intentionally skips
+    REMOTE_PASS (the remote pass, which intentionally skips
     opaque sub-expressions)."""
     cona = xo.connect()
     conb = xo.connect()
