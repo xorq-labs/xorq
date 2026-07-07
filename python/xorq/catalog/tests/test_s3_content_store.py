@@ -11,9 +11,12 @@ from botocore.exceptions import ClientError  # noqa: E402
 
 from xorq.catalog.content_store import (  # noqa: E402
     ContentIntegrityError,
+    DirectoryContentStoreConfig,
     S3ContentStore,
     S3ContentStoreConfig,
     compute_sha256,
+    content_store_config_from_env_file,
+    content_store_config_from_prefix,
 )
 from xorq.catalog.s3_utils import make_boto3_client  # noqa: E402
 
@@ -355,3 +358,125 @@ def test_s3_content_store_list_keys_empty(
 
     assert list(store.list_keys()) == []
     assert list(store.list_keys(prefix="cat")) == []
+
+
+# --- content_store_config_from_prefix ---
+
+
+def _clear_cs_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in (
+        "XORQ_CONTENT_STORE_S3_BUCKET",
+        "XORQ_CONTENT_STORE_S3_CATALOG_ID",
+        "XORQ_CONTENT_STORE_S3_PREFIX",
+        "XORQ_CONTENT_STORE_S3_REGION",
+        "XORQ_CONTENT_STORE_S3_AWS_ACCESS_KEY_ID",
+        "XORQ_CONTENT_STORE_S3_AWS_SECRET_ACCESS_KEY",
+        "XORQ_CONTENT_STORE_S3_AWS_SESSION_TOKEN",
+        "XORQ_CONTENT_STORE_S3_HOST",
+        "XORQ_CONTENT_STORE_S3_PORT",
+        "XORQ_CONTENT_STORE_S3_PROTOCOL",
+        "XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY",
+        "XORQ_CONTENT_STORE_DIRECTORY_CATALOG_ID",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_config_from_prefix_s3(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_cs_env(monkeypatch)
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_BUCKET", "pfx-bucket")
+    config = content_store_config_from_prefix("XORQ_CONTENT_STORE_S3_")
+    assert isinstance(config, S3ContentStoreConfig)
+    assert config.bucket == "pfx-bucket"
+
+
+def test_config_from_prefix_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_cs_env(monkeypatch)
+    monkeypatch.setenv("XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY", str(tmp_path))
+    config = content_store_config_from_prefix("XORQ_CONTENT_STORE_DIRECTORY_")
+    assert isinstance(config, DirectoryContentStoreConfig)
+    assert config.directory == tmp_path
+
+
+def test_config_from_prefix_unknown_raises() -> None:
+    with pytest.raises(ValueError, match="Unknown content store prefix"):
+        content_store_config_from_prefix("XORQ_BOGUS_")
+
+
+def test_config_from_prefix_gcs(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_cs_env(monkeypatch)
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_BUCKET", "gcs-bucket")
+    config = content_store_config_from_prefix("XORQ_CONTENT_STORE_S3_", gcs=True)
+    assert isinstance(config, S3ContentStoreConfig)
+    assert config.host == "storage.googleapis.com"
+    assert config.protocol == "https"
+
+
+def test_config_from_prefix_kwargs_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_cs_env(monkeypatch)
+    monkeypatch.setenv("XORQ_CONTENT_STORE_S3_BUCKET", "env-bucket")
+    config = content_store_config_from_prefix(
+        "XORQ_CONTENT_STORE_S3_", bucket="kwarg-bucket", region="eu-west-1"
+    )
+    assert config.bucket == "kwarg-bucket"
+    assert config.region == "eu-west-1"
+
+
+# --- content_store_config_from_env_file ---
+
+
+def test_config_from_env_file_s3(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_cs_env(monkeypatch)
+    env_file = tmp_path / ".env.cs.s3"
+    env_file.write_text(
+        "XORQ_CONTENT_STORE_S3_BUCKET=file-bucket\n"
+        "XORQ_CONTENT_STORE_S3_REGION=ap-southeast-1\n"
+    )
+    config = content_store_config_from_env_file(str(env_file))
+    assert isinstance(config, S3ContentStoreConfig)
+    assert config.bucket == "file-bucket"
+    assert config.region == "ap-southeast-1"
+
+
+def test_config_from_env_file_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_cs_env(monkeypatch)
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    env_file = tmp_path / ".env.cs.dir"
+    env_file.write_text(f"XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY={store_dir}\n")
+    config = content_store_config_from_env_file(str(env_file))
+    assert isinstance(config, DirectoryContentStoreConfig)
+    assert config.directory == store_dir
+
+
+def test_config_from_env_file_invalid_prefix(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.bad"
+    env_file.write_text("SOME_RANDOM_VAR=hello\n")
+    with pytest.raises(ValueError, match="Could not determine content store type"):
+        content_store_config_from_env_file(str(env_file))
+
+
+def test_config_from_env_file_gcs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_cs_env(monkeypatch)
+    env_file = tmp_path / ".env.cs.gcs"
+    env_file.write_text("XORQ_CONTENT_STORE_S3_BUCKET=gcs-bucket\n")
+    config = content_store_config_from_env_file(str(env_file), gcs=True)
+    assert isinstance(config, S3ContentStoreConfig)
+    assert config.host == "storage.googleapis.com"
+
+
+def test_config_from_env_file_kwargs_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_cs_env(monkeypatch)
+    env_file = tmp_path / ".env.cs.s3"
+    env_file.write_text("XORQ_CONTENT_STORE_S3_BUCKET=file-bucket\n")
+    config = content_store_config_from_env_file(str(env_file), bucket="override-bucket")
+    assert config.bucket == "override-bucket"

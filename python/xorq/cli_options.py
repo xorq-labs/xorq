@@ -212,6 +212,72 @@ content_store_option = click.option(
 )
 
 
+def cs_env_options(fn):
+    fn = click.option(
+        "--cs-env-prefix",
+        default=None,
+        help=(
+            "Env-var prefix for the content store"
+            " (e.g. XORQ_CONTENT_STORE_S3_; mutually exclusive with --cs-env-file)."
+        ),
+    )(fn)
+    fn = click.option(
+        "--cs-env-file",
+        type=click.Path(exists=True, dir_okay=False),
+        default=None,
+        help=(
+            "Env file for the content store (mutually exclusive with --cs-env-prefix)."
+        ),
+    )(fn)
+    return fn
+
+
+def cs_field_options(fn):
+    fn = click.option(
+        "--cs-directory",
+        default=None,
+        help="Local directory for a directory content store.",
+    )(fn)
+    fn = click.option(
+        "--cs-protocol",
+        type=click.Choice(["http", "https"]),
+        default=None,
+        help="Protocol for S3-compatible endpoint.",
+    )(fn)
+    fn = click.option(
+        "--cs-port",
+        type=int,
+        default=None,
+        help="Port for S3-compatible endpoint.",
+    )(fn)
+    fn = click.option(
+        "--cs-host",
+        default=None,
+        help="Host for S3-compatible endpoint (e.g. minio.example.com).",
+    )(fn)
+    fn = click.option(
+        "--cs-prefix",
+        default=None,
+        help="Key prefix within the S3 bucket.",
+    )(fn)
+    fn = click.option(
+        "--cs-region",
+        default=None,
+        help="AWS region for the S3 bucket.",
+    )(fn)
+    fn = click.option(
+        "--cs-catalog-id",
+        default=None,
+        help="Catalog ID for content store key namespacing (auto-generated if omitted).",
+    )(fn)
+    fn = click.option(
+        "--cs-bucket",
+        default=None,
+        help="S3 bucket name for the content store.",
+    )(fn)
+    return fn
+
+
 json_option = click.option(
     "--json",
     "as_json",
