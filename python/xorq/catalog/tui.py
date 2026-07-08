@@ -43,7 +43,8 @@ from textual.widgets import (
 )
 
 from xorq.caching.storage import resolve_parquet_cache_path
-from xorq.catalog.catalog import CatalogEntry
+from xorq.catalog.catalog import Catalog, CatalogEntry
+from xorq.catalog.enums import CatalogInfix
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
 from xorq.config import options
@@ -414,15 +415,26 @@ def _get_catalog_list(catalog) -> tuple:
 
 
 @cache
-def _catalog_aliases_cached(catalog, yaml_mtime: float) -> tuple:
-    """Compute catalog aliases; auto-invalidates when yaml mtime changes."""
+def _catalog_aliases_cached(
+    catalog: Catalog, yaml_mtime: float, aliases_mtime: float
+) -> tuple:
+    """Compute catalog aliases; auto-invalidates when yaml or aliases/ changes."""
     return tuple(catalog.catalog_aliases)
 
 
-def _get_catalog_aliases(catalog) -> tuple:
-    """Return catalog aliases, recomputing only when the YAML file has changed."""
+def _get_catalog_aliases(catalog: Catalog) -> tuple:
+    """Return catalog aliases, recomputing only when they may have changed.
+
+    The YAML mtime alone misses a pure repoint of an existing alias to
+    another existing entry: that rewrites only the symlink under ``aliases/``
+    (the alias is already listed in catalog.yaml, so no yaml write happens).
+    Replacing a symlink updates its parent directory's mtime, so key on that
+    as well.
+    """
     yaml_mtime = catalog.catalog_yaml.yaml_path.stat().st_mtime
-    return _catalog_aliases_cached(catalog, yaml_mtime)
+    aliases_dir = catalog.repo_path.joinpath(CatalogInfix.ALIAS)
+    aliases_mtime = aliases_dir.stat().st_mtime if aliases_dir.exists() else 0.0
+    return _catalog_aliases_cached(catalog, yaml_mtime, aliases_mtime)
 
 
 @cache
@@ -819,6 +831,18 @@ class CatalogScreen(Screen):
         expected_keys = frozenset(_get_catalog_list(catalog))
         alias_multimap = _build_alias_multimap(self.catalog_aliases)
 
+        # Reconcile alias changes on already-cached rows: an alias can land
+        # after its entry was first cached (add writes the entry to
+        # catalog.yaml before the alias, so a refresh can see the gap) or be
+        # re-pointed to a different entry later.  Do this before cached_rows
+        # is snapshotted so a full re-render also picks up the new aliases.
+        alias_changed = {
+            k: evolve(row, aliases=aliases)
+            for k, row in self._row_cache.items()
+            if (aliases := alias_multimap.get(k, ())) != row.aliases
+        }
+        self._row_cache.update(alias_changed)
+
         # Age out: keys that were pink last cycle turn green now
         prev_new = self._new_keys
         self._new_keys = set()
@@ -840,7 +864,7 @@ class CatalogScreen(Screen):
             self._new_keys = set(new_keys)
 
         if prev_new:
-            self.app.call_from_thread(self._settle_new_labels, prev_new)
+            self.app.call_from_thread(self._relabel_leaves, prev_new)
 
         match (bool(removed), bool(cached_rows)):
             case (True, _) | (_, False):
@@ -848,6 +872,9 @@ class CatalogScreen(Screen):
                 self.app.call_from_thread(self._render_refresh, repo_path, cached_rows)
             case _:
                 pass
+
+        if alias_changed:
+            self.app.call_from_thread(self._apply_alias_changes, set(alias_changed))
 
         # load new entries incrementally (expensive I/O, off the main thread)
         for entry_hash in new_keys:
@@ -947,12 +974,21 @@ class CatalogScreen(Screen):
         label.append(f" ·{ncols}", style=badge_style)
         return label
 
-    def _settle_new_labels(self, keys: set[str]) -> None:
+    def _relabel_leaves(self, keys: set[str]) -> None:
         tree = self.query_one("#catalog-tree", Tree)
         for branch in tree.root.children:
             for leaf in branch.children:
                 if leaf.data in keys and leaf.data in self._row_cache:
                     leaf.set_label(self._styled_leaf_label(self._row_cache[leaf.data]))
+
+    def _apply_alias_changes(self, keys: set[str]) -> None:
+        self._relabel_leaves(keys)
+        # If the cursor sits on an affected entry, the side panels (Revisions
+        # title, Info) were rendered from the stale aliases; re-render them.
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
+        if node is not None and node.data in keys:
+            self._render_highlighted_node()
 
     def _render_status(self, stamp, repo_path) -> None:
         rows = self._row_cache.values()
