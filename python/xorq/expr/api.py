@@ -686,7 +686,6 @@ def to_parquet(
     """
     import pyarrow  # noqa: F401, ICN001, PLC0415
     import pyarrow.parquet as pq  # noqa: PLC0415
-    import pyarrow_hotfix  # noqa: F401, PLC0415
 
     with to_pyarrow_batches(expr, params=params) as batch_reader:
         with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
@@ -719,7 +718,6 @@ def to_csv(
 
     import pyarrow  # noqa: F401, ICN001, PLC0415
     import pyarrow.csv as pcsv  # noqa: PLC0415
-    import pyarrow_hotfix  # noqa: F401, PLC0415
 
     with pcsv.CSVWriter(path, schema=expr.schema().to_pyarrow(), **kwargs) as writer:
         with to_pyarrow_batches(expr, params=params) as batch_reader:
@@ -746,11 +744,6 @@ def to_json(
 
     https://github.com/ndjson/ndjson-spec
     """
-    import pyarrow  # noqa: F401, ICN001, PLC0415
-    import pyarrow_hotfix  # noqa: F401, PLC0415
-
-    from xorq.common.utils.io_utils import maybe_open  # noqa: PLC0415
-
     with maybe_open(path, "w") as f:
         with to_pyarrow_batches(expr, params=params) as batch_reader:
             for batch in batch_reader:

@@ -4102,15 +4102,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pyarrow-hotfix"
-version = "0.7"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d2/ed/c3e8677f7abf3981838c2af7b5ac03e3589b3ef94fcb31d575426abae904/pyarrow_hotfix-0.7.tar.gz", hash = "sha256:59399cd58bdd978b2e42816a4183a55c6472d4e33d183351b6069f11ed42661d", size = 9910, upload-time = "2025-04-25T10:17:06.247Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/c3/94ade4906a2f88bc935772f59c934013b4205e773bcb4239db114a6da136/pyarrow_hotfix-0.7-py3-none-any.whl", hash = "sha256:3236f3b5f1260f0e2ac070a55c1a7b339c4bb7267839bd2015e283234e758100", size = 7923, upload-time = "2025-04-25T10:17:05.224Z" },
-]
-
-[[package]]
 name = "pyasn1"
 version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -6091,7 +6082,6 @@ dependencies = [
     { name = "prometheus-client" },
     { name = "py-yaml12" },
     { name = "pyarrow" },
-    { name = "pyarrow-hotfix" },
     { name = "python-dateutil" },
     { name = "pytz" },
     { name = "rich" },
@@ -6258,7 +6248,6 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.2.0" },
     { name = "py-yaml12" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=18.0.0,<22" },
-    { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.7,<1" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'examples'", specifier = ">=0.9.0" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'pyiceberg'", specifier = ">=0.9.0" },
     { name = "python-dateutil", specifier = ">=2.8.2" },

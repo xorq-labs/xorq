@@ -31,7 +31,6 @@ dependencies = [
     "pyarrow>=18.0.0,<22; python_version >= '3.10' and python_version < '4.0'",
     "structlog>=24.2.0,<26; python_version >= '3.10' and python_version < '4.0'",
     "pandas>=2.2.0,<3 ; python_version >= '3.10' and python_version < '4.0'",
-    "pyarrow-hotfix>=0.7,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "atpublic>=5.1",
     "parsy>=2",
     "python-dateutil>=2.8.2",

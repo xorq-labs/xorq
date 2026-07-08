@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import duckdb
 import pyarrow as pa
-import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
 from packaging.version import parse as vparse

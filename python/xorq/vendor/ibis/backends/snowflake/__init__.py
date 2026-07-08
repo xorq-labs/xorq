@@ -15,7 +15,6 @@ from urllib.parse import unquote_plus
 from urllib.request import urlcleanup, urlretrieve
 
 import pyarrow as pa
-import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
 
