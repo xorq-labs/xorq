@@ -1342,20 +1342,6 @@ def _pin_shared_options(fn: _F) -> _F:
     )
 
 
-def _pin_shared_options(fn: _F) -> _F:
-    """Options common to `xorq pin` and `xorq unpin`.
-
-    The differing options (--ensure-materialized on pin only, and the pin/unpin
-    flavor of --relocate-reads) stay on each command.
-    """
-    return apply_in_help_order(
-        fn,
-        click.argument("build_path"),
-        _PIN_BUILDS_DIR_OPTION,
-        cache_dir_option,
-    )
-
-
 @cli.command("pin")
 @_pin_shared_options
 @ensure_materialized_option
