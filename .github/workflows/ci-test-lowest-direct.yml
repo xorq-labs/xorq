@@ -80,13 +80,6 @@ jobs:
           --group dev --group test
         working-directory: ${{ github.workspace }}
 
-      # upstream ibis imports pyarrow_hotfix unconditionally but only declares
-      # it under backend extras; xorq installs ibis-framework bare, so add it
-      # for the ibis-extra tests now that xorq no longer depends on it directly
-      - name: install pyarrow-hotfix for real-ibis compatibility
-        run: uv pip install "pyarrow-hotfix>=0.7,<1"
-        working-directory: ${{ github.workspace }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
