@@ -4,7 +4,7 @@ import functools
 import operator
 import warnings
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import pyarrow as pa
 import toolz
@@ -27,6 +27,13 @@ from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node
 from xorq.writes import DrainingIterator, WriteThrough
+
+
+if TYPE_CHECKING:
+    # A module-level import would be circular (remote_table_exec imports from
+    # here); only annotations need it, and `from __future__ import annotations`
+    # defers those to strings.
+    from xorq.expr.remote_table_exec import RemoteTableScope
 
 
 def replace_cache_table(node: Node, kwargs: dict[str, Any] | None) -> Node:
@@ -842,30 +849,27 @@ class Read(ops.DatabaseTable):
 _NON_REENTRANT_TEE_BACKENDS = frozenset({"duckdb"})
 
 
-@tracer.start_as_current_span("register_and_transform_tee_nodes")
-def register_and_transform_tee_nodes(
+@tracer.start_as_current_span("register_and_transform_tee_nodes_into")
+def register_and_transform_tee_nodes_into(
     expr: Expr,
-) -> tuple[Expr, dict[str, BaseBackend], list[DrainingIterator]]:
+    scope: RemoteTableScope,
+) -> Expr:
     """Replace each surviving `TeeNode` with a backend table fed by the
-    writer's ``write_through(batches)`` generator.
+    writer's ``write_through(batches)`` generator, adopting every resource it
+    materializes into the caller-owned ``scope``.
 
     The writer wraps the parent's batch stream: it pulls, writes as a side
     effect, and yields each batch onward. Runs after cache resolution, so a
-    downstream cache hit prunes the `TeeNode` before this pass sees it and
-    the write never fires.
+    downstream cache hit prunes the `TeeNode` before this pass sees it and the
+    write never fires.
 
-    Returns ``(expr, created, drains)``: the transformed expression, a
-    ``{table_name: con}`` map of the intermediate pass-through tables
-    registered on each parent backend (these persist in the backend's
-    catalog until dropped, so callers must drop them once downstream
-    consumption is done), and a list of `DrainingIterator` instances whose
-    ``close()`` must be called after downstream execution completes so that
-    the writer can finish consuming the stream.
+    ``scope`` owns everything this pass materializes -- upstream readers, the
+    pass-through tables registered on each parent backend, and the write-through
+    ``DrainingIterator`` drains -- so a failure in a *later* pass still tears
+    them down. This function never closes ``scope``; teardown stays with the
+    caller (``_transform_expr``) that created it.
     """
     from xorq.common.utils.caching_utils import find_backend  # noqa: PLC0415
-
-    drains: list[DrainingIterator] = []
-    created: dict[str, BaseBackend] = {}
 
     def replacer(node, kwargs):
         if not isinstance(node, TeeNode):
@@ -883,18 +887,22 @@ def register_and_transform_tee_nodes(
                 "See ADR-0014.",
                 stacklevel=2,
             )
-        reader = parent_expr.to_pyarrow_batches()
+        # adopt the reader (it holds a live backend cursor): a later-pass failure
+        # would otherwise leak it before the stream is consumed.
+        reader = scope.adopt_reader(parent_expr.to_pyarrow_batches())
         write_iter = node.writer.write_through(reader)
         if node.drain:
             write_iter = DrainingIterator(write_iter)
-            drains.append(write_iter)
+            scope.adopt_drain(write_iter)
         wrapped = pa.RecordBatchReader.from_batches(
             reader.schema,
             write_iter,
         )
         table_name = gen_name()
+        # adopt before registering: a partial read_record_batches failure can't
+        # strand the placeholder (drop_placeholder no-ops if it never landed).
+        scope.adopt_table(con, table_name)
         table = con.read_record_batches(wrapped, table_name=table_name)
-        created[table_name] = con
         return table.op()
 
     # op.replace, not replace_nodes: this replacer has side effects (registers
@@ -906,7 +914,7 @@ def register_and_transform_tee_nodes(
     # cached parent; into_backend/flight re-pull via to_pyarrow_batches), so its
     # TeeNodes still fire exactly once. replace_nodes would fire them twice.
     op = expr.op()
-    return op.replace(replacer).to_expr(), created, drains
+    return op.replace(replacer).to_expr()
 
 
 def render_backend(con: BaseBackend) -> str:

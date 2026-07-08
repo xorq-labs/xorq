@@ -319,11 +319,17 @@ def bind_scope_to_reader(
     return out
 
 
-@tracer.start_as_current_span("register_and_transform_remote_tables")
-def register_and_transform_remote_tables(
-    expr: Expr, **kwargs: Any
-) -> tuple[Expr, RemoteTableScope]:
-    scope = RemoteTableScope()
+@tracer.start_as_current_span("register_and_transform_remote_tables_into")
+def register_and_transform_remote_tables_into(
+    expr: Expr, scope: RemoteTableScope, **kwargs: Any
+) -> Expr:
+    """Adopt every remote-table resource into the caller-owned ``scope``.
+
+    The caller threads one shared scope through every pass (see
+    ``_transform_expr``), so a failure in a *later* pass tears down what this one
+    materialized. This function never closes ``scope``; teardown stays with the
+    caller that created it.
+    """
     # ``replacer``'s ``kwargs`` parameter (node-recreate args) shadows the
     # outer ``**kwargs``; capture the through-kwargs here so they reach
     # ``read_record_batches`` (e.g. Snowflake's ``database=(catalog, db)``).
@@ -364,17 +370,14 @@ def register_and_transform_remote_tables(
         return node
 
     # Intentionally op.replace, not replace_nodes: mark_remote_table has side effects
-    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr)
-    try:
-        expr = op.replace(replacer).to_expr()
-    except Exception:
-        scope.close()
-        raise
+    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr).
+    # The caller owns scope teardown, so a failure here just propagates.
+    expr = op.replace(replacer).to_expr()
     if scope.table_count:
         trace.get_current_span().add_event(
             "remote_table.replace", {"remote_table.count": scope.table_count}
         )
-    return expr, scope
+    return expr
 
 
 def prepare_create_table_from_expr(

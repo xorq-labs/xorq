@@ -24,8 +24,9 @@ from xorq.expr.api import (
 from xorq.expr.relations import (
     HashingTag,
     TeeNode,
-    register_and_transform_tee_nodes,
+    register_and_transform_tee_nodes_into,
 )
+from xorq.expr.remote_table_exec import RemoteTableScope
 from xorq.writes import (
     BackendWriteThrough,
     DrainingIterator,
@@ -347,7 +348,7 @@ def test_tee_duckdb_warns_deadlock(tmp_path: Path) -> None:
     t = con.create_table("dd_warn", pa.table({"a": [1, 2, 3, 4]}))
     expr = t.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
     with pytest.warns(UserWarning, match="deadlock"):
-        register_and_transform_tee_nodes(expr)
+        register_and_transform_tee_nodes_into(expr, RemoteTableScope())
 
 
 def test_write_with_cache_upstream(tmp_path: Path) -> None:
@@ -663,8 +664,8 @@ def test_to_sql_strips_nested_tee_nodes(t: Table, tmp_path: Path) -> None:
 def test_tee_transform_leaves_tee_inside_opaque_untouched(
     t: Table, tmp_path: Path
 ) -> None:
-    """register_and_transform_tee_nodes uses op.replace, which deliberately does
-    not descend into opaque sub-exprs (here CachedNode.parent). A TeeNode buried
+    """register_and_transform_tee_nodes_into uses op.replace, which deliberately
+    does not descend into opaque sub-exprs (here CachedNode.parent). A TeeNode buried
     in an opaque node must survive the outer pass untouched and its write must not
     fire: it is handled lazily when the opaque sub-expr executes (e.g. on a cache
     miss). Guards against a regression to replace_nodes, which would descend and
@@ -677,11 +678,12 @@ def test_tee_transform_leaves_tee_inside_opaque_untouched(
     assert len(walk_nodes((TeeNode,), cached)) == 1
     assert len(cached.op().find(TeeNode)) == 0
 
-    transformed, created, drains = register_and_transform_tee_nodes(cached)
+    scope = RemoteTableScope()
+    transformed = register_and_transform_tee_nodes_into(cached, scope)
 
     assert not target.exists(), "outer transform must not fire the buried write"
-    assert created == {}, "no pass-through table should be registered"
-    assert drains == []
+    assert scope.table_count == 0, "no pass-through table should be registered"
+    assert scope.drain_count == 0
     assert len(walk_nodes((TeeNode,), transformed)) == 1, (
         "TeeNode inside the opaque sub-expr must survive the outer transform"
     )

@@ -1,6 +1,6 @@
 """GizmoSQL read_record_batches coverage, including StreamCache inputs.
 
-register_and_transform_remote_tables feeds a batchcorder StreamCache straight
+register_and_transform_remote_tables_into feeds a batchcorder StreamCache straight
 into the target backend's read_record_batches, so these pin that gizmosql
 accepts a StreamCache (it exposes __iter__/.schema) and, in particular, that an
 empty stream still materializes the declared columns rather than raising

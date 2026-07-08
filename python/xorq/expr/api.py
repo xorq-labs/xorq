@@ -42,11 +42,12 @@ from xorq.expr.relations import (
     Read,
     Tag,
     TeeNode,
-    register_and_transform_tee_nodes,
+    register_and_transform_tee_nodes_into,
 )
 from xorq.expr.remote_table_exec import (
+    RemoteTableScope,
     bind_scope_to_reader,
-    register_and_transform_remote_tables,
+    register_and_transform_remote_tables_into,
 )
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import api
@@ -358,7 +359,7 @@ def _remove_tag_nodes(expr):
 def _remove_tee_nodes(expr: ir.Expr) -> ir.Expr:
     """Strip transparent `TeeNode`s to their parent (for SQL / hashing).
 
-    Execution keeps the `TeeNode` until `register_and_transform_tee_nodes`
+    Execution keeps the `TeeNode` until `register_and_transform_tee_nodes_into`
     fires the write, so this is only used off the execution path.
     """
 
@@ -463,19 +464,18 @@ def _transform_expr(expr, params=None, **kwargs):
         else expr
     )
     expr = _remove_tag_nodes(expr)
-    expr = _register_and_transform_cache_tables(expr)
-    expr, tee_created, drains = register_and_transform_tee_nodes(expr)
-    expr, scope = register_and_transform_remote_tables(expr, **kwargs)
-    # Fold the tee-node materializations (placeholder tables + write-through
-    # drains) into the same scope so a single close() tears everything down.
-    # Drains close-then-join before any table drops (see RemoteTableScope.close).
-    for table_name, con in tee_created.items():
-        scope.adopt_table(con, table_name)
-    for drain in drains:
-        scope.adopt_drain(drain)
+    # One scope, created up front and threaded explicitly into the tee and
+    # remote passes, owns every teardown-able resource they materialize (the
+    # cache-table pass's tables are intentional artifacts, not scope-owned).
+    # Both passes adopt into this *same* scope, so a failure in any pass tears
+    # down what earlier passes created, not just its own.
+    scope = RemoteTableScope()
     try:
+        expr = _register_and_transform_cache_tables(expr)
+        expr = register_and_transform_tee_nodes_into(expr, scope)
+        expr = register_and_transform_remote_tables_into(expr, scope, **kwargs)
         expr = _transform_deferred_reads(expr)
-    except Exception:
+    except BaseException:
         scope.close()
         raise
     return (expr, scope)
