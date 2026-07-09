@@ -26,8 +26,16 @@ class DeferredReadsPlan(TypedDict):
 
 
 def to_sql(expr: ir.Expr) -> str:
+    from xorq.expr.api import _remove_tee_nodes  # noqa: PLC0415
+
+    # A TeeNode is a transparent, schema-preserving pass-through with no SQL
+    # compiler visitor; strip it to its parent before compiling (the same
+    # non-executing treatment the `.sql()` view path applies).
+    uncached = _remove_tee_nodes(expr.ls.uncached)
     try:
-        compiler_provider = expr.ls.uncached._find_backend(use_default=True)
+        compiler_provider = uncached._find_backend(
+            use_default=True
+        )  # xorq-style: disable=protected-access
         if getattr(compiler_provider, "compiler", None) is None:
             warnings.warn(
                 f"{compiler_provider} is not a SQL backend, so no SQL string will be generated",
@@ -37,7 +45,7 @@ def to_sql(expr: ir.Expr) -> str:
     except XorqError:
         pass
 
-    return ibis.to_sql(expr.ls.uncached)
+    return ibis.to_sql(uncached)
 
 
 def find_relations(expr: ir.Expr) -> List[str]:

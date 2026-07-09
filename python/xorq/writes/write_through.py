@@ -14,7 +14,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
-from attr import Attribute, field, frozen
+from attr import Attribute, evolve, field, frozen
 from attr.validators import instance_of
 
 from xorq.common.compat import flock_exclusive
@@ -66,6 +66,16 @@ class WriteThrough(abc.ABC):
         """Pull from *batches*, write each as a side effect, yield onward."""
         ...
 
+    def iter_cons(self) -> tuple[BaseBackend, ...]:
+        """Backend connections this writer holds, for source discovery and
+        profile serialization (see ``find_all_sources``). None by default."""
+        return ()
+
+    def replace_cons(self, mapping: dict[int, BaseBackend]) -> WriteThrough:
+        """Return a copy with any held con remapped by ``id(con)``, used for
+        profile canonicalization (see ``replace_sources``). Unchanged by default."""
+        return self
+
 
 @frozen
 class ParquetWriteThrough(WriteThrough):
@@ -85,6 +95,8 @@ class ParquetWriteThrough(WriteThrough):
 
     def __dasher_tokenize__(self) -> tuple:
         return ("parquet-write-through", str(self.path), self.mode)
+
+    # parquet writes to the filesystem, not a backend: no con to discover.
 
     def write_through(
         self, batches: Iterable[pa.RecordBatch]
@@ -194,6 +206,13 @@ class BackendWriteThrough(WriteThrough):
             self.table_name,
             self.mode,
         )
+
+    def iter_cons(self) -> tuple[BaseBackend, ...]:
+        return (self.con,)
+
+    def replace_cons(self, mapping: dict[int, BaseBackend]) -> WriteThrough:
+        new_con = mapping.get(id(self.con))
+        return evolve(self, con=new_con) if new_con is not None else self
 
     @cached_property
     def _supports_mode(self) -> bool:
@@ -396,6 +415,13 @@ class WritePrimaryWriteThrough(WriteThrough):
 
     def __dasher_tokenize__(self) -> tuple:
         return self.inner.__dasher_tokenize__()
+
+    def iter_cons(self) -> tuple[BaseBackend, ...]:
+        return self.inner.iter_cons()
+
+    def replace_cons(self, mapping: dict[int, BaseBackend]) -> WriteThrough:
+        new_inner = self.inner.replace_cons(mapping)
+        return evolve(self, inner=new_inner) if new_inner is not self.inner else self
 
     def write_through(
         self, batches: Iterable[pa.RecordBatch]
