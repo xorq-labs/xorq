@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783523767201,
+  "lastUpdate": 1783570852360,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -25938,6 +25938,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.12497255214023995",
             "extra": "mean: 1.2827380609999977 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8385e2d8035036d38ace9b7f06c4f95d9acad764",
+          "message": "refactor(transform): declarative pass driver for _transform_expr (R2) (#2139)\n\n## Summary\n\nTurns the hand-run tier-1 transform sequence in `_transform_expr` into a\n**declarative, ordered pass table** so the correctness rules that\npreviously lived only in prose comments become *data* the driver\nenforces. This is **R2** of the `to_pyarrow_batches`\ntransform-robustness plan.\n\n- **P2 killed** — traversal kind (`replace_nodes` descend vs\n`op.replace` boundary) is a `Traversal` field on each pass, applied by\none driver (`apply_pass`). No call site can pick the wrong walk.\n- **P3 killed** — pass ordering is an `after` dependency chain (`bind →\ntags → cache → tee → remote → deferred_reads`) asserted by\n`run_transform_passes`. Reordering the table now raises immediately\ninstead of silently mis-transforming.\n- Resource ownership: the shared `RemoteTableScope` is threaded to every\npass via `TransformCtx` (the R1 mechanism); the tee and remote passes\n(flagged `produces_resources`) are the ones that adopt resources into\nit.\n\n## What changed\n\n- New leaf module `xorq/expr/transform.py`: `TransformPass` record,\n`apply_pass` (selects the walk from the record), `run_transform_passes`\n(folds + asserts `after`). `Traversal{DESCEND|BOUNDARY}` in new\n`xorq/expr/enums.py`.\n- Each pass is a **replacer-builder** (`_make_*_replacer`) invoked by\nthe driver. The public entry points external callers still use are kept:\n`bind_params` and `_remove_tag_nodes` (used by `ibis_yaml/compiler.py`\nand `to_sql`). Every per-pass adapter was removed — the old\ntuple-returning standalone wrappers first, then (in R2 review follow-up)\nthe tee/remote `*_into` scope-threading adapters. All callers, tests\nincluded, now apply a single pass through the driver primitive\n`apply_pass(PASS, expr, TransformCtx(scope=...))`, so each pass has\nexactly one entry point (see Observability below).\n- `replace_nodes` is imported lazily inside `apply_pass` to keep\n`transform` out of the `graph_utils → relations` import cycle.\n\n## Design notes\n\n- The plan's `kind={PURE|BOUNDARY}` is split into **two orthogonal\naxes**: `traversal` (the walk) and `produces_resources` (needs the\nscope). `deferred_reads` is pure yet must be BOUNDARY; `cache` is\neffectful yet owns nothing scope-tracked — one field couldn't express\nboth.\n- **R2 review follow-up:** `TransformCtx.scope` is optional (pure passes\nskip constructing a throwaway scope), `Replacer` is typed\n`Callable[[Node, dict|None], Node]`, and each imported pass echoes its\n`after` at the `_PASSES` assembly point so the whole ordering chain\nreads in one place (the driver still validates each record's real\n`after`).\n\n## Observability (OTel) — behavioral change\n\nThe per-pass tracing moved from decorated per-function spans to one span\nper pass emitted by `apply_pass`. **This renames spans** —\ndashboards/alerts keyed on the old names must be updated:\n\n- `register_and_transform_remote_tables` → `transform.remote`\n- `register_and_transform_tee_nodes` → `transform.tee`\n- `_register_and_transform_cache_tables` → `transform.cache`\n- `_remove_tag_nodes` (on the transform path) → `transform.remove_tags`\n- `_transform_deferred_reads` → `transform.deferred_reads`\n\nOn the `_transform_expr` path this is a net **increase** in coverage:\nall six passes now get a span, whereas `bind_params` previously had none\n(→ `transform.bind_params`). `_transform_expr` and `to_pyarrow_batches`\nspans are unchanged, and the `replace_read` event still attaches to the\n(now renamed) deferred-reads span.\n\nTwo now-orphaned decorated functions —\n`_register_and_transform_cache_tables` and `_transform_deferred_reads` —\nwere deleted: once the driver invoked their builders directly they had\nzero callers, so their `@tracer` spans never fired anyway.\n\nThe aggregate `remote_table.replace` OTel event was also dropped (no\nconsumers).\n\n## Tests\n\n- New `test_transform_driver.py` pins the driver's own guarantees:\n`run_transform_passes` raises `InternalError` on a violated `after` (P3\nanchor), ordered / skipped-but-positioned cases, `apply_pass`\nDESCEND-vs-BOUNDARY selection (P2), and `when=False` skipping.\n- Green: `test_transform_scope.py`, `test_write_through.py`,\n`test_stream_cache_contract.py`, `test_graph_utils.py`, datafusion\n`test_into_backend.py`.\n\n## Stacking\n\nBuilt on **#2138** (R1 — unified resource scope), now **merged**. This\nbranch is rebased directly onto `main`, so the diff is just the R2\ndeclarative-pass-driver work. Behaviour-preserving refactor otherwise\n(aside from the observability changes noted above).\n\nStill open in the plan: **P4** (fuse the pure DESCEND passes; the\n`count_remote_table_readers` extra walk) and **R3/P5** (route the Flight\nearly-return through the driver) — both intended as separate follow-ups.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T06:14:15+02:00",
+          "tree_id": "9976258d294a8b9306dfd25b7709d07f813f4da4",
+          "url": "https://github.com/xorq-labs/xorq/commit/8385e2d8035036d38ace9b7f06c4f95d9acad764"
+        },
+        "date": 1783570849295,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.849559598813314,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034565460849694404",
+            "extra": "mean: 145.99478777777915 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.8938762505242233,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05165308272181312",
+            "extra": "mean: 345.55727800000113 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7887393965590547,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14952648996050716",
+            "extra": "mean: 1.2678458871999907 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.815810187613932,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05446283524487144",
+            "extra": "mean: 355.1375743999927 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.069598853495169,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020953028445425327",
+            "extra": "mean: 325.77546699998265 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.239096430832705,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016854039647837687",
+            "extra": "mean: 308.72807320000675 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 178.9205822707993,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006761281171841908",
+            "extra": "mean: 5.5890719072581785 msec\nrounds: 248"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.404443351193565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00869588636869035",
+            "extra": "mean: 185.03293216666825 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 20.911134977816733,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008987723107928164",
+            "extra": "mean: 47.82141194444181 msec\nrounds: 18"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.702432953260606,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019355224084152023",
+            "extra": "mean: 93.43669839999697 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 9.04382116848998,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022186877110563916",
+            "extra": "mean: 110.57273041666822 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.623498308975983,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029665008376686734",
+            "extra": "mean: 150.9776183749949 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.991839303666948,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007825976143397133",
+            "extra": "mean: 200.32696150002494 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.814475556553616,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008051069060287502",
+            "extra": "mean: 207.70694300000514 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.2989232037742005,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06794746767590792",
+            "extra": "mean: 434.986257200012 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.2058436446232896,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023228168593841667",
+            "extra": "mean: 311.9303717999969 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7734536066774675,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08752738114733939",
+            "extra": "mean: 563.8715307999973 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8604081777513395,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0995337476508052",
+            "extra": "mean: 537.5164503999827 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6099000134182198,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08312267151952785",
+            "extra": "mean: 621.1565884000152 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.569516791634886,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10235383827364157",
+            "extra": "mean: 637.1387711999887 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2646662324925764,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14680090336426407",
+            "extra": "mean: 790.7224644000053 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1726357677005947,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11911311079559786",
+            "extra": "mean: 852.779718599993 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0555909564168473,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12520266362257912",
+            "extra": "mean: 947.336649600004 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5982275322953825,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19871532203372352",
+            "extra": "mean: 1.6716047757999832 sec\nrounds: 5"
           }
         ]
       }
