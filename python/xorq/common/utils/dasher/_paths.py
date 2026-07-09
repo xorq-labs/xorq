@@ -129,7 +129,7 @@ def _extract_duckdb_file_paths(sql_ddl: str) -> tuple[str, ...]:
         parquet_funcs = (
             func
             for func in tree.find_all(sg.exp.Anonymous)
-            if func.name.lower() == "read_parquet"
+            if (func.name or "").lower() == "read_parquet"
         )
 
     # expressions[0] is the path; restrict to it to avoid capturing

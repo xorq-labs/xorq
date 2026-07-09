@@ -1,6 +1,5 @@
 """Tests for deferred sklearn metrics evaluation using Pipeline API."""
 
-import importlib
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -24,6 +23,8 @@ sklearn = pytest.importorskip("sklearn")
 
 # Import submodules explicitly: older sklearn does not auto-import them, so
 # bare ``sklearn.datasets`` etc. would raise AttributeError at the floor.
+# importorskip (not import_module) degrades to a clean skip rather than a
+# collection error if any submodule is missing.
 for _submodule in (
     "base",
     "cluster",
@@ -37,7 +38,7 @@ for _submodule in (
     "preprocessing",
     "svm",
 ):
-    importlib.import_module(f"sklearn.{_submodule}")
+    pytest.importorskip(f"sklearn.{_submodule}")
 
 # Access sklearn modules through the sklearn object to avoid E402 linting errors
 make_classification = sklearn.datasets.make_classification
