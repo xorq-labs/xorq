@@ -1091,8 +1091,10 @@ mean_pinball_loss = sklearn.metrics.mean_pinball_loss
 mean_tweedie_deviance = sklearn.metrics.mean_tweedie_deviance
 d2_pinball_score = sklearn.metrics.d2_pinball_score
 d2_tweedie_score = sklearn.metrics.d2_tweedie_score
-# d2_log_loss_score was added in scikit-learn 1.5; keep the module importable
-# below that floor by degrading to None and skipping the dependent test.
+# d2_log_loss_score was added in scikit-learn 1.5, which is also the declared
+# floor, so it is present in any supported install. Kept as a getattr fallback
+# purely as defence against users who pin an exact pre-floor version outside
+# the normal dependency-resolution path; the dependent test is skipped there.
 d2_log_loss_score = getattr(sklearn.metrics, "d2_log_loss_score", None)
 calinski_harabasz_score = sklearn.metrics.calinski_harabasz_score
 davies_bouldin_score = sklearn.metrics.davies_bouldin_score

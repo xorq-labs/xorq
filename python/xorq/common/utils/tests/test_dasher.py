@@ -35,7 +35,9 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+import sqlglot
 import toolz
+from sqlglot.dialects.duckdb import DuckDB
 from xorq_dasher import fqn
 
 import xorq.api as xo
@@ -456,7 +458,48 @@ def test_extract_datafusion_plan_paths(ep_str, expected):
         ),
     ],
 )
-def test_extract_duckdb_file_paths(ddl, expected):
+def test_extract_duckdb_file_paths(ddl: str, expected: tuple[str, ...]) -> None:
+    assert _extract_duckdb_file_paths(ddl) == expected
+
+
+@pytest.mark.parametrize(
+    "ddl, expected",
+    [
+        pytest.param(
+            "CREATE VIEW v AS SELECT * FROM read_parquet('/tmp/file.parquet')",
+            ("/tmp/file.parquet",),
+            id="single",
+        ),
+        pytest.param(
+            "CREATE VIEW v AS SELECT * FROM read_parquet(['/tmp/a.parquet', '/tmp/b.parquet'])",
+            ("/tmp/a.parquet", "/tmp/b.parquet"),
+            id="list",
+        ),
+        pytest.param(
+            "CREATE VIEW v AS SELECT * FROM read_parquet('https://example.com/data.parquet')",
+            ("https://example.com/data.parquet",),
+            id="remote",
+        ),
+    ],
+)
+def test_extract_duckdb_file_paths_pre_28_sqlglot_fallback(
+    ddl: str, expected: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the sqlglot<28 branch on any installed sqlglot version.
+
+    Pre-28 sqlglot had no typed ``ReadParquet`` node and parsed
+    ``read_parquet()`` into an ``Anonymous`` func. Simulate that world by
+    dropping the duckdb parser mapping (so the tree carries ``Anonymous``
+    nodes) and nulling ``exp.ReadParquet`` (so the extractor takes the
+    Anonymous-name-matching branch), then assert path extraction is identical.
+    """
+    monkeypatch.setattr(
+        DuckDB.Parser,
+        "FUNCTIONS",
+        {k: v for k, v in DuckDB.Parser.FUNCTIONS.items() if k != "READ_PARQUET"},
+    )
+    monkeypatch.setattr(sqlglot.exp, "ReadParquet", None, raising=False)
+
     assert _extract_duckdb_file_paths(ddl) == expected
 
 
