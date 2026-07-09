@@ -432,6 +432,49 @@ def test_replacer_adopts_reader_cache_and_table() -> None:
     assert target.list_tables() == []
 
 
+def test_remote_pass_skips_count_walk_when_no_boundary_remote_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The remote pass -- and its ``count_remote_table_readers`` pre-walk + SQL
+    compile -- must not fire for an expr with no ``RemoteTable`` at this
+    boundary. Guards the ``when=_has_boundary_remote_table`` short-circuit that
+    keeps both the count walk and the transform walk off the common case."""
+    calls: list = []
+    real = remote_table_exec.count_remote_table_readers
+    monkeypatch.setattr(
+        remote_table_exec,
+        "count_remote_table_readers",
+        lambda expr: calls.append(expr) or real(expr),
+    )
+
+    plain = xo.memtable({"a": [1, 2, 3]}).filter(lambda t: t.a > 1)
+    _, scope = _transform_expr(plain)
+    scope.close()
+    assert calls == [], "count must be skipped when no boundary RemoteTable exists"
+
+
+def test_remote_pass_runs_count_when_boundary_remote_table_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When a ``RemoteTable`` is reachable at this boundary the pass runs and the
+    count pre-walk fires exactly once -- it is an intrinsic prerequisite
+    (``StreamCache.max_readers`` is set at construction and needs the compiled
+    scan counts), not a foldable extra walk."""
+    calls: list = []
+    real = remote_table_exec.count_remote_table_readers
+    monkeypatch.setattr(
+        remote_table_exec,
+        "count_remote_table_readers",
+        lambda expr: calls.append(expr) or real(expr),
+    )
+
+    target = xo.duckdb.connect()
+    expr = make_remote_expr(target)
+    _, scope = _transform_expr(expr)
+    scope.close()
+    assert len(calls) == 1, "count must run once when a boundary RemoteTable is present"
+
+
 def test_tee_resources_released_when_remote_pass_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

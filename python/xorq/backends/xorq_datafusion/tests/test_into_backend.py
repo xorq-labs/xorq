@@ -1,7 +1,7 @@
 """into_backend fan-out edge cases for the xorq_datafusion backend.
 
-Unlike duckdb, the datafusion backend reads the StreamCache built by
-``register_and_transform_remote_tables`` exactly once (``from_stream``) and
+Unlike duckdb, the datafusion backend reads the StreamCache built by the remote
+pass (``REMOTE_PASS``) exactly once (``from_stream``) and
 re-wraps it into an inner cache that DataFusion scans per reference. So the
 outer cache's ``max_readers`` (the value computed here) only ever sees one
 reader — an over-count merely disables eviction, never crashes. These tests

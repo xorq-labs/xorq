@@ -7,6 +7,9 @@ of any concrete pass:
   positioned earlier, instead of silently mis-transforming.
 - P2: ``apply_pass`` selects the graph walk (descend into opaque sub-exprs vs
   stop at them) solely from the pass's ``Traversal``.
+- P4: adjacent fusable passes (``DESCEND`` and ``not produces_resources``) share
+  one ``replace_nodes`` walk, ``produces_resources`` gates membership, and the
+  fused result is identical to applying the passes one at a time.
 
 The pipeline-level tests in ``test_transform_scope.py`` cover the real passes;
 this covers the mechanism they ride on.
@@ -19,14 +22,25 @@ from typing import Callable
 import pytest
 
 import xorq.api as xo
+import xorq.common.utils.graph_utils as graph_utils
 from xorq.common.exceptions import InternalError
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.provenance_utils import get_expr_hash
+from xorq.expr.api import (
+    _make_bind_params_replacer,
+    _make_remove_tag_nodes_replacer,
+    _resolve_bind_op_params,
+)
 from xorq.expr.enums import Traversal
-from xorq.expr.relations import RemoteTable
+from xorq.expr.operations import NamedScalarParameter
+from xorq.expr.relations import TEE_PASS, RemoteTable, Tag, TeeNode
 from xorq.expr.remote_table_exec import RemoteTableScope
 from xorq.expr.transform import (
     TransformCtx,
     TransformPass,
+    _fuse_replacers,
+    _fusion_groups,
+    _is_fusable,
     apply_pass,
     run_transform_passes,
 )
@@ -169,3 +183,265 @@ def test_apply_pass_traversal_selected_from_record() -> None:
     # DESCEND recurses through RemoteTable.remote_expr, so it visits strictly more
     # nodes than BOUNDARY, which stops at the RemoteTable.
     assert len(descend_seen) > len(boundary_seen)
+
+
+def test_produces_resources_pass_requires_scope() -> None:
+    """A ``produces_resources`` pass run with ``ctx.scope is None`` fails loudly
+    (its replacer would otherwise ``AttributeError`` deep inside on
+    ``ctx.scope.adopt_*``)."""
+    t = xo.memtable({"a": [1, 2, 3]})
+    resource_pass = TransformPass(
+        name="needs_scope",
+        traversal=Traversal.BOUNDARY,
+        build=lambda expr, ctx: _identity_replacer(),
+        produces_resources=True,
+    )
+    with pytest.raises(
+        InternalError, match=r"produces resources but ctx.scope is None"
+    ):
+        apply_pass(resource_pass, t, TransformCtx())  # scope defaults to None
+
+
+def test_non_producer_pass_is_handed_a_scopeless_ctx() -> None:
+    """``produces_resources`` is an enforced resource-ownership gate: a declared
+    producer's ``build`` sees the shared scope, a non-producer's sees ``None`` --
+    so a pass that adopts into the scope without declaring it fails loudly instead
+    of silently leaking."""
+    t = xo.memtable({"a": [1, 2, 3]})
+    seen: dict[str, object] = {}
+
+    def record_scope(name):
+        def build(expr, ctx):
+            seen[name] = ctx.scope
+            return _identity_replacer()
+
+        return build
+
+    ctx = _ctx()  # carries a real RemoteTableScope
+    producer = TransformPass(
+        name="prod",
+        traversal=Traversal.BOUNDARY,
+        build=record_scope("prod"),
+        produces_resources=True,
+    )
+    non_producer = TransformPass(
+        name="pure",
+        traversal=Traversal.DESCEND,
+        build=record_scope("pure"),
+    )
+    apply_pass(producer, t, ctx)
+    apply_pass(non_producer, t, ctx)
+
+    assert seen["prod"] is ctx.scope, "a producer's build sees the shared scope"
+    assert seen["pure"] is None, "a non-producer's build is handed a scopeless ctx"
+
+
+def test_producer_that_never_adopts_is_not_flagged() -> None:
+    """The reverse of the gate -- a pass that declares ``produces_resources`` but
+    never adopts -- is deliberately *not* enforced (see ``_pass_ctx``). ``TEE_PASS``
+    is the false-positive trap: it has no ``when``, so it runs on every expr, and on
+    one with no ``TeeNode`` it legitimately adopts nothing. That zero-adopt run is
+    indistinguishable from a genuinely miswired producer, so a naive "a producer
+    must adopt at least one resource" check would misfire here. This pins that the
+    driver does *not* raise and touches nothing on this legitimate no-op."""
+    t = xo.memtable({"a": [1, 2, 3]})
+    assert not walk_nodes(TeeNode, t)  # precondition: nothing for tee to adopt
+    scope = RemoteTableScope()
+
+    out = apply_pass(TEE_PASS, t, TransformCtx(scope=scope))
+
+    # ran cleanly, adopted nothing, left the scope open and the expr unchanged.
+    assert (
+        scope.reader_count
+        == scope.cache_count
+        == scope.table_count
+        == scope.drain_count
+        == 0
+    )
+    assert not scope.closed
+    assert get_expr_hash(out) == get_expr_hash(t)
+
+
+# --- P4: fusion of adjacent pure DESCEND passes -----------------------------
+
+
+def _descend(name: str, *, produces: bool = False) -> TransformPass:
+    return TransformPass(
+        name=name,
+        traversal=Traversal.DESCEND,
+        build=lambda expr, ctx: _identity_replacer(),
+        produces_resources=produces,
+    )
+
+
+def _boundary(name: str) -> TransformPass:
+    return TransformPass(
+        name=name,
+        traversal=Traversal.BOUNDARY,
+        build=lambda expr, ctx: _identity_replacer(),
+    )
+
+
+def test_is_fusable_reads_produces_resources() -> None:
+    """A pass is fusable iff it is DESCEND and produces no resources -- this is
+    the one consumer of ``produces_resources``."""
+    assert _is_fusable(_descend("pure"))
+    assert not _is_fusable(_descend("effectful", produces=True))
+    assert not _is_fusable(_boundary("bnd"))
+
+
+def test_fusion_groups_coalesce_adjacent_pure_descend() -> None:
+    """Maximal runs of fusable passes coalesce; a BOUNDARY or a DESCEND producer
+    breaks the run and stays a singleton."""
+    passes = (
+        _descend("a"),
+        _descend("b"),
+        _boundary("c"),
+        _descend("d", produces=True),  # DESCEND but effectful -> not fused
+        _descend("e"),
+        _descend("f"),
+    )
+    grouped = [tuple(p.name for p in g) for g in _fusion_groups(passes)]
+    assert grouped == [("a", "b"), ("c",), ("d",), ("e", "f")]
+
+
+def test_fused_run_uses_one_graph_walk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two adjacent fusable passes share a single ``replace_nodes`` traversal;
+    the same two applied one at a time would walk twice."""
+    calls = {"n": 0}
+    real = graph_utils.replace_nodes
+
+    def counting(replacer, expr):
+        calls["n"] += 1
+        return real(replacer, expr)
+
+    monkeypatch.setattr(graph_utils, "replace_nodes", counting)
+
+    t = xo.memtable({"a": [1, 2, 3]})
+    passes = (_descend("a"), _descend("b"))
+    run_transform_passes(t, passes, _ctx())
+    assert calls["n"] == 1, "adjacent fusable passes must share one walk"
+
+    calls["n"] = 0
+    apply_pass(passes[0], t, _ctx())
+    apply_pass(passes[1], t, _ctx())
+    assert calls["n"] == 2, "applied singly, each pass walks on its own"
+
+
+def test_effectful_descend_pass_is_not_folded_into_the_fused_walk() -> None:
+    """A DESCEND pass flagged ``produces_resources`` runs on its own walk, never
+    under the shared fused replacer -- so its side effect fires exactly once,
+    under a traversal it owns."""
+    fired: list[str] = []
+
+    def effectful_build(expr, ctx):
+        def replacer(node, kwargs):
+            fired.append("walk")
+            return node.__recreate__(kwargs) if kwargs else node
+
+        return replacer
+
+    t = xo.memtable({"a": [1, 2, 3]})
+    passes = (
+        _descend("pure_a"),
+        TransformPass(
+            name="effectful",
+            traversal=Traversal.DESCEND,
+            build=effectful_build,
+            produces_resources=True,
+        ),
+        _descend("pure_b"),
+    )
+    # three groups: (pure_a,), (effectful,), (pure_b,) -- none fuse with effectful
+    grouped = [tuple(p.name for p in g) for g in _fusion_groups(passes)]
+    assert grouped == [("pure_a",), ("effectful",), ("pure_b",)]
+    run_transform_passes(t, passes, _ctx())
+    # the effectful replacer ran its own single walk (once per node, one walk)
+    assert fired, "effectful pass must still run"
+
+
+def test_when_false_collapses_group_to_single_pass_path() -> None:
+    """When ``when`` leaves a single active pass in a fusion group, the driver
+    falls back to the plain single-pass path (no composed replacer needed)."""
+    t = xo.memtable({"a": [1, 2, 3]})
+    ran: list[str] = []
+
+    def rec(name):
+        def build(expr, ctx):
+            ran.append(name)
+            return _identity_replacer()
+
+        return build
+
+    passes = (
+        TransformPass(
+            name="skipped",
+            traversal=Traversal.DESCEND,
+            build=rec("skipped"),
+            when=lambda expr, ctx: False,
+        ),
+        TransformPass(name="kept", traversal=Traversal.DESCEND, build=rec("kept")),
+    )
+    run_transform_passes(t, passes, _ctx())
+    assert ran == ["kept"], "skipped pass contributes no replacer"
+
+
+def test_fused_bind_and_remove_tags_equals_sequential() -> None:
+    """The real fusable pair: fusing ``bind_params`` + ``remove_tags`` into one
+    walk yields an expression identical (by build hash) to applying them singly,
+    including the interaction where a bound parameter lives inside a tagged
+    subtree (a Tag wraps a relation; the param sits below it)."""
+    t = xo.memtable({"a": [1, 2, 3]})
+    p = xo.param("thresh", "int64")
+    inner = t.filter(t.a > p)
+    tagged = Tag(schema=inner.op().schema, parent=inner.op()).to_expr()
+    assert walk_nodes(Tag, tagged) and walk_nodes(NamedScalarParameter, tagged)
+
+    bind = TransformPass(
+        name="bind_params",
+        traversal=Traversal.DESCEND,
+        build=lambda expr, ctx: _make_bind_params_replacer(
+            _resolve_bind_op_params(expr, ctx.name_values)
+        ),
+    )
+    tags = TransformPass(
+        name="remove_tags",
+        traversal=Traversal.DESCEND,
+        build=lambda expr, ctx: _make_remove_tag_nodes_replacer(),
+    )
+    ctx = TransformCtx(name_values={"thresh": 2})
+
+    fused = run_transform_passes(tagged, (bind, tags), ctx)
+    # sequential: two separate walks, one pass each
+    step1 = apply_pass(bind, tagged, ctx)
+    sequential = apply_pass(tags, step1, ctx)
+
+    assert not walk_nodes(Tag, fused) and not walk_nodes(NamedScalarParameter, fused)
+    assert get_expr_hash(fused) == get_expr_hash(sequential)
+
+
+def test_fuse_replacers_applies_in_order_recreates_centrally() -> None:
+    """``_fuse_replacers`` applies replacers left-to-right and performs the single
+    ``__recreate__`` itself, so no individual replacer ever sees the recreate
+    ``kwargs`` -- recreation happens exactly once, independent of pass order."""
+    order: list[str] = []
+    saw_kwargs: list[str] = []
+
+    def make(name):
+        def replacer(node, kwargs):
+            order.append(name)
+            if kwargs:
+                saw_kwargs.append(name)
+                node = node.__recreate__(kwargs)
+            return node
+
+        return replacer
+
+    fused = _fuse_replacers([make("first"), make("second")])
+    t = xo.memtable({"a": [1, 2, 3]})
+    graph_utils.replace_nodes(fused, t)
+
+    assert order[:2] == ["first", "second"], "replacers apply in list order"
+    assert saw_kwargs == [], (
+        "_fuse_replacers recreates centrally; no replacer is handed the kwargs"
+    )
