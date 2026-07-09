@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783570852360,
+  "lastUpdate": 1783586174088,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -26130,6 +26130,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.19871532203372352",
             "extra": "mean: 1.6716047757999832 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "834b8e67f95aa9348a05eb1c7d8ebc668fb43f40",
+          "message": "refactor(transform): P4 pure-pass fusion, remote-pass guard, and produces_resources ownership gate (#2144)\n\n## Summary\n\n**P4** of the `to_pyarrow_batches` transform-robustness plan: fuse the\nadjacent **pure DESCEND passes** into a single graph walk, and give\n`produces_resources` its first real consumer.\n\n`run_transform_passes` now validates `after` ordering up front, then\nexecutes the pass table in **fusion groups**: each maximal run of\nadjacent *fusable* passes — `traversal == DESCEND and not\nproduces_resources` — shares one `replace_nodes` walk under a composed\nreplacer, and every other pass applies on its own. On the real `_PASSES`\nthe one fused group is `(bind_params, remove_tags)`, so **two full graph\ntraversals collapse into one**.\n\n## Why this closes the \"dead field\" question\n\nBefore this PR, `produces_resources` was **declarative-only** — set on\nthe tee/remote passes, documented, but never read by the driver. Now\n`_is_fusable` reads it:\n\n```python\ndef _is_fusable(pass_):\n    return pass_.traversal is Traversal.DESCEND and not pass_.produces_resources\n```\n\nIt keeps an effectful DESCEND pass off the shared traversal it doesn't\nown. (Today no real DESCEND pass sets it `True`, but the flag is a live\ninput to every fusion decision and is covered for the `True` branch by a\nsynthetic test.) As of the review follow-ups below, it is **also** an\nenforced resource-ownership gate — see \"Review follow-ups\".\n\n## Design: composition, not an algorithm change\n\nThe fused replacer (`_fuse_replacers`) **chains the existing per-pass\nreplacers**: it performs the single bottom-up `__recreate__` itself,\nthen applies every pass replacer to the recreated node with\n`kwargs=None`, so recreation happens once *regardless of pass order* (no\nreplacer has to be a \"kwargs-consuming head\"). `bind_params` and\n`remove_tags` are **untouched**.\n\nThis was the key call. `_make_remove_tag_nodes_replacer`'s internal\n`replace_nodes` self-recursion is **load-bearing**: a node returned from\na replacer is not re-traversed by `.replace()`, so the re-descent is\nwhat strips deeper- and opaque-nested tags. A parallel\n`_remove_non_hashing_tag_nodes` (backing `.ls.untagged`) would also have\nto stay in sync. So simplifying it was rejected. Because `bind_params`\nruns first and recreates each tag with already-bound children, the tags\nre-walk operates on bound subtrees — fusion adds **no** new re-walk\ncost, it only removes `bind_params`' separate walk.\n\n## Observability\n\n- A fused group emits one `transform.fuse[bind_params+remove_tags]` span\ninstead of two `transform.<name>` spans.\n- A group left with a single active pass (e.g. `bind_params` skipped via\n`when` when there's nothing to bind) falls back to the plain\n`apply_pass` path and keeps its `transform.<name>` span.\n\n## Tests (`test_transform_driver.py`)\n\n- `_is_fusable` reads `produces_resources`; `_fusion_groups`\ncoalescing/splitting (BOUNDARY and DESCEND-producer break a run).\n- **One-walk assertion**: two adjacent fusable passes call\n`replace_nodes` once; applied singly, twice.\n- An effectful DESCEND pass is **not** folded into the fused walk.\n- `when`-collapse to the single-pass path.\n- **Equivalence anchor**: `get_expr_hash(fused) ==\nget_expr_hash(sequential)` for the param-inside-a-tagged-subtree\ninteraction. (`==` is unreliable here — `InMemoryTable` proxies compare\nby identity, and the pre-existing `remove_tags` is itself\n`==`-nondeterministic on cached exprs — so the build hash / SQL are the\ncontract.)\n\nNo regressions across the tag-consumer surface: cache-pin, pinned-cache\nYAML roundtrip, write-through, stream-cache, relations, builders, ml\npipeline, lineage, catalog bind, datafusion `into_backend`. End-to-end:\na param+tag expr through `_transform_expr` resolves to 0 tags / 0 params\nand executes to the correct rows.\n\n## Stacking\n\nBuilds on **#2139** (R2 driver), which builds on **#2138** (R1 scope).\nOpened against `main`, so this diff currently **includes #2138 + #2139's\ncommits** until they merge. Behaviour-preserving except the span change\nnoted above.\n\n## Reducing the seventh walk (`count_remote_table_readers`)\n\nThe remote pass ran `count_remote_table_readers` — a full `op.replace`\nwalk **plus** a SQL compile — and then its own transform walk on *every*\nexpr, including those with no `RemoteTable`, where both are pure no-ops.\n\nA `when=_has_boundary_remote_table` guard on `REMOTE_PASS` now skips the\nwhole pass (count walk + compile + transform walk) unless a\n`RemoteTable` is reachable **at this boundary**. It uses\n`expr.op().find(RemoteTable)` — matching the pass's own `op.replace`\nreach — rather than the opaque-descending `walk_nodes`, so it also skips\na `RemoteTable` nested only inside an opaque node (e.g.\n`CachedNode.parent`), where the boundary pass would no-op anyway. No\nfalse negatives: a boundary `RemoteTable` is always found.\n\nThe count itself is **not foldable** when a `RemoteTable` is present:\n`StreamCache.max_readers` is set at construction and immutable after\n(Rust `_PyStreamCache`), and accurate scan counts need a *compiled* SQL\nAST (a self-join over one `RemoteTable` is several physical scans), so\ncounting must complete before the materializing walk. A comment at the\ncall site records this so nobody merges it and breaks the hard-cap\n(undercount → `ValueError`) correctness. Tests assert the count is\nskipped when no boundary `RemoteTable` and runs exactly once when\npresent.\n\n## Review follow-ups\n\nLanded after review, on top of the P4 fusion above:\n\n- **Restored the `remote_table.replace` OTel event.** The refactor had\ndropped the aggregate event; it is re-emitted on the `transform.remote`\nspan with `remote_table.count = len(reader_counts)` (equal to the\neventual `scope.table_count`), so RemoteTable-fan-out traces/dashboards\nkeep firing.\n- **Dropped a duplicate graph walk in `bind_params`.** Its `when` gate\nre-walked for `NamedScalarParameter`s that `build` then walked again;\nthe gate is removed (the replacer no-ops on empty bindings and the pass\nalways fuses with `remove_tags` into one walk), so the walk happens\nonce. Defaults / missing-required validation are unchanged.\n- **Hardened `_fuse_replacers`** to recreate centrally (above), removing\nthe \"first replacer must consume `kwargs`\" footgun so reordering a\nfusable group can't silently drop transformed children.\n- **Scope teardown on any pass failure.** `apply_pass` split into a\n`when`-checking wrapper + `_apply_active_pass`, which tears down the\nshared scope when a `produces_resources` pass fails — direct callers no\nlonger leak before entering `with scope:` (idempotent close, so the\nouter guard is a no-op).\n- **`produces_resources` is now an enforced resource-ownership gate.**\nNon-producer passes build with a scopeless ctx (`_pass_ctx`) and\nproducers require a scope, so a pass that adopts without declaring the\nflag fails loudly instead of silently leaking. This closes the last open\nR2/P4 item. (The \"declares the flag but never adopts\" case is left\nunenforced by design — fragile to detect, since remote/tee legitimately\nno-op.)\n\n## Scope\n\nThis PR is **P4 + the R2 review follow-ups**: pure-pass fusion, the\nseventh-walk guard, and promoting `produces_resources` to an enforced\nresource-ownership gate (plus the review fixes above). It does **not**\ninclude R1/R2 (its dependencies) or R3.\n\n**R3 (Flight)** is split into its own stacked draft PR, #2146, which\nbuilds on this PR's commits.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T10:30:15+02:00",
+          "tree_id": "565b7f0502a7a2b797d4ddf5fd8dc60bbd04c558",
+          "url": "https://github.com/xorq-labs/xorq/commit/834b8e67f95aa9348a05eb1c7d8ebc668fb43f40"
+        },
+        "date": 1783586169875,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.333452455406542,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007959539042514415",
+            "extra": "mean: 119.99828466666587 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.515081002904503,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05995272713983959",
+            "extra": "mean: 397.60150820000035 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.773425977733022,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1918067984626788",
+            "extra": "mean: 1.2929485545999966 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.6543854762771293,
+            "unit": "iter/sec",
+            "range": "stddev: 0.045927331288695396",
+            "extra": "mean: 376.7350330000056 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.94993394295522,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04814413548911112",
+            "extra": "mean: 338.9906415999974 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.158201872306554,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00730244122487534",
+            "extra": "mean: 316.6358708000075 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 143.2327374292872,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01442304272133356",
+            "extra": "mean: 6.981644126530023 msec\nrounds: 245"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.546283622267844,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06863147070467028",
+            "extra": "mean: 219.9598799999999 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 20.03389223702328,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010761149344858846",
+            "extra": "mean: 49.91541274999811 msec\nrounds: 16"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.135286164595186,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013051285864412955",
+            "extra": "mean: 98.6651964000013 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.642110890203288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0191860657973538",
+            "extra": "mean: 115.71247033333047 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.903590391364996,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03675621631611922",
+            "extra": "mean: 169.38844562499966 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.9494459997238875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007791165301220994",
+            "extra": "mean: 202.04281450000394 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.761359867346645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007936524720691203",
+            "extra": "mean: 210.02403260001188 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.4734553410526696,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06610163175357356",
+            "extra": "mean: 404.2927250000048 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.1451599049304857,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057193838044080916",
+            "extra": "mean: 317.9488579999884 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7510929019956643,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08206372113329718",
+            "extra": "mean: 571.0719282000014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.734082974027245,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1130860362655488",
+            "extra": "mean: 576.6736742000262 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6157982045392667,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11854896978406412",
+            "extra": "mean: 618.8891639999952 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.582962484111445,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14287594608154194",
+            "extra": "mean: 631.7269107999891 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2859517669830152,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15214517040640857",
+            "extra": "mean: 777.6341428000137 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.091773918855363,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12764635758474616",
+            "extra": "mean: 915.9405465999953 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.00981503211593,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15226957389289636",
+            "extra": "mean: 990.2803664000089 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6093201646506903,
+            "unit": "iter/sec",
+            "range": "stddev: 0.23248741499632553",
+            "extra": "mean: 1.641173323999999 sec\nrounds: 5"
           }
         ]
       }
