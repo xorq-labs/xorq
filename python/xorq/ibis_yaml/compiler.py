@@ -772,8 +772,12 @@ class ExprDumper:
                 con_kwargs = {}
             elif _is_relocatable_read(node):
                 plan = self._prepare_relocatable_read(node)
-                which = BundledSourceTypes.read
-                read_path = f"{which}/{plan.path.name}"
+                # read_path via the single-source-of-truth helper (same one the
+                # pre-hash bake pass uses) so the two stay byte-equal -- that
+                # equality is what keeps a relocated build load+rebuild hash-stable
+                read_path = relocatable_read_path_str(
+                    dict(node.read_kwargs)["hash_path"]
+                )
                 new_kwargs = update_read_kwargs(
                     node.read_kwargs,
                     (("hash_path", plan.path), ("read_path", read_path)),
