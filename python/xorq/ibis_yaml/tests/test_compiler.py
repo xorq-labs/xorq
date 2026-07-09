@@ -58,6 +58,7 @@ from xorq.ibis_yaml.compiler import (
     load_expr,
 )
 from xorq.ibis_yaml.config import config
+from xorq.ibis_yaml.enums import WritePhase
 from xorq.ibis_yaml.sql import find_relations
 from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
@@ -1928,3 +1929,11 @@ def test_execution_handles_remote_table_in_computed_kwargs_expr(
     # my_sum(1+2+3) = 6.0; each row: x + 6.0
     expected_out = [7.0, 8.0, 9.0]
     assert list(result["out"]) == expected_out
+
+
+def test_write_phase_expr_is_last() -> None:
+    # ExprDumper._execute_write_plans sorts plans by phase, and the expr YAML
+    # must be written last because it tokenizes the DATA parquets by content.
+    # That invariant holds only while EXPR is the highest phase value — lock it
+    # so adding a new phase can't silently reorder the expr write.
+    assert max(WritePhase) is WritePhase.EXPR

@@ -541,13 +541,17 @@ class WritePlan:
         write_fn: Callable[..., Path],
         payload: Any,
         path_parts: str | tuple[str, ...],
-        phase: WritePhase,
+        *,
+        phase: WritePhase = WritePhase.ARTIFACT,
         dedupable: bool = False,
     ) -> "WritePlan":
         """Build a WritePlan whose path and deferred writer share one path_parts.
 
         write_fn is an ArtifactStore method taking (payload, *path_parts); binding
         both the path and the writer to the same parts keeps them from drifting.
+
+        phase defaults to ARTIFACT (order-independent metadata), the common case;
+        content files that the expr YAML tokenizes pass phase=WritePhase.DATA.
         """
         parts = path_parts if isinstance(path_parts, tuple) else (path_parts,)
         path = artifact_store.get_path(*parts)
@@ -625,7 +629,6 @@ class ExprDumper:
             self.artifact_store.write_text,
             sql,
             filename,
-            WritePhase.ARTIFACT,
             dedupable=True,
         )
 
@@ -639,7 +642,7 @@ class ExprDumper:
             self.artifact_store.write_parquet,
             table,
             (which, f"{tokenize(table)}.parquet"),
-            WritePhase.DATA,
+            phase=WritePhase.DATA,
             dedupable=True,
         )
 
@@ -653,7 +656,7 @@ class ExprDumper:
             self.artifact_store.copy_file,
             source_path,
             relocatable_read_path(source_path),
-            WritePhase.DATA,
+            phase=WritePhase.DATA,
             dedupable=True,
         )
 
@@ -680,7 +683,6 @@ class ExprDumper:
             self.artifact_store.write_yaml,
             {collection_key: items},
             dump_file,
-            WritePhase.ARTIFACT,
         )
         return (*sql_file_plans, yaml_plan)
 
@@ -705,7 +707,6 @@ class ExprDumper:
             self.artifact_store.write_text,
             self._make_build_metadata(),
             DumpFiles.build_metadata,
-            WritePhase.ARTIFACT,
         )
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
@@ -732,7 +733,6 @@ class ExprDumper:
             self.artifact_store.write_json,
             self._make_expr_metadata(expr),
             DumpFiles.expr_metadata,
-            WritePhase.ARTIFACT,
         )
 
     def _prepare_profiles_file(self, profiles: dict) -> WritePlan:
@@ -741,7 +741,6 @@ class ExprDumper:
             self.artifact_store.write_yaml,
             profiles,
             DumpFiles.profiles,
-            WritePhase.ARTIFACT,
         )
 
     def _prepare_debug_info(self) -> tuple[WritePlan, ...]:
@@ -827,7 +826,10 @@ class ExprDumper:
             existing = by_path.get(plan.path)
             if existing is not None:
                 if not (existing.dedupable and plan.dedupable):
-                    raise ValueError(f"conflicting write plans for {plan.path}")
+                    raise ValueError(
+                        f"conflicting non-dedupable write plans for {plan.path}: "
+                        f"{existing.phase.name} vs {plan.phase.name}"
+                    )
                 continue
             by_path[plan.path] = plan
         for plan in sorted(by_path.values(), key=operator.attrgetter("phase")):
