@@ -7,12 +7,12 @@ from typing import Any, Callable, NamedTuple
 
 import pyarrow as pa
 from batchcorder import StreamCache
-from opentelemetry import trace
 
 from xorq.common.compat import raise_collected_errors
 from xorq.common.utils.logging_utils import get_logger
-from xorq.common.utils.otel_utils import tracer
+from xorq.expr.enums import Traversal
 from xorq.expr.relations import RemoteTable, gen_name
+from xorq.expr.transform import Replacer, TransformPass
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr import operations as ops
@@ -319,23 +319,17 @@ def bind_scope_to_reader(
     return out
 
 
-@tracer.start_as_current_span("register_and_transform_remote_tables_into")
-def register_and_transform_remote_tables_into(
-    expr: Expr, scope: RemoteTableScope, **kwargs: Any
-) -> Expr:
-    """Adopt every remote-table resource into the caller-owned ``scope``.
+def _make_remote_replacer(
+    expr: Expr, scope: RemoteTableScope, read_record_batches_kwargs: dict
+) -> Replacer:
+    """Build the per-node replacer that swaps each `RemoteTable` for a placeholder
+    table fed by a cached, cast stream, adopting every resource into the
+    caller-owned ``scope``.
 
-    The caller threads one shared scope through every pass (see
-    ``_transform_expr``), so a failure in a *later* pass tears down what this one
-    materialized. This function never closes ``scope``; teardown stays with the
-    caller that created it.
+    ``read_record_batches_kwargs`` are forwarded to ``read_record_batches``
+    (e.g. Snowflake's ``database=(catalog, db)``). The replacer never closes
+    ``scope`` -- teardown stays with the caller that created it.
     """
-    # ``replacer``'s ``kwargs`` parameter (node-recreate args) shadows the
-    # outer ``**kwargs``; capture the through-kwargs here so they reach
-    # ``read_record_batches`` (e.g. Snowflake's ``database=(catalog, db)``).
-    read_kwargs = kwargs
-
-    op = expr.op()
     reader_counts = count_remote_table_readers(expr)
 
     def replacer(node, kwargs):
@@ -360,24 +354,33 @@ def register_and_transform_remote_tables_into(
             # already declares it. Backends that genuinely use a schema
             # (xorq_datafusion, pyiceberg) default to the source's own schema.
             result = node.source.read_record_batches(
-                cache, table_name=table_name, **read_kwargs
+                cache, table_name=table_name, **read_record_batches_kwargs
             )
             return result.op()
 
+        # ``replacer``'s ``kwargs`` (node-recreate args) shadows the builder's
+        # ``read_record_batches_kwargs``; captured above so they reach the backend.
         if kwargs:
             node = node.__recreate__(kwargs)
 
         return node
 
-    # Intentionally op.replace, not replace_nodes: mark_remote_table has side effects
-    # that must not descend into opaque sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr).
-    # The caller owns scope teardown, so a failure here just propagates.
-    expr = op.replace(replacer).to_expr()
-    if scope.table_count:
-        trace.get_current_span().add_event(
-            "remote_table.replace", {"remote_table.count": scope.table_count}
-        )
-    return expr
+    return replacer
+
+
+# BOUNDARY: mark_remote_table has side effects, so it must not descend into opaque
+# sub-exprs (e.g. ExprScalarUDF.computed_kwargs_expr) -- see Traversal. Runs after
+# tee so a tee placeholder registered earlier is torn down by the same shared scope
+# if this pass fails.
+REMOTE_PASS = TransformPass(
+    name="remote",
+    traversal=Traversal.BOUNDARY,
+    build=lambda expr, ctx: _make_remote_replacer(
+        expr, ctx.scope, ctx.read_record_batches_kwargs
+    ),
+    produces_resources=True,
+    after=("tee",),
+)
 
 
 def prepare_create_table_from_expr(

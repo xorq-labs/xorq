@@ -16,10 +16,8 @@ import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import ParquetCache, SourceCache
 from xorq.common.exceptions import XorqError
-from xorq.expr.remote_table_exec import (
-    RemoteTableScope,
-    register_and_transform_remote_tables_into,
-)
+from xorq.expr.remote_table_exec import REMOTE_PASS, RemoteTableScope
+from xorq.expr.transform import TransformCtx, apply_pass
 from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
@@ -265,7 +263,7 @@ def test_into_backend_duckdb(pg):
     )
 
     scope = RemoteTableScope()
-    expr = register_and_transform_remote_tables_into(expr, scope)
+    expr = apply_pass(REMOTE_PASS, expr, TransformCtx(scope=scope))
     with scope:
         query = ibis.to_sql(expr, dialect="duckdb")
         res = ddb.con.sql(query).df()
@@ -283,7 +281,7 @@ def test_into_backend_duckdb_expr(pg: BaseBackend) -> None:
     expr = t.join(t, "playerID").limit(15).select(_.playerID * 2)
 
     scope = RemoteTableScope()
-    expr = register_and_transform_remote_tables_into(expr, scope)
+    expr = apply_pass(REMOTE_PASS, expr, TransformCtx(scope=scope))
     with scope:
         query = ibis.to_sql(expr, dialect="duckdb")
         res = ddb.con.sql(query).df()
@@ -300,7 +298,7 @@ def test_into_backend_duckdb_trino(trino_table):
     expr = trino_table.head(10_000).into_backend(db_con).pipe(make_merged)
 
     scope = RemoteTableScope()
-    expr = register_and_transform_remote_tables_into(expr, scope)
+    expr = apply_pass(REMOTE_PASS, expr, TransformCtx(scope=scope))
     with scope:
         query = ibis.to_sql(expr, dialect="duckdb")
         df = db_con.con.sql(query).df()  # to bypass execute hotfix
@@ -323,7 +321,7 @@ def test_multiple_into_backend_duckdb_xorq(trino_table: ir.Table) -> None:
     )
 
     scope = RemoteTableScope()
-    expr = register_and_transform_remote_tables_into(expr, scope)
+    expr = apply_pass(REMOTE_PASS, expr, TransformCtx(scope=scope))
     with scope:
         df = expr.execute()
 
