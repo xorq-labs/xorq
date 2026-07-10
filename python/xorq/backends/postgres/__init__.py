@@ -24,6 +24,7 @@ from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import (
     gen_name,
 )
+from xorq.writes.enums import PublishStrategy
 
 
 logger = get_logger(__name__)
@@ -44,8 +45,6 @@ class Backend(IbisPostgresBackend):
         else in-transaction statement DML. ``self.version`` is a dotted string
         like "15.4", so the major version is the part before the first dot.
         """
-        from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
-
         if int(self.version.split(".")[0]) >= 15:
             return PublishStrategy.NATIVE_MERGE
         return PublishStrategy.STATEMENT_DML

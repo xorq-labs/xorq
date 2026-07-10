@@ -144,9 +144,10 @@ def resolve_strategy(con, mode) -> PublishStrategy:
 # xorq/backends/sqlite/__init__.py    -> return PublishStrategy.STATEMENT_DML
 # xorq/backends/pyiceberg/__init__.py -> return PublishStrategy.UPSERT_DELETE
 # xorq/backends/postgres/__init__.py  -> version-aware: NATIVE_MERGE on pg15+, else STATEMENT_DML
+from xorq.writes.enums import PublishStrategy   # module-level: enums-only, no cycle
+
 class Backend(IbisDuckDBBackend):
     def publish_strategy(self):
-        from xorq.writes.enums import PublishStrategy   # in-method: zero import-time coupling
         return PublishStrategy.NATIVE_MERGE
 ```
 
@@ -157,8 +158,9 @@ Why per-backend rather than a central registry in WAP:
   own `read_record_batches` signature, and `read_record_batches` is itself a per-backend method.
 - **Nothing else is imported.** `resolve_strategy` calls a method on the con you already hold, so a
   single-backend install (`xorq[duckdb]`) never needs pyiceberg/snowflake/etc. importable just to
-  route. The `PublishStrategy` import is *inside* each method, so backend modules gain no import-time
-  dependency on `writes`.
+  route. The `PublishStrategy` import is module-level: the `writes` package is light at import time
+  (its heavy imports — udf machinery, ibis schema — are in-function) and never imports backends at
+  module scope (pyiceberg already imports `WriteMode` this way), so the edge is cheap and acyclic.
 - **The postgres version probe lives on postgres**, where it belongs, instead of as a special case in
   a central router.
 - Looked up on `type(con)` (not `.name`), so a `.name` rename cannot misroute; and via the class (not

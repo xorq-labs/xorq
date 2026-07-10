@@ -16,7 +16,7 @@ from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
-from xorq.writes.enums import WriteMode
+from xorq.writes.enums import PublishStrategy, WriteMode
 
 
 __all__ = [
@@ -58,8 +58,6 @@ class Backend(SQLBackend):
 
     def publish_strategy(self):
         """Incremental WAP publish mechanism (ADR-0017): Transaction upsert + delete."""
-        from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
-
         return PublishStrategy.UPSERT_DELETE
 
     @property

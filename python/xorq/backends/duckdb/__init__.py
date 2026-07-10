@@ -8,6 +8,7 @@ from batchcorder import StreamCache
 from xorq.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
+from xorq.writes.enums import PublishStrategy
 
 
 __all__ = [
@@ -18,8 +19,6 @@ __all__ = [
 class Backend(IbisDuckDBBackend):
     def publish_strategy(self):
         """Incremental WAP publish mechanism for this backend (ADR-0017)."""
-        from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
-
         return PublishStrategy.NATIVE_MERGE
 
     def execute(

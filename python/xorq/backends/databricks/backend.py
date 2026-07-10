@@ -31,6 +31,7 @@ from xorq.vendor.ibis.backends import CanCreateDatabase, UrlFromPath
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.backends.sql.compilers.base import STAR, AlterTable, RenameTable
 from xorq.vendor.ibis.backends.sql.datatypes import DatabricksType
+from xorq.writes.enums import PublishStrategy
 
 
 if TYPE_CHECKING:
@@ -125,8 +126,6 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
 
     def publish_strategy(self):
         """Incremental WAP publish mechanism (ADR-0017): Delta MERGE INTO."""
-        from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
-
         return PublishStrategy.NATIVE_MERGE
 
     @property
