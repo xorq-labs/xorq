@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     import pyarrow.dataset as ds
 
 import pyarrow as pa
-import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
 from batchcorder import StreamCache

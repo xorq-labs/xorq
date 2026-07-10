@@ -400,7 +400,6 @@ class PandasDataFrameProxy(TableProxy[pd.DataFrame]):
 
     def to_pyarrow(self, schema: sch.Schema) -> pa.Table:
         import pyarrow as pa
-        import pyarrow_hotfix  # noqa: F401
 
         pyarrow_schema = PyArrowSchema.from_ibis(schema)
         return pa.Table.from_pandas(self.obj, schema=pyarrow_schema)
