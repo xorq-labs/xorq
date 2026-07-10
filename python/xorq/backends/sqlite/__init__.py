@@ -25,7 +25,7 @@ __all__ = [
 
 
 class Backend(IbisSQLiteBackend):
-    def publish_strategy(self, mode):
+    def publish_strategy(self):
         """Incremental WAP publish mechanism (ADR-0017): UPDATE+INSERT+DELETE in a txn."""
         from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
 

@@ -39,7 +39,7 @@ class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
     compiler = compiler
 
-    def publish_strategy(self, mode):
+    def publish_strategy(self):
         """Incremental WAP publish mechanism (ADR-0017): native MERGE on pg 15+,
         else in-transaction statement DML. ``self.version`` is a dotted string
         like "15.4", so the major version is the part before the first dot.

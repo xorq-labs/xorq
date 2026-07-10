@@ -123,7 +123,7 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
     name = "databricks"
     compiler = sc.databricks.compiler
 
-    def publish_strategy(self, mode):
+    def publish_strategy(self):
         """Incremental WAP publish mechanism (ADR-0017): Delta MERGE INTO."""
         from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
 

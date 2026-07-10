@@ -56,7 +56,7 @@ class Backend(SQLBackend):
     dialect = PyIceberg
     compiler = postgres_compiler
 
-    def publish_strategy(self, mode):
+    def publish_strategy(self):
         """Incremental WAP publish mechanism (ADR-0017): Transaction upsert + delete."""
         from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
 

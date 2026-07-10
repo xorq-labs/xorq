@@ -120,8 +120,10 @@ verbatim materialization of it (the tee is an identity pass-through), so staging
 
 Merge capability is a **backend** fact ("can this engine do a keyed merge, only DML, or nothing?"),
 so the backend declares it. Each backend that can do more than a full rewrite implements
-`publish_strategy(self, mode) -> PublishStrategy`; `resolve_strategy` in WAP short-circuits `APPEND`
-(a mode-level fact) and otherwise just asks the backend:
+`publish_strategy(self) -> PublishStrategy`; `resolve_strategy` in WAP short-circuits `APPEND`
+(a mode-level fact) and otherwise just asks the backend. The declaration deliberately takes no
+`mode`: modes must behave uniformly across backends, so the mechanism never varies by mode —
+everything mode-shaped (delete clauses, the `_op` contract) is the publish layer's job:
 
 ```python
 # writes/publish.py — WAP only asks; the capability lives on each backend.
@@ -131,7 +133,7 @@ def _backend_strategy(con, mode) -> PublishStrategy:
     # routing one backend imports none of the others. A backend that declares no
     # publish_strategy (datafusion, xorq_datafusion, pandas) falls back to REWRITE.
     declare = getattr(type(con), "publish_strategy", None)
-    return declare(con, mode) if declare is not None else PublishStrategy.REWRITE
+    return declare(con) if declare is not None else PublishStrategy.REWRITE
 
 def resolve_strategy(con, mode) -> PublishStrategy:
     return PublishStrategy.APPEND if mode is PublishMode.APPEND else _backend_strategy(con, mode)
@@ -143,7 +145,7 @@ def resolve_strategy(con, mode) -> PublishStrategy:
 # xorq/backends/pyiceberg/__init__.py -> return PublishStrategy.UPSERT_DELETE
 # xorq/backends/postgres/__init__.py  -> version-aware: NATIVE_MERGE on pg15+, else STATEMENT_DML
 class Backend(IbisDuckDBBackend):
-    def publish_strategy(self, mode):
+    def publish_strategy(self):
         from xorq.writes.enums import PublishStrategy   # in-method: zero import-time coupling
         return PublishStrategy.NATIVE_MERGE
 ```
@@ -458,7 +460,7 @@ Two layers, one dependency arrow (`wap` → `publish`, never back):
 
 - `enums.py` — add `PublishMode`, `PublishStrategy` (and `StagingStrategy` for the table/branch
   staging split) next to `WriteMode`.
-- each backend (`backends/<b>/__init__.py`) — a small `publish_strategy(self, mode)` declaring its
+- each backend (`backends/<b>/__init__.py`) — a small `publish_strategy(self)` declaring its
   mechanism (immutable backends declare none → `REWRITE`).
 - `writes/publish.py` (new) — **pure reconciliation**: `resolve_strategy`, `_validate`, the five
   `_publish_*` (+ the parquet merge), and the standalone `publish` / `publish_parquet` entry points.

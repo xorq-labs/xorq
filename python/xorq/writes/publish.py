@@ -25,8 +25,12 @@ def _backend_strategy(con: "BaseBackend", mode: PublishMode) -> PublishStrategy:
     """The backend's declared publish mechanism (``REWRITE`` if it declares none).
 
     Capability is a **backend fact**, so each backend declares it: one that can do a
-    keyed merge implements ``publish_strategy(self, mode) -> PublishStrategy`` (see
-    e.g. ``xorq/backends/duckdb/__init__.py``). The method is looked up on
+    keyed merge implements ``publish_strategy(self) -> PublishStrategy`` (see
+    e.g. ``xorq/backends/duckdb/__init__.py``). The declaration takes no ``mode``:
+    modes must behave uniformly across backends, so the mechanism never varies by
+    mode — everything mode-shaped (the ``APPEND`` short-circuit, delete clauses,
+    the ``_op`` contract) lives here in the publish layer, not on the backend.
+    ``mode`` is taken only for the fallback log. The method is looked up on
     ``type(con)`` — not the instance — so it never trips a backend's table-access
     ``__getattr__``, and it is called on the con we already hold, so routing one
     backend imports none of the others (a single-backend install stays lean). A
@@ -45,7 +49,7 @@ def _backend_strategy(con: "BaseBackend", mode: PublishMode) -> PublishStrategy:
             mode=mode.value,
         )
         return PublishStrategy.REWRITE
-    return declare(con, mode)
+    return declare(con)
 
 
 def resolve_strategy(con: "BaseBackend", mode: PublishMode) -> PublishStrategy:

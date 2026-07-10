@@ -15,7 +15,7 @@ __all__ = [
 
 
 class Backend(IbisGizmoSQLBackend):
-    def publish_strategy(self, mode):
+    def publish_strategy(self):
         """Incremental WAP publish mechanism (ADR-0017): DuckDB-backed, duckdb dialect."""
         from xorq.writes.enums import PublishStrategy  # noqa: PLC0415
 
