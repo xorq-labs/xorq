@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import operator
 from numbers import Real
 
@@ -18,6 +20,25 @@ from xorq.vendor.ibis.expr.types import Expr
 sklearn = pytest.importorskip("sklearn")
 
 from xorq.expr.ml.sklearn_utils import ColumnRemapper  # noqa: E402
+
+
+# Import submodules explicitly: older sklearn does not auto-import them, so
+# bare ``sklearn.cluster`` etc. would raise AttributeError at the floor.
+# importorskip (not import_module) degrades to a clean skip rather than a
+# collection error if any submodule is missing.
+for _submodule in (
+    "base",
+    "cluster",
+    "compose",
+    "ensemble",
+    "feature_selection",
+    "impute",
+    "linear_model",
+    "metrics",
+    "pipeline",
+    "preprocessing",
+):
+    pytest.importorskip(f"sklearn.{_submodule}")
 
 
 # sklearn submodule imports

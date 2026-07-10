@@ -1,0 +1,116 @@
+name: ci-test-lowest-direct
+
+# Verifies the declared dependency floor. The main ci-test workflow always
+# resolves to the newest allowed versions, so `pyproject.toml` lower bounds go
+# untested. This job resolves direct dependencies to their lowest allowed
+# versions (`uv --resolution lowest-direct`) and runs the core suite, so floor
+# violations fail loudly. See issue #2109.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+
+jobs:
+  changes:
+    uses: ./.github/workflows/detect-changes.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  lowest-direct:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: configure git identity
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@xorq.dev"
+
+      - uses: extractions/setup-just@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: update and install system dependencies
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update -qq -y
+          sudo apt-get install -qq -y build-essential libpq5
+
+      - name: download test data
+        run: just download-data
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Lock at the dependency floor
+        run: uv lock --resolution lowest-direct
+        working-directory: ${{ github.workspace }}
+
+      - name: Install the project at the dependency floor
+        run: >
+          uv sync
+          --extra examples
+          --extra postgres
+          --extra pyiceberg
+          --extra sqlite
+          --extra ibis
+          --extra datafusion
+          --group dev --group test
+        working-directory: ${{ github.workspace }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build postgres image with GHA layer cache
+        uses: docker/bake-action@v7
+        with:
+          files: compose.yaml
+          targets: postgres
+          load: true
+          set: |
+            postgres.cache-from=type=gha,scope=docker-postgres
+            postgres.cache-to=type=gha,scope=docker-postgres,mode=max
+
+      - name: start services
+        run: just up-ci postgres
+
+      - name: pytest
+        timeout-minutes: 20
+        run: >
+          uv run --no-sync pytest
+          --import-mode=importlib
+          -m core
+          --ignore=python/xorq/catalog
+          -k 'not script_execution and not slow'
+          -v --durations=20
+          -n auto --dist=loadfile
+        working-directory: ${{ github.workspace }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing
