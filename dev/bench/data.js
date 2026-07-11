@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783586174088,
+  "lastUpdate": 1783774863891,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -26322,6 +26322,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.23248741499632553",
             "extra": "mean: 1.641173323999999 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59c47fe38b2b5bfa9c210929e386050fa7778d26",
+          "message": "fix(#2133): resolve relocated reads on the fuse/bind execute path (#2137)\n\nAddresses #2133.\n\nRemoves the interim mitigation added by #2117 (`feat/cli-pin-unpin`).\nBase is `main` (we don't target a branch — a branch merging closes its\ndependents). This branch is cut from `feat/cli-pin-unpin`, so **until\n#2117 merges the diff below also shows #2117's commits**; it'll clean up\nonce #2117 lands.\n\nPlan: `plans/fuse-resolve-relocated-reads-2133.md`.\n\n## Goal\n\nTeach the fuse/bind execute path to resolve bundled (relocated) reads so\na pinned+relocated catalog entry fuses to a correct (non-empty) result.\nSee the [design comment on\n#2133](https://github.com/xorq-labs/xorq/issues/2133#issuecomment-4878047943).\n\n## Root cause (found by reproducing first)\n\nThe failure is **extract-dir lifetime, not unresolved paths.**\n`load_expr` already rewrites a bundled read's `read_path` to an absolute\n`hash_path` under the build's extract dir. The bug: `load_expr_from_zip`\nkeyed that temp extract dir's lifetime to the *transient loaded-`Expr`\nwrapper* via `weakref.finalize`. `bind()` / `fuse_catalog_source` rewrap\nthe graph — keeping the op nodes (whose reads point into the extract\ndir) but dropping the exact `Expr` wrapper — so the finalizer fired and\nswept the dir while the resolved paths were still live. Both the fuse\n**and** the plain non-fuse bind paths executed to empty.\n\n## Design constraints (why this isn't a one-line port of `load_expr`'s\nresolver)\n\n1. **Ordering invariant — resolve before erasing wrappers.** Fuse is\nprovenance-lossy by design. Resolution now runs in `_resolve_source`\n(during `bind()`), *before* `fuse_catalog_source` strips wrappers.\n2. **Multi-origin — not \"the\" extract dir (singular).** Each source\nentry loads independently, so its reads resolve against *its own*\nextract dir; the lifetime anchor is per-backend, so a fused expr\ncomposed from several builds keeps every origin's dir alive. Covered by\na new multi-origin test.\n\n## Implementation\n\n- **`expr_utils`** — anchor the extract dir to the loaded expr's\n**backends** (which survive graph rewrapping via `Read.source`) instead\nof the `Expr` wrapper; the dir is swept only once every derived/fused\nexpr is gone. Backends are fresh per load (`Profile.get_con` connects\nanew), so each anchor is unique. Anchoring makes expr/backend mutually\nreferential, so the dir is reclaimed by cyclic GC (or `atexit`) rather\nthan promptly at refcount-zero — invisible for one-shot CLI runs, noted\nfor long-lived processes. If a backend ever *refuses* the anchor (none\ndo today) we now `warning`-log rather than silently reopen the\nempty-result bug for that backend.\n- **`bind`** — remove the interim `UnsupportedOperationError` guard from\n`fuse_catalog_source`; thread `cache_dir` through `bind()` so a lean\npinned `CacheTag` relocates via `base_path`.\n- **Defaults restored to relocate-by-default** —\n`Catalog.add`/`_add_expr`, `ExprDumper.relocate_reads`, catalog\n`pin`/`unpin`; pin-time fuse-gap warning dropped. `Catalog.add` uses a\n`None` sentinel resolving to `True` for `Expr` inputs, so the default\ndoesn't trip the \"only applies to Expr\" guard for already-built\n`Path`/zip inputs.\n- **`cli` (build)** — with relocate-reads now the default,\n`build_command` opens each local read to bundle it, so a plain `xorq\nbuild` on a since-moved source is a reachable failure; it's translated\nto the same actionable `ClickException` pin/unpin give (via\n`raise_for_missing_relocation_source`) instead of a raw traceback\n(#2117).\n- **`catalog cli`** — roll back the just-added entry (and its aliases)\nif a `--move-aliases` `add_alias` fails, restoring the pre-operation\nstate instead of orphaning the new entry.\n- **`compiler`** — the \"relocatable Read must have hash_path\" guards are\nan internal invariant (`make_read_kwargs` sets it at construction), so\nassert rather than raise; `_prepare_relocatable_read` joins the\n`path_parts` already in hand instead of re-hashing the source via a\nsecond `relocatable_read_path_str` call.\n\n## Checklist\n\n- [x] Resolve relocated reads per-source-entry, before\nwrapper-stripping, in the fuse/bind path\n- [x] Secure the extract-dir lifetime for fused exprs (backend\nanchoring)\n- [x] Flip `test_fuse_pinned_entry_with_relocated_read_raises` to a\nfuse-correctness assertion (renamed back); add a multi-origin fuse test;\nkeep the lean path covered explicitly\n- [x] Remove the `UnsupportedOperationError` guard in\n`fuse_catalog_source` and the pin-time warning\n- [x] Thread `cache_dir` through `bind()`\n- [x] Revert catalog `pin`/`unpin` to `relocate_reads=True` default\n- [x] Flip `build_expr` (`ExprDumper.relocate_reads`) and `Catalog.add`\n/ `_add_expr` defaults to `True`\n- [x] Green CI after the default flip: pin `relocate_reads=False` on the\nlean-output tests that assert the non-relocated build\n- [ ] Update the `relocate_reads` defaults table in #2133 once aligned\n\n## Testing\n\n- `test_bind.py` + `test_cli_pin.py`: pass (incl. new correctness +\nmulti-origin tests, verified after `gc.collect()`)\n- `test_catalog.py` + compose + `cli_run_compose`: 383 pass\n- `test_replay_rebuild*`: 40 pass (relocated-build hash stability holds)\n- `test_compiler.py`: pass. Flipping `ExprDumper` to relocate-by-default\nmeant five lean-output tests that assert the non-relocated build now pin\n`relocate_reads=False` explicitly (`test_deferred_reads_yaml`,\n`test_build_file_stability_local` — also fixing its `IsADirectoryError`\non the new `reads/` dir, `test_build_file_stability_and_relocatability`,\n`test_generated_name_sanitization_parquet`), matching the convention\nused elsewhere in this PR. (Pre-existing missing-`ci/ibis-testing-data`\nenv failures unchanged.)\n- `test_cli_pin.py::test_pin_freezes_cache_against_source_change`: pins\n`relocate_reads=False` on its raw build — otherwise the frozen copy of\nthe source defeats the stat-based invalidation it exercises.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-11T08:55:20-04:00",
+          "tree_id": "a2c8d14a3e4b525ef4c07f28470fa4bee9015701",
+          "url": "https://github.com/xorq-labs/xorq/commit/59c47fe38b2b5bfa9c210929e386050fa7778d26"
+        },
+        "date": 1783774860766,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.195358538160981,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018313316363304088",
+            "extra": "mean: 161.41115866666826 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.0042852265245,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026538041701298216",
+            "extra": "mean: 332.85787620000633 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7970803791255461,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1560004839574933",
+            "extra": "mean: 1.2545786174000058 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.205876290195377,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016307044282882717",
+            "extra": "mean: 311.92719539999985 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.037453816965159,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03232367986337572",
+            "extra": "mean: 329.2231125999933 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.7600931510020374,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0678590304356727",
+            "extra": "mean: 362.3066125999969 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 162.89236161310924,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012788327925330929",
+            "extra": "mean: 6.139023279526952 msec\nrounds: 254"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.147552443690604,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0905141486663768",
+            "extra": "mean: 241.10605316666542 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 20.79973105266929,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011934028560504198",
+            "extra": "mean: 48.077544727275075 msec\nrounds: 22"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.442568769580326,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02541555059258317",
+            "extra": "mean: 95.76187833333165 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.680963907495126,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022777409700537227",
+            "extra": "mean: 115.19458099999724 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.502967688644048,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029125617951703542",
+            "extra": "mean: 153.77594475000578 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.575839579678859,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0412981946123134",
+            "extra": "mean: 218.53912983334567 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.864210193444104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012667069705938219",
+            "extra": "mean: 205.58322116667208 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.2912899636077677,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0838895877736123",
+            "extra": "mean: 436.4353774000051 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.536145642693106,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00724273544364726",
+            "extra": "mean: 282.7937819999988 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.823518532159714,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10034517904977609",
+            "extra": "mean: 548.3903686000019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.949292696649994,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08171755600941709",
+            "extra": "mean: 513.0065903999821 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5847929606666094,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1460202317334914",
+            "extra": "mean: 630.9972500000072 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5452811442034229,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13625118111817638",
+            "extra": "mean: 647.1314321999898 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2772850646666842,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15965673113401976",
+            "extra": "mean: 782.9105872000127 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1865809990529503,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11465262049626682",
+            "extra": "mean: 842.75746940001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.011784067110873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18881763487278658",
+            "extra": "mean: 988.3531797999922 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6044157515983942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.24824695410728376",
+            "extra": "mean: 1.654490303 sec\nrounds: 5"
           }
         ]
       }
