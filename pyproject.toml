@@ -105,8 +105,10 @@ examples = [
     "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "xgboost >=1.6.1 ; python_version >= '3.10' and python_version < '4.0'",
     "duckdb >=0.10.3,<2 ; python_version >= '3.10' and python_version < '4.0'",
-    "matplotlib>=3.8.0",
-    "scikit-learn<2.0.0,>=1.5.0",
+    "matplotlib>=3.8.0; python_version < '3.13'",
+    "matplotlib>=3.9.2; python_version >= '3.13'",  # 3.9.2 is first matplotlib with cp313 wheels
+    "scikit-learn<2.0.0,>=1.5.0; python_version < '3.13'",
+    "scikit-learn<2.0.0,>=1.5.2; python_version >= '3.13'",  # 1.5.2 is first sklearn with cp313 wheels
     "openai>=1.65.4",
     "adbc-driver-postgresql>=1.4.0",
     "adbc-driver-sqlite>=1.4.0",
@@ -165,9 +167,11 @@ dev = [
     "pyopenssl>=24.3.0",
     "duckdb>=1.5",  # see duckdb extra above
     "adbc-driver-sqlite>=1.4.0",
-    "scikit-learn<2.0.0,>=1.5.0",
+    "scikit-learn<2.0.0,>=1.5.0; python_version < '3.13'",
+    "scikit-learn<2.0.0,>=1.5.2; python_version >= '3.13'",  # 1.5.2 is first sklearn with cp313 wheels
     "xgboost>=1.6.1",
-    "matplotlib>=3.8.0",
+    "matplotlib>=3.8.0; python_version < '3.13'",
+    "matplotlib>=3.9.2; python_version >= '3.13'",  # 3.9.2 is first matplotlib with cp313 wheels
 ]
 test = [
     "pytest-benchmark>=5.1.0",
