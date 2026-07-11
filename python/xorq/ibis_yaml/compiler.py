@@ -166,8 +166,10 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
             marking = mark and _is_relocatable_candidate(node)
             baking = _is_relocatable_read(node) and "read_path" not in kw
             if marking or baking:
-                if "hash_path" not in kw:
-                    raise ValueError("relocatable Read must have hash_path")
+                # Internal invariant (not user input): make_read_kwargs sets
+                # hash_path for every path-based read, and a relocatable read is
+                # always path-based, so absence means a malformed / hand-built node.
+                assert "hash_path" in kw, "relocatable Read must have hash_path"
                 read_kwargs = node.read_kwargs
                 overrides = {}
                 if marking:
@@ -522,9 +524,10 @@ class ExprDumper:
     builds_dir = field(validator=instance_of(Path), converter=Path, default="./builds")
     cache_dir = field(validator=optional(instance_of(Path)), factory=get_xorq_cache_dir)
     debug = field(validator=instance_of(bool), default=False)
-    # Prefer True (to match the CLI), but the fuse/bind execute path doesn't yet
-    # resolve a relocated read's base_path; kept False until it does. See #2133.
-    relocate_reads = field(validator=instance_of(bool), default=False)
+    # Defaults True to match the CLI: bundle local-file reads so the build is
+    # self-contained. The fuse/bind execute path resolves bundled reads too (the
+    # extract dir is kept alive for the fused expr's lifetime); see #2133.
+    relocate_reads = field(validator=instance_of(bool), default=True)
     read_normalize_method = field(
         validator=is_callable(), default=normalize_read_path_stat
     )
@@ -592,8 +595,8 @@ class ExprDumper:
         self, read_node: Read
     ) -> tuple[Path, str, functools.partial]:
         kw = dict(read_node.read_kwargs)
-        if "hash_path" not in kw:
-            raise ValueError("relocatable Read must have hash_path")
+        # Internal invariant; see the matching guard in _prepare_relocatable_reads.
+        assert "hash_path" in kw, "relocatable Read must have hash_path"
         source_path = Path(kw["hash_path"])
         # relocatable_read_path is the single source of the (dir, filename)
         # layout; relocatable_read_path_str is its joined form -- the *same*

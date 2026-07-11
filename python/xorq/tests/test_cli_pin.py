@@ -448,7 +448,12 @@ def test_pin_freezes_cache_against_source_change(tmp_path: Path) -> None:
     expr = t.filter(t.a > 1).cache(cache=cache)
     builds_dir = tmp_path / "builds"
     cache_dir = tmp_path / "cache"
-    raw_build = build_expr(expr, builds_dir=builds_dir, cache_dir=cache_dir)
+    # Stay in the non-relocate regime (build_expr now defaults relocate_reads on):
+    # this test exercises stat-based read invalidation when the source file
+    # changes, which relocating (md5 + a frozen bundled copy) would defeat.
+    raw_build = build_expr(
+        expr, builds_dir=builds_dir, cache_dir=cache_dir, relocate_reads=False
+    )
 
     def run(build: Path, name: str) -> list:
         out = tmp_path / f"{name}.parquet"

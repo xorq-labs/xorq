@@ -454,7 +454,7 @@ def _catalog_pin_command(
     alias: str | None,
     move_aliases: bool,
     ensure_materialized: bool = False,
-    relocate_reads: bool = False,
+    relocate_reads: bool = True,
 ) -> None:
     # Resolve up front (like the build-level pin_command) so the load path and
     # the internal-dir classification below agree; a None default cache dir would
@@ -480,17 +480,6 @@ def _catalog_pin_command(
             cold_cache_hint="Execute the entry first or pass --ensure-materialized/-e.",
         )
         aliases = (alias,) if alias else ()
-        if relocate_reads:
-            # relocate_reads is opt-in for catalog entries (default lean) because
-            # a bundled read fuses to an empty result until #2133 lands -- and
-            # fuse is the default consumption path. Warn at pin time in addition
-            # to the hard guard fuse itself now raises (see fuse_catalog_source).
-            click.echo(
-                "warning: the new entry bundles relocated reads; consuming it "
-                "via fuse/bind currently raises until #2133 lands. Use the "
-                "default (--no-relocate-reads) unless you consume with --no-fuse.",
-                err=True,
-            )
         with catalog.maybe_synchronizing(sync):
             try:
                 new_entry = catalog.add(
@@ -514,8 +503,28 @@ def _catalog_pin_command(
                     relocate_reads=relocate_reads,
                     internal_dirs=(cache_dir, *_live_extract_dirs),
                 )
-            for moved in source_aliases:
-                catalog.add_alias(new_entry.name, moved, sync=False)
+            try:
+                for moved in source_aliases:
+                    catalog.add_alias(new_entry.name, moved, sync=False)
+            except Exception:
+                # An alias move failed after the entry was written and
+                # `maybe_synchronizing` does no rollback; remove the just-added
+                # entry so we restore the pre-operation state instead of orphaning
+                # it with the aliases still on the source, then re-raise. Guard the
+                # removal so a rollback failure doesn't mask the original error.
+                try:
+                    catalog.remove(new_entry.name, sync=False)
+                except Exception:
+                    # Imported lazily: a top-level logging_utils import pulls in
+                    # ~200ms of deps onto the `catalog --help` startup path.
+                    from xorq.common.utils.logging_utils import (  # noqa: PLC0415
+                        get_logger,
+                    )
+
+                    get_logger(__name__).exception(
+                        "alias rollback: failed to remove %s", new_entry.name
+                    )
+                raise
     click.echo(new_entry.name)
 
 
@@ -547,7 +556,7 @@ def _catalog_pin_shared_options(fn: _F) -> _F:
 @cli.command("pin")
 @_catalog_pin_shared_options
 @ensure_materialized_option
-@relocate_reads_option(noun="entry", include_caches=True, default=False)
+@relocate_reads_option(noun="entry", include_caches=True)
 @click.pass_context
 def pin(
     ctx: click.Context,
@@ -590,7 +599,7 @@ def pin(
 
 @cli.command("unpin")
 @_catalog_pin_shared_options
-@relocate_reads_option(noun="entry", default=False)
+@relocate_reads_option(noun="entry")
 @click.pass_context
 def unpin(
     ctx: click.Context,

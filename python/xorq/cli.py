@@ -9,7 +9,7 @@ import sys
 import traceback
 from functools import partial, wraps
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 import click
 
@@ -1192,7 +1192,7 @@ def raise_for_missing_relocation_source(
     *,
     relocate_reads: bool,
     internal_dirs: tuple[str | Path | None, ...] = (),
-) -> None:
+) -> NoReturn:
     """Translate a missing bundle *source* into a clean CLI error, else re-raise.
 
     Relocating a build content-hashes each local read by opening it, so a missing

@@ -380,7 +380,7 @@ class Catalog:
         aliases: tuple[str, ...] = (),
         exist_ok: bool = False,
         project_path: Path | None = None,
-        relocate_reads: bool = False,
+        relocate_reads: bool = True,
     ) -> CatalogEntry:
         with build_expr_context(expr, relocate_reads=relocate_reads) as path:
             return self._add_build_dir(
@@ -398,7 +398,7 @@ class Catalog:
         aliases: tuple[str, ...] = (),
         exist_ok: bool = False,
         project_path: Path | None = None,
-        relocate_reads: bool = False,
+        relocate_reads: bool | None = None,
     ) -> CatalogEntry:
         """Add a build to the catalog.
 
@@ -414,9 +414,11 @@ class Catalog:
 
         *relocate_reads* controls how the build is produced and so only applies
         to an ``Expr`` input; ``Path`` inputs are already-built artifacts whose
-        reads were settled at build time. Defaults to ``False`` (the CLI prefers
-        ``True``, and pin/unpin pass it explicitly) until the fuse/bind execute
-        path resolves relocated reads' base_path; see #2133.
+        reads were settled at build time. It defaults (``None``) to ``True`` for
+        an ``Expr`` -- matching the CLI: local-file reads are bundled so the entry
+        is self-contained and resolves on both the load and fuse/bind paths
+        (#2133) -- and is a no-op for a ``Path``. Passing ``relocate_reads=True``
+        explicitly with a ``Path`` is a misuse and raises.
         """
         from xorq.api import Expr  # noqa: PLC0415
 
@@ -436,7 +438,7 @@ class Catalog:
                 return self._add_expr(
                     obj,
                     project_path=project_path,
-                    relocate_reads=relocate_reads,
+                    relocate_reads=True if relocate_reads is None else relocate_reads,
                     **shared,
                 )
             case _:
