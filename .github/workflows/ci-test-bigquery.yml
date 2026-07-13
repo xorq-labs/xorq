@@ -1,0 +1,56 @@
+name: ci-test-bigquery
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci-test-bigquery'
+    strategy:
+      matrix:
+        target: ["x86_64"]
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: extractions/setup-just@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: download test data
+        run: just download-data
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install the project
+        run: uv sync --extra bigquery --extra ibis --group dev --group test
+        working-directory: ${{ github.workspace }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: pytest
+        run: uv run --no-sync pytest --import-mode=importlib -m bigquery -v --cov --cov-report=xml -s -vv
+        working-directory: ${{ github.workspace }}
+        env:
+          GOOGLE_BIGQUERY_PROJECT_ID: ${{ vars.GOOGLE_BIGQUERY_PROJECT_ID }}
+
+      - name: Upload coverage reports to Codecov
+        if: success()
+        continue-on-error: true
+        uses: codecov/codecov-action@v5.5.4
+        with:
+          flags: bigquery
+          token: ${{ secrets.CODECOV_TOKEN }}

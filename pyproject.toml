@@ -141,6 +141,12 @@ geospatial = [
 trino = [
     "trino==0.336.0",
 ]
+bigquery = [
+    "db-dtypes>=0.3,<2",
+    "google-cloud-bigquery>=3,<4",
+    "google-cloud-bigquery-storage>=2,<3",
+    "pydata-google-auth>=1.4.0,<2",
+]
 bsl = [
     "boring-semantic-layer>=0.3.13",
 ]
@@ -208,6 +214,7 @@ pyiceberg = "xorq.backends.pyiceberg"
 sqlite = "xorq.backends.sqlite"
 gizmosql = "xorq.backends.gizmosql"
 databricks = "xorq.backends.databricks"
+bigquery = "xorq.backends.bigquery"
 
 [project.scripts]
 xorq = "xorq.cli:main"
@@ -309,6 +316,7 @@ markers = [
     "databricks: Databricks tests",
     "xorq_datafusion: xorq DataFusion backend tests",
     "uv_export: tests that call uv export against the project lockfile",
+    "bigquery: BigQuery tests",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
