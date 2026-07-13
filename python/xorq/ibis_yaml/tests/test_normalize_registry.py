@@ -13,7 +13,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.common.exceptions import NormalizeMethodError
-from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.common.utils.defer_utils import deferred_read_csv, deferred_read_parquet
 from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
@@ -68,6 +68,13 @@ def test_deserialize_unknown_named_key() -> None:
         nr.deserialize_normalize_method({"kind": "named", "name": "bogus"})
 
 
+def test_deserialize_named_missing_name_key() -> None:
+    # a malformed build artifact must not leak a bare KeyError -- the error
+    # surface stays uniformly NormalizeMethodError
+    with pytest.raises(NormalizeMethodError, match="newer or incompatible"):
+        nr.deserialize_normalize_method({"kind": "named"})
+
+
 def test_deserialize_unknown_kind() -> None:
     with pytest.raises(NormalizeMethodError, match="unknown normalize_method encoding"):
         nr.deserialize_normalize_method({"kind": "sideways"})
@@ -101,24 +108,63 @@ def test_legacy_missing_module_raises_catchable(
 # --- lockdown at the two injection points -----------------------------------
 
 
-def test_deferred_read_rejects_custom_normalize_method(tmp_path: Path) -> None:
-    pq = tmp_path / "data.parquet"
-    pd.DataFrame({"a": [1, 2, 3]}).to_parquet(pq)
+def _write_parquet(df: pd.DataFrame, path: Path) -> None:
+    df.to_parquet(path)
+
+
+def _write_csv(df: pd.DataFrame, path: Path) -> None:
+    df.to_csv(path, index=False)
+
+
+# deferred_read_csv and deferred_read_parquet received identical lockdown
+# changes -- exercise both so neither can silently regress.
+_READERS = [
+    pytest.param(deferred_read_parquet, _write_parquet, "data.parquet", id="parquet"),
+    pytest.param(deferred_read_csv, _write_csv, "data.csv", id="csv"),
+]
+
+
+@pytest.mark.parametrize("reader, writer, filename", _READERS)
+def test_deferred_read_rejects_custom_normalize_method(
+    reader: Callable, writer: Callable, filename: str, tmp_path: Path
+) -> None:
+    path = tmp_path / filename
+    writer(pd.DataFrame({"a": [1, 2, 3]}), path)
     con = xo.connect()
     with pytest.raises(NormalizeMethodError, match="not a registered"):
-        deferred_read_parquet(
-            pq, con, table_name="t", normalize_method=_custom_normalize
+        reader(path, con, table_name="t", normalize_method=_custom_normalize)
+
+
+@pytest.mark.parametrize("reader, writer, filename", _READERS)
+def test_deferred_read_rejects_custom_even_when_relocatable(
+    reader: Callable, writer: Callable, filename: str, tmp_path: Path
+) -> None:
+    # relocatable=True overrides normalize_method with md5sum; the user's custom
+    # callable must still be rejected up front rather than silently ignored.
+    path = tmp_path / filename
+    writer(pd.DataFrame({"a": [1, 2, 3]}), path)
+    con = xo.connect()
+    with pytest.raises(NormalizeMethodError, match="not a registered"):
+        reader(
+            path,
+            con,
+            table_name="t",
+            normalize_method=_custom_normalize,
+            relocatable=True,
         )
 
 
-def test_deferred_read_builtins_accepted(tmp_path: Path) -> None:
-    pq = tmp_path / "data.parquet"
-    pd.DataFrame({"a": [1, 2, 3]}).to_parquet(pq)
+@pytest.mark.parametrize("reader, writer, filename", _READERS)
+def test_deferred_read_builtins_accepted(
+    reader: Callable, writer: Callable, filename: str, tmp_path: Path
+) -> None:
+    path = tmp_path / filename
+    writer(pd.DataFrame({"a": [1, 2, 3]}), path)
     con = xo.connect()
-    t = deferred_read_parquet(pq, con, table_name="t")
+    t = reader(path, con, table_name="t")
     assert t.op().normalize_method is normalize_read_path_stat
     # relocatable forces md5sum, still registry-resolvable
-    t2 = deferred_read_parquet(pq, con, table_name="t2", relocatable=True)
+    t2 = reader(path, con, table_name="t2", relocatable=True)
     assert t2.op().normalize_method is normalize_read_path_md5sum
 
 

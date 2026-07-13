@@ -82,11 +82,12 @@ def deserialize_normalize_method(payload: Any) -> Optional[Callable]:
     if kind == "none":
         return None
     if kind == "named":
+        name = payload.get("name")
         try:
-            return _KEY_TO_FN[payload["name"]]
+            return _KEY_TO_FN[name]
         except KeyError:
             raise NormalizeMethodError(
-                f"unknown normalize_method {payload['name']!r}; this build was "
+                f"unknown normalize_method {name!r}; this build was "
                 "produced by a newer or incompatible xorq version"
             ) from None
     if kind == "pickle":

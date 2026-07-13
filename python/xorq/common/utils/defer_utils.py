@@ -221,13 +221,14 @@ def deferred_read_csv(
         read_kwargs = make_read_kwargs(
             method, path, table_name, schema=schema, **kwargs
         )
-    if relocatable:
-        read_kwargs = read_kwargs + (("relocatable", True),)
-        normalize_method = normalize_read_path_md5sum
-    # lock down: only registry-resolvable methods survive serialization (#2155)
+    # lock down: reject unserializable methods up front -- before the relocatable
+    # override would mask a user-supplied custom callable (#2155)
     from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
 
     validate(normalize_method)
+    if relocatable:
+        read_kwargs = read_kwargs + (("relocatable", True),)
+        normalize_method = normalize_read_path_md5sum
     return Read(
         method_name=method_name,
         name=table_name,
@@ -295,13 +296,14 @@ def deferred_read_parquet(
     if con.name in _ADBC_BACKENDS:
         kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
-    if relocatable:
-        read_kwargs = read_kwargs + (("relocatable", True),)
-        normalize_method = normalize_read_path_md5sum
-    # lock down: only registry-resolvable methods survive serialization (#2155)
+    # lock down: reject unserializable methods up front -- before the relocatable
+    # override would mask a user-supplied custom callable (#2155)
     from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
 
     validate(normalize_method)
+    if relocatable:
+        read_kwargs = read_kwargs + (("relocatable", True),)
+        normalize_method = normalize_read_path_md5sum
     return Read(
         method_name=method_name,
         name=table_name,
