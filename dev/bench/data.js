@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783774863891,
+  "lastUpdate": 1783955597608,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -26514,6 +26514,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.24824695410728376",
             "extra": "mean: 1.654490303 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "462b5bdf183f90901e1cf366b702a8add2163779",
+          "message": "build(deps): raise pyarrow/pandas floor; drop pyarrow-hotfix (#2109) (#2153)\n\nSplit from #2135 (part 1 of 2). Raises the declared dependency floors to\ntheir true installable/usable minimums and drops the now-redundant\n`pyarrow-hotfix` shim. The floor-verification CI job\n(`ci-test-lowest-direct.yml`) and supporting test changes live in the\ncompanion PR (part 2).\n\n## Minimum-bump verification\n\nEach floor was checked to be the *smallest* justified bump. Verified\nempirically via `uv lock --resolution lowest-direct` (which resolves\ndirect deps to their declared floors) and by reading transitive\n`Requires-Dist` metadata and code usage.\n\n| Dependency | Old floor | New floor | Why this is the minimum | Binding\nconstraint |\n|---|---|---|---|---|\n| `pyarrow` | `>=13.0.0` | `>=18.0.0` | Hard transitive floor:\n`xorq-datafusion==0.2.10` (a core dep) requires `pyarrow>=18.0.0,<22`.\nThe resolver forces ≥18 regardless of what xorq declares — the old\n`>=13` never resolved to <18, so it was fiction. `<22` inherited from\nthe same dep. | transitive (unavoidable) |\n| `pandas` | `>=1.5.3` | `>=2.2.3` | Two floors coincide at 2.2.x: (a)\n2.2.0 is the first release with `DataFrame.__arrow_c_stream__` (Arrow\nPyCapsule iface), consumed by `pa.RecordBatchReader.from_stream(df)`;\n(b) 2.2.3 is the first pandas with cp313 wheels, so `<2.2.3` is\nuninstallable on Python 3.13 (which xorq supports). Take the higher:\n`>=2.2.3`. | code + py3.13 wheels |\n| `pyarrow-hotfix` | `>=0.4` | *removed* | Shim only patches\nCVE-2023-47248, fixed natively in `pyarrow>=14.0.1`. At the new\n`pyarrow>=18` floor it is a guaranteed no-op, so the dependency and all\n`import pyarrow_hotfix` sites are removed. | obsolete |\n| `scikit-learn` | `>=1.4.0` | `>=1.5.0` | Two independent 1.5 drivers:\n(a) **lib code** —\n`NeighborhoodComponentsAnalysis.get_feature_names_out()` returned\n`n_features_in_` (wrong count) before 1.5.0, fixed to `n_components` in\n1.5.0; `structer.py:340` names outputs from it, so pre-1.5 mislabels\ncolumns; (b) test — `sklearn.metrics.d2_log_loss_score` first exists in\n1.5.0. | code + test |\n| `datafusion` (extra) | `>=0.6` | `>=47.0.0,<49` | Hard runtime API\ngate: the vendored datafusion backend calls\n`datafusion.user_defined.udf(...)`\n(`vendor/ibis/backends/datafusion/__init__.py`), and the\n`datafusion.user_defined` submodule (incl. `WindowEvaluator`) first\nships in **47.0.0**. On 43.x–46.x the import/registration raises\n`ModuleNotFoundError: No module named 'datafusion.user_defined'`. The\nold `0.6` extra floor was stale/never-installable. `<49` cap\npre-existing. The `dev` group formerly restated `datafusion>=47.0.0`\n(uncapped) — removed, so the extra is now the single source (avoids\n`<49` vs uncapped drift). | code/runtime |\n\n### How `datafusion>=47.0.0` was verified as the true minimum\n\nSwept installed `datafusion` across `40.1.0 … 48.0.0` against the\nresolved `pyarrow 21` and the datafusion backend suite:\n\n| datafusion | `datafusion.user_defined` | backend tests |\n|---|---|---|\n| 43.1.0 – 46.0.0 | absent | ❌ `test_udwf.py` fails to collect\n(`ModuleNotFoundError`) |\n| 47.0.0 | present | ✅ 9 passed |\n| 48.0.0 | present | ✅ 9 passed |\n\n46.0.0 is the last version missing the API; 47.0.0 is the first that\nworks. So `>=47.0.0` is the exact floor — one lower breaks the backend\nat runtime.\n\n### pandas / scikit-learn floors also empirically confirmed (py3.12,\nCI-equivalent)\n\n| version | result |\n|---|---|\n| pandas 2.1.4 | `DataFrame.__arrow_c_stream__` absent →\n`RecordBatchReader.from_stream(df)` raises `TypeError` |\n| pandas 2.2.0 | `__arrow_c_stream__` present → `from_stream` OK ✅ |\n| scikit-learn 1.4.0 / 1.4.2 | `metrics.d2_log_loss_score` absent; NCA\n`get_feature_names_out()` → 4 names for a 2-col transform (mismatch) |\n| scikit-learn 1.5.0 / 1.5.2 | `metrics.d2_log_loss_score` present; NCA\n`get_feature_names_out()` → 2 names (matches transform) ✅ |\n\n2.2.0 (pandas) and 1.5.0 (scikit-learn) are the first releases where the\nrespective feature works — one minor lower breaks it. The declared\npandas floor is then rounded up to `2.2.3` for the py3.13-wheel reason\nabove.\n\n### Where each usage lives\n\n- `pyarrow>=18` / `datafusion>=47` — **xorq/vendored library code**\n(`datafusion.user_defined.udf`), hard runtime gates.\n- `scikit-learn>=1.5` — **mixed**: NCA `get_feature_names_out()` is\nconsumed by library code (`structer.py:340`); `d2_log_loss_score` is\ntest-only (guarded with `getattr(..., None)` + `skipif`, so it degrades\ncleanly, not a hard gate).\n- `pandas>=2.2.3` — the `__arrow_c_stream__` usage that motivates 2.2.x\nis **test-only** (`flight/tests/test_server.py`); the 2.2.3 rounding is\ndriven by py3.13 wheel availability, not code.\n- The tests that exercise the pandas/sklearn floors ship in the\n**companion PR (part 2, #2154, stacked on this branch)**, so the two PRs\nare coupled: part 2's floor-verification CI only passes on top of this\nbranch.\n- **Exception:** the `ibis_utils` collection guard\n(`pytest.importorskip(\"ibis.formats.pyarrow\")`) lives in *this* PR, not\npart 2 — dropping `pyarrow-hotfix` breaks bare `ibis-framework` import\nat collection immediately, so the guard must travel with the removal to\nkeep this PR's own CI green.\n\n### Considered and rejected: lowering `scikit-learn` back to `1.4.0`\n\nThe only hard 1.4 blocker is the NCA naming bug, and it is fixable in\n`structer.py` (clamp `get_feature_names_out()` to the actual transform\nwidth; the KV path already survives via `zip` truncation). Rejected\nbecause: (a) it adds a fragile per-estimator workaround to library code\nfor an upstream bug fixed in 1.5.0; (b) NCA is only the breakage found —\nclaiming 1.4 support needs a full ML-suite bisect on 1.4.2 for other\nincompatibilities; (c) sklearn ships cp313 wheels only from **1.5.2**,\nso low-pin installs on py3.13 are blocked regardless; (d) the gain is ~5\nmonths of version coverage (1.5.0 = Jun 2024). Floor kept at `>=1.5.0`.\n\n### Notes / caveats\n\n- The `datafusion` floor lives solely in the `datafusion` extra, which\nis not synced by the lowest-direct CI job, so it was verified manually\n(sweep above) rather than in CI. Removing the redundant `dev` pin needs\nno workflow changes: `datafusion` is imported only inside the datafusion\nbackend dir, which `pytest_ignore_collect` (`backends/conftest.py`)\nskips at collection unless `-m datafusion` is passed — and the only `-m\ndatafusion` job (`ci-test.yml`) already syncs `--extra datafusion`.\n- Local lowest-direct probing on py3.13 hits unrelated floor-rot (old\n`typing_extensions` breaks `TypeVar.__default__`; old\npandas/sklearn/pyiceberg lack cp313 wheels → source-build failures). The\nCI job runs on **py3.12**, where these have wheels; empirical floor\nchecks above were run on py3.12 to match.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-13T11:07:21-04:00",
+          "tree_id": "a76bbedd9b6c115d6cc60321a6c7f07f3f4ac344",
+          "url": "https://github.com/xorq-labs/xorq/commit/462b5bdf183f90901e1cf366b702a8add2163779"
+        },
+        "date": 1783955594012,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.08520348053833,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01579958044612679",
+            "extra": "mean: 123.68272516666678 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.496850587045915,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05619276829070892",
+            "extra": "mean: 285.9716121999895 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9838740270474464,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09294410491737792",
+            "extra": "mean: 1.0163902821999955 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.973561249028967,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022883982485277964",
+            "extra": "mean: 251.66341660000168 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.142125388358555,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00720658033772234",
+            "extra": "mean: 241.42195280000465 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.2278752155810744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027686449460167184",
+            "extra": "mean: 309.8013191999996 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 210.24009191408635,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008757928312064133",
+            "extra": "mean: 4.756466718101728 msec\nrounds: 337"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.774389748468582,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07566570899315296",
+            "extra": "mean: 209.45085187499757 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 22.553251852510357,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010663487176891175",
+            "extra": "mean: 44.33950396774787 msec\nrounds: 31"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 16.685990573299044,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005363591647447662",
+            "extra": "mean: 59.930514500002296 msec\nrounds: 18"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 13.626445519602054,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004573529000944963",
+            "extra": "mean: 73.38670958332234 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 9.383838376378206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003726248499664351",
+            "extra": "mean: 106.56620030000568 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 6.057072443206104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017481246784684285",
+            "extra": "mean: 165.09625885713928 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.9170453379269805,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007923376551468058",
+            "extra": "mean: 169.00326816666697 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 3.183803842126477,
+            "unit": "iter/sec",
+            "range": "stddev: 0.039251859783661344",
+            "extra": "mean: 314.0897020000125 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.8024077359867374,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03615896892292696",
+            "extra": "mean: 262.99125960001675 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 2.0923585326799423,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07913402938003715",
+            "extra": "mean: 477.929563400005 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 2.364158266360369,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05551698031041156",
+            "extra": "mean: 422.98352620000514 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.9076263834584424,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1033219594572113",
+            "extra": "mean: 524.2116635999992 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.9557487377750293,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07884904927552973",
+            "extra": "mean: 511.3131255999974 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.6405420683170422,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11719594089861857",
+            "extra": "mean: 609.5546218000095 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.5182244870860389,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09111007411994297",
+            "extra": "mean: 658.6641227999962 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.3119417601386287,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09336434093525782",
+            "extra": "mean: 762.2289574000092 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.8054382015942304,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11355811452782802",
+            "extra": "mean: 1.2415601818000028 sec\nrounds: 5"
           }
         ]
       }
