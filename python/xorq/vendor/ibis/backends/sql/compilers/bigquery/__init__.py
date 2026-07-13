@@ -26,8 +26,6 @@ from xorq.vendor.ibis.backends.sql.compilers.bigquery.udf.core import (
 )
 from xorq.vendor.ibis.backends.sql.datatypes import BigQueryType, BigQueryUDFType
 from xorq.vendor.ibis.backends.sql.rewrites import (
-    FirstValue,
-    LastValue,
     exclude_unsupported_window_frame_from_ops,
     exclude_unsupported_window_frame_from_rank,
     exclude_unsupported_window_frame_from_row_number,
@@ -338,10 +336,12 @@ class BigQueryCompiler(SQLGlotCompiler):
         return func
 
     @staticmethod
-    def _minimize_spec(op, spec):
-        # bigquery doesn't allow certain window functions to specify a window frame
-        if isinstance(func := op.func, ops.Analytic) and not isinstance(
-            func, (ops.First, ops.Last, FirstValue, LastValue, ops.NthValue)
+    def _minimize_spec(start, end, spec):
+        if (
+            start is None
+            and isinstance(getattr(end, "value", None), ops.Literal)
+            and end.value.value == 0
+            and end.following
         ):
             return None
         return spec
