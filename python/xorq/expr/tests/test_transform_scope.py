@@ -475,6 +475,49 @@ def test_remote_pass_runs_count_when_boundary_remote_table_present(
     assert len(calls) == 1, "count must run once when a boundary RemoteTable is present"
 
 
+def test_remote_table_replace_event_fires_when_count_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``remote_table.replace`` span event must fire whenever the remote pass
+    replaces a boundary ``RemoteTable``, even when ``count_remote_table_readers``
+    returns ``{}`` -- which it legitimately does for a compiler-less backend or a
+    failed SQL compile (see its docstring), while RemoteTables are still present
+    and adopted. Regression guard for gh-2160: gating the event on
+    ``len(reader_counts)`` silently dropped it in exactly that case, whereas the
+    count of boundary RemoteTables (== the eventual ``scope.table_count``) does
+    not. Fails if the event is gated on the reader-count again."""
+    # force the documented empty-count return (compiler-less / compile-fail path)
+    monkeypatch.setattr(
+        remote_table_exec, "count_remote_table_readers", lambda expr: {}
+    )
+
+    events: list[tuple[str, dict]] = []
+
+    class _RecordingSpan:
+        def add_event(self, name: str, attributes: dict | None = None) -> None:
+            events.append((name, dict(attributes or {})))
+
+    monkeypatch.setattr(remote_table_exec, "get_current_span", lambda: _RecordingSpan())
+
+    target = xo.duckdb.connect()
+    expr = make_remote_expr(target)
+    assert walk_nodes(RemoteTable, expr), "test needs a boundary RemoteTable present"
+
+    scope = RemoteTableScope()
+    apply_pass(REMOTE_PASS, expr, TransformCtx(scope=scope))
+    try:
+        assert scope.table_count == 1, "the RemoteTable is still replaced and adopted"
+        replace_events = [
+            attrs for name, attrs in events if name == "remote_table.replace"
+        ]
+        assert replace_events == [{"remote_table.count": 1}], (
+            "remote_table.replace must fire with the boundary RemoteTable count "
+            f"even when the reader-count is empty; got {events}"
+        )
+    finally:
+        scope.close()
+
+
 def test_tee_resources_released_when_remote_pass_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
