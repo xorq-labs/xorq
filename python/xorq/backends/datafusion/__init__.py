@@ -4,7 +4,6 @@ import contextlib
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
-import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
 

@@ -3,6 +3,10 @@ import pytest
 
 
 ibis = pytest.importorskip("ibis")
+# ibis.formats.pyarrow imports pyarrow_hotfix unconditionally, which upstream
+# only declares under backend extras; skip the whole dir when it is absent
+# rather than erroring at collection (these run in ci-test-ibis-compatibility)
+pytest.importorskip("ibis.formats.pyarrow")
 
 
 @pytest.fixture(scope="session")

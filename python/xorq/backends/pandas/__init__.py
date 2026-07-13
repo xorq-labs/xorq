@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pyarrow as pa
-import pyarrow_hotfix  # noqa: F401
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.config

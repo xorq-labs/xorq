@@ -67,6 +67,7 @@ jobs:
               - --extra pyiceberg
               - --extra sqlite
               - --extra ibis
+              - --extra datafusion  # core tests parametrize over the datafusion backend
           - name: sqlite
             services: false
             extras:

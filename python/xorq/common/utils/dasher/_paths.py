@@ -118,11 +118,25 @@ def _extract_duckdb_file_paths(sql_ddl: str) -> tuple[str, ...]:
         canonical, _ = _canonicalize_catalog_path(absolute)
         return canonical
 
-    # ReadParquet stores the path in expressions[0]; restrict to it
-    # to avoid capturing string-valued kwargs.
+    # sqlglot>=28 parses duckdb read_parquet() into a typed ReadParquet node;
+    # older sqlglot emits an Anonymous func named "read_parquet". Both keep the
+    # path in expressions[0], so the extraction below is shared. (ReadCSV is
+    # typed on both.)
+    read_parquet_cls = getattr(sg.exp, "ReadParquet", None)
+    if read_parquet_cls is not None:
+        parquet_funcs = tree.find_all(read_parquet_cls)
+    else:
+        parquet_funcs = (
+            func
+            for func in tree.find_all(sg.exp.Anonymous)
+            if (func.name or "").lower() == "read_parquet"
+        )
+
+    # expressions[0] is the path; restrict to it to avoid capturing
+    # string-valued kwargs.
     parquet_paths = tuple(
         canon(lit.this)
-        for func in tree.find_all(sg.exp.ReadParquet)
+        for func in parquet_funcs
         if func.expressions
         for lit in func.expressions[0].find_all(sg.exp.Literal)
         if lit.is_string

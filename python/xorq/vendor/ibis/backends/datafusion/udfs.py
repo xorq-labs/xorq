@@ -5,7 +5,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pyarrow as pa
 import pyarrow.compute as pc
-import pyarrow_hotfix  # noqa: F401
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.datatypes as dt
