@@ -39,6 +39,10 @@ from xorq.ibis_yaml.common import (
     translate_to_yaml,
 )
 from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
+from xorq.ibis_yaml.normalize_registry import (
+    deserialize_normalize_method,
+    serialize_normalize_method,
+)
 from xorq.ibis_yaml.udf import _scalar_udf_from_yaml, _scalar_udf_to_yaml  # noqa: F401
 from xorq.ibis_yaml.utils import (
     freeze,
@@ -613,7 +617,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
             "name": table_name,
             "profile": profile_hash_name,
             "read_kwargs": read_kwargs,
-            "normalize_method": serialize_callable(op.normalize_method),
+            "normalize_method": serialize_normalize_method(op.normalize_method),
         }
         | context.registry.register_schema(op.schema)
     )
@@ -633,7 +637,7 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
         schema=schema,
         source=source,
         read_kwargs=read_kwargs,
-        normalize_method=deserialize_callable(yaml_dict["normalize_method"]),
+        normalize_method=deserialize_normalize_method(yaml_dict["normalize_method"]),
     )
 
     return read_op.to_expr()

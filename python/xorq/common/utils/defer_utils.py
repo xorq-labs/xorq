@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import toolz
 
@@ -151,7 +151,7 @@ def deferred_read_csv(
     schema: Schema | None = None,
     normalize_method: Callable = normalize_read_path_stat,
     relocatable: bool = False,
-    **kwargs,
+    **kwargs: Any,
 ) -> ir.Table:
     """
     Create a deferred read operation for CSV files that will execute only when needed.
@@ -224,6 +224,10 @@ def deferred_read_csv(
     if relocatable:
         read_kwargs = read_kwargs + (("relocatable", True),)
         normalize_method = normalize_read_path_md5sum
+    # lock down: only registry-resolvable methods survive serialization (#2155)
+    from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
+
+    validate(normalize_method)
     return Read(
         method_name=method_name,
         name=table_name,
@@ -241,7 +245,7 @@ def deferred_read_parquet(
     schema: Schema | None = None,
     normalize_method: Callable = normalize_read_path_stat,
     relocatable: bool = False,
-    **kwargs,
+    **kwargs: Any,
 ) -> ir.Table:
     """
      Create a deferred read operation for Parquet files that will execute only when needed.
@@ -294,6 +298,10 @@ def deferred_read_parquet(
     if relocatable:
         read_kwargs = read_kwargs + (("relocatable", True),)
         normalize_method = normalize_read_path_md5sum
+    # lock down: only registry-resolvable methods survive serialization (#2155)
+    from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
+
+    validate(normalize_method)
     return Read(
         method_name=method_name,
         name=table_name,
