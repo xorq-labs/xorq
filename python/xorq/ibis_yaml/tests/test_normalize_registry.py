@@ -69,9 +69,9 @@ def test_deserialize_unknown_named_key() -> None:
 
 
 def test_deserialize_named_missing_name_key() -> None:
-    # a malformed build artifact must not leak a bare KeyError -- the error
-    # surface stays uniformly NormalizeMethodError
-    with pytest.raises(NormalizeMethodError, match="newer or incompatible"):
+    # a malformed build artifact must not leak a bare KeyError -- and must not
+    # raise a *second* KeyError while formatting the error message either
+    with pytest.raises(NormalizeMethodError, match="missing 'name'"):
         nr.deserialize_normalize_method({"kind": "named"})
 
 
@@ -103,6 +103,53 @@ def test_legacy_missing_module_raises_catchable(
     monkeypatch.setattr("xorq.ibis_yaml.common.deserialize_callable", boom)
     with pytest.raises(NormalizeMethodError, match="ghost"):
         nr.deserialize_normalize_method("anything")
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # a legacy pickle whose module is present but the symbol moved
+        pytest.param(ImportError("cannot import name 'x' from 'y'"), id="import"),
+        pytest.param(AttributeError("module 'y' has no attribute 'x'"), id="attr"),
+        # b64decode of a corrupt payload raises binascii.Error (a ValueError)
+        pytest.param(ValueError("Invalid base64-encoded string"), id="value"),
+        pytest.param(EOFError("Ran out of input"), id="eof"),
+    ],
+)
+def test_legacy_unpickle_other_errors_are_catchable(
+    monkeypatch: pytest.MonkeyPatch, exc: Exception
+) -> None:
+    # not just ModuleNotFoundError: any version-skew unpickle failure must
+    # surface a catchable NormalizeMethodError, never a raw cloudpickle error.
+    def boom(_encoded: str) -> Callable:
+        raise exc
+
+    monkeypatch.setattr("xorq.ibis_yaml.common.deserialize_callable", boom)
+    with pytest.raises(NormalizeMethodError, match="incompatible environment"):
+        nr.deserialize_normalize_method("anything")
+
+
+# --- malformed / foreign payloads surface catchable errors, not raw KeyError -
+
+
+def test_deserialize_none_payload_is_no_method() -> None:
+    # pre-#1064 builds omitted the key entirely; an absent value means None
+    assert nr.deserialize_normalize_method(None) is None
+
+
+def test_deserialize_missing_kind_is_catchable() -> None:
+    with pytest.raises(NormalizeMethodError, match="missing 'kind'"):
+        nr.deserialize_normalize_method({"name": "read_path_stat"})
+
+
+def test_deserialize_pickle_missing_pickle_is_catchable() -> None:
+    with pytest.raises(NormalizeMethodError, match="missing 'pickle'"):
+        nr.deserialize_normalize_method({"kind": "pickle"})
+
+
+def test_deserialize_non_dict_payload_is_catchable() -> None:
+    with pytest.raises(NormalizeMethodError, match="expected a tagged"):
+        nr.deserialize_normalize_method(["not", "a", "payload"])
 
 
 # --- lockdown at the two injection points -----------------------------------

@@ -637,7 +637,9 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
         schema=schema,
         source=source,
         read_kwargs=read_kwargs,
-        normalize_method=deserialize_normalize_method(yaml_dict["normalize_method"]),
+        normalize_method=deserialize_normalize_method(
+            yaml_dict.get("normalize_method")
+        ),
     )
 
     return read_op.to_expr()
