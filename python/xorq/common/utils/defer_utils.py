@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import toolz
 
@@ -151,7 +151,7 @@ def deferred_read_csv(
     schema: Schema | None = None,
     normalize_method: Callable = normalize_read_path_stat,
     relocatable: bool = False,
-    **kwargs,
+    **kwargs: Any,
 ) -> ir.Table:
     """
     Create a deferred read operation for CSV files that will execute only when needed.
@@ -221,6 +221,11 @@ def deferred_read_csv(
         read_kwargs = make_read_kwargs(
             method, path, table_name, schema=schema, **kwargs
         )
+    # lock down: reject unserializable methods up front -- before the relocatable
+    # override would mask a user-supplied custom callable (#2155)
+    from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
+
+    validate(normalize_method)
     if relocatable:
         read_kwargs = read_kwargs + (("relocatable", True),)
         normalize_method = normalize_read_path_md5sum
@@ -241,7 +246,7 @@ def deferred_read_parquet(
     schema: Schema | None = None,
     normalize_method: Callable = normalize_read_path_stat,
     relocatable: bool = False,
-    **kwargs,
+    **kwargs: Any,
 ) -> ir.Table:
     """
      Create a deferred read operation for Parquet files that will execute only when needed.
@@ -291,6 +296,11 @@ def deferred_read_parquet(
     if con.name in _ADBC_BACKENDS:
         kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
+    # lock down: reject unserializable methods up front -- before the relocatable
+    # override would mask a user-supplied custom callable (#2155)
+    from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
+
+    validate(normalize_method)
     if relocatable:
         read_kwargs = read_kwargs + (("relocatable", True),)
         normalize_method = normalize_read_path_md5sum

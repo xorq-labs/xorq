@@ -510,6 +510,14 @@ def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
             )
 
 
+def _validate_normalize_method(instance: Any, attribute: Any, value: Any) -> None:
+    # lock down: the build-time normalize_method must be serializable by name so
+    # the resulting build loads across xorq versions (#2155).
+    from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
+
+    validate(value)
+
+
 @frozen
 class ExprDumper:
     """
@@ -529,7 +537,8 @@ class ExprDumper:
     # extract dir is kept alive for the fused expr's lifetime); see #2133.
     relocate_reads = field(validator=instance_of(bool), default=True)
     read_normalize_method = field(
-        validator=is_callable(), default=normalize_read_path_stat
+        validator=[is_callable(), _validate_normalize_method],
+        default=normalize_read_path_stat,
     )
 
     def __attrs_post_init__(self) -> None:
