@@ -563,7 +563,7 @@ def _flight_to_rbr(
     expr, scope = _transform_expr(expr, params=params, **read_kwargs)
     try:
         reader = expr.op().to_rbr()
-    except BaseException:
+    except Exception:
         scope.close()
         raise
     return otel_instrument_reader(bind_scope_to_reader(scope, reader))
