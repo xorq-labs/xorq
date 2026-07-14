@@ -171,6 +171,16 @@ class Backend(SQLBackend, CanCreateDatabase):
             self.__session_dataset = self._make_session()
         return self.__session_dataset
 
+    def _in_memory_table_exists(self, name: str) -> bool:
+        table_ref = bq.TableReference(self._session_dataset, name)
+
+        try:
+            self.client.get_table(table_ref)
+        except google.api_core.exceptions.NotFound:
+            return False
+        else:
+            return True
+
     def _finalize_memtable(self, name: str) -> None:
         table_ref = bq.TableReference(self._session_dataset, name)
         self.client.delete_table(table_ref, not_found_ok=True)
