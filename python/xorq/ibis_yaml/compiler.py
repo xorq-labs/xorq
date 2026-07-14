@@ -828,7 +828,8 @@ class ExprDumper:
         """
         by_path = toolz.groupby(operator.attrgetter("path"), plans)
         conflicts = tuple(
-            f"{keeper.path}: {keeper.phase.name} vs {other.phase.name}"
+            f"{keeper.path}: non-dedupable collision "
+            f"(phases {keeper.phase.name}, {other.phase.name})"
             for (keeper, *rest) in by_path.values()
             for other in rest
             if not (keeper.dedupable and other.dedupable)
