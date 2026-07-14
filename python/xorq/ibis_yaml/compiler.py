@@ -520,6 +520,7 @@ def _validate_normalize_method(instance: Any, attribute: Any, value: Any) -> Non
 
     validate(value)
 
+
 @frozen
 class WritePlan:
     """A single deferred write: where, how, when, and whether duplicates are safe.
@@ -825,18 +826,19 @@ class ExprDumper:
         once with byte-identical output, so extra copies are dropped. Any other
         path collision is a bug and raises rather than silently losing a writer.
         """
-        by_path = {}
-        for plan in plans:
-            existing = by_path.get(plan.path)
-            if existing is not None:
-                if not (existing.dedupable and plan.dedupable):
-                    raise ValueError(
-                        f"conflicting non-dedupable write plans for {plan.path}: "
-                        f"{existing.phase.name} vs {plan.phase.name}"
-                    )
-                continue
-            by_path[plan.path] = plan
-        for plan in sorted(by_path.values(), key=operator.attrgetter("phase")):
+        by_path = toolz.groupby(operator.attrgetter("path"), plans)
+        conflicts = tuple(
+            f"{keeper.path}: {keeper.phase.name} vs {other.phase.name}"
+            for (keeper, *rest) in by_path.values()
+            for other in rest
+            if not (keeper.dedupable and other.dedupable)
+        )
+        if conflicts:
+            raise ValueError(
+                "conflicting non-dedupable write plans:\n" + "\n".join(conflicts)
+            )
+        keepers = (keeper for (keeper, *_) in by_path.values())
+        for plan in sorted(keepers, key=operator.attrgetter("phase")):
             plan.writer()
 
     def dump_expr(self) -> str:
