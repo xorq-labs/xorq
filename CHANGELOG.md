@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.34] - 2026-07-14
+### Details
+#### Changed
+- Bump xorq-datafusion to 0.2.10 by @mesejo in [#2141](https://github.com/xorq-labs/xorq/pull/2141)
+- Expose cache pin/unpin for builds and catalog entries by @dlovell in [#2117](https://github.com/xorq-labs/xorq/pull/2117)
+- Unify resource-scope ownership across transform passes by @dlovell in [#2138](https://github.com/xorq-labs/xorq/pull/2138)
+- Declarative pass driver for _transform_expr (R2) by @dlovell in [#2139](https://github.com/xorq-labs/xorq/pull/2139)
+- P4 pure-pass fusion, remote-pass guard, and produces_resources ownership gate by @dlovell in [#2144](https://github.com/xorq-labs/xorq/pull/2144)
+- Raise pyarrow/pandas floor; drop pyarrow-hotfix by @mesejo in [#2153](https://github.com/xorq-labs/xorq/pull/2153)
+
+#### Fixed
+- Refresh entries by @hussainsultan in [#2143](https://github.com/xorq-labs/xorq/pull/2143)
+- Resolve relocated reads on the fuse/bind execute path by @dlovell in [#2137](https://github.com/xorq-labs/xorq/pull/2137)
+
 ## [0.3.33] - 2026-07-07
 ### Details
 #### Added
