@@ -29,7 +29,6 @@ from xorq.vendor.ibis.backends.sql.rewrites import (
     exclude_unsupported_window_frame_from_ops,
     exclude_unsupported_window_frame_from_rank,
     exclude_unsupported_window_frame_from_row_number,
-    lower_sample,
     split_select_distinct_with_order_by,
 )
 from xorq.vendor.ibis.common.temporal import (
@@ -48,15 +47,16 @@ if TYPE_CHECKING:
 _NAME_REGEX = re.compile(r'[^!"$()*,./;?@[\\\]^`{}~\n]+')
 
 
+_MEMTABLE_PATTERN = re.compile(
+    r"^_?ibis_(?:[A-Za-z_][A-Za-z_0-9]*)_memtable_[a-z0-9]{26}$"
+)
+
+
 def _qualify_memtable(
-    node: sge.Expression,
-    *,
-    dataset: str | None,
-    project: str | None,
-    memtable_names: frozenset[str],
+    node: sge.Expression, *, dataset: str | None, project: str | None
 ) -> sge.Expression:
     """Add a BigQuery dataset and project to memtable references."""
-    if isinstance(node, sge.Table) and node.name in memtable_names:
+    if isinstance(node, sge.Table) and _MEMTABLE_PATTERN.match(node.name) is not None:
         node.args["db"] = dataset
         node.args["catalog"] = project
         # make sure to quote table location
@@ -131,14 +131,6 @@ class BigQueryCompiler(SQLGlotCompiler):
 
     supports_qualify = True
 
-    LOWERED_OPS = {
-        ops.Sample: lower_sample(
-            supported_methods=("block",),
-            supports_seed=False,
-            physical_tables_only=True,
-        ),
-    }
-
     UNSUPPORTED_OPS = (
         ops.DateDiff,
         ops.ExtractAuthority,
@@ -204,6 +196,8 @@ class BigQueryCompiler(SQLGlotCompiler):
         ops.IsInf: "is_inf",
         ops.IsNan: "is_nan",
         ops.Log10: "log10",
+        ops.LPad: "lpad",
+        ops.RPad: "rpad",
         ops.Levenshtein: "edit_distance",
         ops.Modulus: "mod",
         ops.RegexReplace: "regexp_replace",
@@ -212,7 +206,6 @@ class BigQueryCompiler(SQLGlotCompiler):
         ops.TimeFromHMS: "time_from_parts",
         ops.TimestampNow: "current_timestamp",
         ops.ExtractHost: "net.host",
-        ops.RandomUUID: "generate_uuid",
     }
 
     def to_sqlglot(
@@ -250,17 +243,31 @@ class BigQueryCompiler(SQLGlotCompiler):
         sql = super().to_sqlglot(expr, limit=limit, params=params)
 
         table_expr = expr.as_table()
-
-        memtable_names = frozenset(
-            op.name for op in table_expr.op().find(ops.InMemoryTable)
-        )
+        geocols = table_expr.schema().geospatial
 
         result = sql.transform(
             _qualify_memtable,
             dataset=session_dataset_id,
             project=session_project,
-            memtable_names=memtable_names,
         ).transform(_remove_null_ordering_from_unsupported_window)
+
+        if geocols:
+            # if there are any geospatial columns, we have to convert them to WKB,
+            # so interactive mode knows how to display them
+            #
+            # by default bigquery returns data to python as WKT, and there's really
+            # no point in supporting both if we don't need to.
+            quoted = self.quoted
+            result = sg.select(
+                sge.Star(
+                    replace=[
+                        self.f.st_asbinary(sg.column(col, quoted=quoted)).as_(
+                            col, quoted=quoted
+                        )
+                        for col in geocols
+                    ]
+                )
+            ).from_(result.subquery())
 
         sources = []
 
@@ -278,7 +285,7 @@ class BigQueryCompiler(SQLGlotCompiler):
         return sources
 
     def _compile_python_udf(self, udf_node: ops.ScalarUDF) -> sge.Create:
-        name = type(udf_node).__name__
+        name = udf_node.__func_name__
         type_mapper = self.udf_type_mapper
 
         body = PythonToJavaScriptTranslator(udf_node.__func__).compile()
@@ -375,19 +382,19 @@ class BigQueryCompiler(SQLGlotCompiler):
         return self.f.exp(1)
 
     def visit_TimeDelta(self, op, *, left, right, part):
-        return self.f.time_diff(left, right, self.v[part])
+        return self.f.time_diff(left, right, part, dialect=self.dialect)
 
     def visit_DateDelta(self, op, *, left, right, part):
-        return self.f.date_diff(left, right, self.v[part])
+        return self.f.date_diff(left, right, part, dialect=self.dialect)
 
     def visit_TimestampDelta(self, op, *, left, right, part):
         left_tz = op.left.dtype.timezone
         right_tz = op.right.dtype.timezone
 
         if left_tz is None and right_tz is None:
-            return self.f.datetime_diff(left, right, self.v[part])
+            return self.f.datetime_diff(left, right, part)
         elif left_tz is not None and right_tz is not None:
-            return self.f.timestamp_diff(left, right, self.v[part])
+            return self.f.timestamp_diff(left, right, part)
 
         raise com.UnsupportedOperationError(
             "timestamp difference with mixed timezone/timezoneless values is not implemented"
@@ -441,12 +448,12 @@ class BigQueryCompiler(SQLGlotCompiler):
         return self.cast(self.f.floor(self.f.ieee_divide(left, right)), op.dtype)
 
     def visit_Log2(self, op, *, arg):
-        return self.f.log(arg, 2)
+        return self.f.log(arg, 2, dialect=self.dialect)
 
     def visit_Log(self, op, *, arg, base):
         if base is None:
             return self.f.ln(arg)
-        return self.f.log(arg, base)
+        return self.f.log(arg, base, dialect=self.dialect)
 
     def visit_ArrayRepeat(self, op, *, arg, times):
         start = step = 1
@@ -485,24 +492,15 @@ class BigQueryCompiler(SQLGlotCompiler):
             return self.f.parse_timestamp(format_str, arg, timezone)
         return self.f.parse_datetime(format_str, arg)
 
-    def visit_ArrayCollect(self, op, *, arg, where, order_by, include_null, distinct):
-        if where is not None:
-            if include_null:
-                raise com.UnsupportedOperationError(
-                    "Combining `include_null=True` and `where` is not supported by bigquery"
-                )
-            if distinct:
-                raise com.UnsupportedOperationError(
-                    "Combining `distinct=True` and `where` is not supported by bigquery"
-                )
-            arg = compiler.if_(where, arg, NULL)
-        if distinct:
-            arg = sge.Distinct(expressions=[arg])
-        if order_by:
-            arg = sge.Order(this=arg, expressions=order_by)
+    def visit_ArrayCollect(self, op, *, arg, where, order_by, include_null):
+        if where is not None and include_null:
+            raise com.UnsupportedOperationError(
+                "Combining `include_null=True` and `where` is not supported by bigquery"
+            )
+        out = self.agg.array_agg(arg, where=where, order_by=order_by)
         if not include_null:
-            arg = sge.IgnoreNulls(this=arg)
-        return self.f.array_agg(arg)
+            out = sge.IgnoreNulls(this=out)
+        return out
 
     def _neg_idx_to_pos(self, arg, idx):
         return self.if_(idx < 0, self.f.array_length(arg) + idx, idx)
@@ -532,6 +530,15 @@ class BigQueryCompiler(SQLGlotCompiler):
 
     def visit_StringContains(self, op, *, haystack, needle):
         return self.f.strpos(haystack, needle) > 0
+
+    def visti_StringFind(self, op, *, arg, substr, start, end):
+        if start is not None:
+            raise NotImplementedError(
+                "`start` not implemented for BigQuery string find"
+            )
+        if end is not None:
+            raise NotImplementedError("`end` not implemented for BigQuery string find")
+        return self.f.strpos(arg, substr)
 
     def visit_TimestampFromYMDHMS(
         self, op, *, year, month, day, hours, minutes, seconds
@@ -669,14 +676,14 @@ class BigQueryCompiler(SQLGlotCompiler):
             unit = "WEEK(MONDAY)"
         else:
             unit = unit.name
-        return self.f.timestamp_trunc(arg, self.v[unit])
+        return self.f.timestamp_trunc(arg, self.v[unit], dialect=self.dialect)
 
     def visit_DateTruncate(self, op, *, arg, unit):
         if unit == DateUnit.WEEK:
             unit = "WEEK(MONDAY)"
         else:
             unit = unit.name
-        return self.f.date_trunc(arg, self.v[unit])
+        return self.f.date_trunc(arg, self.v[unit], dialect=self.dialect)
 
     def visit_TimeTruncate(self, op, *, arg, unit):
         if unit == TimeUnit.NANOSECOND:
@@ -685,7 +692,7 @@ class BigQueryCompiler(SQLGlotCompiler):
             )
         else:
             unit = unit.name
-        return self.f.time_trunc(arg, self.v[unit])
+        return self.f.time_trunc(arg, self.v[unit], dialect=self.dialect)
 
     def _nullifzero(self, step, zero, step_dtype):
         if step_dtype.is_interval():
@@ -730,7 +737,7 @@ class BigQueryCompiler(SQLGlotCompiler):
 
     def visit_TimestampRange(self, op, *, start, stop, step):
         if op.start.dtype.timezone is None or op.stop.dtype.timezone is None:
-            raise com.IbisTypeError(
+            raise com.XorqTypeError(
                 "Timestamps without timezone values are not supported when generating timestamp ranges"
             )
         return self._make_range(
@@ -773,17 +780,13 @@ class BigQueryCompiler(SQLGlotCompiler):
         array = self.f.array_reverse(self.f.array_agg(arg))
         return array[self.f.safe_offset(0)]
 
-    def visit_ArrayFilter(self, op, *, arg, body, param, index):
+    def visit_ArrayFilter(self, op, *, arg, body, param):
         return self.f.array(
-            sg.select(param)
-            .from_(self._unnest(arg, as_=param, offset=index))
-            .where(body)
+            sg.select(param).from_(self._unnest(arg, as_=param)).where(body)
         )
 
-    def visit_ArrayMap(self, op, *, arg, body, param, index):
-        return self.f.array(
-            sg.select(body).from_(self._unnest(arg, as_=param, offset=index))
-        )
+    def visit_ArrayMap(self, op, *, arg, body, param):
+        return self.f.array(sg.select(body).from_(self._unnest(arg, as_=param)))
 
     def visit_ArrayZip(self, op, *, arg):
         lengths = [self.f.array_length(arr) - 1 for arr in arg]
@@ -949,7 +952,7 @@ class BigQueryCompiler(SQLGlotCompiler):
         # rename their columns
         limit = 300
         if len(candidate) > limit:
-            raise com.IbisError(
+            raise com.XorqError(
                 f"BigQuery does not allow column names longer than {limit:d} characters. "
                 "Please rename your columns to have fewer characters."
             )
@@ -990,6 +993,9 @@ class BigQueryCompiler(SQLGlotCompiler):
             arg = self.if_(where, arg, NULL)
         return self.f.count(sge.Distinct(expressions=[arg]))
 
+    def visit_RandomUUID(self, op, **kwargs):
+        return self.f.generate_uuid()
+
     def visit_ExtractFile(self, op, *, arg):
         return self._pudf("cw_url_extract_file", arg)
 
@@ -1017,7 +1023,7 @@ class BigQueryCompiler(SQLGlotCompiler):
     def visit_DropColumns(self, op, *, parent, columns_to_drop):
         quoted = self.quoted
         excludes = [sg.column(column, quoted=quoted) for column in columns_to_drop]
-        star = sge.Star(**{"except": excludes})
+        star = sge.Star(**{"except_": excludes})
         table = sg.to_identifier(parent.alias_or_name, quoted=quoted)
         column = sge.Column(this=star, table=table)
         return sg.select(column).from_(parent)
