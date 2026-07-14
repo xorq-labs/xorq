@@ -8,6 +8,7 @@ import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import toolz
 
@@ -545,6 +546,17 @@ def translate_writer(writer: Any, context: TranslationContext) -> dict:
     intentionally omitted so the YAML stays byte-stable across rebuilds."""
     match writer:
         case ParquetWriteThrough():
+            # ParquetWriteThrough only ever writes to the local filesystem
+            # (tempfile + os.link + flock), and its `path` converter strips any
+            # URL scheme -- so the target is always local and, unlike a Read
+            # (content-hashable/relocatable) or a ParquetCache (profile-anchored
+            # root), has nothing to anchor it. The build is therefore never
+            # portable; warn unconditionally rather than pretend to detect it.
+            warnings.warn(
+                f"ParquetWriteThrough writes to a local path ({writer.path}); "
+                f"the tee output is not portable across environments.",
+                stacklevel=2,
+            )
             return freeze(
                 {
                     "kind": "ParquetWriteThrough",
@@ -675,8 +687,6 @@ def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
 
 
 def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
-    from urllib.parse import urlparse  # noqa: PLC0415
-
     def is_local_path(value: str | Path) -> bool:
         parsed = urlparse(value)
         return not parsed.scheme or parsed.scheme == "file"

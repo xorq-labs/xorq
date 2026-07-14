@@ -98,6 +98,28 @@ def test_backend_tee_roundtrip(awards_players: object) -> None:
     assert xo.execute(roundtrip).equals(xo.execute(awards_players))
 
 
+def test_backend_tee_write_side_effect(awards_players: object) -> None:
+    # A tee's whole point is the write. Assert the *serialized* writer, once
+    # reloaded and executed, actually populates the sink -- not just that rows
+    # pass through. The pass-through could succeed while a broken writer wrote
+    # nothing, so this is the assertion that guards serialization end-to-end.
+    target = xo.duckdb.connect()
+    expr = awards_players.tee(BackendWriteThrough(target, table_name="sink"))
+
+    profiles = _profiles(expr)
+    roundtrip = YamlExpressionTranslator.from_yaml(
+        YamlExpressionTranslator.to_yaml(expr, profiles), profiles
+    )
+
+    assert "sink" not in target.tables
+    xo.execute(roundtrip)
+
+    written = xo.execute(target.table("sink"))
+    expected = xo.execute(awards_players)
+    assert len(written) == len(expected)
+    assert set(written.columns) == set(expected.columns)
+
+
 def test_threaded_backend_tee_roundtrip(awards_players: object) -> None:
     target = xo.duckdb.connect()
     expr = awards_players.tee(target, table_name="sink")
@@ -152,3 +174,11 @@ def test_translate_writer_rejects_unknown_type() -> None:
 def test_load_writer_from_yaml_rejects_unknown_kind() -> None:
     with pytest.raises(ValueError, match="Unknown writer kind"):
         load_writer_from_yaml({"kind": "NoSuchWriter"}, context=None)
+
+
+def test_parquet_writer_warns_not_portable(tmp_path: object) -> None:
+    # A ParquetWriteThrough is local-filesystem-only, so its build can never be
+    # relocated: serialization must flag that every time, not silently.
+    writer = ParquetWriteThrough(path=tmp_path / "out.parquet")
+    with pytest.warns(UserWarning, match="not portable"):
+        translate_writer(writer, context=None)
