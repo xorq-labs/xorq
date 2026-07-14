@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
+
 import pytest
 
 import xorq.api as xo
@@ -10,12 +12,17 @@ from xorq.ibis_yaml.compiler import (
     build_expr,
     load_expr,
 )
+from xorq.ibis_yaml.translate import (
+    load_writer_from_yaml,
+    translate_writer,
+)
 from xorq.writes import (
     BackendWriteThrough,
     ParquetWriteThrough,
     ThreadedBackendWriteThrough,
     WriteMode,
     WritePrimaryWriteThrough,
+    WriteThrough,
 )
 
 
@@ -126,3 +133,22 @@ def test_tee_build_load_roundtrip(awards_players: object, builds_dir: object) ->
     path = build_expr(expr, builds_dir=builds_dir)
     loaded = load_expr(path)
     assert isinstance(_tee_op(loaded).writer, ThreadedBackendWriteThrough)
+
+
+class _UnregisteredWriteThrough(WriteThrough):
+    """A WriteThrough with no ibis-yaml rule, used to exercise the error paths."""
+
+    def write_through(self, batches: Iterable) -> Iterator:
+        yield from batches
+
+
+def test_translate_writer_rejects_unknown_type() -> None:
+    # A new WriteThrough subclass with no translate_writer branch must fail
+    # loudly at serialization rather than round-tripping into a silent hole.
+    with pytest.raises(NotImplementedError, match="_UnregisteredWriteThrough"):
+        translate_writer(_UnregisteredWriteThrough(), context=None)
+
+
+def test_load_writer_from_yaml_rejects_unknown_kind() -> None:
+    with pytest.raises(ValueError, match="Unknown writer kind"):
+        load_writer_from_yaml({"kind": "NoSuchWriter"}, context=None)
