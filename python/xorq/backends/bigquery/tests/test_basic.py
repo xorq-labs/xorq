@@ -20,6 +20,24 @@ pytest.importorskip("google.cloud.bigquery")
 
 
 @pytest.mark.bigquery
+def test_read_record_batches(con: Backend, batting: ir.Table) -> None:
+    reader = (
+        batting.filter(batting.yearID == 2015)
+        .select("playerID", "yearID", "G")
+        .to_pyarrow_batches()
+    )
+    name = "record_batches_batting"
+    t = con.read_record_batches(reader, table_name=name)
+    try:
+        assert name in con.list_tables()
+        result = t.execute()
+        assert not result.empty
+        assert list(result.columns) == ["playerID", "yearID", "G"]
+    finally:
+        con.drop_table(name, force=True)
+
+
+@pytest.mark.bigquery
 def test_filter_select(batting: ir.Table) -> None:
     result = batting.filter(batting.yearID == 2015).select("playerID").execute()
     assert not result.empty
