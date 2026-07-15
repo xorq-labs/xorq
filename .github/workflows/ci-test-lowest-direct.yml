@@ -64,6 +64,9 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          # Distinct key: this job's floor wheels differ from ci-test.yml's
+          # highest-resolution cache (same committed uv.lock hash) and per python.
+          cache-suffix: lowest-direct-${{ matrix.python-version }}
 
       - name: Lock at the dependency floor
         run: uv lock --resolution lowest-direct
@@ -72,6 +75,7 @@ jobs:
       - name: Install the project at the dependency floor
         run: >
           uv sync
+          --frozen
           --extra examples
           --extra postgres
           --extra pyiceberg
