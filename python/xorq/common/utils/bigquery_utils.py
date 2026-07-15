@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import io
 from typing import TYPE_CHECKING, Any
 
-from adbc_driver_bigquery import DatabaseOptions, dbapi
 from attr import field, frozen
 from attr.validators import instance_of
 
@@ -14,65 +14,43 @@ if TYPE_CHECKING:
 
 
 @frozen
-class BigQueryADBC:
+class BigQueryLoader:
+    """Load Arrow batch sources into BigQuery via a Parquet load job.
+
+    The BigQuery ADBC driver does not implement bulk ingest, so ingestion
+    goes through `google.cloud.bigquery.Client.load_table_from_file`, the
+    same mechanism backing `read_parquet`.
+    """
+
     con = field(validator=instance_of(BigQueryBackend))
 
-    @property
-    def credentials(self) -> Any:
-        # google.cloud.bigquery.Client stores the auth object here
-        return getattr(self.con.client, "_credentials", None)
-
-    @property
-    def project_id(self) -> str:
-        return self.con.billing_project or self.con.data_project
-
-    @property
-    def dataset_id(self) -> str | None:
-        return self.con.current_database
-
-    @property
-    def db_kwargs(self) -> dict[str, str]:
-        db_kwargs = {DatabaseOptions.PROJECT_ID.value: self.project_id}
-        if self.dataset_id:
-            db_kwargs[DatabaseOptions.DATASET_ID.value] = self.dataset_id
-
-        # reuse the backend's credentials when they are user credentials (the
-        # `gcloud auth application-default login` case); otherwise let the
-        # driver discover Application Default Credentials, which is how the
-        # backend authenticates service accounts too
-        credentials = self.credentials
-        client_id = getattr(credentials, "client_id", None)
-        client_secret = getattr(credentials, "client_secret", None)
-        refresh_token = getattr(credentials, "refresh_token", None)
-        if client_id and client_secret and refresh_token:
-            db_kwargs |= {
-                DatabaseOptions.AUTH_TYPE.value: DatabaseOptions.AUTH_VALUE_USER_AUTHENTICATION.value,
-                DatabaseOptions.AUTH_CLIENT_ID.value: client_id,
-                DatabaseOptions.AUTH_CLIENT_SECRET.value: client_secret,
-                DatabaseOptions.AUTH_REFRESH_TOKEN.value: refresh_token,
-            }
-        else:
-            db_kwargs[DatabaseOptions.AUTH_TYPE.value] = (
-                DatabaseOptions.AUTH_VALUE_BIGQUERY.value
-            )
-        return db_kwargs
-
-    def get_conn(self, **kwargs: Any) -> dbapi.Connection:
-        return dbapi.connect(db_kwargs={**self.db_kwargs, **kwargs})
-
-    def adbc_ingest(
+    def load_record_batches(
         self,
         table_name: str,
-        record_batch_reader: pa.RecordBatchReader | pa.Table,
-        mode: str = "create",
+        record_batches: pa.RecordBatchReader | pa.Table,
         **kwargs: Any,
     ) -> None:
-        with self.get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.adbc_ingest(
-                    table_name,
-                    record_batch_reader,
-                    mode=mode,
-                    **kwargs,
-                )
-            conn.commit()
+        import pyarrow.parquet as pq  # noqa: PLC0415
+        from google.cloud import bigquery as bq  # noqa: PLC0415
+
+        from xorq.common.utils.rbr_utils import coerce_to_arrow_table  # noqa: PLC0415
+
+        con = self.con
+        arrow_table = coerce_to_arrow_table(record_batches)
+
+        dataset_ref = bq.DatasetReference(con.data_project, con.current_database)
+        table_ref = dataset_ref.table(table_name)
+
+        buffer = io.BytesIO()
+        pq.write_table(arrow_table, buffer)
+        buffer.seek(0)
+
+        job_config = bq.LoadJobConfig(
+            source_format=bq.SourceFormat.PARQUET,
+            write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,
+            **kwargs,
+        )
+        load_job = con.client.load_table_from_file(
+            buffer, table_ref, job_config=job_config
+        )
+        load_job.result()
