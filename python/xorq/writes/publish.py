@@ -5,9 +5,11 @@ routes on the backend type (matching the con's own MRO, importing nothing) to on
 of five publish mechanisms — native ``MERGE INTO``, iceberg upsert+delete,
 statement DML, full rewrite, parquet file merge — and ``_validate`` checks the
 changeset contract. ``publish(con, staging, final, *, key, mode)`` and
-``publish_parquet(...)`` are the standalone entry points; ``xorq.writes.wap``
-wraps this same reconciliation behind the tee + audit gate (the ``make_*_wap_expr``
-builders). Dependency flows one way: wap imports publish, never the reverse.
+``publish_parquet(...)`` are the standalone entry points, and ``publish_expr``
+is the fully-remote W-A-P over them (CTAS staging + remote audit);
+``xorq.writes.wap`` wraps this same reconciliation behind the tee + audit gate
+(the ``make_*_wap_expr`` builders). Dependency flows one way: wap imports
+publish, never the reverse.
 """
 
 from __future__ import annotations
@@ -413,6 +415,78 @@ def publish(con, staging, final, *, key=(), mode) -> None:
         raise _staging_missing(staging) from None
     _validate(mode, key, columns)
     _PUBLISH[resolve_strategy(con, mode)](con, staging, final, key, columns, mode)
+
+
+# --- CTAS staging: fully-remote W-A-P ----------------------------------------
+
+
+def _default_remote_audit(key, mode):
+    """Remote analogue of ``wap._default_audit``: the no-duplicate-keys gate as
+    one scalar aggregate over the staging table (``APPEND``: pass-through).
+
+    Same contract, different transport — the tee-WAP default judges the streamed
+    changeset in pandas; this judges the staged table with a query on ``con``,
+    moving only a scalar.
+    """
+    if mode is PublishMode.APPEND:
+        return lambda staged: True
+
+    def no_duplicate_keys(staged):
+        counted = staged.group_by(list(key)).agg(n=staged.count())
+        return not int(counted.filter(counted.n > 1).count().execute())
+
+    return no_duplicate_keys
+
+
+def publish_expr(con, changeset, staging, final, *, key=(), mode, audit_fn=None):
+    """Fully-remote W-A-P: CTAS ``changeset`` into ``staging`` on ``con``, audit
+    it remotely, reconcile it into ``final``. No changeset rows transit the
+    client — the remote-staging analogue of ``make_backend_wap_expr`` (ADR-0017
+    "CTAS staging").
+
+    The tee-WAP streams the changeset through the client, which is the right
+    shape when the pipeline is heterogeneous (cross-backend sources, Python
+    UDFs mid-stream) — the data must transit anyway, so the tee makes the
+    staging write free. When every source already lives on ``con``, that
+    round-trip is pure overhead; here staging is one server-side
+    ``CREATE TABLE AS``::
+
+        W  con.create_table(staging, changeset)   server-side CTAS
+        A  audit_fn(staging_table) -> bool        remote scalar query
+        P  publish(con, staging, final, ...)      the same reconciliation layer
+
+    ``changeset`` must therefore be fully resident on ``con`` (checked via its
+    source backends); ``audit_fn`` takes the staged :class:`Table` and returns
+    a bool — default is the no-duplicate-keys gate for ``UPSERT``/``MERGE``,
+    always-True for ``APPEND``. On audit failure staging is retained for
+    inspection and ``final`` is untouched (WAP-builder semantics); the leftover
+    blocks an identical rerun at its CREATE — drop it or stage under a fresh
+    name. Returns ``{"passed", "published", "staging", "final"}``.
+    """
+    key = list(key)
+    _validate(mode, key, changeset.columns)
+    foreign = tuple(b for b in changeset.ls.backends if b is not con)
+    if foreign:
+        raise ValueError(
+            f"changeset is not fully resident on con: found "
+            f"{tuple(type(b).__name__ for b in foreign)}. CTAS staging never "
+            "moves rows through the client, so every source must live on the "
+            "target connection; use make_backend_wap_expr (tee staging) for "
+            "cross-backend pipelines."
+        )
+    con.create_table(staging, changeset)  # W — create-mode: raises on leftovers
+    audit = audit_fn if audit_fn is not None else _default_remote_audit(key, mode)
+    passed = bool(audit(con.table(staging)))  # A — only a scalar moves
+    published = False
+    if passed:
+        publish(con, staging, final, key=key, mode=mode)  # P — consumes staging
+        published = True
+    return {
+        "passed": passed,
+        "published": published,
+        "staging": staging,
+        "final": final,
+    }
 
 
 # --- parquet target ---------------------------------------------------------

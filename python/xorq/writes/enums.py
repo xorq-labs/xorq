@@ -30,6 +30,13 @@ class StagingStrategy(StrEnum):
     fast-forwarding main — metadata-only, all-or-nothing snapshot promotion, so
     it is ``APPEND``-only (no keyed merge is meaningful) and requires a backend
     whose type declares ``publish_branch`` (pyiceberg). See ADR-0017.
+
+    Both members are tee-based: the changeset streams through the client and
+    the sink writes it back (they differ only in where it lands). The
+    fully-remote W-A-P — for a changeset fully resident on the target
+    connection — is not a member here but the procedural
+    :func:`xorq.writes.publish.publish_expr` (CTAS staging + remote audit);
+    an expr-shaped ``CTAS`` member is reserved — see ADR-0017 "CTAS staging".
     """
 
     TABLE = "table"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from xorq.writes.enums import PublishMode, StagingStrategy, WriteMode
-from xorq.writes.publish import publish, publish_parquet
+from xorq.writes.publish import publish, publish_expr, publish_parquet
 from xorq.writes.wap import (
     make_backend_wap_expr,
     make_iceberg_wap_expr,
@@ -31,5 +31,6 @@ __all__ = [
     "make_iceberg_wap_expr",
     "make_parquet_wap_expr",
     "publish",
+    "publish_expr",
     "publish_parquet",
 ]

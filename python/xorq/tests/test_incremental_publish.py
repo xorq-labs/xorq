@@ -21,6 +21,7 @@ from xorq.writes.publish import (
     _publish_rewrite,
     _publish_statement_dml,
     publish,
+    publish_expr,
     publish_parquet,
 )
 from xorq.writes.wap import make_backend_wap_expr, make_parquet_wap_expr
@@ -541,3 +542,96 @@ def test_backend_wap_default_audit_allows_unique_keys(ddb) -> None:
     out = _run_backend_wap(ddb, UPSERT_DELTA, ["id"], PublishMode.UPSERT)
     assert out["published"].iloc[0]
     assert "final" in ddb.list_tables()
+
+
+# --- publish_expr: fully-remote W-A-P (CTAS staging, ADR-0017) ----------------
+
+
+def test_publish_expr_upsert(ddb) -> None:
+    # The changeset is an expr over a warehouse-resident table; W is a CTAS,
+    # A a remote scalar, P the same MERGE the tee path resolves to.
+    ddb.create_table("final", FINAL_SEED)
+    ddb.create_table("src", UPSERT_DELTA)
+    changeset = ddb.table("src").filter(ddb.table("src").id > 0)
+    result = publish_expr(
+        ddb, changeset, "staging", "final", key=["id"], mode=PublishMode.UPSERT
+    )
+    assert result == {
+        "passed": True,
+        "published": True,
+        "staging": "staging",
+        "final": "final",
+    }
+    out = _read(ddb, "final")
+    assert out["id"].tolist() == [1, 2, 3]
+    assert out["v"].tolist() == ["a", "B", "c"]
+    assert "staging" not in ddb.list_tables()  # consumed
+
+
+def test_publish_expr_creates_final_first_run(ddb) -> None:
+    ddb.create_table("src", UPSERT_DELTA)
+    result = publish_expr(
+        ddb, ddb.table("src"), "staging", "final", key=["id"], mode=PublishMode.UPSERT
+    )
+    assert result["published"]
+    assert _read(ddb, "final")["id"].tolist() == [2, 3]
+
+
+def test_publish_expr_append(ddb) -> None:
+    ddb.create_table("final", FINAL_SEED)
+    ddb.create_table("src", pd.DataFrame({"id": [4], "v": ["d"]}))
+    result = publish_expr(
+        ddb, ddb.table("src"), "staging", "final", mode=PublishMode.APPEND
+    )
+    assert result["published"]
+    assert _read(ddb, "final")["id"].tolist() == [1, 2, 3, 4]
+
+
+def test_publish_expr_default_audit_retains_staging_on_failure(ddb) -> None:
+    # Duplicate keys fail the remote no-duplicate-keys gate: final untouched,
+    # staging retained for forensics (and blocking an identical rerun).
+    ddb.create_table("src", pd.DataFrame({"id": [1, 1, 2], "v": ["a", "a2", "b"]}))
+    result = publish_expr(
+        ddb, ddb.table("src"), "staging", "final", key=["id"], mode=PublishMode.UPSERT
+    )
+    assert result == {
+        "passed": False,
+        "published": False,
+        "staging": "staging",
+        "final": "final",
+    }
+    assert "final" not in ddb.list_tables()
+    assert "staging" in ddb.list_tables()
+
+
+def test_publish_expr_custom_audit(ddb) -> None:
+    # audit_fn takes the staged Table and judges it remotely.
+    ddb.create_table("src", UPSERT_DELTA)
+    result = publish_expr(
+        ddb,
+        ddb.table("src"),
+        "staging",
+        "final",
+        key=["id"],
+        mode=PublishMode.UPSERT,
+        audit_fn=lambda staged: (
+            not int(staged.filter(staged.id.isnull()).count().execute())
+        ),
+    )
+    assert result["published"]
+
+
+def test_publish_expr_rejects_cross_backend_changeset(ddb, dff) -> None:
+    # CTAS staging never moves rows through the client, so a changeset with a
+    # source on another connection must fail before anything is created.
+    dff.create_table("src", UPSERT_DELTA)
+    with pytest.raises(ValueError, match="not fully resident"):
+        publish_expr(
+            ddb,
+            dff.table("src"),
+            "staging",
+            "final",
+            key=["id"],
+            mode=PublishMode.UPSERT,
+        )
+    assert "staging" not in ddb.list_tables()

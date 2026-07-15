@@ -434,6 +434,40 @@ publish(con, staging, final, *, key, mode)                # backend target
 publish_parquet(staging_path, final_path, *, key, mode)
 ```
 
+### CTAS staging — the fully-remote W-A-P (`publish_expr`)
+
+The tee is the client-mediated write primitive: `WriteThrough` is a Python generator over arrow
+batches, so a `TeeNode` forces the changeset through the client — the right shape when the pipeline
+is heterogeneous (cross-backend sources, Python UDFs mid-stream), where the data must transit anyway
+and the tee makes the staging write free, plus the in-stream audit judges exactly the staged rows.
+When **every source already lives on the target connection**, that round-trip is pure overhead:
+staging can be one server-side `CREATE TABLE AS`, the audit a scalar query, and the publish the same
+reconciliation — no changeset row ever leaves the warehouse. `publish_expr` is that procedure:
+
+```python
+publish_expr(con, changeset, staging, final, *, key, mode, audit_fn=None)
+#  W  con.create_table(staging, changeset)   server-side CTAS (create-mode: raises on leftovers)
+#  A  audit_fn(staging_table) -> bool        remote scalar (default: no-duplicate-keys gate)
+#  P  publish(con, staging, final, ...)      the same resolve_strategy dispatch
+```
+
+Same contract as the WAP builders, different transport: the default audit is the no-duplicate-keys
+gate expressed as one aggregate on `con` instead of pandas over the stream; audit failure retains
+staging for forensics and leaves `final` untouched; the leftover blocks an identical rerun at its
+CREATE. `changeset` must be fully resident on `con` (checked against its source backends) — a
+cross-backend changeset is exactly the case the tee path exists for, and gets a pointed error.
+Proven shape: the xaffle-jop warehouse-resident run (`dbt run` semantics — catalogued model entries,
+CTAS + remote audits + `publish()` per model in DAG order, zero client data movement).
+
+**Reserved: `StagingStrategy.CTAS` (expr-shaped).** Folding this into `make_backend_wap_expr` as a
+third staging strategy — a deferred, catalogable expr like TABLE/BRANCH — requires the W+A steps to
+collapse into a UDF over a control row (no batch stream to tee or audit), which today would carry the
+changeset expr and the con as opaque closure pickles: the build hash loses the pipeline structure,
+and the con diverges from the writer's on rehydration (#2165). It stays reserved until TeeNode
+serialization (#2152) and profile-based con rehydration in publish closures land; `publish_expr` is
+the mechanism in the meantime, with `#2162`'s cache-as-staging (`MERGE INTO final USING
+letsql_cache-<key>`) as the natural extension once publish can reconcile without consuming staging.
+
 ### Validation (structural — sees `mode`/`key`/`columns`, never rows)
 
 ```python
