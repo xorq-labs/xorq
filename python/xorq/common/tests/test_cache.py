@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import pathlib
+
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -131,6 +135,7 @@ def test_snapshot_strategy_key_ignores_remote_table_name() -> None:
         )
 
 
+@pytest.mark.uv_export
 @pytest.mark.parametrize(
     "backend_factory",
     (
@@ -138,7 +143,9 @@ def test_snapshot_strategy_key_ignores_remote_table_name() -> None:
         pytest.param(lambda: xo.duckdb.connect(), id="duckdb"),
     ),
 )
-def test_loaded_dt_has_stable_token_across_zip_reloads(tmp_path, backend_factory):
+def test_loaded_dt_has_stable_token_across_zip_reloads(
+    tmp_path: pathlib.Path, backend_factory: object
+) -> None:
     """Two loads of the same build zip produce equal ``.ls.tokenized`` for
     DataFusion- and DuckDB-backed ``DatabaseTable`` nodes.
 

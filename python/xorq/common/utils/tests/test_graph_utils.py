@@ -17,7 +17,7 @@ from xorq.expr.relations import Tag
 from xorq.ml import deferred_fit_predict_sklearn
 
 
-LinearRegression = pytest.importorskip("sklearn").linear_model.LinearRegression
+LinearRegression = pytest.importorskip("sklearn.linear_model").LinearRegression
 
 
 node_types = (

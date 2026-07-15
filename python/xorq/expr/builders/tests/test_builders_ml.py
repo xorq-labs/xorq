@@ -165,11 +165,13 @@ def ml_catalog_entry(ml_train_expr, ml_fitted):
         yield entry
 
 
-def test_ml_catalog_entry_kind(ml_catalog_entry):
+@pytest.mark.uv_export
+def test_ml_catalog_entry_kind(ml_catalog_entry: object) -> None:
     assert ml_catalog_entry.kind == ExprKind.ExprBuilder
 
 
-def test_ml_catalog_entry_sidecar_metadata(ml_catalog_entry):
+@pytest.mark.uv_export
+def test_ml_catalog_entry_sidecar_metadata(ml_catalog_entry: object) -> None:
     builders = ml_catalog_entry.metadata.builders
     assert len(builders) == 1
     b = builders[0]
@@ -178,7 +180,8 @@ def test_ml_catalog_entry_sidecar_metadata(ml_catalog_entry):
     assert len(b["steps"]) == 2
 
 
-def test_ml_catalog_roundtrip_recover_and_predict(ml_catalog_entry):
+@pytest.mark.uv_export
+def test_ml_catalog_roundtrip_recover_and_predict(ml_catalog_entry: object) -> None:
     recovered = ml_catalog_entry.expr.ls.builder
     assert isinstance(recovered, FittedPipeline)
     prd = xo.memtable(
@@ -190,7 +193,8 @@ def test_ml_catalog_roundtrip_recover_and_predict(ml_catalog_entry):
     assert len(df) == 2
 
 
-def test_ml_catalog_roundtrip_recover_and_transform(ml_catalog_entry):
+@pytest.mark.uv_export
+def test_ml_catalog_roundtrip_recover_and_transform(ml_catalog_entry: object) -> None:
     recovered = ml_catalog_entry.expr.ls.builder
     prd = xo.memtable(
         {"feature_0": [5.0, 6.0], "feature_1": [7.0, 8.0]},
