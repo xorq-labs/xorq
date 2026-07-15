@@ -8,6 +8,10 @@ import pytest
 import toolz
 
 import xorq.api as xo
+from xorq.expr.relations import (
+    FlightExpr,
+    FlightUDXF,
+)
 from xorq.flight.exchanger import (
     UnboundExprExchanger,
     make_udxf,
@@ -184,3 +188,59 @@ def test_flight_serve_unbound_finds_con_complex(i, j, parquet_dir, tmpdir):
     assert actual.sort_values(list(actual.columns), ignore_index=True).equals(
         expected.sort_values(list(expected.columns), ignore_index=True)
     )
+
+
+def test_bare_flight_expr_binds_params_through_to_rbr() -> None:
+    """A bare ``FlightExpr`` root (the case the execute/to_pyarrow_batches early
+    return fires on) is routed through the transform passes before ``to_rbr`` (R3),
+    so a ``xorq.param`` inside ``input_expr`` is bound.
+
+    Before R3 the Flight branch short-circuited ``_transform_expr`` and ``to_rbr``
+    re-entered ``input_expr.to_pyarrow_batches()`` with no ``params`` -- so this
+    raised ``ValueError: Missing required parameters: cutoff``. Pins both the
+    ``execute`` and ``to_pyarrow_batches`` paths (the two early-return sites).
+    """
+    con = xo.connect()
+    t = con.register(xo.memtable({"a": [1, 2, 3], "b": [10, 20, 30]}), table_name="t0")
+    p = xo.param("cutoff", "int64")
+    input_expr = t.filter(t.a > p)
+    # identity remote program: passes the (already-filtered) input through
+    unbound = xo.table(input_expr.schema(), name="unbound")
+    fe = FlightExpr.from_exprs(input_expr, unbound).to_expr()
+    assert isinstance(fe.op(), FlightExpr), "bare Flight root hits the early return"
+
+    df = fe.execute(params={"cutoff": 1})
+    assert sorted(df["a"].tolist()) == [2, 3]
+
+    reader = xo.to_pyarrow_batches(fe, params={"cutoff": 1})
+    assert reader.read_all().num_rows == 2
+
+
+def test_bare_flight_udxf_binds_params_through_to_rbr() -> None:
+    """The ``FlightUDXF`` sibling of the FlightExpr early-return path.
+
+    Both ``_pandas_execute`` and ``to_pyarrow_batches`` branch on
+    ``isinstance(node, (FlightExpr, FlightUDXF))``, so ``FlightUDXF`` has the
+    identical param-binding path and must be covered too. A bare ``FlightUDXF``
+    root re-enters ``input_expr.to_pyarrow_batches()`` in ``to_rbr`` with no
+    ``params``; binding must happen before that.
+    """
+    con = xo.connect()
+    t = con.register(xo.memtable({"a": [1, 2, 3], "b": [10, 20, 30]}), table_name="t0")
+    p = xo.param("cutoff", "int64")
+    input_expr = t.filter(t.a > p)
+    # identity remote program: schema in == schema out, passthrough process_df
+    udxf = make_udxf(
+        lambda df: df,
+        input_expr.schema(),
+        input_expr.schema(),
+        name="identity",
+    )
+    fu = FlightUDXF.from_expr(input_expr=input_expr, udxf=udxf).to_expr()
+    assert isinstance(fu.op(), FlightUDXF), "bare FlightUDXF root hits early return"
+
+    df = fu.execute(params={"cutoff": 1})
+    assert sorted(df["a"].tolist()) == [2, 3]
+
+    reader = xo.to_pyarrow_batches(fu, params={"cutoff": 1})
+    assert reader.read_all().num_rows == 2

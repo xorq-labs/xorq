@@ -62,6 +62,10 @@ class UnboundExpressionError(ValueError, XorqError):
     """UnboundExpressionError."""
 
 
+class NormalizeMethodError(TranslationError):
+    """A Read's normalize_method could not be resolved by name (see #2155)."""
+
+
 class XorqInputError(ValueError, XorqError):
     """IbisInputError."""
 

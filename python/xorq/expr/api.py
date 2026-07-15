@@ -546,16 +546,39 @@ def remote_table_scope(expr: ir.Expr, **kwargs: Any) -> Generator[ir.Expr]:
         scope.close(raise_drain_errors=True)
 
 
-def _pandas_execute(con, expr: ir.Expr, **kwargs):
+def _flight_to_rbr(
+    expr: ir.Expr, params: dict | None = None, **read_kwargs: Any
+) -> pa.RecordBatchReader:
+    """The Flight execution boundary, routed through the transform discipline.
+
+    A bare ``FlightExpr``/``FlightUDXF`` root is a childless physical-table view,
+    so the effectful BOUNDARY passes no-op on it and the scope comes back empty --
+    but the DESCEND passes must still run: ``to_rbr`` re-enters
+    ``input_expr.to_pyarrow_batches()`` with no ``params``, so binding here is what
+    resolves a parameter living inside ``input_expr`` (and strips its tags). We
+    still dispatch via ``to_rbr`` (a FlightExpr has no normal backend), tie the
+    (empty) scope to the reader, and instrument it -- exactly as the non-Flight
+    path does.
+    """
+    expr, scope = _transform_expr(expr, params=params, **read_kwargs)
+    try:
+        reader = expr.op().to_rbr()
+    except Exception:
+        scope.close()
+        raise
+    return otel_instrument_reader(bind_scope_to_reader(scope, reader))
+
+
+def _pandas_execute(con: BaseBackend, expr: ir.Expr, **kwargs: Any) -> "pd.DataFrame":
     span = get_current_span()
 
     node = expr.op()
-    if isinstance(node, (FlightExpr, FlightUDXF)):
-        # TODO: verify correct caching behavior
-        span.set_attribute("engine", "flight")
-        df = node.to_rbr().read_pandas(timestamp_as_object=True)
-        return expr.__pandas_result__(df)
     params = kwargs.pop("params", None)
+    if isinstance(node, (FlightExpr, FlightUDXF)):
+        span.set_attribute("engine", "flight")
+        reader = _flight_to_rbr(expr, params=params)
+        df = reader.read_pandas(timestamp_as_object=True)
+        return expr.__pandas_result__(df)
 
     span.set_attribute("engine", "pandas")
     # full close is safe here: con.execute returns a materialized DataFrame
@@ -595,11 +618,11 @@ def to_pyarrow_batches(
 
     span = get_current_span()
 
-    if isinstance(expr.op(), (FlightExpr, FlightUDXF)):
-        # TODO: verify correct caching behavior
-        span.set_attribute("engine", "flight")
-        return expr.op().to_rbr()
     params = kwargs.pop("params", None)
+    if isinstance(expr.op(), (FlightExpr, FlightUDXF)):
+        span.set_attribute("engine", "flight")
+        # chunk_size does not apply to to_rbr; kwargs carry no read kwargs here.
+        return _flight_to_rbr(expr, params=params)
     expr, scope = _transform_expr(expr, params=params)
     try:
         con, _ = find_backend(expr.op(), use_default=True)
