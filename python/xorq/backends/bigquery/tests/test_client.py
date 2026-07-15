@@ -60,7 +60,13 @@ def test_create_table_from_expr(con: Backend, batting: ir.Table) -> None:
 
 
 @pytest.mark.bigquery
-def test_get_schema(con: Backend, batting: ir.Table) -> None:
-    schema = con.get_schema("batting")
-    assert "playerID" in schema.names
-    assert schema == batting.schema()
+def test_get_schema(con: Backend) -> None:
+    # read_parquet lands the table in an anonymous session dataset, so use a
+    # table created directly in the connection's default dataset
+    name = gen_name("xorq_gbq_schema")
+    schema = ibis.schema({"a": "int64", "b": "string"})
+    con.create_table(name, schema=schema)
+    try:
+        assert con.get_schema(name) == schema
+    finally:
+        con.drop_table(name, force=True)
