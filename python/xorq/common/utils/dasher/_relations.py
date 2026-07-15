@@ -224,7 +224,8 @@ def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
         normalize_ibis_schema(dt.schema),
         dt.source,
         dt.namespace,
-        last_modified_time,
+        # a numpy scalar has no dasher normalizer; hand back a native int
+        int(last_modified_time),
     )
 
 
