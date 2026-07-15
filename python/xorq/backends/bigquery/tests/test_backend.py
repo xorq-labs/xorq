@@ -6,6 +6,7 @@ import pytest
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends import _get_backend_names
 from xorq.backends.bigquery import Backend
 from xorq.vendor.ibis.backends.bigquery import Backend as IbisBigQueryBackend
@@ -40,6 +41,40 @@ def test_compile_offline() -> None:
     sql = con.compile(t.select(t.a + 1))
     assert "SELECT" in sql
     assert "`a`" in sql
+
+
+def test_compile_aggregate_offline() -> None:
+    con = Backend()
+    t = ibis.table({"playerID": "string", "G": "int64"}, name="batting")
+    sql = con.compile(t.group_by("playerID").agg(total=t.G.sum()))
+    assert "GROUP BY" in sql
+    assert "SUM(`t0`.`G`)" in sql
+
+
+def test_compile_join_offline() -> None:
+    con = Backend()
+    batting = ibis.table({"playerID": "string", "yearID": "int64"}, name="batting")
+    awards = ibis.table({"playerID": "string", "awardID": "string"}, name="awards")
+    sql = con.compile(batting.join(awards, "playerID").select("playerID", "awardID"))
+    assert "INNER JOIN" in sql
+
+
+@pytest.mark.parametrize(
+    "op",
+    (
+        pytest.param(ops.Project, id="project"),
+        pytest.param(ops.Filter, id="filter"),
+        pytest.param(ops.Sort, id="sort"),
+        pytest.param(ops.Aggregate, id="aggregate"),
+        pytest.param(ops.JoinChain, id="join-chain"),
+        pytest.param(ops.Cast, id="cast"),
+        pytest.param(ops.Sum, id="sum"),
+        pytest.param(ops.Mean, id="mean"),
+    ),
+)
+def test_has_operation(op: type[ops.Value]) -> None:
+    # has_operation is a compile-time property; no connection required
+    assert Backend().has_operation(op)
 
 
 @pytest.mark.bigquery

@@ -84,3 +84,10 @@ def batting(con: Backend, parquet_dir: Path) -> ir.Table:
     return con.read_parquet(
         parquet_dir.joinpath("batting.parquet"), table_name="batting"
     )
+
+
+@pytest.fixture(scope="session")
+def awards_players(con: Backend, parquet_dir: Path) -> ir.Table:
+    return con.read_parquet(
+        parquet_dir.joinpath("awards_players.parquet"), table_name="awards_players"
+    )
