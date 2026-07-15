@@ -141,7 +141,7 @@ def resolve_strategy(con, mode) -> PublishStrategy:
 ```python
 # writes are declared where the capability is — one small method per backend, e.g.:
 # xorq/backends/duckdb/__init__.py    -> return PublishStrategy.NATIVE_MERGE
-# xorq/backends/sqlite/__init__.py    -> return PublishStrategy.STATEMENT_DML
+# xorq/backends/sqlite/__init__.py    -> version-aware: STATEMENT_DML on sqlite 3.33+, else REWRITE
 # xorq/backends/pyiceberg/__init__.py -> return PublishStrategy.UPSERT_DELETE
 # xorq/backends/postgres/__init__.py  -> version-aware: NATIVE_MERGE on pg15+, else STATEMENT_DML
 from xorq.writes.enums import PublishStrategy   # module-level: enums-only, no cycle
@@ -210,8 +210,14 @@ def make_publish_with_backend(con, *, key=(), mode):
     if mode is not PublishMode.APPEND and not key:       # build-time key presence
         raise ValueError(f"{mode} requires a non-empty key")
 
+    # name folds in the closure identity (con name + key, dasher-tokenized):
+    # UDFs register into the session context and compile by name, so two
+    # publish UDFs sharing a name in one plan would resolve to one closure.
+    # The token is deterministic, keeping build hashes reproducible.
     @make_pandas_udf(schema=schema({STAGING: str, FINAL: str, PASSED: bool}),
-                     return_type=dt.boolean, name=f"wap_publish_{mode.value}")
+                     return_type=dt.boolean,
+                     name=_publish_udf_name(f"wap_publish_{mode.value}",
+                                            getattr(con, "name", ""), tuple(key)))
     def publish_udf(df):
         if len(df) != 1:
             raise ValueError(f"expected 1 row, got {len(df)}")
@@ -334,7 +340,9 @@ def _publish_statement_dml(con, staging, final, key, columns, mode):
     _drop_staging(con, staging)
 ```
 
-`UPDATE … FROM` is postgres-native and sqlite ≥ 3.33 (2020). Where a `UNIQUE`/`PK` index on `key`
+`UPDATE … FROM` is postgres-native and sqlite ≥ 3.33 (2020); sqlite's `publish_strategy` probes
+`sqlite3.sqlite_version_info` and drops to the universal `REWRITE` floor below 3.33, the same
+shape as postgres < 15 dropping a tier. Where a `UNIQUE`/`PK` index on `key`
 exists, a single-statement `INSERT … ON CONFLICT (key) DO UPDATE` (+ a `DELETE` for `_op='D'`) is
 the preferred form; DELETE+INSERT is the last-resort fallback when `UPDATE … FROM` is unavailable,
 and only then with the identity/trigger warning. Statements are authored once like Tier 1 and

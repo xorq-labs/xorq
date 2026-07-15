@@ -12,6 +12,7 @@ builders). Dependency flows one way: wap imports publish, never the reverse.
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Collection, Sequence
 
 from xorq.writes.enums import PublishMode, PublishStrategy
@@ -257,6 +258,11 @@ def _publish_rewrite(con, staging, final, key, columns, mode) -> None:
     _drop_staging(con, staging)
 
 
+# Composite-key delete rows above which _key_filter warns about its
+# Or-of-And predicate tree (one term per row) dominating publish time.
+_COMPOSITE_DELETE_WARN_ROWS = 1_000
+
+
 def _key_filter(rows, key: Sequence[str]):
     """A pyiceberg predicate matching the (possibly composite) keys in ``rows``.
 
@@ -269,6 +275,14 @@ def _key_filter(rows, key: Sequence[str]):
 
     if len(key) == 1:
         return In(key[0], rows.column(key[0]).to_pylist())
+    if rows.num_rows > _COMPOSITE_DELETE_WARN_ROWS:
+        warnings.warn(
+            f"MERGE delete over composite key {list(key)} builds an Or-of-And "
+            f"predicate with one term per delete row ({rows.num_rows} rows); "
+            "predicate construction and evaluation may dominate publish time. "
+            "Consider a single-column surrogate key for bulk deletes.",
+            stacklevel=2,
+        )
     cols = {c: rows.column(c).to_pylist() for c in key}
     terms = []
     for i in range(rows.num_rows):
@@ -456,14 +470,17 @@ def _publish_parquet_merge(staging_path, final_path, key, mode) -> None:
     staging_path, final_path = Path(staging_path), Path(final_path)
     if not staging_path.exists():
         raise _staging_missing(str(staging_path))
+    # Validate from parquet metadata before any full read: a structural
+    # mismatch (missing _op, wrong key columns) fails without deserializing
+    # the changeset.
+    columns = pq.ParquetFile(staging_path).schema_arrow.names
+    _validate(mode, key, columns)
     if mode is PublishMode.APPEND:
-        _validate(mode, key, pq.ParquetFile(staging_path).schema_arrow.names)
         _parquet_concat(staging_path, final_path)
         return
 
     staged = pd.read_parquet(staging_path)
-    _validate(mode, key, list(staged.columns))
-    final_cols = _data_cols(list(staged.columns), mode)
+    final_cols = _data_cols(columns, mode)
     # MERGE: 'D' deletes; anything else (incl. NULL, since NaN != 'D') upserts.
     applied = (staged[staged["_op"] != "D"] if mode is PublishMode.MERGE else staged)[
         final_cols

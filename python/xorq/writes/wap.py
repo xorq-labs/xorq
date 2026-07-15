@@ -112,6 +112,23 @@ def _default_audit(key, mode) -> Callable[[pd.DataFrame], bool]:
     return lambda df: not df.duplicated(subset=cols).any()
 
 
+def _publish_udf_name(prefix: str, *identity) -> str:
+    """Deterministic, collision-resistant name for a publish UDF.
+
+    Execution backends register UDFs into the session context and compile
+    calls **by name** (``_register_udfs`` / ``self.f[op.__func_name__]``), so
+    two publish UDFs sharing a name in one plan resolve to a single
+    implementation — the last registered — silently publishing with the wrong
+    ``con``/``key`` closure. Folding the closure identity into the name
+    prevents that. The token must be deterministic so build hashes stay
+    reproducible (``id(con)`` would not be); con identity is its ``name``,
+    matching ``BackendWriteThrough.__dasher_tokenize__``.
+    """
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+
+    return f"{prefix}_{tokenize(identity)[:8]}"
+
+
 def make_publish_with_backend(con, *, key=(), mode) -> PublishUDF:
     """Publish UDF wrapping :func:`xorq.writes.publish.publish` for a backend target.
 
@@ -130,7 +147,9 @@ def make_publish_with_backend(con, *, key=(), mode) -> PublishUDF:
     @make_pandas_udf(
         schema=schema({STAGING: str, FINAL: str, PASSED: bool}),
         return_type=dt.boolean,
-        name=f"wap_publish_{mode.value}",
+        name=_publish_udf_name(
+            f"wap_publish_{mode.value}", getattr(con, "name", ""), tuple(key)
+        ),
     )
     def publish_udf(df: pd.DataFrame) -> list[bool]:
         if len(df) != 1:
@@ -164,7 +183,7 @@ def make_publish_with_parquet(*, key=(), mode=None) -> PublishUDF:
     @make_pandas_udf(
         schema=schema({STAGING: str, FINAL: str, PASSED: bool}),
         return_type=dt.boolean,
-        name=f"publish_with_parquet_{mode.value}",
+        name=_publish_udf_name(f"publish_with_parquet_{mode.value}", tuple(key)),
     )
     def publish_with_parquet(df: pd.DataFrame) -> list[bool]:
         if len(df) != 1:
