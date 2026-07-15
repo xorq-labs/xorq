@@ -17,31 +17,33 @@ class Backend(IbisBigQueryBackend):
         self,
         record_batches: pa.RecordBatchReader | pa.Table,
         table_name: str | None = None,
-        mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
-        """Ingest an Arrow batch source into a BigQuery table via ADBC.
+        """Load an Arrow batch source into a BigQuery table.
+
+        The batches are materialized to an in-memory Parquet buffer and loaded
+        through a BigQuery load job (the ADBC driver has no bulk-ingest path),
+        landing the data in the connection's current dataset.
 
         Parameters
         ----------
         record_batches
-            A `pa.RecordBatchReader` or `pa.Table` to ingest.
+            A `pa.RecordBatchReader` or `pa.Table` to load.
         table_name
             Optional name for the created table; a name is generated if omitted.
-        mode
-            ADBC ingest mode (e.g. `"create"`, `"append"`, `"replace"`).
         kwargs
-            Additional keyword arguments forwarded to `adbc_ingest`.
+            Additional keyword arguments forwarded to
+            `google.cloud.bigquery.LoadJobConfig`.
 
         Returns
         -------
         Table
-            An Ibis table expression backed by the ingested data.
+            An Ibis table expression backed by the loaded data.
         """
-        from xorq.common.utils.bigquery_utils import BigQueryADBC  # noqa: PLC0415
+        from xorq.common.utils.bigquery_utils import BigQueryLoader  # noqa: PLC0415
 
         table_name = table_name or util.gen_name("bigquery_record_batches")
-        BigQueryADBC(self).adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
+        BigQueryLoader(self).load_record_batches(table_name, record_batches, **kwargs)
         return self.table(table_name)
 
 

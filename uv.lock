@@ -9,23 +9,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "adbc-driver-bigquery"
-version = "1.11.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "adbc-driver-manager" },
-    { name = "importlib-resources" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/0d/3e7195500badfe3318d6409e3d7461354f7e3e57b3b8ee2cb5a4c0c78bbd/adbc_driver_bigquery-1.11.0.tar.gz", hash = "sha256:37fc2a90dfec1f741bc7475bdf50c744c22d05ec135d0858934117912c06077e", size = 19255, upload-time = "2026-04-07T00:17:26.014Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/0f/76baf47962bfa49608fcd5d38c3a46213155aeb1f58e5c8abf467ed7e4bc/adbc_driver_bigquery-1.11.0-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:4153bb759dcfa6c45420c4ee9a1505f3c5daa7685d10cf068a91b8876e183732", size = 9736982, upload-time = "2026-04-07T00:14:31.386Z" },
-    { url = "https://files.pythonhosted.org/packages/15/0b/b88fd632ea5b26ded6f11cbfc62d154249b54d4ae95ad8bdc2e681f3cbb0/adbc_driver_bigquery-1.11.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:023744303c4900fc8e3d12cd044835d406ee8a84880458766aff0800601d4999", size = 9049987, upload-time = "2026-04-07T00:14:37.48Z" },
-    { url = "https://files.pythonhosted.org/packages/9e/0a/ce0b0772f479eb451993ed9a0d139fcdaddcab651d1ce09520003163aa54/adbc_driver_bigquery-1.11.0-py3-none-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:3067b90ccbb6801936567bddcc56e79540efb7e09023f0300e9f6090cb7245e1", size = 18043100, upload-time = "2026-04-07T00:14:44.159Z" },
-    { url = "https://files.pythonhosted.org/packages/74/2c/f71aaea78f4859935e334b1c5791e959cb24315201789bb9f7a8fd5a94c2/adbc_driver_bigquery-1.11.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:dea28d663b622e1b4c803fd063b0b959dc867218461ecb6e34b557423e956527", size = 16537326, upload-time = "2026-04-07T00:14:49.284Z" },
-    { url = "https://files.pythonhosted.org/packages/f2/41/595bdc39a6e8eea2be3ccd043a10e68243b8a682d45f52b5d982674269f3/adbc_driver_bigquery-1.11.0-py3-none-win_amd64.whl", hash = "sha256:75ff98aa9071707419c300f9da74e19da375cd6524ecf09493c8131960e31c3c", size = 17698043, upload-time = "2026-04-07T00:14:53.622Z" },
-]
-
-[[package]]
 name = "adbc-driver-flightsql"
 version = "1.11.0"
 source = { registry = "https://pypi.org/simple" }
@@ -6208,7 +6191,6 @@ annex = [
     { name = "git-annex" },
 ]
 bigquery = [
-    { name = "adbc-driver-bigquery" },
     { name = "db-dtypes" },
     { name = "google-cloud-bigquery" },
     { name = "google-cloud-bigquery-storage" },
@@ -6320,7 +6302,6 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adbc-driver-bigquery", marker = "extra == 'bigquery'", specifier = ">=1.11.0" },
     { name = "adbc-driver-gizmosql", marker = "extra == 'gizmosql'", specifier = ">=1.1.5" },
     { name = "adbc-driver-manager", marker = "extra == 'databricks'", specifier = ">=1.0.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'examples'", specifier = ">=1.4.0" },
