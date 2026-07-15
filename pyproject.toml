@@ -120,7 +120,8 @@ examples = [
 ]
 postgres = [
     "adbc-driver-postgresql>=1.4.0",
-    "psycopg[binary]>=3.2.0",
+    "psycopg[binary]>=3.2.0; python_version < '3.13'",
+    "psycopg[binary]>=3.2.2; python_version >= '3.13'",  # 3.2.2 is first psycopg-binary with cp313 wheels
 ]
 sqlite = [
     "adbc-driver-sqlite>=1.4.0",
@@ -307,6 +308,7 @@ markers = [
     "gizmosql: GizmoSQL (DuckDB over Arrow Flight SQL) tests",
     "databricks: Databricks tests",
     "xorq_datafusion: xorq DataFusion backend tests",
+    "uv_export: tests that call uv export against the project lockfile",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

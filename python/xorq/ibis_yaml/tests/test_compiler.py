@@ -1196,12 +1196,15 @@ def test_join_order_permutations_build_roundtrip(builds_dir, three_tables_mixed,
     )
 
 
+@pytest.mark.uv_export
 @pytest.mark.parametrize(
     "order",
     tuple(itertools.permutations(range(3))),
     ids=lambda o: "-".join(f"t{i}" for i in o),
 )
-def test_join_order_permutations_catalog_roundtrip(tmp_path, three_tables_mixed, order):
+def test_join_order_permutations_catalog_roundtrip(
+    tmp_path: pathlib.Path, three_tables_mixed: tuple, order: tuple
+) -> None:
     """Catalog add / entry.expr roundtrip works for every join ordering of
     (database_table, deferred_read, memtable)."""
     repo = Catalog.init_repo_path(tmp_path / f"repo-{''.join(map(str, order))}")
@@ -1252,7 +1255,8 @@ def _build_fitted_pipeline_entry(catalog):
     return catalog.add(predict_expr, aliases=("preds",))
 
 
-def test_tokenize_survives_side_channel_read(tmp_path):
+@pytest.mark.uv_export
+def test_tokenize_survives_side_channel_read(tmp_path: pathlib.Path) -> None:
     """Canonical repro: the FittedPipeline UDF closure hosts a pre-d2m Expr
     whose Read has a catalog-relative `hash_path`. Before Plan B,
     ``normalize_read`` would raise NotImplementedError on that path. With
@@ -1266,7 +1270,8 @@ def test_tokenize_survives_side_channel_read(tmp_path):
     assert isinstance(token, str) and token
 
 
-def test_tokenize_stable_across_reload(tmp_path):
+@pytest.mark.uv_export
+def test_tokenize_stable_across_reload(tmp_path: pathlib.Path) -> None:
     """Loading the same catalog entry twice produces distinct extract tempdirs
     (`xorq-catalog-*`), so `hash_path` differs between reloads. The stable,
     catalog-relative `read_path` must make the tokens match anyway."""

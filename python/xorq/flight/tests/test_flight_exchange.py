@@ -25,7 +25,8 @@ from xorq.flight.tests.conftest import (
 )
 
 
-def test_unbound_exchanger_command_stable_across_reduce(tmp_path):
+@pytest.mark.uv_export
+def test_unbound_exchanger_command_stable_across_reduce(tmp_path: Path) -> None:
     """`UnboundExprExchanger.command` embeds the expression's token.
 
     The exchanger's ``__reduce__`` builds a zip and reloads on unpickle,
@@ -46,7 +47,10 @@ def test_unbound_exchanger_command_stable_across_reduce(tmp_path):
     assert exchanger_once.command == exchanger_twice.command
 
 
-def test_flight_expr(con, diamonds, baseline):
+@pytest.mark.uv_export
+def test_flight_expr(
+    con: xo.Backend, diamonds: xo.Table, baseline: pd.DataFrame
+) -> None:
     unbound_expr = (
         xo.table(diamonds.schema()).pipe(do_agg).mutate(my_udf_on_expr).order_by("cut")
     )
@@ -190,6 +194,7 @@ def test_flight_serve_unbound_finds_con_complex(i, j, parquet_dir, tmpdir):
     )
 
 
+@pytest.mark.uv_export
 def test_bare_flight_expr_binds_params_through_to_rbr() -> None:
     """A bare ``FlightExpr`` root (the case the execute/to_pyarrow_batches early
     return fires on) is routed through the transform passes before ``to_rbr`` (R3),

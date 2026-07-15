@@ -108,7 +108,7 @@ jobs:
           --import-mode=importlib
           -m core
           --ignore=python/xorq/catalog
-          -k 'not script_execution and not slow'
+          -k 'not script_execution and not slow and not uv_export'
           -v --durations=20
           -n auto --dist=loadfile
         working-directory: ${{ github.workspace }}

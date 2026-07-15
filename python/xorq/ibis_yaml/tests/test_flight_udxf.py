@@ -59,7 +59,10 @@ my_udf_on_expr = toolz.compose(
 )
 
 
-def test_flight_expr(con, diamonds, baseline):
+@pytest.mark.uv_export
+def test_flight_expr(
+    con: xo.Backend, diamonds: xo.Table, baseline: pd.DataFrame
+) -> None:
     unbound_expr = (
         xo.table(diamonds.schema()).pipe(do_agg).mutate(my_udf_on_expr).order_by("cut")
     )
