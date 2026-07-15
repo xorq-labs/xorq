@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextvars
 import pathlib
 import re
+from typing import TYPE_CHECKING
 
 from xorq_dasher.rules.expr import (
     normalize_cached_node,
@@ -29,6 +30,10 @@ from xorq.common.utils.dasher._paths import (
     _normalize_path_stat,
     _stat_or_canonical,
 )
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr import operations as ops
 
 
 # Per-outer-call memo for ``_databasetable_dispatcher``.  Cross-engine nested
@@ -190,7 +195,40 @@ def _normalize_datafusion_databasetable_xorq(dt):
     raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
 
 
-def _databasetable_dispatcher(dt):
+def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
+    """BigQuery DT normalizer keyed on ``__TABLES__.last_modified_time``.
+
+    xorq_dasher 0.1.0's ``normalize_bigquery_databasetable`` unpacks the
+    result with ``((last_modified_time,),) = ...to_dataframe()``, which
+    iterates the DataFrame by *column label* rather than by row and so raises
+    ``ValueError: too many values to unpack`` for every BigQuery table. Read
+    the scalar out of the frame directly instead, and qualify ``__TABLES__``
+    with the catalog so tables outside the billing project resolve.
+    """
+    namespace = dt.namespace
+    dataset = (
+        f"{namespace.catalog}.{namespace.database}"
+        if namespace.catalog
+        else namespace.database
+    )
+    query = (
+        "SELECT last_modified_time "
+        f"FROM `{dataset}.__TABLES__` "
+        f"WHERE table_id = '{dt.name}'"
+    )
+    df = dt.source.raw_sql(query).to_dataframe()
+    (last_modified_time,) = df["last_modified_time"]
+    return (
+        "ibis.DatabaseTable.bigquery",
+        dt.name,
+        normalize_ibis_schema(dt.schema),
+        dt.source,
+        dt.namespace,
+        last_modified_time,
+    )
+
+
+def _databasetable_dispatcher(dt: ops.DatabaseTable) -> tuple:
     """Dispatch DatabaseTable subclasses to their specific normalizers.
 
     xorq_dasher 0.1.0's normalize_databasetable does not handle the
@@ -262,6 +300,10 @@ def _dispatch_databasetable(dt):
         return _normalize_datafusion_databasetable_xorq(dt)
     if dt.source.name == "duckdb":
         return _normalize_duckdb_databasetable_xorq(dt)
+    # xorq_dasher 0.1.0's bigquery normalizer unpacks its result frame by
+    # column label and crashes on every table; use the fixed xorq version.
+    if dt.source.name == "bigquery":
+        return _normalize_bigquery_databasetable_xorq(dt)
     # All other backends fall through to ``xorq_dasher`` ``normalize_databasetable``,
     # which is itself a per-backend dispatch table postgres calls
     # ``get_postgres_n_reltuples``, snowflake calls
@@ -276,6 +318,7 @@ def _dispatch_databasetable(dt):
 
 __all__ = [
     "_databasetable_dispatcher",
+    "_normalize_bigquery_databasetable_xorq",
     "_normalize_datafusion_databasetable_xorq",
     "_normalize_duckdb_databasetable_xorq",
     "_normalize_read_xorq",

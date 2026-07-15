@@ -3,6 +3,7 @@ from __future__ import annotations
 from operator import methodcaller
 from typing import TYPE_CHECKING
 
+import pandas as pd
 import pytest
 
 import xorq.api as xo
@@ -115,12 +116,22 @@ def test_train_test_split(batting: ir.Table) -> None:
 
 
 @pytest.mark.bigquery
-def test_into_backend_duckdb(batting: ir.Table) -> None:
-    ddb = xo.duckdb.connect()
-    expr = (
-        batting.filter(batting.yearID == 2015)
-        .select("playerID", "yearID", "G")
-        .into_backend(ddb, name="ddb_batting")
-    )
-    assert tokenize(expr) is not None
-    assert not expr.execute().empty
+def test_into_backend_duckdb(con: Backend) -> None:
+    # tokenize resolves the bigquery source via a `__TABLES__` lookup, so the
+    # source must be a persistent table in the connection's dataset rather than
+    # a session-scoped read_parquet table
+    df = pd.DataFrame({"playerID": ["a", "b"], "yearID": [2015, 2016], "G": [1, 2]})
+    name = "into_backend_src"
+    con.create_table(name, obj=df, overwrite=True)
+    try:
+        src = con.table(name)
+        ddb = xo.duckdb.connect()
+        expr = (
+            src.filter(src.yearID == 2015)
+            .select("playerID", "yearID", "G")
+            .into_backend(ddb, name="ddb_into_backend")
+        )
+        assert tokenize(expr) is not None
+        assert not expr.execute().empty
+    finally:
+        con.drop_table(name, force=True)
