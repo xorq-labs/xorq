@@ -142,6 +142,7 @@ trino = [
     "trino==0.336.0",
 ]
 bigquery = [
+    "adbc-driver-manager>=1.0.0",
     "db-dtypes>=0.3,<2",
     "google-cloud-bigquery>=3,<4",
     "google-cloud-bigquery-storage>=2,<3",
