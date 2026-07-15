@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
 
@@ -106,9 +106,9 @@ jobs:
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
-          -m core
+          -m 'core and not uv_export'
           --ignore=python/xorq/catalog
-          -k 'not script_execution and not slow and not uv_export'
+          -k 'not script_execution and not slow'
           -v --durations=20
           -n auto --dist=loadfile
         working-directory: ${{ github.workspace }}
