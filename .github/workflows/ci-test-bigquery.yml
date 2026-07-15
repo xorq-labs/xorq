@@ -36,6 +36,12 @@ jobs:
         run: uv sync --extra bigquery --extra ibis --group dev --group test
         working-directory: ${{ github.workspace }}
 
+      - name: Install DBC and BigQuery ADBC driver
+        run: |
+          curl -LsSf https://dbc.columnar.tech/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          dbc install bigquery
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
         with:
