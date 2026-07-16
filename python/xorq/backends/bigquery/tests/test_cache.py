@@ -41,29 +41,25 @@ def test_cache_find_backend(
 
 
 @pytest.mark.bigquery
-def test_source_snapshot_cache_roundtrip(con: Backend) -> None:
+def test_source_snapshot_cache_roundtrip(con: Backend, temp_table: str) -> None:
     # exercises the full tokenize path (the bigquery __TABLES__ normalizer)
     # plus a cross-source cache round-trip into duckdb
     df = pd.DataFrame({"key": list("abc"), "value": [1, 2, 3]})
-    name = "cache_roundtrip_src"
-    con.create_table(name, obj=df, overwrite=True)
-    try:
-        table = con.table(name)
-        uncached = table.group_by("key").agg(total=table.value.sum())
-        cached_expr = uncached.cache(
-            SourceSnapshotCache.from_kwargs(source=xo.duckdb.connect())
-        )
+    con.create_table(temp_table, obj=df)
+    table = con.table(temp_table)
+    uncached = table.group_by("key").agg(total=table.value.sum())
+    cached_expr = uncached.cache(
+        SourceSnapshotCache.from_kwargs(source=xo.duckdb.connect())
+    )
 
-        (cache, uncached_op) = (cached_expr.ls.cache, cached_expr.ls.uncached_one)
-        assert not cache.exists(uncached_op)
+    (cache, uncached_op) = (cached_expr.ls.cache, cached_expr.ls.uncached_one)
+    assert not cache.exists(uncached_op)
 
-        # cache creation
-        executed0 = cached_expr.execute()
-        assert not executed0.empty
-        assert cache.exists(uncached_op)
+    # cache creation
+    executed0 = cached_expr.execute()
+    assert not executed0.empty
+    assert cache.exists(uncached_op)
 
-        # cache use
-        executed1 = cached_expr.execute()
-        assert executed0.equals(executed1)
-    finally:
-        con.drop_table(name, force=True)
+    # cache use
+    executed1 = cached_expr.execute()
+    assert executed0.equals(executed1)

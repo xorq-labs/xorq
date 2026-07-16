@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 import pytest
@@ -78,6 +79,16 @@ def con(credentials: object, project_id: str, dataset_id: str) -> Iterator[Backe
         yield con
     finally:
         con.drop_database(dataset_id, force=True, cascade=True)
+
+
+@pytest.fixture
+def temp_table(con: Backend) -> Iterator[str]:
+    # yields a unique table name and drops it on teardown, so tests need no
+    # per-test cleanup (mirrors the gizmosql backend's temp_table fixture)
+    name = gen_name("xorq_gbq_table")
+    yield name
+    with contextlib.suppress(Exception):
+        con.drop_table(name, force=True)
 
 
 @pytest.fixture(scope="session")
