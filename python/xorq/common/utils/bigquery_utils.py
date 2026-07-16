@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from adbc_driver_manager import ProgrammingError, dbapi
 from attr import field, frozen
 from attr.validators import instance_of
 
 from xorq.backends.bigquery import Backend as BigQueryBackend
-
-
-if TYPE_CHECKING:
-    import pyarrow as pa
+from xorq.common.utils.adbc_utils import ADBCBase
 
 
 # BigQuery ADBC driver option keys. The driver itself is installed out-of-band
@@ -28,7 +25,7 @@ _AUTH_TYPE_USER = "adbc.bigquery.sql.auth_type.user_authentication"
 
 
 @frozen
-class BigQueryADBC:
+class BigQueryADBC(ADBCBase):
     con = field(validator=instance_of(BigQueryBackend))
 
     @property
@@ -84,15 +81,3 @@ class BigQueryADBC:
                 "could not load the BigQuery ADBC driver; install it with "
                 "`dbc install bigquery` (https://dbc.columnar.tech)"
             ) from e
-
-    def adbc_ingest(
-        self,
-        table_name: str,
-        record_batch_reader: pa.RecordBatchReader | pa.Table,
-        mode: str = "create",
-        **kwargs: Any,
-    ) -> None:
-        with self.get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.adbc_ingest(table_name, record_batch_reader, mode=mode, **kwargs)
-            conn.commit()
