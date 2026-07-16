@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends.bigquery import Backend as IbisBigQueryBackend
+from xorq.vendor.ibis.backends.profiles import Profile
 
 
 if TYPE_CHECKING:
@@ -13,6 +14,30 @@ if TYPE_CHECKING:
 
 
 class Backend(IbisBigQueryBackend):
+    # live runtime objects (secrets / prebuilt clients) that can't be serialized
+    # to YAML and must not be baked into a connection profile / build artifact;
+    # reconnection re-derives credentials from Application Default Credentials
+    _profile_exclude_kwargs = ("credentials", "client", "storage_client")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # the live connection keeps these via _con_kwargs; only the profile
+        # (used for hashing and build serialization) is stripped
+        profile = getattr(self, "_profile", None)
+        if profile is None:
+            return
+        kept = {
+            key: value
+            for key, value in profile.kwargs_dict.items()
+            if key not in self._profile_exclude_kwargs
+        }
+        if len(kept) != len(profile.kwargs_dict):
+            self._profile = Profile(
+                con_name=profile.con_name,
+                kwargs_tuple=tuple(kept.items()),
+                idx=profile.idx,
+            )
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader | pa.Table,
