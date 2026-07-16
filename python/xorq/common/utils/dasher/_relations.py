@@ -205,6 +205,8 @@ def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
     the scalar out of the frame directly instead, and qualify ``__TABLES__``
     with the catalog so tables outside the billing project resolve.
     """
+    import pandas as pd  # noqa: PLC0415
+
     namespace = dt.namespace
     dataset = (
         f"{namespace.catalog}.{namespace.database}"
@@ -219,19 +221,25 @@ def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
         f"FROM `{dataset}.__TABLES__` "
         f"WHERE table_id = '{table_id}'"
     )
-    df = dt.source.raw_sql(query).to_dataframe()
-    if df.empty:
-        raise ValueError(f"table {dt.name!r} not found in dataset {dataset!r}")
-    (last_modified_time,) = df["last_modified_time"]
-    return (
+    base = (
         "ibis.DatabaseTable.bigquery",
         dt.name,
         normalize_ibis_schema(dt.schema),
         dt.source,
         dt.namespace,
-        # a numpy scalar has no dasher normalizer; hand back a native int
-        int(last_modified_time),
     )
+    df = dt.source.raw_sql(query).to_dataframe()
+    if df.empty:
+        # anonymous session tables (e.g. read_parquet) don't appear in the
+        # queried __TABLES__; fall back to a stable structural token — the
+        # session dataset id in the namespace already makes it distinct
+        return base
+    (last_modified_time,) = df["last_modified_time"]
+    if pd.isna(last_modified_time):
+        # external/federated tables report a NULL last_modified_time
+        return base
+    # a numpy scalar has no dasher normalizer; hand back a native int
+    return (*base, int(last_modified_time))
 
 
 def _databasetable_dispatcher(dt: ops.DatabaseTable) -> tuple:
