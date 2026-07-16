@@ -42,7 +42,8 @@ def default_credentials() -> tuple[object, str]:
 
 @pytest.fixture(scope="session")
 def project_id(default_credentials: tuple[object, str]) -> str:
-    project_id = bigquery_config[PROJECT_ID_ENV_VAR] or default_credentials[1]
+    _, default_project_id = default_credentials
+    project_id = bigquery_config[PROJECT_ID_ENV_VAR] or default_project_id
     if not project_id:
         pytest.skip(f"no project id: set ${PROJECT_ID_ENV_VAR} or configure ADC")
     return project_id
