@@ -171,29 +171,10 @@ def normalize_sklearn_hidden(obj: _SklearnHidden) -> tuple:
     return ("sklearn.Hidden", obj.constraint)
 
 
-def normalize_google_credentials(credentials: object) -> tuple:
-    """Normalize google.auth credentials to a stable, hashable token.
-
-    BigQuery connections carry a live ``google.auth.credentials.Credentials``
-    object in their connection profile, which otherwise has no normalizer and
-    breaks ``Profile.hash_name``. Key on stable identifying attributes (never
-    the short-lived access token, so the token survives credential refreshes);
-    the type name plus optional service-account email / quota project is enough
-    to distinguish distinct credentials without pulling in mutable state.
-    """
-    return (
-        "google.auth.credentials.Credentials",
-        type(credentials).__qualname__,
-        getattr(credentials, "service_account_email", None),
-        getattr(credentials, "quota_project_id", None),
-    )
-
-
 __all__ = [
     "normalize_attrs",
     "normalize_builtin_callable",
     "normalize_functools_partial",
-    "normalize_google_credentials",
     "normalize_ibis_schema",
     "normalize_lru_cache",
     "normalize_methodcaller",

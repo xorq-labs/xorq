@@ -1097,15 +1097,9 @@ def test_extra_rules_fqn_strings() -> None:
             f"update the string in _EXTRA_RULES"
         )
 
-    # optional-dependency rules are registered unconditionally but can't be
-    # imported in the core CI job; their FQN drift is asserted in the owning
-    # backend's tests (google -> backends/bigquery/tests/test_backend.py)
-    optional_fqns = {"google.auth.credentials.Credentials"}
-
     production_fqns = {fqn_str for fqn_str, _ in _EXTRA_RULES}
-    assert production_fqns == set(expected) | optional_fqns, (
-        "test/production mismatch: "
-        f"{production_fqns.symmetric_difference(set(expected) | optional_fqns)}"
+    assert production_fqns == set(expected), (
+        f"test/production mismatch: {production_fqns.symmetric_difference(set(expected))}"
     )
 
 
