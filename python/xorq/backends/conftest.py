@@ -66,11 +66,15 @@ def pytest_ignore_collect(collection_path, config):
     # cannot even load to reach its own importorskip when the `bigquery` extra
     # is absent; skip the collection outright in that case (find_spec does not
     # import the module)
-    if (
-        backend == "bigquery"
-        and importlib.util.find_spec("google.cloud.bigquery") is None
-    ):
-        return True
+    if backend == "bigquery":
+        try:
+            has_bigquery = importlib.util.find_spec("google.cloud.bigquery") is not None
+        except ModuleNotFoundError:
+            # find_spec imports parent packages; a wholly-absent `google`
+            # namespace raises rather than returning None
+            has_bigquery = False
+        if not has_bigquery:
+            return True
 
     # we evaluate the marker early so that we don't trigger
     # an import of conftest files for the backend, which will

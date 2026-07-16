@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from adbc_driver_manager import dbapi
+from adbc_driver_manager import ProgrammingError, dbapi
 from attr import field, frozen
 from attr.validators import instance_of
 
@@ -38,7 +38,10 @@ class BigQueryADBC:
 
     @property
     def project_id(self) -> str:
-        return self.con.billing_project or self.con.data_project
+        project_id = self.con.billing_project or self.con.data_project
+        if not project_id:
+            raise ValueError("BigQuery backend has no resolvable project id")
+        return project_id
 
     @property
     def db_kwargs(self) -> dict[str, str]:
@@ -66,7 +69,21 @@ class BigQueryADBC:
         return db_kwargs
 
     def get_conn(self, **kwargs: Any) -> dbapi.Connection:
-        return dbapi.connect(driver="bigquery", db_kwargs={**self.db_kwargs, **kwargs})
+        try:
+            return dbapi.connect(
+                driver="bigquery", db_kwargs={**self.db_kwargs, **kwargs}
+            )
+        except ProgrammingError as e:
+            # the driver manager prefixes load/resolution failures with
+            # "[Driver Manager]"; the bigquery driver's own runtime errors
+            # (auth, bad args) are prefixed "[bq]", so this only intercepts a
+            # genuinely-missing driver and lets everything else propagate
+            if "[Driver Manager]" not in str(e):
+                raise
+            raise RuntimeError(
+                "could not load the BigQuery ADBC driver; install it with "
+                "`dbc install bigquery` (https://dbc.columnar.tech)"
+            ) from e
 
     def adbc_ingest(
         self,

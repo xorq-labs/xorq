@@ -48,7 +48,7 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib -m bigquery -v --cov --cov-report=xml -s -vv
+        run: uv run --no-sync pytest --import-mode=importlib -m bigquery --cov --cov-report=xml -s -vv
         working-directory: ${{ github.workspace }}
         env:
           GOOGLE_BIGQUERY_PROJECT_ID: ${{ vars.GOOGLE_BIGQUERY_PROJECT_ID }}
