@@ -21,21 +21,17 @@ pytest.importorskip("google.cloud.bigquery")
 
 
 @pytest.mark.bigquery
-def test_read_record_batches(con: Backend, batting: ir.Table) -> None:
+def test_read_record_batches(con: Backend, batting: ir.Table, temp_table: str) -> None:
     reader = (
         batting.filter(batting.yearID == 2015)
         .select("playerID", "yearID", "G")
         .to_pyarrow_batches()
     )
-    name = "record_batches_batting"
-    t = con.read_record_batches(reader, table_name=name)
-    try:
-        assert name in con.list_tables()
-        result = t.execute()
-        assert not result.empty
-        assert list(result.columns) == ["playerID", "yearID", "G"]
-    finally:
-        con.drop_table(name, force=True)
+    t = con.read_record_batches(reader, table_name=temp_table)
+    assert temp_table in con.list_tables()
+    result = t.execute()
+    assert not result.empty
+    assert list(result.columns) == ["playerID", "yearID", "G"]
 
 
 @pytest.mark.bigquery
@@ -116,44 +112,36 @@ def test_train_test_split(batting: ir.Table) -> None:
 
 
 @pytest.mark.bigquery
-def test_into_backend_duckdb(con: Backend) -> None:
+def test_into_backend_duckdb(con: Backend, temp_table: str) -> None:
     # tokenize resolves the bigquery source via a `__TABLES__` lookup, so the
     # source must be a persistent table in the connection's dataset rather than
     # a session-scoped read_parquet table
     df = pd.DataFrame({"playerID": ["a", "b"], "yearID": [2015, 2016], "G": [1, 2]})
-    name = "into_backend_src"
-    con.create_table(name, obj=df, overwrite=True)
-    try:
-        src = con.table(name)
-        ddb = xo.duckdb.connect()
-        expr = (
-            src.filter(src.yearID == 2015)
-            .select("playerID", "yearID", "G")
-            .into_backend(ddb, name="ddb_into_backend")
-        )
-        assert tokenize(expr) is not None
-        assert not expr.execute().empty
-    finally:
-        con.drop_table(name, force=True)
+    con.create_table(temp_table, obj=df)
+    src = con.table(temp_table)
+    ddb = xo.duckdb.connect()
+    expr = (
+        src.filter(src.yearID == 2015)
+        .select("playerID", "yearID", "G")
+        .into_backend(ddb, name="ddb_into_backend")
+    )
+    assert tokenize(expr) is not None
+    assert not expr.execute().empty
 
 
 @pytest.mark.bigquery
-def test_into_backend_from_duckdb(con: Backend) -> None:
+def test_into_backend_from_duckdb(con: Backend, temp_table: str) -> None:
     # duckdb -> bigquery drives read_record_batches (ADBC ingest) as the
     # into_backend target (the reverse direction from test_into_backend_duckdb)
     ddb = xo.duckdb.connect()
     df = pd.DataFrame({"playerID": ["a", "b"], "yearID": [2015, 2016], "G": [1, 2]})
     src = ddb.create_table("duckdb_into_backend_src", df)
-    name = "bq_into_backend"
     expr = (
         src.filter(src.yearID == 2015)
         .select("playerID", "yearID", "G")
-        .into_backend(con, name=name)
+        .into_backend(con, name=temp_table)
     )
-    try:
-        assert tokenize(expr) is not None
-        result = expr.execute()
-        assert not result.empty
-        assert list(result.columns) == ["playerID", "yearID", "G"]
-    finally:
-        con.drop_table(name, force=True)
+    assert tokenize(expr) is not None
+    result = expr.execute()
+    assert not result.empty
+    assert list(result.columns) == ["playerID", "yearID", "G"]

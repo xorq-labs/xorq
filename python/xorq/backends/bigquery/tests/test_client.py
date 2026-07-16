@@ -48,25 +48,19 @@ def test_create_and_drop_table(con: Backend) -> None:
 
 
 @pytest.mark.bigquery
-def test_create_table_from_expr(con: Backend, batting: ir.Table) -> None:
-    name = gen_name("xorq_gbq_from_expr")
+def test_create_table_from_expr(
+    con: Backend, batting: ir.Table, temp_table: str
+) -> None:
     expr = batting.filter(batting.yearID == 2015).select("playerID", "yearID")
-    con.create_table(name, obj=expr)
-    try:
-        assert name in con.list_tables()
-        assert not con.table(name).execute().empty
-    finally:
-        con.drop_table(name, force=True)
+    con.create_table(temp_table, obj=expr)
+    assert temp_table in con.list_tables()
+    assert not con.table(temp_table).execute().empty
 
 
 @pytest.mark.bigquery
-def test_get_schema(con: Backend) -> None:
+def test_get_schema(con: Backend, temp_table: str) -> None:
     # read_parquet lands the table in an anonymous session dataset, so use a
     # table created directly in the connection's default dataset
-    name = gen_name("xorq_gbq_schema")
     schema = ibis.schema({"a": "int64", "b": "string"})
-    con.create_table(name, schema=schema)
-    try:
-        assert con.get_schema(name) == schema
-    finally:
-        con.drop_table(name, force=True)
+    con.create_table(temp_table, schema=schema)
+    assert con.get_schema(temp_table) == schema
