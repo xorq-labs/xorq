@@ -211,12 +211,17 @@ def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
         if namespace.catalog
         else namespace.database
     )
+    # table_id is compared as a string literal, so escape single quotes by
+    # doubling them (backtick-quoting would make it an identifier reference)
+    table_id = dt.name.replace("'", "''")
     query = (
         "SELECT last_modified_time "
         f"FROM `{dataset}.__TABLES__` "
-        f"WHERE table_id = '{dt.name}'"
+        f"WHERE table_id = '{table_id}'"
     )
     df = dt.source.raw_sql(query).to_dataframe()
+    if df.empty:
+        raise ValueError(f"table {dt.name!r} not found in dataset {dataset!r}")
     (last_modified_time,) = df["last_modified_time"]
     return (
         "ibis.DatabaseTable.bigquery",
