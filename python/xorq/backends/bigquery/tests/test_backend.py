@@ -19,6 +19,17 @@ if TYPE_CHECKING:
 # the google client libraries are an optional (`--extra bigquery`) dependency
 pytest.importorskip("google.cloud.bigquery")
 
+from google.auth.credentials import (  # noqa: E402
+    AnonymousCredentials,
+    Credentials,
+)
+from xorq_dasher import fqn  # noqa: E402
+
+from xorq.common.utils.dasher import tokenize  # noqa: E402
+from xorq.common.utils.dasher._gap_rules import (  # noqa: E402
+    normalize_google_credentials,
+)
+
 
 def test_backend_registered() -> None:
     assert "bigquery" in _get_backend_names()
@@ -82,3 +93,20 @@ def test_read_parquet_and_execute(batting: ir.Table) -> None:
     result = batting.filter(batting.yearID == 2015).select("playerID").execute()
     assert len(result) > 0
     assert list(result.columns) == ["playerID"]
+
+
+@pytest.mark.bigquery
+def test_google_credentials_normalizer() -> None:
+    # the bigquery connection profile carries a google credentials object;
+    # without the registered normalizer, tokenizing it (via Profile.hash_name)
+    # raises "No normalizer registered for ...Credentials"
+
+    # the FQN string registered in _EXTRA_RULES must match the real base class
+    assert fqn(Credentials) == "google.auth.credentials.Credentials"
+
+    token = normalize_google_credentials(AnonymousCredentials())
+    assert token[0] == "google.auth.credentials.Credentials"
+    assert token[1] == "AnonymousCredentials"
+
+    # tokenizes cleanly and stably through the HASHER
+    assert tokenize(AnonymousCredentials()) == tokenize(AnonymousCredentials())

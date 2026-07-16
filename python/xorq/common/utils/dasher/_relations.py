@@ -225,14 +225,13 @@ def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
         "ibis.DatabaseTable.bigquery",
         dt.name,
         normalize_ibis_schema(dt.schema),
-        dt.source,
         dt.namespace,
     )
     df = dt.source.raw_sql(query).to_dataframe()
     if df.empty:
         # anonymous session tables (e.g. read_parquet) don't appear in the
         # queried __TABLES__; fall back to a stable structural token — the
-        # session dataset id in the namespace already makes it distinct
+        # session dataset id already makes it distinct
         return base
     (last_modified_time,) = df["last_modified_time"]
     if pd.isna(last_modified_time):

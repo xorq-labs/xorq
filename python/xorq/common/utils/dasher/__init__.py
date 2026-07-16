@@ -56,6 +56,7 @@ from xorq.common.utils.dasher._gap_rules import (  # noqa: E402
     normalize_attrs,
     normalize_builtin_callable,
     normalize_functools_partial,
+    normalize_google_credentials,
     normalize_ibis_schema,
     normalize_lru_cache,
     normalize_methodcaller,
@@ -124,6 +125,7 @@ _EXTRA_RULES: tuple[tuple[str, object], ...] = (
     ("xorq.common.utils.toolz_utils.curry", normalize_toolz_curry),
     ("sklearn.utils._param_validation._Constraint", normalize_sklearn_constraint),
     ("sklearn.utils._param_validation.Hidden", normalize_sklearn_hidden),
+    ("google.auth.credentials.Credentials", normalize_google_credentials),
 )
 
 HASHER: Hasher = DEFAULT_HASHER.override(*_EXTRA_RULES)
