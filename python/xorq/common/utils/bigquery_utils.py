@@ -30,8 +30,8 @@ class BigQueryADBC(ADBCBase):
 
     @property
     def credentials(self) -> Any:
-        # google.cloud.bigquery.Client stores the auth object here
-        return getattr(self.con.client, "_credentials", None)
+        # google.cloud.bigquery.Client exposes the auth object here
+        return getattr(self.con.client, "credentials", None)
 
     @property
     def project_id(self) -> str:
