@@ -489,6 +489,8 @@ class Catalog:
                 f"Use Catalog.set_remote(name, url, force=True) to replace existing remotes, "
                 f"or open an issue if you have a multi-remote use case."
             )
+        for remote in remotes:
+            self.backend.validate_remote(remote)
         return remotes
 
     def set_remote(self, name, url, force=False):
@@ -512,6 +514,7 @@ class Catalog:
                 f"catalog has a git remote already configured ({existing}); "
                 f"pass force=True to replace it."
             )
+        self.backend.validate_remote_url(url)
         for remote in existing_remotes:
             self.repo.delete_remote(remote)
         return self.repo.create_remote(name, url)
@@ -1333,6 +1336,12 @@ class CatalogAddition:
         default=None,
     )
 
+    def __attrs_post_init__(self) -> None:
+        backend = self.catalog.backend
+        backend.validate_catalog_component(self.name, label="entry name")
+        for alias in self.aliases:
+            backend.validate_catalog_component(alias, label="alias")
+
     @property
     def name(self):
         return self.build_zip.name
@@ -1384,6 +1393,7 @@ class CatalogAddition:
             for catalog_alias in self.catalog_aliases:
                 catalog_alias._add()
             return CatalogEntry(self.name, self.catalog, require_exists=True)
+        self.catalog.backend.preflight_content_write()
         self.ensure_dirs()
         catalog_entry = self.catalog_entry
         catalog_entry.metadata_path.write_text(yaml12.format_yaml(self.metadata))
@@ -1428,6 +1438,10 @@ class CatalogEntry:
     require_exists = field(validator=instance_of(bool), default=True)
 
     def __attrs_post_init__(self):
+        self.catalog.backend.validate_catalog_component(
+            self.name,
+            label="entry name",
+        )
         if self.require_exists:
             self.assert_consistency()
             assert self.exists(), f"Catalog entry '{self.name}' does not exist"
@@ -1575,6 +1589,12 @@ class CatalogAlias:
 
     alias = field(validator=instance_of(str))
     catalog_entry = field(validator=instance_of(CatalogEntry))
+
+    def __attrs_post_init__(self) -> None:
+        self.catalog_entry.catalog.backend.validate_catalog_component(
+            self.alias,
+            label="alias",
+        )
 
     @property
     def alias_path(self):
