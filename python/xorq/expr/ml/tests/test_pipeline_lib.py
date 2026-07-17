@@ -26,21 +26,19 @@ from xorq.expr.ml.sklearn_utils import ColumnRemapper  # noqa: E402
 # bare ``sklearn.cluster`` etc. would raise AttributeError at the floor.
 # importorskip (not import_module) degrades to a clean skip rather than a
 # collection error if any submodule is missing.
-all(
+for submodule in (
+    "base",
+    "cluster",
+    "compose",
+    "ensemble",
+    "feature_selection",
+    "impute",
+    "linear_model",
+    "metrics",
+    "pipeline",
+    "preprocessing",
+):
     pytest.importorskip(f"sklearn.{submodule}")
-    for submodule in (
-        "base",
-        "cluster",
-        "compose",
-        "ensemble",
-        "feature_selection",
-        "impute",
-        "linear_model",
-        "metrics",
-        "pipeline",
-        "preprocessing",
-    )
-)
 
 
 # sklearn submodule imports

@@ -195,10 +195,11 @@ def _normalize_datafusion_databasetable_xorq(dt):
     raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
 
 
-# BigQuery project/dataset identifiers are limited to letters, digits,
-# underscores and hyphens; anything else (notably a backtick) cannot appear in
+# BigQuery project/dataset identifiers are letters, digits, underscores and
+# hyphens, plus the '.' and ':' of a legacy domain-scoped project id (e.g.
+# `google.com:my-project`); anything else (notably a backtick) cannot appear in
 # a valid namespace and would corrupt the backtick-quoted __TABLES__ reference
-_BQ_IDENTIFIER = re.compile(r"[A-Za-z0-9_\-]+")
+_BQ_IDENTIFIER = re.compile(r"[A-Za-z0-9_.:\-]+")
 
 
 def _bigquery_last_modified_query(namespace: ops.Namespace, table_name: str) -> str:
@@ -331,11 +332,11 @@ def _dispatch_databasetable(dt):
     # column label and crashes on every table; use the fixed xorq version.
     if dt.source.name == "bigquery":
         return _normalize_bigquery_databasetable_xorq(dt)
-    # All other backends fall through to ``xorq_dasher`` ``normalize_databasetable``,
-    # which is itself a per-backend dispatch table postgres calls
+    # All remaining backends fall through to ``xorq_dasher``
+    # ``normalize_databasetable`` (bigquery is handled above and never reaches
+    # here), which is itself a per-backend dispatch table postgres calls
     # ``get_postgres_n_reltuples``, snowflake calls
-    # ``get_snowflake_last_modification_time``, bigquery queries
-    # ``__TABLES__.last_modified_time``, pyiceberg calls
+    # ``get_snowflake_last_modification_time``, pyiceberg calls
     # ``get_iceberg_snapshots_ids``, sqlite calls ``get_sqlite_stats``,
     # trino/gizmosql fall back to ``normalize_remote_databasetable``.
     # Data-sensitivity is preserved upstream, not blindly flattened to

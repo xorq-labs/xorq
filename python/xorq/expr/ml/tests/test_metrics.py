@@ -25,22 +25,20 @@ sklearn = pytest.importorskip("sklearn")
 # bare ``sklearn.datasets`` etc. would raise AttributeError at the floor.
 # importorskip (not import_module) degrades to a clean skip rather than a
 # collection error if any submodule is missing.
-all(
+for submodule in (
+    "base",
+    "cluster",
+    "datasets",
+    "ensemble",
+    "linear_model",
+    "metrics",
+    "model_selection",
+    "multiclass",
+    "pipeline",
+    "preprocessing",
+    "svm",
+):
     pytest.importorskip(f"sklearn.{submodule}")
-    for submodule in (
-        "base",
-        "cluster",
-        "datasets",
-        "ensemble",
-        "linear_model",
-        "metrics",
-        "model_selection",
-        "multiclass",
-        "pipeline",
-        "preprocessing",
-        "svm",
-    )
-)
 
 # Access sklearn modules through the sklearn object to avoid E402 linting errors
 make_classification = sklearn.datasets.make_classification

@@ -1192,9 +1192,14 @@ def test_deferred_sklearn_metric_build_expr() -> None:
     (
         pytest.param("proj", "ds", "proj.ds", id="catalog-qualified"),
         pytest.param(None, "ds", "ds", id="database-only"),
+        pytest.param(
+            "google.com:proj", "ds", "google.com:proj.ds", id="domain-scoped-project"
+        ),
     ),
 )
-def test_bigquery_last_modified_query(catalog, database, expected_dataset) -> None:
+def test_bigquery_last_modified_query(
+    catalog: str | None, database: str, expected_dataset: str
+) -> None:
     namespace = types.SimpleNamespace(catalog=catalog, database=database)
     query = _bigquery_last_modified_query(namespace, "batting")
     assert f"FROM `{expected_dataset}.__TABLES__`" in query
@@ -1214,7 +1219,9 @@ def test_bigquery_last_modified_query_escapes_single_quote() -> None:
         pytest.param(None, "ds`inj", id="backtick-in-database"),
     ),
 )
-def test_bigquery_last_modified_query_rejects_bad_identifier(catalog, database) -> None:
+def test_bigquery_last_modified_query_rejects_bad_identifier(
+    catalog: str | None, database: str
+) -> None:
     namespace = types.SimpleNamespace(catalog=catalog, database=database)
     with pytest.raises(ValueError, match="invalid BigQuery identifier"):
         _bigquery_last_modified_query(namespace, "batting")
