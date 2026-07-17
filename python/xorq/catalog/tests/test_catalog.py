@@ -1523,6 +1523,17 @@ def test_add_alias(catalog_populated):
     catalog_populated.assert_consistency()
 
 
+@pytest.mark.parametrize(
+    "alias",
+    ("", "..", "nested/alias", r"nested\alias"),
+)
+def test_add_alias_rejects_unsafe_path_components(catalog_populated, alias):
+    name = catalog_populated.list()[0]
+
+    with pytest.raises(ValueError, match="safe path component"):
+        catalog_populated.add_alias(name, alias)
+
+
 def test_add_alias_unknown_name_raises(catalog_populated):
     with pytest.raises(AssertionError):
         catalog_populated.add_alias("nonexistent", "my-alias")

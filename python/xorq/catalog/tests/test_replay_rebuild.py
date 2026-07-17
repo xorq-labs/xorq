@@ -11,8 +11,8 @@ from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.composer import ExprComposer
 from xorq.catalog.enums import CatalogTag
-from xorq.catalog.replay import Replayer
-from xorq.catalog.tests.conftest import _replay_rebuild
+from xorq.catalog.replay import AddEntry, RebuildContext, Replayer
+from xorq.catalog.tests.conftest import _replay_rebuild, directory_store_config
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.builders import TagHandler, register_tag_handler
 from xorq.expr.relations import HashingTag, Tag
@@ -417,6 +417,39 @@ def test_rebuild_preserves_aliases(source_catalog, target_path):
         target_entry = target.get_catalog_entry(alias, maybe_alias=True)
         assert target_entry.exists()
         assert target_entry.name in target.list()
+
+
+def test_replay_fetches_cached_pointer_content_before_copying(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_MAX_BYTES", str(10**9))
+    source = Catalog.from_repo_path(
+        tmp_path / "source",
+        init=True,
+        content_store_config=directory_store_config(tmp_path / "source-store"),
+    )
+    entry = source.add(xo.memtable({"value": [1, 2, 3]}), aliases=("source",))
+    sha256, _size = parse_pointer(source.backend._pointer_path(entry.catalog_path))
+    key = compute_content_key(source.backend.catalog_id, sha256)
+    source.backend.cache.put(key, entry.catalog_path)
+    entry.catalog_path.unlink()
+
+    assert source.backend.cache.contains(key)
+    assert not entry.is_content_local
+
+    target = Catalog.from_repo_path(tmp_path / "target", init=True)
+    AddEntry(entry_hash=entry.name, aliases=("replayed",)).do(
+        source,
+        target,
+        RebuildContext(),
+    )
+
+    assert entry.catalog_path.exists()
+    replayed = target.get_catalog_entry("replayed", maybe_alias=True)
+    assert replayed.exists()
+    assert replayed.catalog_path.exists()
 
 
 def test_remove_entry_translates_via_remap(tmpdir):

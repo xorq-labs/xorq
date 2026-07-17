@@ -445,6 +445,8 @@ class AddEntry:
     def do(self, from_catalog, to_catalog, ctx):
         if not ctx.rebuild:
             catalog_entry = from_catalog.get_catalog_entry(self.entry_hash)
+            if not catalog_entry.is_content_local:
+                catalog_entry.fetch()
             to_catalog.add(
                 catalog_entry.catalog_path,
                 sync=False,
