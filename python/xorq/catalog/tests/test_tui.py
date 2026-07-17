@@ -16,9 +16,9 @@ IMPORTANT — populating the catalog tree in pilot tests:
 
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-from pytest_mock import MockerFixture
 from textual.widgets import DataTable, Input, Static, Tree
 
 import xorq.api as xo
@@ -1392,15 +1392,15 @@ def test_tui_env_var_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fresh.XORQ_TUI_ROW_LIMIT == "42"
 
 
-def test_catalog_run_cmd_uses_configured_row_limit(
-    entry_a: CatalogEntry, mocker: MockerFixture
-) -> None:
+def test_catalog_run_cmd_uses_configured_row_limit(entry_a: CatalogEntry) -> None:
     row_data = CatalogRowData(entry=entry_a)
     screen = DataViewScreen(entry=entry_a, row_data=row_data)
-    mocker.patch.object(
-        screen, "_catalog_base_cmd", return_value=["xorq", "catalog", "run", "x"]
-    )
-    with options.tui({"row_limit": 123}):
+    with (
+        patch.object(
+            screen, "_catalog_base_cmd", return_value=["xorq", "catalog", "run", "x"]
+        ),
+        options.tui({"row_limit": 123}),
+    ):
         cmd = screen._catalog_run_cmd()
     assert cmd[cmd.index("--limit") + 1] == "123"
 
