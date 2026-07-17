@@ -419,6 +419,46 @@ def test_rebuild_preserves_aliases(source_catalog, target_path):
         assert target_entry.name in target.list()
 
 
+def test_replay_fetches_cached_pointer_content_before_copying(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from xorq.catalog.content_store import (  # noqa: PLC0415
+        compute_content_key,
+        parse_pointer,
+    )
+    from xorq.catalog.replay import AddEntry, RebuildContext  # noqa: PLC0415
+    from xorq.catalog.tests.conftest import directory_store_config  # noqa: PLC0415
+
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_MAX_BYTES", str(10**9))
+    source = Catalog.from_repo_path(
+        tmp_path / "source",
+        init=True,
+        content_store_config=directory_store_config(tmp_path / "source-store"),
+    )
+    entry = source.add(xo.memtable({"value": [1, 2, 3]}), aliases=("source",))
+    sha256, _size = parse_pointer(source.backend._pointer_path(entry.catalog_path))
+    key = compute_content_key(source.backend.catalog_id, sha256)
+    source.backend.cache.put(key, entry.catalog_path)
+    entry.catalog_path.unlink()
+
+    assert source.backend.cache.contains(key)
+    assert not entry.is_content_local
+
+    target = Catalog.from_repo_path(tmp_path / "target", init=True)
+    AddEntry(entry_hash=entry.name, aliases=("replayed",)).do(
+        source,
+        target,
+        RebuildContext(),
+    )
+
+    assert entry.catalog_path.exists()
+    replayed = target.get_catalog_entry("replayed", maybe_alias=True)
+    assert replayed.exists()
+    assert replayed.catalog_path.exists()
+
+
 def test_remove_entry_translates_via_remap(tmpdir):
     from xorq.catalog.replay import RebuildContext, RemoveEntry  # noqa: PLC0415
 

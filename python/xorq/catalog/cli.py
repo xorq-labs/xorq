@@ -194,10 +194,9 @@ def cli(ctx, name, path, url, root_repo, init):
     """Manage Xorq build-artifact catalogs.
 
     A catalog is a versioned store of named, sharable, executable
-    expressions: a git repository with an optional object-store backed
-    annex for content. Group options select which catalog a subcommand
-    targets and precede the subcommand name (for example,
-    `xorq catalog -n analytics info`).
+    expressions: a git repository with optional external content storage.
+    Group options select which catalog a subcommand targets and precede the
+    subcommand name (for example, `xorq catalog -n analytics info`).
     """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
 
@@ -268,6 +267,7 @@ def _resolve_content_store_option(
     """Return a ContentStoreConfig from CLI options, or None."""
     from xorq.catalog.content_store import (  # noqa: PLC0415
         DirectoryContentStoreConfig,
+        PresignedContentStoreConfig,
         S3ContentStoreConfig,
     )
 
@@ -280,6 +280,12 @@ def _resolve_content_store_option(
             return S3ContentStoreConfig.from_env()
         case "directory":
             return DirectoryContentStoreConfig.from_env()
+        case "presigned":
+            if gcs:
+                raise click.UsageError(
+                    "--gcs cannot be combined with --content-store presigned."
+                )
+            return PresignedContentStoreConfig.from_env()
         case _:
             raise click.UsageError(
                 f"unknown content store type: {content_store_type!r}"
@@ -328,11 +334,19 @@ def init(
       xorq catalog --path ./catalogs/analytics init --remote-url git@github.com:acme/analytics-catalog.git
       # Create with an S3-backed annex remote sourced from an env file
       xorq catalog --name analytics init --env-file .env.catalog.s3
+      # Create a hosted pointer catalog using its service-provided ID and URL
+      xorq catalog --name analytics init --content-store presigned --remote-url https://catalog.example/acme/analytics.git
     """
     with click_context_catalog(ctx):
+        if content_store_type == "presigned" and remote_url is None:
+            raise click.UsageError(
+                "--remote-url is required with --content-store presigned."
+            )
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
+        if content_store_type == "presigned":
+            content_store_config.validate_remote_url(remote_url)
         try:
             catalog = ctx.obj.make_catalog(
                 init=True, annex=annex, content_store_config=content_store_config
@@ -342,11 +356,13 @@ def init(
             raise click.ClickException(
                 f"Catalog already exists at {probe.repo_path}"
             ) from err
+        if remote_url:
+            remote = catalog.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
+            if content_store_type == "presigned":
+                # Validate the hosted binding before reporting success.
+                _ = catalog.backend.content_store
         click.echo(f"Initialized catalog at {catalog.repo_path}")
         if remote_url:
-            from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
-
-            remote = catalog.set_remote(DEFAULT_REMOTE, remote_url)
             click.echo(f"Set remote {remote.name} -> {remote_url}")
 
 
@@ -1356,7 +1372,7 @@ def check(ctx):
 )
 @click.pass_context
 def gc(ctx: click.Context, dry_run: bool) -> None:
-    """Remove orphaned content store objects (pointer backend only)."""
+    """Remove local pointer-store orphans; hosted GC is server-owned."""
     from xorq.catalog.backend import GitPointerBackend  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -1472,8 +1488,11 @@ def replay(
       xorq catalog replay ./mirrored-catalog --dry-run
       # Replay into a new catalog and push to a fresh remote
       xorq catalog replay ./mirrored-catalog --env-file .env.target.s3 --remote-url git@github.com:acme/mirror-catalog.git
+      # Replay into a hosted catalog (the remote is required before uploads)
+      xorq catalog replay ./hosted-catalog --content-store presigned --remote-url https://catalog.example/acme/mirror.git
     """
-    from xorq.catalog.catalog import Catalog  # noqa: PLC0415
+    from xorq.catalog.catalog import Catalog, _format_push_failures  # noqa: PLC0415
+    from xorq.catalog.exceptions import CatalogPushError  # noqa: PLC0415
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -1482,30 +1501,51 @@ def replay(
         if dry_run:
             replayer.print_plan()
             return
+        if content_store_type == "presigned" and remote_url is None:
+            raise click.UsageError(
+                "--remote-url is required with --content-store presigned."
+            )
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
+        if content_store_type == "presigned":
+            content_store_config.validate_remote_url(remote_url)
         target = Catalog.from_repo_path(
             target_path, annex=annex, content_store_config=content_store_config
         )
+        origin = None
+        if remote_url and content_store_type == "presigned":
+            # Validate the binding before replay uploads.
+            origin = target.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
+            _ = target.backend.content_store
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
-        if remote_url:
-            from xorq.catalog.constants import (  # noqa: PLC0415
-                ANNEX_BRANCH,
-                DEFAULT_REMOTE,
-                MAIN_BRANCH,
-            )
-
-            origin = target.repo.create_remote(DEFAULT_REMOTE, remote_url)
+        if remote_url and origin is None:
+            origin = target.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
+        if origin is not None:
+            main_branch = catalog_constants.MAIN_BRANCH
+            annex_branch = catalog_constants.ANNEX_BRANCH
             refspec_prefix = "+" if force else ""
-            origin.push(f"{refspec_prefix}{MAIN_BRANCH}:{MAIN_BRANCH}")
-            origin.push(f"{refspec_prefix}{ANNEX_BRANCH}:{ANNEX_BRANCH}")
+            push_failures = list(
+                _format_push_failures(
+                    origin.push(f"{refspec_prefix}{main_branch}:{main_branch}"),
+                    origin.name,
+                )
+            )
+            if annex_branch in target.repo.heads:
+                push_failures.extend(
+                    _format_push_failures(
+                        origin.push(f"{refspec_prefix}{annex_branch}:{annex_branch}"),
+                        origin.name,
+                    )
+                )
+            if push_failures:
+                raise CatalogPushError(f"push failed: {'; '.join(push_failures)}")
             origin.fetch()
-            target.repo.heads[MAIN_BRANCH].set_tracking_branch(origin.refs[MAIN_BRANCH])
-            if ANNEX_BRANCH in target.repo.heads:
-                target.repo.heads[ANNEX_BRANCH].set_tracking_branch(
-                    origin.refs[ANNEX_BRANCH]
+            target.repo.heads[main_branch].set_tracking_branch(origin.refs[main_branch])
+            if annex_branch in target.repo.heads:
+                target.repo.heads[annex_branch].set_tracking_branch(
+                    origin.refs[annex_branch]
                 )
             click.echo(f"Pushed to {remote_url}")
 
