@@ -42,9 +42,12 @@ class BigQueryADBC(ADBCBase):
 
     @property
     def db_kwargs(self) -> dict[str, str]:
-        db_kwargs = {_PROJECT_ID: self.project_id}
-        if self.con.current_database:
-            db_kwargs[_DATASET_ID] = self.con.current_database
+        dataset_id = self.con.current_database
+        if not dataset_id:
+            raise ValueError(
+                "BigQuery ADBC ingest requires a dataset; pass dataset_id to connect()"
+            )
+        db_kwargs = {_PROJECT_ID: self.project_id, _DATASET_ID: dataset_id}
 
         # reuse the backend's credentials when they are user credentials (the
         # `gcloud auth application-default login` case); otherwise let the

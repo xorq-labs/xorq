@@ -195,6 +195,33 @@ def _normalize_datafusion_databasetable_xorq(dt):
     raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
 
 
+# BigQuery project/dataset identifiers are limited to letters, digits,
+# underscores and hyphens; anything else (notably a backtick) cannot appear in
+# a valid namespace and would corrupt the backtick-quoted __TABLES__ reference
+_BQ_IDENTIFIER = re.compile(r"[A-Za-z0-9_\-]+")
+
+
+def _bigquery_last_modified_query(namespace: ops.Namespace, table_name: str) -> str:
+    """Build the ``__TABLES__.last_modified_time`` lookup for a DatabaseTable.
+
+    ``table_name`` is compared as a string literal, so single quotes are
+    doubled; the dataset path is a backtick-quoted identifier, so each of its
+    components is validated against the BigQuery identifier grammar (a name
+    with a backtick would otherwise break out of the quoting).
+    """
+    components = tuple(part for part in (namespace.catalog, namespace.database) if part)
+    for part in components:
+        if not _BQ_IDENTIFIER.fullmatch(part):
+            raise ValueError(f"invalid BigQuery identifier in namespace: {part!r}")
+    dataset = ".".join(components)
+    table_id = table_name.replace("'", "''")
+    return (
+        "SELECT last_modified_time "
+        f"FROM `{dataset}.__TABLES__` "
+        f"WHERE table_id = '{table_id}'"
+    )
+
+
 def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
     """BigQuery DT normalizer keyed on ``__TABLES__.last_modified_time``.
 
@@ -207,20 +234,7 @@ def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
     """
     import pandas as pd  # noqa: PLC0415
 
-    namespace = dt.namespace
-    dataset = (
-        f"{namespace.catalog}.{namespace.database}"
-        if namespace.catalog
-        else namespace.database
-    )
-    # table_id is compared as a string literal, so escape single quotes by
-    # doubling them (backtick-quoting would make it an identifier reference)
-    table_id = dt.name.replace("'", "''")
-    query = (
-        "SELECT last_modified_time "
-        f"FROM `{dataset}.__TABLES__` "
-        f"WHERE table_id = '{table_id}'"
-    )
+    query = _bigquery_last_modified_query(dt.namespace, dt.name)
     base = (
         "ibis.DatabaseTable.bigquery",
         dt.name,

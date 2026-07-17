@@ -62,7 +62,7 @@ def test_can_collect(batting: ir.Table, collect: str) -> None:
     expr = (
         batting.filter(batting.yearID == 2015)
         .select("playerID", "yearID", "G")
-        .mutate(add_1=batting.G + 1)
+        .mutate(add_1=xo._.G + 1)
     )
     assert methodcaller(collect)(expr) is not None
 

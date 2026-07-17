@@ -69,6 +69,7 @@ from xorq.common.utils.dasher._opaque import (
     _normalize_computed_kwargs_expr,
     _parent_token,
 )
+from xorq.common.utils.dasher._relations import _bigquery_last_modified_query
 from xorq.common.utils.file_utils import normalize_read_path_stat
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.common.utils.toolz_utils import curry as xo_curry
@@ -1184,3 +1185,36 @@ def test_deferred_sklearn_metric_build_expr() -> None:
     )
     result = build_expr(expr, builds_dir=tempfile.mkdtemp())
     assert result is not None
+
+
+@pytest.mark.parametrize(
+    ("catalog", "database", "expected_dataset"),
+    (
+        pytest.param("proj", "ds", "proj.ds", id="catalog-qualified"),
+        pytest.param(None, "ds", "ds", id="database-only"),
+    ),
+)
+def test_bigquery_last_modified_query(catalog, database, expected_dataset) -> None:
+    namespace = types.SimpleNamespace(catalog=catalog, database=database)
+    query = _bigquery_last_modified_query(namespace, "batting")
+    assert f"FROM `{expected_dataset}.__TABLES__`" in query
+    assert "WHERE table_id = 'batting'" in query
+
+
+def test_bigquery_last_modified_query_escapes_single_quote() -> None:
+    namespace = types.SimpleNamespace(catalog=None, database="ds")
+    query = _bigquery_last_modified_query(namespace, "o'brien")
+    assert "table_id = 'o''brien'" in query
+
+
+@pytest.mark.parametrize(
+    ("catalog", "database"),
+    (
+        pytest.param("proj`inj", "ds", id="backtick-in-catalog"),
+        pytest.param(None, "ds`inj", id="backtick-in-database"),
+    ),
+)
+def test_bigquery_last_modified_query_rejects_bad_identifier(catalog, database) -> None:
+    namespace = types.SimpleNamespace(catalog=catalog, database=database)
+    with pytest.raises(ValueError, match="invalid BigQuery identifier"):
+        _bigquery_last_modified_query(namespace, "batting")
