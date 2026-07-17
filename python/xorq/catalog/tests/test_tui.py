@@ -58,7 +58,11 @@ from xorq.catalog.tui import (
     get_cache_key_path,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
+from xorq.common.utils.env_utils import (
+    EnvConfigable,
+    env_templates_dir,
+    parse_int_env,
+)
 from xorq.config import TUI, options
 from xorq.ibis_yaml.enums import ExprKind
 
@@ -1392,17 +1396,46 @@ def test_tui_env_var_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fresh.XORQ_TUI_ROW_LIMIT == "42"
 
 
-def test_catalog_run_cmd_uses_configured_row_limit(entry_a: CatalogEntry) -> None:
+@pytest.mark.parametrize(
+    ("row_limit", "expected"),
+    [
+        pytest.param(123, "123", id="normal"),
+        pytest.param(1, "1", id="min"),
+    ],
+)
+def test_catalog_run_cmd_uses_configured_row_limit(
+    entry_a: CatalogEntry, row_limit: int, expected: str
+) -> None:
     row_data = CatalogRowData(entry=entry_a)
     screen = DataViewScreen(entry=entry_a, row_data=row_data)
     with (
         patch.object(
             screen, "_catalog_base_cmd", return_value=["xorq", "catalog", "run", "x"]
         ),
-        options.tui({"row_limit": 123}),
+        options.tui({"row_limit": row_limit}),
     ):
         cmd = screen._catalog_run_cmd()
-    assert cmd[cmd.index("--limit") + 1] == "123"
+    # assert on the contiguous flag/value pair, not a bare index lookup, so a
+    # future combined --limit=<n> form fails loudly rather than silently.
+    assert ["--limit", expected] in [cmd[i : i + 2] for i in range(len(cmd) - 1)], cmd
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param("50000", 50000, id="passthrough"),
+        pytest.param("1", 1, id="min"),
+        pytest.param("0", 1, id="zero-clamped"),
+        pytest.param("-5", 1, id="negative-clamped"),
+        pytest.param("", 10000, id="empty-default"),
+        pytest.param("abc", 10000, id="malformed-default"),
+    ],
+)
+def test_row_limit_clamp_and_default(raw: str, expected: int) -> None:
+    # mirrors the config.py field expression: env string -> parsed int,
+    # floored at 1, malformed/unset -> 10000. Guards the floor + default
+    # contract that options.tui(...) overrides bypass.
+    assert max(parse_int_env(raw, 10000), 1) == expected
 
 
 def test_tui_options_apply_column_widths(catalog):

@@ -8,6 +8,7 @@ from xorq.common.utils.env_utils import (
     parse_bool_env,
     parse_env_file,
     parse_float_env,
+    parse_int_env,
 )
 
 
@@ -46,8 +47,25 @@ def test_parse_bool_env(value, expected):
         ("abc", 0.42),  # non-numeric -> default
     ],
 )
-def test_parse_float_env(value, expected):
+def test_parse_float_env(value: str | None, expected: float) -> None:
     assert parse_float_env(value, 0.42) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("10000", 10000, id="int-string"),
+        pytest.param("  7 ", 7, id="whitespace-stripped"),
+        pytest.param("-5", -5, id="negative-passthrough"),
+        pytest.param("0", 0, id="zero-passthrough"),
+        pytest.param(None, 42, id="unset-default"),
+        pytest.param("", 42, id="empty-default"),
+        pytest.param("1.5", 42, id="float-string-default"),
+        pytest.param("abc", 42, id="non-numeric-default"),
+    ],
+)
+def test_parse_int_env(value: str | None, expected: int) -> None:
+    assert parse_int_env(value, 42) == expected
 
 
 def test_parse_bool_env_rejects_garbage():
