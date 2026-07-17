@@ -59,6 +59,14 @@ def test_compile_join_offline() -> None:
     assert "INNER JOIN" in sql
 
 
+def test_read_record_batches_rejects_invalid_mode() -> None:
+    # mode is validated before the ADBC driver is touched, so no connection
+    # or record batches are needed to exercise the guard
+    con = Backend()
+    with pytest.raises(ValueError, match="not a valid IngestMode"):
+        con.read_record_batches(None, table_name="t", mode="bogus")
+
+
 @pytest.mark.parametrize(
     "op",
     (

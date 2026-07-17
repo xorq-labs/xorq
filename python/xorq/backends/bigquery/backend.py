@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from xorq.backends.bigquery.enums import IngestMode
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends.bigquery import Backend as IbisBigQueryBackend
 from xorq.vendor.ibis.backends.profiles import Profile
@@ -42,7 +43,7 @@ class Backend(IbisBigQueryBackend):
         self,
         record_batches: pa.RecordBatchReader | pa.Table,
         table_name: str | None = None,
-        mode: str = "create",
+        mode: IngestMode | str = IngestMode.CREATE,
         **kwargs: Any,
     ) -> ir.Table:
         """Ingest an Arrow batch source into a BigQuery table via ADBC.
@@ -58,7 +59,9 @@ class Backend(IbisBigQueryBackend):
         table_name
             Optional name for the created table; a name is generated if omitted.
         mode
-            ADBC ingest mode (e.g. `"create"`, `"append"`, `"replace"`).
+            Ingest mode; an `IngestMode` or its string value (`"create"`,
+            `"append"`, `"replace"`, `"create_append"`). An unsupported value
+            raises `ValueError` before the driver is touched.
         kwargs
             Additional keyword arguments forwarded to `adbc_ingest`.
 
@@ -67,6 +70,7 @@ class Backend(IbisBigQueryBackend):
         Table
             An Ibis table expression backed by the ingested data.
         """
+        mode = IngestMode(mode)
         from xorq.common.utils.bigquery_utils import BigQueryADBC  # noqa: PLC0415
 
         table_name = table_name or util.gen_name("bigquery_record_batches")

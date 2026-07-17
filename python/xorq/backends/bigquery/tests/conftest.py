@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
+import pandas as pd
 import pytest
 
 from xorq.common.utils.env_utils import EnvConfigable
@@ -69,12 +70,14 @@ def con(credentials: object, project_id: str, dataset_id: str) -> Iterator[Backe
     # disable the query cache so tests observe real behavior
     con.client.default_query_job_config.use_query_cache = False
     try:
-        # query_and_wait executes eagerly, so this smoke-tests access
+        # query_and_wait executes eagerly, so this smoke-tests access before
+        # the dataset is created; any client-side or auth error (Forbidden,
+        # NotFound, ServiceUnavailable, transport/credential failures) skips
+        # cleanly instead of surfacing as a hard error
         con.raw_sql("SELECT 1")
-    except gexc.Forbidden:
-        pytest.skip(f"Cannot access BigQuery project: {project_id}")
-
-    con.create_database(dataset_id, force=True)
+        con.create_database(dataset_id, force=True)
+    except (gexc.GoogleAPICallError, google.auth.exceptions.GoogleAuthError) as exc:
+        pytest.skip(f"Cannot access BigQuery project {project_id}: {exc}")
     try:
         yield con
     finally:
@@ -91,15 +94,23 @@ def temp_table(con: Backend) -> Iterator[str]:
         con.drop_table(name, force=True)
 
 
-@pytest.fixture(scope="session")
-def batting(con: Backend, parquet_dir: Path) -> ir.Table:
-    return con.read_parquet(
-        parquet_dir.joinpath("batting.parquet"), table_name="batting"
-    )
+def _persistent_table(con: Backend, parquet_dir: Path, name: str) -> Iterator[ir.Table]:
+    # create the fixture in the connection's dataset (not the anonymous session
+    # dataset that read_parquet lands in) so it resolves in `__TABLES__` and the
+    # dasher normalizer exercises its real last_modified_time keying
+    df = pd.read_parquet(parquet_dir.joinpath(f"{name}.parquet"))
+    con.create_table(name, obj=df, overwrite=True)
+    try:
+        yield con.table(name)
+    finally:
+        con.drop_table(name, force=True)
 
 
 @pytest.fixture(scope="session")
-def awards_players(con: Backend, parquet_dir: Path) -> ir.Table:
-    return con.read_parquet(
-        parquet_dir.joinpath("awards_players.parquet"), table_name="awards_players"
-    )
+def batting(con: Backend, parquet_dir: Path) -> Iterator[ir.Table]:
+    yield from _persistent_table(con, parquet_dir, "batting")
+
+
+@pytest.fixture(scope="session")
+def awards_players(con: Backend, parquet_dir: Path) -> Iterator[ir.Table]:
+    yield from _persistent_table(con, parquet_dir, "awards_players")
