@@ -238,6 +238,9 @@ class TUI(Config):
         SQL / Info / Schema / Revisions panels. Coalesces rapid ``j``/``k``
         traversal so only the settled selection is rendered. Set to 0 to
         render synchronously on every focus change.
+    row_limit : int
+        Maximum number of rows fetched into the data-view panel, passed as
+        ``--limit`` to ``xorq catalog run``. Clamped to a minimum of 1.
     """
 
     left_ratio: int = max(int(env_config.XORQ_TUI_LEFT_RATIO or 2), 1)
@@ -254,6 +257,7 @@ class TUI(Config):
     highlight_debounce: float = max(
         parse_float_env(env_config.XORQ_TUI_HIGHLIGHT_DEBOUNCE, 0.15), 0.0
     )
+    row_limit: int = max(int(env_config.XORQ_TUI_ROW_LIMIT or 10000), 1)
 
 
 def _default_use_hardlink():

@@ -18,6 +18,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from pytest_mock import MockerFixture
 from textual.widgets import DataTable, Input, Static, Tree
 
 import xorq.api as xo
@@ -1376,16 +1377,32 @@ def test_tui_options_defaults():
     assert cfg.right_ratio == 3
     assert cfg.revisions_open is False
     assert cfg.git_log_open is False
+    assert cfg.row_limit == 10000
 
 
-def test_tui_env_var_override(monkeypatch):
+def test_tui_env_var_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XORQ_TUI_LEFT_RATIO", "7")
     monkeypatch.setenv("XORQ_TUI_REVISIONS_OPEN", "True")
+    monkeypatch.setenv("XORQ_TUI_ROW_LIMIT", "42")
     fresh = EnvConfigable.subclass_from_env_file(
         env_templates_dir.joinpath(".env.xorq.template")
     ).from_env()
     assert fresh.XORQ_TUI_LEFT_RATIO == "7"
     assert fresh.XORQ_TUI_REVISIONS_OPEN == "True"
+    assert fresh.XORQ_TUI_ROW_LIMIT == "42"
+
+
+def test_catalog_run_cmd_uses_configured_row_limit(
+    entry_a: CatalogEntry, mocker: MockerFixture
+) -> None:
+    row_data = CatalogRowData(entry=entry_a)
+    screen = DataViewScreen(entry=entry_a, row_data=row_data)
+    mocker.patch.object(
+        screen, "_catalog_base_cmd", return_value=["xorq", "catalog", "run", "x"]
+    )
+    with options.tui({"row_limit": 123}):
+        cmd = screen._catalog_run_cmd()
+    assert cmd[cmd.index("--limit") + 1] == "123"
 
 
 def test_tui_options_apply_column_widths(catalog):
