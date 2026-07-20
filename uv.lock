@@ -6304,7 +6304,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "adbc-driver-gizmosql", marker = "extra == 'gizmosql'", specifier = ">=1.1.5" },
-    { name = "adbc-driver-manager", marker = "extra == 'bigquery'", specifier = ">=1.0.0" },
+    { name = "adbc-driver-manager", marker = "extra == 'bigquery'", specifier = ">=1.8.0" },
     { name = "adbc-driver-manager", marker = "extra == 'databricks'", specifier = ">=1.0.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'examples'", specifier = ">=1.4.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'postgres'", specifier = ">=1.4.0" },

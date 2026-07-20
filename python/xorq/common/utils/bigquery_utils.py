@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from adbc_driver_manager import ProgrammingError, dbapi
@@ -54,10 +55,14 @@ class BigQueryADBC(ADBCBase):
             )
         db_kwargs = {_PROJECT_ID: self.project_id, _DATASET_ID: dataset_id}
 
-        # reuse the backend's credentials when they are user credentials (the
-        # `gcloud auth application-default login` case); otherwise let the
-        # driver discover Application Default Credentials, which is how the
-        # backend authenticates service accounts too
+        # reuse the backend's credentials when they are user (OAuth) credentials
+        # (the `gcloud auth application-default login` case); otherwise let the
+        # driver discover Application Default Credentials. ADC re-discovery
+        # matches the backend only when the backend itself authenticated via ADC
+        # — the driver cannot reuse an explicit non-user credential object (e.g.
+        # a service account), which google's Credentials classes don't expose in
+        # a re-serializable form, so we warn rather than silently ingest under a
+        # possibly-different identity.
         credentials = self.credentials
         client_id = getattr(credentials, "client_id", None)
         client_secret = getattr(credentials, "client_secret", None)
@@ -70,6 +75,22 @@ class BigQueryADBC(ADBCBase):
                 _AUTH_REFRESH_TOKEN: refresh_token,
             }
         else:
+            # `credentials` in _con_kwargs means the user passed an explicit
+            # credential to connect(); if it isn't user-OAuth we're about to drop
+            # it in favour of ADC discovery, which may resolve a different
+            # identity. (ADC-authenticated backends don't carry the key here, so
+            # the common path stays quiet.)
+            con_kwargs = getattr(self.con, "_con_kwargs", {})
+            if credentials is not None and "credentials" in con_kwargs:
+                warnings.warn(
+                    "BigQuery ADBC ingest cannot reuse the explicit credentials "
+                    "passed to connect() (only user/OAuth credentials are "
+                    "forwardable); it will fall back to Application Default "
+                    "Credentials, which may authenticate as a different "
+                    "identity. Ensure ADC resolves to the same identity (e.g. "
+                    "set GOOGLE_APPLICATION_CREDENTIALS).",
+                    stacklevel=2,
+                )
             db_kwargs[_AUTH_TYPE] = _AUTH_TYPE_DEFAULT
         return db_kwargs
 

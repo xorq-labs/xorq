@@ -1210,9 +1210,18 @@ def test_bigquery_last_modified_query(
 
 
 def test_bigquery_last_modified_query_escapes_single_quote() -> None:
+    # GoogleSQL escapes quotes with a backslash, not by doubling
     namespace = types.SimpleNamespace(catalog=None, database="ds")
     query = _bigquery_last_modified_query(namespace, "o'brien")
-    assert "table_id = 'o''brien'" in query
+    assert r"table_id = 'o\'brien'" in query
+
+
+def test_bigquery_last_modified_query_escapes_backslash() -> None:
+    # a backslash must itself be escaped, and escaped before the quote so an
+    # escaped quote isn't double-escaped back into a literal quote
+    namespace = types.SimpleNamespace(catalog=None, database="ds")
+    query = _bigquery_last_modified_query(namespace, "a\\b'c")
+    assert r"table_id = 'a\\b\'c'" in query
 
 
 @pytest.mark.parametrize(

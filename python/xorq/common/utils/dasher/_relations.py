@@ -205,17 +205,19 @@ _BQ_IDENTIFIER = re.compile(r"[A-Za-z0-9_.:\-]+")
 def _bigquery_last_modified_query(namespace: ops.Namespace, table_name: str) -> str:
     """Build the ``__TABLES__.last_modified_time`` lookup for a DatabaseTable.
 
-    ``table_name`` is compared as a string literal, so single quotes are
-    doubled; the dataset path is a backtick-quoted identifier, so each of its
-    components is validated against the BigQuery identifier grammar (a name
-    with a backtick would otherwise break out of the quoting).
+    ``table_name`` is compared as a GoogleSQL string literal, which escapes with
+    a backslash (BigQuery has no ``''`` quote-doubling), so both ``\\`` and ``'``
+    are backslash-escaped — backslash first, or an escaped quote would be double
+    escaped. The dataset path is a backtick-quoted identifier, so each of its
+    components is validated against the BigQuery identifier grammar (a name with
+    a backtick would otherwise break out of the quoting).
     """
     components = tuple(part for part in (namespace.catalog, namespace.database) if part)
     for part in components:
         if not _BQ_IDENTIFIER.fullmatch(part):
             raise ValueError(f"invalid BigQuery identifier in namespace: {part!r}")
     dataset = ".".join(components)
-    table_id = table_name.replace("'", "''")
+    table_id = table_name.replace("\\", "\\\\").replace("'", "\\'")
     return (
         "SELECT last_modified_time "
         f"FROM `{dataset}.__TABLES__` "

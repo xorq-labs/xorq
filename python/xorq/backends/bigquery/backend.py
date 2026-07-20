@@ -50,11 +50,20 @@ class Backend(IbisBigQueryBackend):
         # the vendored __hash__ hashes db_identity, which embeds the credential
         # object still kept in _con_kwargs; __eq__ compares the credential-free
         # _profile.hash_name. Key the hash off the same stripped profile so the
-        # hash/eq contract holds (equal backends hash equal)
+        # hash/eq contract holds (equal backends hash equal).
+        #
+        # profile.hash_name is an uncached property that runs a full tokenize on
+        # every access, and __hash__ fires for every ibis node that embeds this
+        # source, so memoize on the profile's identity (recomputing only if
+        # _profile is ever reassigned).
         profile = getattr(self, "_profile", None)
         if profile is None:
             return super().__hash__()
-        return hash(profile.hash_name)
+        cached = getattr(self, "_hash_cache", None)
+        if cached is None or cached[0] is not profile:
+            cached = (profile, hash(profile.hash_name))
+            self._hash_cache = cached
+        return cached[1]
 
     def read_record_batches(
         self,
