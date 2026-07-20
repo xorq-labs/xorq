@@ -340,13 +340,18 @@ def _make_remote_replacer(
     # running at all when no RemoteTable is reachable at this boundary.
     reader_counts = count_remote_table_readers(expr)
 
-    # ``reader_counts`` has one entry per boundary RemoteTable, so its length is
-    # the eventual ``scope.table_count``. Emit the historical
-    # ``remote_table.replace`` event on the active ``transform.remote`` span so
-    # trace/dashboards keyed on the RemoteTable fan-out keep firing.
-    if reader_counts:
+    # Emit the historical ``remote_table.replace`` event on the active
+    # ``transform.remote`` span so trace/dashboards keyed on the RemoteTable
+    # fan-out keep firing. Count the boundary RemoteTables directly (== the
+    # eventual ``scope.table_count``, matching this pass's own ``find``-based
+    # ``when`` guard) rather than ``len(reader_counts)``: the count returns ``{}``
+    # for a compiler-less backend or a failed SQL compile even when RemoteTables
+    # are present, so gating on it would silently drop the event in exactly that
+    # case (see gh-2160).
+    remote_table_count = len(expr.op().find(RemoteTable))
+    if remote_table_count:
         get_current_span().add_event(
-            "remote_table.replace", {"remote_table.count": len(reader_counts)}
+            "remote_table.replace", {"remote_table.count": remote_table_count}
         )
 
     def replacer(node, kwargs):
