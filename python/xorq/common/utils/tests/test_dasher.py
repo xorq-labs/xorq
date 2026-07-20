@@ -69,6 +69,10 @@ from xorq.common.utils.dasher._opaque import (
     _normalize_computed_kwargs_expr,
     _parent_token,
 )
+from xorq.common.utils.dasher._relations import (
+    _bigquery_last_modified_query,
+    _normalize_bigquery_databasetable_xorq,
+)
 from xorq.common.utils.file_utils import normalize_read_path_stat
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.common.utils.toolz_utils import curry as xo_curry
@@ -1184,3 +1188,121 @@ def test_deferred_sklearn_metric_build_expr() -> None:
     )
     result = build_expr(expr, builds_dir=tempfile.mkdtemp())
     assert result is not None
+
+
+@pytest.mark.parametrize(
+    ("catalog", "database", "expected_dataset"),
+    (
+        pytest.param("proj", "ds", "proj.ds", id="catalog-qualified"),
+        pytest.param(None, "ds", "ds", id="database-only"),
+        pytest.param(
+            "google.com:proj", "ds", "google.com:proj.ds", id="domain-scoped-project"
+        ),
+    ),
+)
+def test_bigquery_last_modified_query(
+    catalog: str | None, database: str, expected_dataset: str
+) -> None:
+    namespace = types.SimpleNamespace(catalog=catalog, database=database)
+    query = _bigquery_last_modified_query(namespace, "batting")
+    assert f"FROM `{expected_dataset}.__TABLES__`" in query
+    assert "WHERE table_id = 'batting'" in query
+
+
+def test_bigquery_last_modified_query_escapes_single_quote() -> None:
+    # GoogleSQL escapes quotes with a backslash, not by doubling
+    namespace = types.SimpleNamespace(catalog=None, database="ds")
+    query = _bigquery_last_modified_query(namespace, "o'brien")
+    assert r"table_id = 'o\'brien'" in query
+
+
+def test_bigquery_last_modified_query_escapes_backslash() -> None:
+    # a backslash must itself be escaped, and escaped before the quote so an
+    # escaped quote isn't double-escaped back into a literal quote
+    namespace = types.SimpleNamespace(catalog=None, database="ds")
+    query = _bigquery_last_modified_query(namespace, "a\\b'c")
+    assert r"table_id = 'a\\b\'c'" in query
+
+
+@pytest.mark.parametrize(
+    ("catalog", "database"),
+    (
+        pytest.param("proj`inj", "ds", id="backtick-in-catalog"),
+        pytest.param(None, "ds`inj", id="backtick-in-database"),
+    ),
+)
+def test_bigquery_last_modified_query_rejects_bad_identifier(
+    catalog: str | None, database: str
+) -> None:
+    namespace = types.SimpleNamespace(catalog=catalog, database=database)
+    with pytest.raises(ValueError, match="invalid BigQuery identifier"):
+        _bigquery_last_modified_query(namespace, "batting")
+
+
+def _fake_bigquery_dt(raw_sql_result: object) -> types.SimpleNamespace:
+    # stand-in DatabaseTable whose source.raw_sql(...) either raises (when
+    # raw_sql_result is an Exception) or returns something with .to_dataframe()
+    class _Query:
+        def to_dataframe(self) -> object:
+            return raw_sql_result
+
+    class _Source:
+        name = "bigquery"
+
+        def raw_sql(self, query: str) -> _Query:
+            if isinstance(raw_sql_result, Exception):
+                raise raw_sql_result
+            return _Query()
+
+    return types.SimpleNamespace(
+        namespace=types.SimpleNamespace(catalog="proj", database="ds"),
+        name="batting",
+        schema={"playerID": "string"},
+        source=_Source(),
+    )
+
+
+def _bigquery_base(dt: types.SimpleNamespace) -> tuple:
+    return (
+        "ibis.DatabaseTable.bigquery",
+        dt.name,
+        normalize_ibis_schema(dt.schema),
+        dt.namespace,
+    )
+
+
+@pytest.mark.bigquery
+@pytest.mark.parametrize(
+    "case",
+    (
+        pytest.param("empty", id="empty-frame"),
+        pytest.param("null", id="null-last-modified"),
+        pytest.param("raises", id="tables-lookup-raises"),
+    ),
+)
+def test_normalize_bigquery_databasetable_falls_back(case: str) -> None:
+    # the __TABLES__ lookup degrades to a structural token (no last_modified_time
+    # appended) for session/temp/external tables — whether the lookup returns an
+    # empty frame, a NULL last_modified_time, or raises because __TABLES__ isn't
+    # queryable in the (anonymous session) dataset
+    gexc = pytest.importorskip("google.api_core.exceptions")
+    if case == "empty":
+        raw_sql_result: object = pd.DataFrame({"last_modified_time": []})
+    elif case == "null":
+        raw_sql_result = pd.DataFrame({"last_modified_time": [pd.NA]})
+    else:
+        raw_sql_result = gexc.NotFound("no __TABLES__ for the session dataset")
+
+    dt = _fake_bigquery_dt(raw_sql_result)
+    assert _normalize_bigquery_databasetable_xorq(dt) == _bigquery_base(dt)
+
+
+@pytest.mark.bigquery
+def test_normalize_bigquery_databasetable_keys_on_last_modified() -> None:
+    # a real table appends its native-int last_modified_time to the base token
+    pytest.importorskip("google.api_core.exceptions")
+    dt = _fake_bigquery_dt(pd.DataFrame({"last_modified_time": [1721000000000]}))
+    token = _normalize_bigquery_databasetable_xorq(dt)
+    assert token[:-1] == _bigquery_base(dt)
+    assert token[-1] == 1721000000000
+    assert type(token[-1]) is int

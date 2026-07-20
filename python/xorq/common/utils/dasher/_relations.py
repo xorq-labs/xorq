@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextvars
 import pathlib
 import re
+from typing import TYPE_CHECKING
 
 from xorq_dasher.rules.expr import (
     normalize_cached_node,
@@ -29,6 +30,10 @@ from xorq.common.utils.dasher._paths import (
     _normalize_path_stat,
     _stat_or_canonical,
 )
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr import operations as ops
 
 
 # Per-outer-call memo for ``_databasetable_dispatcher``.  Cross-engine nested
@@ -190,7 +195,78 @@ def _normalize_datafusion_databasetable_xorq(dt):
     raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")
 
 
-def _databasetable_dispatcher(dt):
+# BigQuery project/dataset identifiers are letters, digits, underscores and
+# hyphens, plus the '.' and ':' of a legacy domain-scoped project id (e.g.
+# `google.com:my-project`); anything else (notably a backtick) cannot appear in
+# a valid namespace and would corrupt the backtick-quoted __TABLES__ reference
+_BQ_IDENTIFIER = re.compile(r"[A-Za-z0-9_.:\-]+")
+
+
+def _bigquery_last_modified_query(namespace: ops.Namespace, table_name: str) -> str:
+    """Build the ``__TABLES__.last_modified_time`` lookup for a DatabaseTable.
+
+    ``table_name`` is compared as a GoogleSQL string literal, which escapes with
+    a backslash (BigQuery has no ``''`` quote-doubling), so both ``\\`` and ``'``
+    are backslash-escaped — backslash first, or an escaped quote would be double
+    escaped. The dataset path is a backtick-quoted identifier, so each of its
+    components is validated against the BigQuery identifier grammar (a name with
+    a backtick would otherwise break out of the quoting).
+    """
+    components = tuple(part for part in (namespace.catalog, namespace.database) if part)
+    for part in components:
+        if not _BQ_IDENTIFIER.fullmatch(part):
+            raise ValueError(f"invalid BigQuery identifier in namespace: {part!r}")
+    dataset = ".".join(components)
+    table_id = table_name.replace("\\", "\\\\").replace("'", "\\'")
+    return (
+        "SELECT last_modified_time "
+        f"FROM `{dataset}.__TABLES__` "
+        f"WHERE table_id = '{table_id}'"
+    )
+
+
+def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
+    """BigQuery DT normalizer keyed on ``__TABLES__.last_modified_time``.
+
+    xorq_dasher 0.1.0's ``normalize_bigquery_databasetable`` unpacks the
+    result with ``((last_modified_time,),) = ...to_dataframe()``, which
+    iterates the DataFrame by *column label* rather than by row and so raises
+    ``ValueError: too many values to unpack`` for every BigQuery table. Read
+    the scalar out of the frame directly instead, and qualify ``__TABLES__``
+    with the catalog so tables outside the billing project resolve.
+    """
+    import pandas as pd  # noqa: PLC0415
+    from google.api_core.exceptions import GoogleAPICallError  # noqa: PLC0415
+
+    query = _bigquery_last_modified_query(dt.namespace, dt.name)
+    base = (
+        "ibis.DatabaseTable.bigquery",
+        dt.name,
+        normalize_ibis_schema(dt.schema),
+        dt.namespace,
+    )
+    try:
+        df = dt.source.raw_sql(query).to_dataframe()
+    except GoogleAPICallError:
+        # anonymous session tables (e.g. read_parquet) live in a dataset whose
+        # __TABLES__ isn't necessarily queryable, so the lookup can *raise*
+        # (NotFound/BadRequest) rather than return an empty frame; fall back to
+        # a stable structural token in that case too
+        return base
+    if df.empty:
+        # a queryable __TABLES__ that simply has no row for this table_id
+        # (also possible for session/temp tables); same structural fallback —
+        # the namespace already makes the token distinct
+        return base
+    (last_modified_time,) = df["last_modified_time"]
+    if pd.isna(last_modified_time):
+        # external/federated tables report a NULL last_modified_time
+        return base
+    # a numpy scalar has no dasher normalizer; hand back a native int
+    return (*base, int(last_modified_time))
+
+
+def _databasetable_dispatcher(dt: ops.DatabaseTable) -> tuple:
     """Dispatch DatabaseTable subclasses to their specific normalizers.
 
     xorq_dasher 0.1.0's normalize_databasetable does not handle the
@@ -262,11 +338,15 @@ def _dispatch_databasetable(dt):
         return _normalize_datafusion_databasetable_xorq(dt)
     if dt.source.name == "duckdb":
         return _normalize_duckdb_databasetable_xorq(dt)
-    # All other backends fall through to ``xorq_dasher`` ``normalize_databasetable``,
-    # which is itself a per-backend dispatch table postgres calls
+    # xorq_dasher 0.1.0's bigquery normalizer unpacks its result frame by
+    # column label and crashes on every table; use the fixed xorq version.
+    if dt.source.name == "bigquery":
+        return _normalize_bigquery_databasetable_xorq(dt)
+    # All remaining backends fall through to ``xorq_dasher``
+    # ``normalize_databasetable`` (bigquery is handled above and never reaches
+    # here), which is itself a per-backend dispatch table postgres calls
     # ``get_postgres_n_reltuples``, snowflake calls
-    # ``get_snowflake_last_modification_time``, bigquery queries
-    # ``__TABLES__.last_modified_time``, pyiceberg calls
+    # ``get_snowflake_last_modification_time``, pyiceberg calls
     # ``get_iceberg_snapshots_ids``, sqlite calls ``get_sqlite_stats``,
     # trino/gizmosql fall back to ``normalize_remote_databasetable``.
     # Data-sensitivity is preserved upstream, not blindly flattened to
@@ -276,6 +356,7 @@ def _dispatch_databasetable(dt):
 
 __all__ = [
     "_databasetable_dispatcher",
+    "_normalize_bigquery_databasetable_xorq",
     "_normalize_datafusion_databasetable_xorq",
     "_normalize_duckdb_databasetable_xorq",
     "_normalize_read_xorq",

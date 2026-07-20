@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import importlib.util
 import itertools
 
 import _pytest
@@ -59,6 +60,21 @@ def pytest_ignore_collect(collection_path, config):
     backend = _get_backend_from_parts(collection_path.parts)
     if backend is None or backend not in _get_backend_names():
         return False
+
+    # unlike other optional backends, the bigquery package __init__ eagerly
+    # imports google.cloud.bigquery (via vendored ibis), so its tests/conftest
+    # cannot even load to reach its own importorskip when the `bigquery` extra
+    # is absent; skip the collection outright in that case (find_spec does not
+    # import the module)
+    if backend == "bigquery":
+        try:
+            has_bigquery = importlib.util.find_spec("google.cloud.bigquery") is not None
+        except ModuleNotFoundError:
+            # find_spec imports parent packages; a wholly-absent `google`
+            # namespace raises rather than returning None
+            has_bigquery = False
+        if not has_bigquery:
+            return True
 
     # we evaluate the marker early so that we don't trigger
     # an import of conftest files for the backend, which will
