@@ -1,5 +1,3 @@
-from contextlib import contextmanager
-
 import pyarrow as pa
 import pytest
 from adbc_driver_manager import ProgrammingError
