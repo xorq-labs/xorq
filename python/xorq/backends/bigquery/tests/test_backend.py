@@ -5,6 +5,7 @@ import warnings
 from typing import TYPE_CHECKING
 
 import pytest
+from adbc_driver_manager import AdbcStatusCode, ProgrammingError
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
@@ -151,6 +152,69 @@ def test_adbc_quiet_for_adc_credentials() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         BigQueryADBC(con).db_kwargs
+
+
+def _fake_conn_raising(exc: Exception) -> object:
+    # a stand-in ADBC connection whose cursor.adbc_ingest raises `exc`, so the
+    # base-class ingest path runs end-to-end without a real driver/network
+    class FakeCursor:
+        def adbc_ingest(self, *args, **kwargs):
+            raise exc
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+    class FakeConn:
+        def cursor(self):
+            return FakeCursor()
+
+        def commit(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+    return FakeConn()
+
+
+def test_adbc_ingest_translates_stale_wheel_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # the stale PyPI wheel rejects `adbc.ingest.*` in its own option parser; the
+    # cryptic message must be translated into the `dbc install bigquery` fix
+    exc = ProgrammingError(
+        "INVALID_ARGUMENT: unknown statement string type option "
+        "`adbc.ingest.target_table`",
+        status_code=AdbcStatusCode.INVALID_ARGUMENT,
+    )
+    con = _mock_con({}, None)
+    monkeypatch.setattr(
+        BigQueryADBC, "get_conn", lambda self, **k: _fake_conn_raising(exc)
+    )
+    with pytest.raises(RuntimeError, match="does not support bulk ingest"):
+        BigQueryADBC(con).adbc_ingest("t", object())
+
+
+def test_adbc_ingest_passes_through_unrelated_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # an unrelated driver ProgrammingError (auth, bad table) must propagate as-is
+    exc = ProgrammingError(
+        "PERMISSION_DENIED: caller lacks bigquery.tables.create",
+        status_code=AdbcStatusCode.UNAUTHORIZED,
+    )
+    con = _mock_con({}, None)
+    monkeypatch.setattr(
+        BigQueryADBC, "get_conn", lambda self, **k: _fake_conn_raising(exc)
+    )
+    with pytest.raises(ProgrammingError, match="PERMISSION_DENIED"):
+        BigQueryADBC(con).adbc_ingest("t", object())
 
 
 @pytest.mark.parametrize(

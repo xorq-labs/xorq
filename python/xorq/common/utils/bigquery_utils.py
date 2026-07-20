@@ -112,5 +112,26 @@ class BigQueryADBC(ADBCBase):
                 raise
             raise RuntimeError(
                 "could not load the BigQuery ADBC driver; install it with "
-                "`dbc install bigquery` (https://dbc.columnar.tech)"
+                "`dbc install bigquery` (https://dbc.columnar.tech). Note the "
+                "PyPI `adbc-driver-bigquery` package will not work for "
+                "ingestion: its build predates `adbc.ingest.*` support."
             ) from e
+
+    def adbc_ingest(self, *args: Any, **kwargs: Any) -> None:
+        # the stale PyPI `adbc-driver-bigquery` wheel (old apache/arrow-adbc
+        # lineage) loads and queries fine but was built without bulk-ingest, so
+        # it rejects `adbc.ingest.*` in its own option parser on the first
+        # ingest call — before any rows stream. Translate its cryptic
+        # "unknown statement string type option" into the real fix.
+        try:
+            super().adbc_ingest(*args, **kwargs)
+        except ProgrammingError as e:
+            msg = str(e)
+            if "unknown statement string type option" in msg and "adbc.ingest" in msg:
+                raise RuntimeError(
+                    "the loaded BigQuery ADBC driver does not support bulk "
+                    "ingest; this is the stale PyPI `adbc-driver-bigquery` "
+                    "wheel. Install the supported driver with `dbc install "
+                    "bigquery` (https://dbc.columnar.tech)."
+                ) from e
+            raise
