@@ -29,6 +29,16 @@ _AUTH_TYPE_USER = "adbc.bigquery.sql.auth_type.user_authentication"
 class BigQueryADBC(ADBCBase):
     con = field(validator=instance_of(BigQueryBackend))
 
+    # the PyPI `adbc-driver-bigquery` wheel is a plausible-looking trap: it
+    # loads and can run queries, but is a stale lineage (<=1.11.x) whose
+    # statement options predate bulk ingest; only the dbc-distributed Foundry
+    # driver (>=1.12.1) supports it
+    ingest_install_hint = (
+        "install the maintained BigQuery driver with `dbc install bigquery` "
+        "(https://dbc.columnar.tech); the PyPI `adbc-driver-bigquery` wheel "
+        "does not support bulk ingest"
+    )
+
     @property
     def credentials(self) -> Any:
         # google.cloud.client.Client stores the auth object on the private
@@ -112,5 +122,7 @@ class BigQueryADBC(ADBCBase):
                 raise
             raise RuntimeError(
                 "could not load the BigQuery ADBC driver; install it with "
-                "`dbc install bigquery` (https://dbc.columnar.tech)"
+                "`dbc install bigquery` (https://dbc.columnar.tech). Note the "
+                "PyPI `adbc-driver-bigquery` package will not work for "
+                "ingestion: its build predates `adbc.ingest.*` support."
             ) from e
