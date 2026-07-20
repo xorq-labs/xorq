@@ -1262,6 +1262,7 @@ def _bigquery_base(dt: types.SimpleNamespace) -> tuple:
     )
 
 
+@pytest.mark.bigquery
 @pytest.mark.parametrize(
     "case",
     (
@@ -1287,6 +1288,7 @@ def test_normalize_bigquery_databasetable_falls_back(case: str) -> None:
     assert _normalize_bigquery_databasetable_xorq(dt) == _bigquery_base(dt)
 
 
+@pytest.mark.bigquery
 def test_normalize_bigquery_databasetable_keys_on_last_modified() -> None:
     # a real table appends its native-int last_modified_time to the base token
     pytest.importorskip("google.api_core.exceptions")
