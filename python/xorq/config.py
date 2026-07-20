@@ -10,6 +10,7 @@ from xorq.common.utils.env_utils import (
     env_templates_dir,
     parse_bool_env,
     parse_float_env,
+    parse_int_env,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends import BaseBackend
@@ -238,10 +239,13 @@ class TUI(Config):
         SQL / Info / Schema / Revisions panels. Coalesces rapid ``j``/``k``
         traversal so only the settled selection is rendered. Set to 0 to
         render synchronously on every focus change.
+    row_limit : int
+        Maximum number of rows fetched into the data-view panel, passed as
+        ``--limit`` to ``xorq catalog run``. Clamped to a minimum of 1.
     """
 
-    left_ratio: int = max(int(env_config.XORQ_TUI_LEFT_RATIO or 2), 1)
-    right_ratio: int = max(int(env_config.XORQ_TUI_RIGHT_RATIO or 3), 1)
+    left_ratio: int = max(parse_int_env(env_config.XORQ_TUI_LEFT_RATIO, 2), 1)
+    right_ratio: int = max(parse_int_env(env_config.XORQ_TUI_RIGHT_RATIO, 3), 1)
     revisions_open: bool = bool(env_config.XORQ_TUI_REVISIONS_OPEN) and parse_bool_env(
         env_config.XORQ_TUI_REVISIONS_OPEN
     )
@@ -249,11 +253,12 @@ class TUI(Config):
         env_config.XORQ_TUI_GIT_LOG_OPEN
     )
     sql_highlight_max_lines: int = max(
-        int(env_config.XORQ_TUI_SQL_HIGHLIGHT_MAX_LINES or 500), 0
+        parse_int_env(env_config.XORQ_TUI_SQL_HIGHLIGHT_MAX_LINES, 500), 0
     )
     highlight_debounce: float = max(
         parse_float_env(env_config.XORQ_TUI_HIGHLIGHT_DEBOUNCE, 0.15), 0.0
     )
+    row_limit: int = max(parse_int_env(env_config.XORQ_TUI_ROW_LIMIT, 10000), 1)
 
 
 def _default_use_hardlink():

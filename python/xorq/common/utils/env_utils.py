@@ -168,6 +168,22 @@ def parse_float_env(value: str | None, default: float) -> float:
         return default
 
 
+def parse_int_env(value: str | None, default: int) -> int:
+    """Parse an int env var, falling back to ``default`` on unset/malformed.
+
+    Unset/empty -> ``default``.  A non-integer value (e.g. ``"abc"`` or a
+    float string like ``"1.5"``) falls back to ``default`` instead of raising
+    at import time, which would otherwise break every ``import xorq``
+    entrypoint, not just the TUI.
+    """
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 def parse_bool_env(value: str) -> bool:
     normalised = value.strip().lower()
     if normalised in _TRUTHY:

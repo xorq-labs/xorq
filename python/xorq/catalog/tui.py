@@ -325,9 +325,6 @@ class RevisionRowData:
         )
 
 
-VIEW_LIMIT = 50_000
-
-
 @cache
 def _ibis_table_method_names() -> tuple[str, ...]:
     """Public method names on the ibis Table class, for tab-completion."""
@@ -1345,7 +1342,7 @@ class DataViewScreen(Screen):
         """Build the xorq catalog run subprocess command."""
         cmd = self._catalog_base_cmd("run") + [
             "--limit",
-            str(VIEW_LIMIT),
+            str(options.tui.row_limit),
             "-o",
             "-",
             "-f",
