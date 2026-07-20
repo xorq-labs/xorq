@@ -17,7 +17,14 @@ if TYPE_CHECKING:
 class Backend(IbisBigQueryBackend):
     # live runtime objects (secrets / prebuilt clients) that can't be serialized
     # to YAML and must not be baked into a connection profile / build artifact;
-    # reconnection re-derives credentials from Application Default Credentials
+    # reconnection re-derives credentials from Application Default Credentials.
+    #
+    # NB: this is the "unserializable runtime object" strip list, a *different*
+    # axis from profiles.check_for_exposed_secrets / con_name_to_secret_keys,
+    # which rejects plaintext *string* secrets that should be env-var refs. These
+    # keys hold objects (not strings) and are stripped here in __init__ before a
+    # profile is ever saved, so the secret check never observes them — the two
+    # are intentionally not unified.
     _profile_exclude_kwargs = ("credentials", "client", "storage_client")
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:

@@ -234,6 +234,7 @@ def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
     with the catalog so tables outside the billing project resolve.
     """
     import pandas as pd  # noqa: PLC0415
+    from google.api_core.exceptions import GoogleAPICallError  # noqa: PLC0415
 
     query = _bigquery_last_modified_query(dt.namespace, dt.name)
     base = (
@@ -242,11 +243,18 @@ def _normalize_bigquery_databasetable_xorq(dt: ops.DatabaseTable) -> tuple:
         normalize_ibis_schema(dt.schema),
         dt.namespace,
     )
-    df = dt.source.raw_sql(query).to_dataframe()
+    try:
+        df = dt.source.raw_sql(query).to_dataframe()
+    except GoogleAPICallError:
+        # anonymous session tables (e.g. read_parquet) live in a dataset whose
+        # __TABLES__ isn't necessarily queryable, so the lookup can *raise*
+        # (NotFound/BadRequest) rather than return an empty frame; fall back to
+        # a stable structural token in that case too
+        return base
     if df.empty:
-        # anonymous session tables (e.g. read_parquet) don't appear in the
-        # queried __TABLES__; fall back to a stable structural token — the
-        # session dataset id already makes it distinct
+        # a queryable __TABLES__ that simply has no row for this table_id
+        # (also possible for session/temp tables); same structural fallback —
+        # the namespace already makes the token distinct
         return base
     (last_modified_time,) = df["last_modified_time"]
     if pd.isna(last_modified_time):
