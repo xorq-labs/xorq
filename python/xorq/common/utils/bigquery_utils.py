@@ -30,12 +30,17 @@ class BigQueryADBC(ADBCBase):
 
     @property
     def credentials(self) -> Any:
-        # google.cloud.bigquery.Client exposes the auth object here
-        return getattr(self.con.client, "credentials", None)
+        # google.cloud.client.Client stores the auth object on the private
+        # `_credentials`; it exposes no public `credentials` attribute, so
+        # reading `client.credentials` would silently always be None
+        return getattr(self.con.client, "_credentials", None)
 
     @property
     def project_id(self) -> str:
-        project_id = self.con.billing_project or self.con.data_project
+        # prefer data_project: read paths (`self.table()` after ingest) resolve
+        # via `current_catalog`, which is `data_project`, so ingest must target
+        # the same project or the freshly-ingested table won't resolve
+        project_id = self.con.data_project or self.con.billing_project
         if not project_id:
             raise ValueError("BigQuery backend has no resolvable project id")
         return project_id
