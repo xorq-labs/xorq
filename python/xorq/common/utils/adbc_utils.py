@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 
-from adbc_driver_manager import ProgrammingError
-
 
 class ADBCBase(ABC):
     """Mixin base class for ADBC-backed ingestion helpers.
@@ -29,6 +27,9 @@ class ADBCBase(ABC):
         conn_kwargs=None,
         **kwargs,
     ):
+        # deferred so importing this module doesn't require the ADBC extras
+        from adbc_driver_manager import ProgrammingError  # noqa: PLC0415
+
         with self.get_conn(**(conn_kwargs or {})) as conn:
             with conn.cursor() as cur:
                 # capability probe: a driver that cannot bulk ingest rejects

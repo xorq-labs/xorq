@@ -1,8 +1,12 @@
 import pyarrow as pa
 import pytest
-from adbc_driver_manager import ProgrammingError
 
-from xorq.common.utils.adbc_utils import ADBCBase
+
+pytest.importorskip("adbc_driver_manager")
+
+from adbc_driver_manager import ProgrammingError  # noqa: E402
+
+from xorq.common.utils.adbc_utils import ADBCBase  # noqa: E402
 
 
 INGEST_UNSUPPORTED = ProgrammingError(
