@@ -130,9 +130,20 @@ def test_adbc_warns_when_dropping_explicit_non_user_credentials() -> None:
     assert db_kwargs["adbc.bigquery.sql.auth_type"].endswith("auth_bigquery")
 
 
+def test_adbc_warns_for_prebuilt_client_credentials() -> None:
+    # connecting via a prebuilt `client=` carries the credential under the
+    # `client` kwarg, not `credentials`; the drop must still warn
+    cred = types.SimpleNamespace(
+        service_account_email="svc@proj.iam.gserviceaccount.com"
+    )
+    con = _mock_con({"client": object()}, cred)
+    with pytest.warns(UserWarning, match="cannot reuse the explicit credentials"):
+        BigQueryADBC(con).db_kwargs
+
+
 def test_adbc_quiet_for_adc_credentials() -> None:
-    # ADC-authenticated backends carry no `credentials` kwarg, so the fallback to
-    # ADC discovery is expected and must not warn
+    # ADC-authenticated backends carry no `credentials`/`client` kwarg, so the
+    # fallback to ADC discovery is expected and must not warn
     cred = types.SimpleNamespace(
         service_account_email="svc@proj.iam.gserviceaccount.com"
     )

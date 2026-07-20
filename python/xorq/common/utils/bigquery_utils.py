@@ -75,16 +75,20 @@ class BigQueryADBC(ADBCBase):
                 _AUTH_REFRESH_TOKEN: refresh_token,
             }
         else:
-            # `credentials` in _con_kwargs means the user passed an explicit
-            # credential to connect(); if it isn't user-OAuth we're about to drop
-            # it in favour of ADC discovery, which may resolve a different
-            # identity. (ADC-authenticated backends don't carry the key here, so
-            # the common path stays quiet.)
+            # a `credentials` or `client` kwarg means the user supplied an
+            # explicit credential to connect() (directly, or via a prebuilt
+            # client); if it isn't user-OAuth we're about to drop it in favour of
+            # ADC discovery, which may resolve a different identity.
+            # (ADC-authenticated backends carry neither key, so the common path
+            # stays quiet.)
             con_kwargs = getattr(self.con, "_con_kwargs", {})
-            if credentials is not None and "credentials" in con_kwargs:
+            if (
+                credentials is not None
+                and {"credentials", "client"} & con_kwargs.keys()
+            ):
                 warnings.warn(
                     "BigQuery ADBC ingest cannot reuse the explicit credentials "
-                    "passed to connect() (only user/OAuth credentials are "
+                    "supplied to connect() (only user/OAuth credentials are "
                     "forwardable); it will fall back to Application Default "
                     "Credentials, which may authenticate as a different "
                     "identity. Ensure ADC resolves to the same identity (e.g. "
