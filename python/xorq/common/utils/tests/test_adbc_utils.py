@@ -25,11 +25,14 @@ class FakeStatement:
 
 
 class FakeCursor:
-    def __init__(self, supports_ingest):
+    def __init__(self, supports_ingest, ingest_exc=None):
         self.adbc_statement = FakeStatement(supports_ingest)
+        self.ingest_exc = ingest_exc
         self.ingested = None
 
     def adbc_ingest(self, table_name, reader, **kwargs):
+        if self.ingest_exc is not None:
+            raise self.ingest_exc
         self.ingested = (table_name, reader)
 
     def __enter__(self):
@@ -40,8 +43,8 @@ class FakeCursor:
 
 
 class FakeConn:
-    def __init__(self, supports_ingest):
-        self._cursor = FakeCursor(supports_ingest)
+    def __init__(self, supports_ingest, ingest_exc=None):
+        self._cursor = FakeCursor(supports_ingest, ingest_exc)
         self.committed = False
 
     def cursor(self):
@@ -57,12 +60,12 @@ class FakeConn:
         return False
 
 
-def make_adbc(supports_ingest, hint=""):
+def make_adbc(supports_ingest, hint="", ingest_exc=None):
     class FakeADBC(ADBCBase):
         ingest_install_hint = hint
 
         def __init__(self):
-            self.conn = FakeConn(supports_ingest)
+            self.conn = FakeConn(supports_ingest, ingest_exc)
 
         def get_conn(self, **kwargs):
             return self.conn
@@ -99,3 +102,15 @@ def test_adbc_ingest_probe_rejects_without_hint():
     adbc = make_adbc(supports_ingest=False)
     with pytest.raises(RuntimeError, match="does not support bulk ingest$"):
         adbc.adbc_ingest("t", make_reader())
+
+
+def test_adbc_ingest_unrelated_error_propagates():
+    # a driver whose probe passes but whose ingest fails for an unrelated
+    # reason (auth, bad table) must raise the original error untranslated
+    exc = ProgrammingError(
+        "PERMISSION_DENIED: caller lacks bigquery.tables.create", status_code=1
+    )
+    adbc = make_adbc(supports_ingest=True, ingest_exc=exc)
+    with pytest.raises(ProgrammingError, match="PERMISSION_DENIED"):
+        adbc.adbc_ingest("t", make_reader())
+    assert not adbc.conn.committed

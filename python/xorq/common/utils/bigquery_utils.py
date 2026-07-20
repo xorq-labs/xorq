@@ -122,5 +122,7 @@ class BigQueryADBC(ADBCBase):
                 raise
             raise RuntimeError(
                 "could not load the BigQuery ADBC driver; install it with "
-                "`dbc install bigquery` (https://dbc.columnar.tech)"
+                "`dbc install bigquery` (https://dbc.columnar.tech). Note the "
+                "PyPI `adbc-driver-bigquery` package will not work for "
+                "ingestion: its build predates `adbc.ingest.*` support."
             ) from e
