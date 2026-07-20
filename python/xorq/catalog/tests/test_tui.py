@@ -15,6 +15,7 @@ IMPORTANT — populating the catalog tree in pilot tests:
 """
 
 import asyncio
+import importlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,7 @@ import pytest
 from textual.widgets import DataTable, Input, Static, Tree
 
 import xorq.api as xo
+import xorq.config
 from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.bind import _eval_code
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
@@ -61,7 +63,6 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
-    parse_int_env,
 )
 from xorq.config import TUI, options
 from xorq.ibis_yaml.enums import ExprKind
@@ -1427,15 +1428,32 @@ def test_catalog_run_cmd_uses_configured_row_limit(
         pytest.param("1", 1, id="min"),
         pytest.param("0", 1, id="zero-clamped"),
         pytest.param("-5", 1, id="negative-clamped"),
+        pytest.param(None, 10000, id="unset-default"),
         pytest.param("", 10000, id="empty-default"),
         pytest.param("abc", 10000, id="malformed-default"),
     ],
 )
-def test_row_limit_clamp_and_default(raw: str, expected: int) -> None:
-    # mirrors the config.py field expression: env string -> parsed int,
-    # floored at 1, malformed/unset -> 10000. Guards the floor + default
-    # contract that options.tui(...) overrides bypass.
-    assert max(parse_int_env(raw, 10000), 1) == expected
+def test_row_limit_clamp_and_default(
+    monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: int
+) -> None:
+    # Exercise the real TUI.row_limit field definition in config.py: the field
+    # default is evaluated at import time against env_config, so reload the
+    # module with XORQ_TUI_ROW_LIMIT set to re-run the class body. Reading
+    # TUI().row_limit or options.tui({...}) would NOT hit the parse/clamp path
+    # (import-time eval, and context-manager overrides bypass the max(...,1)
+    # floor). Guards the floor (1) + default (10000) contract against drift.
+    if raw is None:
+        monkeypatch.delenv("XORQ_TUI_ROW_LIMIT", raising=False)
+    else:
+        monkeypatch.setenv("XORQ_TUI_ROW_LIMIT", raw)
+    try:
+        reloaded = importlib.reload(xorq.config)
+        assert reloaded.TUI().row_limit == expected
+    finally:
+        # restore module-global env_config/options to the unset-env defaults so
+        # later tests in this worker see the original config singletons.
+        monkeypatch.undo()
+        importlib.reload(xorq.config)
 
 
 def test_tui_options_apply_column_widths(catalog):
