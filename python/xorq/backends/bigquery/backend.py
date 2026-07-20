@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from xorq.backends.bigquery.enums import IngestMode
+from xorq.common.utils.enums import IngestMode
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends.bigquery import Backend as IbisBigQueryBackend
 from xorq.vendor.ibis.backends.profiles import Profile
