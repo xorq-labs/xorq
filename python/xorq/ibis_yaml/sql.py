@@ -33,9 +33,11 @@ def to_sql(expr: ir.Expr) -> str:
     # non-executing treatment the `.sql()` view path applies).
     uncached = _remove_tee_nodes(expr.ls.uncached)
     try:
-        compiler_provider = uncached._find_backend(
-            use_default=True
-        )  # xorq-style: disable=protected-access
+        compiler_provider = (
+            uncached._find_backend(  # xorq-style: disable=protected-access
+                use_default=True
+            )
+        )
         if getattr(compiler_provider, "compiler", None) is None:
             warnings.warn(
                 f"{compiler_provider} is not a SQL backend, so no SQL string will be generated",

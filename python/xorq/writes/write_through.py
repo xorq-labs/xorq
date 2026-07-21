@@ -66,9 +66,10 @@ class WriteThrough(abc.ABC):
         """Pull from *batches*, write each as a side effect, yield onward."""
         ...
 
-    def iter_cons(self) -> tuple[BaseBackend, ...]:
+    @property
+    def cons(self) -> tuple[BaseBackend, ...]:
         """Backend connections this writer holds, for source discovery and
-        profile serialization (see ``find_all_sources``). None by default."""
+        profile serialization (see ``find_all_sources``). Empty by default."""
         return ()
 
     def replace_cons(self, mapping: dict[int, BaseBackend]) -> WriteThrough:
@@ -95,8 +96,6 @@ class ParquetWriteThrough(WriteThrough):
 
     def __dasher_tokenize__(self) -> tuple:
         return ("parquet-write-through", str(self.path), self.mode)
-
-    # parquet writes to the filesystem, not a backend: no con to discover.
 
     def write_through(
         self, batches: Iterable[pa.RecordBatch]
@@ -207,7 +206,8 @@ class BackendWriteThrough(WriteThrough):
             self.mode,
         )
 
-    def iter_cons(self) -> tuple[BaseBackend, ...]:
+    @property
+    def cons(self) -> tuple[BaseBackend, ...]:
         return (self.con,)
 
     def replace_cons(self, mapping: dict[int, BaseBackend]) -> WriteThrough:
@@ -416,8 +416,9 @@ class WritePrimaryWriteThrough(WriteThrough):
     def __dasher_tokenize__(self) -> tuple:
         return self.inner.__dasher_tokenize__()
 
-    def iter_cons(self) -> tuple[BaseBackend, ...]:
-        return self.inner.iter_cons()
+    @property
+    def cons(self) -> tuple[BaseBackend, ...]:
+        return self.inner.cons
 
     def replace_cons(self, mapping: dict[int, BaseBackend]) -> WriteThrough:
         new_inner = self.inner.replace_cons(mapping)

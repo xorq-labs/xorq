@@ -538,7 +538,7 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
     return op.to_expr()
 
 
-def translate_writer(writer: Any, context: TranslationContext) -> dict:
+def translate_writer(writer: Any) -> dict:
     """Serialize a ``WriteThrough``. Backend-bound writers carry their con as a
     profile hash (resolved from ``context.profiles`` on load, discovered as a
     source via ``find_all_sources``); a ``ParquetWriteThrough`` is filesystem-
@@ -546,12 +546,10 @@ def translate_writer(writer: Any, context: TranslationContext) -> dict:
     intentionally omitted so the YAML stays byte-stable across rebuilds."""
     match writer:
         case ParquetWriteThrough():
-            # ParquetWriteThrough only ever writes to the local filesystem
-            # (tempfile + os.link + flock), and its `path` converter strips any
-            # URL scheme -- so the target is always local and, unlike a Read
-            # (content-hashable/relocatable) or a ParquetCache (profile-anchored
-            # root), has nothing to anchor it. The build is therefore never
-            # portable; warn unconditionally rather than pretend to detect it.
+            # The `path` converter strips any URL scheme, so the target is
+            # always the local filesystem with nothing anchoring it to another
+            # environment: warn unconditionally rather than pretend to detect
+            # portability.
             warnings.warn(
                 f"ParquetWriteThrough writes to a local path ({writer.path}); "
                 f"the tee output is not portable across environments.",
@@ -564,7 +562,8 @@ def translate_writer(writer: Any, context: TranslationContext) -> dict:
                     "mode": writer.mode.value,
                 }
             )
-        # ThreadedBackendWriteThrough is a BackendWriteThrough subclass: match it first.
+        # ThreadedBackendWriteThrough subclasses BackendWriteThrough: one arm
+        # keyed by type name covers both without the subclass being swallowed.
         case ThreadedBackendWriteThrough() | BackendWriteThrough():
             return freeze(
                 {
@@ -578,7 +577,7 @@ def translate_writer(writer: Any, context: TranslationContext) -> dict:
             return freeze(
                 {
                     "kind": "WritePrimaryWriteThrough",
-                    "inner": translate_writer(writer.inner, context),
+                    "inner": translate_writer(writer.inner),
                 }
             )
         case _:
@@ -587,15 +586,23 @@ def translate_writer(writer: Any, context: TranslationContext) -> dict:
             )
 
 
+def _writer_yaml_key(writer_yaml: dict, key: str) -> Any:
+    try:
+        return writer_yaml[key]
+    except KeyError as err:
+        raise ValueError(f"writer YAML missing required key {key!r}") from err
+
+
 def load_writer_from_yaml(writer_yaml: dict, context: TranslationContext) -> Any:
-    kind = writer_yaml["kind"]
+    kind = _writer_yaml_key(writer_yaml, "kind")
     match kind:
         case "ParquetWriteThrough":
             return ParquetWriteThrough(
-                path=writer_yaml["path"], mode=writer_yaml["mode"]
+                path=_writer_yaml_key(writer_yaml, "path"),
+                mode=_writer_yaml_key(writer_yaml, "mode"),
             )
         case "BackendWriteThrough" | "ThreadedBackendWriteThrough":
-            profile_name = writer_yaml["profile"]
+            profile_name = _writer_yaml_key(writer_yaml, "profile")
             try:
                 con = context.profiles[profile_name]
             except KeyError as err:
@@ -608,11 +615,15 @@ def load_writer_from_yaml(writer_yaml: dict, context: TranslationContext) -> Any
                 else BackendWriteThrough
             )
             return cls(
-                con, table_name=writer_yaml["table_name"], mode=writer_yaml["mode"]
+                con,
+                table_name=_writer_yaml_key(writer_yaml, "table_name"),
+                mode=_writer_yaml_key(writer_yaml, "mode"),
             )
         case "WritePrimaryWriteThrough":
             return WritePrimaryWriteThrough(
-                inner=load_writer_from_yaml(writer_yaml["inner"], context)
+                inner=load_writer_from_yaml(
+                    _writer_yaml_key(writer_yaml, "inner"), context
+                )
             )
         case _:
             raise ValueError(f"Unknown writer kind {kind!r}")
@@ -626,7 +637,7 @@ def _tee_node_to_yaml(op: TeeNode, context: TranslationContext) -> dict:
             "op": "TeeNode",
             "parent": context.translate_to_yaml(op.parent),
             "drain": op.drain,
-            "writer": translate_writer(op.writer, context),
+            "writer": translate_writer(op.writer),
         }
         | context.registry.register_schema(op.schema)
     )

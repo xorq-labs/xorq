@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
+from pathlib import Path
 
 import pytest
 
 import xorq.api as xo
+import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import find_all_sources
 from xorq.expr.relations import TeeNode
 from xorq.ibis_yaml.compiler import (
@@ -27,7 +29,7 @@ from xorq.writes import (
 
 
 @pytest.fixture(scope="session")
-def awards_players() -> object:
+def awards_players() -> ir.Table:
     # datafusion-backed: tee() needs a backend that allows concurrent reader
     # pulls, else execute() deadlocks on the single connection (ADR-0014).
     con = xo.connect()
@@ -35,17 +37,17 @@ def awards_players() -> object:
     return con.read_parquet(parquet_path, table_name="awards_players")
 
 
-def _tee_op(expr: object) -> TeeNode:
+def _tee_op(expr: ir.Expr) -> TeeNode:
     op = expr.op()
     assert isinstance(op, TeeNode)
     return op
 
 
-def _profiles(expr: object) -> dict:
+def _profiles(expr: ir.Expr) -> dict:
     return {con._profile.hash_name: con for con in find_all_sources(expr)}
 
 
-def test_parquet_tee_roundtrip(awards_players: object, tmp_path: object) -> None:
+def test_parquet_tee_roundtrip(awards_players: ir.Table, tmp_path: Path) -> None:
     expr = awards_players.tee(ParquetWriteThrough(path=tmp_path / "out.parquet"))
 
     profiles = _profiles(expr)
@@ -67,7 +69,7 @@ def test_parquet_tee_roundtrip(awards_players: object, tmp_path: object) -> None
 
 
 def test_parquet_tee_preserves_mode_and_drain(
-    awards_players: object, tmp_path: object
+    awards_players: ir.Table, tmp_path: Path
 ) -> None:
     expr = awards_players.tee(
         ParquetWriteThrough(path=tmp_path / "out.parquet", mode="append"),
@@ -82,7 +84,7 @@ def test_parquet_tee_preserves_mode_and_drain(
     assert op.drain is False
 
 
-def test_backend_tee_roundtrip(awards_players: object) -> None:
+def test_backend_tee_roundtrip(awards_players: ir.Table) -> None:
     target = xo.duckdb.connect()
     writer = BackendWriteThrough(target, table_name="sink")
     expr = awards_players.tee(writer)
@@ -98,7 +100,7 @@ def test_backend_tee_roundtrip(awards_players: object) -> None:
     assert xo.execute(roundtrip).equals(xo.execute(awards_players))
 
 
-def test_backend_tee_write_side_effect(awards_players: object) -> None:
+def test_backend_tee_write_side_effect(awards_players: ir.Table) -> None:
     # A tee's whole point is the write. Assert the *serialized* writer, once
     # reloaded and executed, actually populates the sink -- not just that rows
     # pass through. The pass-through could succeed while a broken writer wrote
@@ -120,7 +122,7 @@ def test_backend_tee_write_side_effect(awards_players: object) -> None:
     assert set(written.columns) == set(expected.columns)
 
 
-def test_threaded_backend_tee_roundtrip(awards_players: object) -> None:
+def test_threaded_backend_tee_roundtrip(awards_players: ir.Table) -> None:
     target = xo.duckdb.connect()
     expr = awards_players.tee(target, table_name="sink")
     assert isinstance(_tee_op(expr).writer, ThreadedBackendWriteThrough)
@@ -135,7 +137,7 @@ def test_threaded_backend_tee_roundtrip(awards_players: object) -> None:
     assert op.writer.con is target
 
 
-def test_write_primary_tee_roundtrip(awards_players: object, tmp_path: object) -> None:
+def test_write_primary_tee_roundtrip(awards_players: ir.Table, tmp_path: Path) -> None:
     inner = ParquetWriteThrough(path=tmp_path / "out.parquet")
     expr = awards_players.tee(WritePrimaryWriteThrough(inner=inner))
 
@@ -148,7 +150,7 @@ def test_write_primary_tee_roundtrip(awards_players: object, tmp_path: object) -
     assert op.writer.inner.path == (tmp_path / "out.parquet")
 
 
-def test_tee_build_load_roundtrip(awards_players: object, builds_dir: object) -> None:
+def test_tee_build_load_roundtrip(awards_players: ir.Table, builds_dir: Path) -> None:
     target = xo.duckdb.connect()
     expr = awards_players.tee(target, table_name="sink")
 
@@ -168,7 +170,7 @@ def test_translate_writer_rejects_unknown_type() -> None:
     # A new WriteThrough subclass with no translate_writer branch must fail
     # loudly at serialization rather than round-tripping into a silent hole.
     with pytest.raises(NotImplementedError, match="_UnregisteredWriteThrough"):
-        translate_writer(_UnregisteredWriteThrough(), context=None)
+        translate_writer(_UnregisteredWriteThrough())
 
 
 def test_load_writer_from_yaml_rejects_unknown_kind() -> None:
@@ -176,9 +178,9 @@ def test_load_writer_from_yaml_rejects_unknown_kind() -> None:
         load_writer_from_yaml({"kind": "NoSuchWriter"}, context=None)
 
 
-def test_parquet_writer_warns_not_portable(tmp_path: object) -> None:
+def test_parquet_writer_warns_not_portable(tmp_path: Path) -> None:
     # A ParquetWriteThrough is local-filesystem-only, so its build can never be
     # relocated: serialization must flag that every time, not silently.
     writer = ParquetWriteThrough(path=tmp_path / "out.parquet")
     with pytest.warns(UserWarning, match="not portable"):
-        translate_writer(writer, context=None)
+        translate_writer(writer)

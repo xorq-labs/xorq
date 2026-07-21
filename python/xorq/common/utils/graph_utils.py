@@ -415,7 +415,7 @@ def _node_cons(node: Node) -> Tuple[Any, ...]:
     # A TeeNode carries its backend(s) inside its WriteThrough writer rather
     # than a `source` attribute (a ParquetWriteThrough has none at all).
     if isinstance(node, rel.TeeNode):
-        return node.writer.iter_cons()
+        return node.writer.cons
     return (node.source,)
 
 
