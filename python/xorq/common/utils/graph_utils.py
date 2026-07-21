@@ -262,6 +262,11 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             if new_cache is not cache:
                 overrides["cache"] = new_cache
 
+        if isinstance(node, rel.TeeNode):
+            new_writer = node.writer.replace_cons(source_mapping)
+            if new_writer is not node.writer:
+                overrides["writer"] = new_writer
+
         if overrides or kwargs:
             merged = dict(zip(node.__argnames__, node.__args__))
             if kwargs:
@@ -406,11 +411,19 @@ def validate_params(expr):
         raise TypeError("\n".join(messages))
 
 
-def get_ordered_unique_sources(nodes):
+def _node_cons(node: Node) -> Tuple[Any, ...]:
+    # A TeeNode carries its backend(s) inside its WriteThrough writer rather
+    # than a `source` attribute (a ParquetWriteThrough has none at all).
+    if isinstance(node, rel.TeeNode):
+        return node.writer.cons
+    return (node.source,)
+
+
+def get_ordered_unique_sources(nodes: Tuple[Node, ...]) -> Tuple[Any, ...]:
     # Use id() for deduplication because backend __hash__ collides for
     # same-class instances and __eq__ only differs by session-local idx.
     sources, seen = (), set()
-    for source in (node.source for node in nodes):
+    for source in (con for node in nodes for con in _node_cons(node)):
         if id(source) not in seen:
             seen.add(id(source))
             sources += (source,)
@@ -496,6 +509,8 @@ def find_all_sources(
         rel.RemoteTable,
         rel.FlightUDXF,
         rel.FlightExpr,
+        # TeeNode holds its write target's backend(s) inside its writer
+        rel.TeeNode,
         # ExprScalarUDF has an expr we need to get to
         # FlightOperator has a dynamically generated connection: it should be passed a Profile instead
     )

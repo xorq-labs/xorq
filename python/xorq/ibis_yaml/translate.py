@@ -8,6 +8,7 @@ import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import toolz
 
@@ -28,6 +29,7 @@ from xorq.expr.relations import (
     Read,
     RemoteTable,
     Tag,
+    TeeNode,
     into_backend,
 )
 from xorq.ibis_yaml.common import (
@@ -54,6 +56,12 @@ from xorq.vendor.ibis.expr.datashape import Columnar
 from xorq.vendor.ibis.expr.operations.relations import Namespace
 from xorq.vendor.ibis.expr.schema import Schema
 from xorq.vendor.ibis.util import normalize_filenames
+from xorq.writes import (
+    BackendWriteThrough,
+    ParquetWriteThrough,
+    ThreadedBackendWriteThrough,
+    WritePrimaryWriteThrough,
+)
 
 
 @toolz.curry
@@ -530,6 +538,125 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
     return op.to_expr()
 
 
+def translate_writer(writer: Any) -> dict:
+    """Serialize a ``WriteThrough``. Backend-bound writers carry their con as a
+    profile hash (resolved from ``context.profiles`` on load, discovered as a
+    source via ``find_all_sources``); a ``ParquetWriteThrough`` is filesystem-
+    only. Transport tuning (``kwargs``/``maxsize``) is identity-neutral and
+    intentionally omitted so the YAML stays byte-stable across rebuilds."""
+    match writer:
+        case ParquetWriteThrough():
+            # The `path` converter strips any URL scheme, so the target is
+            # always the local filesystem with nothing anchoring it to another
+            # environment: warn unconditionally rather than pretend to detect
+            # portability.
+            warnings.warn(
+                f"ParquetWriteThrough writes to a local path ({writer.path}); "
+                f"the tee output is not portable across environments.",
+                stacklevel=2,
+            )
+            return freeze(
+                {
+                    "kind": "ParquetWriteThrough",
+                    "path": str(writer.path),
+                    "mode": writer.mode.value,
+                }
+            )
+        # ThreadedBackendWriteThrough subclasses BackendWriteThrough: one arm
+        # keyed by type name covers both without the subclass being swallowed.
+        case ThreadedBackendWriteThrough() | BackendWriteThrough():
+            return freeze(
+                {
+                    "kind": type(writer).__name__,
+                    "profile": writer.con._profile.hash_name,  # xorq-style: disable=protected-access
+                    "table_name": writer.table_name,
+                    "mode": writer.mode.value,
+                }
+            )
+        case WritePrimaryWriteThrough():
+            return freeze(
+                {
+                    "kind": "WritePrimaryWriteThrough",
+                    "inner": translate_writer(writer.inner),
+                }
+            )
+        case _:
+            raise NotImplementedError(
+                f"No ibis-yaml translation for writer type {type(writer).__name__}"
+            )
+
+
+def _writer_yaml_key(writer_yaml: dict, key: str) -> Any:
+    try:
+        return writer_yaml[key]
+    except KeyError as err:
+        raise ValueError(f"writer YAML missing required key {key!r}") from err
+
+
+def load_writer_from_yaml(writer_yaml: dict, context: TranslationContext) -> Any:
+    kind = _writer_yaml_key(writer_yaml, "kind")
+    match kind:
+        case "ParquetWriteThrough":
+            return ParquetWriteThrough(
+                path=_writer_yaml_key(writer_yaml, "path"),
+                mode=_writer_yaml_key(writer_yaml, "mode"),
+            )
+        case "BackendWriteThrough" | "ThreadedBackendWriteThrough":
+            profile_name = _writer_yaml_key(writer_yaml, "profile")
+            try:
+                con = context.profiles[profile_name]
+            except KeyError as err:
+                raise ValueError(
+                    f"Profile {profile_name!r} not found in context.profiles"
+                ) from err
+            cls = (
+                ThreadedBackendWriteThrough
+                if kind == "ThreadedBackendWriteThrough"
+                else BackendWriteThrough
+            )
+            return cls(
+                con,
+                table_name=_writer_yaml_key(writer_yaml, "table_name"),
+                mode=_writer_yaml_key(writer_yaml, "mode"),
+            )
+        case "WritePrimaryWriteThrough":
+            return WritePrimaryWriteThrough(
+                inner=load_writer_from_yaml(
+                    _writer_yaml_key(writer_yaml, "inner"), context
+                )
+            )
+        case _:
+            raise ValueError(f"Unknown writer kind {kind!r}")
+
+
+@translate_to_yaml.register(TeeNode)
+@convert_to_node_ref
+def _tee_node_to_yaml(op: TeeNode, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "TeeNode",
+            "parent": context.translate_to_yaml(op.parent),
+            "drain": op.drain,
+            "writer": translate_writer(op.writer),
+        }
+        | context.registry.register_schema(op.schema)
+    )
+
+
+@register_from_yaml_handler("TeeNode")
+def _tee_node_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
+    parent = context.translate_from_yaml(yaml_dict["parent"])
+    writer = load_writer_from_yaml(yaml_dict["writer"], context)
+    op = TeeNode(
+        schema=schema,
+        parent=parent.op(),
+        writer=writer,
+        drain=yaml_dict["drain"],
+    )
+    return op.to_expr()
+
+
 @translate_to_yaml.register(RemoteTable)
 @convert_to_node_ref
 def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
@@ -571,8 +698,6 @@ def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
 
 
 def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
-    from urllib.parse import urlparse  # noqa: PLC0415
-
     def is_local_path(value: str | Path) -> bool:
         parsed = urlparse(value)
         return not parsed.scheme or parsed.scheme == "file"
