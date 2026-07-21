@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.35] - 2026-07-21
+### Details
+#### Added
+- Add lowest-direct floor-verification job and supporting tests by @mesejo in [#2154](https://github.com/xorq-labs/xorq/pull/2154)
+- Add lightweight xorq bigquery backend by @mesejo in [#2158](https://github.com/xorq-labs/xorq/pull/2158)
+
+#### Changed
+- Route the Flight execution boundary through the transform passes (R3/P5) by @dlovell in [#2146](https://github.com/xorq-labs/xorq/pull/2146)
+- Update bigquery backend and sql compiler to ibis 10.0.0 by @mesejo in [#2157](https://github.com/xorq-labs/xorq/pull/2157)
+- Unify ExprDumper writes into WritePlan abstraction by @mesejo in [#2142](https://github.com/xorq-labs/xorq/pull/2142)
+- Make TUI row limit configurable via XORQ_TUI_ROW_LIMIT by @mesejo in [#2169](https://github.com/xorq-labs/xorq/pull/2169)
+
+#### Fixed
+- Serialize Read.normalize_method by name, not cloudpickle by @dlovell in [#2159](https://github.com/xorq-labs/xorq/pull/2159)
+- Emit remote_table.replace even when the reader-count is empty by @dlovell in [#2161](https://github.com/xorq-labs/xorq/pull/2161)
+- Clear error when the driver cannot bulk ingest by @ghoersti in [#2171](https://github.com/xorq-labs/xorq/pull/2171)
+- Translate all ADBC error classes on ingest-capability probe by @mesejo in [#2172](https://github.com/xorq-labs/xorq/pull/2172)
+- Cover cataloging bigquery-backed expressions by @mesejo in [#2173](https://github.com/xorq-labs/xorq/pull/2173)
+
 ## [0.3.34] - 2026-07-14
 ### Details
 #### Changed
