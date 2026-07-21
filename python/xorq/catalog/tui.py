@@ -30,20 +30,22 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.suggester import SuggestFromList
 from textual.theme import Theme
 from textual.widgets import (
+    Button,
     DataTable,
     Footer,
     Header,
     Input,
+    Select,
     Static,
     Tree,
 )
 
 from xorq.caching.storage import resolve_parquet_cache_path
-from xorq.catalog.catalog import Catalog, CatalogEntry
+from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.enums import CatalogInfix
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
@@ -534,6 +536,209 @@ def _revision_pair(i, rev_entry, commit):
 # ---------------------------------------------------------------------------
 
 
+class AddEntryScreen(ModalScreen[tuple[str, str | None] | None]):
+    """Collect a build directory path and optional alias for a new entry."""
+
+    BINDINGS = (
+        Binding("ctrl+r", "confirm", "Add"),
+        Binding("escape", "cancel", "Cancel"),
+    )
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="add-entry-dialog", classes="entry-action-dialog"):
+            yield Static("Add catalog entry", classes="entry-action-title")
+            yield Static(
+                "Enter a build directory path. Paths may be absolute or relative "
+                "to the current directory.",
+                classes="entry-action-message",
+            )
+            yield Input(
+                placeholder="build directory path",
+                id="add-entry-path",
+            )
+            yield Input(
+                placeholder="alias (optional)",
+                id="add-entry-alias",
+            )
+            with Horizontal(classes="entry-action-buttons"):
+                yield Button("Cancel", id="cancel-add-entry")
+                yield Button("Add Entry", id="confirm-add-entry", variant="success")
+
+    def action_confirm(self) -> None:
+        path = self.query_one("#add-entry-path", Input).value.strip()
+        if not path:
+            self.app.notify(
+                "Enter a build directory path.",
+                title="Add Entry",
+                severity="warning",
+            )
+            return
+        build_dir = Path(path).expanduser()
+        if not build_dir.exists():
+            self.app.notify(
+                f"Path does not exist: {path}",
+                title="Add Entry",
+                severity="warning",
+            )
+            return
+        if not build_dir.is_dir():
+            self.app.notify(
+                f"Build path is not a directory: {path}",
+                title="Add Entry",
+                severity="warning",
+            )
+            return
+        alias = self.query_one("#add-entry-alias", Input).value.strip() or None
+        self.dismiss((path, alias))
+
+    @on(Button.Pressed)
+    def _on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-add-entry":
+            self.action_confirm()
+        else:
+            self.action_cancel()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class AddAliasScreen(ModalScreen[str | None]):
+    """Collect an alias to attach to the selected entry."""
+
+    BINDINGS = (
+        Binding("ctrl+r", "confirm", "Add"),
+        Binding("escape", "cancel", "Cancel"),
+    )
+
+    def __init__(self, row_data: CatalogRowData):
+        super().__init__()
+        self._row_data = row_data
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="add-alias-dialog", classes="entry-action-dialog"):
+            yield Static("Add alias", classes="entry-action-title")
+            yield Static(
+                f"Attach a new alias to {self._row_data.hash}.",
+                classes="entry-action-message",
+            )
+            yield Input(placeholder="alias", id="add-alias-name")
+            with Horizontal(classes="entry-action-buttons"):
+                yield Button("Cancel", id="cancel-add-alias")
+                yield Button("Add Alias", id="confirm-add-alias", variant="success")
+
+    def action_confirm(self) -> None:
+        alias = self.query_one("#add-alias-name", Input).value.strip()
+        if not alias:
+            self.app.notify(
+                "Enter an alias.",
+                title="Add Alias",
+                severity="warning",
+            )
+            return
+        self.dismiss(alias)
+
+    @on(Button.Pressed)
+    def _on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-add-alias":
+            self.action_confirm()
+        else:
+            self.action_cancel()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class DeleteEntryScreen(ModalScreen[bool]):
+    """Confirm removal of an entry and all aliases that point to it."""
+
+    BINDINGS = (
+        Binding("ctrl+r", "confirm", "Delete"),
+        Binding("escape", "cancel", "Cancel"),
+    )
+
+    def __init__(self, row_data: CatalogRowData):
+        super().__init__()
+        self._row_data = row_data
+
+    def compose(self) -> ComposeResult:
+        row_data = self._row_data
+        aliases = (
+            f"\nAliases also removed: {row_data.aliases_display}"
+            if row_data.aliases
+            else ""
+        )
+        with Vertical(id="delete-entry-dialog", classes="entry-action-dialog"):
+            yield Static("Delete catalog entry?", classes="entry-action-title")
+            yield Static(
+                f"{row_data.hash}\n\nThis removes the entry from the catalog.{aliases}",
+                classes="entry-action-message",
+            )
+            with Horizontal(classes="entry-action-buttons"):
+                yield Button("Cancel", id="cancel-delete-entry")
+                yield Button("Delete Entry", id="confirm-delete-entry", variant="error")
+
+    @on(Button.Pressed)
+    def _on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "confirm-delete-entry")
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class RemoveAliasScreen(ModalScreen[str | None]):
+    """Choose and confirm an alias to detach from a catalog entry."""
+
+    BINDINGS = (
+        Binding("ctrl+r", "confirm", "Remove"),
+        Binding("escape", "cancel", "Cancel"),
+    )
+
+    def __init__(self, row_data: CatalogRowData):
+        super().__init__()
+        self._row_data = row_data
+
+    def compose(self) -> ComposeResult:
+        aliases = self._row_data.aliases
+        with Vertical(id="remove-alias-dialog", classes="entry-action-dialog"):
+            yield Static("Remove alias?", classes="entry-action-title")
+            yield Static(
+                "The catalog entry and its other aliases will be kept.",
+                classes="entry-action-message",
+            )
+            yield Select(
+                ((alias, alias) for alias in aliases),
+                value=aliases[0],
+                allow_blank=False,
+                id="remove-alias-select",
+            )
+            with Horizontal(classes="entry-action-buttons"):
+                yield Button("Cancel", id="cancel-remove-alias")
+                yield Button(
+                    "Remove Alias", id="confirm-remove-alias", variant="warning"
+                )
+
+    def _selected_alias(self) -> str | None:
+        value = self.query_one("#remove-alias-select", Select).value
+        return value if isinstance(value, str) else None
+
+    @on(Button.Pressed)
+    def _on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(
+            self._selected_alias()
+            if event.button.id == "confirm-remove-alias"
+            else None
+        )
+
+    def action_confirm(self) -> None:
+        self.dismiss(self._selected_alias())
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class CatalogScreen(Screen):
     BINDINGS = (
         Binding("q", "quit_app", "Quit"),
@@ -545,6 +750,12 @@ class CatalogScreen(Screen):
         Binding("tab", "focus_next_panel", "Next", show=False),
         Binding("shift+tab", "focus_prev_panel", "Prev", show=False),
         Binding("e", "open_data_view", "Explore"),
+        Binding("a", "add_entry", "Add Entry"),
+        # Terminals report Shift+A as the uppercase character "A", not the
+        # synthetic key name "shift+a" used by Textual's test pilot.
+        Binding("A", "add_alias", "Add Alias"),
+        Binding("r", "remove_alias", "Remove Alias"),
+        Binding("d", "delete_entry", "Delete"),
         Binding("v", "toggle_revisions", "Revisions"),
         Binding("g", "toggle_git_log", "Git Log"),
         Binding("1", "view_sql", "SQL", priority=True),
@@ -667,6 +878,9 @@ class CatalogScreen(Screen):
 
     @on(Tree.NodeHighlighted, "#catalog-tree")
     def _on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
+        # Add Alias is a dynamic binding: it is visible only while an entry
+        # leaf is selected in the focused catalog tree.
+        self.refresh_bindings()
         # Debounce: rapid j/k traversal fires NodeHighlighted per intermediate
         # node.  Defer the synchronous panel render until the cursor settles so
         # holding a key moves at terminal-repeat-rate.  _render_highlighted_node
@@ -922,6 +1136,7 @@ class CatalogScreen(Screen):
             total = sum(1 + len(b.children) for b in tree.root.children)
             if total > 0:
                 tree.cursor_line = min(saved_line, total - 1)
+            self.refresh_bindings()
 
     def _render_catalog_row(self, row_data) -> None:
         with self.app.batch_update():
@@ -1241,14 +1456,189 @@ class CatalogScreen(Screen):
         self.query_one(visible[next_idx]).focus()
 
     def action_open_data_view(self) -> None:
-        tree = self.query_one("#catalog-tree", Tree)
-        node = tree.cursor_node
-        if node is None or node.children:
-            return
-        row_data = self._row_cache.get(node.data)
+        row_data = self._selected_row_data()
         if row_data is None or row_data.kind == "unbound_expr":
             return
         self.app.push_screen(DataViewScreen(entry=row_data.entry, row_data=row_data))
+
+    def _selected_row_data(self) -> CatalogRowData | None:
+        tree = self.query_one("#catalog-tree", Tree)
+        node = tree.cursor_node
+        if node is None or node.children:
+            return None
+        return self._row_cache.get(node.data)
+
+    def _add_alias_available(self) -> bool:
+        if not self.is_mounted:
+            return False
+        tree = self.query_one("#catalog-tree", Tree)
+        return self.app.focused is tree and self._selected_row_data() is not None
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "add_alias":
+            return self._add_alias_available()
+        return super().check_action(action, parameters)
+
+    def on_descendant_focus(self) -> None:
+        self.refresh_bindings()
+
+    def action_delete_entry(self) -> None:
+        row_data = self._selected_row_data()
+        if row_data is None:
+            return
+        self.app.push_screen(
+            DeleteEntryScreen(row_data),
+            lambda confirmed: self._delete_entry(row_data.hash) if confirmed else None,
+        )
+
+    def action_add_entry(self) -> None:
+        self.app.push_screen(
+            AddEntryScreen(),
+            lambda request: self._add_entry(*request) if request is not None else None,
+        )
+
+    def action_add_alias(self) -> None:
+        if not self._add_alias_available():
+            return
+        row_data = self._selected_row_data()
+        if row_data is None:
+            return
+        self.app.push_screen(
+            AddAliasScreen(row_data),
+            lambda alias: (
+                self._add_alias(row_data.hash, alias) if alias is not None else None
+            ),
+        )
+
+    def action_remove_alias(self) -> None:
+        row_data = self._selected_row_data()
+        if row_data is None:
+            return
+        if not row_data.aliases:
+            self.app.notify(
+                "The selected entry has no aliases.",
+                title="Remove Alias",
+                severity="warning",
+            )
+            return
+        self.app.push_screen(
+            RemoveAliasScreen(row_data),
+            lambda alias: self._remove_alias(alias) if alias is not None else None,
+        )
+
+    @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
+    def _add_entry(self, build_dir_path: str, alias: str | None) -> None:
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+        path = Path(build_dir_path).expanduser()
+        with self._refresh_lock:
+            try:
+                if not path.is_dir():
+                    raise ValueError(f"build path is not a directory: {path}")
+                entry = catalog.add(path, aliases=(alias,) if alias else ())
+            except Exception as exc:
+                logger.exception("catalog_entry_add_failed", build_dir_path=str(path))
+                self._do_refresh_locked()
+                self.app.call_from_thread(
+                    self.app.notify,
+                    f"Add failed: {exc}",
+                    title="Add Entry",
+                    severity="error",
+                    timeout=6,
+                )
+                return
+            self._do_refresh_locked()
+        self.app.call_from_thread(
+            self.app.notify,
+            f"Added {entry.name[:12]}",
+            title="Add Entry",
+            severity="information",
+        )
+
+    @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
+    def _add_alias(self, entry_hash: str, alias: str) -> None:
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+        with self._refresh_lock:
+            try:
+                catalog.add_alias(entry_hash, alias)
+            except Exception as exc:
+                logger.exception(
+                    "catalog_alias_add_failed", entry_hash=entry_hash, alias=alias
+                )
+                self._do_refresh_locked()
+                self.app.call_from_thread(
+                    self.app.notify,
+                    f"Add failed: {exc}",
+                    title="Add Alias",
+                    severity="error",
+                    timeout=6,
+                )
+                return
+            self._do_refresh_locked()
+        self.app.call_from_thread(
+            self.app.notify,
+            f"Added alias {alias!r}",
+            title="Add Alias",
+            severity="information",
+        )
+
+    @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
+    def _delete_entry(self, entry_hash: str) -> None:
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+        with self._refresh_lock:
+            try:
+                catalog.remove(entry_hash)
+            except Exception as exc:
+                logger.exception("catalog_entry_delete_failed", entry_hash=entry_hash)
+                self._do_refresh_locked()
+                self.app.call_from_thread(
+                    self.app.notify,
+                    f"Delete failed: {exc}",
+                    title="Delete Entry",
+                    severity="error",
+                    timeout=6,
+                )
+                return
+            self._do_refresh_locked()
+        self.app.call_from_thread(
+            self.app.notify,
+            f"Deleted {entry_hash[:12]}",
+            title="Delete Entry",
+            severity="information",
+        )
+
+    @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
+    def _remove_alias(self, alias: str) -> None:
+        catalog = self.app._catalog
+        if catalog is None:
+            return
+        with self._refresh_lock:
+            try:
+                with catalog.maybe_synchronizing(True):
+                    CatalogAlias.from_name(alias, catalog).remove()
+            except Exception as exc:
+                logger.exception("catalog_alias_remove_failed", alias=alias)
+                self._do_refresh_locked()
+                self.app.call_from_thread(
+                    self.app.notify,
+                    f"Remove failed: {exc}",
+                    title="Remove Alias",
+                    severity="error",
+                    timeout=6,
+                )
+                return
+            self._do_refresh_locked()
+        self.app.call_from_thread(
+            self.app.notify,
+            f"Removed alias {alias!r}",
+            title="Remove Alias",
+            severity="information",
+        )
 
     def action_quit_app(self) -> None:
         self.app.exit()
@@ -1790,6 +2180,41 @@ class CatalogTUI(App):
         border-title-color: #2BBE75;
         padding: 0 1;
     }
+
+    AddEntryScreen,
+    AddAliasScreen,
+    DeleteEntryScreen,
+    RemoveAliasScreen {
+        align: center middle;
+        background: $background 65%;
+    }
+    .entry-action-dialog {
+        width: 72;
+        height: auto;
+        padding: 1 2;
+        border: double $accent;
+        background: $surface;
+    }
+    .entry-action-title {
+        height: 1;
+        text-style: bold;
+        color: $accent;
+    }
+    .entry-action-message {
+        height: auto;
+        margin-top: 1;
+        color: $foreground;
+    }
+    #add-entry-path,
+    #add-entry-alias,
+    #add-alias-name,
+    #remove-alias-select { margin-top: 1; }
+    .entry-action-buttons {
+        height: 3;
+        margin-top: 1;
+        align-horizontal: right;
+    }
+    .entry-action-buttons Button { margin-left: 1; }
     """
 
     def __init__(self, make_catalog, refresh_interval=DEFAULT_REFRESH_INTERVAL):
