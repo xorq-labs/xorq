@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import DataTable, Input, Static, Tree
+from textual.widgets import DataTable, Input, Select, Static, Tree
 
 import xorq.api as xo
 import xorq.config
@@ -39,13 +39,17 @@ from xorq.catalog.tui import (
     GIT_LOG_COLUMNS,
     KIND_ORDER,
     KIND_STYLES,
+    AddAliasScreen,
+    AddEntryScreen,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
     DataViewScreen,
+    DeleteEntryScreen,
     ExprStack,
     ExprStep,
     GitLogRowData,
+    RemoveAliasScreen,
     RevisionRowData,
     _build_git_log_rows,
     _entry_info,
@@ -59,6 +63,7 @@ from xorq.catalog.tui import (
     _styled_branch_label,
     get_cache_key_path,
 )
+from xorq.catalog.zip_utils import extract_build_zip_to
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.env_utils import (
     EnvConfigable,
@@ -300,6 +305,171 @@ def test_quit_exits_app(catalog):
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
             await pilot.press("q")
+
+    _run(_test())
+
+
+def test_add_entry_from_build_directory_with_alias(catalog, entry_a, entry_b, tmp_path):
+    async def _test():
+        zip_path = catalog.get_zip(entry_b.name, dir_path=tmp_path)
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+        build_dir = extract_build_zip_to(zip_path, extract_dir)
+        catalog.remove(entry_b.name)
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("a")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddEntryScreen)
+            app.screen.query_one("#add-entry-path", Input).value = str(build_dir)
+            app.screen.query_one("#add-entry-alias", Input).value = "restored"
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: entry_b.name in catalog.list())
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert "restored" in catalog.list_aliases()
+            assert entry_b.name in app.screen._tree_entry_hashes()
+            assert app.screen._row_cache[entry_b.name].aliases == ("restored",)
+
+    _run(_test())
+
+
+def test_add_entry_rejects_zip_path(catalog, tmp_path):
+    async def _test():
+        zip_path = tmp_path / "build.zip"
+        zip_path.touch()
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            await pilot.press("a")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddEntryScreen)
+            app.screen.query_one("#add-entry-path", Input).value = str(zip_path)
+            await pilot.press("ctrl+r")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddEntryScreen)
+            assert catalog.list() == []
+
+    _run(_test())
+
+
+def test_add_alias_to_selected_entry(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("j", "A")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddAliasScreen)
+            app.screen.query_one("#add-alias-name", Input).value = "new-alias"
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: "new-alias" in catalog.list_aliases())
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert entry_a.name in catalog.list()
+            assert app.screen._row_cache[entry_a.name].aliases == ("new-alias",)
+            assert "new-alias" in _leaf_label_for(app.screen, entry_a.name)
+
+    _run(_test())
+
+
+def test_add_alias_binding_only_visible_on_focused_entry(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            # The cursor starts on the kind branch, so Add Alias is hidden.
+            assert "A" not in app.active_bindings
+
+            await pilot.press("j")
+            await settle(pilot)
+            assert screen._selected_row_data() is not None
+            assert "A" in app.active_bindings
+
+            # Moving focus away from the entries panel hides the action again.
+            await pilot.press("tab")
+            await settle(pilot)
+            assert "A" not in app.active_bindings
+
+    _run(_test())
+
+
+def test_delete_entry_can_be_cancelled(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("j", "d")
+            await settle(pilot)
+
+            assert isinstance(app.screen, DeleteEntryScreen)
+            await pilot.press("escape")
+            await settle(pilot)
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert entry_a.name in catalog.list()
+
+    _run(_test())
+
+
+def test_delete_entry_removes_entry_and_aliases(catalog, entry_a):
+    async def _test():
+        catalog.add_alias(entry_a.name, "to-delete")
+        app = _make_tui(catalog)
+        row = CatalogRowData(entry=entry_a, aliases=("to-delete",))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            screen._row_cache = {row.row_key: row}
+            screen._render_refresh(catalog.repo.working_dir, (row,))
+            await settle(pilot)
+
+            await pilot.press("j", "d")
+            await settle(pilot)
+            assert isinstance(app.screen, DeleteEntryScreen)
+
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: entry_a.name not in catalog.list())
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert "to-delete" not in catalog.list_aliases()
+            assert entry_a.name not in app.screen._tree_entry_hashes()
+
+    _run(_test())
+
+
+def test_remove_alias_keeps_entry_and_other_aliases(catalog, entry_a):
+    async def _test():
+        catalog.add_alias(entry_a.name, "keep-me")
+        catalog.add_alias(entry_a.name, "remove-me")
+        app = _make_tui(catalog)
+        row = CatalogRowData(entry=entry_a, aliases=("keep-me", "remove-me"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            screen._row_cache = {row.row_key: row}
+            screen._render_refresh(catalog.repo.working_dir, (row,))
+            await settle(pilot)
+
+            await pilot.press("j", "r")
+            await settle(pilot)
+            assert isinstance(app.screen, RemoveAliasScreen)
+
+            select = app.screen.query_one("#remove-alias-select", Select)
+            select.value = "remove-me"
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: "remove-me" not in catalog.list_aliases())
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert entry_a.name in catalog.list()
+            assert "keep-me" in catalog.list_aliases()
+            assert app.screen._row_cache[entry_a.name].aliases == ("keep-me",)
 
     _run(_test())
 
