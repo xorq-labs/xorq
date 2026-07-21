@@ -3,6 +3,7 @@ import re
 import subprocess
 import threading
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime
 from functools import cache, cached_property, lru_cache
 from itertools import groupby
@@ -878,9 +879,6 @@ class CatalogScreen(Screen):
 
     @on(Tree.NodeHighlighted, "#catalog-tree")
     def _on_tree_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
-        # Add Alias is a dynamic binding: it is visible only while an entry
-        # leaf is selected in the focused catalog tree.
-        self.refresh_bindings()
         # Debounce: rapid j/k traversal fires NodeHighlighted per intermediate
         # node.  Defer the synchronous panel render until the cursor settles so
         # holding a key moves at terminal-repeat-rate.  _render_highlighted_node
@@ -910,6 +908,10 @@ class CatalogScreen(Screen):
         # timer; querying removed widgets would raise NoMatches.
         if not self.is_attached:
             return
+        # Add Alias is a dynamic binding, visible only on an entry leaf. Refresh
+        # once per settled selection rather than per intermediate j/k node, so a
+        # held key does not trigger a Footer recompose at terminal-repeat-rate.
+        self.refresh_bindings()
         # Clear panels first so an emptied tree (cursor_node None) doesn't leave
         # the prior selection's content stranded on screen.
         schema_in_table = self.query_one("#schema-in-table", DataTable)
@@ -1526,24 +1528,33 @@ class CatalogScreen(Screen):
             lambda alias: self._remove_alias(alias) if alias is not None else None,
         )
 
-    @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
-    def _add_entry(self, build_dir_path: str, alias: str | None) -> None:
-        catalog = self.app._catalog
+    def _run_locked_mutation(
+        self,
+        mutate: Callable[[Catalog], object],
+        *,
+        log_event: str,
+        log_kwargs: dict[str, str],
+        title: str,
+        verb: str,
+        success: Callable[[object], str],
+    ) -> None:
+        # Shared body for the catalog-mutation workers: guard the async-loaded
+        # catalog, run `mutate` under the refresh lock, and always re-render the
+        # view (success or failure) before notifying.  `success` maps the
+        # mutation's return value to the confirmation message.
+        catalog = self.app._catalog  # xorq-style: disable=protected-access
         if catalog is None:
             return
-        path = Path(build_dir_path).expanduser()
         with self._refresh_lock:
             try:
-                if not path.is_dir():
-                    raise ValueError(f"build path is not a directory: {path}")
-                entry = catalog.add(path, aliases=(alias,) if alias else ())
+                result = mutate(catalog)
             except Exception as exc:
-                logger.exception("catalog_entry_add_failed", build_dir_path=str(path))
+                logger.exception(log_event, **log_kwargs)
                 self._do_refresh_locked()
                 self.app.call_from_thread(
                     self.app.notify,
-                    f"Add failed: {exc}",
-                    title="Add Entry",
+                    f"{verb} failed: {exc}",
+                    title=title,
                     severity="error",
                     timeout=6,
                 )
@@ -1551,93 +1562,64 @@ class CatalogScreen(Screen):
             self._do_refresh_locked()
         self.app.call_from_thread(
             self.app.notify,
-            f"Added {entry.name[:12]}",
-            title="Add Entry",
+            success(result),
+            title=title,
             severity="information",
+        )
+
+    @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
+    def _add_entry(self, build_dir_path: str, alias: str | None) -> None:
+        path = Path(build_dir_path).expanduser()
+
+        def mutate(catalog):
+            if not path.is_dir():
+                raise ValueError(f"build path is not a directory: {path}")
+            return catalog.add(path, aliases=(alias,) if alias else ())
+
+        self._run_locked_mutation(
+            mutate,
+            log_event="catalog_entry_add_failed",
+            log_kwargs={"build_dir_path": str(path)},
+            title="Add Entry",
+            verb="Add",
+            success=lambda entry: f"Added {entry.name[:12]}",
         )
 
     @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
     def _add_alias(self, entry_hash: str, alias: str) -> None:
-        catalog = self.app._catalog
-        if catalog is None:
-            return
-        with self._refresh_lock:
-            try:
-                catalog.add_alias(entry_hash, alias)
-            except Exception as exc:
-                logger.exception(
-                    "catalog_alias_add_failed", entry_hash=entry_hash, alias=alias
-                )
-                self._do_refresh_locked()
-                self.app.call_from_thread(
-                    self.app.notify,
-                    f"Add failed: {exc}",
-                    title="Add Alias",
-                    severity="error",
-                    timeout=6,
-                )
-                return
-            self._do_refresh_locked()
-        self.app.call_from_thread(
-            self.app.notify,
-            f"Added alias {alias!r}",
+        self._run_locked_mutation(
+            lambda catalog: catalog.add_alias(entry_hash, alias),
+            log_event="catalog_alias_add_failed",
+            log_kwargs={"entry_hash": entry_hash, "alias": alias},
             title="Add Alias",
-            severity="information",
+            verb="Add",
+            success=lambda _: f"Added alias {alias!r}",
         )
 
     @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
     def _delete_entry(self, entry_hash: str) -> None:
-        catalog = self.app._catalog
-        if catalog is None:
-            return
-        with self._refresh_lock:
-            try:
-                catalog.remove(entry_hash)
-            except Exception as exc:
-                logger.exception("catalog_entry_delete_failed", entry_hash=entry_hash)
-                self._do_refresh_locked()
-                self.app.call_from_thread(
-                    self.app.notify,
-                    f"Delete failed: {exc}",
-                    title="Delete Entry",
-                    severity="error",
-                    timeout=6,
-                )
-                return
-            self._do_refresh_locked()
-        self.app.call_from_thread(
-            self.app.notify,
-            f"Deleted {entry_hash[:12]}",
+        self._run_locked_mutation(
+            lambda catalog: catalog.remove(entry_hash),
+            log_event="catalog_entry_delete_failed",
+            log_kwargs={"entry_hash": entry_hash},
             title="Delete Entry",
-            severity="information",
+            verb="Delete",
+            success=lambda _: f"Deleted {entry_hash[:12]}",
         )
 
     @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
     def _remove_alias(self, alias: str) -> None:
-        catalog = self.app._catalog
-        if catalog is None:
-            return
-        with self._refresh_lock:
-            try:
-                with catalog.maybe_synchronizing(True):
-                    CatalogAlias.from_name(alias, catalog).remove()
-            except Exception as exc:
-                logger.exception("catalog_alias_remove_failed", alias=alias)
-                self._do_refresh_locked()
-                self.app.call_from_thread(
-                    self.app.notify,
-                    f"Remove failed: {exc}",
-                    title="Remove Alias",
-                    severity="error",
-                    timeout=6,
-                )
-                return
-            self._do_refresh_locked()
-        self.app.call_from_thread(
-            self.app.notify,
-            f"Removed alias {alias!r}",
+        def mutate(catalog):
+            with catalog.maybe_synchronizing(True):
+                CatalogAlias.from_name(alias, catalog).remove()
+
+        self._run_locked_mutation(
+            mutate,
+            log_event="catalog_alias_remove_failed",
+            log_kwargs={"alias": alias},
             title="Remove Alias",
-            severity="information",
+            verb="Remove",
+            success=lambda _: f"Removed alias {alias!r}",
         )
 
     def action_quit_app(self) -> None:
