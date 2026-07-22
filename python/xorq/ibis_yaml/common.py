@@ -15,9 +15,9 @@ from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.caching.strategy import SnapshotStrategy
+from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
-from xorq.expr.relations import CacheTag, HashingTag, Read, Tag
+from xorq.expr.relations import Read
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.utils import freeze
@@ -66,38 +66,7 @@ class Registry:
         Returns a name like '@read_{hash}', '@filter_{hash}', etc.
         """
 
-        match node:
-            case HashingTag():
-                tagged_repr = node.to_expr().ls.untagged
-                with SnapshotStrategy().normalization_context(node.to_expr()):
-                    node_hash = tokenize(tagged_repr)
-            case CacheTag():
-                untagged_repr = ("CacheTag", node.parent.to_expr(), node.uncached)
-                with SnapshotStrategy().normalization_context(node.to_expr()):
-                    node_hash = tokenize(untagged_repr)
-            case Tag():
-                untagged_repr = ("Tag", node.parent.to_expr(), node_dict["metadata"])
-                with SnapshotStrategy().normalization_context(node.to_expr()):
-                    node_hash = tokenize(untagged_repr)
-            case Schema():
-                untagged_repr = ("Schema", tuple(node.items()))
-                node_hash = tokenize(node)
-            case ops.JoinReference():
-                parent_expr = node.to_expr()
-                with SnapshotStrategy().normalization_context(parent_expr):
-                    parent_hash = tokenize(parent_expr.ls.untagged)
-                node_hash = tokenize((parent_hash, node.identifier))
-            case Read():
-                # Include node.name so two Reads with identical content but
-                # different table names get distinct registry keys (prevents
-                # silent dedup via setdefault).
-                untagged_repr = node.to_expr().ls.untagged
-                with SnapshotStrategy().normalization_context(node.to_expr()):
-                    node_hash = tokenize((untagged_repr, node.name))
-            case _:
-                untagged_repr = node.to_expr().ls.untagged
-                with SnapshotStrategy().normalization_context(node.to_expr()):
-                    node_hash = tokenize(untagged_repr)
+        node_hash = content_hash(node, tag_metadata=node_dict.get("metadata"))
         op_name = node_dict.get("op", "unknown").lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
