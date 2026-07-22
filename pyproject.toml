@@ -25,7 +25,7 @@ only-include = ["python"]
 
 [project]
 name = "xorq"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
     "attrs>=24.1.0; python_version >= '3.10' and python_version < '4.0'",
     "pyarrow>=18.0.0,<22; python_version >= '3.10' and python_version < '4.0'",
@@ -60,23 +60,27 @@ dependencies = [
 ]
 requires-python = ">=3.10,<3.14"
 authors = [
-    { name = "Hussain Sultan", email = "hussain@letsql.com" },
+    { name = "Hussain Sultan", email = "hussain@xorq.dev" },
 ]
 maintainers = [
-    { name = "Dan Lovell", email = "dan@letsql.com" },
-    { name = "Daniel Mesejo", email = "mesejo@letsql.com" },
+    { name = "Dan Lovell", email = "dan@xorq.dev" },
+    { name = "Daniel Mesejo", email = "mesejo@xorq.dev" },
 ]
-description = "Data processing library built on top of Ibis and DataFusion to write multi-engine data workflows."
+description = "Executable memory for tabular data: portable, multi-engine pipelines with caching, lineage, and a git-backed catalog agents and humans can reuse."
 readme = "README.md"
+keywords = ["ibis", "datafusion", "arrow", "duckdb", "sql", "multi-engine", "data-pipelines", "lineage", "caching", "catalog", "machine-learning"]
 license = { file = "LICENSE" }
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "Topic :: Software Development :: User Interfaces",
     "Topic :: Database :: Database Engines/Servers",
+    "Topic :: Scientific/Engineering",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython"
 ]
 
@@ -86,6 +90,7 @@ Repository = "https://github.com/xorq-labs/xorq/"
 Issues = "https://github.com/xorq-labs/xorq/issues"
 Changelog = "https://github.com/xorq-labs/xorq/blob/main/CHANGELOG.md"
 Documentation = "https://docs.xorq.dev/"
+Blog = "https://xorq.dev/blog/"
 
 [project.optional-dependencies]
 pyiceberg = [

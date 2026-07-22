@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.36] - 2026-07-22
+### Details
+#### Changed
+- Serialize TeeNode and its WriteThrough writer by @mesejo in [#2152](https://github.com/xorq-labs/xorq/pull/2152)
+
 ## [0.3.35] - 2026-07-21
 ### Details
 #### Added
