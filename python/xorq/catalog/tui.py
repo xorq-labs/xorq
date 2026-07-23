@@ -46,7 +46,7 @@ from textual.widgets import (
 )
 
 from xorq.caching.storage import resolve_parquet_cache_path
-from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
+from xorq.catalog.catalog import Catalog, CatalogEntry
 from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import CatalogPushError
 from xorq.common.utils.caching_utils import CacheKey
@@ -1493,14 +1493,20 @@ class CatalogScreen(Screen):
             return None
         return self._row_cache.get(node.data)
 
-    def _tree_action_available(self) -> bool:
-        # Row-targeting actions (add/remove alias, delete) may only fire while
-        # the entries tree is focused and a leaf row is selected; otherwise the
-        # key bubbles up from another panel and acts on a stale tree cursor.
+    def _tree_action_row(self) -> CatalogRowData | None:
+        # Single source of truth for the row-targeting actions (add/remove
+        # alias, delete): return the selected row only while the entries tree
+        # is focused and a leaf is selected, else None.  Otherwise the key
+        # bubbles up from another panel and acts on a stale tree cursor.
         if not self.is_mounted:
-            return False
+            return None
         tree = self.query_one("#catalog-tree", Tree)
-        return self.app.focused is tree and self._selected_row_data() is not None
+        if self.app.focused is not tree:
+            return None
+        return self._selected_row_data()
+
+    def _tree_action_available(self) -> bool:
+        return self._tree_action_row() is not None
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action in ("add_alias", "remove_alias", "delete_entry"):
@@ -1511,7 +1517,7 @@ class CatalogScreen(Screen):
         self.refresh_bindings()
 
     def action_delete_entry(self) -> None:
-        row_data = self._selected_row_data()
+        row_data = self._tree_action_row()
         if row_data is None:
             return
         self.app.push_screen(
@@ -1526,9 +1532,7 @@ class CatalogScreen(Screen):
         )
 
     def action_add_alias(self) -> None:
-        if not self._tree_action_available():
-            return
-        row_data = self._selected_row_data()
+        row_data = self._tree_action_row()
         if row_data is None:
             return
         self.app.push_screen(
@@ -1539,7 +1543,7 @@ class CatalogScreen(Screen):
         )
 
     def action_remove_alias(self) -> None:
-        row_data = self._selected_row_data()
+        row_data = self._tree_action_row()
         if row_data is None:
             return
         if not row_data.aliases:
@@ -1655,12 +1659,8 @@ class CatalogScreen(Screen):
 
     @work(thread=True, exit_on_error=False, exclusive=True, group="catalog_mutation")
     def _remove_alias(self, alias: str) -> None:
-        def mutate(catalog):
-            with catalog.maybe_synchronizing(True):
-                CatalogAlias.from_name(alias, catalog).remove()
-
         self._run_locked_mutation(
-            mutate,
+            lambda catalog: catalog.remove_alias(alias),
             log_event="catalog_alias_remove_failed",
             log_kwargs={"alias": alias},
             title="Remove Alias",

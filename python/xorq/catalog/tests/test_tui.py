@@ -615,6 +615,122 @@ def test_delete_push_failure_warns_and_keeps_local_change(
     _run(_test())
 
 
+@pytest.mark.parametrize(
+    ("exc", "severity", "fragment"),
+    [
+        pytest.param(
+            CatalogPushError("push failed: simulated"),
+            "warning",
+            "applied locally but remote push failed",
+            id="push-error",
+        ),
+        pytest.param(ValueError("boom"), "error", "failed:", id="generic-error"),
+    ],
+)
+def test_run_locked_mutation_classifies_push_vs_generic_errors(
+    catalog: Catalog,
+    entry_a: CatalogEntry,
+    monkeypatch: pytest.MonkeyPatch,
+    exc: Exception,
+    severity: str,
+    fragment: str,
+) -> None:
+    """The shared mutation helper -- used by all four modal actions (add
+    entry/alias, delete, remove alias) -- warns on a post-commit push failure
+    but errors on any other exception.  Exercised here once directly rather
+    than through each of the four flows, which share this code path."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        notifications = []
+        async with app.run_test(size=(120, 40)) as pilot:
+            monkeypatch.setattr(
+                app,
+                "notify",
+                lambda message, **kwargs: notifications.append((message, kwargs)),
+            )
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            def mutate(_catalog):
+                raise exc
+
+            # call_from_thread must run off the main thread, as the worker does.
+            await asyncio.to_thread(
+                screen._run_locked_mutation,
+                mutate,
+                log_event="test_event",
+                log_kwargs={},
+                title="Test",
+                verb="Do",
+                success=lambda result: "ok",
+            )
+            await settle(pilot)
+
+            message, kwargs = notifications[-1]
+            assert kwargs["severity"] == severity
+            assert fragment in message
+
+    _run(_test())
+
+
+def test_add_entry_can_be_cancelled(catalog: Catalog) -> None:
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            await pilot.press("a")
+            await settle(pilot)
+            assert isinstance(app.screen, AddEntryScreen)
+
+            await pilot.press("escape")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+            assert catalog.list() == []
+
+    _run(_test())
+
+
+def test_add_alias_can_be_cancelled(catalog: Catalog, entry_a: CatalogEntry) -> None:
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("j", "A")
+            await settle(pilot)
+            assert isinstance(app.screen, AddAliasScreen)
+
+            await pilot.press("escape")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+            assert catalog.list_aliases() == []
+
+    _run(_test())
+
+
+def test_remove_alias_can_be_cancelled(catalog: Catalog, entry_a: CatalogEntry) -> None:
+    async def _test():
+        catalog.add_alias(entry_a.name, "keep-me")
+        app = _make_tui(catalog)
+        row = CatalogRowData(entry=entry_a, aliases=("keep-me",))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            screen._row_cache = {row.row_key: row}
+            screen._render_refresh(catalog.repo.working_dir, (row,))
+            await settle(pilot)
+
+            await pilot.press("j", "r")
+            await settle(pilot)
+            assert isinstance(app.screen, RemoveAliasScreen)
+
+            await pilot.press("escape")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+            assert "keep-me" in catalog.list_aliases()
+
+    _run(_test())
+
+
 def test_j_k_moves_cursor(
     catalog: Catalog, entry_a: CatalogEntry, entry_b: CatalogEntry
 ) -> None:
