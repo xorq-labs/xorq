@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
@@ -30,7 +30,7 @@ jobs:
 
       - name: cache ibis test data
         id: cache-test-data
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25  # v5
         with:
           path: ci/ibis-testing-data
           key: ibis-testing-data-${{ hashFiles('justfile') }}
@@ -53,7 +53,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: cache quarto
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25  # v5
         with:
           path: ~/.local/share/quarto
           key: quarto-1.8.24
