@@ -20,13 +20,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import DataTable, Input, Static, Tree
+from textual.widgets import DataTable, Input, Select, Static, Tree
 
 import xorq.api as xo
 import xorq.config
 from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.bind import _eval_code
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
+from xorq.catalog.exceptions import CatalogPushError
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
@@ -39,16 +40,21 @@ from xorq.catalog.tui import (
     GIT_LOG_COLUMNS,
     KIND_ORDER,
     KIND_STYLES,
+    AddAliasScreen,
+    AddEntryScreen,
     CatalogRowData,
     CatalogScreen,
     CatalogTUI,
     DataViewScreen,
+    DeleteEntryScreen,
     ExprStack,
     ExprStep,
     GitLogRowData,
+    RemoveAliasScreen,
     RevisionRowData,
     _build_git_log_rows,
     _entry_info,
+    _find_project_path,
     _format_cached,
     _get_catalog_aliases,
     _list_revisions_cached,
@@ -59,6 +65,7 @@ from xorq.catalog.tui import (
     _styled_branch_label,
     get_cache_key_path,
 )
+from xorq.catalog.zip_utils import extract_build_zip_to
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.env_utils import (
     EnvConfigable,
@@ -304,7 +311,429 @@ def test_quit_exits_app(catalog):
     _run(_test())
 
 
-def test_j_k_moves_cursor(catalog, entry_a, entry_b):
+def test_add_entry_from_build_directory_with_alias(catalog, entry_a, entry_b, tmp_path):
+    async def _test():
+        zip_path = catalog.get_zip(entry_b.name, dir_path=tmp_path)
+        extract_dir = tmp_path / "extracted"
+        extract_dir.mkdir()
+        build_dir = extract_build_zip_to(zip_path, extract_dir)
+        catalog.remove(entry_b.name)
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("a")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddEntryScreen)
+            app.screen.query_one("#add-entry-path", Input).value = str(build_dir)
+            app.screen.query_one("#add-entry-alias", Input).value = "restored"
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: entry_b.name in catalog.list())
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert "restored" in catalog.list_aliases()
+            assert entry_b.name in app.screen._tree_entry_hashes()
+            assert app.screen._row_cache[entry_b.name].aliases == ("restored",)
+
+    _run(_test())
+
+
+def test_add_entry_rejects_zip_path(catalog, tmp_path):
+    async def _test():
+        zip_path = tmp_path / "build.zip"
+        zip_path.touch()
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            await pilot.press("a")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddEntryScreen)
+            app.screen.query_one("#add-entry-path", Input).value = str(zip_path)
+            await pilot.press("ctrl+r")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddEntryScreen)
+            assert catalog.list() == []
+
+    _run(_test())
+
+
+def test_add_alias_to_selected_entry(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("j", "A")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddAliasScreen)
+            app.screen.query_one("#add-alias-name", Input).value = "new-alias"
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: "new-alias" in catalog.list_aliases())
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert entry_a.name in catalog.list()
+            assert app.screen._row_cache[entry_a.name].aliases == ("new-alias",)
+            assert "new-alias" in _leaf_label_for(app.screen, entry_a.name)
+
+    _run(_test())
+
+
+def test_add_alias_binding_only_visible_on_focused_entry(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            # The cursor starts on the kind branch, so Add Alias is hidden.
+            assert "A" not in app.active_bindings
+
+            await pilot.press("j")
+            await settle(pilot)
+            assert screen._selected_row_data() is not None
+            assert "A" in app.active_bindings
+
+            # Moving focus away from the entries panel hides the action again.
+            await pilot.press("tab")
+            await settle(pilot)
+            assert "A" not in app.active_bindings
+
+    _run(_test())
+
+
+def test_delete_entry_can_be_cancelled(catalog, entry_a):
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("j", "d")
+            await settle(pilot)
+
+            assert isinstance(app.screen, DeleteEntryScreen)
+            await pilot.press("escape")
+            await settle(pilot)
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert entry_a.name in catalog.list()
+
+    _run(_test())
+
+
+def test_delete_entry_removes_entry_and_aliases(catalog, entry_a):
+    async def _test():
+        catalog.add_alias(entry_a.name, "to-delete")
+        app = _make_tui(catalog)
+        row = CatalogRowData(entry=entry_a, aliases=("to-delete",))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            screen._row_cache = {row.row_key: row}
+            screen._render_refresh(catalog.repo.working_dir, (row,))
+            await settle(pilot)
+
+            await pilot.press("j", "d")
+            await settle(pilot)
+            assert isinstance(app.screen, DeleteEntryScreen)
+
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: entry_a.name not in catalog.list())
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert "to-delete" not in catalog.list_aliases()
+            assert entry_a.name not in app.screen._tree_entry_hashes()
+
+    _run(_test())
+
+
+def test_remove_alias_keeps_entry_and_other_aliases(catalog, entry_a):
+    async def _test():
+        catalog.add_alias(entry_a.name, "keep-me")
+        catalog.add_alias(entry_a.name, "remove-me")
+        app = _make_tui(catalog)
+        row = CatalogRowData(entry=entry_a, aliases=("keep-me", "remove-me"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            screen._row_cache = {row.row_key: row}
+            screen._render_refresh(catalog.repo.working_dir, (row,))
+            await settle(pilot)
+
+            await pilot.press("j", "r")
+            await settle(pilot)
+            assert isinstance(app.screen, RemoveAliasScreen)
+
+            select = app.screen.query_one("#remove-alias-select", Select)
+            select.value = "remove-me"
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: "remove-me" not in catalog.list_aliases())
+
+            assert isinstance(app.screen, CatalogScreen)
+            assert entry_a.name in catalog.list()
+            assert "keep-me" in catalog.list_aliases()
+            assert app.screen._row_cache[entry_a.name].aliases == ("keep-me",)
+
+    _run(_test())
+
+
+@pytest.mark.parametrize(
+    "key",
+    [pytest.param("d", id="delete"), pytest.param("r", id="remove-alias")],
+)
+def test_destructive_binding_only_visible_on_focused_entry(
+    catalog: Catalog, entry_a: CatalogEntry, key: str
+) -> None:
+    """delete (d) and remove-alias (r) must be gated on the entries tree being
+    focused with a leaf selected -- otherwise the key bubbles up from another
+    panel and acts on a stale tree cursor (mirrors the add-alias guard)."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            # Cursor starts on the kind branch (no leaf selected) -> hidden.
+            assert key not in app.active_bindings
+
+            await pilot.press("j")
+            await settle(pilot)
+            assert screen._selected_row_data() is not None
+            assert key in app.active_bindings
+
+            # Moving focus off the entries panel hides the action again.
+            await pilot.press("tab")
+            await settle(pilot)
+            assert key not in app.active_bindings
+
+    _run(_test())
+
+
+def test_find_project_path_walks_up_from_build_dir(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    build_dir = project / "builds" / "abc123"
+    build_dir.mkdir(parents=True)
+    (project / "pyproject.toml").touch()
+    assert _find_project_path(build_dir) == project
+
+
+def test_find_project_path_returns_none_when_absent(tmp_path: Path) -> None:
+    build_dir = tmp_path / "orphan"
+    build_dir.mkdir()
+    assert _find_project_path(build_dir) is None
+
+
+def test_add_entry_forwards_project_path_anchored_on_build_dir(
+    catalog: Catalog,
+    entry_a: CatalogEntry,
+    entry_b: CatalogEntry,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The TUI add path must anchor project_path on the build directory, not
+    the process cwd, so an unpackaged build adds even when the TUI was launched
+    from outside the project tree."""
+
+    async def _test():
+        zip_path = catalog.get_zip(entry_b.name, dir_path=tmp_path)
+        project = tmp_path / "proj"
+        (project / "pyproject.toml").parent.mkdir(parents=True, exist_ok=True)
+        (project / "pyproject.toml").touch()
+        extract_dir = project / "builds"
+        extract_dir.mkdir()
+        build_dir = extract_build_zip_to(zip_path, extract_dir)
+        catalog.remove(entry_b.name)
+
+        captured = {}
+        real_add = Catalog.add
+
+        def spy_add(self, obj, *args, **kwargs):
+            captured["project_path"] = kwargs.get("project_path")
+            return real_add(self, obj, *args, **kwargs)
+
+        monkeypatch.setattr(Catalog, "add", spy_add)
+
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("a")
+            await settle(pilot)
+
+            assert isinstance(app.screen, AddEntryScreen)
+            app.screen.query_one("#add-entry-path", Input).value = str(build_dir)
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: entry_b.name in catalog.list())
+
+            assert captured["project_path"] == project
+
+    _run(_test())
+
+
+def test_delete_push_failure_warns_and_keeps_local_change(
+    catalog: Catalog, entry_a: CatalogEntry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A post-commit remote push failure leaves the local change applied; the
+    TUI must re-render as applied and surface a warning about the divergence,
+    not an error that reads as 'nothing happened'."""
+
+    async def _test():
+        real_remove = Catalog.remove
+
+        def remove_local_then_push_fails(self, name, sync=True):
+            real_remove(self, name, sync=False)  # local commit lands, no push
+            raise CatalogPushError("push failed: simulated remote rejection")
+
+        monkeypatch.setattr(Catalog, "remove", remove_local_then_push_fails)
+
+        app = _make_tui(catalog)
+        notifications = []
+
+        async with app.run_test(size=(120, 40)) as pilot:
+            monkeypatch.setattr(
+                app,
+                "notify",
+                lambda message, **kwargs: notifications.append((message, kwargs)),
+            )
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            await pilot.press("j", "d")
+            await settle(pilot)
+            assert isinstance(app.screen, DeleteEntryScreen)
+
+            await pilot.press("ctrl+r")
+            await wait_until(pilot, lambda: entry_a.name not in catalog.list())
+            await settle(pilot)
+
+            # Applied locally and re-rendered as such.
+            assert entry_a.name not in catalog.list()
+            assert entry_a.name not in app.screen._tree_entry_hashes()
+
+            # Warned (not errored) about the divergence.
+            message, kwargs = notifications[-1]
+            assert kwargs["severity"] == "warning"
+            assert "applied locally but remote push failed" in message
+
+    _run(_test())
+
+
+@pytest.mark.parametrize(
+    ("exc", "severity", "fragment"),
+    [
+        pytest.param(
+            CatalogPushError("push failed: simulated"),
+            "warning",
+            "applied locally but remote push failed",
+            id="push-error",
+        ),
+        pytest.param(ValueError("boom"), "error", "failed:", id="generic-error"),
+    ],
+)
+def test_run_locked_mutation_classifies_push_vs_generic_errors(
+    catalog: Catalog,
+    entry_a: CatalogEntry,
+    monkeypatch: pytest.MonkeyPatch,
+    exc: Exception,
+    severity: str,
+    fragment: str,
+) -> None:
+    """The shared mutation helper -- used by all four modal actions (add
+    entry/alias, delete, remove alias) -- warns on a post-commit push failure
+    but errors on any other exception.  Exercised here once directly rather
+    than through each of the four flows, which share this code path."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        notifications = []
+        async with app.run_test(size=(120, 40)) as pilot:
+            monkeypatch.setattr(
+                app,
+                "notify",
+                lambda message, **kwargs: notifications.append((message, kwargs)),
+            )
+            screen, _ = await _populate_tree(pilot, catalog, entry_a)
+
+            def mutate(_catalog):
+                raise exc
+
+            # call_from_thread must run off the main thread, as the worker does.
+            await asyncio.to_thread(
+                screen._run_locked_mutation,
+                mutate,
+                log_event="test_event",
+                log_kwargs={},
+                title="Test",
+                verb="Do",
+                success=lambda result: "ok",
+            )
+            await settle(pilot)
+
+            message, kwargs = notifications[-1]
+            assert kwargs["severity"] == severity
+            assert fragment in message
+
+    _run(_test())
+
+
+def test_add_entry_can_be_cancelled(catalog: Catalog) -> None:
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            await pilot.press("a")
+            await settle(pilot)
+            assert isinstance(app.screen, AddEntryScreen)
+
+            await pilot.press("escape")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+            assert catalog.list() == []
+
+    _run(_test())
+
+
+def test_add_alias_can_be_cancelled(catalog: Catalog, entry_a: CatalogEntry) -> None:
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _populate_tree(pilot, catalog, entry_a)
+            await pilot.press("j", "A")
+            await settle(pilot)
+            assert isinstance(app.screen, AddAliasScreen)
+
+            await pilot.press("escape")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+            assert catalog.list_aliases() == []
+
+    _run(_test())
+
+
+def test_remove_alias_can_be_cancelled(catalog: Catalog, entry_a: CatalogEntry) -> None:
+    async def _test():
+        catalog.add_alias(entry_a.name, "keep-me")
+        app = _make_tui(catalog)
+        row = CatalogRowData(entry=entry_a, aliases=("keep-me",))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            screen._row_cache = {row.row_key: row}
+            screen._render_refresh(catalog.repo.working_dir, (row,))
+            await settle(pilot)
+
+            await pilot.press("j", "r")
+            await settle(pilot)
+            assert isinstance(app.screen, RemoveAliasScreen)
+
+            await pilot.press("escape")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+            assert "keep-me" in catalog.list_aliases()
+
+    _run(_test())
+
+
+def test_j_k_moves_cursor(
+    catalog: Catalog, entry_a: CatalogEntry, entry_b: CatalogEntry
+) -> None:
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:

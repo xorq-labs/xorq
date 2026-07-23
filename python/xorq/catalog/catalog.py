@@ -784,6 +784,15 @@ class Catalog:
             catalog_alias.add()
             return catalog_alias
 
+    def remove_alias(self, alias: str, sync: bool = True) -> "CatalogAlias":
+        """Remove *alias*, leaving its target entry untouched.
+
+        Symmetric with ``add_alias``/``remove``: git sync is managed via
+        *sync*.  Raises ``ValueError`` if *alias* is not registered.
+        """
+        with self.maybe_synchronizing(sync):
+            return CatalogAlias.from_name(alias, self).remove()
+
     def list_aliases(self):
         """Return the list of alias names in the catalog."""
         return self.catalog_yaml.contents[CatalogInfix.ALIAS]

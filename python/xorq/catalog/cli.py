@@ -660,12 +660,15 @@ def remove_alias(ctx, aliases, sync):
     """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
-        alias_map = {ca.alias: ca for ca in catalog.catalog_aliases}
+        # Validate every alias up front so an unknown one cancels the whole
+        # operation before any change is committed (see docstring).
+        known = set(catalog.list_aliases())
+        unknown = next((alias for alias in aliases if alias not in known), None)
+        if unknown is not None:
+            raise click.UsageError(f"Unknown alias: {unknown!r}")
         with catalog.maybe_synchronizing(sync):
             for alias in aliases:
-                if alias not in alias_map:
-                    raise click.UsageError(f"Unknown alias: {alias!r}")
-                alias_map[alias].remove()
+                catalog.remove_alias(alias, sync=False)
                 click.echo(f"Removed alias {alias!r}")
 
 

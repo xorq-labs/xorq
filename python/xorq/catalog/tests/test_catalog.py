@@ -1547,6 +1547,24 @@ def test_add_alias_overwrite(catalog_populated):
     catalog_populated.assert_consistency()
 
 
+def test_remove_alias(catalog_populated: Catalog) -> None:
+    name = catalog_populated.list()[0]
+    catalog_populated.add_alias(name, "doomed")
+    assert "doomed" in catalog_populated.list_aliases()
+
+    catalog_populated.remove_alias("doomed")
+
+    assert "doomed" not in catalog_populated.list_aliases()
+    # The target entry is left untouched.
+    assert name in catalog_populated.list()
+    catalog_populated.assert_consistency()
+
+
+def test_remove_alias_unknown_raises(catalog_populated: Catalog) -> None:
+    with pytest.raises(ValueError, match="no such alias"):
+        catalog_populated.remove_alias("nonexistent")
+
+
 def _commit_count(catalog: Catalog) -> int:
     return len(list(catalog.repo.iter_commits()))
 
