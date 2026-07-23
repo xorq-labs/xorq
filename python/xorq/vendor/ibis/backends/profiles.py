@@ -468,6 +468,13 @@ con_name_to_secret_keys = MappingProxyType(
             "private_key_path",
             "oauth_token",
         ),
+        # mixpanel's authoritative keys are its own `_secret_keys` declaration,
+        # which only answers for an already-imported backend. Without this entry
+        # a process that never imported it -- validating a hand-built or saved
+        # profile, a CLI audit -- checked `("password",)` alone, which matches
+        # none of mixpanel's fields, so a raw secret saved with no error. The
+        # tiers are unioned, so a mirror entry can only widen the check.
+        "mixpanel": ("secret",),
     }
 )
 
