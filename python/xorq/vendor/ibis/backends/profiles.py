@@ -438,8 +438,53 @@ class Profile:
         return cls(con_name=con.name, kwargs_tuple=tuple(sorted(kwargs.items())))
 
 
+# fallback secret keys by connection name, used when the backend module is not
+# loadable (e.g. its extra is not installed) or predates declared secret keys;
+# backends override by declaring a `_secret_keys` tuple on their Backend class
+con_name_to_secret_keys = {
+    "postgres": [
+        "password",
+        "sslcert",
+        "sslkey",
+        "sslrootcert",
+        "sslcrl",
+        "options",
+        "passfile",
+    ],
+    "snowflake": [
+        "password",
+        "user",
+        "account",
+        "token",
+        "private_key",
+        "private_key_path",
+        "oauth_token",
+    ],
+}
+
+
+def get_declared_secret_keys(con_name: str) -> tuple[str, ...] | None:
+    """Return the secret keys the backend's Backend class declares, if any.
+
+    Returns None when the backend has no entry point, its module fails to
+    import (e.g. optional dependencies are absent), or it declares nothing.
+    """
+    entry_point = next((ep for ep in _load_entry_points() if ep.name == con_name), None)
+    if entry_point is None:
+        return None
+    try:
+        module = entry_point.load()
+    except ImportError:
+        return None
+    secret_keys = getattr(getattr(module, "Backend", None), "_secret_keys", None)
+    return tuple(secret_keys) if secret_keys is not None else None
+
+
 def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
     """Check if profile contains exposed secret keys.
+
+    Secret keys come from the backend's declared `Backend._secret_keys`,
+    falling back to `con_name_to_secret_keys`, then to `("password",)`.
 
     Raises
     ------
@@ -447,35 +492,12 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
         If profile contains exposed secret keys not using environment variables
     """
 
-    # Define secret keys by connection name
-    # TODO: Add more database types as needed
-    # maybe user sets this in options
-    con_name_to_secret_keys = {
-        "postgres": [
-            "password",
-            "sslcert",
-            "sslkey",
-            "sslrootcert",
-            "sslcrl",
-            "options",
-            "passfile",
-        ],
-        "snowflake": [
-            "password",
-            "user",
-            "account",
-            "token",
-            "private_key",
-            "private_key_path",
-            "oauth_token",
-        ],
-        # Add more database types as needed
-    }
-
-    relevant_keys = con_name_to_secret_keys.get(
-        con_name,
-        ["password"],  # default to just password
-    )
+    relevant_keys = get_declared_secret_keys(con_name)
+    if relevant_keys is None:
+        relevant_keys = con_name_to_secret_keys.get(
+            con_name,
+            ["password"],  # default to just password
+        )
 
     exposed_secrets = tuple(
         key

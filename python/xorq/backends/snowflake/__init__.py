@@ -60,6 +60,15 @@ class Backend(IbisSnowflakeBackend):
         "connect_env_password",
         "connect_env_keypair",
     )
+    _secret_keys = (
+        "password",
+        "user",
+        "account",
+        "token",
+        "private_key",
+        "private_key_path",
+        "oauth_token",
+    )
 
     @staticmethod
     def connect_env(
