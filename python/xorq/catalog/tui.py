@@ -48,6 +48,7 @@ from textual.widgets import (
 from xorq.caching.storage import resolve_parquet_cache_path
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.enums import CatalogInfix
+from xorq.catalog.exceptions import CatalogPushError
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
 from xorq.config import options
@@ -55,6 +56,28 @@ from xorq.ibis_yaml.enums import ExprKind
 
 
 logger = get_logger(__name__)
+
+
+def _find_project_path(build_dir: Path) -> Path | None:
+    """Locate the pyproject.toml project root by walking up from a build dir.
+
+    ``Catalog.add`` needs a *project_path* to (re)build wheel/requirements
+    sidecars for an unpackaged build directory, and otherwise walks up from
+    the process cwd -- which is wrong for the TUI, whose cwd need not be inside
+    the project.  Anchor the search on the build directory instead.  Returns
+    ``None`` when no pyproject.toml is found, letting ``Catalog.add`` fall back
+    to its own lookup (and raise its own error message).
+    """
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        PYPROJECT_NAME,
+        find_file_upwards,
+    )
+
+    try:
+        return find_file_upwards(build_dir, PYPROJECT_NAME).parent
+    except ValueError:
+        return None
+
 
 DEFAULT_REFRESH_INTERVAL = 10
 
@@ -1470,15 +1493,18 @@ class CatalogScreen(Screen):
             return None
         return self._row_cache.get(node.data)
 
-    def _add_alias_available(self) -> bool:
+    def _tree_action_available(self) -> bool:
+        # Row-targeting actions (add/remove alias, delete) may only fire while
+        # the entries tree is focused and a leaf row is selected; otherwise the
+        # key bubbles up from another panel and acts on a stale tree cursor.
         if not self.is_mounted:
             return False
         tree = self.query_one("#catalog-tree", Tree)
         return self.app.focused is tree and self._selected_row_data() is not None
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if action == "add_alias":
-            return self._add_alias_available()
+        if action in ("add_alias", "remove_alias", "delete_entry"):
+            return self._tree_action_available()
         return super().check_action(action, parameters)
 
     def on_descendant_focus(self) -> None:
@@ -1500,7 +1526,7 @@ class CatalogScreen(Screen):
         )
 
     def action_add_alias(self) -> None:
-        if not self._add_alias_available():
+        if not self._tree_action_available():
             return
         row_data = self._selected_row_data()
         if row_data is None:
@@ -1548,6 +1574,22 @@ class CatalogScreen(Screen):
         with self._refresh_lock:
             try:
                 result = mutate(catalog)
+            except CatalogPushError as exc:
+                # The local commit already happened (synchronizing() commits
+                # before pushing); only the remote push failed.  Re-render --
+                # the change IS applied locally -- and warn about the
+                # local/remote divergence rather than framing it as a total
+                # failure the user would expect to have left no trace.
+                logger.exception(log_event, **log_kwargs)
+                self._do_refresh_locked()
+                self.app.call_from_thread(
+                    self.app.notify,
+                    f"{verb} applied locally but remote push failed: {exc}",
+                    title=title,
+                    severity="warning",
+                    timeout=8,
+                )
+                return
             except Exception as exc:
                 logger.exception(log_event, **log_kwargs)
                 self._do_refresh_locked()
@@ -1574,7 +1616,11 @@ class CatalogScreen(Screen):
         def mutate(catalog):
             if not path.is_dir():
                 raise ValueError(f"build path is not a directory: {path}")
-            return catalog.add(path, aliases=(alias,) if alias else ())
+            return catalog.add(
+                path,
+                aliases=(alias,) if alias else (),
+                project_path=_find_project_path(path),
+            )
 
         self._run_locked_mutation(
             mutate,
