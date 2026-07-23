@@ -7,6 +7,7 @@ from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.vendor.ibis.backends.gizmosql import Backend as IbisGizmoSQLBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
+from xorq.writes.enums import PublishStrategy
 
 
 __all__ = [
@@ -15,6 +16,10 @@ __all__ = [
 
 
 class Backend(IbisGizmoSQLBackend):
+    def publish_strategy(self):
+        """Incremental WAP publish mechanism (ADR-0017): DuckDB-backed, duckdb dialect."""
+        return PublishStrategy.NATIVE_MERGE
+
     def execute(
         self,
         expr: ir.Expr,

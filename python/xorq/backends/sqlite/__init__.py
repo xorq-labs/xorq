@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,7 @@ from xorq.vendor.ibis.backends.sqlite import Backend as IbisSQLiteBackend
 from xorq.vendor.ibis.backends.sqlite import _quote
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
+from xorq.writes.enums import PublishStrategy
 
 
 if TYPE_CHECKING:
@@ -25,6 +27,18 @@ __all__ = [
 
 
 class Backend(IbisSQLiteBackend):
+    def publish_strategy(self):
+        """Incremental WAP publish mechanism (ADR-0017): UPDATE+INSERT+DELETE in a txn.
+
+        The DML tier's ``UPDATE ... FROM`` needs SQLite >= 3.33 (the DML runs on
+        the stdlib driver via ``con.begin()``, so ``sqlite3.sqlite_version_info``
+        is the linked library it will use); below that, drop to the universal
+        ``REWRITE`` floor — the same shape as postgres < 15 dropping a tier.
+        """
+        if sqlite3.sqlite_version_info < (3, 33, 0):
+            return PublishStrategy.REWRITE
+        return PublishStrategy.STATEMENT_DML
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,

@@ -30,6 +30,7 @@ from xorq.vendor.ibis.backends import CanCreateDatabase, UrlFromPath
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.backends.sql.compilers.base import STAR, AlterTable, RenameTable
 from xorq.vendor.ibis.backends.sql.datatypes import DatabricksType
+from xorq.writes.enums import PublishStrategy
 
 
 if TYPE_CHECKING:
@@ -121,6 +122,10 @@ def _casting_producer(producer, schema):
 class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
     name = "databricks"
     compiler = sc.databricks.compiler
+
+    def publish_strategy(self):
+        """Incremental WAP publish mechanism (ADR-0017): Delta MERGE INTO."""
+        return PublishStrategy.NATIVE_MERGE
 
     @property
     def current_catalog(self) -> str:
