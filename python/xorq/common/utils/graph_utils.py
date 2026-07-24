@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections import defaultdict, deque
 from collections.abc import Callable
 from typing import Any, OrderedDict, Tuple
@@ -22,6 +24,45 @@ opaque_ops = (
 )
 
 
+# Single source of truth for opaque descent: the field name(s) on each opaque op
+# holding children that the standard ``__children__`` protocol does not surface
+# (they are ``Expr``-typed or stored in ``__config__``). Consumed by the read
+# side (``gen_children_of`` + policy variants) and the write side
+# (``replace_nodes``). Descent policies are edge-filter overrides of this table
+# (see ``_gen_children_exec``/``_gen_children_skip_pins``/``gen_children_flight_leaf``);
+# the write side additionally skips the edges in ``_WRITE_SKIP_EDGES``.
+OPAQUE_EDGES = {
+    rel.RemoteTable: ("remote_expr",),
+    rel.CachedNode: ("parent",),
+    rel.CacheTag: ("parent", "uncached"),
+    rel.FlightExpr: ("input_expr",),
+    rel.FlightUDXF: ("input_expr",),
+    udf.ExprScalarUDF: ("computed_kwargs_expr",),
+    rel.Read: (),
+}
+
+# Edges the *write* path (``replace_nodes``) must NOT descend even though the
+# read path does: a ``CacheTag``'s ``parent`` is the frozen native read the
+# replacer already produced; re-driving it diverges the read's backend identity
+# from ``cache`` and breaks profile resolution on load (test_pinned_cache_yaml_roundtrip).
+_WRITE_SKIP_EDGES = {
+    rel.CacheTag: ("parent",),
+}
+
+
+def _opaque_edges_for(node: Node, table: dict = OPAQUE_EDGES) -> Tuple[str, ...] | None:
+    """Return the opaque child-edge names for *node*, or ``None`` if not opaque.
+
+    Matches by ``isinstance`` (preserving the original ``match`` semantics); the
+    opaque op types are mutually non-subclassing, so iteration order is
+    immaterial.
+    """
+    for typ, edges in table.items():
+        if isinstance(node, typ):
+            return edges
+    return None
+
+
 def to_node(maybe_expr: Any) -> Node:
     match maybe_expr:
         case Node():
@@ -32,44 +73,54 @@ def to_node(maybe_expr: Any) -> Node:
             raise ValueError(f"Don't know how to handle type {type(maybe_expr)}")
 
 
-def gen_children_of(node: Node) -> Tuple[Node, ...]:
-    match node:
-        case ops.Field():
-            rel_node = node.rel
-            gen = () if rel_node is None else (to_node(rel_node),)
+def gen_children_of(
+    node: Node, *, opaque_edges: dict = OPAQUE_EDGES
+) -> Tuple[Node, ...]:
+    """Yield a node's children, descending opaque ops per *opaque_edges*.
 
-        case rel.RemoteTable():
-            gen = (to_node(node.remote_expr),)
-
-        case rel.CachedNode():
-            gen = (to_node(node.parent),)
-
-        case rel.CacheTag():
-            # descend both opaque children (see CacheTag docstring)
-            gen = (to_node(node.parent), to_node(node.uncached))
-
-        case rel.FlightExpr() | rel.FlightUDXF():
-            gen = (to_node(node.input_expr),)
-
-        case udf.ExprScalarUDF():
-            gen = (to_node(node.computed_kwargs_expr),)
-
-        case rel.Read():
-            gen = ()
-        case _:
-            raw_children = getattr(node, "__children__", ())
-            gen = map(to_node, raw_children)
+    For an opaque op, children are the nodes referenced by its edge fields (see
+    ``OPAQUE_EDGES``); a descent policy passes a modified *opaque_edges* to prune
+    or redirect specific edges (see ``_gen_children_exec`` and friends). All
+    other nodes fall back to the standard ``__children__`` protocol.
+    """
+    edges = _opaque_edges_for(node, opaque_edges)
+    if edges is not None:
+        gen = (getattr(node, name, None) for name in edges)
+        gen = (to_node(child) for child in gen if child is not None)
+    else:
+        match node:
+            case ops.Field():
+                rel_node = node.rel
+                gen = () if rel_node is None else (to_node(rel_node),)
+            case _:
+                raw_children = getattr(node, "__children__", ())
+                gen = map(to_node, raw_children)
     yield from filter(None, gen)
 
 
-def bfs(node):
+def bfs(
+    node: Expr | Node,
+    *,
+    children: Callable[[Node], Any] = gen_children_of,
+    filter: Callable[[Node], bool] | None = None,
+) -> Graph:
+    """Build an opaque-descending :class:`Graph` from *node* by BFS.
+
+    ``children`` overrides child enumeration (default ``gen_children_of``); pass
+    a policy variant to prune opaque edges. ``filter`` stops the walk at any
+    child for which it returns ``False`` (the boundary-stopping form used to
+    collapse non-boundary runs); the filtered-out node is neither recorded nor
+    descended.
+    """
     queue = deque((to_node(node),))
     dct = {}
     while queue:
         if (node := queue.popleft()) not in dct:
-            children = tuple(gen_children_of(node))
-            dct[node] = children
-            queue.extend(children)
+            kids = tuple(children(node))
+            if filter is not None:
+                kids = tuple(child for child in kids if filter(child))
+            dct[node] = kids
+            queue.extend(kids)
     return Graph(dct)
 
 
@@ -150,37 +201,28 @@ def replace_nodes(
 
     def process_node(op, _kwargs):
         op = replacer(op, _kwargs)
-        match op:
-            case rel.RemoteTable():
-                remote_expr = _replace_sub(op.remote_expr.op())
-                return do_recreate(op, _kwargs, remote_expr=remote_expr)
-            case rel.CachedNode():
-                parent = _replace_sub(to_node(op.parent))
-                return do_recreate(op, _kwargs, parent=parent)
-            case rel.CacheTag():
-                # Do NOT forward _kwargs (the asymmetry vs the sibling branches
-                # is load-bearing, not accidental -- it is covered by
-                # test_pinned_cache_yaml_roundtrip). ``parent`` is the materialized
-                # cache read paired with ``cache``; re-driving it from the BFS
-                # rewrite diverges the read's backend identity from ``cache`` and
-                # breaks profile resolution on load. The replacer has already
-                # produced ``op`` with the correct native ``parent``; only the opaque
-                # ``uncached`` payload still needs descending here.
-                uncached = _replace_sub(to_node(op.uncached))
-                return do_recreate(op, None, uncached=uncached)
-            case rel.FlightExpr() | rel.FlightUDXF():
-                input_expr = _replace_sub(op.input_expr.op())
-                return do_recreate(op, _kwargs, input_expr=input_expr)
-            case udf.ExprScalarUDF():
-                computed_kwargs_expr = _replace_sub(op.computed_kwargs_expr.op())
-                with_cke = op.with_computed_kwargs_expr(computed_kwargs_expr)
-                return do_recreate(with_cke, _kwargs)
-            case rel.Read():
-                return op
-            case _:
-                if isinstance(op, opaque_ops):
-                    raise ValueError(f"unhandled opaque op {type(op)}")
-                return op
+        edges = _opaque_edges_for(op)
+        if edges is None:
+            if isinstance(op, opaque_ops):
+                raise ValueError(f"unhandled opaque op {type(op)}")
+            return op
+        # ExprScalarUDF rebinds its sub-expr through a dedicated method rather
+        # than a plain __recreate__ kwarg (computed_kwargs_expr lives in __config__).
+        if isinstance(op, udf.ExprScalarUDF):
+            with_cke = op.with_computed_kwargs_expr(
+                _replace_sub(op.computed_kwargs_expr.op())
+            )
+            return do_recreate(with_cke, _kwargs)
+        # CacheTag: descend only the edges not in _WRITE_SKIP_EDGES (i.e. skip
+        # ``parent``) and do NOT forward _kwargs -- both load-bearing, see
+        # _WRITE_SKIP_EDGES and test_pinned_cache_yaml_roundtrip.
+        skip = _WRITE_SKIP_EDGES.get(type(op), ())
+        descend = tuple(name for name in edges if name not in skip)
+        if not descend:
+            return op  # Read (no opaque children)
+        overrides = {name: _replace_sub(to_node(getattr(op, name))) for name in descend}
+        forward_kwargs = None if isinstance(op, rel.CacheTag) else _kwargs
+        return do_recreate(op, forward_kwargs, **overrides)
 
     # hasattr(x, "op") is unreliable: some Nodes have an `op` field (e.g. IntervalAdd)
     initial_op = to_node(expr)
@@ -430,6 +472,12 @@ def get_ordered_unique_sources(nodes: Tuple[Node, ...]) -> Tuple[Any, ...]:
     return sources
 
 
+# Descent policies are OPAQUE_EDGES with specific edges overridden.
+_EXEC_EDGES = {**OPAQUE_EDGES, rel.CacheTag: ("parent",)}
+_SKIP_PINS_EDGES = {**OPAQUE_EDGES, rel.CacheTag: ()}
+_FLIGHT_LEAF_EDGES = {**OPAQUE_EDGES, rel.FlightExpr: (), rel.FlightUDXF: ()}
+
+
 def _gen_children_exec(node: Node) -> Tuple[Node, ...]:
     """Child enumeration along the *execution* path only.
 
@@ -439,9 +487,7 @@ def _gen_children_exec(node: Node) -> Tuple[Node, ...]:
     pruning of pinned-leaf data so source discovery stays consistent with
     hashing.
     """
-    if isinstance(node, rel.CacheTag):
-        return (to_node(node.parent),)
-    return tuple(gen_children_of(node))
+    return tuple(gen_children_of(node, opaque_edges=_EXEC_EDGES))
 
 
 def _gen_children_skip_pins(node: Node) -> Tuple[Node, ...]:
@@ -451,9 +497,17 @@ def _gen_children_skip_pins(node: Node) -> Tuple[Node, ...]:
     leaves reachable *without* passing through any pin -- the "live" leaves used
     by :func:`exclusively_pinned_leaves`.
     """
-    if isinstance(node, rel.CacheTag):
-        return ()
-    return tuple(gen_children_of(node))
+    return tuple(gen_children_of(node, opaque_edges=_SKIP_PINS_EDGES))
+
+
+def gen_children_flight_leaf(node: Node) -> Tuple[Node, ...]:
+    """Child enumeration treating ``FlightExpr``/``FlightUDXF`` as opaque leaves.
+
+    So a Flight node's ``input_expr`` is not flattened into the outer graph; its
+    lineage is extracted separately as a nested sub-DAG (see XOR-363). Not used
+    by any existing caller -- a capability added for lineage extraction.
+    """
+    return tuple(gen_children_of(node, opaque_edges=_FLIGHT_LEAF_EDGES))
 
 
 def exclusively_pinned_leaves(
