@@ -145,5 +145,5 @@ Rejected because:
   split), ADR-0015 (hash participation rule), ADR-0016 (credential-free
   build artifacts)
 - plans/udxf-source-api-backend.md — Phase 2
-- xorq-labs/xorq#2182 — Phase 1 PR (cloudpickled-udxf implementation this
+- commit 4c14f644 — Phase 1 (cloudpickled-udxf implementation this
   supersedes in core)
