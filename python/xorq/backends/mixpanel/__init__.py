@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING
 
 import xorq.common.exceptions as com
@@ -152,17 +153,23 @@ class Backend(BaseBackend, NoUrl):
             )
         )
 
-    def read_engage(self, where: str = "") -> ir.Table:
+    def read_engage(self, where: str = "", page_size: int | None = None) -> ir.Table:
         """Deferred user-profile query (all profiles when `where` is empty)."""
         import xorq.api as xo  # noqa: PLC0415
         from xorq.expr.relations import flight_udxf  # noqa: PLC0415
 
+        process_df = self._expr_client.engage_batch
+        if page_size is not None:
+            # update_wrapper because make_udxf reads process_df.__name__
+            process_df = functools.update_wrapper(
+                functools.partial(process_df, page_size=page_size), process_df
+            )
         return xo.memtable(
             ({"where": where},),
             name="mixpanel_engage_params",
         ).pipe(
             flight_udxf(
-                process_df=self._expr_client.engage_batch,
+                process_df=process_df,
                 maybe_schema_in=engage_schema_in,
                 maybe_schema_out=engage_schema_out,
                 name="MixpanelEngage",

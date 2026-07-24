@@ -152,12 +152,17 @@ class MixpanelClient:
             .astype(export_dtypes)
         )
 
-    def engage(self, where: str = "") -> pd.DataFrame:
-        """All user profiles matching `where`, paginated to exhaustion."""
+    def engage(self, where: str = "", page_size: int | None = None) -> pd.DataFrame:
+        """All user profiles matching `where`, paginated to exhaustion.
+
+        `page_size` bounds each response page (the API clamps to >= 100);
+        termination uses the page size the server echoes back.
+        """
         url = f"{query_api_urls[self._region]}/2.0/engage"
         params = {
             "project_id": self._project_id,
             **({"where": where} if where else {}),
+            **({"page_size": page_size} if page_size is not None else {}),
         }
         rows: list[dict] = []
         while True:
@@ -184,9 +189,11 @@ class MixpanelClient:
 
         return pd.concat(gen_frames(), ignore_index=True)
 
-    def engage_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+    def engage_batch(
+        self, df: pd.DataFrame, page_size: int | None = None
+    ) -> pd.DataFrame:
         def gen_frames() -> Iterator[pd.DataFrame]:
             for row in df.itertuples(index=False):
-                yield self.engage(row.where)
+                yield self.engage(row.where, page_size=page_size)
 
         return pd.concat(gen_frames(), ignore_index=True)
