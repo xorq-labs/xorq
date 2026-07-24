@@ -165,6 +165,9 @@ databricks = [
 annex = [
     "git-annex>=10.20250220",
 ]
+mixpanel = [
+    "requests>=2.32.3",
+]
 
 [dependency-groups]
 dev = [
