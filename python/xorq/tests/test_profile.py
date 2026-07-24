@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import pathlib
+import sys
+import types
 
 import pytest
 
@@ -9,10 +11,13 @@ import xorq.api as xo
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.loader import _load_entry_points
 from xorq.vendor.ibis.backends import BaseBackend
+from xorq.vendor.ibis.backends import profiles as profiles_mod
 from xorq.vendor.ibis.backends.profiles import (
     Profile,
     Profiles,
+    check_for_exposed_secrets,
     con_name_to_secret_keys,
+    get_dynamic_secret_keys,
 )
 
 
@@ -683,3 +688,118 @@ def test_declared_secret_keys_are_mirrored(con_name: str) -> None:
         "reflection of all declaring backends"
     )
     assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
+
+
+def _install_fake_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    backend_cls: type,
+    con_name: str = "fakedb",
+    module_name: str = "xorq_fake_backend_mod",
+    imported: bool = True,
+) -> str:
+    """Register a throwaway backend so get_dynamic_secret_keys resolves to
+    backend_cls. Patches the entry-point lookup, and (when imported=True) marks
+    the module as already-imported in sys.modules -- the resolver only inspects
+    already-imported backends. Pass imported=False to simulate a backend whose
+    module has not been imported."""
+    module = types.ModuleType(module_name)
+    module.Backend = backend_cls
+    entry_point = types.SimpleNamespace(
+        name=con_name, module=module_name, load=lambda: module
+    )
+    monkeypatch.setattr(profiles_mod, "_load_entry_points", lambda: (entry_point,))
+    if imported:
+        monkeypatch.setitem(sys.modules, module_name, module)
+    return con_name
+
+
+def test_get_dynamic_secret_keys_uses_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dynamic _get_secret_keys(kwargs) hook is used and receives kwargs."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("password", *(kwargs or {}).get("extra_secret_keys", ()))
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {"extra_secret_keys": ("api_key",)}) == (
+        "password",
+        "api_key",
+    )
+
+
+def test_get_dynamic_secret_keys_none_when_hook_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning None yields None so the caller falls back to the static
+    mapping."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return None
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_get_dynamic_secret_keys_none_without_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Backend with no dynamic hook resolves to None (caller uses the dict)."""
+
+    class Backend:
+        pass
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_get_dynamic_secret_keys_none_when_not_imported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backend that isn't imported is not force-imported: the hook is skipped
+    and None is returned even though the class declares one."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key",)
+
+    con_name = _install_fake_backend(monkeypatch, Backend, imported=False)
+    assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_get_dynamic_secret_keys_fail_closed_on_hook_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook that raises degrades to None (fail closed) rather than
+    propagating and aborting/bypassing the secret check."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            raise RuntimeError("boom")
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_check_for_exposed_secrets_uses_dynamic_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end: a key surfaced only by the dynamic hook is enforced by
+    check_for_exposed_secrets, and takes precedence over the static mapping."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key",)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {"api_key": "plaintext"})
+    # an env-var reference is accepted
+    check_for_exposed_secrets(con_name, {"api_key": "${API_KEY}"})
