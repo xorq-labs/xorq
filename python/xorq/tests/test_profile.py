@@ -643,11 +643,11 @@ def test_profile_matches_find_backend(data_dir: pathlib.Path) -> None:
 
 
 @pytest.mark.parametrize("con_name", sorted(con_name_to_secret_keys))
-def test_fallback_secret_keys_match_backend_declaration(con_name: str) -> None:
-    """The con_name_to_secret_keys fallback must not drift from the keys the
-    backend's Backend class declares in _secret_keys. The fallback only fires
-    when the backend module can't be imported, so a silent divergence would go
-    unnoticed until then; this pins the two together."""
+def test_secret_key_mirror_matches_backend_declaration(con_name: str) -> None:
+    """The con_name_to_secret_keys mirror must not drift from the keys each
+    backend's Backend class declares in _secret_keys. check_for_exposed_secrets
+    reads the mirror rather than the backend (so it needn't import the backend),
+    so a silent divergence would go unnoticed; this pins the two together."""
     entry_point = next((ep for ep in _load_entry_points() if ep.name == con_name), None)
     assert entry_point is not None, f"no entry point for {con_name!r}"
     try:
@@ -656,20 +656,19 @@ def test_fallback_secret_keys_match_backend_declaration(con_name: str) -> None:
         pytest.skip(f"{con_name} backend not importable: {e}")
     declared = getattr(module.Backend, "_secret_keys", None)
     assert declared is not None, (
-        f"{con_name} is in the fallback dict but its Backend declares no "
-        "_secret_keys; declare them so the fallback stays a mirror"
+        f"{con_name} is in con_name_to_secret_keys but its Backend declares no "
+        "_secret_keys; declare them so the mirror stays honest"
     )
     assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
 
 
 @pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
-def test_declared_secret_keys_are_mirrored_in_fallback(con_name: str) -> None:
-    """Inverse of test_fallback_secret_keys_match_backend_declaration: every
+def test_declared_secret_keys_are_mirrored(con_name: str) -> None:
+    """Inverse of test_secret_key_mirror_matches_backend_declaration: every
     installed backend that declares _secret_keys must also appear (and match)
-    in the con_name_to_secret_keys fallback. Without this, a backend could
-    declare keys yet be absent from the fallback, and when that backend's
-    module can't be imported its secrets would fall through to just
-    ("password",)."""
+    in the con_name_to_secret_keys mirror. Without this a backend could declare
+    keys yet be absent from the mirror, so check_for_exposed_secrets would
+    silently fall back to just ("password",) for it."""
     entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
     try:
         module = entry_point.load()
@@ -680,7 +679,7 @@ def test_declared_secret_keys_are_mirrored_in_fallback(con_name: str) -> None:
         pytest.skip(f"{con_name} declares no _secret_keys")
     assert con_name in con_name_to_secret_keys, (
         f"{con_name} declares _secret_keys but is missing from the "
-        "con_name_to_secret_keys fallback; add it so the fallback stays a "
-        "complete mirror of all declaring backends"
+        "con_name_to_secret_keys mirror; add it so the mirror stays a complete "
+        "reflection of all declaring backends"
     )
     assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])

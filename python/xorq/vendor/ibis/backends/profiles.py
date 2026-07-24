@@ -439,11 +439,12 @@ class Profile:
         return cls(con_name=con.name, kwargs_tuple=tuple(sorted(kwargs.items())))
 
 
-# static secret keys by connection name. This is the runtime source of truth:
-# a backend's `_secret_keys` tuple is mirrored here (enforced bidirectionally by
-# tests in test_profile.py), so secret validation reads this dict instead of
-# importing the backend just to read a tuple. The backend's own `_secret_keys`
-# declaration is only consulted by those tests, to keep this mirror honest.
+# Static secret keys by connection name, mirrored from each backend's
+# `Backend._secret_keys` declaration. `check_for_exposed_secrets` reads this
+# mirror at runtime so that validating a profile never imports the backend just
+# to read its tuple. The colocated `_secret_keys` declaration is the authored
+# source; the tests in test_profile.py enforce, in both directions, that this
+# mirror stays identical to it.
 con_name_to_secret_keys = MappingProxyType(
     {
         "postgres": (
