@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import functools
 import types
 
 
@@ -7,9 +10,14 @@ except ModuleNotFoundError:
     import importlib_metadata
 
 
-def _load_entry_points():
+@functools.cache
+def _load_entry_points() -> tuple:
+    # cached: the installed xorq.backends entry points are fixed for the life of
+    # the process (nothing installs a backend distribution at runtime), and this
+    # is called on hot paths like secret validation. Returns a tuple so the
+    # shared cached value can't be mutated in place by a caller.
     eps = importlib_metadata.entry_points(group="xorq.backends")
-    return sorted(eps)
+    return tuple(sorted(eps))
 
 
 def load_backend(name):
