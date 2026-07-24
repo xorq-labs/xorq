@@ -6229,6 +6229,9 @@ examples = [
 geospatial = [
     { name = "geoarrow-types" },
 ]
+github = [
+    { name = "requests" },
+]
 gizmosql = [
     { name = "adbc-driver-gizmosql" },
     { name = "cryptography" },
@@ -6244,6 +6247,9 @@ postgres = [
 ]
 pyiceberg = [
     { name = "pyiceberg", extra = ["sql-postgres", "sql-sqlite"] },
+]
+rest = [
+    { name = "requests" },
 ]
 snowflake = [
     { name = "adbc-driver-snowflake" },
@@ -6355,6 +6361,12 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "pytz", specifier = ">=2022.7" },
     { name = "requests", marker = "extra == 'examples'", specifier = ">=2.32.3" },
+<<<<<<< HEAD
+=======
+    { name = "requests", marker = "extra == 'github'", specifier = ">=2.32.3" },
+    { name = "requests", marker = "extra == 'mixpanel'", specifier = ">=2.32.3" },
+    { name = "requests", marker = "extra == 'rest'", specifier = ">=2.32.3" },
+>>>>>>> 88d2a0b7 (feat(rest): declarative REST contract with swappable engines; github backend as N=2 validation)
     { name = "rich", specifier = ">=13.9.4" },
     { name = "scikit-learn", marker = "python_full_version >= '3.13' and extra == 'examples'", specifier = ">=1.5.2,<2.0.0" },
     { name = "scikit-learn", marker = "python_full_version < '3.13' and extra == 'examples'", specifier = ">=1.5.0,<2.0.0" },
@@ -6374,7 +6386,11 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
+<<<<<<< HEAD
 provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "examples", "postgres", "sqlite", "gizmosql", "ibis", "geospatial", "trino", "bigquery", "bsl", "databricks", "annex"]
+=======
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "examples", "postgres", "sqlite", "gizmosql", "ibis", "geospatial", "trino", "bigquery", "bsl", "databricks", "annex", "mixpanel", "rest", "github"]
+>>>>>>> 88d2a0b7 (feat(rest): declarative REST contract with swappable engines; github backend as N=2 validation)
 
 [package.metadata.requires-dev]
 dev = [
