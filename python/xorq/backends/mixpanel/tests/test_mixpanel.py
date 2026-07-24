@@ -93,6 +93,8 @@ def test_read_events_is_deferred(con: BaseBackend) -> None:
         "events", from_date="2026-07-01", to_date="2026-07-07"
     ).schema() == con.get_schema("events")
     assert con.read_engage().schema() == con.get_schema("engage")
+    # page_size wraps process_df in a partial; make_udxf reads its __name__
+    assert con.read_engage(page_size=100).schema() == con.get_schema("engage")
 
 
 def test_expr_construction_rejects_raw_secret(
