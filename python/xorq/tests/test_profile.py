@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import pathlib
 
@@ -5,8 +7,13 @@ import pytest
 
 import xorq.api as xo
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
+from xorq.loader import _load_entry_points
 from xorq.vendor.ibis.backends import BaseBackend
-from xorq.vendor.ibis.backends.profiles import Profile, Profiles
+from xorq.vendor.ibis.backends.profiles import (
+    Profile,
+    Profiles,
+    con_name_to_secret_keys,
+)
 
 
 local_con_names = ("duckdb", "xorq_datafusion", "datafusion", "pandas", "pyiceberg")
@@ -628,8 +635,52 @@ def test_profile_from_con_preserves_env_vars(monkeypatch, tmp_path):
             raise
 
 
-def test_profile_matches_find_backend(data_dir):
+def test_profile_matches_find_backend(data_dir: pathlib.Path) -> None:
     path = data_dir / "parquet" / "diamonds.parquet"
     con = xo.connect()
     t = xo.deferred_read_parquet(path, con)
     assert con._profile == t._find_backend()._profile
+
+
+@pytest.mark.parametrize("con_name", sorted(con_name_to_secret_keys))
+def test_fallback_secret_keys_match_backend_declaration(con_name: str) -> None:
+    """The con_name_to_secret_keys fallback must not drift from the keys the
+    backend's Backend class declares in _secret_keys. The fallback only fires
+    when the backend module can't be imported, so a silent divergence would go
+    unnoticed until then; this pins the two together."""
+    entry_point = next((ep for ep in _load_entry_points() if ep.name == con_name), None)
+    assert entry_point is not None, f"no entry point for {con_name!r}"
+    try:
+        module = entry_point.load()
+    except ImportError as e:
+        pytest.skip(f"{con_name} backend not importable: {e}")
+    declared = getattr(module.Backend, "_secret_keys", None)
+    assert declared is not None, (
+        f"{con_name} is in the fallback dict but its Backend declares no "
+        "_secret_keys; declare them so the fallback stays a mirror"
+    )
+    assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
+
+
+@pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
+def test_declared_secret_keys_are_mirrored_in_fallback(con_name: str) -> None:
+    """Inverse of test_fallback_secret_keys_match_backend_declaration: every
+    installed backend that declares _secret_keys must also appear (and match)
+    in the con_name_to_secret_keys fallback. Without this, a backend could
+    declare keys yet be absent from the fallback, and when that backend's
+    module can't be imported its secrets would fall through to just
+    ("password",)."""
+    entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
+    try:
+        module = entry_point.load()
+    except ImportError as e:
+        pytest.skip(f"{con_name} backend not importable: {e}")
+    declared = getattr(getattr(module, "Backend", None), "_secret_keys", None)
+    if declared is None:
+        pytest.skip(f"{con_name} declares no _secret_keys")
+    assert con_name in con_name_to_secret_keys, (
+        f"{con_name} declares _secret_keys but is missing from the "
+        "con_name_to_secret_keys fallback; add it so the fallback stays a "
+        "complete mirror of all declaring backends"
+    )
+    assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
