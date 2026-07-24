@@ -1,6 +1,7 @@
 import itertools
 import json
 from pathlib import Path
+from types import MappingProxyType
 
 import toolz
 import yaml12
@@ -441,26 +442,28 @@ class Profile:
 # fallback secret keys by connection name, used when the backend module is not
 # loadable (e.g. its extra is not installed) or predates declared secret keys;
 # backends override by declaring a `_secret_keys` tuple on their Backend class
-con_name_to_secret_keys = {
-    "postgres": [
-        "password",
-        "sslcert",
-        "sslkey",
-        "sslrootcert",
-        "sslcrl",
-        "options",
-        "passfile",
-    ],
-    "snowflake": [
-        "password",
-        "user",
-        "account",
-        "token",
-        "private_key",
-        "private_key_path",
-        "oauth_token",
-    ],
-}
+con_name_to_secret_keys = MappingProxyType(
+    {
+        "postgres": (
+            "password",
+            "sslcert",
+            "sslkey",
+            "sslrootcert",
+            "sslcrl",
+            "options",
+            "passfile",
+        ),
+        "snowflake": (
+            "password",
+            "user",
+            "account",
+            "token",
+            "private_key",
+            "private_key_path",
+            "oauth_token",
+        ),
+    }
+)
 
 
 def get_declared_secret_keys(con_name: str) -> tuple[str, ...] | None:
@@ -498,7 +501,7 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
     if relevant_keys is None:
         relevant_keys = con_name_to_secret_keys.get(
             con_name,
-            ["password"],  # default to just password
+            ("password",),  # default to just password
         )
 
     exposed_secrets = tuple(
