@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import pathlib
 
@@ -656,5 +658,29 @@ def test_fallback_secret_keys_match_backend_declaration(con_name: str) -> None:
     assert declared is not None, (
         f"{con_name} is in the fallback dict but its Backend declares no "
         "_secret_keys; declare them so the fallback stays a mirror"
+    )
+    assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
+
+
+@pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
+def test_declared_secret_keys_are_mirrored_in_fallback(con_name: str) -> None:
+    """Inverse of test_fallback_secret_keys_match_backend_declaration: every
+    installed backend that declares _secret_keys must also appear (and match)
+    in the con_name_to_secret_keys fallback. Without this, a backend could
+    declare keys yet be absent from the fallback, and when that backend's
+    module can't be imported its secrets would fall through to just
+    ("password",)."""
+    entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
+    try:
+        module = entry_point.load()
+    except ImportError as e:
+        pytest.skip(f"{con_name} backend not importable: {e}")
+    declared = getattr(getattr(module, "Backend", None), "_secret_keys", None)
+    if declared is None:
+        pytest.skip(f"{con_name} declares no _secret_keys")
+    assert con_name in con_name_to_secret_keys, (
+        f"{con_name} declares _secret_keys but is missing from the "
+        "con_name_to_secret_keys fallback; add it so the fallback stays a "
+        "complete mirror of all declaring backends"
     )
     assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
