@@ -1,5 +1,6 @@
 import itertools
 import json
+import sys
 from pathlib import Path
 from types import MappingProxyType
 
@@ -469,11 +470,47 @@ con_name_to_secret_keys = MappingProxyType(
 )
 
 
+def get_dynamic_secret_keys(
+    con_name: str, kwargs: dict | None = None
+) -> tuple[str, ...] | None:
+    """Return secret keys from a backend's dynamic ``_get_secret_keys(kwargs)``
+    hook, or None.
+
+    A backend may declare a classmethod ``_get_secret_keys(kwargs)`` when its
+    secret keys depend on the connection kwargs themselves (e.g. keys nested
+    inside a ``config`` kwarg being checked) and so can't be captured in the
+    static ``con_name_to_secret_keys`` mirror.
+
+    Only an already-imported backend is inspected -- we never import a backend
+    purely to validate secrets (that would import a heavy backend, e.g.
+    snowflake, on every ``Profile.save()``). Returns None when the backend is
+    not imported, has no entry point, declares no dynamic hook, or the hook
+    raises (fail closed: the caller then falls back to the static mirror rather
+    than skipping the check).
+    """
+    entry_point = next((ep for ep in _load_entry_points() if ep.name == con_name), None)
+    if entry_point is None:
+        return None
+    module = sys.modules.get(entry_point.module)
+    if module is None:
+        return None
+    getter = getattr(getattr(module, "Backend", None), "_get_secret_keys", None)
+    if not callable(getter):
+        return None
+    try:
+        keys = getter(kwargs)
+    except Exception:
+        return None
+    return tuple(keys) if keys is not None else None
+
+
 def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
     """Check if profile contains exposed secret keys.
 
-    Secret keys come from the static `con_name_to_secret_keys` mirror,
-    defaulting to `("password",)` for backends not listed.
+    A backend may declare a dynamic `_get_secret_keys(kwargs)` hook, which
+    takes precedence when it yields keys; otherwise secret keys come from the
+    static `con_name_to_secret_keys` mirror, defaulting to `("password",)` for
+    backends not listed.
 
     Raises
     ------
@@ -481,10 +518,12 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
         If profile contains exposed secret keys not using environment variables
     """
 
-    relevant_keys = con_name_to_secret_keys.get(
-        con_name,
-        ("password",),  # default to just password
-    )
+    relevant_keys = get_dynamic_secret_keys(con_name, kwargs)
+    if relevant_keys is None:
+        relevant_keys = con_name_to_secret_keys.get(
+            con_name,
+            ("password",),  # default to just password
+        )
 
     exposed_secrets = tuple(
         key
