@@ -99,7 +99,7 @@ class RestBackend(PandasBackend):
         missing = tuple(
             name
             for name in config.auth.fields
-            if credentials.get(name) is None and not self._credential_optional(name)
+            if credentials.get(name) is None and name not in config.auth.optional_fields
         )
         if missing:
             raise com.XorqError(
@@ -114,9 +114,6 @@ class RestBackend(PandasBackend):
         super().do_connect()
         self._config = config
         self._credentials = dict(credentials)
-
-    def _credential_optional(self, name: str) -> bool:
-        return False
 
     @property
     def current_config(self) -> RestBackendConfig:
@@ -276,16 +273,14 @@ class RestBackend(PandasBackend):
         auth = self.current_config.auth
         match auth.kind:
             case "basic":
-                first, second, *_ = auth.fields
                 return {
                     "auth": (
-                        self._credentials.get(first, ""),
-                        self._credentials.get(second, ""),
+                        self._credentials.get(auth.username_field, ""),
+                        self._credentials.get(auth.password_field, ""),
                     )
                 }
             case "bearer":
-                (token_field, *_) = auth.fields
-                token = self._credentials.get(token_field)
+                token = self._credentials.get(auth.resolved_token_field)
                 return (
                     {"headers": {"Authorization": f"Bearer {token}"}} if token else {}
                 )
@@ -314,13 +309,13 @@ class RestBackend(PandasBackend):
                 return json.dumps(value, sort_keys=True)
             return value
 
-        row = {
-            name: render(record.get(name))
-            for name in resource_config.schema
-            if name != "properties"
-        }
+        named = tuple(n for n in resource_config.schema.names if n != "properties")
+        row = {name: render(record.get(name)) for name in named}
         if "properties" in resource_config.schema.names:
-            row["properties"] = json.dumps(record, sort_keys=True)
+            # the overflow column: only fields not already given a typed
+            # column, so `properties` doesn't duplicate them at catalog scale
+            residual = {k: v for k, v in record.items() if k not in named}
+            row["properties"] = json.dumps(residual, sort_keys=True)
         return row
 
     # -- read-only ----------------------------------------------------------

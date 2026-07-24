@@ -89,6 +89,17 @@ class AuthConfig:
     ``secret_fields`` (default: all fields) are the subset enforced as
     env-var references by ``check_for_exposed_secrets`` via
     ``Backend._get_secret_keys``.
+
+    Which field fills which credential *role* is named explicitly, never
+    inferred from declaration order (an order-based mapping silently swaps
+    credentials when a self-service config lists fields in a different
+    order): ``basic`` requires ``username_field`` and ``password_field``;
+    ``bearer`` uses ``token_field`` (defaulting to the sole field when
+    exactly one is declared, where there is no ambiguity).
+
+    ``optional_fields`` names credentials the API can omit (e.g. GitHub
+    serves unauthenticated, rate-limited requests) — those are not required
+    at ``do_connect``.
     """
 
     kind = field(validator=in_(auth_kinds))
@@ -102,6 +113,50 @@ class AuthConfig:
         converter=lambda v: tuple(v) if v is not None else None,
         default=None,
     )
+    optional_fields = field(
+        validator=deep_iterable(instance_of(str), instance_of(tuple)),
+        converter=tuple,
+        default=(),
+    )
+    username_field = field(validator=optional(instance_of(str)), default=None)
+    password_field = field(validator=optional(instance_of(str)), default=None)
+    token_field = field(validator=optional(instance_of(str)), default=None)
+
+    def __attrs_post_init__(self) -> None:
+        # role fields must name declared fields; roles are mapped by name,
+        # not position, so credential meaning is stable across configs
+        roles = {
+            "username_field": self.username_field,
+            "password_field": self.password_field,
+            "token_field": self.resolved_token_field,
+        }
+        for role, name in roles.items():
+            if name is not None and name not in self.fields:
+                raise ValueError(
+                    f"{role}={name!r} is not one of auth.fields {self.fields}"
+                )
+        for name in self.optional_fields:
+            if name not in self.fields:
+                raise ValueError(
+                    f"optional field {name!r} is not one of auth.fields {self.fields}"
+                )
+        if self.kind == "basic" and (
+            self.username_field is None or self.password_field is None
+        ):
+            raise ValueError(
+                "basic auth requires username_field and password_field "
+                "(mapping fields by position is a silent-swap hazard)"
+            )
+        if self.kind == "bearer" and self.resolved_token_field is None:
+            raise ValueError(
+                "bearer auth requires token_field (or a single-element fields)"
+            )
+
+    @property
+    def resolved_token_field(self) -> str | None:
+        if self.token_field is not None:
+            return self.token_field
+        return self.fields[0] if len(self.fields) == 1 else None
 
     @property
     def effective_secret_fields(self) -> tuple[str, ...]:

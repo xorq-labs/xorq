@@ -157,7 +157,36 @@ def test_record_to_row_nests_to_json() -> None:
     )
     assert row["id"] == 1
     assert json.loads(row["name"]) == {"nested": True}
-    assert json.loads(row["properties"])["extra"] == "x"
+    # properties is the overflow column: only unmapped fields, no duplication
+    props = json.loads(row["properties"])
+    assert props == {"extra": "x"}
+    assert "id" not in props and "name" not in props
+
+
+def test_basic_auth_requires_role_fields() -> None:
+    # mapping fields by position is a silent-swap hazard, so it is rejected
+    with pytest.raises(ValueError, match="username_field and password_field"):
+        AuthConfig(kind="basic", fields=("user", "pass"))
+    with pytest.raises(ValueError, match="not one of auth.fields"):
+        AuthConfig(
+            kind="basic",
+            fields=("user", "pass"),
+            username_field="user",
+            password_field="nope",
+        )
+    ok = AuthConfig(
+        kind="basic",
+        fields=("user", "pass"),
+        username_field="user",
+        password_field="pass",
+    )
+    assert ok.username_field == "user"
+
+
+def test_bearer_token_field_defaults_to_single_field() -> None:
+    assert AuthConfig(kind="bearer", fields=("token",)).resolved_token_field == "token"
+    with pytest.raises(ValueError, match="requires token_field"):
+        AuthConfig(kind="bearer", fields=("a", "b"))
 
 
 class CuratedBackend(RestBackend):

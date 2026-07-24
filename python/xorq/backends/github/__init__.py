@@ -45,7 +45,9 @@ repo_schema = ibis.schema(
 
 GITHUB_CONFIG = RestBackendConfig(
     base_urls={"default": "https://api.github.com"},
-    auth=AuthConfig(kind="bearer", fields=("token",)),
+    # unauthenticated requests are allowed (rate-limited to 60/hr), so the
+    # token is optional; token_field defaults to the single declared field
+    auth=AuthConfig(kind="bearer", fields=("token",), optional_fields=("token",)),
     resources=(
         ResourceConfig(
             name="issues",
@@ -75,7 +77,3 @@ GITHUB_CONFIG = RestBackendConfig(
 class Backend(RestBackend):
     name = "github"
     config = GITHUB_CONFIG
-
-    def _credential_optional(self, name: str) -> bool:
-        # github serves unauthenticated requests (rate-limited to 60/hr)
-        return True
