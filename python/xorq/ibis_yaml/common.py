@@ -66,7 +66,7 @@ class Registry:
         Returns a name like '@read_{hash}', '@filter_{hash}', etc.
         """
 
-        node_hash = content_hash(node, tag_metadata=node_dict.get("metadata"))
+        node_hash = content_hash(node)
         op_name = node_dict.get("op", "unknown").lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})

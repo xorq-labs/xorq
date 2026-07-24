@@ -20,43 +20,45 @@ from xorq.expr.relations import CacheTag, HashingTag, Read, Tag
 from xorq.vendor.ibis.expr.schema import Schema
 
 
-def content_hash(node: Any, *, tag_metadata: Any = None) -> str:
+def content_hash(node: Any) -> str:
     """Return the content hash of *node*.
 
-    ``tag_metadata`` overrides the metadata folded into a plain ``Tag``'s hash.
-    ``ibis_yaml`` passes the already-serialized ``node_dict["metadata"]`` here so
-    expr.yaml hashes stay byte-identical; callers without it (lineage) fall back
-    to the node's raw ``metadata``. Only the plain ``Tag`` branch consults it;
-    every other node type derives its hash purely from ``node``.
+    The hash is derived purely from ``node``, so the two documented callers
+    (``ibis_yaml`` serialization and lineage extraction) compute the same value
+    for the same node and it can be cross-referenced by hash. A plain ``Tag``
+    folds in its raw ``node.metadata`` -- never a serialization-specific form --
+    so both callers agree.
     """
+    # Schema is not a graph node and has no to_expr(); hash it directly.
+    if isinstance(node, Schema):
+        return tokenize(node)
+
+    strategy = SnapshotStrategy()
+    expr = node.to_expr()
     match node:
         case HashingTag():
-            tagged_repr = node.to_expr().ls.untagged
-            with SnapshotStrategy().normalization_context(node.to_expr()):
+            tagged_repr = expr.ls.untagged
+            with strategy.normalization_context(expr):
                 return tokenize(tagged_repr)
         case CacheTag():
             untagged_repr = ("CacheTag", node.parent.to_expr(), node.uncached)
-            with SnapshotStrategy().normalization_context(node.to_expr()):
+            with strategy.normalization_context(expr):
                 return tokenize(untagged_repr)
         case Tag():
-            metadata = tag_metadata if tag_metadata is not None else node.metadata
-            untagged_repr = ("Tag", node.parent.to_expr(), metadata)
-            with SnapshotStrategy().normalization_context(node.to_expr()):
+            untagged_repr = ("Tag", node.parent.to_expr(), node.metadata)
+            with strategy.normalization_context(expr):
                 return tokenize(untagged_repr)
-        case Schema():
-            return tokenize(node)
         case ops.JoinReference():
-            parent_expr = node.to_expr()
-            with SnapshotStrategy().normalization_context(parent_expr):
-                parent_hash = tokenize(parent_expr.ls.untagged)
+            with strategy.normalization_context(expr):
+                parent_hash = tokenize(expr.ls.untagged)
             return tokenize((parent_hash, node.identifier))
         case Read():
             # Include node.name so two Reads with identical content but different
             # table names get distinct identities (prevents silent dedup).
-            untagged_repr = node.to_expr().ls.untagged
-            with SnapshotStrategy().normalization_context(node.to_expr()):
+            untagged_repr = expr.ls.untagged
+            with strategy.normalization_context(expr):
                 return tokenize((untagged_repr, node.name))
         case _:
-            untagged_repr = node.to_expr().ls.untagged
-            with SnapshotStrategy().normalization_context(node.to_expr()):
+            untagged_repr = expr.ls.untagged
+            with strategy.normalization_context(expr):
                 return tokenize(untagged_repr)
