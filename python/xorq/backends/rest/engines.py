@@ -14,7 +14,6 @@ over the base registry — never by overriding private fetch methods.
 from __future__ import annotations
 
 import json
-import string
 import time
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Callable, Mapping, Protocol
@@ -160,12 +159,11 @@ class NativeEngine:
             registry=self.paginators,
         )
         url = config.base_url() + resource_config.path.format(**params)
-        path_params = {
-            name
-            for _, name, *_ in string.Formatter().parse(resource_config.path)
-            if name
+        query = {
+            k: v
+            for k, v in params.items()
+            if k not in resource_config.path_placeholders
         }
-        query = {k: v for k, v in params.items() if k not in path_params}
         request_kwargs = dict(self._auth_kwargs(config.auth, credentials))
         query = {**query, **request_kwargs.pop("params", {})}
         query = paginator.initial_params(query)

@@ -21,6 +21,7 @@ invalidating sibling resources.
 
 from __future__ import annotations
 
+import string
 from types import MappingProxyType
 
 from attr import (
@@ -206,6 +207,28 @@ class ResourceConfig:
         default=(),
     )
     fetch_override = field(validator=optional(is_callable()), default=None)
+
+    def __attrs_post_init__(self) -> None:
+        # a mistyped placeholder or an optional placeholder param would
+        # otherwise surface as a bare KeyError at fetch time
+        undeclared = self.path_placeholders - set(self.param_names)
+        if undeclared:
+            raise ValueError(
+                f"resource {self.name!r}: path placeholders {sorted(undeclared)} "
+                f"are not declared params {self.param_names}"
+            )
+        not_required = self.path_placeholders - set(self.required_params)
+        if not_required:
+            raise ValueError(
+                f"resource {self.name!r}: path placeholders {sorted(not_required)} "
+                "must be required params (the path cannot format without them)"
+            )
+
+    @property
+    def path_placeholders(self) -> frozenset[str]:
+        return frozenset(
+            name for _, name, *_ in string.Formatter().parse(self.path) if name
+        )
 
     @property
     def dtypes(self) -> dict[str, str]:

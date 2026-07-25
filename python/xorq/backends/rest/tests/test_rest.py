@@ -99,6 +99,23 @@ def test_resource_content_hash_is_declarative() -> None:
     assert overridden.content_hash == other.content_hash
 
 
+def test_path_placeholders_validated_at_construction() -> None:
+    with pytest.raises(ValueError, match="not declared params"):
+        ResourceConfig(
+            name="things",
+            schema=things_schema,
+            path="/things/{bucket_typo}",  # the typo fails fast, not at fetch
+            params=(ParamSpec("owner", required=True),),
+        )
+    with pytest.raises(ValueError, match="must be required params"):
+        ResourceConfig(
+            name="things",
+            schema=things_schema,
+            path="/things/{bucket}",
+            params=(ParamSpec("bucket"),),
+        )
+
+
 def test_paginator_kwargs_accepts_dicts_and_sorts() -> None:
     # a dict must survive direct construction (tuple(dict) keeps only keys)
     by_dict = ResourceConfig(
