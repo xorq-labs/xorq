@@ -101,6 +101,12 @@ class RestBackend(PandasBackend):
                 f"{self.name} backend requires a config (curated subclasses "
                 "set one in code; the rest backend accepts config=...)"
             )
+        if config.auth.kind not in self.auth_appliers:
+            raise com.XorqError(
+                f"{self.name} backend has no auth applier for kind "
+                f"{config.auth.kind!r}; available: {sorted(self.auth_appliers)} "
+                "(declare one in the class-level auth_appliers registry)"
+            )
         missing = tuple(
             name
             for name in config.auth.fields

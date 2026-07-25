@@ -281,6 +281,39 @@ def test_make_engine_threads_subclass_registries() -> None:
         make_paginator("acme.single")  # base registry is untouched
 
 
+def _apply_query_key(auth: AuthConfig, credentials: dict) -> dict:
+    # a "params" key rides the query string (query-param API keys)
+    return {"params": {"api_key": credentials.get(auth.fields[0])}}
+
+
+def make_query_key_config() -> RestBackendConfig:
+    return RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="query_key", fields=("key",)),
+        resources=(ResourceConfig(name="other", schema=things_schema, path="/other"),),
+    )
+
+
+def test_custom_auth_kind_via_applier_registry() -> None:
+    session = FakeSession((FakeResponse([{"id": 1, "name": "a"}]),))
+    engine = NativeEngine(
+        auth_appliers={**RestBackend.auth_appliers, "query_key": _apply_query_key},
+        session=session,
+    )
+    config = make_query_key_config()
+    engine.fetch(config, config.get_resource("other"), {}, {"key": "sekret"})
+    ((_, params),) = session.calls
+    assert params == {"api_key": "sekret"}
+
+
+def test_unknown_auth_kind_rejected_at_connect() -> None:
+    class NoApplierBackend(RestBackend):
+        config = make_query_key_config()
+
+    with pytest.raises(com.XorqError, match="no auth applier for kind 'query_key'"):
+        NoApplierBackend().connect(key="k")
+
+
 def test_read_is_a_read_op_and_validates_params() -> None:
     con = CuratedBackend().connect()
     expr = con.read("things", bucket="b")
