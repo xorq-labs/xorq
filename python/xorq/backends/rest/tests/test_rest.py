@@ -116,6 +116,38 @@ def test_path_placeholders_validated_at_construction() -> None:
         )
 
 
+def test_base_url_key_routes_and_validates() -> None:
+    session = FakeSession((FakeResponse([{"id": 1, "name": "a"}]),))
+    config = RestBackendConfig(
+        base_urls={
+            "default": "https://api.example.com",
+            "data": "https://data.example.com",
+        },
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="other", schema=things_schema, path="/other", base_url_key="data"
+            ),
+        ),
+    )
+    NativeEngine(session=session).fetch(config, config.get_resource("other"), {}, {})
+    ((url, _),) = session.calls
+    assert url == "https://data.example.com/other"
+    with pytest.raises(ValueError, match="unknown base_urls keys"):
+        RestBackendConfig(
+            base_urls={"default": "https://api.example.com"},
+            auth=AuthConfig(kind="none"),
+            resources=(
+                ResourceConfig(
+                    name="other",
+                    schema=things_schema,
+                    path="/other",
+                    base_url_key="data",
+                ),
+            ),
+        )
+
+
 def test_paginator_kwargs_accepts_dicts_and_sorts() -> None:
     # a dict must survive direct construction (tuple(dict) keeps only keys)
     by_dict = ResourceConfig(

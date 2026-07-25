@@ -159,7 +159,9 @@ class NativeEngine:
             resource_config.paginator_kwargs,
             registry=self.paginators,
         )
-        url = config.base_url() + resource_config.path.format(**params)
+        url = config.base_url(
+            resource_config.base_url_key
+        ) + resource_config.path.format(**params)
         query = {
             k: v
             for k, v in params.items()

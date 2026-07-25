@@ -196,6 +196,9 @@ class ResourceConfig:
     name = field(validator=instance_of(str))
     schema = field(validator=instance_of(Schema))
     path = field(validator=instance_of(str), default="")
+    # which of the API's base_urls this resource is served from (e.g. a
+    # data vs query host); validated against base_urls at config assembly
+    base_url_key = field(validator=instance_of(str), default="default")
     record_path = field(validator=instance_of(str), default="")
     paginator = field(validator=optional(instance_of(str)), default=None)
     paginator_kwargs = field(
@@ -266,6 +269,7 @@ class ResourceConfig:
                 self.name,
                 self.schema,
                 self.path,
+                self.base_url_key,
                 self.record_path,
                 self.paginator,
                 self.paginator_kwargs,
@@ -311,6 +315,16 @@ class RestBackendConfig:
         names = tuple(r.name for r in self.resources)
         if len(names) != len(set(names)):
             raise ValueError(f"duplicate resource names: {names}")
+        unrouted = tuple(
+            (r.name, r.base_url_key)
+            for r in self.resources
+            if r.base_url_key not in self.base_urls
+        )
+        if unrouted:
+            raise ValueError(
+                f"resources reference unknown base_urls keys: {unrouted}; "
+                f"available: {sorted(self.base_urls)}"
+            )
 
     @property
     def resource_names(self) -> tuple[str, ...]:
