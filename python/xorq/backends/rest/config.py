@@ -72,6 +72,15 @@ def _tuplify(value: object) -> tuple:
     return tuple(value) if isinstance(value, (list, tuple)) else (value,)
 
 
+def _freeze_kv_pairs(value: object) -> tuple:
+    """Normalize kwargs-shaped input (a dict or an iterable of pairs) to a
+    sorted tuple of pairs: dicts survive direct construction (a bare
+    ``tuple(dict)`` would keep only the keys and silently poison
+    ``content_hash``) and ordering stops being identity-bearing."""
+    pairs = dict(value).items() if isinstance(value, dict) else tuple(value)
+    return tuple(sorted((k, v) for k, v in pairs))
+
+
 @frozen
 class ParamSpec:
     """A read-time parameter: appears in ``read_kwargs`` (identity-bearing),
@@ -188,7 +197,9 @@ class ResourceConfig:
     path = field(validator=instance_of(str), default="")
     record_path = field(validator=instance_of(str), default="")
     paginator = field(validator=optional(instance_of(str)), default=None)
-    paginator_kwargs = field(validator=instance_of(tuple), converter=tuple, default=())
+    paginator_kwargs = field(
+        validator=instance_of(tuple), converter=_freeze_kv_pairs, default=()
+    )
     params = field(
         validator=deep_iterable(instance_of(ParamSpec), instance_of(tuple)),
         converter=tuple,
@@ -242,10 +253,7 @@ class ResourceConfig:
             ParamSpec.from_dict(p) if isinstance(p, dict) else p
             for p in dct.get("params", ())
         )
-        if "paginator_kwargs" in dct:
-            dct["paginator_kwargs"] = tuple(
-                (k, v) for k, v in dict(dct["paginator_kwargs"]).items()
-            )
+        # paginator_kwargs: dicts are normalized by the field converter
         return cls(**dct)
 
 

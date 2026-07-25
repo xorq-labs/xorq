@@ -99,6 +99,26 @@ def test_resource_content_hash_is_declarative() -> None:
     assert overridden.content_hash == other.content_hash
 
 
+def test_paginator_kwargs_accepts_dicts_and_sorts() -> None:
+    # a dict must survive direct construction (tuple(dict) keeps only keys)
+    by_dict = ResourceConfig(
+        name="things",
+        schema=things_schema,
+        paginator="offset",
+        paginator_kwargs={"offset_key": "skip", "limit": 2},
+    )
+    assert by_dict.paginator_kwargs == (("limit", 2), ("offset_key", "skip"))
+    # declaration order is not identity-bearing
+    reordered = ResourceConfig(
+        name="things",
+        schema=things_schema,
+        paginator="offset",
+        paginator_kwargs=(("offset_key", "skip"), ("limit", 2)),
+    )
+    assert by_dict == reordered
+    assert by_dict.content_hash == reordered.content_hash
+
+
 def test_schema_to_nullable_dtypes() -> None:
     assert schema_to_nullable_dtypes(things_schema) == {
         "id": "Int64",
