@@ -1,7 +1,7 @@
 """The declarative REST contract: what a REST API *is*, engine-independent.
 
-The config is the stable contract (see plans/udxf-source-api-backend.md,
-Phase 3): extraction engines (native paginators, later dlt) are swappable
+The config is the stable contract (ADR-0018): extraction engines
+(``engines.Engine`` — ``NativeEngine`` today, dlt later) are swappable
 behind it. Three deliberate omissions vs dlt's RESTAPIConfig:
 
 1. no incremental/cursor block — incrementality is a param in ``read_kwargs``

@@ -34,16 +34,23 @@ live in code or in the profile?
 ### The contract
 
 `RestBackendConfig(base_urls, auth, resources)` /
-`ResourceConfig(name, schema, path, record_path, paginator,
-paginator_kwargs, params, fetch_override)` / `AuthConfig(kind, fields,
-secret_fields)` / `ParamSpec(name, required, kind)`
-(`backends/rest/config.py`), executed by `RestBackend(PandasBackend)`
+`ResourceConfig(name, schema, path, base_url_key, record_path, paginator,
+paginator_kwargs, params, residual_column, fetch_override)` /
+`AuthConfig(kind, fields, secret_fields)` / `ParamSpec(name, required,
+kind)` (`backends/rest/config.py`), executed by `RestBackend(PandasBackend)`
 (`backends/rest/__init__.py`): resources are path-less `Read` ops
 (`method_name="fetch_resource"`, the resource name in `read_kwargs`);
-`fetch_resource` runs at the `make_dt` boundary via native paginators
-(`backends/rest/paginators.py`: header_link, json_link, offset, page_number,
-single_page — original implementations; the strategy interface is shaped
-after dlt's `BasePaginator`, no code copied).
+`fetch_resource` runs at the `make_dt` boundary through an explicit engine
+seam (`backends/rest/engines.py`): an `Engine` protocol whose default,
+`NativeEngine`, drives native paginators (`backends/rest/paginators.py`:
+header_link, json_link, offset, page_number, single_page — original
+implementations; the strategy interface is shaped after dlt's
+`BasePaginator`, no code copied) and whose `FetchOverrideEngine` adapts
+`fetch_override` callables. Engines carry the extension registries:
+backends extend paginators and auth kinds by merging class-level mappings
+(`paginators`, `auth_appliers`) over the base registries — declaration,
+not private-method override. The engine-equivalence obligation: same
+config, any engine, same rows.
 
 Three deliberate omissions vs dlt's `RESTAPIConfig` (each load-bearing):
 no incremental/cursor state (ranges are explicit `ParamSpec(kind="range")`
@@ -135,7 +142,15 @@ Rejected because:
   reads want `.cache()` to parquet or param-partitioned reads (ADR-0017's
   trade-off, at catalog scale).
 - Paginator names and `ResourceConfig` field names are identity-bearing
-  and therefore effectively append-only.
+  and therefore effectively append-only; backend-registered paginator and
+  auth-kind names share that property and should be namespaced
+  (`"mixpanel.session_id"`) to keep the base set unambiguous.
+- Override-only resources have near-empty declarative identity: with
+  `fetch_override` excluded from `content_hash` (code stays refactorable),
+  a resource that is 100% override code — mixpanel's, deliberately — is
+  identified by schema and params alone, so changing what the override
+  fetches keeps cache hits. Accepted: the same line ADR-0017 draws, at its
+  sharpest.
 
 ## References
 

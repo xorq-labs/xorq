@@ -2,8 +2,7 @@
 
 Deliberately boring — header-link pagination, bearer auth, zero override
 code. If this backend needs anything beyond config, the RestBackend
-contract is wrong (see plans/udxf-source-api-backend.md, Phase 3 contract
-validation order).
+contract is wrong (ADR-0018's contract-validation obligation).
 """
 
 from __future__ import annotations
