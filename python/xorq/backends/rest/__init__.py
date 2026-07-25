@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 
     import xorq.vendor.ibis.expr.schema as sch
     import xorq.vendor.ibis.expr.types as ir
+    from xorq.expr.relations import Read
 
 
 __all__ = [
@@ -144,6 +145,14 @@ class RestBackend(PandasBackend):
     @property
     def current_config(self) -> RestBackendConfig:
         return self._config
+
+    def read_identity_parts(self, read: Read) -> tuple:
+        """This backend's contribution to path-less Read identity
+        (`normalize_read_source_identity` delegates here): the per-resource
+        config content hash, so editing a resource's declarative config
+        changes build/cache hashes without invalidating siblings."""
+        resource = self.current_config.get_resource(dict(read.read_kwargs)["resource"])
+        return (("config", resource.content_hash),)
 
     # -- resource surface ---------------------------------------------------
 
