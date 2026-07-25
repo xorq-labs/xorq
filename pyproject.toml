@@ -168,8 +168,9 @@ annex = [
 rest = [
     "requests>=2.32.3",
 ]
+# curated REST backends ride the rest extra: one requests pin to maintain
 github = [
-    "requests>=2.32.3",
+    "xorq[rest]",
 ]
 
 [dependency-groups]
