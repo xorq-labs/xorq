@@ -682,6 +682,48 @@ def test_present_but_empty_record_path_is_an_empty_page() -> None:
     assert str(df.id.dtype) == "Int64"
 
 
+def test_fetch_batches_yields_one_conformed_frame_per_page() -> None:
+    pages = (
+        FakeResponse(
+            [{"id": 1, "name": "a"}],
+            links={"next": {"url": "https://api.example.com/paged?page=2"}},
+        ),
+        FakeResponse([{"id": 2, "name": "b"}]),
+    )
+    config = RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="paged",
+                schema=things_schema,
+                path="/paged",
+                paginator="header_link",
+                residual_column="properties",
+            ),
+        ),
+    )
+    resource = config.get_resource("paged")
+    batches = tuple(
+        NativeEngine(session=FakeSession(pages)).fetch_batches(config, resource, {}, {})
+    )
+    assert len(batches) == 2  # one frame per HTTP page
+    assert all(tuple(b.columns) == tuple(things_schema) for b in batches)
+    assert all(str(b.id.dtype) == "Int64" for b in batches)  # conformed per page
+    df = NativeEngine(session=FakeSession(pages)).fetch(config, resource, {}, {})
+    assert df.id.tolist() == [1, 2]
+    assert df.index.tolist() == [0, 1]
+
+
+def test_fetch_empty_result_keeps_declared_dtypes() -> None:
+    config = make_config()
+    df = NativeEngine(session=FakeSession((FakeResponse([]),))).fetch(
+        config, config.get_resource("other"), {}, {}
+    )
+    assert df.empty
+    assert str(df.id.dtype) == "Int64"  # not the all-float64 empty-frame trap
+
+
 def test_make_paginator_unknown() -> None:
     with pytest.raises(ValueError, match="unknown paginator"):
         make_paginator("nope")

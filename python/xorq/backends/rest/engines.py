@@ -24,7 +24,7 @@ from datetime import (
     timezone,
 )
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Callable, Mapping, Protocol
+from typing import TYPE_CHECKING, Callable, Iterator, Mapping, Protocol
 
 import pandas as pd
 import requests
@@ -228,6 +228,17 @@ def warn_on_absent_columns(records: tuple, resource_config: ResourceConfig) -> N
         )
 
 
+def frame_from_records(records: tuple, resource_config: ResourceConfig) -> pd.DataFrame:
+    """One page of records as a schema-conformed frame: conforming per page
+    (not once at the end) is what makes pages independently consumable."""
+    warn_on_absent_columns(records, resource_config)
+    return (
+        pd.DataFrame([record_to_row(record, resource_config) for record in records])
+        .reindex(columns=tuple(resource_config.schema))
+        .astype(resource_config.dtypes)
+    )
+
+
 def record_to_row(record: dict, resource_config: ResourceConfig) -> dict:
     def render(value: object) -> object:
         if isinstance(value, (dict, list)):
@@ -272,6 +283,29 @@ class NativeEngine:
         params: dict,
         credentials: Mapping,
     ) -> pd.DataFrame:
+        return pd.concat(
+            self.fetch_batches(config, resource_config, params, credentials),
+            ignore_index=True,
+        )
+
+    def fetch_batches(
+        self,
+        config: RestBackendConfig,
+        resource_config: ResourceConfig,
+        params: dict,
+        credentials: Mapping,
+    ) -> Iterator[pd.DataFrame]:
+        """Page-wise fetch: one schema-conformed frame per HTTP page.
+
+        The intermediary between pagination and materialization: ``fetch``
+        concatenates, and a future streaming consumer (spill-to-parquet at
+        the Read boundary) can pull pages without holding the whole result.
+        Deliberately not part of the :class:`Engine` protocol until such a
+        consumer exists — streaming is transport, never identity.
+
+        Always yields at least one (possibly empty) frame, so ``pd.concat``
+        needs no empty-input guard and dtypes hold for empty results.
+        """
         paginator = make_paginator(
             resource_config.paginator,
             resource_config.paginator_kwargs,
@@ -290,15 +324,13 @@ class NativeEngine:
         request_kwargs = dict(self._auth_kwargs(config.auth, credentials))
         query = {**query, **request_kwargs.pop("params", {})}
         query = paginator.initial_params(query)
-        rows: list[dict] = []
         for page in itertools.count(1):
             resp = self._get_with_backoff(url, query, request_kwargs)
             records = extract_records(resp, resource_config)
-            warn_on_absent_columns(records, resource_config)
-            rows.extend(record_to_row(record, resource_config) for record in records)
+            yield frame_from_records(records, resource_config)
             nxt = paginator.next(resp, records, url, query)
             if nxt is None:
-                break
+                return
             if page >= self.max_pages:
                 raise com.XorqError(
                     f"resource {resource_config.name!r}: pagination did not "
@@ -310,11 +342,6 @@ class NativeEngine:
                     "this large."
                 )
             url, query = nxt
-        return (
-            pd.DataFrame(rows)
-            .reindex(columns=tuple(resource_config.schema))
-            .astype(resource_config.dtypes)
-        )
 
     def _auth_kwargs(self, auth: AuthConfig, credentials: Mapping) -> dict:
         try:
