@@ -94,6 +94,14 @@ AUTH_APPLIERS: Mapping[str, Callable] = MappingProxyType(
 )
 
 
+def _is_rate_limited(resp: requests.Response) -> bool:
+    # 429 is the standard signal; GitHub signals primary rate limits with
+    # 403 + X-RateLimit-Remaining: 0
+    return resp.status_code == 429 or (
+        resp.status_code == 403 and resp.headers.get("X-RateLimit-Remaining") == "0"
+    )
+
+
 # -- record shaping ----------------------------------------------------------
 
 
@@ -134,6 +142,8 @@ class NativeEngine:
 
     paginators = field(default=PAGINATORS)
     auth_appliers = field(default=AUTH_APPLIERS)
+    # reused across pages for connection keep-alive; carries no identity
+    session = field(factory=requests.Session, eq=False)
     max_tries = field(validator=instance_of(int), default=5)
     timeout = field(validator=instance_of(int), default=600)
 
@@ -188,10 +198,10 @@ class NativeEngine:
         self, url: str, params: dict, request_kwargs: dict
     ) -> requests.Response:
         for tries in range(1, self.max_tries + 1):
-            resp = requests.get(
+            resp = self.session.get(
                 url, params=params, timeout=self.timeout, **request_kwargs
             )
-            if resp.status_code == 429 and tries != self.max_tries:
+            if _is_rate_limited(resp) and tries != self.max_tries:
                 time.sleep(int(resp.headers.get("Retry-After", 2**tries)))
                 continue
             resp.raise_for_status()

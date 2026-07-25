@@ -4,6 +4,7 @@ import json
 import pathlib
 
 import pytest
+import requests
 
 import xorq.api as xo
 import xorq.common.exceptions as com
@@ -108,14 +109,25 @@ def test_schema_to_nullable_dtypes() -> None:
 
 class FakeResponse:
     def __init__(
-        self, records: list, links: dict | None = None, body: dict | None = None
+        self,
+        records: list,
+        links: dict | None = None,
+        body: dict | None = None,
+        status_code: int = 200,
+        headers: dict | None = None,
     ) -> None:
         self._records = records
         self.links = links or {}
         self._body = body
+        self.status_code = status_code
+        self.headers = headers or {}
 
     def json(self) -> object:
         return self._body if self._body is not None else self._records
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise requests.exceptions.HTTPError(str(self.status_code))
 
 
 def test_header_link_paginator() -> None:
@@ -148,6 +160,41 @@ def test_page_number_paginator() -> None:
     assert params == {"page": 1}
     assert paginator.next(FakeResponse([{}]), [{}], "u", params) == ("u", {"page": 2})
     assert paginator.next(FakeResponse([]), [], "u", params) is None
+
+
+class FakeSession:
+    """Serves canned responses; records (url, params) per request."""
+
+    def __init__(self, responses: list) -> None:
+        self._responses = list(responses)
+        self.calls: list = []
+
+    def get(
+        self, url: str, params: dict | None = None, **kwargs: object
+    ) -> FakeResponse:
+        self.calls.append((url, dict(params or {})))
+        return self._responses.pop(0)
+
+
+def test_engine_retries_github_style_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("xorq.backends.rest.engines.time.sleep", lambda _: None)
+    session = FakeSession(
+        (
+            FakeResponse(
+                [],
+                status_code=403,
+                headers={"X-RateLimit-Remaining": "0", "Retry-After": "1"},
+            ),
+            FakeResponse([{"id": 1, "name": "a"}]),
+        )
+    )
+    engine = NativeEngine(session=session)
+    config = make_config()
+    df = engine.fetch(config, config.get_resource("other"), {}, {})
+    assert len(session.calls) == 2  # one rate-limited attempt, one success
+    assert df.id.tolist() == [1]
 
 
 def test_make_paginator_unknown() -> None:
