@@ -14,7 +14,7 @@ that name, making the choice declarative and identity-bearing.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import toolz
 from attr import (
@@ -28,8 +28,35 @@ if TYPE_CHECKING:
     import requests
 
 
+class Paginator(Protocol):
+    """Structural contract for a pagination strategy.
+
+    ``initial_params`` seeds the first request (e.g. offset/page params);
+    strategies that don't need it inherit the pass-through default from
+    ``BasePaginator``. ``next`` answers: given the previous response and the
+    records extracted from it, what is the next ``(url, params)`` — or
+    ``None`` to stop. Structural, so the concrete ``@frozen`` strategies
+    below satisfy it by shape rather than by inheriting it.
+    """
+
+    def initial_params(self, params: dict) -> dict: ...
+
+    def next(
+        self, resp: requests.Response, records: list, url: str, params: dict
+    ) -> tuple[str, dict] | None: ...
+
+
+class BasePaginator:
+    """Shared implementation base for the native strategies. Supplies the
+    pass-through ``initial_params`` so the engine can call it unconditionally
+    (no ``getattr`` probe); strategies that seed params override it."""
+
+    def initial_params(self, params: dict) -> dict:
+        return params
+
+
 @frozen
-class SinglePagePaginator:
+class SinglePagePaginator(BasePaginator):
     """One request, no pagination (the default when paginator is None)."""
 
     def next(
@@ -39,7 +66,7 @@ class SinglePagePaginator:
 
 
 @frozen
-class HeaderLinkPaginator:
+class HeaderLinkPaginator(BasePaginator):
     """RFC 5988 ``Link: <...>; rel="next"`` (GitHub, GitLab, ...). The next
     URL carries its own query string, so params are dropped."""
 
@@ -53,7 +80,7 @@ class HeaderLinkPaginator:
 
 
 @frozen
-class JsonLinkPaginator:
+class JsonLinkPaginator(BasePaginator):
     """Next-page URL embedded in the response body at ``path`` (dotted)."""
 
     path = field(validator=instance_of(str), default="next")
@@ -66,7 +93,7 @@ class JsonLinkPaginator:
 
 
 @frozen
-class OffsetPaginator:
+class OffsetPaginator(BasePaginator):
     """``offset``/``limit`` query params; stops on a short page."""
 
     limit = field(validator=instance_of(int), default=100)
@@ -85,7 +112,7 @@ class OffsetPaginator:
 
 
 @frozen
-class PageNumberPaginator:
+class PageNumberPaginator(BasePaginator):
     """``page=N`` query param starting at ``start``; stops on an empty page."""
 
     page_key = field(validator=instance_of(str), default="page")
@@ -112,7 +139,7 @@ PAGINATORS = {
 }
 
 
-def make_paginator(name: str | None, paginator_kwargs: tuple = ()) -> object:
+def make_paginator(name: str | None, paginator_kwargs: tuple = ()) -> Paginator:
     if name is None:
         name = "single_page"
     try:

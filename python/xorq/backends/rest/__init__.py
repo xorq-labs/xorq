@@ -239,7 +239,7 @@ class RestBackend(PandasBackend):
             if name
         }
         query = {k: v for k, v in params.items() if k not in path_params}
-        query = getattr(paginator, "initial_params", lambda p: p)(query)
+        query = paginator.initial_params(query)
         rows: list[dict] = []
         while True:
             resp = self._get_with_backoff(url, query)
