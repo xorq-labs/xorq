@@ -17,13 +17,7 @@ identity folds the per-resource config content hash
 
 from __future__ import annotations
 
-import json
-import string
-import time
 from typing import TYPE_CHECKING
-
-import pandas as pd
-import requests
 
 import xorq.common.exceptions as com
 from xorq import __version__
@@ -32,7 +26,13 @@ from xorq.backends.rest.config import (
     ResourceConfig,
     RestBackendConfig,
 )
-from xorq.backends.rest.paginators import make_paginator
+from xorq.backends.rest.engines import (
+    AUTH_APPLIERS,
+    Engine,
+    FetchOverrideEngine,
+    NativeEngine,
+)
+from xorq.backends.rest.paginators import PAGINATORS
 from xorq.common.utils.file_utils import normalize_read_source_identity
 
 
@@ -52,6 +52,11 @@ __all__ = [
 class RestBackend(PandasBackend):
     name = "rest"
     config: RestBackendConfig | None = None
+    # engine extension registries: subclasses extend by merging over these
+    # (e.g. `paginators = {**RestBackend.paginators, "acme.cursor": Cls}`);
+    # `make_engine` threads them into the default engine
+    paginators = PAGINATORS
+    auth_appliers = AUTH_APPLIERS
 
     @classmethod
     def register_options(cls) -> None:
@@ -114,6 +119,21 @@ class RestBackend(PandasBackend):
         super().do_connect()
         self._config = config
         self._credentials = dict(credentials)
+        self._engine = self.make_engine()
+
+    def make_engine(self) -> Engine:
+        """The engine seam: the default is the native paginator engine,
+        constructed with this backend's extension registries. Alternative
+        engines (e.g. dlt) override here; the obligation is engine
+        equivalence — same config, any engine, same rows."""
+        return NativeEngine(
+            paginators=self.paginators, auth_appliers=self.auth_appliers
+        )
+
+    def _engine_for(self, resource_config: ResourceConfig) -> Engine:
+        if resource_config.fetch_override is not None:
+            return FetchOverrideEngine(self)
+        return self._engine
 
     @property
     def current_config(self) -> RestBackendConfig:
@@ -217,106 +237,13 @@ class RestBackend(PandasBackend):
         from xorq.vendor.ibis.util import gen_name  # noqa: PLC0415
 
         resource_config = self.current_config.get_resource(resource)
-        if resource_config.fetch_override is not None:
-            df = resource_config.fetch_override(self, **kwargs)
-        else:
-            df = self._fetch_paginated(resource_config, kwargs)
+        df = self._engine_for(resource_config).fetch(
+            self.current_config, resource_config, kwargs, self._credentials
+        )
         table_name = table_name or gen_name("xorq-fetch_resource")
         self.dictionary[table_name] = df
         self.schemas[table_name] = resource_config.schema
         return super().table(table_name)
-
-    def _fetch_paginated(
-        self, resource_config: ResourceConfig, params: dict
-    ) -> pd.DataFrame:
-        paginator = make_paginator(
-            resource_config.paginator, resource_config.paginator_kwargs
-        )
-        url = self.current_config.base_url() + resource_config.path.format(**params)
-        path_params = {
-            name
-            for _, name, *_ in string.Formatter().parse(resource_config.path)
-            if name
-        }
-        query = {k: v for k, v in params.items() if k not in path_params}
-        query = paginator.initial_params(query)
-        rows: list[dict] = []
-        while True:
-            resp = self._get_with_backoff(url, query)
-            records = self._extract_records(resp, resource_config)
-            rows.extend(
-                self._record_to_row(record, resource_config) for record in records
-            )
-            nxt = paginator.next(resp, records, url, query)
-            if nxt is None:
-                break
-            url, query = nxt
-        return (
-            pd.DataFrame(rows)
-            .reindex(columns=tuple(resource_config.schema))
-            .astype(resource_config.dtypes)
-        )
-
-    def _get_with_backoff(
-        self, url: str, params: dict, max_tries: int = 5
-    ) -> requests.Response:
-        for tries in range(1, max_tries + 1):
-            resp = requests.get(url, params=params, timeout=600, **self._auth_kwargs())
-            if resp.status_code == 429 and tries != max_tries:
-                time.sleep(int(resp.headers.get("Retry-After", 2**tries)))
-                continue
-            resp.raise_for_status()
-            return resp
-        raise requests.exceptions.RetryError(f"exceeded {max_tries} tries for {url}")
-
-    def _auth_kwargs(self) -> dict:
-        auth = self.current_config.auth
-        match auth.kind:
-            case "basic":
-                return {
-                    "auth": (
-                        self._credentials.get(auth.username_field, ""),
-                        self._credentials.get(auth.password_field, ""),
-                    )
-                }
-            case "bearer":
-                token = self._credentials.get(auth.resolved_token_field)
-                return (
-                    {"headers": {"Authorization": f"Bearer {token}"}} if token else {}
-                )
-            case "none":
-                return {}
-        raise com.XorqError(f"unknown auth kind {auth.kind!r}")
-
-    @staticmethod
-    def _extract_records(
-        resp: requests.Response, resource_config: ResourceConfig
-    ) -> tuple:
-        data = resp.json()
-        if resource_config.record_path:
-            import toolz  # noqa: PLC0415
-
-            data = toolz.get_in(resource_config.record_path.split("."), data, ())
-        if isinstance(data, dict):
-            # a single-record resource (e.g. /repos/{owner}/{repo})
-            return (data,)
-        return tuple(data)
-
-    @staticmethod
-    def _record_to_row(record: dict, resource_config: ResourceConfig) -> dict:
-        def render(value: object) -> object:
-            if isinstance(value, (dict, list)):
-                return json.dumps(value, sort_keys=True)
-            return value
-
-        named = tuple(n for n in resource_config.schema.names if n != "properties")
-        row = {name: render(record.get(name)) for name in named}
-        if "properties" in resource_config.schema.names:
-            # the overflow column: only fields not already given a typed
-            # column, so `properties` doesn't duplicate them at catalog scale
-            residual = {k: v for k, v in record.items() if k not in named}
-            row["properties"] = json.dumps(residual, sort_keys=True)
-        return row
 
     # -- read-only ----------------------------------------------------------
 

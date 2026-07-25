@@ -131,6 +131,9 @@ class PageNumberPaginator(BasePaginator):
 
 
 # Append-only: names are declarative config values and thus identity-bearing.
+# Backends extend by *merging over* this base registry (a class-level
+# `paginators` mapping picked up by `RestBackend.make_engine`); namespace
+# custom names (e.g. "mixpanel.session_id") to keep the base set unambiguous.
 PAGINATORS = MappingProxyType(
     {
         "single_page": SinglePagePaginator,
@@ -142,13 +145,17 @@ PAGINATORS = MappingProxyType(
 )
 
 
-def make_paginator(name: str | None, paginator_kwargs: tuple = ()) -> Paginator:
+def make_paginator(
+    name: str | None,
+    paginator_kwargs: tuple = (),
+    registry: MappingProxyType = PAGINATORS,
+) -> Paginator:
     if name is None:
         name = "single_page"
     try:
-        cls = PAGINATORS[name]
+        cls = registry[name]
     except KeyError:
         raise ValueError(
-            f"unknown paginator {name!r}; available: {sorted(PAGINATORS)}"
+            f"unknown paginator {name!r}; available: {sorted(registry)}"
         ) from None
     return cls(**dict(paginator_kwargs))

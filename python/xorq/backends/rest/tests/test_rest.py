@@ -15,10 +15,15 @@ from xorq.backends.rest.config import (
     RestBackendConfig,
     schema_to_nullable_dtypes,
 )
+from xorq.backends.rest.engines import (
+    NativeEngine,
+    record_to_row,
+)
 from xorq.backends.rest.paginators import (
     HeaderLinkPaginator,
     OffsetPaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
     make_paginator,
 )
 from xorq.common.utils.dasher import tokenize
@@ -152,9 +157,7 @@ def test_make_paginator_unknown() -> None:
 
 def test_record_to_row_nests_to_json() -> None:
     resource = ResourceConfig(name="things", schema=things_schema)
-    row = RestBackend._record_to_row(
-        {"id": 1, "name": {"nested": True}, "extra": "x"}, resource
-    )
+    row = record_to_row({"id": 1, "name": {"nested": True}, "extra": "x"}, resource)
     assert row["id"] == 1
     assert json.loads(row["name"]) == {"nested": True}
     # properties is the overflow column: only unmapped fields, no duplication
@@ -208,6 +211,27 @@ def test_curated_sibling_independence() -> None:
     )
     # ...but not the sibling's (config-in-code: profile excludes the config)
     assert tokenize(con.read("other")) == tokenize(edited.read("other"))
+
+
+class AcmePaginator(SinglePagePaginator):
+    """A curated-backend paginator, registered by merging over the base."""
+
+
+class ExtendedRegistryBackend(RestBackend):
+    config = make_config()
+    paginators = {**RestBackend.paginators, "acme.single": AcmePaginator}
+
+
+def test_make_engine_threads_subclass_registries() -> None:
+    con = ExtendedRegistryBackend().connect()
+    engine = con._engine
+    assert isinstance(engine, NativeEngine)
+    # the subclass-declared paginator resolves through the engine's registry
+    assert isinstance(
+        make_paginator("acme.single", registry=engine.paginators), AcmePaginator
+    )
+    with pytest.raises(ValueError, match="unknown paginator"):
+        make_paginator("acme.single")  # base registry is untouched
 
 
 def test_read_is_a_read_op_and_validates_params() -> None:
