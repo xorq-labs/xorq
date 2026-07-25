@@ -21,6 +21,8 @@ invalidating sibling resources.
 
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from attr import (
     field,
     frozen,
@@ -39,16 +41,18 @@ from xorq.vendor.ibis.expr.schema import Schema
 
 auth_kinds = ("basic", "bearer", "none")
 
-_dtype_to_pandas = {
-    "int8": "Int8",
-    "int16": "Int16",
-    "int32": "Int32",
-    "int64": "Int64",
-    "float32": "Float32",
-    "float64": "Float64",
-    "boolean": "boolean",
-    "string": "string",
-}
+_dtype_to_pandas = MappingProxyType(
+    {
+        "int8": "Int8",
+        "int16": "Int16",
+        "int32": "Int32",
+        "int64": "Int64",
+        "float32": "Float32",
+        "float64": "Float64",
+        "boolean": "boolean",
+        "string": "string",
+    }
+)
 
 
 def schema_to_nullable_dtypes(schema: Schema) -> dict[str, str]:
@@ -241,7 +245,10 @@ class ResourceConfig:
 class RestBackendConfig:
     """The whole API: base urls, auth shape, resources."""
 
-    base_urls = field(validator=instance_of(dict))
+    base_urls = field(
+        converter=lambda v: MappingProxyType(dict(v)),
+        validator=instance_of(MappingProxyType),
+    )
     auth = field(validator=instance_of(AuthConfig))
     resources = field(
         validator=deep_iterable(instance_of(ResourceConfig), instance_of(tuple)),

@@ -14,6 +14,7 @@ that name, making the choice declarative and identity-bearing.
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol
 
 import toolz
@@ -42,7 +43,7 @@ class Paginator(Protocol):
     def initial_params(self, params: dict) -> dict: ...
 
     def next(
-        self, resp: requests.Response, records: list, url: str, params: dict
+        self, resp: requests.Response, records: tuple, url: str, params: dict
     ) -> tuple[str, dict] | None: ...
 
 
@@ -60,7 +61,7 @@ class SinglePagePaginator(BasePaginator):
     """One request, no pagination (the default when paginator is None)."""
 
     def next(
-        self, resp: requests.Response, records: list, url: str, params: dict
+        self, resp: requests.Response, records: tuple, url: str, params: dict
     ) -> tuple[str, dict] | None:
         return None
 
@@ -73,7 +74,7 @@ class HeaderLinkPaginator(BasePaginator):
     rel = field(validator=instance_of(str), default="next")
 
     def next(
-        self, resp: requests.Response, records: list, url: str, params: dict
+        self, resp: requests.Response, records: tuple, url: str, params: dict
     ) -> tuple[str, dict] | None:
         next_url = resp.links.get(self.rel, {}).get("url")
         return (next_url, {}) if next_url else None
@@ -86,7 +87,7 @@ class JsonLinkPaginator(BasePaginator):
     path = field(validator=instance_of(str), default="next")
 
     def next(
-        self, resp: requests.Response, records: list, url: str, params: dict
+        self, resp: requests.Response, records: tuple, url: str, params: dict
     ) -> tuple[str, dict] | None:
         next_url = toolz.get_in(self.path.split("."), resp.json())
         return (next_url, {}) if next_url else None
@@ -104,7 +105,7 @@ class OffsetPaginator(BasePaginator):
         return {**params, self.limit_key: self.limit, self.offset_key: 0}
 
     def next(
-        self, resp: requests.Response, records: list, url: str, params: dict
+        self, resp: requests.Response, records: tuple, url: str, params: dict
     ) -> tuple[str, dict] | None:
         if len(records) < self.limit:
             return None
@@ -122,7 +123,7 @@ class PageNumberPaginator(BasePaginator):
         return {**params, self.page_key: self.start}
 
     def next(
-        self, resp: requests.Response, records: list, url: str, params: dict
+        self, resp: requests.Response, records: tuple, url: str, params: dict
     ) -> tuple[str, dict] | None:
         if not records:
             return None
@@ -130,13 +131,15 @@ class PageNumberPaginator(BasePaginator):
 
 
 # Append-only: names are declarative config values and thus identity-bearing.
-PAGINATORS = {
-    "single_page": SinglePagePaginator,
-    "header_link": HeaderLinkPaginator,
-    "json_link": JsonLinkPaginator,
-    "offset": OffsetPaginator,
-    "page_number": PageNumberPaginator,
-}
+PAGINATORS = MappingProxyType(
+    {
+        "single_page": SinglePagePaginator,
+        "header_link": HeaderLinkPaginator,
+        "json_link": JsonLinkPaginator,
+        "offset": OffsetPaginator,
+        "page_number": PageNumberPaginator,
+    }
+)
 
 
 def make_paginator(name: str | None, paginator_kwargs: tuple = ()) -> Paginator:

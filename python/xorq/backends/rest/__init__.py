@@ -291,7 +291,7 @@ class RestBackend(PandasBackend):
     @staticmethod
     def _extract_records(
         resp: requests.Response, resource_config: ResourceConfig
-    ) -> list:
+    ) -> tuple:
         data = resp.json()
         if resource_config.record_path:
             import toolz  # noqa: PLC0415
@@ -299,8 +299,8 @@ class RestBackend(PandasBackend):
             data = toolz.get_in(resource_config.record_path.split("."), data, ())
         if isinstance(data, dict):
             # a single-record resource (e.g. /repos/{owner}/{repo})
-            return [data]
-        return list(data)
+            return (data,)
+        return tuple(data)
 
     @staticmethod
     def _record_to_row(record: dict, resource_config: ResourceConfig) -> dict:
