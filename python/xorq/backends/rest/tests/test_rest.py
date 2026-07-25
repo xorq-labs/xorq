@@ -395,6 +395,14 @@ def test_unknown_auth_kind_rejected_at_connect() -> None:
         NoApplierBackend().connect(key="k")
 
 
+def test_init_subclass_rejects_misnamed_var_kwargs_bucket() -> None:
+    with pytest.raises(TypeError, match=r"must be named \*\*kwargs"):
+
+        class MisnamedBucketBackend(RestBackend):
+            def do_connect(self, *, config: dict | None = None, **creds: str) -> None:
+                pass
+
+
 def test_read_is_a_read_op_and_validates_params() -> None:
     con = CuratedBackend().connect()
     expr = con.read("things", bucket="b")

@@ -17,6 +17,7 @@ identity folds the per-resource config content hash
 
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING
 
 import xorq.common.exceptions as com
@@ -58,6 +59,31 @@ class RestBackend(PandasBackend):
     # `make_engine` threads them into the default engine
     paginators = PAGINATORS
     auth_appliers = AUTH_APPLIERS
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        # Profile.from_con and make_read_kwargs flatten a var-keyword bucket
+        # by its literal parameter name, "kwargs". A subclass declaring
+        # `**creds` would silently mis-shape profiles/read_kwargs; turn the
+        # docstring contract into a definition-time error.
+        super().__init_subclass__(**kwargs)
+        for method_name in ("do_connect", "fetch_resource"):
+            fn = cls.__dict__.get(method_name)
+            if fn is None:
+                continue
+            var_keyword = next(
+                (
+                    p
+                    for p in inspect.signature(fn).parameters.values()
+                    if p.kind is inspect.Parameter.VAR_KEYWORD
+                ),
+                None,
+            )
+            if var_keyword is not None and var_keyword.name != "kwargs":
+                raise TypeError(
+                    f"{cls.__name__}.{method_name} declares **{var_keyword.name}; "
+                    "the var-keyword bucket must be named **kwargs (Profile."
+                    "from_con and make_read_kwargs flatten it by that name)"
+                )
 
     @classmethod
     def register_options(cls) -> None:
