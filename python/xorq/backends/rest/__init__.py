@@ -18,7 +18,7 @@ config content hash (``normalize_read_source_identity``).
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import xorq.common.exceptions as com
 from xorq import __version__
@@ -290,6 +290,68 @@ class RestBackend(PandasBackend):
         ).to_expr()
 
     # -- execution (Read.make_dt boundary) ----------------------------------
+
+    def read_to_pyarrow_batches(self, expr: ir.Expr) -> pa.ipc.RecordBatchReader | None:
+        """Serve a bare resource Read as a page-wise RecordBatchReader.
+
+        The producer half of the ``into_backend`` path: the api-level
+        ``to_pyarrow_batches`` fast path (and the RemoteTable replacer
+        through it) pulls this, so ``con.read(...).into_backend(other)``
+        streams one RecordBatch per HTTP page — nothing materialized into
+        ``self.dictionary``. Returns None when this read can't stream (an
+        override resource, or not a bare Read on this backend), sending the
+        caller down the normal materializing path. Transport only: identity
+        is untouched.
+        """
+        import pyarrow as pa  # noqa: PLC0415
+
+        from xorq.expr.relations import Read  # noqa: PLC0415
+
+        op = expr.op()
+        if (
+            not isinstance(op, Read)
+            or op.source is not self
+            or op.method_name != "fetch_resource"
+        ):
+            return None
+        read_kwargs = dict(op.read_kwargs)
+        resource_config = self.current_config.get_resource(read_kwargs["resource"])
+        if resource_config.fetch_override is not None:
+            return None
+        read_params = {
+            k: v for k, v in read_kwargs.items() if k not in ("resource", "table_name")
+        }
+        schema = expr.schema().to_pyarrow()
+        frames = self._engine.fetch_batches(
+            self.current_config, resource_config, read_params, self._credentials
+        )
+        return pa.RecordBatchReader.from_batches(
+            schema,
+            (
+                pa.RecordBatch.from_pandas(frame, schema=schema, preserve_index=False)
+                for frame in frames
+            ),
+        )
+
+    def to_pyarrow_batches(
+        self,
+        expr: ir.Expr,
+        *,
+        params: Any = None,
+        limit: int | str | None = None,
+        chunk_size: int = 1_000_000,
+        **kwargs: Any,
+    ) -> pa.ipc.RecordBatchReader:
+        """Stream bare resource Reads page-wise; everything else (downstream
+        pandas compute, fetched tables, override resources) falls back to
+        the inherited materialize-then-chunk."""
+        if params is None and limit is None:
+            reader = self.read_to_pyarrow_batches(expr)
+            if reader is not None:
+                return reader
+        return super().to_pyarrow_batches(
+            expr, params=params, limit=limit, chunk_size=chunk_size, **kwargs
+        )
 
     def fetch_resource(
         self, resource: str, table_name: str | None = None, **kwargs: str

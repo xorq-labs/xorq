@@ -724,6 +724,58 @@ def test_fetch_empty_result_keeps_declared_dtypes() -> None:
     assert str(df.id.dtype) == "Int64"  # not the all-float64 empty-frame trap
 
 
+def make_paged_pages() -> tuple:
+    return (
+        FakeResponse(
+            [{"id": 1, "name": "a"}],
+            links={"next": {"url": "https://api.example.com/paged?page=2"}},
+        ),
+        FakeResponse([{"id": 2, "name": "b"}]),
+    )
+
+
+class PagedBackend(RestBackend):
+    config = RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="paged",
+                schema=things_schema,
+                path="/paged",
+                paginator="header_link",
+                residual_column="properties",
+            ),
+        ),
+    )
+
+
+def connect_paged_backend() -> tuple[PagedBackend, FakeSession]:
+    con = PagedBackend().connect()
+    session = FakeSession(make_paged_pages())
+    con._engine = NativeEngine(session=session)
+    return con, session
+
+
+def test_to_pyarrow_batches_streams_bare_reads() -> None:
+    con, session = connect_paged_backend()
+    rbr = con.read("paged").to_pyarrow_batches()
+    batches = list(rbr)
+    assert len(batches) == 2  # one RecordBatch per HTTP page
+    assert len(session.calls) == 2
+    assert not con.dictionary  # the paginator fed the reader directly
+    assert [b["id"].to_pylist() for b in batches] == [[1], [2]]
+
+
+def test_into_backend_consumes_the_page_stream() -> None:
+    con, session = connect_paged_backend()
+    target = xo.connect()
+    df = con.read("paged").into_backend(target).execute()
+    assert df.id.tolist() == [1, 2]
+    assert len(session.calls) == 2
+    assert not con.dictionary  # streamed, never materialized on the rest side
+
+
 def test_make_paginator_unknown() -> None:
     with pytest.raises(ValueError, match="unknown paginator"):
         make_paginator("nope")
