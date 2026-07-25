@@ -206,9 +206,21 @@ class ResourceConfig:
         converter=tuple,
         default=(),
     )
+    # the overflow column: unmapped record fields land here as sorted JSON.
+    # Declared, not name-sniffed, so an API with a genuine field named
+    # "properties" can still have it as a typed column.
+    residual_column = field(validator=optional(instance_of(str)), default=None)
     fetch_override = field(validator=optional(is_callable()), default=None)
 
     def __attrs_post_init__(self) -> None:
+        if (
+            self.residual_column is not None
+            and self.residual_column not in self.schema.names
+        ):
+            raise ValueError(
+                f"resource {self.name!r}: residual_column "
+                f"{self.residual_column!r} is not a schema column"
+            )
         # a mistyped placeholder or an optional placeholder param would
         # otherwise surface as a bare KeyError at fetch time
         undeclared = self.path_placeholders - set(self.param_names)
@@ -258,6 +270,7 @@ class ResourceConfig:
                 self.paginator,
                 self.paginator_kwargs,
                 tuple((p.name, p.required, p.kind) for p in self.params),
+                self.residual_column,
             )
         )
 

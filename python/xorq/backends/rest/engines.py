@@ -120,13 +120,14 @@ def record_to_row(record: dict, resource_config: ResourceConfig) -> dict:
             return json.dumps(value, sort_keys=True)
         return value
 
-    named = tuple(n for n in resource_config.schema.names if n != "properties")
+    residual_column = resource_config.residual_column
+    named = tuple(n for n in resource_config.schema.names if n != residual_column)
     row = {name: render(record.get(name)) for name in named}
-    if "properties" in resource_config.schema.names:
+    if residual_column is not None:
         # the overflow column: only fields not already given a typed
-        # column, so `properties` doesn't duplicate them at catalog scale
+        # column, so the residual doesn't duplicate them at catalog scale
         residual = {k: v for k, v in record.items() if k not in named}
-        row["properties"] = json.dumps(residual, sort_keys=True)
+        row[residual_column] = json.dumps(residual, sort_keys=True)
     return row
 
 

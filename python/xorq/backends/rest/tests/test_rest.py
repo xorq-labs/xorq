@@ -240,14 +240,26 @@ def test_make_paginator_unknown() -> None:
 
 
 def test_record_to_row_nests_to_json() -> None:
-    resource = ResourceConfig(name="things", schema=things_schema)
+    resource = ResourceConfig(
+        name="things", schema=things_schema, residual_column="properties"
+    )
     row = record_to_row({"id": 1, "name": {"nested": True}, "extra": "x"}, resource)
     assert row["id"] == 1
     assert json.loads(row["name"]) == {"nested": True}
-    # properties is the overflow column: only unmapped fields, no duplication
+    # the declared overflow column: only unmapped fields, no duplication
     props = json.loads(row["properties"])
     assert props == {"extra": "x"}
     assert "id" not in props and "name" not in props
+
+
+def test_residual_column_is_declared_not_name_sniffed() -> None:
+    # without a declaration, a field literally named "properties" is just a
+    # typed column -- the record's own value lands there
+    resource = ResourceConfig(name="things", schema=things_schema)
+    row = record_to_row({"id": 1, "properties": {"real": True}}, resource)
+    assert json.loads(row["properties"]) == {"real": True}
+    with pytest.raises(ValueError, match="not a schema column"):
+        ResourceConfig(name="things", schema=things_schema, residual_column="nope")
 
 
 def test_basic_auth_requires_role_fields() -> None:
