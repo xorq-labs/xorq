@@ -216,6 +216,11 @@ class RestBackend(PandasBackend):
                 f"{self.name} backend has no resource or table {name!r}; "
                 f"available: {self.list_tables()}"
             )
+        if schema is not None:
+            raise com.XorqError(
+                f"{name!r} is a resource; its schema is declared in the "
+                "config and cannot be overridden at table()"
+            )
         return self.read(name, **params)
 
     def read(

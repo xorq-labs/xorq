@@ -395,6 +395,12 @@ def test_unknown_auth_kind_rejected_at_connect() -> None:
         NoApplierBackend().connect(key="k")
 
 
+def test_table_schema_arg_rejected_for_resources() -> None:
+    con = CuratedBackend().connect()
+    with pytest.raises(com.XorqError, match="declared in the config"):
+        con.table("things", schema=things_schema, bucket="b")
+
+
 def test_init_subclass_rejects_misnamed_var_kwargs_bucket() -> None:
     with pytest.raises(TypeError, match=r"must be named \*\*kwargs"):
 
