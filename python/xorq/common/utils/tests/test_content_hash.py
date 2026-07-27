@@ -19,9 +19,10 @@ from xorq.vendor.ibis.expr.schema import Schema
 def _yaml_snapshot_hashes(expr: ibis.Expr) -> set[str]:
     """The set of ``snapshot_hash`` values ibis_yaml writes into expr.yaml."""
     yaml_dict = YamlExpressionTranslator().to_yaml(expr)
-    nodes = dict(yaml_dict["definitions"]["nodes"])
     return {
-        dict(v)["snapshot_hash"] for v in nodes.values() if "snapshot_hash" in dict(v)
+        node["snapshot_hash"]
+        for node in yaml_dict["definitions"]["nodes"].values()
+        if "snapshot_hash" in node
     }
 
 
@@ -46,8 +47,9 @@ def test_content_hash_agrees_across_callers(
 ) -> None:
     """A node keys identically via ibis_yaml (expr.yaml) and content_hash.
 
-    The module is the single source of truth for both callers, so every node's
+    ibis_yaml is content_hash's only current caller, so every node's
     content_hash must appear as a snapshot_hash in the serialized artifact.
+    (Lineage is a planned second caller; it does not call content_hash yet.)
     """
     expr = build(t)
     yaml_hashes = _yaml_snapshot_hashes(expr)
@@ -88,6 +90,9 @@ def test_schema_hashes_directly(t: ibis.Expr) -> None:
     assert isinstance(schema, Schema)
     # Schema has no to_expr(); it is hashed directly and deterministically.
     assert content_hash(schema) == content_hash(schema)
+    # A different schema must hash differently (guards against a constant hash).
+    other = ibis.table({"a": "int64", "b": "float64"}, name="test_table").op().schema
+    assert content_hash(schema) != content_hash(other)
 
 
 def test_plain_tag_and_hashing_tag_hash_differently(t: ibis.Expr) -> None:

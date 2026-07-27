@@ -4,9 +4,11 @@ Single source of truth for a node's content-addressed identity. The hash is the
 dasher token of the node's *untagged*, snapshot-normalized representation, with
 per-type special-casing so structurally-equal nodes collapse to one identity.
 
-Shared by ``ibis_yaml`` (expr.yaml node labels / ``snapshot_hash``) and lineage
-extraction, so a node keys identically in both artifacts and can be
-cross-referenced by hash.
+Currently consumed by ``ibis_yaml`` (expr.yaml node labels / ``snapshot_hash``).
+Planned second consumer is lineage extraction (XOR-363): once wired, a node will
+key identically in both artifacts and can be cross-referenced by hash. Lineage
+does not call this helper yet -- ``lineage_utils`` still computes an independent
+hash.
 """
 
 from __future__ import annotations
@@ -23,11 +25,11 @@ from xorq.vendor.ibis.expr.schema import Schema
 def content_hash(node: Any) -> str:
     """Return the content hash of *node*.
 
-    The hash is derived purely from ``node``, so the two documented callers
-    (``ibis_yaml`` serialization and lineage extraction) compute the same value
+    The hash is derived purely from ``node``, so any caller (``ibis_yaml``
+    serialization today, lineage extraction once wired) computes the same value
     for the same node and it can be cross-referenced by hash. A plain ``Tag``
     folds in its raw ``node.metadata`` -- never a serialization-specific form --
-    so both callers agree.
+    so callers agree regardless of how they reach this helper.
     """
     # Schema is not a graph node and has no to_expr(); hash it directly.
     if isinstance(node, Schema):
