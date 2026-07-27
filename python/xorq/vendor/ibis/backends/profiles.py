@@ -1,6 +1,7 @@
 import itertools
 import json
 from pathlib import Path
+from types import MappingProxyType
 
 import toolz
 import yaml12
@@ -438,20 +439,15 @@ class Profile:
         return cls(con_name=con.name, kwargs_tuple=tuple(sorted(kwargs.items())))
 
 
-def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
-    """Check if profile contains exposed secret keys.
-
-    Raises
-    ------
-    ValueError
-        If profile contains exposed secret keys not using environment variables
-    """
-
-    # Define secret keys by connection name
-    # TODO: Add more database types as needed
-    # maybe user sets this in options
-    con_name_to_secret_keys = {
-        "postgres": [
+# Static secret keys by connection name, mirrored from each backend's
+# `Backend._secret_keys` declaration. `check_for_exposed_secrets` reads this
+# mirror at runtime so that validating a profile never imports the backend just
+# to read its tuple. The colocated `_secret_keys` declaration is the authored
+# source; the tests in test_profile.py enforce, in both directions, that this
+# mirror stays identical to it.
+con_name_to_secret_keys = MappingProxyType(
+    {
+        "postgres": (
             "password",
             "sslcert",
             "sslkey",
@@ -459,8 +455,8 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
             "sslcrl",
             "options",
             "passfile",
-        ],
-        "snowflake": [
+        ),
+        "snowflake": (
             "password",
             "user",
             "account",
@@ -468,13 +464,26 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
             "private_key",
             "private_key_path",
             "oauth_token",
-        ],
-        # Add more database types as needed
+        ),
     }
+)
+
+
+def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
+    """Check if profile contains exposed secret keys.
+
+    Secret keys come from the static `con_name_to_secret_keys` mirror,
+    defaulting to `("password",)` for backends not listed.
+
+    Raises
+    ------
+    ValueError
+        If profile contains exposed secret keys not using environment variables
+    """
 
     relevant_keys = con_name_to_secret_keys.get(
         con_name,
-        ["password"],  # default to just password
+        ("password",),  # default to just password
     )
 
     exposed_secrets = tuple(

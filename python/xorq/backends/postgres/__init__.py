@@ -37,6 +37,15 @@ __all__ = [
 
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
+    _secret_keys = (
+        "password",
+        "sslcert",
+        "sslkey",
+        "sslrootcert",
+        "sslcrl",
+        "options",
+        "passfile",
+    )
     compiler = compiler
 
     @classmethod
