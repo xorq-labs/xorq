@@ -10,11 +10,16 @@ import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
+    OPAQUE_EDGES,
+    _gen_children_flight_leaf,
     find_all_sources,
+    gen_children_of,
+    opaque_ops,
     walk_nodes,
 )
 from xorq.expr.relations import Tag
 from xorq.ml import deferred_fit_predict_sklearn
+from xorq.vendor.ibis import Expr
 
 
 LinearRegression = pytest.importorskip("sklearn.linear_model").LinearRegression
@@ -116,3 +121,46 @@ def test_replace_computed_kwargs_expr(parquet_dir):
     removed = xo.expr.api._remove_tag_nodes(predicted)
     assert not walk_nodes(Tag, removed)
     assert not walk_nodes(Tag, predicted.ls.untagged)
+
+
+def test_opaque_edges_name_real_fields() -> None:
+    """Every ``OPAQUE_EDGES`` name must resolve on its op type.
+
+    ``gen_children_of`` reads edge fields unguarded, so a stale name after a
+    rename is an ``AttributeError`` at traversal time; catch it here instead.
+    """
+    for typ, edges in OPAQUE_EDGES.items():
+        for name in edges:
+            assert name in typ.__argnames__ or hasattr(typ, name), (
+                f"{typ.__name__} has no field {name!r}"
+            )
+
+
+def test_opaque_ops_matches_opaque_edges() -> None:
+    assert set(opaque_ops) == set(OPAQUE_EDGES)
+
+
+def make_flight_expr() -> Expr:
+    con = xo.connect()
+    t = con.register(xo.memtable({"a": [1, 2, 3]}).to_pyarrow(), "t")
+    return rel.FlightExpr(
+        name="test_flight",
+        schema=t.schema(),
+        source=con,
+        input_expr=t,
+        unbound_expr=xo.table(t.schema(), name="u"),
+        make_server=toolz.identity,
+        make_connection=toolz.identity,
+    ).to_expr()
+
+
+def test_gen_children_flight_leaf_treats_flight_as_leaf() -> None:
+    expr = make_flight_expr()
+    node = expr.op()
+    assert tuple(gen_children_of(node)) == (node.input_expr.op(),)
+    assert _gen_children_flight_leaf(node) == ()
+    # the outer graph no longer reaches the input_expr's leaves
+    assert walk_nodes(ops.DatabaseTable, node)
+    assert walk_nodes(
+        (ops.DatabaseTable,), node, gen_children=_gen_children_flight_leaf
+    ) == (node,)

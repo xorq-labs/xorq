@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, OrderedDict, Tuple
 
 import xorq.expr.relations as rel
@@ -13,23 +13,12 @@ from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
-opaque_ops = (
-    rel.Read,
-    rel.CachedNode,
-    rel.CacheTag,
-    rel.RemoteTable,
-    rel.FlightUDXF,
-    rel.FlightExpr,
-    udf.ExprScalarUDF,
-)
-
-
 # Single source of truth for opaque descent: the field name(s) on each opaque op
 # holding children that the standard ``__children__`` protocol does not surface
 # (they are ``Expr``-typed or stored in ``__config__``). Consumed by the read
 # side (``gen_children_of`` + policy variants) and the write side
 # (``replace_nodes``). Descent policies are edge-filter overrides of this table
-# (see ``_gen_children_exec``/``_gen_children_skip_pins``/``gen_children_flight_leaf``);
+# (see ``_gen_children_exec``/``_gen_children_skip_pins``/``_gen_children_flight_leaf``);
 # the write side additionally skips the edges in ``_WRITE_SKIP_EDGES``.
 OPAQUE_EDGES = {
     rel.RemoteTable: ("remote_expr",),
@@ -41,6 +30,10 @@ OPAQUE_EDGES = {
     rel.Read: (),
 }
 
+# The opaque op types themselves -- derived from OPAQUE_EDGES so the two cannot
+# drift (``replace_nodes`` raises on an opaque op with no edge entry).
+opaque_ops = tuple(OPAQUE_EDGES)
+
 # Edges the *write* path (``replace_nodes``) must NOT descend even though the
 # read path does: a ``CacheTag``'s ``parent`` is the frozen native read the
 # replacer already produced; re-driving it diverges the read's backend identity
@@ -51,11 +44,14 @@ _WRITE_SKIP_EDGES = {
 
 
 def _opaque_edges_for(node: Node, table: dict = OPAQUE_EDGES) -> Tuple[str, ...] | None:
-    """Return the opaque child-edge names for *node*, or ``None`` if not opaque.
+    """Return *table*'s edge names for *node*, or ``None`` if it has no entry.
 
     Matches by ``isinstance`` (preserving the original ``match`` semantics); the
     opaque op types are mutually non-subclassing, so iteration order is
-    immaterial.
+    immaterial. Used for every edge-table lookup (``OPAQUE_EDGES``, the descent
+    policies, ``_WRITE_SKIP_EDGES``) so they all match the same way -- an exact
+    ``type()`` lookup on one table and ``isinstance`` on another would diverge
+    the moment an opaque op grows a subclass.
     """
     for typ, edges in table.items():
         if isinstance(node, typ):
@@ -73,20 +69,22 @@ def to_node(maybe_expr: Any) -> Node:
             raise ValueError(f"Don't know how to handle type {type(maybe_expr)}")
 
 
-def gen_children_of(
-    node: Node, *, opaque_edges: dict = OPAQUE_EDGES
-) -> Tuple[Node, ...]:
+def gen_children_of(node: Node, *, opaque_edges: dict = OPAQUE_EDGES) -> Iterator[Node]:
     """Yield a node's children, descending opaque ops per *opaque_edges*.
 
     For an opaque op, children are the nodes referenced by its edge fields (see
     ``OPAQUE_EDGES``); a descent policy passes a modified *opaque_edges* to prune
     or redirect specific edges (see ``_gen_children_exec`` and friends). All
     other nodes fall back to the standard ``__children__`` protocol.
+
+    Edge fields are read unguarded: a stale/misspelled name in an edge table
+    raises ``AttributeError`` and an unexpectedly ``None`` edge raises
+    ``ValueError`` from ``to_node``, rather than silently yielding an incomplete
+    child set. Prune an edge by removing it from the table, not by nulling it.
     """
     edges = _opaque_edges_for(node, opaque_edges)
     if edges is not None:
-        gen = (getattr(node, name, None) for name in edges)
-        gen = (to_node(child) for child in gen if child is not None)
+        gen = (to_node(getattr(node, name)) for name in edges)
     else:
         match node:
             case ops.Field():
@@ -102,23 +100,24 @@ def bfs(
     node: Expr | Node,
     *,
     children: Callable[[Node], Any] = gen_children_of,
-    filter: Callable[[Node], bool] | None = None,
+    node_filter: Callable[[Node], bool] | None = None,
 ) -> Graph:
     """Build an opaque-descending :class:`Graph` from *node* by BFS.
 
     ``children`` overrides child enumeration (default ``gen_children_of``); pass
-    a policy variant to prune opaque edges. ``filter`` stops the walk at any
+    a policy variant to prune opaque edges. ``node_filter`` stops the walk at any
     child for which it returns ``False`` (the boundary-stopping form used to
     collapse non-boundary runs); the filtered-out node is neither recorded nor
-    descended.
+    descended, and never appears in another node's children, so the returned
+    graph has no dangling references. The root is never filtered.
     """
     queue = deque((to_node(node),))
     dct = {}
     while queue:
         if (node := queue.popleft()) not in dct:
             kids = tuple(children(node))
-            if filter is not None:
-                kids = tuple(child for child in kids if filter(child))
+            if node_filter is not None:
+                kids = tuple(child for child in kids if node_filter(child))
             dct[node] = kids
             queue.extend(kids)
     return Graph(dct)
@@ -216,7 +215,7 @@ def replace_nodes(
         # CacheTag: descend only the edges not in _WRITE_SKIP_EDGES (i.e. skip
         # ``parent``) and do NOT forward _kwargs -- both load-bearing, see
         # _WRITE_SKIP_EDGES and test_pinned_cache_yaml_roundtrip.
-        skip = _WRITE_SKIP_EDGES.get(type(op), ())
+        skip = _opaque_edges_for(op, _WRITE_SKIP_EDGES) or ()
         descend = tuple(name for name in edges if name not in skip)
         if not descend:
             return op  # Read (no opaque children)
@@ -500,12 +499,13 @@ def _gen_children_skip_pins(node: Node) -> Tuple[Node, ...]:
     return tuple(gen_children_of(node, opaque_edges=_SKIP_PINS_EDGES))
 
 
-def gen_children_flight_leaf(node: Node) -> Tuple[Node, ...]:
+def _gen_children_flight_leaf(node: Node) -> Tuple[Node, ...]:
     """Child enumeration treating ``FlightExpr``/``FlightUDXF`` as opaque leaves.
 
     So a Flight node's ``input_expr`` is not flattened into the outer graph; its
-    lineage is extracted separately as a nested sub-DAG (see XOR-363). Not used
-    by any existing caller -- a capability added for lineage extraction.
+    lineage is extracted separately as a nested sub-DAG (see XOR-363). Private
+    until XOR-363 lands its caller; covered by
+    ``test_gen_children_flight_leaf_treats_flight_as_leaf``.
     """
     return tuple(gen_children_of(node, opaque_edges=_FLIGHT_LEAF_EDGES))
 
