@@ -31,55 +31,73 @@ def t() -> ibis.Expr:
     return ibis.table({"a": "int64", "b": "string"}, name="test_table")
 
 
-# --- cross-caller agreement (the shared-identity contract) -------------------
+# --- golden identity + ibis_yaml wiring --------------------------------------
+#
+# Golden byte values, NOT `content_hash(node) in yaml_hashes`: the latter is
+# tautological now that register_node writes snapshot_hash = content_hash(node)
+# (both sides are the same function, so it passes for any implementation).
+# Hardcoding the expected hash pins the actual bytes -- a change to content_hash
+# fails here even if the serializer changes in lockstep -- and asserting the
+# same byte appears in expr.yaml still proves ibis_yaml is wired to this helper.
+# Nodes here are filesystem-independent so the golden values are stable across
+# machines (Read embeds an absolute path; it is covered structurally below).
 
 
 @pytest.mark.parametrize(
-    ("build", "node_type"),
+    ("build", "node_type", "expected"),
     [
-        pytest.param(lambda t: t.tag("v1", extra="x"), Tag, id="tag"),
-        pytest.param(lambda t: t.hashing_tag("v1"), HashingTag, id="hashing_tag"),
-        pytest.param(lambda t: t.filter(t.a > 1), ops.Filter, id="filter-default"),
+        pytest.param(
+            lambda t: t.tag("v1", extra="x"),
+            Tag,
+            {"563943016a2d36c008f1d7129a84ae75"},
+            id="tag",
+        ),
+        pytest.param(
+            lambda t: t.hashing_tag("v1"),
+            HashingTag,
+            {"d3a1cf68f4aaf63eba3c263ad5c8f5b7"},
+            id="hashing_tag",
+        ),
+        pytest.param(
+            lambda t: t.filter(t.a > 1),
+            ops.Filter,
+            {"b82aab366f891829b5c84e042a24ea85"},
+            id="filter-default",
+        ),
     ],
 )
-def test_content_hash_agrees_across_callers(
-    t: ibis.Expr, build: Any, node_type: Any
+def test_golden_hash_matches_and_is_serialized(
+    t: ibis.Expr, build: Any, node_type: Any, expected: set[str]
 ) -> None:
-    """A node keys identically via ibis_yaml (expr.yaml) and content_hash.
-
-    ibis_yaml is content_hash's only current caller, so every node's
-    content_hash must appear as a snapshot_hash in the serialized artifact.
-    (Lineage is a planned second caller; it does not call content_hash yet.)
-    """
     expr = build(t)
-    yaml_hashes = _yaml_snapshot_hashes(expr)
     nodes = list(walk_nodes(node_type, expr))
     assert nodes
-    for node in nodes:
-        assert content_hash(node) in yaml_hashes
+    assert {content_hash(node) for node in nodes} == expected
+    # ibis_yaml must emit the same bytes (proves the serializer is wired here).
+    assert expected <= _yaml_snapshot_hashes(expr)
 
 
-def test_join_reference_agrees_across_callers() -> None:
+def test_golden_join_reference_hash_and_is_serialized() -> None:
     t1 = ibis.table({"a": "int64", "k": "int64"}, name="t1")
     t2 = ibis.table({"b": "int64", "k": "int64"}, name="t2")
     expr = t1.join(t2, [("k", "k")])
-    yaml_hashes = _yaml_snapshot_hashes(expr)
+    expected = {
+        "18af0a10f0e57ec2eb54430e77f1566c",
+        "7d9e90cea69511544f334134ca3d9716",
+    }
     nodes = list(walk_nodes(ops.JoinReference, expr))
-    assert nodes
-    for node in nodes:
-        assert content_hash(node) in yaml_hashes
+    assert {content_hash(node) for node in nodes} == expected
+    assert expected <= _yaml_snapshot_hashes(expr)
 
 
-def test_read_agrees_across_callers(tmp_path: Path) -> None:
+def test_read_hash_is_serialized(tmp_path: Path) -> None:
+    """Read hash embeds an absolute path, so pin it structurally, not by value."""
     path = tmp_path / "x.parquet"
     pd.DataFrame({"a": [1, 2, 3]}).to_parquet(path)
     con = xo.connect()
     expr = xo.deferred_read_parquet(path, con, table_name="x").filter(lambda t: t.a > 1)
-    yaml_hashes = _yaml_snapshot_hashes(expr)
-    reads = list(walk_nodes(Read, expr))
-    assert reads
-    for node in reads:
-        assert content_hash(node) in yaml_hashes
+    (read,) = walk_nodes(Read, expr)
+    assert content_hash(read) in _yaml_snapshot_hashes(expr)
 
 
 # --- per-branch contract -----------------------------------------------------
@@ -88,8 +106,8 @@ def test_read_agrees_across_callers(tmp_path: Path) -> None:
 def test_schema_hashes_directly(t: ibis.Expr) -> None:
     schema = t.op().schema
     assert isinstance(schema, Schema)
-    # Schema has no to_expr(); it is hashed directly and deterministically.
-    assert content_hash(schema) == content_hash(schema)
+    # Schema has no to_expr(); it is hashed directly to a stable golden value.
+    assert content_hash(schema) == "91bef2a71ad5c557d2712bfe058463c9"
     # A different schema must hash differently (guards against a constant hash).
     other = ibis.table({"a": "int64", "b": "float64"}, name="test_table").op().schema
     assert content_hash(schema) != content_hash(other)
