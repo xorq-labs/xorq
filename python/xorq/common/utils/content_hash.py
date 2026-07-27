@@ -4,11 +4,11 @@ Single source of truth for a node's content-addressed identity. The hash is the
 dasher token of the node's *untagged*, snapshot-normalized representation, with
 per-type special-casing so structurally-equal nodes collapse to one identity.
 
-Currently consumed by ``ibis_yaml`` (expr.yaml node labels / ``snapshot_hash``).
-Planned second consumer is lineage extraction (XOR-363): once wired, a node will
-key identically in both artifacts and can be cross-referenced by hash. Lineage
-does not call this helper yet -- ``lineage_utils`` still computes an independent
-hash.
+Consumed by ``ibis_yaml`` (expr.yaml node labels / ``snapshot_hash``) and by
+lineage extraction (``lineage_utils``), so a relation keys identically in both
+artifacts and can be cross-referenced by hash. Lineage only calls this for
+relations; value ops (``Field``, ``SortKey``, …) never appear in expr.yaml and are
+not all normalizable, so they get a structural token instead.
 """
 
 from __future__ import annotations

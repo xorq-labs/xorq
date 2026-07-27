@@ -222,6 +222,20 @@ def test_catalog_row_data_is_frozen(entry_a):
         row.aliases = ("new-name",)
 
 
+def test_lineage_text_renders_compact_boundary_tree(entry_a):
+    """lineage_text is the compact boundary view, not a flat arrow chain."""
+    row = CatalogRowData(entry=entry_a)
+    lines = row.lineage_text.splitlines()
+
+    assert "→" not in lines[0], "root should not be a flattened arrow chain"
+    assert any("InMemoryTable" in line for line in lines), row.lineage_text
+
+
+def test_lineage_text_shows_cache_boundary(entry_cached):
+    row = CatalogRowData(entry=entry_cached)
+    assert "Cache[" in row.lineage_text, row.lineage_text
+
+
 def test_revision_row_data_current():
     row = RevisionRowData(
         hash="abc123",

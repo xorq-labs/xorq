@@ -9,6 +9,7 @@ from functools import cache, cached_property, lru_cache
 from itertools import groupby
 from operator import attrgetter
 from pathlib import Path
+from textwrap import indent
 from typing import Literal
 
 from attr import evolve, field, frozen
@@ -272,11 +273,14 @@ class CatalogRowData:
 
     @cached_property
     def lineage_text(self) -> str:
+        from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
+            format_compact_lineage,
+        )
+
         lineage = self.entry.metadata.lineage
-        if not lineage:
+        if not lineage or not lineage.nodes:
             return "(empty)"
-        labels = [n["label"] for n in lineage.nodes]
-        return " → ".join(labels) if labels else "(empty)"
+        return format_compact_lineage(lineage)
 
     @cached_property
     def cache_info_text(self) -> str:
@@ -291,8 +295,11 @@ class CatalogRowData:
 
     @cached_property
     def info_text(self) -> str:
+        # lineage_text is a multi-line tree: label it, then indent the tree under
+        # it so the branch glyphs stay aligned.
         parts = [
-            f"Lineage: {self.lineage_text}",
+            "Lineage:",
+            indent(self.lineage_text, "  "),
             f"Cache: {self.cache_info_text}",
             f"Hash: {self.hash}",
         ]
