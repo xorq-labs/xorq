@@ -155,24 +155,24 @@ def bfs(
     node: Expr | Node,
     *,
     children: Callable[[Node], Any] = gen_children_of,
-    node_filter: Callable[[Node], bool] | None = None,
 ) -> Graph:
     """Build an opaque-descending :class:`Graph` from *node* by BFS.
 
     ``children`` overrides child enumeration (default ``gen_children_of``); pass
-    a policy variant to prune opaque edges. ``node_filter`` stops the walk at any
-    child for which it returns ``False`` (the boundary-stopping form used to
-    collapse non-boundary runs); the filtered-out node is neither recorded nor
-    descended, and never appears in another node's children, so the returned
-    graph has no dangling references. The root is never filtered.
+    a policy variant to prune opaque edges.
+
+    Boundary-*terminating* descent (record a node but do not descend it, as
+    ``LineageDAG.compact()`` needs to emit boundary-to-boundary edges) is not
+    expressible here and is deliberately absent: the vendored ``bfs_while``
+    filter shape drops a non-matching node together with its whole subtree, so
+    the terminating node never lands in the graph. XOR-363 adds that mechanism
+    with its first caller.
     """
     queue = deque((to_node(node),))
     dct = {}
     while queue:
         if (node := queue.popleft()) not in dct:
             kids = tuple(children(node))
-            if node_filter is not None:
-                kids = tuple(child for child in kids if node_filter(child))
             dct[node] = kids
             queue.extend(kids)
     return Graph(dct)
