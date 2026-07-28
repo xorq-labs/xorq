@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.37] - 2026-07-28
+### Details
+#### Added
+- Add catalog entry mutation actions by @hussainsultan in [#2175](https://github.com/xorq-labs/xorq/pull/2175)
+
+#### Changed
+- Backends declare their own secret keys (static) by @dlovell in [#2183](https://github.com/xorq-labs/xorq/pull/2183)
+- Factor node content hash into shared helper by @mesejo in [#2176](https://github.com/xorq-labs/xorq/pull/2176)
+
 ## [0.3.36] - 2026-07-22
 ### Details
 #### Changed
