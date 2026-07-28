@@ -108,6 +108,25 @@ def entry_cached(catalog, tmp_path):
 
 
 @pytest.fixture
+def entry_udxf(catalog: Catalog) -> CatalogEntry:
+    """A FlightUDXF over an into_backend'd memtable: the UDXF appends one column.
+
+    Construction and build only -- no Flight server is started.
+    """
+    con = xo.connect()
+    inner = xo.memtable({"a": [1, 2, 3]}, name="t_udxf").into_backend(con, "inner")
+    expr = xo.expr.relations.flight_udxf(
+        inner,
+        process_df=lambda df: df.assign(b=1),
+        maybe_schema_in=inner.schema(),
+        maybe_schema_out=xo.schema(inner.schema() | {"b": "int64"}),
+        con=con,
+        make_udxf_kwargs={"name": "AddB"},
+    )
+    return catalog.add(expr)
+
+
+@pytest.fixture
 def alias_for_a(catalog, entry_a):
     """Add alias 'my-model' to entry_a and return the alias string."""
     alias = "my-model"
@@ -231,9 +250,26 @@ def test_lineage_text_renders_compact_boundary_tree(entry_a):
     assert any("InMemoryTable" in line for line in lines), row.lineage_text
 
 
-def test_lineage_text_shows_cache_boundary(entry_cached):
+def test_lineage_text_shows_cache_boundary(entry_cached: CatalogEntry) -> None:
     row = CatalogRowData(entry=entry_cached)
     assert "Cache[" in row.lineage_text, row.lineage_text
+
+
+def test_lineage_text_renders_udxf_identity_and_nested_input(
+    entry_udxf: CatalogEntry,
+) -> None:
+    """A FlightUDXF is the one boundary where the schema really changes: the TUI
+    must show the UDXF identity, the transition, and the nested input source."""
+    text = CatalogRowData(entry=entry_udxf).lineage_text
+    lines = text.splitlines()
+
+    assert "UDXF[AddB] : 1→2 cols" in text, text
+    assert "(+b)" in text, text
+    # the input lineage of the UDXF hangs underneath it, not in the outer chain
+    udxf_line = next(i for i, line in enumerate(lines) if "UDXF[" in line)
+    nested = lines[udxf_line + 1 :]
+    assert any("↳" in line for line in nested), text
+    assert any("t_udxf" in line or "InMemoryTable" in line for line in nested), text
 
 
 def test_revision_row_data_current():

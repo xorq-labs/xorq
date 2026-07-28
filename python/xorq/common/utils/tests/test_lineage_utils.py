@@ -10,7 +10,7 @@ from attrs import evolve as attr_evolve
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.caching import ParquetCache
+from xorq.caching import ParquetCache, SourceCache
 from xorq.common.utils.graph_utils import gen_children_of, opaque_ops, to_node
 from xorq.common.utils.lineage_utils import (
     ROOT_SCOPE,
@@ -19,15 +19,20 @@ from xorq.common.utils.lineage_utils import (
     TextTree,
     _boundary_kind,
     _build_column_tree,
+    _redact,
+    base_kind,
     build_column_trees,
     build_tree,
     extract_lineage_dag,
     format_compact_lineage,
+    schema_diff,
 )
+from xorq.expr.udf import make_pandas_expr_udf
+from xorq.flight.exchanger import UnboundExprExchanger
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor.ibis.expr.operations.core import Node
 from xorq.vendor.ibis.expr.operations.reductions import Sum
-from xorq.vendor.ibis.expr.types.core import ExprMetadata
+from xorq.vendor.ibis.expr.types.core import Expr, ExprMetadata
 
 
 @xo.udf.make_pandas_udf(
@@ -811,7 +816,309 @@ def test_cache_and_pin_boundaries(tmp_path, parquet_dir):
     assert "Pin[" in format_compact_lineage(pinned_dag)
 
 
-def test_compact_of_unknown_scope_is_empty():
+# ── per-kind boundary facts (XOR-363 ticket field table) ───────────────
+
+
+def test_hashing_tag_kind_is_qualified_by_tag_value() -> None:
+    """``tag:<value>`` per the taxonomy; ``base_kind`` strips the qualifier so
+    registry lookups and kind queries keep working."""
+    tagged = xo.memtable({"x": [1]}, name="sales").hashing_tag(tag="catalog-source")
+
+    dag = extract_lineage_dag(tagged)
+    [tag_node] = [n for n in dag.nodes if n["type"] == "HashingTag"]
+
+    assert tag_node["boundary_kind"] == "tag:catalog-source"
+    assert base_kind(tag_node["boundary_kind"]) == "tag"
+    assert dag.capabilities(tag_node) == ("tag_metadata",)
+    # both the qualified and the base form select it
+    assert dag.boundaries(kind="tag:catalog-source") == (tag_node,)
+    assert tag_node in dag.boundaries(kind="tag")
+    assert dag.resolve("tag") == (tag_node,)
+    assert "Tag[catalog-source]" in format_compact_lineage(dag)
+
+
+def test_plain_tag_kind_is_unqualified() -> None:
+    tagged = xo.memtable({"x": [1]}, name="sales").tag(tag="bsl")
+
+    dag = extract_lineage_dag(tagged)
+    [tag_node] = [n for n in dag.nodes if n["type"] == "Tag"]
+
+    assert tag_node["boundary_kind"] == "tag"
+    assert base_kind("tag") == "tag"
+    assert base_kind(None) is None
+
+
+def test_ingestion_carries_format_and_path(parquet_dir: Path) -> None:
+    con = xo.connect()
+    path = parquet_dir / "awards_players.parquet"
+    expr = xo.deferred_read_parquet(path, con=con)
+
+    dag = extract_lineage_dag(expr)
+    [read] = dag.boundaries(kind="ingestion")
+
+    assert read["format"] == "parquet"
+    assert read["read_kind"] == "read_parquet"
+    assert str(path) in str(read["path_or_uri"])
+    assert read["backend"]
+
+
+def test_read_kwargs_are_redacted() -> None:
+    """The sidecar is committed next to the build: credentials must not travel."""
+    assert _redact("password", "hunter2") == "***"
+    assert _redact("aws_secret_key", "abc") == "***"
+    assert _redact("API_KEY", "abc") == "***"
+    assert _redact("uri", "postgres://user:pw@host:5432/db") == (
+        "postgres://***@host:5432/db"
+    )
+    # non-credential values pass through untouched
+    assert _redact("path", "/data/x.parquet") == "/data/x.parquet"
+    assert _redact("uri", "s3://bucket/key.parquet") == "s3://bucket/key.parquet"
+    assert _redact("n_rows", 10) == 10
+
+
+def test_table_boundary_carries_namespace() -> None:
+    """A namespaced backend (duckdb) fills database/catalog; a backend whose
+    Namespace is empty (xorq) simply omits them."""
+    con = xo.duckdb.connect()
+    table = con.create_table("t_ns", xo.memtable({"a": [1]}, name="src").to_pyarrow())
+
+    dag = extract_lineage_dag(table)
+    [node] = dag.boundaries(kind="table")
+
+    assert node["table_name"] == "t_ns"
+    assert node["database"] == table.op().namespace.database
+    assert node["catalog"] == table.op().namespace.catalog
+    assert f"{node['backend']}:t_ns" in format_compact_lineage(dag)
+
+    xorq_table = xo.connect().create_table(
+        "t_no_ns", xo.memtable({"a": [1]}, name="src").to_pyarrow()
+    )
+    [plain] = extract_lineage_dag(xorq_table).boundaries(kind="table")
+    assert plain["table_name"] == "t_no_ns"
+    assert "database" not in plain and "catalog" not in plain
+
+
+def test_udf_boundary_carries_name_and_signature() -> None:
+    base = xo.memtable({"a": [1.0, 2.0]}, name="base")
+    scaled = make_pandas_expr_udf(
+        computed_kwargs_expr=base.a.sum(),
+        fn=lambda computed, df: df.a * computed,
+        schema=xo.schema({"a": "float64"}),
+        return_type=dt.float64,
+        name="scaled",
+        post_process_fn=lambda x: x,
+    )
+
+    dag = extract_lineage_dag(base.mutate(out=scaled.on_expr(base)))
+    [udf_node] = dag.boundaries(kind="udf")
+
+    assert udf_node["udf_name"] == "scaled"
+    assert udf_node["udf_signature"] == "inputs: [float64] -> output: float64"
+    assert "UDF[scaled]" in format_compact_lineage(dag)
+
+
+def test_join_boundary_summarises_predicates(multi_join_expression: Expr) -> None:
+    dag = extract_lineage_dag(multi_join_expression)
+    joins = dag.boundaries(kind="join")
+
+    assert joins
+    for join in joins:
+        assert join["n_inputs"] >= 2
+        summary = join["predicates_summary"]
+        assert summary
+        # column refs and operators only -- never a literal's value
+        assert "==" in summary
+        assert "Literal" not in summary
+
+
+def test_engine_crossing_carries_both_ends() -> None:
+    """The hop needs both ends: source is where the data lands, source_backend
+    where it came from."""
+    duck = xo.duckdb.connect()
+    con = xo.connect()
+    remote = duck.create_table("t_x", xo.memtable({"a": [1]}, name="src").to_pyarrow())
+
+    dag = extract_lineage_dag(remote.into_backend(con, "crossed"))
+    [crossing] = dag.boundaries(kind="engine_crossing")
+
+    assert crossing["remote_name"] == "crossed"
+    assert crossing["source_backend"] == duck.name
+    assert crossing["backend"] == con.name
+    assert f"RemoteTable[{duck.name} → {con.name}]" in format_compact_lineage(dag)
+
+
+def test_engine_crossing_without_a_resolvable_origin_omits_it(
+    multi_join_expression: Expr,
+) -> None:
+    """A crossing whose input bottoms out in a memtable has no origin backend to
+    name; the field is omitted rather than guessed."""
+    dag = extract_lineage_dag(multi_join_expression)
+    crossings = dag.boundaries(kind="engine_crossing")
+
+    assert crossings
+    for crossing in crossings:
+        assert crossing["remote_name"]
+        assert crossing["backend"]
+        assert "source_backend" not in crossing
+    assert "RemoteTable[" not in format_compact_lineage(dag)
+
+
+def test_engine_crossing_label_omits_a_same_backend_hop() -> None:
+    """into_backend onto the expression's own backend has no hop to render."""
+    con = xo.connect()
+    t = con.create_table("t_same", xo.memtable({"a": [1]}, name="src").to_pyarrow())
+    dag = extract_lineage_dag(t.into_backend(con, "same"))
+    [crossing] = dag.boundaries(kind="engine_crossing")
+
+    assert crossing["source_backend"] == crossing["backend"]
+    text = format_compact_lineage(dag)
+    assert "RemoteTable[" not in text
+    assert f"→ {crossing['backend']}" in text
+
+
+def test_flight_udxf_carries_required_schema_and_server_factory(
+    udxf_expression: Expr,
+) -> None:
+    dag = extract_lineage_dag(udxf_expression)
+    [node] = dag.boundaries(kind="flight_udxf")
+
+    assert set(node["schema_in_required"]) == {"a", "b"}
+    assert node["server_factory"]
+    assert node["udxf_command"]
+    assert "schema_in_required" in dag.capabilities(node)
+
+
+def test_flight_udxf_stores_the_schema_diff(udxf_expression: Expr) -> None:
+    """Open question #3 resolved in favour of the sidecar: the transition is
+    stored, so external readers do not recompute it."""
+    dag = extract_lineage_dag(udxf_expression)
+    [node] = dag.boundaries(kind="flight_udxf")
+
+    assert node["schema_diff"] == {
+        "added": {"c": "int64"},
+        "removed": [],
+        "retyped": {},
+        "renamed": {},
+    }
+    assert "(+c)" in format_compact_lineage(dag)
+
+
+def test_schema_diff_reports_adds_drops_retypes_and_renames() -> None:
+    assert schema_diff({"a": "int64"}, {"a": "int64", "b": "int64"}) == {
+        "added": {"b": "int64"},
+        "removed": [],
+        "retyped": {},
+        "renamed": {},
+    }
+    assert schema_diff({"a": "int64", "b": "int64"}, {"a": "int64"}) == {
+        "added": {},
+        "removed": ["b"],
+        "retyped": {},
+        "renamed": {},
+    }
+    assert schema_diff({"a": "int64"}, {"a": "float64"}) == {
+        "added": {},
+        "removed": [],
+        "retyped": {"a": ["int64", "float64"]},
+        "renamed": {},
+    }
+    # one drop + one add of the same dtype is the only rename we infer
+    assert schema_diff({"a": "int64"}, {"b": "int64"}) == {
+        "added": {},
+        "removed": [],
+        "retyped": {},
+        "renamed": {"a": "b"},
+    }
+    # ambiguous (two drops, two adds) stays reported as adds plus drops
+    ambiguous = schema_diff({"a": "int64", "b": "int64"}, {"c": "int64", "d": "int64"})
+    assert ambiguous["renamed"] == {}
+    assert set(ambiguous["added"]) == {"c", "d"}
+    assert ambiguous["removed"] == ["a", "b"]
+    # no delta, or nothing to compare against
+    assert schema_diff({"a": "int64"}, {"a": "int64"}) is None
+    assert schema_diff(None, {"a": "int64"}) is None
+    assert schema_diff({"a": "int64"}, None) is None
+
+
+def test_flight_expr_carries_the_wire_command(flight_expr_expression: Expr) -> None:
+    """``flight_command`` must be the command the client actually exchanges on:
+    the ``UnboundExprExchanger``'s, not a locally invented string."""
+    dag = extract_lineage_dag(flight_expr_expression)
+    [flight] = dag.boundaries(kind="flight_expr")
+
+    node = to_node(flight_expr_expression)
+    (flight_op,) = [
+        n for n in (node, *gen_children_of(node)) if type(n).__name__ == "FlightExpr"
+    ] or [None]
+    expected = UnboundExprExchanger(flight_op.unbound_expr).command
+
+    assert flight["flight_command"] == expected
+    assert flight["flight_command"].startswith("execute-unbound-expr-")
+    assert "flight_command" in dag.capabilities(flight)
+
+
+def test_cache_boundary_carries_portable_path_and_key_prefix(
+    tmp_path: Path, parquet_dir: Path
+) -> None:
+    """``cache_path`` is the storage's *relative* path: an absolute
+    ``base_path``-resolved path would leak the developer's home dir into a
+    committed sidecar and differ per machine."""
+    con = xo.connect()
+    cache = ParquetCache.from_kwargs(source=con, relative_path="xorq-cache")
+    cached = (
+        xo.deferred_read_parquet(parquet_dir / "awards_players.parquet", con=con)
+        .filter(xo._.playerID == "bondto01")
+        .cache(cache=cache)
+    )
+
+    dag = extract_lineage_dag(cached)
+    [cache_node] = dag.boundaries(kind="cache")
+
+    assert cache_node["cache_path"] == "xorq-cache"
+    assert cache_node["cache_key_prefix"] == cache.strategy.key_prefix
+    assert "cache_path" in dag.capabilities(cache_node)
+    # the resolved cache dir (base_path / relative_path) must not travel
+    assert str(cache.storage.path) not in str(cache_node)
+    assert str(Path.home()) not in str(cache_node)
+
+
+def test_source_cache_has_no_path() -> None:
+    """A SourceCache lives in a backend, not on a path: its location is already
+    the ``backend`` field."""
+    con = xo.connect()
+    cache = SourceCache.from_kwargs(source=con)
+    cached = xo.memtable({"a": [1, 2]}, name="t_src").into_backend(con).cache(cache)
+
+    dag = extract_lineage_dag(cached)
+    [cache_node] = dag.boundaries(kind="cache")
+
+    assert "cache_path" not in cache_node
+    assert cache_node["cache_kind"] == "SourceCache"
+    assert cache_node["cache_key_prefix"] == cache.strategy.key_prefix
+    assert cache_node["backend"]
+
+
+def test_new_boundary_fields_round_trip(
+    udxf_expression: Expr, flight_expr_expression: Expr
+) -> None:
+    for expr, kind, fields in (
+        (
+            udxf_expression,
+            "flight_udxf",
+            ("schema_in_required", "schema_diff", "server_factory"),
+        ),
+        (flight_expr_expression, "flight_expr", ("flight_command", "server_factory")),
+    ):
+        dag = extract_lineage_dag(expr)
+        restored = LineageDAG.from_dict(dag.to_dict())
+        [before] = dag.boundaries(kind=kind)
+        [after] = restored.boundaries(kind=kind)
+        for name in fields:
+            assert after[name] == before[name]
+            assert after[name] is not None
+
+
+def test_compact_of_unknown_scope_is_empty() -> None:
     """A scope with no recorded nested_root degrades to an empty view."""
     dag = LineageDAG.from_dict(
         {"nodes": [{"id": "0", "type": "Filter"}], "edges": [], "root": "0"}

@@ -16,6 +16,7 @@ from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import (
     bfs,
+    find_all_sources,
     gen_children_flight_leaf,
     gen_children_of,
     to_node,
@@ -26,10 +27,12 @@ from xorq.vendor.ibis.expr.operations.core import Node
 __all__ = [
     "CAPABILITY_REGISTRY",
     "LineageDAG",
+    "base_kind",
     "build_column_trees",
     "build_tree",
     "extract_lineage_dag",
     "format_compact_lineage",
+    "schema_diff",
 ]
 
 
@@ -114,7 +117,12 @@ def _(node: ops.JoinChain) -> str:
 
 @_boundary_kind.register
 def _(node: rel.HashingTag) -> str:
-    return "tag"
+    # Taxonomy: a catalog tag qualifies its kind with the tag value
+    # (``tag:catalog-source``). ``base_kind`` strips the qualifier for registry
+    # lookups and kind queries.
+    metadata = getattr(node, "metadata", None) or {}
+    tag = metadata.get("tag")
+    return f"tag:{tag}" if tag else "tag"
 
 
 @_boundary_kind.register
@@ -123,10 +131,185 @@ def _(node: rel.Tag) -> str:
     return "tag"
 
 
+def base_kind(kind: str | None) -> str | None:
+    """Taxonomy kind without its qualifier (``tag:catalog-source`` -> ``tag``)."""
+    return None if kind is None else kind.split(":", 1)[0]
+
+
 def _schema_dict(schema: Any) -> dict[str, str] | None:
     if schema is None:
         return None
     return {k: str(v) for k, v in schema.items()}
+
+
+_SECRET_HINTS = ("password", "passwd", "secret", "token", "credential", "api_key")
+
+
+def _redact(key: str, value: Any) -> Any:
+    """Drop credential-looking read kwargs; strip userinfo from URI values.
+
+    A ``Read``'s kwargs are stored verbatim in the sidecar, which is committed
+    next to the build -- a ``postgres://user:pw@host/db`` uri must not travel
+    with it.
+    """
+    if any(hint in key.lower() for hint in _SECRET_HINTS):
+        return "***"
+    if isinstance(value, str) and "://" in value:
+        scheme, _, rest = value.partition("://")
+        if "@" in rest:
+            return f"{scheme}://***@{rest.rpartition('@')[2]}"
+    return value
+
+
+_READ_PATH_KEYS = (
+    "path",
+    "hash_path",
+    "paths",
+    "source",
+    "source_list",
+    "uri",
+    "file",
+    "glob",
+)
+
+
+def _read_path_or_uri(kwargs: Mapping[str, Any]) -> Any:
+    for key in _READ_PATH_KEYS:
+        if (value := kwargs.get(key)) is not None:
+            return _redact(key, _to_jsonable(value))
+    return None
+
+
+def _read_format(method_name: str | None) -> str | None:
+    """``read_parquet`` -> ``parquet`` (the source kind for non-file readers)."""
+    if not method_name:
+        return None
+    return method_name.removeprefix("deferred_").removeprefix("read_") or None
+
+
+def _namespace_extras(node: Node) -> dict[str, Any]:
+    namespace = getattr(node, "namespace", None)
+    return {
+        "database": getattr(namespace, "database", None),
+        "catalog": getattr(namespace, "catalog", None),
+    }
+
+
+_PREDICATE_SYMBOLS = {
+    "Equals": "==",
+    "NotEquals": "!=",
+    "Less": "<",
+    "LessEqual": "<=",
+    "Greater": ">",
+    "GreaterEqual": ">=",
+}
+
+
+def _predicate_ref(value: Any) -> str:
+    """Column name for a field reference, op type name for anything else.
+
+    Deliberately never renders a literal's *value*: the summary is for display
+    and the sidecar is committed.
+    """
+    if isinstance(value, ops.Field):
+        return value.name
+    return type(value).__name__
+
+
+def _predicate_summary(node: ops.JoinChain) -> str | None:
+    parts = []
+    for link in getattr(node, "rest", ()) or ():
+        how = getattr(link, "how", "join")
+        refs = ", ".join(
+            f"{_predicate_ref(getattr(pred, 'left', pred))} "
+            f"{_PREDICATE_SYMBOLS.get(type(pred).__name__, type(pred).__name__)} "
+            f"{_predicate_ref(getattr(pred, 'right', pred))}"
+            if hasattr(pred, "left")
+            else type(pred).__name__
+            for pred in getattr(link, "predicates", ()) or ()
+        )
+        parts.append(f"{how}: {refs}" if refs else str(how))
+    return "; ".join(parts) or None
+
+
+def _udf_signature(node: Node) -> str | None:
+    dtypes = tuple(
+        str(getattr(getattr(node, name, None), "dtype", "?"))
+        for name in getattr(node, "__argnames__", ())
+    )
+    out = getattr(node, "dtype", None)
+    if not dtypes or out is None:
+        return None
+    return f"inputs: [{', '.join(dtypes)}] -> output: {out}"
+
+
+def schema_diff(
+    before: Mapping[str, str] | None, after: Mapping[str, str] | None
+) -> dict[str, Any] | None:
+    """Column-level delta between two ``{col: type}`` schemas.
+
+    Computed at extraction time and stored in the sidecar (rather than
+    recomputed per TUI open) so external readers get the transition for free.
+    A rename is only inferred when exactly one column was dropped and one added
+    *and* they share a dtype that is unique to the pair -- anything more
+    ambiguous stays reported as an add plus a drop.
+    """
+    if not before or not after:
+        return None
+    added = {k: v for k, v in after.items() if k not in before}
+    removed = {k: before[k] for k in before if k not in after}
+    retyped = {
+        k: [before[k], after[k]] for k in before if k in after and before[k] != after[k]
+    }
+    renamed: dict[str, str] = {}
+    if len(added) == 1 and len(removed) == 1:
+        ((new_col, new_type),) = added.items()
+        ((old_col, old_type),) = removed.items()
+        if new_type == old_type:
+            renamed = {old_col: new_col}
+            added, removed = {}, {}
+    if not (added or removed or retyped or renamed):
+        return None
+    return {
+        "added": added,
+        "removed": sorted(removed),
+        "retyped": retyped,
+        "renamed": renamed,
+    }
+
+
+def _server_factory_label(make_server: Any) -> str | None:
+    """Name of the factory that builds the Flight server.
+
+    The callable itself is never serialized and never *called* (that would start
+    a server); only its name travels. No attempt is made to infer a flavour
+    (``mtls``/``plain``) from that name: the defaults are a bare ``FlightServer``
+    class for ``FlightExpr`` and a ``make_mtls_server`` closure for
+    ``FlightUDXF``, so name-sniffing yields a class name as often as a flavour.
+    """
+    if make_server is None:
+        return None
+    return getattr(make_server, "__name__", None) or type(make_server).__name__
+
+
+def _flight_command(node: rel.FlightExpr) -> str | None:
+    """The command string the FlightExpr client sends on the wire.
+
+    ``FlightExpr.to_rbr`` registers an ``UnboundExprExchanger`` over
+    ``unbound_expr`` and exchanges on *its* ``command``, so the exchanger is the
+    only authority for the value -- recomputing the format string here would rot
+    silently. Constructing one is pure (walk + rename + tokenize, no server, no
+    connection); a failure degrades to no field rather than breaking extraction.
+    """
+    unbound_expr = getattr(node, "unbound_expr", None)
+    if unbound_expr is None:
+        return None
+    from xorq.flight.exchanger import UnboundExprExchanger  # noqa: PLC0415
+
+    try:
+        return UnboundExprExchanger(unbound_expr).command
+    except Exception:
+        return None
 
 
 @singledispatch
@@ -135,61 +318,117 @@ def _boundary_extras(node: Node) -> dict[str, Any]:
     return {}
 
 
+def _cache_extras(cache: Any) -> dict[str, Any]:
+    """Where a cache writes and how it keys, without touching the filesystem.
+
+    ``cache_path`` is the storage's *relative* path only. The resolved directory
+    is ``base_path / relative_path`` with ``base_path`` defaulting to the user's
+    cache dir -- an absolute, per-machine path that must not travel in a sidecar
+    committed next to the build. The per-entry parquet path is deliberately not
+    derived either: it needs ``cache.calc_key(expr)``, which stats the source
+    data under ``ModificationTimeStrategy``. Storages with no path
+    (``SourceStorage``) get none; their location is the ``backend``.
+    """
+    if cache is None:
+        return {}
+    storage = getattr(cache, "storage", None)
+    strategy = getattr(cache, "strategy", None)
+    relative_path = getattr(storage, "relative_path", None)
+    return {
+        "cache_kind": type(cache).__name__,
+        "cache_path": None if relative_path is None else str(relative_path),
+        "cache_key_prefix": getattr(strategy, "key_prefix", None),
+    }
+
+
 @_boundary_extras.register
 def _(node: rel.CachedNode) -> dict[str, Any]:
-    cache = getattr(node, "cache", None)
-    extras: dict[str, Any] = {"backend": _backend_label(node)}
-    if cache is not None:
-        extras["cache_kind"] = type(cache).__name__
-    return extras
+    return {"backend": _backend_label(node), **_cache_extras(node.cache)}
 
 
 @_boundary_extras.register
 def _(node: rel.CacheTag) -> dict[str, Any]:
     # A pin's identity is its cache key: the frozen read's table name.
-    cache = getattr(node, "cache", None)
     return {
         "backend": _backend_label(node),
         "cache_key": getattr(node.parent, "name", None),
-        "cache_kind": None if cache is None else type(cache).__name__,
+        **_cache_extras(getattr(node, "cache", None)),
     }
+
+
+def _source_backend(remote_expr: Any) -> str | None:
+    """Backend the data came from, for the visual ``duckdb → xorq`` hop.
+
+    ``remote_expr``'s *root* op usually has no ``source`` of its own (it is a
+    ``Project``/``Filter``), so the origin has to be resolved by walking to the
+    leaves. A multi-source input has no single origin to name: report none rather
+    than picking one arbitrarily.
+    """
+    if remote_expr is None:
+        return None
+    sources = find_all_sources(remote_expr, execution_only=True)
+    if len(sources) != 1:
+        return None
+    (source,) = sources
+    return getattr(source, "name", type(source).__name__)
 
 
 @_boundary_extras.register
 def _(node: rel.RemoteTable) -> dict[str, Any]:
-    return {"backend": _backend_label(node)}
+    # The crossing has two ends: ``source`` is where the data lands,
+    # ``remote_expr``'s backend is where it came from.
+    return {
+        "backend": _backend_label(node),
+        "remote_name": getattr(node, "name", None),
+        "source_backend": _source_backend(getattr(node, "remote_expr", None)),
+    }
 
 
 @_boundary_extras.register
 def _(node: rel.Read) -> dict[str, Any]:
-    kwargs = getattr(node, "read_kwargs", None)
+    kwargs = dict(getattr(node, "read_kwargs", None) or ())
+    method_name = getattr(node, "method_name", None)
     extras: dict[str, Any] = {
         "backend": _backend_label(node),
-        "read_kind": getattr(node, "method_name", None),
+        "read_kind": method_name,
+        "format": _read_format(method_name),
+        "path_or_uri": _read_path_or_uri(kwargs),
     }
     if kwargs:
-        extras["read_kwargs"] = _to_jsonable(dict(kwargs))
+        extras["read_kwargs"] = {
+            str(k): _redact(str(k), v) for k, v in _to_jsonable(kwargs).items()
+        }
     return extras
 
 
 @_boundary_extras.register
 def _(node: ops.DatabaseTable) -> dict[str, Any]:
-    return {"backend": _backend_label(node), "table_name": getattr(node, "name", None)}
+    return {
+        "backend": _backend_label(node),
+        "table_name": getattr(node, "name", None),
+        **_namespace_extras(node),
+    }
 
 
 @_boundary_extras.register
 def _(node: ops.UnboundTable) -> dict[str, Any]:
-    return {"table_name": getattr(node, "name", None)}
+    return {"table_name": getattr(node, "name", None), **_namespace_extras(node)}
 
 
 @_boundary_extras.register
 def _(node: ops.JoinChain) -> dict[str, Any]:
-    return {"n_inputs": 1 + len(getattr(node, "rest", ()) or ())}
+    return {
+        "n_inputs": 1 + len(getattr(node, "rest", ()) or ()),
+        "predicates_summary": _predicate_summary(node),
+    }
 
 
 @_boundary_extras.register
 def _(node: udf.ExprScalarUDF) -> dict[str, Any]:
-    return {"udf_name": type(node).__name__}
+    return {
+        "udf_name": getattr(node, "__func_name__", None) or type(node).__name__,
+        "udf_signature": _udf_signature(node),
+    }
 
 
 @_boundary_extras.register
@@ -197,12 +436,19 @@ def _(node: rel.FlightUDXF) -> dict[str, Any]:
     udxf = getattr(node, "udxf", None)
     input_expr = getattr(node, "input_expr", None)
     schema_in = input_expr.schema() if input_expr is not None else None
+    schema_in_observed = _schema_dict(schema_in)
+    schema_out = _schema_dict(getattr(node, "schema", None))
     return {
         "process_boundary": True,
         "udxf_class": getattr(udxf, "__name__", type(udxf).__name__ if udxf else None),
         "udxf_command": getattr(udxf, "command", None),
-        "schema_in_observed": _schema_dict(schema_in),
-        "schema_out": _schema_dict(getattr(node, "schema", None)),
+        "server_factory": _server_factory_label(getattr(node, "make_server", None)),
+        "schema_in_required": _schema_dict(getattr(udxf, "schema_in_required", None)),
+        "schema_in_observed": schema_in_observed,
+        "schema_out": schema_out,
+        # The UDXF is the one boundary where the schema actually changes; store
+        # the delta so readers (TUI, audit tools) do not recompute it.
+        "schema_diff": schema_diff(schema_in_observed, schema_out),
         "do_instrument_reader": getattr(node, "do_instrument_reader", None),
     }
 
@@ -214,7 +460,8 @@ def _(node: rel.FlightExpr) -> dict[str, Any]:
     make_server = getattr(node, "make_server", None)
     return {
         "process_boundary": True,
-        "server_factory": getattr(make_server, "__name__", None),
+        "server_factory": _server_factory_label(make_server),
+        "flight_command": _flight_command(node),
         "input_schema": _schema_dict(schema_in),
         "output_schema": _schema_dict(getattr(node, "schema", None)),
         "do_instrument_reader": getattr(node, "do_instrument_reader", None),
@@ -228,16 +475,22 @@ def _(node: rel.FlightExpr) -> dict[str, Any]:
 # Nothing here is stored per node.
 CAPABILITY_REGISTRY: dict[str, tuple[str, ...]] = {
     "ingestion": ("schema",),
-    "cache": ("schema",),
-    "pin": ("schema", "tag_metadata"),
+    "cache": ("schema", "cache_path"),
+    "pin": ("schema", "tag_metadata", "cache_key"),
     "engine_crossing": ("schema",),
     "table": ("schema",),
     "unbound": ("schema",),
     "join": ("schema",),
     "udf": ("schema",),
     "tag": ("tag_metadata",),
-    "flight_udxf": ("schema_in_observed", "schema_out", "nested"),
-    "flight_expr": ("input_schema", "output_schema", "nested"),
+    "flight_udxf": (
+        "schema_in_required",
+        "schema_in_observed",
+        "schema_out",
+        "schema_diff",
+        "nested",
+    ),
+    "flight_expr": ("input_schema", "output_schema", "flight_command", "nested"),
 }
 
 _FLIGHT_TYPES = (rel.FlightExpr, rel.FlightUDXF)
@@ -475,7 +728,8 @@ class LineageDAG:
         matches = tuple(
             n
             for n in self.nodes
-            if n.get("snapshot_hash") == handle or n.get("boundary_kind") == handle
+            if n.get("snapshot_hash") == handle
+            or handle in (n.get("boundary_kind"), base_kind(n.get("boundary_kind")))
         )
         if matches:
             return matches
@@ -487,15 +741,24 @@ class LineageDAG:
         )
 
     def boundaries(self, kind: str | None = None) -> tuple[dict, ...]:
+        """Boundary nodes, optionally of one *kind*.
+
+        A qualified kind matches on either form: ``kind="tag"`` selects
+        ``tag:catalog-source`` too, ``kind="tag:catalog-source"`` only that one.
+        """
         return tuple(
             n
             for n in self.nodes
-            if n.get("is_boundary") and (kind is None or n.get("boundary_kind") == kind)
+            if n.get("is_boundary")
+            and (
+                kind is None
+                or kind in (n.get("boundary_kind"), base_kind(n.get("boundary_kind")))
+            )
         )
 
     def capabilities(self, node: dict) -> tuple[str, ...]:
         """What dimensions this node's kind *can* expose (code registry)."""
-        return CAPABILITY_REGISTRY.get(node.get("boundary_kind"), ())
+        return CAPABILITY_REGISTRY.get(base_kind(node.get("boundary_kind")), ())
 
     def available(self, node: dict) -> tuple[str, ...]:
         """What overlay dimensions actually reference this node (present)."""
@@ -841,14 +1104,34 @@ def build_tree(
 # ── compact-view rendering (TUI) ───────────────────────────────────────
 
 
+def _schema_diff_suffix(diff: Mapping[str, Any] | None) -> str:
+    """One-line column delta: ``(+score, -raw, b→c, a: int64→float64)``."""
+    if not diff:
+        return ""
+    parts = (
+        [f"+{col}" for col in diff.get("added") or ()]
+        + [f"-{col}" for col in diff.get("removed") or ()]
+        + [f"{old}→{new}" for old, new in (diff.get("renamed") or {}).items()]
+        + [
+            f"{col}: {before}→{after}"
+            for col, (before, after) in (diff.get("retyped") or {}).items()
+        ]
+    )
+    if not parts:
+        return ""
+    shown = ", ".join(parts[:3]) + ("…" if len(parts) > 3 else "")
+    return f"   ({shown})"
+
+
 def _compact_node_label(node: dict) -> str:
     """Per-kind one-line label for a boundary node in the compact view."""
-    kind = node.get("boundary_kind")
+    kind = base_kind(node.get("boundary_kind"))
     if kind == "flight_udxf":
         cls = node.get("udxf_class", "udxf")
         n_in = len(node.get("schema_in_observed") or {})
         n_out = len(node.get("schema_out") or {})
-        return f"UDXF[{cls}] : {n_in}→{n_out} cols"
+        diff = _schema_diff_suffix(node.get("schema_diff"))
+        return f"UDXF[{cls}] : {n_in}→{n_out} cols{diff}"
     if kind == "flight_expr":
         n_in = len(node.get("input_schema") or {})
         n_out = len(node.get("output_schema") or {})
@@ -859,7 +1142,13 @@ def _compact_node_label(node: dict) -> str:
         key = node.get("cache_key") or ""
         return f"Pin[{key[:8]}]" if key else "Pin"
     if kind == "engine_crossing":
-        return f"→ {node.get('backend', '?')}"
+        target = node.get("backend", "?")
+        source = node.get("source_backend")
+        # A same-backend crossing (into_backend onto its own source) has no hop
+        # to show; rendering "duckdb → duckdb" would be noise.
+        if source and source != target:
+            return f"RemoteTable[{source} → {target}]"
+        return f"→ {target}"
     if kind == "ingestion":
         backend = node.get("backend")
         return f"Read[{backend}]" if backend else "Read"
