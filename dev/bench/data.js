@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785234669596,
+  "lastUpdate": 1785236709628,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -30354,6 +30354,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.10179912068904624",
             "extra": "mean: 1.7718423145999964 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d1afd759969a2b6692c0df5e0faea4abcdb1f1f1",
+          "message": "build: use commit.remote in git-cliff template (#2186)\n\n## What\n\nReplace the deprecated `commit.github.*` template variables in the\n`[tool.git-cliff.changelog]` body with `commit.remote.*`.\n\n## Why\n\nEvery changelog render — including `scripts/build-release.sh` step 5 —\nemitted:\n\n```\nWARN  git_cliff_core::changelog > Variables [\"commit.github\", \"commit.gitea\", \"commit.gitlab\", \"commit.bitbucket\", \"commit.azure_devops\"] are deprecated and will be removed in the future. Use `commit.remote` instead.\n```\n\ngit-cliff 2.x deprecated the per-platform `commit.<platform>` objects in\nfavor of the platform-agnostic `commit.remote`. Only the `commit.*`\naccessors are deprecated; top-level `github.contributors` and\n`remote.github.owner`/`repo` are untouched.\n\n## Verification\n\n`git cliff --github-repo xorq-labs/xorq --tag v9.9.9 -u` before and\nafter:\n\n- Warning gone.\n- Rendered changelog output byte-identical (author attribution and PR\nlinks still present).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-28T12:59:21+02:00",
+          "tree_id": "6cc3e0fc49f6cbddd792eec45ca39677a392fe83",
+          "url": "https://github.com/xorq-labs/xorq/commit/d1afd759969a2b6692c0df5e0faea4abcdb1f1f1"
+        },
+        "date": 1785236705467,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.3805364079242946,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03261997714712305",
+            "extra": "mean: 156.72663488888676 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.0538110698838645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0131128951498999",
+            "extra": "mean: 327.45968140001196 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8081638080385902,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20568405161211473",
+            "extra": "mean: 1.2373729063999974 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.9208483761601025,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06873900872180758",
+            "extra": "mean: 342.3662823999962 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.206500986307546,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01070156308127059",
+            "extra": "mean: 311.86642519999737 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.0124639672406754,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04839605999724584",
+            "extra": "mean: 331.95417800000087 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 181.7375140582156,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0069243465317357965",
+            "extra": "mean: 5.5024412828694915 msec\nrounds: 251"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.402174904812417,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008839832087094358",
+            "extra": "mean: 185.11062999999695 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 20.94117369493146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010053905279669886",
+            "extra": "mean: 47.752815318180424 msec\nrounds: 22"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.497220911150652,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01451914661553889",
+            "extra": "mean: 95.26330906666468 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.616621006820925,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02436339528354966",
+            "extra": "mean: 116.05477358333378 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.470789139022973,
+            "unit": "iter/sec",
+            "range": "stddev: 0.032465672832252046",
+            "extra": "mean: 154.54065625000268 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.933867099140475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02191870081749633",
+            "extra": "mean: 202.6807735000015 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.796886412407491,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013974966878388168",
+            "extra": "mean: 208.468559399995 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.3826029314022854,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05945166610213232",
+            "extra": "mean: 419.70904459999474 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.5062281133483806,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011006368425303944",
+            "extra": "mean: 285.2067713999986 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7751193489423471,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11915870315155985",
+            "extra": "mean: 563.3424031999994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.832279928973029,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12815371417678806",
+            "extra": "mean: 545.7681352000009 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5709137596054146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09218868743786159",
+            "extra": "mean: 636.5721821999841 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.566445649456325,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13687350212074656",
+            "extra": "mean: 638.3879328000148 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.3044199826304397,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13428441082014073",
+            "extra": "mean: 766.6242569999895 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1889457619403248,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11141237802903219",
+            "extra": "mean: 841.0812603999943 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0456717845758194,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14342226582770407",
+            "extra": "mean: 956.3230209999915 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6169742244532365,
+            "unit": "iter/sec",
+            "range": "stddev: 0.116256965509921",
+            "extra": "mean: 1.6208132534000128 sec\nrounds: 5"
           }
         ]
       }
