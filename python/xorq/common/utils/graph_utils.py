@@ -4,6 +4,9 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
 from typing import Any, OrderedDict, Tuple
 
+from attrs import field, frozen
+from attrs.validators import deep_iterable, instance_of, optional
+
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
@@ -13,45 +16,97 @@ from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
-# Single source of truth for opaque descent: the field name(s) on each opaque op
-# holding children that the standard ``__children__`` protocol does not surface
-# (they are ``Expr``-typed or stored in ``__config__``). Consumed by the read
-# side (``gen_children_of`` + policy variants) and the write side
-# (``replace_nodes``). Descent policies are edge-filter overrides of this table
-# (see ``_gen_children_exec``/``_gen_children_skip_pins``/``_gen_children_flight_leaf``);
-# the write side additionally skips the edges in ``_WRITE_SKIP_EDGES``.
-OPAQUE_EDGES = {
-    rel.RemoteTable: ("remote_expr",),
-    rel.CachedNode: ("parent",),
-    rel.CacheTag: ("parent", "uncached"),
-    rel.FlightExpr: ("input_expr",),
-    rel.FlightUDXF: ("input_expr",),
-    udf.ExprScalarUDF: ("computed_kwargs_expr",),
-    rel.Read: (),
+@frozen
+class OpaqueSpec:
+    """Everything graph traversal needs to know about one opaque op type.
+
+    An *opaque* op holds children the standard ``__children__`` protocol does not
+    surface (they are ``Expr``-typed or stored in ``__config__``); the edge fields
+    naming those children, plus the per-op quirks of rewriting them, live here so
+    one entry tells the whole story for one op type.
+    """
+
+    # Edge fields the read side descends (``gen_children_of`` + policy variants).
+    read_edges: Tuple[str, ...] = field(
+        default=(), validator=deep_iterable(instance_of(str))
+    )
+    # Edge fields the write side descends (``replace_nodes``); ``None`` means
+    # "same as read_edges". Set it only where the two genuinely differ.
+    write_edges: Tuple[str, ...] | None = field(
+        default=None, validator=optional(deep_iterable(instance_of(str)))
+    )
+    # Whether ``replace_nodes`` forwards the pre-replacer ``_kwargs`` to
+    # ``__recreate__``.
+    forward_kwargs: bool = field(default=True, validator=instance_of(bool))
+    # For ops whose sub-expression rebinds through a dedicated method rather than
+    # a plain ``__recreate__`` kwarg: ``rebind(op, new_sub_expr) -> op``.
+    rebind: Callable | None = field(
+        default=None, validator=optional(instance_of(Callable))
+    )
+
+    @property
+    def descend_edges(self) -> Tuple[str, ...]:
+        return self.read_edges if self.write_edges is None else self.write_edges
+
+
+# Single source of truth for opaque descent, consumed by both the read side
+# (``gen_children_of`` + policy variants) and the write side (``replace_nodes``).
+# Read-side descent policies are edge overrides of the derived ``OPAQUE_EDGES``
+# (see ``_gen_children_exec``/``_gen_children_skip_pins``/``_gen_children_flight_leaf``).
+OPAQUE_SPECS = {
+    rel.RemoteTable: OpaqueSpec(("remote_expr",)),
+    rel.CachedNode: OpaqueSpec(("parent",)),
+    rel.CacheTag: OpaqueSpec(
+        # The read/write asymmetry is load-bearing, not accidental -- it is covered
+        # by test_pinned_cache_yaml_roundtrip. Reads descend both children (see the
+        # CacheTag docstring). Writes descend only the opaque ``uncached`` payload
+        # and do not forward ``_kwargs``: ``parent`` is the materialized cache read
+        # paired with ``cache``, already produced correctly by the replacer, and
+        # re-driving it from the BFS rewrite diverges the read's backend identity
+        # from ``cache``, breaking profile resolution on load.
+        read_edges=("parent", "uncached"),
+        write_edges=("uncached",),
+        forward_kwargs=False,
+    ),
+    rel.FlightExpr: OpaqueSpec(("input_expr",)),
+    rel.FlightUDXF: OpaqueSpec(("input_expr",)),
+    udf.ExprScalarUDF: OpaqueSpec(
+        # ``computed_kwargs_expr`` lives in ``__config__``, so it is rebound by
+        # method instead of by ``__recreate__`` kwarg.
+        ("computed_kwargs_expr",),
+        rebind=lambda op, sub_expr: op.with_computed_kwargs_expr(sub_expr),
+    ),
+    rel.Read: OpaqueSpec(),  # opaque leaf: no edges on either side
 }
 
-# The opaque op types themselves -- derived from OPAQUE_EDGES so the two cannot
-# drift (``replace_nodes`` raises on an opaque op with no edge entry).
-opaque_ops = tuple(OPAQUE_EDGES)
+# The opaque op types themselves -- derived from OPAQUE_SPECS so the two cannot
+# drift (``replace_nodes`` raises on an opaque op with no spec).
+opaque_ops = tuple(OPAQUE_SPECS)
 
-# Edges the *write* path (``replace_nodes``) must NOT descend even though the
-# read path does: a ``CacheTag``'s ``parent`` is the frozen native read the
-# replacer already produced; re-driving it diverges the read's backend identity
-# from ``cache`` and breaks profile resolution on load (test_pinned_cache_yaml_roundtrip).
-_WRITE_SKIP_EDGES = {
-    rel.CacheTag: ("parent",),
-}
+# Read-side edge names, derived. Descent policies override entries of this.
+OPAQUE_EDGES = {typ: spec.read_edges for typ, spec in OPAQUE_SPECS.items()}
+
+
+def _spec_for(node: Node) -> OpaqueSpec | None:
+    """Return *node*'s :class:`OpaqueSpec`, or ``None`` if it is not opaque.
+
+    Matches by ``isinstance`` (preserving the original ``match`` semantics); the
+    opaque op types are mutually non-subclassing, so iteration order is
+    immaterial.
+    """
+    for typ, spec in OPAQUE_SPECS.items():
+        if isinstance(node, typ):
+            return spec
+    return None
 
 
 def _opaque_edges_for(node: Node, table: dict = OPAQUE_EDGES) -> Tuple[str, ...] | None:
     """Return *table*'s edge names for *node*, or ``None`` if it has no entry.
 
-    Matches by ``isinstance`` (preserving the original ``match`` semantics); the
-    opaque op types are mutually non-subclassing, so iteration order is
-    immaterial. Used for every edge-table lookup (``OPAQUE_EDGES``, the descent
-    policies, ``_WRITE_SKIP_EDGES``) so they all match the same way -- an exact
-    ``type()`` lookup on one table and ``isinstance`` on another would diverge
-    the moment an opaque op grows a subclass.
+    Matches by ``isinstance``, like :func:`_spec_for`, so a read-side policy table
+    and ``OPAQUE_SPECS`` cannot diverge on how they resolve an op -- an exact
+    ``type()`` lookup on one and ``isinstance`` on the other would come apart the
+    moment an opaque op grows a subclass.
     """
     for typ, edges in table.items():
         if isinstance(node, typ):
@@ -200,28 +255,22 @@ def replace_nodes(
 
     def process_node(op, _kwargs):
         op = replacer(op, _kwargs)
-        edges = _opaque_edges_for(op)
-        if edges is None:
+        spec = _spec_for(op)
+        if spec is None:
             if isinstance(op, opaque_ops):
                 raise ValueError(f"unhandled opaque op {type(op)}")
             return op
-        # ExprScalarUDF rebinds its sub-expr through a dedicated method rather
-        # than a plain __recreate__ kwarg (computed_kwargs_expr lives in __config__).
-        if isinstance(op, udf.ExprScalarUDF):
-            with_cke = op.with_computed_kwargs_expr(
-                _replace_sub(op.computed_kwargs_expr.op())
-            )
-            return do_recreate(with_cke, _kwargs)
-        # CacheTag: descend only the edges not in _WRITE_SKIP_EDGES (i.e. skip
-        # ``parent``) and do NOT forward _kwargs -- both load-bearing, see
-        # _WRITE_SKIP_EDGES and test_pinned_cache_yaml_roundtrip.
-        skip = _opaque_edges_for(op, _WRITE_SKIP_EDGES) or ()
-        descend = tuple(name for name in edges if name not in skip)
-        if not descend:
-            return op  # Read (no opaque children)
-        overrides = {name: _replace_sub(to_node(getattr(op, name))) for name in descend}
-        forward_kwargs = None if isinstance(op, rel.CacheTag) else _kwargs
-        return do_recreate(op, forward_kwargs, **overrides)
+        if spec.rebind is not None:
+            (name,) = spec.descend_edges
+            rebound = spec.rebind(op, _replace_sub(to_node(getattr(op, name))))
+            return do_recreate(rebound, _kwargs)
+        if not spec.descend_edges:
+            return op
+        overrides = {
+            name: _replace_sub(to_node(getattr(op, name)))
+            for name in spec.descend_edges
+        }
+        return do_recreate(op, _kwargs if spec.forward_kwargs else None, **overrides)
 
     # hasattr(x, "op") is unreliable: some Nodes have an `op` field (e.g. IntervalAdd)
     initial_op = to_node(expr)
