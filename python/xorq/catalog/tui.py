@@ -9,8 +9,7 @@ from functools import cache, cached_property, lru_cache
 from itertools import groupby
 from operator import attrgetter
 from pathlib import Path
-from textwrap import indent
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from attr import evolve, field, frozen
 from attr.validators import instance_of, optional
@@ -54,6 +53,12 @@ from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
 from xorq.config import options
 from xorq.ibis_yaml.enums import ExprKind
+
+
+if TYPE_CHECKING:
+    # Imported for annotations only: lineage_utils is loaded lazily at call
+    # sites so importing the TUI does not pull in the expression machinery.
+    from xorq.common.utils.lineage_utils import LineageRow
 
 
 logger = get_logger(__name__)
@@ -199,6 +204,43 @@ CACHE_STYLE: dict[bool | None, tuple[str, str]] = {
     None: ("—", "dim"),
 }
 
+# Icon + colour per lineage boundary kind. Keyed by the *base* kind, so
+# `tag:catalog-source` styles as a tag. Process boundaries (Flight) get the
+# loudest colour: they are the only hop that leaves the process.
+BOUNDARY_STYLES: dict[str, KindStyle] = {
+    "flight_udxf": KindStyle(icon="✈", color=XORQ_DARK.variables["flash-new"]),
+    "flight_expr": KindStyle(icon="✈", color=XORQ_DARK.variables["flash-new"]),
+    "engine_crossing": KindStyle(icon="⇄", color=XORQ_DARK.secondary),
+    "cache": KindStyle(icon="◈", color=XORQ_DARK.success),
+    "pin": KindStyle(icon="⊙", color=XORQ_DARK.success),
+    "ingestion": KindStyle(icon="⇤", color=XORQ_DARK.warning),
+    "udf": KindStyle(icon="ƒ", color=XORQ_DARK.variables["subdued"]),
+    "join": KindStyle(icon="⋈", color=XORQ_DARK.primary),
+    "table": KindStyle(icon="⊞", color=XORQ_DARK.primary),
+    "unbound": KindStyle(icon="⊘", color=XORQ_DARK.warning),
+    "tag": KindStyle(icon="⚑", color=XORQ_DARK.variables["subdued"]),
+}
+
+# A legacy sidecar has no boundary annotation at all, so every row lands here.
+UNKNOWN_BOUNDARY_STYLE = KindStyle(icon="·", color=XORQ_DARK.variables["panel-dim-fg"])
+
+
+def _render_lineage_rows(rows: "tuple[LineageRow, ...]", prefix: str = "") -> Text:
+    """Style a compact lineage tree: glyphs dim, icon+label per boundary kind,
+    collapsed `via [...]` runs dim.  Its `.plain` is the plain-text tree."""
+    text = Text(no_wrap=False, overflow="fold")
+    for i, row in enumerate(rows):
+        style = BOUNDARY_STYLES.get(row.kind, UNKNOWN_BOUNDARY_STYLE)
+        if i:
+            text.append("\n")
+        text.append(prefix + row.prefix, style="dim")
+        text.append(f"{style.icon} ", style=f"bold {style.color}")
+        text.append(row.label, style=style.color)
+        if row.via:
+            text.append(row.via_suffix, style="dim italic")
+    return text
+
+
 FLASH_NEW = XORQ_DARK.variables["flash-new"]
 SUBDUED = XORQ_DARK.variables["subdued"]
 
@@ -272,15 +314,20 @@ class CatalogRowData:
         return self.entry.metadata.sql_queries
 
     @cached_property
-    def lineage_text(self) -> str:
+    def lineage_rich(self) -> Text:
         from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
-            format_compact_lineage,
+            compact_lineage_rows,
         )
 
         lineage = self.entry.metadata.lineage
         if not lineage or not lineage.nodes:
-            return "(empty)"
-        return format_compact_lineage(lineage)
+            return Text("(empty)", style="dim")
+        return _render_lineage_rows(compact_lineage_rows(lineage))
+
+    @cached_property
+    def lineage_text(self) -> str:
+        # Plain form of the styled render, so the two can never drift.
+        return self.lineage_rich.plain
 
     @cached_property
     def cache_info_text(self) -> str:
@@ -294,16 +341,31 @@ class CatalogRowData:
                 return "○ uncached"
 
     @cached_property
+    def info_rich(self) -> Text:
+        from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
+            compact_lineage_rows,
+        )
+
+        lineage = self.entry.metadata.lineage
+        # The lineage is a multi-line tree: label it, then indent the tree under
+        # the label so the branch glyphs stay aligned.
+        tree = (
+            _render_lineage_rows(compact_lineage_rows(lineage), prefix="  ")
+            if lineage and lineage.nodes
+            else Text("  (empty)", style="dim")
+        )
+        text = Text(no_wrap=False, overflow="fold")
+        text.append("Lineage:\n", style="bold")
+        text.append_text(tree)
+        text.append("\nCache: ", style="bold")
+        text.append(self.cache_info_text)
+        text.append("\nHash: ", style="bold")
+        text.append(self.hash)
+        return text
+
+    @cached_property
     def info_text(self) -> str:
-        # lineage_text is a multi-line tree: label it, then indent the tree under
-        # it so the branch glyphs stay aligned.
-        parts = [
-            "Lineage:",
-            indent(self.lineage_text, "  "),
-            f"Cache: {self.cache_info_text}",
-            f"Hash: {self.hash}",
-        ]
-        return "\n".join(parts)
+        return self.info_rich.plain
 
     @property
     def row_key(self) -> str:
@@ -1013,7 +1075,7 @@ class CatalogScreen(Screen):
                 self._load_sql_preview(row_data.row_key, sqls)
 
         # Info panel
-        info_content.update(row_data.info_text)
+        info_content.update(row_data.info_rich)
 
         # Revisions preview
         match row_data.aliases:

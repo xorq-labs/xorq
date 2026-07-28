@@ -38,9 +38,11 @@ from xorq.catalog.tests.testing import (
     wait_until,
 )
 from xorq.catalog.tui import (
+    BOUNDARY_STYLES,
     GIT_LOG_COLUMNS,
     KIND_ORDER,
     KIND_STYLES,
+    UNKNOWN_BOUNDARY_STYLE,
     AddAliasScreen,
     AddEntryScreen,
     CatalogRowData,
@@ -61,6 +63,7 @@ from xorq.catalog.tui import (
     _list_revisions_cached,
     _pygments_to_text,
     _pygments_tokens,
+    _render_lineage_rows,
     _render_sql_dag,
     _render_sql_text,
     _styled_branch_label,
@@ -72,6 +75,7 @@ from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
 )
+from xorq.common.utils.lineage_utils import LineageDAG, compact_lineage_rows
 from xorq.config import TUI, options
 from xorq.ibis_yaml.enums import ExprKind
 
@@ -254,6 +258,55 @@ def test_lineage_text_renders_compact_boundary_tree(entry_a):
 def test_lineage_text_shows_cache_boundary(entry_cached: CatalogEntry) -> None:
     row = CatalogRowData(entry=entry_cached)
     assert "Cache[" in row.lineage_text, row.lineage_text
+
+
+def test_lineage_rich_styles_each_boundary_kind(entry_udxf: CatalogEntry) -> None:
+    """Boundary kinds get an icon and a colour; the tree glyphs and the collapsed
+    `via` runs stay dim.  `lineage_text` is the same render's plain text."""
+    row = CatalogRowData(entry=entry_udxf)
+    rich = row.lineage_rich
+
+    assert row.lineage_text == rich.plain
+    assert BOUNDARY_STYLES["flight_udxf"].icon in rich.plain
+    assert BOUNDARY_STYLES["table"].icon in rich.plain
+
+    styles = {str(span.style) for span in rich.spans}
+    assert any(BOUNDARY_STYLES["flight_udxf"].color in s for s in styles), styles
+    assert any("dim" in s for s in styles), styles
+
+    # a kind we did not style would render with the unknown-boundary icon
+    assert UNKNOWN_BOUNDARY_STYLE.icon not in rich.plain
+
+
+def test_info_rich_labels_and_indents_the_lineage(entry_udxf: CatalogEntry) -> None:
+    row = CatalogRowData(entry=entry_udxf)
+    lines = row.info_rich.plain.splitlines()
+
+    assert lines[0] == "Lineage:"
+    assert all(line.startswith("  ") for line in lines[1:-2])
+    assert lines[-2].startswith("Cache: ")
+    assert lines[-1].startswith("Hash: ")
+    assert row.info_text == row.info_rich.plain
+
+
+def test_lineage_rich_of_a_legacy_sidecar_uses_the_unknown_style() -> None:
+    """A pre-boundary sidecar annotates nothing, so every row falls back to the
+    unknown-boundary style instead of raising or missing a style lookup."""
+    legacy = LineageDAG.from_dict(
+        {
+            "nodes": [
+                {"id": "0", "type": "Filter", "label": "Filter"},
+                {"id": "1", "type": "InMemoryTable", "label": "InMemoryTable"},
+            ],
+            "edges": [["0", "1"]],
+            "root": "0",
+        }
+    )
+
+    rendered = _render_lineage_rows(compact_lineage_rows(legacy))
+
+    assert rendered.plain == f"{UNKNOWN_BOUNDARY_STYLE.icon} Filter"
+    assert any(UNKNOWN_BOUNDARY_STYLE.color in str(s.style) for s in rendered.spans)
 
 
 def test_lineage_text_renders_udxf_identity_and_nested_input(
