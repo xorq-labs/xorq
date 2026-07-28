@@ -23,6 +23,7 @@ from xorq.common.utils.lineage_utils import (
     base_kind,
     build_column_trees,
     build_tree,
+    compact_lineage_rows,
     extract_lineage_dag,
     format_compact_lineage,
     schema_diff,
@@ -1116,6 +1117,66 @@ def test_new_boundary_fields_round_trip(
         for name in fields:
             assert after[name] == before[name]
             assert after[name] is not None
+
+
+def test_scope_of_a_single_node_nested_lineage_keeps_its_root() -> None:
+    """A Flight whose input is a bare table has a nested lineage of one node and
+    zero edges: deriving the scope's ids from edges alone dropped that node while
+    `root` still pointed at it."""
+    con = xo.connect()
+    table = con.create_table(
+        "t_bare", xo.memtable({"a": [1, 2]}, name="src").to_pyarrow()
+    )
+
+    dag = extract_lineage_dag(_udxf(table, con, "add_c"))
+    [udxf] = dag.boundaries(kind="flight_udxf")
+    nested = dag.scope(udxf["id"])
+
+    assert nested["edges"] == ()
+    assert nested["root"] == udxf["nested_root"]
+    assert [n["id"] for n in nested["nodes"]] == [nested["root"]]
+    # and the derived compact view agrees with the raw scope view
+    assert {n["id"] for n in dag.compact(scope=udxf["id"])["nodes"]} == {nested["root"]}
+
+
+def test_compact_lineage_rows_split_glyphs_label_kind_and_via(
+    udxf_expression: Expr,
+) -> None:
+    """The rows carry each piece separately so a renderer can style them; their
+    concatenation is exactly the plain-text tree."""
+    dag = extract_lineage_dag(udxf_expression)
+    rows = compact_lineage_rows(dag)
+
+    assert "\n".join(row.text for row in rows) == format_compact_lineage(dag)
+    assert rows[0].prefix == "" and rows[0].via == ()
+    assert all(set(row.prefix) <= set("│├└─ ") for row in rows)
+    assert all("via [" not in row.label for row in rows)
+
+    [udxf_row] = [r for r in rows if r.kind == "flight_udxf"]
+    assert udxf_row.label.startswith("UDXF[add_c]")
+    # every kind on a row is a base kind, ready for a style lookup; a
+    # non-boundary root (Sort here) carries None
+    assert all(row.kind == base_kind(row.kind) for row in rows)
+    assert rows[0].kind is None
+
+
+def test_compact_lineage_rows_carry_via_off_the_label(
+    multi_join_expression: Expr,
+) -> None:
+    """A collapsed run is a row field, not text baked into the label, so a
+    renderer can dim it separately."""
+    rows = compact_lineage_rows(extract_lineage_dag(multi_join_expression))
+
+    via_rows = [r for r in rows if r.via]
+    assert via_rows
+    for row in via_rows:
+        assert all(isinstance(t, str) for t in row.via)
+        assert row.via_suffix.startswith("   via [")
+        assert row.text == row.prefix + row.label + row.via_suffix
+
+
+def test_compact_lineage_rows_of_an_empty_dag() -> None:
+    assert compact_lineage_rows(LineageDAG(nodes=(), edges=(), root="")) == ()
 
 
 def test_compact_of_unknown_scope_is_empty() -> None:

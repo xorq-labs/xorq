@@ -27,9 +27,11 @@ from xorq.vendor.ibis.expr.operations.core import Node
 __all__ = [
     "CAPABILITY_REGISTRY",
     "LineageDAG",
+    "LineageRow",
     "base_kind",
     "build_column_trees",
     "build_tree",
+    "compact_lineage_rows",
     "extract_lineage_dag",
     "format_compact_lineage",
     "schema_diff",
@@ -497,6 +499,28 @@ _FLIGHT_TYPES = (rel.FlightExpr, rel.FlightUDXF)
 
 
 @frozen
+class LineageRow:
+    """One rendered line, in pieces: tree glyphs, label, boundary kind, ``via``.
+
+    A renderer (``catalog/tui.py``) styles the pieces separately; ``text`` is the
+    plain-text line, so ``str(TextTree)`` and a styled render never drift.
+    """
+
+    prefix: str = field(validator=instance_of(str))
+    label: str = field(validator=instance_of(str))
+    kind: str | None = field(default=None)
+    via: Tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
+
+    @property
+    def via_suffix(self) -> str:
+        return _via_suffix(list(self.via))
+
+    @property
+    def text(self) -> str:
+        return self.prefix + self.label + self.via_suffix
+
+
+@frozen
 class TextTree:
     """Plain-text tree for displaying lineage."""
 
@@ -504,24 +528,34 @@ class TextTree:
     children: Tuple["TextTree", ...] = field(
         factory=tuple, validator=instance_of(tuple)
     )
+    # Only the compact lineage tree sets these; column trees leave them empty.
+    kind: str | None = field(default=None)
+    via: Tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
+
+    def rows(
+        self, prefix: str = "", is_last: bool = True, is_root: bool = True
+    ) -> tuple[LineageRow, ...]:
+        if is_root:
+            line_prefix = ""
+            child_prefix = ""
+        else:
+            line_prefix = prefix + ("└── " if is_last else "├── ")
+            child_prefix = prefix + ("    " if is_last else "│   ")
+        row = LineageRow(
+            prefix=line_prefix, label=self.label, kind=self.kind, via=self.via
+        )
+        return (row,) + tuple(
+            descendant
+            for i, child in enumerate(self.children)
+            for descendant in child.rows(
+                child_prefix, i == len(self.children) - 1, False
+            )
+        )
 
     def _lines(
         self, prefix: str = "", is_last: bool = True, is_root: bool = True
     ) -> tuple[str, ...]:
-        if is_root:
-            line = self.label
-            child_prefix = ""
-        else:
-            connector = "└── " if is_last else "├── "
-            line = prefix + connector + self.label
-            child_prefix = prefix + ("    " if is_last else "│   ")
-        return (line,) + tuple(
-            grandchild_line
-            for i, child in enumerate(self.children)
-            for grandchild_line in child._lines(
-                child_prefix, i == len(self.children) - 1, False
-            )
-        )
+        return tuple(row.text for row in self.rows(prefix, is_last, is_root))
 
     def __str__(self) -> str:
         return "\n".join(self._lines())
@@ -795,12 +829,16 @@ class LineageDAG:
         edges = tuple(
             e for e in map(_norm_edge, self.edges) if e["scope"] == flight_label
         )
-        ids = {e["from"] for e in edges} | {e["to"] for e in edges}
+        root = self._scope_root(flight_label)
+        # Seed with the scope root: a nested lineage that is a *single* node (the
+        # Flight input is a bare table) has no edges at all, and deriving the id
+        # set from edges alone would drop the very node ``root`` points at.
+        ids = {e["from"] for e in edges} | {e["to"] for e in edges} | {root} - {None}
         by_id = self.by_id
         return {
             "nodes": tuple(by_id[i] for i in ids if i in by_id),
             "edges": edges,
-            "root": self._scope_root(flight_label),
+            "root": root,
             "scope": flight_label,
         }
 
@@ -1173,21 +1211,22 @@ def _via_suffix(via: list) -> str:
     return f"   via [{shown}]"
 
 
-def format_compact_lineage(dag: LineageDAG) -> str:
-    """Render a :class:`LineageDAG` as a compact boundary-only text tree.
+def _compact_lineage_tree(dag: LineageDAG) -> TextTree | None:
+    """Compact boundary tree, or ``None`` when there is nothing to render.
 
     Non-boundary runs collapse into ``via [...]`` on the surviving edges; Flight
-    boundaries carry their nested input lineage as an indented sub-tree.
+    boundaries carry their nested input lineage as an indented sub-tree. Each
+    node keeps its ``kind`` so a renderer can style per boundary kind without
+    re-parsing the label.
     """
     by_id = dag.by_id
 
-    def build(view: dict, nid: str, seen: frozenset, prefix: str = "") -> TextTree:
+    def build(view: dict, nid: str, seen: frozenset, marker: str = "") -> TextTree:
         node = by_id.get(nid, {"label": nid, "type": "?"})
         children_of: dict = defaultdict(list)
         for edge in view["edges"]:
             children_of[edge["from"]].append((edge["to"], edge.get("via", [])))
 
-        label = prefix + _compact_node_label(node)
         kids: list[TextTree] = []
 
         nested_root = node.get("nested_root")
@@ -1204,15 +1243,38 @@ def format_compact_lineage(dag: LineageDAG) -> str:
             )
 
         for child_id, via in children_of.get(nid, ()):
+            child = by_id[child_id]
             if child_id in seen:
-                kids.append(TextTree(f"↻ {_compact_node_label(by_id[child_id])}"))
+                kids.append(
+                    TextTree(
+                        f"↻ {_compact_node_label(child)}",
+                        kind=base_kind(child.get("boundary_kind")),
+                    )
+                )
                 continue
             subtree = build(view, child_id, seen | {child_id})
-            kids.append(TextTree(subtree.label + _via_suffix(via), subtree.children))
+            kids.append(evolve(subtree, via=tuple(via)))
 
-        return TextTree(label, tuple(kids))
+        return TextTree(
+            marker + _compact_node_label(node),
+            tuple(kids),
+            kind=base_kind(node.get("boundary_kind")),
+        )
 
     view = dag.compact()
     if not view["nodes"] or view["root"] is None:
-        return "(empty)"
-    return str(build(view, view["root"], frozenset({view["root"]})))
+        return None
+    return build(view, view["root"], frozenset({view["root"]}))
+
+
+def compact_lineage_rows(dag: LineageDAG) -> tuple[LineageRow, ...]:
+    """One row per rendered line, with the tree glyphs, label, kind and ``via``
+    kept apart so a renderer can style each piece (see ``catalog/tui.py``)."""
+    tree = _compact_lineage_tree(dag)
+    return () if tree is None else tree.rows()
+
+
+def format_compact_lineage(dag: LineageDAG) -> str:
+    """Render a :class:`LineageDAG` as a compact boundary-only text tree."""
+    tree = _compact_lineage_tree(dag)
+    return "(empty)" if tree is None else str(tree)
