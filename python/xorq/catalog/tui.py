@@ -797,6 +797,7 @@ class CatalogScreen(Screen):
         "#catalog-tree",
         "#sql-panel",
         "#data-preview-panel",
+        "#info-panel",
         "#schema-preview-table",
     )
 
@@ -831,7 +832,9 @@ class CatalogScreen(Screen):
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
-                with Vertical(id="info-panel"):
+                # Scrollable: the lineage tree is multi-line and unbounded in
+                # depth, so the panel cannot show all of it at any fixed height.
+                with VerticalScroll(id="info-panel"):
                     yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
                     with Horizontal(id="schema-split"):

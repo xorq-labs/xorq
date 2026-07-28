@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from textual.containers import VerticalScroll
 from textual.widgets import DataTable, Input, Select, Static, Tree
 
 import xorq.api as xo
@@ -2189,7 +2190,35 @@ def test_tab_cycle_focus_no_crash(catalog):
     _run(_test())
 
 
-def test_h_l_with_datatable_focused(catalog):
+def test_info_panel_is_tab_reachable_and_scrollable(catalog: Catalog) -> None:
+    """The lineage tree is multi-line and taller than the panel: Info must be in
+    the tab cycle and must scroll like #sql-panel."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            info_panel = app.screen.query_one("#info-panel")
+            assert isinstance(info_panel, VerticalScroll)
+
+            for _ in range(len(CatalogScreen.FOCUS_CYCLE)):
+                if app.focused is info_panel:
+                    break
+                await pilot.press("tab")
+                await settle(pilot)
+            assert app.focused is info_panel, "tab never reaches the Info panel"
+
+            # j/k dispatch to the focused VerticalScroll
+            await pilot.press("j")
+            await settle(pilot)
+            await pilot.press("k")
+            await settle(pilot)
+            assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+def test_h_l_with_datatable_focused(catalog: Catalog) -> None:
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
