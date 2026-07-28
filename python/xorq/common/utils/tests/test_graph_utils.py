@@ -15,8 +15,8 @@ from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
     OPAQUE_EDGES,
     OpaqueSpec,
-    _gen_children_flight_leaf,
     find_all_sources,
+    gen_children_flight_leaf,
     gen_children_of,
     opaque_ops,
     walk_nodes,
@@ -195,9 +195,9 @@ def test_gen_children_flight_leaf_treats_flight_as_leaf() -> None:
     expr = make_flight_expr()
     node = expr.op()
     assert tuple(gen_children_of(node)) == (node.input_expr.op(),)
-    assert _gen_children_flight_leaf(node) == ()
+    assert gen_children_flight_leaf(node) == ()
     # the outer graph no longer reaches the input_expr's leaves
     assert walk_nodes(ops.DatabaseTable, node)
     assert walk_nodes(
-        (ops.DatabaseTable,), node, gen_children=_gen_children_flight_leaf
+        (ops.DatabaseTable,), node, gen_children=gen_children_flight_leaf
     ) == (node,)
