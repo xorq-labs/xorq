@@ -13,6 +13,7 @@ from xorq.common.constants import READ_IDENTITY_KEYS
 
 
 if TYPE_CHECKING:
+    from xorq.expr.relations import Read
     from xorq.vendor.ibis import Expr
 
 
@@ -31,9 +32,13 @@ def _lazy_default_key_prefix():
     return options.get("cache.key_prefix")
 
 
-def snapshot_normalize_read(read):
+def snapshot_normalize_read(read: Read) -> tuple:
     """Normalize Read for snapshot caching using path identity only, not file modification stats."""
     read_kwargs = dict(read.read_kwargs)
+    if "hash_path" not in read_kwargs:
+        # path-less Read (e.g. an API-backed source): the registered
+        # normalize_method already yields declarative (stat-free) identity
+        return ("snapshot_normalize_read", read.schema, read.normalize_method(read))
     # Materialized build-bundle reads carry a content-hash-named read_path that is
     # stable across environments. Their hash_path is an absolute tmpdir path that
     # changes every run, so prefer read_path when available.

@@ -5,8 +5,12 @@ import hashlib
 import itertools
 from contextlib import closing
 from pathlib import Path
-from typing import IO, Callable
+from typing import IO, TYPE_CHECKING, Callable
 from zipfile import ZipExtFile
+
+
+if TYPE_CHECKING:
+    from xorq.expr.relations import Read
 
 
 def _manual_file_digest(
@@ -91,4 +95,41 @@ def normalize_read_path_stat(path: Path) -> tuple[tuple[str, object], ...]:
             "st_size",
             "st_ino",
         )
+    )
+
+
+def normalize_read_source_identity(read: Read) -> tuple[tuple[str, object], ...]:
+    """Identity for path-less Read ops (e.g. API-backed sources).
+
+    Unlike the path normalizers (which receive a path and hash file
+    content/stat), this receives the Read op itself: identity is the source
+    profile's content hash plus the read's declarative kwargs. `table_name`
+    is excluded (gen_name'd, unstable across constructions) and the profile
+    idx suffix is excluded (session-global, unstable across sessions).
+    """
+    import toolz  # noqa: PLC0415
+
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+
+    profile = getattr(read.source, "_profile", None)
+    if profile is None:
+        raise ValueError(
+            f"Read op {getattr(read, 'name', read)!r} has a source without a "
+            "profile; normalize_read_source_identity requires one"
+        )
+    profile_content_hash = tokenize(toolz.dissoc(profile.as_dict(), "idx"))
+    parts = (
+        ("profile", profile_content_hash),
+        ("method_name", read.method_name),
+    )
+    # a source may contribute identity of its own (RestBackend folds the
+    # per-resource config content hash so editing a resource's declarative
+    # config changes identity, ADR-0015, without invalidating siblings);
+    # delegation keeps backend-specific knowledge out of this normalizer
+    read_identity_parts = getattr(read.source, "read_identity_parts", None)
+    if read_identity_parts is not None:
+        parts += tuple(read_identity_parts(read))
+    return (
+        *parts,
+        *sorted((k, v) for k, v in read.read_kwargs if k != "table_name"),
     )

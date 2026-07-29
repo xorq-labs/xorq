@@ -62,6 +62,16 @@ def _normalize_read_xorq(read):
     """
 
     read_kwargs = dict(read.read_kwargs)
+    if "hash_path" not in read_kwargs:
+        # path-less Read (e.g. an API-backed source): identity comes entirely
+        # from the registered normalize_method, which receives the op itself
+        if read.normalize_method is None:
+            raise ValueError(
+                f"Read op {getattr(read, 'name', read)!r} has neither a "
+                "hash_path nor a normalize_method; path-less reads must set a "
+                "registered normalize_method"
+            )
+        return ("xorq.Read", read.schema, read.normalize_method(read))
     path = read_kwargs["hash_path"]
     if path is None:
         raise ValueError(

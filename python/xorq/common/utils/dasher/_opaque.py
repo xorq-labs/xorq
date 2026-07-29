@@ -221,7 +221,15 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
         case Read():
             read_kwargs = dict(node.read_kwargs)
             rp = read_kwargs.get("read_path")
-            anchor = rp if rp is not None else read_kwargs["hash_path"]
+            if rp is not None:
+                anchor = rp
+            elif "hash_path" in read_kwargs:
+                anchor = read_kwargs["hash_path"]
+            else:
+                # path-less Read (e.g. an API-backed source): anchor on the
+                # registered normalize_method's identity, mirroring the
+                # path-less branch of _normalize_read_xorq
+                anchor = node.normalize_method(node)
             name = _stable_opaque_name("read", node.schema, anchor)
         case RemoteTable():
             name = _stable_opaque_name(

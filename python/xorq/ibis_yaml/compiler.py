@@ -371,9 +371,16 @@ def _sanitize_generated_names(expr, normalize_method):
                 )
         else:
             if prefix := get_uid_prefix(node.name):
+                # relocatable reads keep their md5sum method; path-less reads
+                # (no hash_path, e.g. API-backed) keep their registered
+                # source-identity method -- the dumper-wide default is a
+                # path normalizer and cannot apply to them
                 read_nm = (
                     node.normalize_method
-                    if _is_relocatable_read(node)
+                    if (
+                        _is_relocatable_read(node)
+                        or "hash_path" not in dict(node.read_kwargs)
+                    )
                     else normalize_method
                 )
                 table_name = f"{prefix}{tokenize(recreate(node, name='name', normalize_method=read_nm).to_expr())}"
