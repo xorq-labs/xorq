@@ -417,11 +417,24 @@ def _(node: ops.UnboundTable) -> dict[str, Any]:
     return {"table_name": getattr(node, "name", None), **_namespace_extras(node)}
 
 
+def _join_backend(node: ops.JoinChain) -> str | None:
+    """Backend a join executes on: its leftmost input's.
+
+    A ``JoinChain`` has no ``source`` of its own, and walking to the leaves is
+    the wrong answer -- a join over an ``into_backend`` reaches the *remote*
+    source too, so it would look multi-backend when it is not. The left input
+    (``first``, a ``JoinReference`` over the relation) is where it runs.
+    """
+    first = getattr(node, "first", None)
+    return _backend_label(getattr(first, "parent", None) or first)
+
+
 @_boundary_extras.register
 def _(node: ops.JoinChain) -> dict[str, Any]:
     return {
         "n_inputs": 1 + len(getattr(node, "rest", ()) or ()),
         "predicates_summary": _predicate_summary(node),
+        "backend": _join_backend(node),
     }
 
 
@@ -442,6 +455,7 @@ def _(node: rel.FlightUDXF) -> dict[str, Any]:
     schema_out = _schema_dict(getattr(node, "schema", None))
     return {
         "process_boundary": True,
+        "backend": _backend_label(node),
         "udxf_class": getattr(udxf, "__name__", type(udxf).__name__ if udxf else None),
         "udxf_command": getattr(udxf, "command", None),
         "server_factory": _server_factory_label(getattr(node, "make_server", None)),
@@ -462,6 +476,7 @@ def _(node: rel.FlightExpr) -> dict[str, Any]:
     make_server = getattr(node, "make_server", None)
     return {
         "process_boundary": True,
+        "backend": _backend_label(node),
         "server_factory": _server_factory_label(make_server),
         "flight_command": _flight_command(node),
         "input_schema": _schema_dict(schema_in),
@@ -1161,15 +1176,47 @@ def _schema_diff_suffix(diff: Mapping[str, Any] | None) -> str:
     return f"   ({shown})"
 
 
+# Kinds whose own label already carries the schema transition (`N→M cols`), so a
+# plain `(N cols)` on top would be redundant.
+_TRANSITION_KINDS = ("flight_udxf", "flight_expr")
+
+# Kinds whose label does NOT already name a backend: `duckdb:orders` and
+# `Read[duckdb]` and `RemoteTable[duckdb → xorq]` do, a bare `Join(...)` or
+# `Cache[...]` does not.
+_BACKEND_TAG_KINDS = (
+    "join",
+    "cache",
+    "pin",
+    "udf",
+    "tag",
+    "flight_udxf",
+    "flight_expr",
+)
+
+
 def _compact_node_label(node: dict) -> str:
-    """Per-kind one-line label for a boundary node in the compact view."""
+    """One-line label for a boundary node: what it is, how wide, and where.
+
+    ``<kind label> (<n> cols) [<backend>]``, dropping any piece the node cannot
+    supply. Flight kinds render their schema *transition* instead of a single
+    width, and the UDXF column delta stays last so the eye lands on it.
+    """
     kind = base_kind(node.get("boundary_kind"))
+    parts = [_kind_label(node, kind)]
+    n_cols = len(node.get("schema") or {})
+    if n_cols and kind not in _TRANSITION_KINDS:
+        parts.append(f"({n_cols} cols)")
+    if kind in _BACKEND_TAG_KINDS and (backend := node.get("backend")):
+        parts.append(f"[{backend}]")
+    return " ".join(parts) + _schema_diff_suffix(node.get("schema_diff"))
+
+
+def _kind_label(node: dict, kind: str | None) -> str:
     if kind == "flight_udxf":
         cls = node.get("udxf_class", "udxf")
         n_in = len(node.get("schema_in_observed") or {})
         n_out = len(node.get("schema_out") or {})
-        diff = _schema_diff_suffix(node.get("schema_diff"))
-        return f"UDXF[{cls}] : {n_in}→{n_out} cols{diff}"
+        return f"UDXF[{cls}] : {n_in}→{n_out} cols"
     if kind == "flight_expr":
         n_in = len(node.get("input_schema") or {})
         n_out = len(node.get("output_schema") or {})

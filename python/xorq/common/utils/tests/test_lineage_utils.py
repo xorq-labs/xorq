@@ -1119,6 +1119,79 @@ def test_new_boundary_fields_round_trip(
             assert after[name] is not None
 
 
+def test_labels_carry_column_counts_and_a_backend_tag() -> None:
+    """`<what> (<n> cols) [<backend>]`, per the ticket's target render. Kinds that
+    already name the backend (`duckdb:orders`, `Read[..]`, `RemoteTable[a → b]`)
+    do not repeat it; Flight kinds show their transition instead of one width."""
+    duck = xo.duckdb.connect()
+    con = xo.connect()
+    customers = duck.create_table(
+        "raw_customers",
+        xo.memtable({"id": [1], "name": ["a"]}, name="c_src").to_pyarrow(),
+    )
+    orders = con.create_table(
+        "raw_orders",
+        xo.memtable({"id": [1], "amount": [1.0]}, name="o_src").to_pyarrow(),
+    )
+    enriched = _udxf(orders, con, "OrderEnricher", extra_col="score")
+    expr = customers.into_backend(con, "customers_in").join(enriched, "id")
+
+    text = format_compact_lineage(extract_lineage_dag(expr))
+
+    # 4 cols: the join keeps both `id` columns plus name and amount
+    assert f"Join(2 inputs) (4 cols) [{con.name}]" in text
+    assert f"UDXF[OrderEnricher] : 2→3 cols [{con.name}]   (+score)" in text
+    assert f"RemoteTable[{duck.name} → {con.name}] (2 cols)" in text
+    assert f"{duck.name}:raw_customers (2 cols)" in text
+    # the backend is named once per label, never twice
+    for line in text.splitlines():
+        assert line.count(con.name) <= 1 or "RemoteTable[" in line
+
+
+def test_join_backend_is_its_left_input_not_the_remote_source() -> None:
+    """Walking to the leaves would reach the *remote* side of an into_backend and
+    make a single-backend join look multi-backend."""
+    duck = xo.duckdb.connect()
+    con = xo.connect()
+    left = con.create_table(
+        "left_t", xo.memtable({"id": [1]}, name="l_src").to_pyarrow()
+    )
+    right = duck.create_table(
+        "right_t", xo.memtable({"id": [1]}, name="r_src").to_pyarrow()
+    )
+    expr = left.join(right.into_backend(con, "right_in"), "id")
+
+    dag = extract_lineage_dag(expr)
+    [join] = dag.boundaries(kind="join")
+
+    assert join["backend"] == con.name
+    assert {c["source_backend"] for c in dag.boundaries(kind="engine_crossing")} == {
+        duck.name
+    }
+
+
+def test_cache_and_pin_labels_carry_no_column_count_when_schema_is_absent() -> None:
+    """A node with no schema recorded (legacy sidecar) renders bare."""
+    legacy = LineageDAG.from_dict(
+        {
+            "nodes": [
+                {
+                    "id": "0",
+                    "type": "CachedNode",
+                    "label": "CachedNode",
+                    "is_boundary": True,
+                    "boundary_kind": "cache",
+                    "cache_kind": "ParquetCache",
+                }
+            ],
+            "edges": [],
+            "root": "0",
+        }
+    )
+
+    assert format_compact_lineage(legacy) == "Cache[ParquetCache]"
+
+
 def test_scope_of_a_single_node_nested_lineage_keeps_its_root() -> None:
     """A Flight whose input is a bare table has a nested lineage of one node and
     zero edges: deriving the scope's ids from edges alone dropped that node while
