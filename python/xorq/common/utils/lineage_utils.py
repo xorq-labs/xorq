@@ -32,6 +32,7 @@ __all__ = [
     "build_column_trees",
     "build_tree",
     "compact_lineage_rows",
+    "compact_node_label",
     "extract_lineage_dag",
     "format_compact_lineage",
     "schema_diff",
@@ -1194,7 +1195,7 @@ _BACKEND_TAG_KINDS = (
 )
 
 
-def _compact_node_label(node: dict) -> str:
+def compact_node_label(node: dict) -> str:
     """One-line label for a boundary node: what it is, how wide, and where.
 
     ``<kind label> (<n> cols) [<backend>]``, dropping any piece the node cannot
@@ -1294,7 +1295,7 @@ def _compact_lineage_tree(dag: LineageDAG) -> TextTree | None:
             if child_id in seen:
                 kids.append(
                     TextTree(
-                        f"↻ {_compact_node_label(child)}",
+                        f"↻ {compact_node_label(child)}",
                         kind=base_kind(child.get("boundary_kind")),
                     )
                 )
@@ -1303,7 +1304,7 @@ def _compact_lineage_tree(dag: LineageDAG) -> TextTree | None:
             kids.append(evolve(subtree, via=tuple(via)))
 
         return TextTree(
-            marker + _compact_node_label(node),
+            marker + compact_node_label(node),
             tuple(kids),
             kind=base_kind(node.get("boundary_kind")),
         )

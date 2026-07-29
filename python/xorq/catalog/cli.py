@@ -23,6 +23,7 @@ from xorq.catalog import constants as catalog_constants
 
 if TYPE_CHECKING:
     from xorq.catalog.content_store import ContentStoreConfig
+    from xorq.common.utils.lineage_utils import LineageDAG
 
 from xorq.cli import (
     _get_cache_dir,
@@ -1018,6 +1019,88 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
+def _lineage_boundaries_lines(dag: LineageDAG) -> Iterator[str]:
+    """One line per boundary: id, kind, and the compact label's facts."""
+    from xorq.common.utils.lineage_utils import compact_node_label  # noqa: PLC0415
+
+    for node in dag.boundaries():
+        yield f"{node['id']}\t{node['boundary_kind']}\t{compact_node_label(node)}"
+
+
+def _lineage_scope_lines(dag: LineageDAG) -> Iterator[str]:
+    """Nested Flight scopes, rendered under the boundary that owns them."""
+    for node in dag.boundaries():
+        if (nested_root := node.get("nested_root")) is None:
+            continue
+        n_nodes = len(dag.compact(scope=node["id"])["nodes"])
+        plural = "" if n_nodes == 1 else "s"
+        yield f"{node['id']}\t{n_nodes} node{plural}\troot={nested_root}"
+
+
+@cli.command()
+@click.argument("name", shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "-l",
+    "--level",
+    type=click.Choice(("compact", "boundaries", "raw")),
+    default="compact",
+    show_default=True,
+    help="How much lineage detail to print.",
+)
+@click.pass_context
+def lineage(ctx: click.Context, name: str, level: str) -> None:
+    """Show the lineage recorded in an entry's metadata sidecar.
+
+    The sidecar stores one node table with scope-tagged edges; the compact
+    boundary tree is derived from it, so no level re-walks the expression.
+
+    \b
+    Levels:
+      compact     Boundary-only tree, as the TUI renders it (default).
+      boundaries  One tab-separated line per boundary: id, kind, label.
+      raw         The stored lineage as JSON — pipe it to `jq`.
+
+    \b
+    Arguments:
+      NAME  Entry name or alias.
+
+    \b
+    Examples:
+      # The tree the TUI shows
+      xorq catalog lineage penguins-prod
+      # Grep-able boundary list
+      xorq catalog lineage penguins-prod --level boundaries
+      # Every stored field, for jq
+      xorq catalog lineage penguins-prod --level raw | jq '.nodes[0]'
+    """
+    from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
+        format_compact_lineage,
+    )
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        entry = _get_catalog_entry(catalog, name)
+
+    dag = entry.metadata.lineage
+    if dag is None or not dag.nodes:
+        # A sidecar written before lineage existed, or an expression with none.
+        raise click.ClickException(
+            f"Entry {name!r} has no lineage in its metadata sidecar — "
+            f"rebuild it with a current xorq to record one."
+        )
+
+    match level:
+        case "raw":
+            click.echo(json.dumps(dag.to_dict(), indent=2, default=str))
+        case "boundaries":
+            for line in _lineage_boundaries_lines(dag):
+                click.echo(line)
+            for line in _lineage_scope_lines(dag):
+                click.echo(f"# nested\t{line}")
+        case _:
+            click.echo(format_compact_lineage(dag))
+
+
 @cli.command()
 @click.argument("name", shell_complete=_complete_entry_or_alias_names)
 @json_option
@@ -1029,7 +1112,7 @@ def schema(ctx, name, as_json):
     help="Print the metadata sidecar file as-is (YAML).",
 )
 @click.pass_context
-def show(ctx, name, as_json, as_raw):
+def show(ctx: click.Context, name: str, as_json: bool, as_raw: bool) -> None:
     """Show full metadata for a catalog entry.
 
     Prints name, aliases, kind, backends, schemas, parameters, builders,
