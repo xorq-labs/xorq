@@ -15,7 +15,8 @@ import logging
 from typing import TYPE_CHECKING
 
 import xxhash
-from xorq_dasher.rules.expr import normalize_inmemorytable
+
+from xorq.common.utils.dasher._canonical import normalize_inmemorytable_canonical
 
 
 if TYPE_CHECKING:
@@ -526,7 +527,7 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
             (
                 "InMemoryTable",
                 getattr(m, "name", ""),
-                hasher.tokenize(normalize_inmemorytable(m)),
+                hasher.tokenize(normalize_inmemorytable_canonical(m)),
             )
             for m in mems
         ),

@@ -128,15 +128,15 @@ def normalize_numpy_dtype(dtype: np.dtype) -> tuple:
 
 def normalize_pandas_series(series: pd.Series) -> tuple:
     """Promotes to a single-column DataFrame and delegates so both paths
-    share the same ``pa.Table`` → ``normalize_pyarrow_table`` hashing.
+    share the same ``pa.Table`` canonical hashing.
     """
     return ("pandas.Series", series.name, normalize_pandas_dataframe(series.to_frame()))
 
 
 def normalize_pandas_dataframe(df: pd.DataFrame) -> tuple:
-    """Returns the raw ``pa.Table`` so dasher's registered ``pa.Table`` rule
-    (``xorq_dasher.rules.other.normalize_pyarrow_table``) does the hashing —
-    serializes each batch to bytes and xxhashes.
+    """Returns the raw ``pa.Table`` so the registered ``pa.Table`` rule
+    (``_canonical.normalize_pyarrow_table_canonical``) does the hashing —
+    per-column, layout- and pyarrow-version-independent.
     """
     import pyarrow as pa  # noqa: PLC0415
 

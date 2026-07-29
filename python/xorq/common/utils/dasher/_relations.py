@@ -17,11 +17,13 @@ from typing import TYPE_CHECKING
 from xorq_dasher.rules.expr import (
     normalize_cached_node,
     normalize_databasetable,
-    normalize_memory_databasetable,
     normalize_remote_table,
 )
 
 from xorq.common.constants import READ_IDENTITY_KEYS, REMOTE_SCHEMES
+from xorq.common.utils.dasher._canonical import (
+    normalize_memory_databasetable_canonical,
+)
 from xorq.common.utils.dasher._gap_rules import normalize_ibis_schema
 from xorq.common.utils.dasher._opaque import _MISSING, _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
@@ -130,7 +132,7 @@ def _normalize_duckdb_databasetable_xorq(dt):
         )
     scan_kind = scan_match.group(1)
     if scan_kind in ("ARROW_SCAN", "PANDAS_SCAN"):
-        return normalize_memory_databasetable(dt)
+        return normalize_memory_databasetable_canonical(dt)
     if scan_kind in ("READ_PARQUET", "READ_CSV", "SEQ_SCAN"):
         sql_name = sg.exp.convert(dt.name).sql(dialect=dt.source.name)
         (sql_ddl,) = dt.source.con.sql(
@@ -183,7 +185,7 @@ def _normalize_datafusion_databasetable_xorq(dt):
             f"no parquet/csv paths extractable from execution plan: {ep_str!r}"
         )
     if ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
-        return normalize_memory_databasetable(dt)
+        return normalize_memory_databasetable_canonical(dt)
     if "PyRecordBatchProviderExec" in ep_str:
         return (
             "ibis.DatabaseTable.datafusion.recordbatch",

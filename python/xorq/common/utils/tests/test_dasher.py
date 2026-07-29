@@ -1088,6 +1088,7 @@ def test_extra_rules_fqn_strings() -> None:
         "xorq.vendor.ibis.expr.types.core.Expr": Expr,
         "xorq.vendor.ibis.expr.schema.Schema": Schema,
         "xorq.vendor.ibis.expr.operations.udf.ScalarUDF": ScalarUDF,
+        "pyarrow.lib.Table": pa.Table,
         "numpy.dtype": np.dtype,
         "pandas.core.series.Series": pd.Series,
         "pandas.core.frame.DataFrame": pd.DataFrame,
