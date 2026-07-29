@@ -246,6 +246,22 @@ def snapshot_hasher(*extra_rules) -> Hasher:
     return HASHER.override(*extra_rules)
 
 
+def rules_fingerprint(hasher: Hasher | None = None) -> str:
+    """Stable digest of a Hasher's identity-bearing rule set: the *ordered*
+    tuple of rule names (order is identity-bearing -- the earliest match wins
+    on MRO ties, so a reorder can change normalization).
+
+    Sensitive to rules added, removed, or reordered; deliberately NOT to a
+    rule's implementation body -- rule *names* are the contract, never pickled
+    callables (#2155). Folded into the build hash (ADR-0015/ADR-0020) so a
+    change to the rule set yields a new build identity, promoting
+    ``test_dasher``'s hand-maintained FQN-drift check to a first-class identity
+    input rather than a test that must be remembered.
+    """
+    hasher = HASHER if hasher is None else hasher
+    return HASHER.tokenize(tuple(name for name, _ in hasher.rules))
+
+
 __all__ = [
     "HASHER",
     "Hasher",
@@ -255,5 +271,6 @@ __all__ = [
     "tokenize",
     "normalize",
     "normalize_attrs",
+    "rules_fingerprint",
     "snapshot_hasher",
 ]

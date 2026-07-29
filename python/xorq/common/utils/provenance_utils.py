@@ -11,13 +11,22 @@ if TYPE_CHECKING:
 
 def get_expr_hash(expr: Expr) -> str:
     from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
+    from xorq.common.utils.dasher import rules_fingerprint  # noqa: PLC0415
     from xorq.common.utils.dasher._opaque import include_tee_nodes  # noqa: PLC0415
+    from xorq.ibis_yaml import normalize_registry  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import canonicalize_expr  # noqa: PLC0415
     from xorq.ibis_yaml.config import config  # noqa: PLC0415
 
     expr = canonicalize_expr(expr)
     with include_tee_nodes(), SnapshotStrategy().normalization_context(expr) as hasher:
-        return hasher.tokenize(expr)[: config.hash_length]
+        # Fold the identity-bearing rule set into the *build* hash (ADR-0020):
+        # a build produced under a different set of normalize/tokenize rules is
+        # a different artifact (ADR-0015). Deliberately at build-hash grain, not
+        # per-expr tokenize -- the cache hash stays rule-set-neutral so in-run
+        # cache reuse is unaffected. One global fingerprint, so a multi-backend
+        # graph is salted consistently.
+        rules = (rules_fingerprint(hasher), normalize_registry.rules_fingerprint())
+        return hasher.tokenize((rules, expr))[: config.hash_length]
 
 
 def build_provenance_metadata(expr, strategy, storage):

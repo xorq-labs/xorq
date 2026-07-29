@@ -43,6 +43,17 @@ _KEY_TO_FN = dict(_NORMALIZE_RULES)
 _FN_TO_KEY = {fn: key for key, fn in _NORMALIZE_RULES}
 
 
+def rules_fingerprint() -> str:
+    """Stable digest of the by-name normalize_method registry: the *sorted*
+    key set (lookup here is by name, so unlike the dasher rule table, order is
+    not identity-bearing). Companion to ``dasher.rules_fingerprint``; both fold
+    into the build hash (ADR-0020) so appending a serializable normalizer is a
+    build-identity change, caught by the hash rather than only by a test."""
+    from xorq.common.utils.dasher import HASHER  # noqa: PLC0415
+
+    return HASHER.tokenize(tuple(sorted(_KEY_TO_FN)))
+
+
 def is_registered(fn: Optional[Callable]) -> bool:
     """True if ``fn`` (or ``None``) can be serialized by name."""
     return fn is None or fn in _FN_TO_KEY
