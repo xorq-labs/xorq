@@ -1019,22 +1019,32 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
-def _lineage_boundaries_lines(dag: LineageDAG) -> Iterator[str]:
-    """One line per boundary: id, kind, and the compact label's facts."""
+def _lineage_boundary_line(node: dict) -> str:
     from xorq.common.utils.lineage_utils import compact_node_label  # noqa: PLC0415
 
-    for node in dag.boundaries():
-        yield f"{node['id']}\t{node['boundary_kind']}\t{compact_node_label(node)}"
+    return f"{node['id']}\t{node['boundary_kind']}\t{compact_node_label(node)}"
 
 
-def _lineage_scope_lines(dag: LineageDAG) -> Iterator[str]:
-    """Nested Flight scopes, rendered under the boundary that owns them."""
-    for node in dag.boundaries():
-        if (nested_root := node.get("nested_root")) is None:
-            continue
-        n_nodes = len(dag.compact(scope=node["id"])["nodes"])
-        plural = "" if n_nodes == 1 else "s"
-        yield f"{node['id']}\t{n_nodes} node{plural}\troot={nested_root}"
+def _lineage_boundaries_lines(
+    dag: LineageDAG, nodes: tuple[dict, ...], *, capabilities: bool = False
+) -> Iterator[str]:
+    """One line per boundary: id, kind, and the compact label's facts.
+
+    Non-boundary nodes appear too when selected by handle -- a `--node` query
+    should never answer with nothing for a node that exists. Capability lines are
+    for that expansion case only: on the full listing they would double the
+    output with what the kind column already implies.
+    """
+    for node in nodes:
+        yield _lineage_boundary_line(
+            node if node.get("boundary_kind") else {**node, "boundary_kind": "-"}
+        )
+        if capabilities and (dims := dag.capabilities(node)):
+            yield f"# capabilities\t{node['id']}\t{','.join(dims)}"
+        if (nested_root := node.get("nested_root")) is not None:
+            n_nodes = len(dag.compact(scope=node["id"])["nodes"])
+            plural = "" if n_nodes == 1 else "s"
+            yield f"# nested\t{node['id']}\t{n_nodes} node{plural}\troot={nested_root}"
 
 
 @cli.command()
@@ -1047,12 +1057,24 @@ def _lineage_scope_lines(dag: LineageDAG) -> Iterator[str]:
     show_default=True,
     help="How much lineage detail to print.",
 )
+@click.option(
+    "--node",
+    "handle",
+    default=None,
+    help="Expand one node: a snapshot hash, an @label, a tag value, or a "
+    "boundary kind. Scopes every level to the match(es).",
+)
 @click.pass_context
-def lineage(ctx: click.Context, name: str, level: str) -> None:
+def lineage(ctx: click.Context, name: str, level: str, handle: str | None) -> None:
     """Show the lineage recorded in an entry's metadata sidecar.
 
     The sidecar stores one node table with scope-tagged edges; the compact
     boundary tree is derived from it, so no level re-walks the expression.
+
+    `--level` picks how much detail, `--node` picks how much of the graph. With
+    `--node`, the compact level prints the subtree feeding that node — including
+    a Flight boundary's nested input lineage — and a handle matching several
+    nodes (a kind, a tag) prints each match in turn.
 
     \b
     Levels:
@@ -1072,6 +1094,12 @@ def lineage(ctx: click.Context, name: str, level: str) -> None:
       xorq catalog lineage penguins-prod --level boundaries
       # Every stored field, for jq
       xorq catalog lineage penguins-prod --level raw | jq '.nodes[0]'
+      # What feeds one node, addressed by its content hash
+      xorq catalog lineage penguins-prod --node 8f3a91c2e4
+      # Every UDXF's stored facts, addressed by kind
+      xorq catalog lineage penguins-prod --node flight_udxf --level raw
+      # A catalog-tagged source, addressed by tag value
+      xorq catalog lineage penguins-prod --node catalog-source
     """
     from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
         format_compact_lineage,
@@ -1089,16 +1117,33 @@ def lineage(ctx: click.Context, name: str, level: str) -> None:
             f"rebuild it with a current xorq to record one."
         )
 
-    match level:
-        case "raw":
+    selected = dag.nodes if handle is None else dag.resolve(handle)
+    if handle is not None and not selected:
+        raise click.ClickException(
+            f"No lineage node matches {handle!r} — run "
+            f"'xorq catalog lineage {name} --level boundaries' to see the "
+            f"available ids, kinds and hashes."
+        )
+
+    match (level, handle):
+        case ("raw", None):
             click.echo(json.dumps(dag.to_dict(), indent=2, default=str))
-        case "boundaries":
-            for line in _lineage_boundaries_lines(dag):
+        case ("raw", _):
+            click.echo(json.dumps(list(selected), indent=2, default=str))
+        case ("boundaries", None):
+            for line in _lineage_boundaries_lines(dag, dag.boundaries()):
                 click.echo(line)
-            for line in _lineage_scope_lines(dag):
-                click.echo(f"# nested\t{line}")
-        case _:
+        case ("boundaries", _):
+            for line in _lineage_boundaries_lines(dag, selected, capabilities=True):
+                click.echo(line)
+        case (_, None):
             click.echo(format_compact_lineage(dag))
+        case _:
+            # One subtree per match, blank-line separated.
+            for i, node in enumerate(selected):
+                if i:
+                    click.echo()
+                click.echo(format_compact_lineage(dag, root=node["id"]))
 
 
 @cli.command()

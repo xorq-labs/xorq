@@ -24,6 +24,7 @@ from xorq.common.utils.lineage_utils import (
     build_column_trees,
     build_tree,
     compact_lineage_rows,
+    compact_node_label,
     extract_lineage_dag,
     format_compact_lineage,
     schema_diff,
@@ -1246,6 +1247,42 @@ def test_compact_lineage_rows_carry_via_off_the_label(
         assert all(isinstance(t, str) for t in row.via)
         assert row.via_suffix.startswith("   via [")
         assert row.text == row.prefix + row.label + row.via_suffix
+
+
+def test_compact_lineage_rooted_at_a_node_is_the_subtree_feeding_it(
+    udxf_expression: Expr,
+) -> None:
+    """`root=` renders one node's upstream instead of the whole expression, and
+    reaches a node that lives only inside a Flight's nested scope."""
+    dag = extract_lineage_dag(udxf_expression)
+    [udxf] = dag.boundaries(kind="flight_udxf")
+
+    subtree = format_compact_lineage(dag, root=udxf["id"])
+
+    assert subtree.splitlines()[0].startswith("UDXF[add_c]")
+    assert "↳ " in subtree
+    # the outer graph above the UDXF is excluded
+    full = format_compact_lineage(dag)
+    assert subtree != full
+    assert len(subtree.splitlines()) < len(full.splitlines())
+
+    # a node that lives only in the nested scope roots its own subtree, rendered
+    # from that scope's view rather than the root graph's
+    nested_root = udxf["nested_root"]
+    nested = format_compact_lineage(dag, root=nested_root)
+    assert nested.splitlines()[0] == compact_node_label(dag.by_id[nested_root])
+    assert "InMemoryTable" in nested
+    assert all(line.lstrip("│└├─ ↳") in subtree for line in nested.splitlines())
+
+    assert compact_lineage_rows(dag, root=udxf["id"])[0].kind == "flight_udxf"
+
+
+def test_compact_lineage_rooted_at_an_unknown_node_is_empty(
+    udxf_expression: Expr,
+) -> None:
+    assert format_compact_lineage(
+        extract_lineage_dag(udxf_expression), root="@nope"
+    ) == ("(empty)")
 
 
 def test_compact_lineage_rows_of_an_empty_dag() -> None:

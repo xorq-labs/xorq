@@ -1259,13 +1259,34 @@ def _via_suffix(via: list) -> str:
     return f"   via [{shown}]"
 
 
-def _compact_lineage_tree(dag: LineageDAG) -> TextTree | None:
+def _view_containing(dag: LineageDAG, nid: str) -> dict | None:
+    """The compact view *nid* lives in: the root graph, or a Flight's own scope.
+
+    A node reached only inside a Flight's nested lineage is absent from the root
+    view, so rooting a subtree at it means finding its scope first.
+    """
+    view = dag.compact()
+    if any(n["id"] == nid for n in view["nodes"]):
+        return view
+    for boundary in dag.boundaries():
+        if boundary.get("nested_root") is None:
+            continue
+        nested = dag.compact(scope=boundary["id"])
+        if any(n["id"] == nid for n in nested["nodes"]):
+            return nested
+    return None
+
+
+def _compact_lineage_tree(dag: LineageDAG, root: str | None = None) -> TextTree | None:
     """Compact boundary tree, or ``None`` when there is nothing to render.
 
     Non-boundary runs collapse into ``via [...]`` on the surviving edges; Flight
     boundaries carry their nested input lineage as an indented sub-tree. Each
     node keeps its ``kind`` so a renderer can style per boundary kind without
     re-parsing the label.
+
+    Pass *root* to render the subtree feeding one node instead of the whole
+    expression.
     """
     by_id = dag.by_id
 
@@ -1309,20 +1330,31 @@ def _compact_lineage_tree(dag: LineageDAG) -> TextTree | None:
             kind=base_kind(node.get("boundary_kind")),
         )
 
-    view = dag.compact()
-    if not view["nodes"] or view["root"] is None:
+    if root is None:
+        view = dag.compact()
+        root = view["root"]
+    else:
+        # A node the compact view dropped (non-boundary, or unreachable) still
+        # renders as its own one-line tree rather than nothing.
+        view = _view_containing(dag, root) or {"nodes": (), "edges": ()}
+    if root is None or root not in by_id:
         return None
-    return build(view, view["root"], frozenset({view["root"]}))
+    return build(view, root, frozenset({root}))
 
 
-def compact_lineage_rows(dag: LineageDAG) -> tuple[LineageRow, ...]:
+def compact_lineage_rows(
+    dag: LineageDAG, root: str | None = None
+) -> tuple[LineageRow, ...]:
     """One row per rendered line, with the tree glyphs, label, kind and ``via``
     kept apart so a renderer can style each piece (see ``catalog/tui.py``)."""
-    tree = _compact_lineage_tree(dag)
+    tree = _compact_lineage_tree(dag, root=root)
     return () if tree is None else tree.rows()
 
 
-def format_compact_lineage(dag: LineageDAG) -> str:
-    """Render a :class:`LineageDAG` as a compact boundary-only text tree."""
-    tree = _compact_lineage_tree(dag)
+def format_compact_lineage(dag: LineageDAG, root: str | None = None) -> str:
+    """Render a :class:`LineageDAG` as a compact boundary-only text tree.
+
+    Pass *root* (a node id) to render only what feeds that node.
+    """
+    tree = _compact_lineage_tree(dag, root=root)
     return "(empty)" if tree is None else str(tree)
