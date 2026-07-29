@@ -1089,16 +1089,16 @@ def lineage(
 
     \b
     Levels:
-      compact     Boundary-only tree, as the TUI renders it (default).
-      boundaries  One tab-separated line per boundary: id, kind, label.
-      raw         The stored lineage as JSON — pipe it to `jq`.
+    - `compact` (default)—the boundary-only tree, as the TUI renders it.
+    - `boundaries`—one tab-separated line per boundary: id, kind, label.
+    - `raw`—the stored lineage as JSON; pipe it to `jq`.
 
     \b
     Formats (compact level only):
-      text     Indented tree (default).
-      mermaid  A `flowchart TD` to paste into docs or an issue. Edges point
-               downstream, so sources sit at the top; a Flight boundary's
-               nested input lineage becomes a `subgraph`.
+    - `text` (default)—an indented tree.
+    - `mermaid`—a `flowchart TD` to paste into docs or an issue. Edges point
+      downstream, so sources sit at the top, and a Flight boundary's nested
+      input lineage becomes a `subgraph`.
 
     \b
     Arguments:
@@ -1138,41 +1138,41 @@ def lineage(
         catalog = ctx.obj.make_catalog(init=False)
         entry = _get_catalog_entry(catalog, name)
 
-    dag = entry.metadata.lineage
-    if dag is None or not dag.nodes:
-        # A sidecar written before lineage existed, or an expression with none.
-        raise click.ClickException(
-            f"Entry {name!r} has no lineage in its metadata sidecar — "
-            f"rebuild it with a current xorq to record one."
-        )
+        dag = entry.metadata.lineage
+        if dag is None or not dag.nodes:
+            # A sidecar written before lineage existed, or an expression with none.
+            raise click.ClickException(
+                f"Entry {name!r} has no lineage in its metadata sidecar — "
+                f"rebuild it with a current xorq to record one."
+            )
 
-    selected = dag.nodes if handle is None else dag.resolve(handle)
-    if handle is not None and not selected:
-        raise click.ClickException(
-            f"No lineage node matches {handle!r} — run "
-            f"'xorq catalog lineage {name} --level boundaries' to see the "
-            f"available ids, kinds and hashes."
-        )
+        selected = dag.nodes if handle is None else dag.resolve(handle)
+        if handle is not None and not selected:
+            raise click.ClickException(
+                f"No lineage node matches {handle!r} — run "
+                f"'xorq catalog lineage {name} --level boundaries' to see the "
+                f"available ids, kinds and hashes."
+            )
 
-    match (level, handle):
-        case ("raw", None):
-            click.echo(json.dumps(dag.to_dict(), indent=2, default=str))
-        case ("raw", _):
-            click.echo(json.dumps(list(selected), indent=2, default=str))
-        case ("boundaries", None):
-            for line in _lineage_boundaries_lines(dag, dag.boundaries()):
-                click.echo(line)
-        case ("boundaries", _):
-            for line in _lineage_boundaries_lines(dag, selected, capabilities=True):
-                click.echo(line)
-        case (_, None):
-            click.echo(render(dag))
-        case _:
-            # One subtree per match, blank-line separated.
-            for i, node in enumerate(selected):
-                if i:
-                    click.echo()
-                click.echo(render(dag, root=node["id"]))
+        match (level, handle):
+            case ("raw", None):
+                click.echo(json.dumps(dag.to_dict(), indent=2, default=str))
+            case ("raw", _):
+                click.echo(json.dumps(list(selected), indent=2, default=str))
+            case ("boundaries", None):
+                for line in _lineage_boundaries_lines(dag, dag.boundaries()):
+                    click.echo(line)
+            case ("boundaries", _):
+                for line in _lineage_boundaries_lines(dag, selected, capabilities=True):
+                    click.echo(line)
+            case (_, None):
+                click.echo(render(dag))
+            case _:
+                # One subtree per match, blank-line separated.
+                for i, node in enumerate(selected):
+                    if i:
+                        click.echo()
+                    click.echo(render(dag, root=node["id"]))
 
 
 @cli.command()
