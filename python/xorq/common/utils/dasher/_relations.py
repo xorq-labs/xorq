@@ -344,12 +344,21 @@ def _dispatch_databasetable(dt):
     # column label and crashes on every table; use the fixed xorq version.
     if dt.source.name == "bigquery":
         return _normalize_bigquery_databasetable_xorq(dt)
+    # pandas-backend tables and in-memory sqlite are memory-resident:
+    # xorq_dasher's dispatch hashes the IPC bytes of their
+    # ``to_pyarrow_batches()`` stream, which is pyarrow-version-coupled
+    # (issue #2191) — route them to the canonical form instead.
+    if dt.source.name == "pandas":
+        return normalize_memory_databasetable_canonical(dt)
+    if dt.source.name == "sqlite" and dt.source.is_in_memory():
+        return normalize_memory_databasetable_canonical(dt)
     # All remaining backends fall through to ``xorq_dasher``
     # ``normalize_databasetable`` (bigquery is handled above and never reaches
     # here), which is itself a per-backend dispatch table postgres calls
     # ``get_postgres_n_reltuples``, snowflake calls
     # ``get_snowflake_last_modification_time``, pyiceberg calls
-    # ``get_iceberg_snapshots_ids``, sqlite calls ``get_sqlite_stats``,
+    # ``get_iceberg_snapshots_ids``, file-backed sqlite calls
+    # ``get_sqlite_stats`` (memory-backed is intercepted above),
     # trino/gizmosql fall back to ``normalize_remote_databasetable``.
     # Data-sensitivity is preserved upstream, not blindly flattened to
     # schema+name, see xorq_dasher/rules/expr.py::normalize_databasetable.

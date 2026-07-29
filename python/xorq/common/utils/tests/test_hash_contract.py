@@ -36,12 +36,16 @@ import xorq_dasher
 
 import xorq
 import xorq.api as xo
+from xorq.backends.pandas import Backend as PandasBackend
+from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.common.utils.dasher import normalize, tokenize
 from xorq.common.utils.dasher._canonical import (
     NORMALIZATION_VERSION,
     canonical_column_digest,
     normalize_inmemorytable_canonical,
+    normalize_pyarrow_table_canonical,
 )
+from xorq.common.utils.dasher._relations import _dispatch_databasetable
 from xorq.vendor.ibis.expr.types.core import Expr
 
 
@@ -121,9 +125,9 @@ GOLDEN_COLUMN_DIGESTS = {
 }
 
 GOLDEN_TOKENS = {
-    "memtable": "c3a49075e3d5f635d0eb5b999bad74ca",
-    "pandas_dataframe": "5a2b5b1d7e148d299ff2bd592a2e7714",
-    "pyarrow_table": "f38b0e88acf5958f4955e9c8ec917a2e",
+    "memtable": "4e63f45b8697b50ee81aef56b74486bc",
+    "pandas_dataframe": "b1f14a347336ad9e53509ec2edea9db6",
+    "pyarrow_table": "c25a6ba3568ef8f3494bd1a2d91d0457",
 }
 
 
@@ -210,3 +214,46 @@ def test_memtable_normalization_does_not_execute_backends(
     monkeypatch.setattr(Expr, "to_pyarrow_batches", _forbidden)
     op = xo.memtable(_fixture_df(), name="name").op()
     tokenize(normalize_inmemorytable_canonical(op))
+
+
+def test_digest_refuses_unerasable_nested_dictionary() -> None:
+    # ``_dictionary_free_type`` does not rewrite union types, so a
+    # dictionary nested inside one cannot be decoded away — and serializing
+    # it would drop the dictionary values from the digest. Refusing loudly
+    # beats silently under-discriminating.
+    dict_arr = pa.array(["x", "y"]).dictionary_encode()
+    int_arr = pa.array([1, 2], type=pa.int64())
+    type_ids = pa.array([0, 1], type=pa.int8())
+    union = pa.UnionArray.from_sparse(type_ids, [dict_arr, int_arr])
+    with pytest.raises(NotImplementedError, match="dictionary"):
+        canonical_column_digest(union)
+
+
+def test_zero_column_table_discriminates_row_count() -> None:
+    # With no columns there are no digests to carry the row count, so the
+    # normalization carries ``num_rows`` explicitly.
+    two = pa.table({"a": [1, 2]}).drop_columns(["a"])
+    three = pa.table({"a": [1, 2, 3]}).drop_columns(["a"])
+    assert two.num_columns == 0 and two.num_rows == 2
+    assert normalize_pyarrow_table_canonical(two) != (
+        normalize_pyarrow_table_canonical(three)
+    )
+
+
+def test_pandas_backend_databasetable_routes_to_canonical() -> None:
+    # xorq_dasher's DatabaseTable dispatch would hash a pandas-backend
+    # table's to_pyarrow_batches() IPC stream — the pyarrow-version-coupled
+    # form (#2191). The dispatcher must route it to the canonical rule.
+    con = PandasBackend().connect({"t": _fixture_df()})
+    normalized = _dispatch_databasetable(con.table("t").op())
+    assert normalized[:2] == ("xorq.MemoryDatabaseTable", NORMALIZATION_VERSION)
+
+
+def test_sqlite_memory_databasetable_routes_to_canonical() -> None:
+    # Same as above for in-memory sqlite (xorq_dasher's sqlite rule falls
+    # back to the batch-stream form when is_in_memory()).
+    con = SqliteBackend().connect()
+    assert con.is_in_memory()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    normalized = _dispatch_databasetable(con.table("t").op())
+    assert normalized[:2] == ("xorq.MemoryDatabaseTable", NORMALIZATION_VERSION)

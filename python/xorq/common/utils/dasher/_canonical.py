@@ -1,6 +1,6 @@
 """Canonical, pyarrow-version-stable hashing of in-memory table data.
 
-Replaces xorq_dasher 0.1.0's ``normalize_inmemorytable`` /
+Replaces xorq_dasher's ``normalize_inmemorytable`` /
 ``normalize_memory_databasetable`` / ``normalize_pyarrow_table``, which hash
 the IPC bytes of a backend-executed ``to_pyarrow_batches()`` stream. That
 stream is an incidental physical artifact: its bytes depend on batch size
@@ -85,17 +85,44 @@ def _dictionary_free_type(typ: pa.DataType) -> pa.DataType:
     return typ
 
 
+def _contains_dictionary(typ: pa.DataType) -> bool:
+    """True if ``typ`` has a dictionary layer anywhere in its nesting,
+    traversing child fields generically (so union / list_view / run-end
+    encoded families — which :func:`_dictionary_free_type` does not rewrite
+    — are still inspected)."""
+    import pyarrow as pa  # noqa: PLC0415
+
+    if pa.types.is_dictionary(typ):
+        return True
+    return any(_contains_dictionary(typ.field(i).type) for i in range(typ.num_fields))
+
+
 def canonical_column_digest(col: pa.Array | pa.ChunkedArray) -> str:
     """xxh128 digest of one column's logical values, physical-layout-free.
 
     Identical for chunked vs contiguous, sliced vs compact, and
     dictionary-encoded vs plain representations of the same values
     (invariants asserted in ``test_hash_contract.py``).
+
+    The digest carries NO type identity: ``RecordBatch.serialize()`` emits
+    no schema message, so e.g. int8 and uint8 arrays with identical buffers
+    produce identical digests. Never use it as a standalone identity — it
+    must always be paired with the column's logical type, as
+    :func:`normalize_pyarrow_table_canonical` does via its schema component.
     """
     import pyarrow as pa  # noqa: PLC0415
 
     arr = col.combine_chunks() if isinstance(col, pa.ChunkedArray) else col
     canonical_type = _dictionary_free_type(arr.type)
+    if _contains_dictionary(canonical_type):
+        # ``_dictionary_free_type`` does not rewrite this type family
+        # (union / list_view / run-end encoded …), so a dictionary layer
+        # survived. Serializing it would emit indices *without* the
+        # dictionary values — refuse loudly rather than under-discriminate.
+        raise NotImplementedError(
+            f"cannot erase dictionary encoding nested in {canonical_type!r}; "
+            f"hashing it would drop the dictionary values from the digest"
+        )
     if canonical_type != arr.type:
         arr = arr.cast(canonical_type)
     batch = pa.RecordBatch.from_arrays([arr], names=["c"])
@@ -103,12 +130,15 @@ def canonical_column_digest(col: pa.Array | pa.ChunkedArray) -> str:
 
 
 def normalize_pyarrow_table_canonical(table: pa.Table) -> tuple:
-    """Canonical normalization of a ``pa.Table``: logical schema + per-column
-    value digests. Schema/field metadata (where ``from_pandas`` embeds
-    pandas/pyarrow version strings) is deliberately excluded."""
+    """Canonical normalization of a ``pa.Table``: row count + logical schema
+    + per-column value digests. Schema/field metadata (where ``from_pandas``
+    embeds pandas/pyarrow version strings) is deliberately excluded. The row
+    count is carried explicitly because a zero-column table has no digests
+    to carry it implicitly."""
     return (
         "xorq.pa.Table",
         NORMALIZATION_VERSION,
+        table.num_rows,
         tuple(
             (field.name, str(_dictionary_free_type(field.type)))
             for field in table.schema
