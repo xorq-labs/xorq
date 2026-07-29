@@ -38,7 +38,7 @@ import xorq
 import xorq.api as xo
 from xorq.backends.pandas import Backend as PandasBackend
 from xorq.backends.sqlite import Backend as SqliteBackend
-from xorq.common.utils.dasher import normalize, tokenize
+from xorq.common.utils.dasher import _relations, normalize, tokenize
 from xorq.common.utils.dasher._canonical import (
     NORMALIZATION_VERSION,
     canonical_column_digest,
@@ -115,19 +115,19 @@ GOLDEN_COLUMN_DIGESTS = {
     "float64_edges": "8a2d78480547a06c5665712722a97e30",
     "bool_nulls": "448934082adc04da19a2274aab5d3b69",
     "decimal128": "27f431c699954a75aa6a9ff7a5be1881",
-    "string": "e6e303236c8b24e8bb47ba4e568ddb8f",
+    "string": "8174a8d746db7b57a1d0721bf83487cd",
     "timestamp_tz": "0a0e7066f0f567772d2185e5e7eff7d4",
-    "list_int": "f8e26be3b81d390d0b214c95d8eab034",
-    "struct": "9ad3a5c7685e160e7892d9603985e3d0",
-    "map": "2f994665818074e02eb7d7d29b9a0c59",
-    "dictionary_multichunk": "7f6586a4862513f7cd033019b8af5815",
-    "empty_string": "95f33ef94af5d33af33b4f80eb67ad76",
+    "list_int": "26e34968d249b6e878408d1c638b1066",
+    "struct": "d7c505e657beab1d3b433ee2633c9131",
+    "map": "d4a434fe254471ca2176cd8b7ae9120e",
+    "dictionary_multichunk": "b50c865c81720aa1354729bda834915d",
+    "empty_string": "1ff18035104640f53e6bbf8ca6bb9aa1",
 }
 
 GOLDEN_TOKENS = {
-    "memtable": "4e63f45b8697b50ee81aef56b74486bc",
-    "pandas_dataframe": "b1f14a347336ad9e53509ec2edea9db6",
-    "pyarrow_table": "c25a6ba3568ef8f3494bd1a2d91d0457",
+    "memtable": "97a59f9c8d55dc45684174488aa34f1e",
+    "pandas_dataframe": "eef21642b55d3160e3f85e18cee39c99",
+    "pyarrow_table": "798314b6d6e801a854c99cfa5fb8ca70",
 }
 
 
@@ -166,10 +166,46 @@ def test_digest_erases_chunk_layout() -> None:
     assert canonical_column_digest(chunked) == canonical_column_digest(single)
 
 
-def test_digest_erases_slicing() -> None:
-    big = pa.array(list(range(100)), type=pa.int64())
-    direct = pa.array(list(range(3, 13)), type=pa.int64())
-    assert canonical_column_digest(big.slice(3, 10)) == canonical_column_digest(direct)
+SLICE_CASES = {
+    # fixed-width: IPC truncation alone happens to be exact
+    "int64": pa.array(list(range(100)), type=pa.int64()),
+    # bitmap-packed: slice offsets are not byte-aligned
+    "bool_nulls": pa.array([True, None, False] * 10),
+    # var-length: slice offsets are NOT rebased by the IPC writer — only
+    # explicit compaction (concat_arrays) makes sliced == fresh
+    "string": pa.array([f"s{i}" * (i % 3 + 1) for i in range(30)]),
+    "list_int": pa.array(
+        [[i, None, i * 2] if i % 3 else None for i in range(30)],
+        type=pa.list_(pa.int64()),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SLICE_CASES))
+def test_digest_erases_slicing(name: str) -> None:
+    big = SLICE_CASES[name]
+    sliced = big.slice(3, 10)
+    fresh = pa.array(sliced.to_pylist(), type=big.type)
+    assert canonical_column_digest(sliced) == canonical_column_digest(fresh)
+
+
+def test_digest_erases_offset_width() -> None:
+    # string vs large_string (and list vs large_list) differ only in offset
+    # width — a physical encoding. The canonical form widens to large_*, so
+    # both the digests and the full table normalizations must agree.
+    strings = ["apple", None, "", "é中文"]
+    assert canonical_column_digest(pa.array(strings, type=pa.string())) == (
+        canonical_column_digest(pa.array(strings, type=pa.large_string()))
+    )
+    lists = [[1, None], None, []]
+    assert canonical_column_digest(pa.array(lists, type=pa.list_(pa.int64()))) == (
+        canonical_column_digest(pa.array(lists, type=pa.large_list(pa.int64())))
+    )
+    assert normalize_pyarrow_table_canonical(
+        pa.table({"c": pa.array(strings, type=pa.string())})
+    ) == normalize_pyarrow_table_canonical(
+        pa.table({"c": pa.array(strings, type=pa.large_string())})
+    )
 
 
 def test_digest_erases_dictionary_encoding() -> None:
@@ -205,13 +241,19 @@ def test_memtable_normalization_does_not_execute_backends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The pa20↔21 regression came from hashing a backend-executed batch
-    # stream. Identity must come from the stored proxy data only.
+    # stream. Identity must come from the stored proxy data only
+    # (``op.data.to_pyarrow`` is a proxy format conversion, not execution).
+    # NOTE: this guard is enumerative, not exhaustive — it proves these
+    # specific Expr entry points are unused, not that no execution of any
+    # kind occurs. A regression that reached a backend directly (e.g. via
+    # ``dt.source``) would not trip it.
     def _forbidden(self: Expr, *args: object, **kwargs: object) -> None:
         raise AssertionError(
             "normalize_inmemorytable_canonical must not execute the expression"
         )
 
-    monkeypatch.setattr(Expr, "to_pyarrow_batches", _forbidden)
+    for entry_point in ("to_pyarrow_batches", "to_pyarrow", "execute"):
+        monkeypatch.setattr(Expr, entry_point, _forbidden)
     op = xo.memtable(_fixture_df(), name="name").op()
     tokenize(normalize_inmemorytable_canonical(op))
 
@@ -257,3 +299,41 @@ def test_sqlite_memory_databasetable_routes_to_canonical() -> None:
     con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
     normalized = _dispatch_databasetable(con.table("t").op())
     assert normalized[:2] == ("xorq.MemoryDatabaseTable", NORMALIZATION_VERSION)
+
+
+def test_dispatcher_fallthrough_net_reroutes_dasher_memory_rule(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: object
+) -> None:
+    # If xorq_dasher's fall-through dispatch ever resolves a table to its
+    # batch-stream memory rule (e.g. a future/renamed backend — dasher still
+    # maps a backend *named* "xorq" to it), the dispatcher must re-route to
+    # the canonical form rather than let #2191 silently revive.
+    con = SqliteBackend().connect(f"{tmp_path}/t.db")
+    assert not con.is_in_memory()
+    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    dt = con.table("t").op()
+    monkeypatch.setattr(
+        _relations,
+        "normalize_databasetable",
+        lambda dt: ("ibis.MemoryDatabaseTable", "version-coupled-form"),
+    )
+    normalized = _dispatch_databasetable(dt)
+    assert normalized[:2] == ("xorq.MemoryDatabaseTable", NORMALIZATION_VERSION)
+
+
+def test_refuses_extension_types() -> None:
+    # Extension type parameters live in __arrow_ext_serialize__ bytes
+    # (third-party, no cross-version stability contract) and str(type)
+    # omits them — pandas period columns of freq 'M' vs 'D' with equal
+    # ordinals produce IDENTICAL storage and str(type), so hashing the
+    # storage would collide logically different tables. Refuse loudly.
+    monthly = pa.Table.from_pandas(
+        pd.DataFrame({"p": pd.PeriodIndex.from_ordinals([0, 1], freq="M")})
+    )
+    with pytest.raises(NotImplementedError, match="extension"):
+        normalize_pyarrow_table_canonical(monthly)
+    # nested extensions must be found too
+    period_type = monthly.schema.field("p").type
+    nested = pa.struct([("x", period_type)])
+    with pytest.raises(NotImplementedError, match="extension"):
+        canonical_column_digest(pa.array([], type=nested))

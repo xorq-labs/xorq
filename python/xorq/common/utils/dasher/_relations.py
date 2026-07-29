@@ -362,7 +362,16 @@ def _dispatch_databasetable(dt):
     # trino/gizmosql fall back to ``normalize_remote_databasetable``.
     # Data-sensitivity is preserved upstream, not blindly flattened to
     # schema+name, see xorq_dasher/rules/expr.py::normalize_databasetable.
-    return normalize_databasetable(dt)
+    result = normalize_databasetable(dt)
+    if isinstance(result, tuple) and result[:1] == ("ibis.MemoryDatabaseTable",):
+        # Safety net: dasher resolved this table to its memory rule, whose
+        # token hashes the to_pyarrow_batches() IPC stream — the
+        # pyarrow-version-coupled form (#2191). Known memory backends are
+        # intercepted above before dasher runs; this catches renamed or
+        # future ones (dasher still maps a backend *named* "xorq" to that
+        # rule) at the cost of one redundant materialization.
+        return normalize_memory_databasetable_canonical(dt)
+    return result
 
 
 __all__ = [
