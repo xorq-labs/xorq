@@ -35,6 +35,7 @@ __all__ = [
     "compact_node_label",
     "extract_lineage_dag",
     "format_compact_lineage",
+    "format_mermaid_lineage",
     "schema_diff",
 ]
 
@@ -1358,3 +1359,139 @@ def format_compact_lineage(dag: LineageDAG, root: str | None = None) -> str:
     """
     tree = _compact_lineage_tree(dag, root=root)
     return "(empty)" if tree is None else str(tree)
+
+
+# ── mermaid rendering ──────────────────────────────────────────────────
+#
+# A second renderer over the same compact views. Unlike the text tree this keeps
+# the *graph*: a node shared by two consumers is one mermaid node with two
+# inbound edges, where the tree has to repeat it (or mark it `↻`).
+
+# Fill/stroke per boundary kind. Deliberately not the TUI's theme colours: a
+# mermaid diagram is pasted into docs and issues with their own background.
+_MERMAID_STYLES: dict[str, str] = {
+    "flight_udxf": "fill:#ffe0f0,stroke:#c2185b,color:#111",
+    "flight_expr": "fill:#ffe0f0,stroke:#c2185b,color:#111",
+    "engine_crossing": "fill:#e3f2fd,stroke:#1976d2,color:#111",
+    "cache": "fill:#e8f5e9,stroke:#2e7d32,color:#111",
+    "pin": "fill:#e8f5e9,stroke:#1b5e20,color:#111",
+    "ingestion": "fill:#fff8e1,stroke:#f9a825,color:#111",
+    "udf": "fill:#f3e5f5,stroke:#7b1fa2,color:#111",
+    "join": "fill:#eceff1,stroke:#455a64,color:#111",
+    "table": "fill:#f5f5f5,stroke:#616161,color:#111",
+    "unbound": "fill:#fff3e0,stroke:#ef6c00,color:#111",
+    "tag": "fill:#f5f5f5,stroke:#9e9e9e,color:#111",
+}
+_MERMAID_UNKNOWN = "unknown"
+
+
+def _mermaid_id(node_id: str) -> str:
+    """`@flight_u_d_x_f_17` -> `n_flight_u_d_x_f_17` (mermaid ids are bare words)."""
+    return "n_" + "".join(c if c.isalnum() or c == "_" else "_" for c in node_id)
+
+
+def _mermaid_text(label: str) -> str:
+    """Escape a label for a mermaid `["..."]` node."""
+    return (
+        label.replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _mermaid_scope_title(node: dict) -> str:
+    """`UDXF[OrderEnricher]` out of the full label: a subgraph title wants the
+    node's identity, not its widths and column delta."""
+    label = compact_node_label(node)
+    for separator in ("   ", " : ", " ("):
+        label = label.split(separator, 1)[0]
+    return f"input of {label}"
+
+
+def _mermaid_reachable(
+    view: dict, root: str
+) -> tuple[tuple[str, ...], tuple[dict, ...]]:
+    """Ids and edges of the sub-DAG under *root* within one compact view.
+
+    Ids come back in BFS discovery order, not as a set: the rendered diagram has
+    to be byte-stable across processes (set iteration is not).
+    """
+    children: dict[str, list[dict]] = defaultdict(list)
+    for edge in view["edges"]:
+        children[edge["from"]].append(edge)
+    ids, edges, queue = [root], [], [root]
+    while queue:
+        nid, queue = queue[0], queue[1:]
+        for edge in children.get(nid, ()):
+            edges.append(edge)
+            if edge["to"] not in ids:
+                ids.append(edge["to"])
+                queue.append(edge["to"])
+    return tuple(ids), tuple(edges)
+
+
+def format_mermaid_lineage(dag: LineageDAG, root: str | None = None) -> str:
+    """Render a :class:`LineageDAG` as a mermaid `flowchart`.
+
+    Edges point **downstream** (a source to its consumer), the reverse of the
+    stored depends-on direction, so `TD` lays the diagram out as the pipeline
+    reads: sources at the top, the final expression at the bottom. A Flight
+    boundary's nested input lineage becomes a `subgraph`, which is what the
+    stored `scope` tag means.
+
+    Pass *root* (a node id) to render only what feeds that node.
+    """
+    by_id = dag.by_id
+    lines = ["flowchart TD"]
+    kinds: dict[str, set[str]] = defaultdict(set)
+
+    def declare(nid: str, indent: str) -> None:
+        node = by_id.get(nid, {})
+        kind = base_kind(node.get("boundary_kind")) or _MERMAID_UNKNOWN
+        kinds[kind].add(_mermaid_id(nid))
+        label = _mermaid_text(compact_node_label(node) if node else nid)
+        lines.append(f'{indent}{_mermaid_id(nid)}["{label}"]')
+
+    def emit(
+        view: dict, ids: tuple[str, ...], edges: tuple[dict, ...], indent: str
+    ) -> None:
+        for nid in ids:
+            nested_root = by_id.get(nid, {}).get("nested_root")
+            if nested_root is None:
+                declare(nid, indent)
+                continue
+            # the Flight node itself sits outside its own input subgraph
+            declare(nid, indent)
+            nested_view = dag.compact(scope=nid)
+            nested_ids, nested_edges = _mermaid_reachable(nested_view, nested_root)
+            title = _mermaid_text(_mermaid_scope_title(by_id[nid]))
+            lines.append(f'{indent}subgraph {_mermaid_id(nid)}_scope["{title}"]')
+            emit(nested_view, nested_ids, nested_edges, indent + "  ")
+            lines.append(f"{indent}end")
+            lines.append(f"{indent}{_mermaid_id(nested_root)} --> {_mermaid_id(nid)}")
+        for edge in edges:
+            # reversed: data flows from the upstream node into its consumer
+            arrow = (
+                f"-->|via {', '.join(edge['via'][:3])}|" if edge.get("via") else "-->"
+            )
+            lines.append(
+                f"{indent}{_mermaid_id(edge['to'])} {arrow} {_mermaid_id(edge['from'])}"
+            )
+
+    if root is None:
+        view = dag.compact()
+        start = view["root"]
+    else:
+        view = _view_containing(dag, root) or {"nodes": (), "edges": ()}
+        start = root
+    if start is None or start not in by_id:
+        return 'flowchart TD\n  empty["(empty)"]'
+
+    ids, edges = _mermaid_reachable(view, start)
+    emit(view, ids, edges, "  ")
+    for kind, members in sorted(kinds.items()):
+        if style := _MERMAID_STYLES.get(kind):
+            lines.append(f"  classDef {kind} {style}")
+            lines.append(f"  class {','.join(sorted(members))} {kind}")
+    return "\n".join(lines)

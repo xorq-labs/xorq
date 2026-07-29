@@ -1064,8 +1064,19 @@ def _lineage_boundaries_lines(
     help="Expand one node: a snapshot hash, an @label, a tag value, or a "
     "boundary kind. Scopes every level to the match(es).",
 )
+@click.option(
+    "-f",
+    "--format",
+    "fmt",
+    type=click.Choice(("text", "mermaid")),
+    default="text",
+    show_default=True,
+    help="Render the compact level as a text tree or a mermaid flowchart.",
+)
 @click.pass_context
-def lineage(ctx: click.Context, name: str, level: str, handle: str | None) -> None:
+def lineage(
+    ctx: click.Context, name: str, level: str, handle: str | None, fmt: str
+) -> None:
     """Show the lineage recorded in an entry's metadata sidecar.
 
     The sidecar stores one node table with scope-tagged edges; the compact
@@ -1081,6 +1092,13 @@ def lineage(ctx: click.Context, name: str, level: str, handle: str | None) -> No
       compact     Boundary-only tree, as the TUI renders it (default).
       boundaries  One tab-separated line per boundary: id, kind, label.
       raw         The stored lineage as JSON — pipe it to `jq`.
+
+    \b
+    Formats (compact level only):
+      text     Indented tree (default).
+      mermaid  A `flowchart TD` to paste into docs or an issue. Edges point
+               downstream, so sources sit at the top; a Flight boundary's
+               nested input lineage becomes a `subgraph`.
 
     \b
     Arguments:
@@ -1100,10 +1118,21 @@ def lineage(ctx: click.Context, name: str, level: str, handle: str | None) -> No
       xorq catalog lineage penguins-prod --node flight_udxf --level raw
       # A catalog-tagged source, addressed by tag value
       xorq catalog lineage penguins-prod --node catalog-source
+      # A mermaid diagram, whole graph or one node's upstream
+      xorq catalog lineage penguins-prod --format mermaid
+      xorq catalog lineage penguins-prod --node flight_udxf -f mermaid
     """
     from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
         format_compact_lineage,
+        format_mermaid_lineage,
     )
+
+    if fmt == "mermaid" and level != "compact":
+        raise click.UsageError(
+            f"--format mermaid renders the graph, which only the compact level "
+            f"is; {level!r} is a listing. Drop --level or pass --level compact."
+        )
+    render = format_mermaid_lineage if fmt == "mermaid" else format_compact_lineage
 
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
@@ -1137,13 +1166,13 @@ def lineage(ctx: click.Context, name: str, level: str, handle: str | None) -> No
             for line in _lineage_boundaries_lines(dag, selected, capabilities=True):
                 click.echo(line)
         case (_, None):
-            click.echo(format_compact_lineage(dag))
+            click.echo(render(dag))
         case _:
             # One subtree per match, blank-line separated.
             for i, node in enumerate(selected):
                 if i:
                     click.echo()
-                click.echo(format_compact_lineage(dag, root=node["id"]))
+                click.echo(render(dag, root=node["id"]))
 
 
 @cli.command()

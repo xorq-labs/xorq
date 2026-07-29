@@ -19,6 +19,8 @@ from xorq.common.utils.lineage_utils import (
     TextTree,
     _boundary_kind,
     _build_column_tree,
+    _mermaid_id,
+    _mermaid_text,
     _redact,
     base_kind,
     build_column_trees,
@@ -27,6 +29,7 @@ from xorq.common.utils.lineage_utils import (
     compact_node_label,
     extract_lineage_dag,
     format_compact_lineage,
+    format_mermaid_lineage,
     schema_diff,
 )
 from xorq.expr.udf import make_pandas_expr_udf
@@ -1283,6 +1286,80 @@ def test_compact_lineage_rooted_at_an_unknown_node_is_empty(
     assert format_compact_lineage(
         extract_lineage_dag(udxf_expression), root="@nope"
     ) == ("(empty)")
+
+
+def test_mermaid_lineage_is_a_flowchart_of_the_compact_graph(
+    udxf_expression: Expr,
+) -> None:
+    """Same views as the text tree, emitted as mermaid: downstream edges, a
+    subgraph per Flight scope, one classDef per boundary kind."""
+    dag = extract_lineage_dag(udxf_expression)
+    [udxf] = dag.boundaries(kind="flight_udxf")
+
+    diagram = format_mermaid_lineage(dag)
+    lines = diagram.splitlines()
+
+    assert lines[0] == "flowchart TD"
+    # ids are mermaid-safe: no '@'
+    assert "@" not in diagram
+    assert f'{_mermaid_id(udxf["id"])}["UDXF[add_c]' in diagram
+    # the nested input lineage is a subgraph, per its stored scope
+    stripped = [line.strip() for line in lines]
+    assert (
+        f'subgraph {_mermaid_id(udxf["id"])}_scope["input of UDXF[add_c]"]' in stripped
+    )
+    assert "end" in stripped
+    # kinds carry a class, and every classed node was declared
+    assert any(line.startswith("  classDef flight_udxf ") for line in lines)
+    for line in lines:
+        if line.startswith("  class "):
+            for member in line.split()[1].split(","):
+                assert f"{member}[" in diagram
+
+
+def test_mermaid_lineage_edges_point_downstream(udxf_expression: Expr) -> None:
+    """The stored edges are depends-on; the diagram reverses them so `TD` reads
+    sources-to-output."""
+    dag = extract_lineage_dag(udxf_expression)
+    diagram = format_mermaid_lineage(dag)
+
+    root = _mermaid_id(dag.root)
+    arrows = [line.strip() for line in diagram.splitlines() if "-->" in line]
+    assert arrows
+    # nothing flows out of the final expression; something flows into it
+    assert not any(line.startswith(f"{root} -->") for line in arrows)
+    assert any(line.endswith(f"> {root}") for line in arrows)
+    # a collapsed run keeps its `via` as the edge label
+    if any(e["via"] for e in dag.compact()["edges"]):
+        assert any("|via " in line for line in arrows)
+
+
+def test_mermaid_lineage_is_byte_stable(udxf_expression: Expr) -> None:
+    """Node order comes from a BFS, not set iteration: a diagram pasted into docs
+    must not churn between processes."""
+    dag = extract_lineage_dag(udxf_expression)
+    assert format_mermaid_lineage(dag) == format_mermaid_lineage(
+        LineageDAG.from_dict(dag.to_dict())
+    )
+
+
+def test_mermaid_lineage_rooted_at_a_node_and_of_nothing(
+    udxf_expression: Expr,
+) -> None:
+    dag = extract_lineage_dag(udxf_expression)
+    [udxf] = dag.boundaries(kind="flight_udxf")
+
+    subtree = format_mermaid_lineage(dag, root=udxf["id"])
+
+    assert subtree.splitlines()[0] == "flowchart TD"
+    assert _mermaid_id(udxf["id"]) in subtree
+    assert _mermaid_id(dag.root) not in subtree
+    assert "(empty)" in format_mermaid_lineage(dag, root="@nope")
+
+
+def test_mermaid_label_escaping() -> None:
+    """A label reaching mermaid must not break out of its quoted node."""
+    assert _mermaid_text('a "b" <c> & d') == "a &quot;b&quot; &lt;c&gt; &amp; d"
 
 
 def test_compact_lineage_rows_of_an_empty_dag() -> None:

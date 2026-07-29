@@ -282,6 +282,81 @@ def test_lineage_node_of_an_unknown_handle_points_at_boundaries(
     assert "--level boundaries" in result.output
 
 
+def test_lineage_format_defaults_to_text(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    catalog_path, name = catalog_with_udxf
+
+    default = runner.invoke(cli, ["--path", catalog_path, "lineage", name])
+    explicit = runner.invoke(
+        cli, ["--path", catalog_path, "lineage", name, "--format", "text"]
+    )
+
+    assert default.exit_code == 0, default.output
+    assert default.output == explicit.output
+    assert "flowchart" not in default.output
+
+
+def test_lineage_format_mermaid_emits_a_flowchart(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    catalog_path, name = catalog_with_udxf
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "lineage", name, "-f", "mermaid"]
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[0] == "flowchart TD"
+    assert any("UDXF[OrderEnricher]" in line for line in lines)
+    assert any(line.strip().startswith("subgraph ") for line in lines)
+    assert any("-->" in line for line in lines)
+    assert any(line.strip().startswith("classDef ") for line in lines)
+    # tree glyphs belong to the text renderer only
+    assert "└──" not in result.output
+
+
+def test_lineage_format_mermaid_honours_node(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    catalog_path, name = catalog_with_udxf
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "lineage",
+            name,
+            "--node",
+            "flight_udxf",
+            "-f",
+            "mermaid",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == "flowchart TD"
+    assert "UDXF[OrderEnricher]" in result.output
+    assert "Join(" not in result.output
+
+
+def test_lineage_format_mermaid_rejects_the_listing_levels(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    """mermaid renders the graph; `raw` and `boundaries` are listings."""
+    catalog_path, name = catalog_with_udxf
+
+    for level in ("raw", "boundaries"):
+        result = runner.invoke(
+            cli,
+            ["--path", catalog_path, "lineage", name, "-f", "mermaid", "-l", level],
+        )
+        assert result.exit_code != 0, result.output
+        assert "--format mermaid renders the graph" in result.output
+
+
 def test_lineage_rejects_an_unknown_level(
     runner: CliRunner, catalog_with_udxf: tuple[str, str]
 ) -> None:
