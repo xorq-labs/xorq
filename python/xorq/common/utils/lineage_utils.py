@@ -1260,19 +1260,28 @@ def _via_suffix(via: list) -> str:
     return f"   via [{shown}]"
 
 
-def _view_containing(dag: LineageDAG, nid: str) -> dict | None:
-    """The compact view *nid* lives in: the root graph, or a Flight's own scope.
+def _view_containing(
+    dag: LineageDAG, nid: str, view_of: Callable[[str], dict] | None = None
+) -> dict | None:
+    """The view *nid* lives in: the root graph, or a Flight's own scope.
 
     A node reached only inside a Flight's nested lineage is absent from the root
-    view, so rooting a subtree at it means finding its scope first.
+    view, so rooting a subtree at it means finding its scope first. *view_of*
+    selects the flavour of view (compact by default, ``dag.scope`` for the
+    stored graph).
     """
-    view = dag.compact()
+    if view_of is None:
+
+        def view_of(scope: str) -> dict:
+            return dag.compact(scope=scope)
+
+    view = view_of(ROOT_SCOPE)
     if any(n["id"] == nid for n in view["nodes"]):
         return view
     for boundary in dag.boundaries():
         if boundary.get("nested_root") is None:
             continue
-        nested = dag.compact(scope=boundary["id"])
+        nested = view_of(boundary["id"])
         if any(n["id"] == nid for n in nested["nodes"]):
             return nested
     return None
@@ -1381,13 +1390,21 @@ _MERMAID_STYLES: dict[str, str] = {
     "table": "fill:#f5f5f5,stroke:#616161,color:#111",
     "unbound": "fill:#fff3e0,stroke:#ef6c00,color:#111",
     "tag": "fill:#f5f5f5,stroke:#9e9e9e,color:#111",
+    # Non-boundary plumbing, only drawn in the expanded graph: recede visually so
+    # the boundaries still read as the structure.
+    "unknown": "fill:#fafafa,stroke:#bdbdbd,stroke-dasharray:3 3,color:#555",
 }
 _MERMAID_UNKNOWN = "unknown"
 
 
+def _mermaid_slug(text: str) -> str:
+    """Anything -> a bare word, which is all a mermaid id may contain."""
+    return "".join(c if c.isalnum() or c == "_" else "_" for c in text)
+
+
 def _mermaid_id(node_id: str) -> str:
     """`@flight_u_d_x_f_17` -> `n_flight_u_d_x_f_17` (mermaid ids are bare words)."""
-    return "n_" + "".join(c if c.isalnum() or c == "_" else "_" for c in node_id)
+    return "n_" + _mermaid_slug(node_id)
 
 
 def _mermaid_text(label: str) -> str:
@@ -1409,29 +1426,45 @@ def _mermaid_scope_title(node: dict) -> str:
     return f"input of {label}"
 
 
-def _mermaid_reachable(
-    view: dict, root: str
-) -> tuple[tuple[str, ...], tuple[dict, ...]]:
-    """Ids and edges of the sub-DAG under *root* within one compact view.
+def _stored_expansion(
+    dag: LineageDAG, target: str
+) -> tuple[set[str], tuple[dict, ...]]:
+    """Stored nodes and edges to draw so *target* is rendered raw.
 
-    Ids come back in BFS discovery order, not as a set: the rendered diagram has
-    to be byte-stable across processes (set iteration is not).
+    Both directions matter. `compact()` folds a run of non-boundary ops onto the
+    edge *above* a node as much as below it -- a cache reached through
+    `JoinReference`/`Field` has those ops on its consumer's edge -- so rendering
+    one node raw means every stored node on a path into it, plus its whole stored
+    subtree. Unrelated branches are untouched, which is what keeps the rest of the
+    diagram compact.
     """
-    children: dict[str, list[dict]] = defaultdict(list)
-    for edge in view["edges"]:
-        children[edge["from"]].append(edge)
-    ids, edges, queue = [root], [], [root]
-    while queue:
-        nid, queue = queue[0], queue[1:]
-        for edge in children.get(nid, ()):
-            edges.append(edge)
-            if edge["to"] not in ids:
-                ids.append(edge["to"])
-                queue.append(edge["to"])
-    return tuple(ids), tuple(edges)
+    view = _view_containing(dag, target, dag.scope) or {"edges": ()}
+    edges = tuple(view["edges"])
+    consumers: dict[str, list[str]] = defaultdict(list)
+    upstreams: dict[str, list[str]] = defaultdict(list)
+    for edge in edges:
+        consumers[edge["to"]].append(edge["from"])
+        upstreams[edge["from"]].append(edge["to"])
+
+    def reach(adjacency: dict[str, list[str]]) -> set[str]:
+        found, queue = {target}, [target]
+        while queue:
+            for nxt in adjacency.get(queue.pop(), ()):
+                if nxt not in found:
+                    found.add(nxt)
+                    queue.append(nxt)
+        return found
+
+    keep = reach(consumers) | reach(upstreams)
+    return keep, tuple(e for e in edges if e["from"] in keep and e["to"] in keep)
 
 
-def format_mermaid_lineage(dag: LineageDAG, root: str | None = None) -> str:
+def format_mermaid_lineage(
+    dag: LineageDAG,
+    root: str | None = None,
+    expand: bool = False,
+    expand_from: str | tuple[str, ...] | None = None,
+) -> str:
     """Render a :class:`LineageDAG` as a mermaid `flowchart`.
 
     Edges point **downstream** (a source to its consumer), the reverse of the
@@ -1440,11 +1473,46 @@ def format_mermaid_lineage(dag: LineageDAG, root: str | None = None) -> str:
     boundary's nested input lineage becomes a `subgraph`, which is what the
     stored `scope` tag means.
 
-    Pass *root* (a node id) to render only what feeds that node.
+    Three dials, which compose:
+
+    - *root* — render only what feeds that node.
+    - *expand* — draw the *stored* graph instead of the compact one: every node,
+      with the runs that `compact()` folds into `via` drawn as real nodes.
+    - *expand_from* — keep the graph compact but switch to the stored one at that
+      node, so one region is detailed in an otherwise compact diagram.
+
+    The walk is a DFS that carries its own mode, which is what lets the detail
+    change part-way down: a node is declared once, edges once, and a per-path
+    ``seen`` set stops a cycle.
     """
     by_id = dag.by_id
     lines = ["flowchart TD"]
     kinds: dict[str, set[str]] = defaultdict(set)
+    declared: set[str] = set()
+    drawn: set[tuple[str, str]] = set()
+    expand_ids = frozenset(
+        (expand_from,) if isinstance(expand_from, str) else (expand_from or ())
+    )
+    expansions = {
+        target: _stored_expansion(dag, target)
+        for target in sorted(expand_ids)
+        if target in by_id
+    }
+    expansion_scope = {
+        target: (_view_containing(dag, target, dag.scope) or {}).get(
+            "scope", ROOT_SCOPE
+        )
+        for target in expansions
+    }
+    expanded_keep = (
+        frozenset().union(*(keep for keep, _ in expansions.values()))
+        if (expansions)
+        else frozenset()
+    )
+
+    def view_for(scope: str, expanded: bool) -> dict:
+        # dag.scope() is the stored graph for one scope; dag.compact() collapses it.
+        return dag.scope(scope) if expanded else dag.compact(scope=scope)
 
     def declare(nid: str, indent: str) -> None:
         node = by_id.get(nid, {})
@@ -1453,43 +1521,74 @@ def format_mermaid_lineage(dag: LineageDAG, root: str | None = None) -> str:
         label = _mermaid_text(compact_node_label(node) if node else nid)
         lines.append(f'{indent}{_mermaid_id(nid)}["{label}"]')
 
-    def emit(
-        view: dict, ids: tuple[str, ...], edges: tuple[dict, ...], indent: str
-    ) -> None:
-        for nid in ids:
-            nested_root = by_id.get(nid, {}).get("nested_root")
-            if nested_root is None:
-                declare(nid, indent)
+    def draw_edge(upstream: str, downstream: str, via: tuple, indent: str) -> None:
+        if (upstream, downstream) in drawn:
+            return
+        drawn.add((upstream, downstream))
+        # reversed: data flows from the upstream node into its consumer
+        arrow = f"-->|via {', '.join(via[:3])}|" if via else "-->"
+        lines.append(
+            f"{indent}{_mermaid_id(upstream)} {arrow} {_mermaid_id(downstream)}"
+        )
+
+    def emit_expansion(scope: str, indent: str) -> None:
+        """Draw the stored graph around each expanded node in *scope*.
+
+        Additive: the compact walk has already drawn the rest. What gets drawn is
+        every node on a stored path *into* the expanded node plus its whole stored
+        subtree -- so the runs `compact()` folded into `via` both above and below
+        it become real nodes, while unrelated branches stay collapsed.
+        """
+        for target, (keep, edges) in expansions.items():
+            if expansion_scope[target] != scope:
                 continue
-            # the Flight node itself sits outside its own input subgraph
+            for nid in keep:
+                if nid not in declared:
+                    declared.add(nid)
+                    declare(nid, indent)
+            for edge in edges:
+                draw_edge(edge["to"], edge["from"], (), indent)
+
+    def walk(
+        nid: str, scope: str, expanded: bool, indent: str, seen: frozenset
+    ) -> None:
+        expanded = expanded or nid in expand_ids
+        if nid not in declared:
+            declared.add(nid)
             declare(nid, indent)
-            nested_view = dag.compact(scope=nid)
-            nested_ids, nested_edges = _mermaid_reachable(nested_view, nested_root)
-            title = _mermaid_text(_mermaid_scope_title(by_id[nid]))
-            lines.append(f'{indent}subgraph {_mermaid_id(nid)}_scope["{title}"]')
-            emit(nested_view, nested_ids, nested_edges, indent + "  ")
-            lines.append(f"{indent}end")
-            lines.append(f"{indent}{_mermaid_id(nested_root)} --> {_mermaid_id(nid)}")
-        for edge in edges:
-            # reversed: data flows from the upstream node into its consumer
-            arrow = (
-                f"-->|via {', '.join(edge['via'][:3])}|" if edge.get("via") else "-->"
-            )
-            lines.append(
-                f"{indent}{_mermaid_id(edge['to'])} {arrow} {_mermaid_id(edge['from'])}"
-            )
+            nested_root = by_id.get(nid, {}).get("nested_root")
+            if nested_root is not None:
+                # the Flight node itself sits outside its own input subgraph
+                title = _mermaid_text(_mermaid_scope_title(by_id[nid]))
+                lines.append(f'{indent}subgraph {_mermaid_id(nid)}_scope["{title}"]')
+                walk(
+                    nested_root, nid, expanded, indent + "  ", frozenset({nested_root})
+                )
+                emit_expansion(nid, indent + "  ")
+                lines.append(f"{indent}end")
+                draw_edge(nested_root, nid, (), indent)
+        for edge in view_for(scope, expanded)["edges"]:
+            if edge["from"] != nid or edge["to"] in seen:
+                continue
+            walk(edge["to"], scope, expanded, indent, seen | {edge["to"]})
+            # a compact edge whose both ends are inside an expansion is replaced
+            # by the stored run between them
+            if not (edge["from"] in expanded_keep and edge["to"] in expanded_keep):
+                draw_edge(edge["to"], nid, tuple(edge.get("via") or ()), indent)
 
     if root is None:
-        view = dag.compact()
-        start = view["root"]
+        start = view_for(ROOT_SCOPE, expand)["root"]
+        scope = ROOT_SCOPE
     else:
-        view = _view_containing(dag, root) or {"nodes": (), "edges": ()}
-        start = root
+        view = _view_containing(dag, root, lambda s: view_for(s, expand)) or {
+            "scope": ROOT_SCOPE
+        }
+        start, scope = root, view.get("scope", ROOT_SCOPE)
     if start is None or start not in by_id:
         return 'flowchart TD\n  empty["(empty)"]'
 
-    ids, edges = _mermaid_reachable(view, start)
-    emit(view, ids, edges, "  ")
+    walk(start, scope, expand, "  ", frozenset({start}))
+    emit_expansion(scope, "  ")
     for kind, members in sorted(kinds.items()):
         if style := _MERMAID_STYLES.get(kind):
             lines.append(f"  classDef {kind} {style}")

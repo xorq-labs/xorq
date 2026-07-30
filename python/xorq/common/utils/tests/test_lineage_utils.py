@@ -1357,6 +1357,100 @@ def test_mermaid_lineage_rooted_at_a_node_and_of_nothing(
     assert "(empty)" in format_mermaid_lineage(dag, root="@nope")
 
 
+def test_mermaid_expand_draws_the_stored_graph(udxf_expression: Expr) -> None:
+    """`expand=True` renders `dag.scope()` -- the stored graph -- instead of the
+    compact one, so the runs folded into `via` become real nodes."""
+    dag = extract_lineage_dag(udxf_expression)
+
+    compact = format_mermaid_lineage(dag)
+    expanded = format_mermaid_lineage(dag, expand=True)
+
+    def declared(diagram: str) -> set[str]:
+        return {
+            line.strip().split("[", 1)[0]
+            for line in diagram.splitlines()
+            if "[" in line and not line.strip().startswith(("subgraph", "class"))
+        }
+
+    assert declared(compact) < declared(expanded)
+    assert len(declared(expanded)) == len(dag.nodes)
+    # nothing is collapsed any more, so no edge carries a `via` label
+    assert "|via " not in expanded
+    assert "classDef unknown " in expanded
+    # nested Flight scopes are expanded too, not just the outer graph
+    [udxf] = dag.boundaries(kind="flight_udxf")
+    nested_ids = {n["id"] for n in dag.scope(udxf["id"])["nodes"]}
+    assert len(nested_ids) > 1
+    for nid in nested_ids:
+        assert _mermaid_id(nid) in expanded
+
+
+def test_mermaid_expand_from_switches_detail_part_way_down(
+    multi_join_expression: Expr,
+) -> None:
+    """`expand_from` keeps the compact graph but draws the stored one from that
+    node downward -- the walk carries its own mode, so detail changes mid-graph."""
+    dag = extract_lineage_dag(multi_join_expression)
+    [crossing, *_] = dag.boundaries(kind="engine_crossing")
+
+    compact = format_mermaid_lineage(dag)
+    mixed = format_mermaid_lineage(dag, expand_from=crossing["id"])
+    everything = format_mermaid_lineage(dag, expand=True)
+
+    def declared(diagram: str) -> set[str]:
+        """Op nodes only: column nodes are drawn for the expanded node alone, so
+        they are not part of the compact-vs-expanded comparison."""
+        return {
+            line.strip().split("[", 1)[0]
+            for line in diagram.splitlines()
+            if "[" in line
+            and "_col_" not in line
+            and not line.strip().startswith(("subgraph", "class"))
+        }
+
+    # strictly between the two extremes
+    assert declared(compact) < declared(mixed) < declared(everything)
+    # the root stays in the picture, unlike root=
+    assert _mermaid_id(dag.root) in mixed
+    # a node is declared once even when several paths reach it
+    for nid in declared(mixed):
+        assert mixed.count(f"{nid}[") == 1
+
+
+def test_mermaid_expand_from_expands_the_run_above_the_node(
+    multi_join_expression: Expr,
+) -> None:
+    """`compact()` folds runs onto the edge *above* a node as much as below it, so
+    rendering one node raw has to reach upward too -- otherwise expanding a node
+    whose own subtree has no intermediates draws nothing new."""
+    dag = extract_lineage_dag(multi_join_expression)
+    [crossing, *_] = dag.boundaries(kind="engine_crossing")
+    (incoming,) = [
+        e for e in dag.compact()["edges"] if e["to"] == crossing["id"] and e["via"]
+    ]
+
+    diagram = format_mermaid_lineage(dag, expand_from=crossing["id"])
+
+    # the ops that were folded into that edge's `via` are now nodes of their own
+    for op_type in incoming["via"]:
+        assert op_type in diagram
+    # and the edge itself is gone, replaced by the stored run
+    assert f"{_mermaid_id(crossing['id'])} -->|via" not in diagram, (
+        "the collapsed edge should be replaced, not drawn alongside"
+    )
+
+
+def test_mermaid_expand_from_accepts_several_nodes(multi_join_expression: Expr) -> None:
+    dag = extract_lineage_dag(multi_join_expression)
+    crossings = tuple(n["id"] for n in dag.boundaries(kind="engine_crossing"))
+    assert len(crossings) > 1
+
+    one = format_mermaid_lineage(dag, expand_from=crossings[:1])
+    several = format_mermaid_lineage(dag, expand_from=crossings)
+
+    assert len(several.splitlines()) > len(one.splitlines())
+
+
 def test_mermaid_label_escaping() -> None:
     """A label reaching mermaid must not break out of its quoted node."""
     assert _mermaid_text('a "b" <c> & d') == "a &quot;b&quot; &lt;c&gt; &amp; d"
