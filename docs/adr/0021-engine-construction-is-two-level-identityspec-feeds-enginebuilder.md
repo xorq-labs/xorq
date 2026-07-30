@@ -1,7 +1,7 @@
 # ADR-0021: Engine construction is two-level — a cross-engine IdentitySpec feeds an EngineBuilder; per-engine specs feed `build()`
 
 - **Status:** Proposed
-- **Date:** 2026-07-29
+- **Date:** 2026-07-30
 - **Deciders:** Dan Lovell
 
 > Drafted ahead of implementation, deliberately: this branch is
@@ -199,3 +199,41 @@ Rejected because:
   (`_current_hasher`, `snapshot_hasher`); `provenance_utils.py`
   (`normalization_context`, `get_expr_hash` fold)
 - The shim-vs-core-enabler extension-point audit behind ADR-0019/0020
+
+## Amendment (2026-07-30)
+
+The two-level construction stands; two mechanisms are revised before any
+phase ships, and one gap is split out into its own ADR.
+
+1. **The composition guard moves to a chokepoint (revises phase 2).** The
+   original text rests cache-side safety on asserting spec agreement at
+   every composition point (`into_backend`, cache-key computation,
+   RemoteTable/tee assembly), with an audit of completeness as the
+   acceptance gate. That is the same remembered-fact pattern ADR-0020
+   criticized in the FQN-drift test: an audit polices code, not identity.
+   Instead, the assert moves to the one place every cache-identity
+   computation already passes through — backend normalization during
+   tokenize. Engines carry their builder's spec fingerprint;
+   `normalization_context(expr)` (which already receives the expr and can
+   see `expr.ls.backends`) asserts every participating engine's fingerprint
+   matches the ambient builder's, raising on mismatch. Anything that
+   hashes, checks — by construction. Composition-point asserts may remain
+   as earlier, friendlier errors, but they are no longer the correctness
+   obligation, and phase 2's "cannot ship partial" negative dissolves.
+
+2. **Ambient installation is scoped, not construction-time (clarifies
+   phase 1).** "The builder installs the ambient hasher" left unspecified
+   what happens when two builders coexist. Revised: the ambient hasher is
+   a contextvar whose *default* is `DEFAULT_BUILDER`'s value, and a
+   builder takes scope explicitly — `with builder.active(): ...` — setting
+   and resetting the token. Coexisting builders are nested contexts with
+   well-defined extents, thread-safe via contextvar propagation, and phase
+   1's "two ways to hold a hasher must be the same object" holds because
+   the default *is* the builder's value.
+
+3. **The extension story is split out as ADR-0023.** This ADR gives
+   rehydration `DEFAULT_BUILDER` but says nothing about how entry-point
+   plugins extend it — and an import-time mutation of the default spec is
+   exactly the import-order-dependent identity the "mutable `register()`"
+   alternative rejects. ADR-0023 (identity-spec contributions as entry
+   points, composed order-independently) owns that decision.

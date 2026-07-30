@@ -1,7 +1,7 @@
 # ADR-0020: Engine behavior is an immutable, identity-folded declarative spec
 
 - **Status:** Proposed
-- **Date:** 2026-07-29
+- **Date:** 2026-07-30
 - **Deciders:** Dan Lovell
 
 ## Context
@@ -166,3 +166,45 @@ Deferred because:
 - Prototype (this branch): `dasher.rules_fingerprint`,
   `normalize_registry.rules_fingerprint`, the `get_expr_hash` fold, and
   `test_rules_fingerprint.py`
+
+## Amendment (2026-07-30)
+
+The decision stands; four implementation details of the fingerprint are
+revised, prompted by the `prototype/rest-plugin-shim` experience (a plugin's
+most natural mutation — `Hasher.override` on an existing rule key — replaces
+in place and was invisible to the fingerprint as originally specified).
+
+1. **Fingerprints digest `(rule-key, normalizer-name)` pairs, not keys
+   alone.** `Hasher.override` on an existing key preserves the key tuple, so
+   rule *replacement* — the fourth mutation verb, and the one extensions
+   actually use — was invisible. Digesting the normalizer's
+   `module.qualname` alongside each key makes replacement identity-visible
+   while staying inside the #2155 line: still names, never pickled bodies.
+   An implementation-body edit under an unchanged function name remains
+   deliberately out of identity scope. The same treatment applies to
+   `normalize_registry.rules_fingerprint` (sorted `(key, fn-name)` pairs).
+
+2. **The fold uses the declared regime, not the in-context hasher.**
+   `SnapshotStrategy._build_hasher` appends per-expression backend-FQN
+   rules, so fingerprinting the context hasher made the "rule-set
+   fingerprint" a function of the expr — detectable drift, but not a regime
+   identifier comparable across builds. The strategy's static rules are now
+   split into `declared_rules()` / `declared_hasher()`, and `get_expr_hash`
+   folds `rules_fingerprint(strategy.declared_hasher())`. Per-expression
+   derived rules are excluded: they carry no information the expr hash
+   lacks.
+
+3. **Fingerprints are recorded, not only salted.** Folding alone makes rule
+   drift *detectable* (hashes differ) but not *diagnosable* (nothing says
+   which regime built an artifact). `build_provenance_metadata` now stamps
+   `dasher_rules_fingerprint` and `normalize_registry_fingerprint` as
+   provenance fields alongside `expr_hash`.
+
+4. **Digests are computed with `hashlib`, not `HASHER.tokenize`.** Routing
+   a fingerprint through the rule table made one table's fingerprint a
+   function of the other table's rules (and dasher's self-referential).
+   Plain `sha256` over the delimited name sequence decouples them.
+
+Consequence for the original text: the "body-blind fingerprint" negative
+narrows — a *replaced* rule is now visible; only a body edit under an
+unchanged name remains invisible, which is the intended contract.
