@@ -16,7 +16,7 @@ from click.testing import CliRunner
 import xorq.api as xo
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.common.utils.lineage_utils import LineageDAG
+from xorq.common.utils.lineage_utils import LineageDAG, _mermaid_id
 
 
 @pytest.fixture
@@ -342,19 +342,190 @@ def test_lineage_format_mermaid_honours_node(
     assert "Join(" not in result.output
 
 
-def test_lineage_format_mermaid_rejects_the_listing_levels(
+def test_lineage_format_mermaid_rejects_the_boundaries_level(
     runner: CliRunner, catalog_with_udxf: tuple[str, str]
 ) -> None:
-    """mermaid renders the graph; `raw` and `boundaries` are listings."""
+    """`boundaries` is a flat listing: keeping the edges would just re-spell the
+    compact graph, dropping them would draw node soup."""
     catalog_path, name = catalog_with_udxf
 
-    for level in ("raw", "boundaries"):
-        result = runner.invoke(
+    result = runner.invoke(
+        cli,
+        ["--path", catalog_path, "lineage", name, "-f", "mermaid", "-l", "boundaries"],
+    )
+
+    assert result.exit_code != 0, result.output
+    assert "'boundaries' is a flat listing" in result.output
+
+
+def test_lineage_raw_mermaid_expands_the_collapsed_runs(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    """`raw` is the stored graph, so mermaid draws it un-collapsed: the ops that
+    the compact view folds into `via` become real nodes."""
+    catalog_path, name = catalog_with_udxf
+
+    compact = runner.invoke(
+        cli, ["--path", catalog_path, "lineage", name, "-f", "mermaid"]
+    )
+    expanded = runner.invoke(
+        cli, ["--path", catalog_path, "lineage", name, "-f", "mermaid", "-l", "raw"]
+    )
+
+    assert expanded.exit_code == 0, expanded.output
+    assert expanded.output.splitlines()[0] == "flowchart TD"
+    # not JSON: --format wins over the level's own listing format
+    assert not expanded.output.lstrip().startswith("{")
+
+    def declared(output: str) -> set[str]:
+        return {
+            line.strip().split("[", 1)[0]
+            for line in output.splitlines()
+            if "[" in line and not line.strip().startswith(("subgraph", "class"))
+        }
+
+    assert declared(compact.output) < declared(expanded.output)
+    # the plumbing the compact view hides behind `via`
+    assert "Field:" in expanded.output
+    assert "|via " in compact.output
+    assert "|via " not in expanded.output
+    # and it carries a receding class of its own
+    assert "classDef unknown " in expanded.output
+
+
+def test_lineage_raw_mermaid_honours_node(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    """Expanding one node: the ops under it, nothing above it."""
+    catalog_path, name = catalog_with_udxf
+    dag = _lineage_dag(catalog_path, name)
+    crossing, *_ = dag.boundaries(kind="engine_crossing")
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "lineage",
+            name,
+            "--node",
+            crossing["id"],
+            "-l",
+            "raw",
+            "-f",
+            "mermaid",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _mermaid_id(crossing["id"]) in result.output
+    assert _mermaid_id(dag.root) not in result.output
+
+
+def test_lineage_expand_keeps_the_whole_graph(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    """`--expand` is the mixed-detail dial: everything stays compact except from
+    the matched node downward, which is what `--node` cannot do (it narrows)."""
+    catalog_path, name = catalog_with_udxf
+    dag = _lineage_dag(catalog_path, name)
+
+    compact = runner.invoke(
+        cli, ["--path", catalog_path, "lineage", name, "-f", "mermaid"]
+    )
+    expanded = runner.invoke(
+        cli,
+        ["--path", catalog_path, "lineage", name, "-f", "mermaid", "--expand", "join"],
+    )
+
+    assert expanded.exit_code == 0, expanded.output
+    # the root and the far side of the graph survive, unlike with --node
+    assert _mermaid_id(dag.root) in expanded.output
+    assert "raw_customers" in expanded.output
+    # and the expanded region gained the ops the compact view folded into `via`
+    assert "Field:" not in compact.output
+    assert "Field:" in expanded.output
+    assert "|via " in compact.output
+    assert "|via " not in expanded.output
+
+
+def test_lineage_expand_reaches_the_run_above_the_node(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    """Expanding a node whose own subtree has no intermediates still shows
+    something: the run collapsed onto its consumer's edge."""
+    catalog_path, name = catalog_with_udxf
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "lineage",
+            name,
+            "-f",
+            "mermaid",
+            "--expand",
+            "flight_udxf",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Field:" in result.output or "JoinReference" in result.output
+
+
+def test_lineage_expand_accepts_the_same_handles_as_node(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    catalog_path, name = catalog_with_udxf
+    dag = _lineage_dag(catalog_path, name)
+    [join] = dag.boundaries(kind="join")
+
+    by_kind, by_label, by_hash = (
+        runner.invoke(
             cli,
-            ["--path", catalog_path, "lineage", name, "-f", "mermaid", "-l", level],
+            ["--path", catalog_path, "lineage", name, "-f", "mermaid", "--expand", h],
         )
-        assert result.exit_code != 0, result.output
-        assert "--format mermaid renders the graph" in result.output
+        for h in ("join", join["id"], join["snapshot_hash"])
+    )
+
+    assert by_kind.exit_code == 0, by_kind.output
+    assert by_kind.output == by_label.output == by_hash.output
+
+
+def test_lineage_expand_needs_mermaid_and_conflicts_with_raw(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    catalog_path, name = catalog_with_udxf
+
+    text = runner.invoke(
+        cli, ["--path", catalog_path, "lineage", name, "--expand", "join"]
+    )
+    with_raw = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "lineage",
+            name,
+            "-f",
+            "mermaid",
+            "-l",
+            "raw",
+            "--expand",
+            "join",
+        ],
+    )
+    unknown = runner.invoke(
+        cli, ["--path", catalog_path, "lineage", name, "-f", "mermaid", "--expand", "x"]
+    )
+
+    assert text.exit_code != 0
+    assert "--expand needs --format mermaid" in text.output
+    assert with_raw.exit_code != 0
+    assert "redundant with --level raw" in with_raw.output
+    assert unknown.exit_code != 0
+    assert "No lineage node matches 'x'" in unknown.output
 
 
 def test_lineage_rejects_an_unknown_level(

@@ -1019,6 +1019,17 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
+def _resolve_lineage(dag: LineageDAG, handle: str, name: str) -> tuple[dict, ...]:
+    """Nodes a `--node`/`--expand` handle names, or a pointer to the listing."""
+    if matches := dag.resolve(handle):
+        return matches
+    raise click.ClickException(
+        f"No lineage node matches {handle!r} — run "
+        f"'xorq catalog lineage {name} --level boundaries' to see the "
+        f"available ids, kinds and hashes."
+    )
+
+
 def _lineage_boundary_line(node: dict) -> str:
     from xorq.common.utils.lineage_utils import compact_node_label  # noqa: PLC0415
 
@@ -1071,21 +1082,36 @@ def _lineage_boundaries_lines(
     type=click.Choice(("text", "mermaid")),
     default="text",
     show_default=True,
-    help="Render the compact level as a text tree or a mermaid flowchart.",
+    help="Render the graph as a text tree or a mermaid flowchart.",
+)
+@click.option(
+    "--expand",
+    "expand_handle",
+    default=None,
+    help="Keep the whole graph compact but draw this node raw: every op on a "
+    "path into it, plus everything under it. Same handle forms as --node. "
+    "Mermaid only.",
 )
 @click.pass_context
 def lineage(
-    ctx: click.Context, name: str, level: str, handle: str | None, fmt: str
+    ctx: click.Context,
+    name: str,
+    level: str,
+    handle: str | None,
+    fmt: str,
+    expand_handle: str | None,
 ) -> None:
     """Show the lineage recorded in an entry's metadata sidecar.
 
     The sidecar stores one node table with scope-tagged edges; the compact
     boundary tree is derived from it, so no level re-walks the expression.
 
-    `--level` picks how much detail, `--node` picks how much of the graph. With
-    `--node`, the compact level prints the subtree feeding that node — including
-    a Flight boundary's nested input lineage — and a handle matching several
-    nodes (a kind, a tag) prints each match in turn.
+    `--level` picks how much detail, `--node` picks how much of the graph,
+    `--format` picks the rendering, and `--expand` mixes detail: the whole graph
+    stays compact except for one node, drawn raw. With `--node`, the compact
+    level prints the subtree feeding that node — including a Flight boundary's
+    nested input lineage — and a handle matching several nodes (a kind, a tag)
+    prints each match in turn.
 
     \b
     Levels:
@@ -1094,11 +1120,14 @@ def lineage(
     - `raw`—the stored lineage as JSON; pipe it to `jq`.
 
     \b
-    Formats (compact level only):
-    - `text` (default)—an indented tree.
+    Formats:
+    - `text` (default)—the level's own format: a tree, a listing, or JSON.
     - `mermaid`—a `flowchart TD` to paste into docs or an issue. Edges point
       downstream, so sources sit at the top, and a Flight boundary's nested
-      input lineage becomes a `subgraph`.
+      input lineage becomes a `subgraph`. With `--level compact` it draws the
+      boundary graph; with `--level raw`, the expanded one, where the runs
+      collapsed into `via` become real nodes. `--level boundaries` has no graph
+      to draw and is rejected.
 
     \b
     Arguments:
@@ -1121,18 +1150,32 @@ def lineage(
       # A mermaid diagram, whole graph or one node's upstream
       xorq catalog lineage penguins-prod --format mermaid
       xorq catalog lineage penguins-prod --node flight_udxf -f mermaid
+      # The same diagram expanded to every op, not just the boundaries
+      xorq catalog lineage penguins-prod --level raw --format mermaid
+      # The whole graph compact, with one node drawn raw
+      xorq catalog lineage penguins-prod -f mermaid --expand @cached_node_14
     """
     from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
         format_compact_lineage,
         format_mermaid_lineage,
     )
 
-    if fmt == "mermaid" and level != "compact":
+    if fmt == "mermaid" and level == "boundaries":
         raise click.UsageError(
-            f"--format mermaid renders the graph, which only the compact level "
-            f"is; {level!r} is a listing. Drop --level or pass --level compact."
+            "--format mermaid renders a graph; 'boundaries' is a flat listing. "
+            "Use --level compact for the boundary graph or --level raw for the "
+            "expanded one."
         )
-    render = format_mermaid_lineage if fmt == "mermaid" else format_compact_lineage
+    if expand_handle is not None and fmt != "mermaid":
+        raise click.UsageError(
+            "--expand needs --format mermaid: the text tree has no way to show "
+            "one region in more detail than the rest."
+        )
+    if expand_handle is not None and level == "raw":
+        raise click.UsageError(
+            "--expand is redundant with --level raw, which already draws every "
+            "op. Drop one of them."
+        )
 
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
@@ -1146,15 +1189,27 @@ def lineage(
                 f"rebuild it with a current xorq to record one."
             )
 
-        selected = dag.nodes if handle is None else dag.resolve(handle)
-        if handle is not None and not selected:
-            raise click.ClickException(
-                f"No lineage node matches {handle!r} — run "
-                f"'xorq catalog lineage {name} --level boundaries' to see the "
-                f"available ids, kinds and hashes."
-            )
+        selected = dag.nodes if handle is None else _resolve_lineage(dag, handle, name)
+        expand_ids = (
+            ()
+            if expand_handle is None
+            else tuple(n["id"] for n in _resolve_lineage(dag, expand_handle, name))
+        )
 
-        match (level, handle):
+        if fmt == "mermaid":
+            # raw is the stored graph: the same diagram with the runs that
+            # compact() folds into `via` drawn as real nodes. --expand does that
+            # for one region instead of the whole graph.
+            def render(dag: LineageDAG, root: str | None = None) -> str:
+                return format_mermaid_lineage(
+                    dag, root=root, expand=level == "raw", expand_from=expand_ids
+                )
+        else:
+            render = format_compact_lineage
+
+        # `--format mermaid` renders a graph at every level it accepts, so it
+        # takes precedence over the level's own listing format.
+        match (level if fmt == "text" else "graph", handle):
             case ("raw", None):
                 click.echo(json.dumps(dag.to_dict(), indent=2, default=str))
             case ("raw", _):
