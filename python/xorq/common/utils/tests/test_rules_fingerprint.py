@@ -13,8 +13,13 @@ from typing import Any
 
 import xorq.api as xo
 import xorq.common.utils.dasher as dasher
+from xorq.caching.strategy import SnapshotStrategy
+from xorq.common.enums import ProvenanceField
 from xorq.common.utils.dasher import HASHER, Hasher, rules_fingerprint
-from xorq.common.utils.provenance_utils import get_expr_hash
+from xorq.common.utils.provenance_utils import (
+    build_provenance_metadata,
+    get_expr_hash,
+)
 from xorq.ibis_yaml import normalize_registry as NR
 
 
@@ -42,11 +47,41 @@ def test_fingerprint_tracks_add_remove_reorder() -> None:
     assert rules_fingerprint(reordered) != base
 
 
-def test_fingerprint_ignores_implementation_body() -> None:
-    # names are the contract, not pickled callables (#2155): swapping every
-    # rule's function while keeping names + order leaves the fingerprint intact
-    same_names = _with_rules(tuple((name, _dummy) for name, _ in HASHER.rules))
-    assert rules_fingerprint(same_names) == rules_fingerprint()
+def test_fingerprint_tracks_replacement() -> None:
+    # overriding an existing rule key with a differently-named function is a
+    # rule-regime change and must move the fingerprint (the normalizer is
+    # identified by its module-qualified name)
+    key, _fn = HASHER.rules[0]
+    replaced = HASHER.override((key, _dummy))
+    assert len(replaced.rules) == len(HASHER.rules)  # replaced in place
+    assert rules_fingerprint(replaced) != rules_fingerprint()
+    # ...but the digest input is names-only by construction (#2155: names are
+    # the contract, never pickled callables): a hasher rebuilt from the SAME
+    # (key, fn) pairs fingerprints identically
+    rebuilt = _with_rules(tuple(HASHER.rules))
+    assert rules_fingerprint(rebuilt) == rules_fingerprint()
+
+
+def test_declared_regime_fingerprint_is_expr_independent() -> None:
+    # get_expr_hash folds the *declared* regime (base rules + strategy layer),
+    # not the in-context hasher, which carries per-expression derived backend
+    # rules. The declared fingerprint must be deterministic and free of any
+    # per-expr contribution.
+    strategy = SnapshotStrategy()
+    fp = rules_fingerprint(strategy.declared_hasher())
+    assert fp == rules_fingerprint(SnapshotStrategy().declared_hasher())
+    # and it is a strategy-layer regime: distinct from the base HASHER's
+    assert fp != rules_fingerprint()
+
+
+def test_provenance_metadata_records_fingerprints() -> None:
+    expr = xo.memtable({"a": [1]})
+    metadata = build_provenance_metadata(expr, SnapshotStrategy(), object())
+    dasher_fp = metadata[ProvenanceField.dasher_rules_fingerprint.encode()]
+    registry_fp = metadata[ProvenanceField.normalize_registry_fingerprint.encode()]
+    assert dasher_fp and registry_fp
+    assert dasher_fp.decode() == rules_fingerprint(SnapshotStrategy().declared_hasher())
+    assert registry_fp.decode() == NR.rules_fingerprint()
 
 
 def test_build_hash_folds_the_rule_set() -> None:

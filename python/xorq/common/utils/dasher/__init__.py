@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+import hashlib
 import inspect
 from typing import TYPE_CHECKING
 
@@ -248,18 +249,26 @@ def snapshot_hasher(*extra_rules) -> Hasher:
 
 def rules_fingerprint(hasher: Hasher | None = None) -> str:
     """Stable digest of a Hasher's identity-bearing rule set: the *ordered*
-    tuple of rule names (order is identity-bearing -- the earliest match wins
-    on MRO ties, so a reorder can change normalization).
+    tuple of (rule key, normalizer name) pairs (order is identity-bearing --
+    the earliest match wins on MRO ties, so a reorder can change
+    normalization).
 
-    Sensitive to rules added, removed, or reordered; deliberately NOT to a
-    rule's implementation body -- rule *names* are the contract, never pickled
-    callables (#2155). Folded into the build hash (ADR-0015/ADR-0020) so a
-    change to the rule set yields a new build identity, promoting
-    ``test_dasher``'s hand-maintained FQN-drift check to a first-class identity
-    input rather than a test that must be remembered.
+    Sensitive to rules added, removed, reordered, or REPLACED (the normalizer
+    is identified by its module-qualified name); deliberately insensitive to
+    an implementation-body edit under an unchanged name -- rule *names* are
+    the contract, never pickled callables (#2155). Computed with sha256
+    directly (not ``HASHER.tokenize``) so the fingerprint depends only on the
+    rule table itself, never on another table's rules. Folded into the build
+    hash (ADR-0015/ADR-0020) so a change to the rule set yields a new build
+    identity, promoting ``test_dasher``'s hand-maintained FQN-drift check to a
+    first-class identity input rather than a test that must be remembered.
     """
     hasher = HASHER if hasher is None else hasher
-    return HASHER.tokenize(tuple(name for name, _ in hasher.rules))
+    return hashlib.sha256(
+        "\x00".join(
+            f"{key}\x1f{fn.__module__}.{fn.__qualname__}" for key, fn in hasher.rules
+        ).encode()
+    ).hexdigest()
 
 
 __all__ = [

@@ -21,6 +21,7 @@ those through the guarded legacy branch.
 
 from __future__ import annotations
 
+import hashlib
 import pickle
 from typing import Any, Callable, Optional
 
@@ -45,13 +46,21 @@ _FN_TO_KEY = {fn: key for key, fn in _NORMALIZE_RULES}
 
 def rules_fingerprint() -> str:
     """Stable digest of the by-name normalize_method registry: the *sorted*
-    key set (lookup here is by name, so unlike the dasher rule table, order is
-    not identity-bearing). Companion to ``dasher.rules_fingerprint``; both fold
-    into the build hash (ADR-0020) so appending a serializable normalizer is a
-    build-identity change, caught by the hash rather than only by a test."""
-    from xorq.common.utils.dasher import HASHER  # noqa: PLC0415
-
-    return HASHER.tokenize(tuple(sorted(_KEY_TO_FN)))
+    (key, normalizer name) pairs (lookup here is by name, so unlike the dasher
+    rule table, order is not identity-bearing). Sensitive to keys added,
+    removed, or rebound to a differently-named function; insensitive to an
+    implementation-body edit under an unchanged name. Computed with sha256
+    directly (not ``HASHER.tokenize``) so the fingerprint depends only on this
+    registry, never on the dasher rule table. Companion to
+    ``dasher.rules_fingerprint``; both fold into the build hash (ADR-0020) so
+    appending a serializable normalizer is a build-identity change, caught by
+    the hash rather than only by a test."""
+    return hashlib.sha256(
+        "\x00".join(
+            f"{key}\x1f{fn.__module__}.{fn.__qualname__}"
+            for key, fn in sorted(_KEY_TO_FN.items())
+        ).encode()
+    ).hexdigest()
 
 
 def is_registered(fn: Optional[Callable]) -> bool:

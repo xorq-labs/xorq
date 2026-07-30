@@ -13,6 +13,8 @@ from xorq.common.constants import READ_IDENTITY_KEYS
 
 
 if TYPE_CHECKING:
+    from xorq_dasher import Hasher
+
     from xorq.expr.relations import Read
     from xorq.vendor.ibis import Expr
 
@@ -132,16 +134,35 @@ class SnapshotStrategy(CacheStrategy):
                 _snapshot_dt_normalize_memo.reset(snapshot_memo_token)
             _reset_per_call_memos(memo_tokens)
 
-    def _build_hasher(self, expr):
-        from xorq.common.utils.dasher import fqn, snapshot_hasher  # noqa: PLC0415
+    def declared_rules(self) -> tuple:
+        """The strategy's static (fqn, normalizer) rule overrides.
+
+        This is the declared rule regime -- what the strategy layers on top of
+        the base rules regardless of any particular expression. Per-expression
+        derived rules (concrete-backend FQNs) are added by ``_build_hasher``.
+        """
+        from xorq.common.utils.dasher import fqn  # noqa: PLC0415
         from xorq.expr.relations import Read  # noqa: PLC0415
         from xorq.vendor import ibis  # noqa: PLC0415
         from xorq.vendor.ibis.expr import operations as ops  # noqa: PLC0415
 
-        extra = [
+        return (
             (fqn(ibis.backends.BaseBackend), self.normalize_backend),
             (fqn(ops.DatabaseTable), self.normalize_databasetable),
             (fqn(Read), snapshot_normalize_read),
+        )
+
+    def declared_hasher(self) -> Hasher:
+        """Hasher for the declared rule regime only (no per-expr rules)."""
+        from xorq.common.utils.dasher import snapshot_hasher  # noqa: PLC0415
+
+        return snapshot_hasher(*self.declared_rules())
+
+    def _build_hasher(self, expr: Expr) -> Hasher:
+        from xorq.common.utils.dasher import fqn, snapshot_hasher  # noqa: PLC0415
+
+        extra = [
+            *self.declared_rules(),
             # Each concrete backend subclass on the expression also needs the
             # snapshot backend rule registered against its concrete FQN, otherwise
             # the MRO lookup picks the more-specific subclass and bypasses our
