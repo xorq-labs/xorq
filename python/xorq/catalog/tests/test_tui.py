@@ -21,6 +21,7 @@ from unittest.mock import patch
 
 import pytest
 from textual.containers import VerticalScroll
+from textual.pilot import Pilot
 from textual.widgets import DataTable, Input, Select, Static, Tree
 
 import xorq.api as xo
@@ -39,9 +40,13 @@ from xorq.catalog.tests.testing import (
 )
 from xorq.catalog.tui import (
     BOUNDARY_STYLES,
+    EXPANDABLE_MARKER,
+    EXPANDED_MARKER,
     GIT_LOG_COLUMNS,
     KIND_ORDER,
     KIND_STYLES,
+    LINEAGE_TREE_OFFSET,
+    NO_MARKER,
     UNKNOWN_BOUNDARY_STYLE,
     AddAliasScreen,
     AddEntryScreen,
@@ -75,7 +80,12 @@ from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
 )
-from xorq.common.utils.lineage_utils import LineageDAG, compact_lineage_rows
+from xorq.common.utils.lineage_utils import (
+    COLUMN_KIND,
+    LineageDAG,
+    LineageRow,
+    compact_lineage_rows,
+)
 from xorq.config import TUI, options
 from xorq.ibis_yaml.enums import ExprKind
 
@@ -102,6 +112,21 @@ def entry_b(catalog):
     """A single-column bound expression: value (int)."""
     expr = xo.memtable({"value": [10, 20, 30]})
     return catalog.add(expr)
+
+
+@pytest.fixture
+def entry_columns(catalog: Catalog) -> CatalogEntry:
+    """An expression whose root node stores a schema worth expanding."""
+    t = xo.memtable({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    expr = t.filter(t.a > 1).mutate(c=t.a * 2).group_by("b").agg(n=xo._.a.sum())
+    return catalog.add(expr)
+
+
+@pytest.fixture
+def entry_wide(catalog: Catalog) -> CatalogEntry:
+    """Enough columns that one expansion overflows a short panel."""
+    t = xo.memtable({f"c{i}": [1, 2] for i in range(24)})
+    return catalog.add(t.filter(t.c0 > 0))
 
 
 @pytest.fixture
@@ -282,16 +307,23 @@ def test_lineage_panel_rich_puts_cache_and_hash_above_the_tree(
     entry_udxf: CatalogEntry,
 ) -> None:
     row = CatalogRowData(entry=entry_udxf)
-    lines = row.lineage_panel_rich.plain.splitlines()
+    lines = row.lineage_panel_rich().plain.splitlines()
 
     assert lines[0].startswith("Cache: ")
     assert lines[1].startswith("Hash: ")
     assert lines[2] == ""
-    # The tree renders unindented: the panel's border title labels it.
-    tree_lines = lines[3:]
+    # The tree renders with no header and no indent beyond the fold gutter: the
+    # panel's border title labels it.
+    tree_lines = lines[LINEAGE_TREE_OFFSET:]
     assert tree_lines == row.lineage_rich.plain.splitlines()
-    assert not tree_lines[0].startswith(" ")
-    assert row.lineage_panel_text == row.lineage_panel_rich.plain
+    # every row opens with the two-column fold gutter, so the labels line up
+    assert all(
+        line[:2] in (NO_MARKER, EXPANDABLE_MARKER, EXPANDED_MARKER)
+        or line[:2].strip("│├└─ ") == ""
+        for line in tree_lines
+    )
+    assert tree_lines[0][:2] == EXPANDABLE_MARKER, "the root stores a schema"
+    assert row.lineage_panel_text() == row.lineage_panel_rich().plain
 
 
 def test_lineage_rich_of_a_legacy_sidecar_uses_the_unknown_style() -> None:
@@ -310,7 +342,8 @@ def test_lineage_rich_of_a_legacy_sidecar_uses_the_unknown_style() -> None:
 
     rendered = _render_lineage_rows(compact_lineage_rows(legacy))
 
-    assert rendered.plain == f"{UNKNOWN_BOUNDARY_STYLE.icon} Filter"
+    # nothing is folded here, so the fold gutter is blank
+    assert rendered.plain == f"{NO_MARKER}{UNKNOWN_BOUNDARY_STYLE.icon} Filter"
     assert any(UNKNOWN_BOUNDARY_STYLE.color in str(s.style) for s in rendered.spans)
 
 
@@ -2315,7 +2348,10 @@ def test_tab_cycle_focus_no_crash(catalog):
 
 def test_lineage_panel_is_tab_reachable_and_scrollable(catalog: Catalog) -> None:
     """The lineage tree is multi-line and unbounded in depth: the panel must be in
-    the tab cycle and must scroll like #sql-panel."""
+    the tab cycle and must scroll like #sql-panel.
+
+    With no entry selected there are no rows, so `j`/`k` fall through to the
+    scroll container rather than moving a row cursor."""
 
     async def _test():
         app = _make_tui(catalog)
@@ -2337,6 +2373,330 @@ def test_lineage_panel_is_tab_reachable_and_scrollable(catalog: Catalog) -> None
             await pilot.press("k")
             await settle(pilot)
             assert isinstance(app.screen, CatalogScreen)
+
+    _run(_test())
+
+
+def _lineage_body(screen: CatalogScreen) -> str:
+    """The panel's rendered text, markers and all."""
+    return screen.query_one("#lineage-content", Static).render().plain
+
+
+def _cursor_row(screen: CatalogScreen) -> LineageRow | None:
+    """The lineage row the fold keys currently act on."""
+    return screen._lineage_cursor_row()
+
+
+async def _move_cursor_to(pilot: Pilot, node_id: str) -> None:
+    """Walk the lineage cursor down onto *node_id*'s row."""
+    screen = pilot.app.screen
+    for _ in range(len(screen._lineage_rows) + 1):
+        row = _cursor_row(screen)
+        if row is not None and row.node_id == node_id:
+            return
+        await pilot.press("j")
+        await settle(pilot)
+    raise AssertionError(f"the lineage cursor never reached {node_id}")
+
+
+async def _focus_lineage_panel(pilot: Pilot) -> None:
+    """Tab until the lineage panel owns focus, so the fold keys are live."""
+    panel = pilot.app.screen.query_one("#lineage-panel")
+    for _ in range(len(CatalogScreen.FOCUS_CYCLE)):
+        if pilot.app.focused is panel:
+            return
+        await pilot.press("tab")
+        await settle(pilot)
+    raise AssertionError("tab never reaches the Lineage panel")
+
+
+async def _await_lineage_rows(pilot: Pilot) -> None:
+    """Wait out the panel's render debounce, which `settle` does not cover."""
+    screen = pilot.app.screen
+    for _ in range(40):
+        await settle(pilot)
+        if screen._lineage_rows:
+            return
+        await pilot.pause()
+    raise AssertionError("the lineage panel never rendered any rows")
+
+
+async def _move_off_entry(pilot: Pilot) -> str:
+    """Move the entries-tree cursor off its current line; return the key pressed.
+
+    Which direction is available depends on where the entry sits in the tree, and
+    a step can land on a kind branch as well as another entry -- so this watches
+    the tree's own cursor rather than the selected row.
+    """
+    tree = pilot.app.screen.query_one("#catalog-tree", Tree)
+    start = tree.cursor_line
+    for key in ("j", "k"):
+        await pilot.press(key)
+        await settle(pilot)
+        if tree.cursor_line != start:
+            return key
+    raise AssertionError("the entries-tree cursor never moved")
+
+
+async def _select_lineage_entry(
+    pilot: Pilot, catalog: Catalog, *entries: CatalogEntry
+) -> CatalogScreen:
+    """Populate the tree and land on *entries[0]*'s leaf, rows rendered.
+
+    Leaves are grouped by kind and ordered by hash, not by insertion, so the
+    cursor is walked to the wanted entry rather than assumed to start on it.
+    """
+    screen = pilot.app.screen
+    rows = tuple(CatalogRowData(entry=entry) for entry in entries)
+    screen._row_cache = {row.row_key: row for row in rows}
+    screen._render_refresh(catalog.repo.working_dir, rows)
+    await settle(pilot)
+    wanted = rows[0].row_key
+    for _ in range(2 * len(rows) + 2):
+        await pilot.press("j")
+        await settle(pilot)
+        selected = screen._selected_row_data()
+        if selected is not None and selected.row_key == wanted:
+            await _await_lineage_rows(pilot)
+            return screen
+    raise AssertionError(f"never reached the leaf for {wanted}")
+
+
+def test_lineage_bracket_keys_expand_and_fold_the_cursor_node(
+    catalog: Catalog, entry_columns: CatalogEntry
+) -> None:
+    """`]` lists the columns of the node under the cursor and `[` folds them back,
+    the same thing `xorq catalog lineage --expand` prints."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = await _select_lineage_entry(pilot, catalog, entry_columns)
+            await _focus_lineage_panel(pilot)
+
+            row_data = screen._selected_row_data()
+            key = row_data.row_key
+            compact_rows = screen._lineage_rows
+            target = compact_rows[0]
+            assert target.node_id in row_data.lineage_expandable
+            assert EXPANDABLE_MARKER in _lineage_body(screen)
+
+            await _move_cursor_to(pilot, target.node_id)
+            await pilot.press("]")
+            await settle(pilot)
+
+            assert screen._lineage_expanded[key] == frozenset({target.node_id})
+            columns = [r for r in screen._lineage_rows if r.kind == COLUMN_KIND]
+            schema = row_data.entry.metadata.lineage.by_id[target.node_id]["schema"]
+            assert len(columns) == len(schema)
+            body = _lineage_body(screen)
+            for column in schema:
+                assert column in body
+            assert EXPANDED_MARKER in body
+            # the cursor stayed on the node it expanded
+            assert _cursor_row(screen).node_id == target.node_id
+
+            await pilot.press("[")
+            await settle(pilot)
+
+            assert screen._lineage_expanded[key] == frozenset()
+            assert screen._lineage_rows == compact_rows
+            assert EXPANDED_MARKER not in _lineage_body(screen)
+
+    _run(_test())
+
+
+def test_lineage_fold_keys_belong_to_the_panel_alone(
+    catalog: Catalog, entry_columns: CatalogEntry
+) -> None:
+    """`h`/`l` keep folding the entries tree, and the bracket keys are offered
+    only while the Lineage panel has focus."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = await _select_lineage_entry(pilot, catalog, entry_columns)
+            key = screen._selected_row_data().row_key
+
+            # entries tree focused: the fold bindings are hidden and inert
+            assert screen.check_action("lineage_expand", ()) is None
+            await pilot.press("]")
+            await settle(pilot)
+            assert screen._lineage_expanded.get(key, frozenset()) == frozenset()
+
+            await _focus_lineage_panel(pilot)
+            assert screen.check_action("lineage_expand", ()) is True
+
+            # `l` here is the tree's key, not the panel's: it folds nothing
+            await pilot.press("l")
+            await settle(pilot)
+            assert screen._lineage_expanded.get(key, frozenset()) == frozenset()
+
+            await pilot.press("]")
+            await settle(pilot)
+            assert screen._lineage_expanded[key]
+
+    _run(_test())
+
+
+def test_lineage_fold_on_a_column_row_folds_the_node_it_came_from(
+    catalog: Catalog, entry_columns: CatalogEntry
+) -> None:
+    """A column row belongs to the node above it, so `[` there folds that node --
+    the alternative is a cursor sitting on a row no key can act on."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = await _select_lineage_entry(pilot, catalog, entry_columns)
+            await _focus_lineage_panel(pilot)
+
+            key = screen._selected_row_data().row_key
+            target = screen._lineage_rows[0]
+            await _move_cursor_to(pilot, target.node_id)
+            await pilot.press("]")
+            await settle(pilot)
+
+            # step onto the first column row, which carries the same node id
+            await pilot.press("j")
+            await settle(pilot)
+            assert _cursor_row(screen).kind == COLUMN_KIND
+
+            await pilot.press("[")
+            await settle(pilot)
+
+            assert screen._lineage_expanded[key] == frozenset()
+            assert not [r for r in screen._lineage_rows if r.kind == COLUMN_KIND]
+
+    _run(_test())
+
+
+def test_lineage_expansion_is_kept_per_entry(
+    catalog: Catalog, entry_columns: CatalogEntry, entry_a: CatalogEntry
+) -> None:
+    """Fold state is keyed by entry, so browsing to a neighbour and back keeps
+    what you expanded."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = await _select_lineage_entry(pilot, catalog, entry_columns, entry_a)
+            await _focus_lineage_panel(pilot)
+
+            key = screen._selected_row_data().row_key
+            target = screen._lineage_rows[0]
+            await _move_cursor_to(pilot, target.node_id)
+            await pilot.press("]")
+            await settle(pilot)
+            expanded_rows = len(screen._lineage_rows)
+            assert screen._lineage_expanded[key]
+
+            # to the other entry and back: the fold keys are the panel's, so the
+            # entries tree has to take focus before j/k move the selection
+            await pilot.press("shift+tab")
+            await settle(pilot)
+            away = await _move_off_entry(pilot)
+            selected = screen._selected_row_data()
+            assert selected is None or selected.row_key != key
+
+            await pilot.press("k" if away == "j" else "j")
+            await _await_lineage_rows(pilot)
+
+            assert screen._selected_row_data().row_key == key
+            assert screen._lineage_expanded[key] == frozenset({target.node_id})
+            assert len(screen._lineage_rows) == expanded_rows
+
+    _run(_test())
+
+
+def test_lineage_cursor_walks_every_row_and_scrolls_to_follow(
+    catalog: Catalog, entry_wide: CatalogEntry
+) -> None:
+    """`j` advances one row at a time, scrolling to keep the cursor visible.
+
+    The cursor is a row index and not a node id because a node owns more than one
+    row once expanded -- its columns carry its id too, so an id-keyed cursor would
+    snap back to the node's own row.
+    """
+
+    async def _test():
+        app = _make_tui(catalog)
+        # a terminal too short for the expanded tree, so the panel has to scroll
+        async with app.run_test(size=(100, 24)) as pilot:
+            await settle(pilot)
+            screen = await _select_lineage_entry(pilot, catalog, entry_wide)
+            await _focus_lineage_panel(pilot)
+
+            key = screen._selected_row_data().row_key
+            target = screen._lineage_rows[0]
+            await _move_cursor_to(pilot, target.node_id)
+            await pilot.press("]")
+            await settle(pilot)
+
+            panel = screen.query_one("#lineage-panel", VerticalScroll)
+            rows = screen._lineage_rows
+            assert len(rows) > panel.content_size.height, "tree fits: nothing to scroll"
+            # the node and its columns share an id, which is what breaks an
+            # id-keyed cursor
+            assert len({r.node_id for r in rows}) < len(rows)
+
+            seen = [screen._lineage_cursor[key]]
+            for _ in range(len(rows)):
+                await pilot.press("j")
+                await settle(pilot)
+                seen.append(screen._lineage_cursor[key])
+
+            assert seen[-1] == len(rows) - 1, "the cursor never reached the last row"
+            assert all(b - a in (0, 1) for a, b in zip(seen, seen[1:])), seen
+            assert panel.scroll_offset.y > 0, "the panel never scrolled to follow"
+
+    _run(_test())
+
+
+def test_lineage_expand_on_a_column_row_does_nothing(
+    catalog: Catalog, entry_columns: CatalogEntry
+) -> None:
+    """A column row's node is already expanded, so `]` there is a silent no-op --
+    and the row carries no marker, which is the whole message.
+
+    (Every row a compact tree draws is a boundary or the root, and those all store
+    a schema, so this is the only unexpandable row the panel can show.)
+    """
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = await _select_lineage_entry(pilot, catalog, entry_columns)
+            await _focus_lineage_panel(pilot)
+
+            key = screen._selected_row_data().row_key
+            target = screen._lineage_rows[0]
+            await _move_cursor_to(pilot, target.node_id)
+            await pilot.press("]")
+            await settle(pilot)
+            expanded = screen._lineage_expanded[key]
+
+            await pilot.press("j")
+            await settle(pilot)
+            column_row = _cursor_row(screen)
+            assert column_row.kind == COLUMN_KIND
+            rows_before = screen._lineage_rows
+
+            await pilot.press("]")
+            await settle(pilot)
+
+            assert screen._lineage_expanded[key] == expanded
+            assert screen._lineage_rows == rows_before
+            # the column row itself is not offered as expandable
+            body_line = _lineage_body(screen).splitlines()[
+                LINEAGE_TREE_OFFSET + rows_before.index(column_row)
+            ]
+            assert EXPANDABLE_MARKER not in body_line
 
     _run(_test())
 

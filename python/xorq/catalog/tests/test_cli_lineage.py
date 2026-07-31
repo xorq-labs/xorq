@@ -422,13 +422,14 @@ def test_lineage_raw_mermaid_honours_node(
     assert _mermaid_id(dag.root) not in result.output
 
 
-def test_lineage_expand_keeps_the_whole_graph(
+def test_lineage_expand_lists_a_nodes_columns_in_the_diagram(
     runner: CliRunner, catalog_with_udxf: tuple[str, str]
 ) -> None:
-    """`--expand` is the mixed-detail dial: everything stays compact except from
-    the matched node downward, which is what `--node` cannot do (it narrows)."""
+    """`--expand` opens one node up: its columns are listed inside it, and the
+    graph around it keeps its shape."""
     catalog_path, name = catalog_with_udxf
     dag = _lineage_dag(catalog_path, name)
+    [join] = dag.boundaries(kind="join")
 
     compact = runner.invoke(
         cli, ["--path", catalog_path, "lineage", name, "-f", "mermaid"]
@@ -439,74 +440,58 @@ def test_lineage_expand_keeps_the_whole_graph(
     )
 
     assert expanded.exit_code == 0, expanded.output
-    # the root and the far side of the graph survive, unlike with --node
+    # same nodes and edges: only the join's label grew
+    assert len(expanded.output.splitlines()) == len(compact.output.splitlines())
     assert _mermaid_id(dag.root) in expanded.output
-    assert "raw_customers" in expanded.output
-    # and the expanded region gained the ops the compact view folded into `via`
-    assert "Field:" not in compact.output
-    assert "Field:" in expanded.output
-    assert "|via " in compact.output
-    assert "|via " not in expanded.output
+    [label] = [
+        line
+        for line in expanded.output.splitlines()
+        if _mermaid_id(join["id"]) + "[" in line
+    ]
+    for column in dag.by_id[join["id"]]["schema"]:
+        assert column in label
+    assert "<br/>" in label
 
 
-def test_lineage_expand_reaches_the_run_above_the_node(
+def test_lineage_expand_lists_a_nodes_columns_in_the_text_tree(
     runner: CliRunner, catalog_with_udxf: tuple[str, str]
 ) -> None:
-    """Expanding a node whose own subtree has no intermediates still shows
-    something: the run collapsed onto its consumer's edge."""
-    catalog_path, name = catalog_with_udxf
-
-    result = runner.invoke(
-        cli,
-        [
-            "--path",
-            catalog_path,
-            "lineage",
-            name,
-            "-f",
-            "mermaid",
-            "--expand",
-            "flight_udxf",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "Field:" in result.output or "JoinReference" in result.output
-
-
-def test_lineage_node_bounds_expand(
-    runner: CliRunner, catalog_with_udxf: tuple[str, str]
-) -> None:
-    """`--node` narrows; an `--expand` outside that subtree must not drag the rest
-    of the graph back in."""
+    """The tree expands the same way the TUI's Lineage panel does: one row per
+    column under the node, with the rest of the tree untouched."""
     catalog_path, name = catalog_with_udxf
     dag = _lineage_dag(catalog_path, name)
-    [duck_table] = [
-        n for n in dag.boundaries(kind="table") if n.get("backend") == "duckdb"
-    ]
+    [join] = dag.boundaries(kind="join")
+    schema = dag.by_id[join["id"]]["schema"]
+
+    compact = runner.invoke(cli, ["--path", catalog_path, "lineage", name])
+    expanded = runner.invoke(
+        cli, ["--path", catalog_path, "lineage", name, "--expand", "join"]
+    )
+
+    assert expanded.exit_code == 0, expanded.output
+    assert not expanded.output.lstrip().startswith("flowchart")
+    added = len(expanded.output.splitlines()) - len(compact.output.splitlines())
+    assert added == len(schema)
+    for column in schema:
+        assert column in expanded.output
+    # the collapsed runs are still collapsed: expanding says nothing about them
+    assert ("via [" in compact.output) == ("via [" in expanded.output)
+
+
+def test_lineage_expand_of_a_flight_boundary_shows_the_transition(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    """A Flight boundary changes the schema across it, so both sides are listed."""
+    catalog_path, name = catalog_with_udxf
 
     result = runner.invoke(
         cli,
-        [
-            "--path",
-            catalog_path,
-            "lineage",
-            name,
-            "-f",
-            "mermaid",
-            "--node",
-            duck_table["id"],
-            "--expand",
-            "flight_udxf",
-        ],
+        ["--path", catalog_path, "lineage", name, "--expand", "flight_udxf"],
     )
 
     assert result.exit_code == 0, result.output
-    assert _mermaid_id(duck_table["id"]) in result.output
-    # nothing above or beside the selected leaf
-    assert _mermaid_id(dag.root) not in result.output
-    assert "UDXF[" not in result.output
-    assert "Cache[" not in result.output
+    assert "in " in result.output
+    assert "out " in result.output
 
 
 def test_lineage_expand_accepts_the_same_handles_as_node(
@@ -528,14 +513,11 @@ def test_lineage_expand_accepts_the_same_handles_as_node(
     assert by_kind.output == by_label.output == by_hash.output
 
 
-def test_lineage_expand_needs_mermaid_and_conflicts_with_raw(
+def test_lineage_expand_needs_a_tree_or_a_diagram(
     runner: CliRunner, catalog_with_udxf: tuple[str, str]
 ) -> None:
     catalog_path, name = catalog_with_udxf
 
-    text = runner.invoke(
-        cli, ["--path", catalog_path, "lineage", name, "--expand", "join"]
-    )
     with_raw = runner.invoke(
         cli,
         [
@@ -543,8 +525,6 @@ def test_lineage_expand_needs_mermaid_and_conflicts_with_raw(
             catalog_path,
             "lineage",
             name,
-            "-f",
-            "mermaid",
             "-l",
             "raw",
             "--expand",
@@ -555,10 +535,8 @@ def test_lineage_expand_needs_mermaid_and_conflicts_with_raw(
         cli, ["--path", catalog_path, "lineage", name, "-f", "mermaid", "--expand", "x"]
     )
 
-    assert text.exit_code != 0
-    assert "--expand needs --format mermaid" in text.output
     assert with_raw.exit_code != 0
-    assert "redundant with --level raw" in with_raw.output
+    assert "already prints every stored field" in with_raw.output
     assert unknown.exit_code != 0
     assert "No lineage node matches 'x'" in unknown.output
 
