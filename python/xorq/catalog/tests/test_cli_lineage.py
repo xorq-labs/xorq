@@ -474,6 +474,41 @@ def test_lineage_expand_reaches_the_run_above_the_node(
     assert "Field:" in result.output or "JoinReference" in result.output
 
 
+def test_lineage_node_bounds_expand(
+    runner: CliRunner, catalog_with_udxf: tuple[str, str]
+) -> None:
+    """`--node` narrows; an `--expand` outside that subtree must not drag the rest
+    of the graph back in."""
+    catalog_path, name = catalog_with_udxf
+    dag = _lineage_dag(catalog_path, name)
+    [duck_table] = [
+        n for n in dag.boundaries(kind="table") if n.get("backend") == "duckdb"
+    ]
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "lineage",
+            name,
+            "-f",
+            "mermaid",
+            "--node",
+            duck_table["id"],
+            "--expand",
+            "flight_udxf",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _mermaid_id(duck_table["id"]) in result.output
+    # nothing above or beside the selected leaf
+    assert _mermaid_id(dag.root) not in result.output
+    assert "UDXF[" not in result.output
+    assert "Cache[" not in result.output
+
+
 def test_lineage_expand_accepts_the_same_handles_as_node(
     runner: CliRunner, catalog_with_udxf: tuple[str, str]
 ) -> None:

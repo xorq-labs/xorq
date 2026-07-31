@@ -1427,9 +1427,9 @@ def _mermaid_scope_title(node: dict) -> str:
 
 
 def _stored_expansion(
-    dag: LineageDAG, target: str
-) -> tuple[set[str], tuple[dict, ...]]:
-    """Stored nodes and edges to draw so *target* is rendered raw.
+    dag: LineageDAG, target: str, bound: str | None = None
+) -> tuple[str, tuple[str, ...], tuple[dict, ...]]:
+    """Scope, nodes and edges to draw so *target* is rendered raw.
 
     Both directions matter. `compact()` folds a run of non-boundary ops onto the
     edge *above* a node as much as below it -- a cache reached through
@@ -1437,8 +1437,18 @@ def _stored_expansion(
     one node raw means every stored node on a path into it, plus its whole stored
     subtree. Unrelated branches are untouched, which is what keeps the rest of the
     diagram compact.
+
+    *bound*, when given, is the id the diagram is rooted at: the expansion is
+    clipped to what that root reaches, so `--expand` cannot drag back the graph
+    above a `--node` selection.
+
+    Nodes come back in BFS order, never as a set: the rendered diagram has to be
+    byte-stable across processes, and set iteration is not.
     """
-    view = _view_containing(dag, target, dag.scope) or {"edges": ()}
+    view = _view_containing(dag, target, dag.scope) or {
+        "edges": (),
+        "scope": ROOT_SCOPE,
+    }
     edges = tuple(view["edges"])
     consumers: dict[str, list[str]] = defaultdict(list)
     upstreams: dict[str, list[str]] = defaultdict(list)
@@ -1446,17 +1456,28 @@ def _stored_expansion(
         consumers[edge["to"]].append(edge["from"])
         upstreams[edge["from"]].append(edge["to"])
 
-    def reach(adjacency: dict[str, list[str]]) -> set[str]:
-        found, queue = {target}, [target]
+    def reach(adjacency: dict[str, list[str]], start: str) -> list[str]:
+        # order comes from the list, membership from the set
+        found, seen, queue = [start], {start}, [start]
         while queue:
-            for nxt in adjacency.get(queue.pop(), ()):
-                if nxt not in found:
-                    found.add(nxt)
+            node, queue = queue[0], queue[1:]
+            for nxt in adjacency.get(node, ()):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    found.append(nxt)
                     queue.append(nxt)
         return found
 
-    keep = reach(consumers) | reach(upstreams)
-    return keep, tuple(e for e in edges if e["from"] in keep and e["to"] in keep)
+    keep = list(dict.fromkeys(reach(consumers, target) + reach(upstreams, target)))
+    if bound is not None:
+        reachable = set(reach(upstreams, bound))
+        keep = [nid for nid in keep if nid in reachable]
+    kept = set(keep)
+    return (
+        view.get("scope", ROOT_SCOPE),
+        tuple(keep),
+        tuple(e for e in edges if e["from"] in kept and e["to"] in kept),
+    )
 
 
 def format_mermaid_lineage(
@@ -1493,22 +1514,14 @@ def format_mermaid_lineage(
     expand_ids = frozenset(
         (expand_from,) if isinstance(expand_from, str) else (expand_from or ())
     )
-    expansions = {
-        target: _stored_expansion(dag, target)
+    # `root` bounds every expansion: `--node` narrows the diagram, and an
+    # `--expand` outside that subtree must not drag the rest of the graph back in.
+    expansions = tuple(
+        _stored_expansion(dag, target, bound=root)
         for target in sorted(expand_ids)
         if target in by_id
-    }
-    expansion_scope = {
-        target: (_view_containing(dag, target, dag.scope) or {}).get(
-            "scope", ROOT_SCOPE
-        )
-        for target in expansions
-    }
-    expanded_keep = (
-        frozenset().union(*(keep for keep, _ in expansions.values()))
-        if (expansions)
-        else frozenset()
     )
+    expanded_keep = frozenset(nid for _, keep, _ in expansions for nid in keep)
 
     def view_for(scope: str, expanded: bool) -> dict:
         # dag.scope() is the stored graph for one scope; dag.compact() collapses it.
@@ -1539,8 +1552,8 @@ def format_mermaid_lineage(
         subtree -- so the runs `compact()` folded into `via` both above and below
         it become real nodes, while unrelated branches stay collapsed.
         """
-        for target, (keep, edges) in expansions.items():
-            if expansion_scope[target] != scope:
+        for expansion_scope, keep, edges in expansions:
+            if expansion_scope != scope:
                 continue
             for nid in keep:
                 if nid not in declared:

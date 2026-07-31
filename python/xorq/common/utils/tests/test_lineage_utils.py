@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import operator
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -1332,6 +1335,83 @@ def test_mermaid_lineage_edges_point_downstream(udxf_expression: Expr) -> None:
     # a collapsed run keeps its `via` as the edge label
     if any(e["via"] for e in dag.compact()["edges"]):
         assert any("|via " in line for line in arrows)
+
+
+_STABILITY_SCRIPT = """
+import hashlib, json, sys
+from xorq.common.utils.lineage_utils import LineageDAG, format_mermaid_lineage
+
+dag = LineageDAG.from_dict(json.load(sys.stdin))
+for kwargs in ({}, {"expand": True}, {"expand_from": "@cache"}):
+    print(hashlib.md5(format_mermaid_lineage(dag, **kwargs).encode()).hexdigest())
+"""
+
+
+def _stability_dag() -> dict:
+    """A graph with a run of non-boundary ops between two boundaries, so the
+    compact, expanded and expand_from renders all differ."""
+    nodes = [
+        {
+            "id": "@join",
+            "type": "JoinChain",
+            "is_boundary": True,
+            "boundary_kind": "join",
+            "n_inputs": 2,
+        },
+        {
+            "id": "@cache",
+            "type": "CachedNode",
+            "is_boundary": True,
+            "boundary_kind": "cache",
+            "cache_kind": "ParquetCache",
+        },
+        {
+            "id": "@table",
+            "type": "DatabaseTable",
+            "is_boundary": True,
+            "boundary_kind": "table",
+            "table_name": "t",
+        },
+    ] + [
+        {"id": f"@field_{i}", "type": "Field", "label": f"Field:c{i}"} for i in range(8)
+    ]
+    edges = [
+        {"from": "@join", "to": f"@field_{i}", "scope": ROOT_SCOPE} for i in range(8)
+    ]
+    edges += [
+        {"from": f"@field_{i}", "to": "@cache", "scope": ROOT_SCOPE} for i in range(8)
+    ]
+    edges += [{"from": "@cache", "to": "@table", "scope": ROOT_SCOPE}]
+    return {"version": 2, "root": "@join", "nodes": nodes, "edges": edges}
+
+
+@pytest.mark.parametrize(
+    "index",
+    (
+        pytest.param(0, id="compact"),
+        pytest.param(1, id="expand"),
+        pytest.param(2, id="expand_from"),
+    ),
+)
+def test_mermaid_lineage_is_byte_stable_across_processes(
+    index: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A diagram pasted into docs must not churn between runs. Set iteration order
+    is only stable *within* a process, so this has to fork rather than render
+    twice in-process."""
+    payload = json.dumps(_stability_dag())
+    digests = set()
+    for seed in (1, 2, 3, 4):
+        monkeypatch.setenv("PYTHONHASHSEED", str(seed))
+        result = subprocess.run(
+            [sys.executable, "-c", _STABILITY_SCRIPT],
+            input=payload,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        digests.add(result.stdout.splitlines()[index])
+    assert len(digests) == 1, digests
 
 
 def test_mermaid_lineage_is_byte_stable(udxf_expression: Expr) -> None:
