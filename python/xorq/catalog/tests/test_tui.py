@@ -278,15 +278,20 @@ def test_lineage_rich_styles_each_boundary_kind(entry_udxf: CatalogEntry) -> Non
     assert UNKNOWN_BOUNDARY_STYLE.icon not in rich.plain
 
 
-def test_info_rich_labels_and_indents_the_lineage(entry_udxf: CatalogEntry) -> None:
+def test_lineage_panel_rich_puts_cache_and_hash_above_the_tree(
+    entry_udxf: CatalogEntry,
+) -> None:
     row = CatalogRowData(entry=entry_udxf)
-    lines = row.info_rich.plain.splitlines()
+    lines = row.lineage_panel_rich.plain.splitlines()
 
-    assert lines[0] == "Lineage:"
-    assert all(line.startswith("  ") for line in lines[1:-2])
-    assert lines[-2].startswith("Cache: ")
-    assert lines[-1].startswith("Hash: ")
-    assert row.info_text == row.info_rich.plain
+    assert lines[0].startswith("Cache: ")
+    assert lines[1].startswith("Hash: ")
+    assert lines[2] == ""
+    # The tree renders unindented: the panel's border title labels it.
+    tree_lines = lines[3:]
+    assert tree_lines == row.lineage_rich.plain.splitlines()
+    assert not tree_lines[0].startswith(" ")
+    assert row.lineage_panel_text == row.lineage_panel_rich.plain
 
 
 def test_lineage_rich_of_a_legacy_sidecar_uses_the_unknown_style() -> None:
@@ -872,13 +877,29 @@ def test_data_preview_hidden_by_default(catalog):
     _run(_test())
 
 
-def test_info_panel_exists(catalog):
+def test_lineage_panel_exists(catalog: Catalog) -> None:
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
-            info = app.screen.query_one("#info-panel")
-            assert info.border_title == "Info"
+            lineage = app.screen.query_one("#lineage-panel")
+            assert lineage.border_title == "Lineage"
+
+    _run(_test())
+
+
+def test_lineage_is_the_default_view(catalog: Catalog) -> None:
+    """1/2/3 swap one panel into the right column; lineage is what you land on."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            assert screen._active_view == "lineage"
+            assert screen.query_one("#lineage-panel").display is True
+            assert screen.query_one("#sql-panel").display is False
+            assert screen.query_one("#data-preview-panel").display is False
 
     _run(_test())
 
@@ -1174,35 +1195,84 @@ def test_schema_preview_empty_before_selection(catalog):
     _run(_test())
 
 
-def test_view_switching_1_2(catalog):
+def test_view_switching_1_2_3(catalog: Catalog) -> None:
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
             screen = app.screen
 
+            lineage_panel = screen.query_one("#lineage-panel")
             sql_panel = screen.query_one("#sql-panel")
             data_panel = screen.query_one("#data-preview-panel")
 
             await run_script(
                 pilot,
-                # Default: SQL visible, data hidden
+                # Default: lineage visible, sql and data hidden
+                Assert(lambda p: lineage_panel.display is True),
+                Assert(lambda p: sql_panel.display is False),
+                Assert(lambda p: data_panel.display is False),
+                # Switch to SQL
+                Press(("2",)),
+                Assert(lambda p: lineage_panel.display is False),
                 Assert(lambda p: sql_panel.display is True),
                 Assert(lambda p: data_panel.display is False),
                 # Switch to data
-                Press(("2",)),
+                Press(("3",)),
+                Assert(lambda p: lineage_panel.display is False),
                 Assert(lambda p: sql_panel.display is False),
                 Assert(lambda p: data_panel.display is True),
-                # Switch back to SQL
+                # Switch back to lineage
                 Press(("1",)),
-                Assert(lambda p: sql_panel.display is True),
+                Assert(lambda p: lineage_panel.display is True),
+                Assert(lambda p: sql_panel.display is False),
                 Assert(lambda p: data_panel.display is False),
             )
 
     _run(_test())
 
 
-def test_v_toggles_revisions(catalog):
+def test_sql_preview_renders_only_while_the_sql_view_is_active(
+    catalog: Catalog, entry_a: CatalogEntry, entry_b: CatalogEntry
+) -> None:
+    """SQL highlighting costs a worker per selection, so browsing lineage must
+    not render it; switching to the SQL view renders the current selection."""
+
+    async def _test():
+        app = _make_tui(catalog)
+        rows = (
+            CatalogRowData(entry=entry_a, aliases=("a",)),
+            CatalogRowData(entry=entry_b, aliases=("b",)),
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await settle(pilot)
+            screen = app.screen
+            assert isinstance(screen, CatalogScreen)
+
+            screen._row_cache = {r.row_key: r for r in rows}
+            screen._render_refresh(catalog.repo.working_dir, rows)
+            await settle(pilot)
+
+            schema_table = screen.query_one("#schema-preview-table", DataTable)
+
+            await run_script(
+                pilot,
+                # Move past branch to first leaf: schema renders, SQL does not.
+                Press(("j",)),
+                WaitUntil(lambda: schema_table.row_count == 3),
+                Assert(lambda p: screen._current_sql_hash is None),
+                # Switching to the SQL view renders the selection on demand.
+                Press(("2",)),
+                Assert(lambda p: screen._current_sql_hash == rows[0].row_key),
+                # Leaving the view clears the guard so re-entry re-renders.
+                Press(("1",)),
+                Assert(lambda p: screen._current_sql_hash is None),
+            )
+
+    _run(_test())
+
+
+def test_v_toggles_revisions(catalog: Catalog) -> None:
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
@@ -2243,23 +2313,23 @@ def test_tab_cycle_focus_no_crash(catalog):
     _run(_test())
 
 
-def test_info_panel_is_tab_reachable_and_scrollable(catalog: Catalog) -> None:
-    """The lineage tree is multi-line and taller than the panel: Info must be in
+def test_lineage_panel_is_tab_reachable_and_scrollable(catalog: Catalog) -> None:
+    """The lineage tree is multi-line and unbounded in depth: the panel must be in
     the tab cycle and must scroll like #sql-panel."""
 
     async def _test():
         app = _make_tui(catalog)
         async with app.run_test(size=(120, 40)) as pilot:
             await settle(pilot)
-            info_panel = app.screen.query_one("#info-panel")
-            assert isinstance(info_panel, VerticalScroll)
+            lineage_panel = app.screen.query_one("#lineage-panel")
+            assert isinstance(lineage_panel, VerticalScroll)
 
             for _ in range(len(CatalogScreen.FOCUS_CYCLE)):
-                if app.focused is info_panel:
+                if app.focused is lineage_panel:
                     break
                 await pilot.press("tab")
                 await settle(pilot)
-            assert app.focused is info_panel, "tab never reaches the Info panel"
+            assert app.focused is lineage_panel, "tab never reaches the Lineage panel"
 
             # j/k dispatch to the focused VerticalScroll
             await pilot.press("j")

@@ -225,7 +225,7 @@ BOUNDARY_STYLES: dict[str, KindStyle] = {
 UNKNOWN_BOUNDARY_STYLE = KindStyle(icon="·", color=XORQ_DARK.variables["panel-dim-fg"])
 
 
-def _render_lineage_rows(rows: "tuple[LineageRow, ...]", prefix: str = "") -> Text:
+def _render_lineage_rows(rows: "tuple[LineageRow, ...]") -> Text:
     """Style a compact lineage tree: glyphs dim, icon+label per boundary kind,
     collapsed `via [...]` runs dim.  Its `.plain` is the plain-text tree."""
     text = Text(no_wrap=False, overflow="fold")
@@ -233,7 +233,7 @@ def _render_lineage_rows(rows: "tuple[LineageRow, ...]", prefix: str = "") -> Te
         style = BOUNDARY_STYLES.get(row.kind, UNKNOWN_BOUNDARY_STYLE)
         if i:
             text.append("\n")
-        text.append(prefix + row.prefix, style="dim")
+        text.append(row.prefix, style="dim")
         text.append(f"{style.icon} ", style=f"bold {style.color}")
         text.append(row.label, style=style.color)
         if row.via:
@@ -341,31 +341,21 @@ class CatalogRowData:
                 return "○ uncached"
 
     @cached_property
-    def info_rich(self) -> Text:
-        from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
-            compact_lineage_rows,
-        )
-
-        lineage = self.entry.metadata.lineage
-        # The lineage is a multi-line tree: label it, then indent the tree under
-        # the label so the branch glyphs stay aligned.
-        tree = (
-            _render_lineage_rows(compact_lineage_rows(lineage), prefix="  ")
-            if lineage and lineage.nodes
-            else Text("  (empty)", style="dim")
-        )
+    def lineage_panel_rich(self) -> Text:
+        # Cache/Hash first: the lineage tree is unbounded in depth, so rendering
+        # it last would push the entry's identity off the top of the panel.
         text = Text(no_wrap=False, overflow="fold")
-        text.append("Lineage:\n", style="bold")
-        text.append_text(tree)
-        text.append("\nCache: ", style="bold")
+        text.append("Cache: ", style="bold")
         text.append(self.cache_info_text)
         text.append("\nHash: ", style="bold")
         text.append(self.hash)
+        text.append("\n\n")
+        text.append_text(self.lineage_rich)
         return text
 
     @cached_property
-    def info_text(self) -> str:
-        return self.info_rich.plain
+    def lineage_panel_text(self) -> str:
+        return self.lineage_panel_rich.plain
 
     @property
     def row_key(self) -> str:
@@ -851,15 +841,16 @@ class CatalogScreen(Screen):
         Binding("d", "delete_entry", "Delete"),
         Binding("v", "toggle_revisions", "Revisions"),
         Binding("g", "toggle_git_log", "Git Log"),
-        Binding("1", "view_sql", "SQL", priority=True),
-        Binding("2", "view_data", "Data", priority=True),
+        Binding("1", "view_lineage", "Lineage", priority=True),
+        Binding("2", "view_sql", "SQL", priority=True),
+        Binding("3", "view_data", "Data", priority=True),
     )
 
     FOCUS_CYCLE = (
         "#catalog-tree",
+        "#lineage-panel",
         "#sql-panel",
         "#data-preview-panel",
-        "#info-panel",
         "#schema-preview-table",
     )
 
@@ -873,7 +864,7 @@ class CatalogScreen(Screen):
         self._git_log_visible = options.tui.git_log_open
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
-        self._active_view: Literal["sql", "data"] = "sql"
+        self._active_view: Literal["lineage", "sql", "data"] = "lineage"
         self._data_preview_hash: str | None = None
         self._current_sql_hash: str | None = None
         self._highlight_timer = None
@@ -889,15 +880,15 @@ class CatalogScreen(Screen):
                 with Vertical(id="git-log-panel"):
                     yield DataTable(id="git-log-table")
             with Vertical(id="right-column"):
+                # Scrollable: the lineage tree is multi-line and unbounded in
+                # depth, so the panel cannot show all of it at any fixed height.
+                with VerticalScroll(id="lineage-panel"):
+                    yield Static("", id="lineage-content")
                 with VerticalScroll(id="sql-panel"):
                     yield Static("", id="sql-preview")
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
-                # Scrollable: the lineage tree is multi-line and unbounded in
-                # depth, so the panel cannot show all of it at any fixed height.
-                with VerticalScroll(id="info-panel"):
-                    yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
                     with Horizontal(id="schema-split"):
                         with Vertical(id="schema-in-half"):
@@ -944,12 +935,14 @@ class CatalogScreen(Screen):
         self.query_one("#catalog-panel").border_title = "Expressions"
         self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#schema-in-half").display = False
-        self.query_one("#sql-panel").border_title = "SQL"
+        sql_panel = self.query_one("#sql-panel")
+        sql_panel.border_title = "SQL"
+        sql_panel.display = False
         self.query_one("#sql-preview", Static).update(
             Text("← Select an expression to view its SQL", style="dim")
         )
-        self.query_one("#info-panel").border_title = "Info"
-        self.query_one("#info-content", Static).update(
+        self.query_one("#lineage-panel").border_title = "Lineage"
+        self.query_one("#lineage-content", Static).update(
             Text("← Select an expression", style="dim")
         )
         self.query_one("#revisions-panel").border_title = "Revisions"
@@ -1013,8 +1006,7 @@ class CatalogScreen(Screen):
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
-        sql_preview = self.query_one("#sql-preview", Static)
-        info_content = self.query_one("#info-content", Static)
+        lineage_content = self.query_one("#lineage-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
@@ -1029,8 +1021,8 @@ class CatalogScreen(Screen):
         )
         if row_data is None:
             self._current_sql_hash = None
-            sql_preview.update("")
-            info_content.update("")
+            self.query_one("#sql-preview", Static).update("")
+            lineage_content.update("")
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             return
@@ -1053,29 +1045,18 @@ class CatalogScreen(Screen):
         for name, dtype in row_data.schema_out:
             schema_out_table.add_row(name, dtype)
 
-        # SQL preview
-        sql_panel = self.query_one("#sql-panel")
-        match row_data.sqls:
-            case ():
-                self._current_sql_hash = None
-                sql_preview.update("(SQL unavailable)")
-                sql_panel.border_subtitle = ""
-            case ((_, engine, sql),):
-                sql_panel.border_subtitle = engine
-                self._current_sql_hash = row_data.row_key
-                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
-                self._load_sql_preview(row_data.row_key, sql)
-            case sqls:
-                engines = sorted({engine for _, engine, _ in sqls})
-                sql_panel.border_subtitle = (
-                    f"{len(sqls)} queries · {', '.join(engines)}"
-                )
-                self._current_sql_hash = row_data.row_key
-                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
-                self._load_sql_preview(row_data.row_key, sqls)
+        # Lineage panel: cheap (metadata only), so render regardless of view.
+        lineage_content.update(row_data.lineage_panel_rich)
 
-        # Info panel
-        info_content.update(row_data.info_rich)
+        # SQL and data previews both cost a worker, so only the active view pays
+        # for them; switching views renders the current selection on demand.
+        match self._active_view:
+            case "sql":
+                self._refresh_sql_preview(row_data)
+            case "data":
+                self._refresh_data_preview(row_data)
+            case _:
+                pass
 
         # Revisions preview
         match row_data.aliases:
@@ -1098,10 +1079,6 @@ class CatalogScreen(Screen):
                 self.query_one(
                     "#revisions-panel"
                 ).border_title = "Revisions — (no alias)"
-
-        # Update data preview if data view is active
-        if self._active_view == "data":
-            self._refresh_data_preview(row_data)
 
     def _tree_entry_hashes(self) -> set[str]:
         """Return set of entry hashes currently in the tree."""
@@ -1293,7 +1270,7 @@ class CatalogScreen(Screen):
     def _apply_alias_changes(self, keys: set[str]) -> None:
         self._relabel_leaves(keys)
         # If the cursor sits on an affected entry, the side panels (Revisions
-        # title, Info) were rendered from the stale aliases; re-render them.
+        # title, Lineage) were rendered from the stale aliases; re-render them.
         tree = self.query_one("#catalog-tree", Tree)
         node = tree.cursor_node
         if node is not None and node.data in keys:
@@ -1362,22 +1339,33 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
-    # --- View switching (1/2) ---
+    # --- View switching (1/2/3) ---
 
-    def _set_active_view(self, view: Literal["sql", "data"]) -> None:
+    def _set_active_view(self, view: Literal["lineage", "sql", "data"]) -> None:
         self._active_view = view
+        self.query_one("#lineage-panel").display = view == "lineage"
         self.query_one("#sql-panel").display = view == "sql"
         self.query_one("#data-preview-panel").display = view == "data"
 
-        if view == "data":
-            tree = self.query_one("#catalog-tree", Tree)
-            node = tree.cursor_node
-            if node is not None and node.data is not None:
-                row_data = self._row_cache.get(node.data)
-                if row_data is not None:
-                    self._refresh_data_preview(row_data)
-        else:
+        # The inactive views' dedup guards are cleared so re-entering a view
+        # re-renders the selection that changed while it was hidden.
+        if view != "data":
             self._data_preview_hash = None
+        if view != "sql":
+            self._current_sql_hash = None
+        if view == "lineage":
+            return
+
+        row_data = self._selected_row_data()
+        if row_data is None:
+            return
+        if view == "sql":
+            self._refresh_sql_preview(row_data)
+        else:
+            self._refresh_data_preview(row_data)
+
+    def action_view_lineage(self) -> None:
+        self._set_active_view("lineage")
 
     def action_view_sql(self) -> None:
         self._set_active_view("sql")
@@ -1385,7 +1373,31 @@ class CatalogScreen(Screen):
     def action_view_data(self) -> None:
         self._set_active_view("data")
 
-    def _refresh_data_preview(self, row_data) -> None:
+    def _refresh_sql_preview(self, row_data: CatalogRowData) -> None:
+        if self._current_sql_hash == row_data.row_key:
+            return
+        sql_preview = self.query_one("#sql-preview", Static)
+        sql_panel = self.query_one("#sql-panel")
+        match row_data.sqls:
+            case ():
+                self._current_sql_hash = None
+                sql_preview.update("(SQL unavailable)")
+                sql_panel.border_subtitle = ""
+            case ((_, engine, sql),):
+                sql_panel.border_subtitle = engine
+                self._current_sql_hash = row_data.row_key
+                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
+                self._load_sql_preview(row_data.row_key, sql)
+            case sqls:
+                engines = sorted({engine for _, engine, _ in sqls})
+                sql_panel.border_subtitle = (
+                    f"{len(sqls)} queries · {', '.join(engines)}"
+                )
+                self._current_sql_hash = row_data.row_key
+                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
+                self._load_sql_preview(row_data.row_key, sqls)
+
+    def _refresh_data_preview(self, row_data: CatalogRowData) -> None:
         entry_hash = row_data.row_key
         if self._data_preview_hash == entry_hash:
             return
@@ -2206,7 +2218,7 @@ class CatalogTUI(App):
     #revisions-panel,
     #git-log-panel,
     #sql-panel,
-    #info-panel,
+    #lineage-panel,
     #schema-panel,
     #data-preview-panel,
     DataViewScreen #stack-browser-panel {
@@ -2218,7 +2230,7 @@ class CatalogTUI(App):
     #revisions-panel:focus-within,
     #git-log-panel:focus-within,
     #sql-panel:focus-within,
-    #info-panel:focus-within,
+    #lineage-panel:focus-within,
     #schema-panel:focus-within,
     #data-preview-panel:focus-within,
     DataViewScreen #stack-browser-panel:focus-within {
@@ -2242,8 +2254,7 @@ class CatalogTUI(App):
     DataTable:focus { border: none; }
     Tree:focus { border: none; }
 
-    #info-panel { height: auto; max-height: 6; padding: 0 1; }
-    #info-content { height: auto; }
+    #lineage-panel { height: 2fr; padding: 0 1; }
 
     #schema-panel { height: 1fr; }
     #schema-split { height: 1fr; }
