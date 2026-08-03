@@ -226,7 +226,7 @@ class TUI(Config):
     left_ratio : int
         Width fraction of the left column (catalog tree side).
     right_ratio : int
-        Width fraction of the right column (SQL / Info / Schema side).
+        Width fraction of the right column (Lineage / SQL / Data / Schema side).
     revisions_open : bool
         Whether the Revisions panel is shown at startup.
     git_log_open : bool
@@ -236,7 +236,7 @@ class TUI(Config):
         syntax highlighting. Set to 0 to disable highlighting entirely.
     highlight_debounce : float
         Seconds to wait after a tree-selection change before rendering the
-        SQL / Info / Schema / Revisions panels. Coalesces rapid ``j``/``k``
+        Lineage / SQL / Schema / Revisions panels. Coalesces rapid ``j``/``k``
         traversal so only the settled selection is rendered. Set to 0 to
         render synchronously on every focus change.
     row_limit : int

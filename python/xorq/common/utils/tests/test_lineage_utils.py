@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import operator
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -13,19 +16,25 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import ParquetCache, SourceCache
 from xorq.common.utils.graph_utils import gen_children_of, opaque_ops, to_node
 from xorq.common.utils.lineage_utils import (
+    COLUMN_KIND,
     ROOT_SCOPE,
     GenericNode,
     LineageDAG,
     TextTree,
     _boundary_kind,
     _build_column_tree,
+    _mermaid_id,
+    _mermaid_text,
     _redact,
     base_kind,
     build_column_trees,
     build_tree,
     compact_lineage_rows,
+    compact_node_label,
     extract_lineage_dag,
     format_compact_lineage,
+    format_mermaid_lineage,
+    node_columns,
     schema_diff,
 )
 from xorq.expr.udf import make_pandas_expr_udf
@@ -1246,6 +1255,351 @@ def test_compact_lineage_rows_carry_via_off_the_label(
         assert all(isinstance(t, str) for t in row.via)
         assert row.via_suffix.startswith("   via [")
         assert row.text == row.prefix + row.label + row.via_suffix
+
+
+def test_compact_lineage_rooted_at_a_node_is_the_subtree_feeding_it(
+    udxf_expression: Expr,
+) -> None:
+    """`root=` renders one node's upstream instead of the whole expression, and
+    reaches a node that lives only inside a Flight's nested scope."""
+    dag = extract_lineage_dag(udxf_expression)
+    [udxf] = dag.boundaries(kind="flight_udxf")
+
+    subtree = format_compact_lineage(dag, root=udxf["id"])
+
+    assert subtree.splitlines()[0].startswith("UDXF[add_c]")
+    assert "↳ " in subtree
+    # the outer graph above the UDXF is excluded
+    full = format_compact_lineage(dag)
+    assert subtree != full
+    assert len(subtree.splitlines()) < len(full.splitlines())
+
+    # a node that lives only in the nested scope roots its own subtree, rendered
+    # from that scope's view rather than the root graph's
+    nested_root = udxf["nested_root"]
+    nested = format_compact_lineage(dag, root=nested_root)
+    assert nested.splitlines()[0] == compact_node_label(dag.by_id[nested_root])
+    assert "InMemoryTable" in nested
+    assert all(line.lstrip("│└├─ ↳") in subtree for line in nested.splitlines())
+
+    assert compact_lineage_rows(dag, root=udxf["id"])[0].kind == "flight_udxf"
+
+
+def test_compact_lineage_rows_carry_the_node_they_render(
+    udxf_expression: Expr,
+) -> None:
+    """A row names its graph node, so a caller that lets the user point at a line
+    can address the node behind it (the TUI's fold keys)."""
+    dag = extract_lineage_dag(udxf_expression)
+    rows = compact_lineage_rows(dag)
+
+    assert rows[0].node_id == dag.root
+    assert all(row.node_id in dag.by_id for row in rows)
+    [udxf_row] = [r for r in rows if r.kind == "flight_udxf"]
+    assert udxf_row.node_id == dag.boundaries(kind="flight_udxf")[0]["id"]
+    # a column tree has no lineage node to name
+    assert all(
+        row.node_id is None
+        for column_tree in build_column_trees(udxf_expression).values()
+        for row in build_tree(column_tree).rows()
+    )
+
+
+def test_expand_columns_lists_a_nodes_fields_under_it(
+    multi_join_expression: Expr,
+) -> None:
+    """Expanding a node means showing what flows through it: one row per column,
+    tagged so a renderer can style them apart, and only under that node."""
+    dag = extract_lineage_dag(multi_join_expression)
+    compact = compact_lineage_rows(dag)
+    target = compact[0].node_id
+    schema = dag.by_id[target]["schema"]
+    assert schema
+
+    expanded = compact_lineage_rows(dag, expand_columns=target)
+
+    columns = [r for r in expanded if r.kind == COLUMN_KIND]
+    assert len(columns) == len(schema)
+    # every column reads as `name  dtype`, and belongs to the node it expanded
+    for (name, dtype), row in zip(schema.items(), columns):
+        assert row.label.split() == [name, str(dtype)]
+        assert row.node_id == target
+    # the graph itself is untouched: same nodes, same collapsed runs
+    assert [r.node_id for r in expanded if r.kind != COLUMN_KIND] == [
+        r.node_id for r in compact
+    ]
+    assert [r.via for r in expanded if r.kind != COLUMN_KIND] == [
+        r.via for r in compact
+    ]
+    # a string and a set of ids are the same request
+    assert compact_lineage_rows(dag, expand_columns={target}) == expanded
+
+
+def test_expand_columns_of_a_flight_boundary_shows_both_sides(
+    udxf_expression: Expr,
+) -> None:
+    """A Flight boundary is the one kind whose schema changes across it, so its
+    columns are drawn per side and the stored diff marks what it added."""
+    dag = extract_lineage_dag(udxf_expression)
+    [udxf] = dag.boundaries(kind="flight_udxf")
+
+    rows = compact_lineage_rows(dag, expand_columns=udxf["id"])
+
+    columns = [r.label for r in rows if r.kind == COLUMN_KIND]
+    assert columns
+    assert any(label.startswith("in ") for label in columns)
+    assert any(label.startswith("out ") for label in columns)
+    # the udxf appends one column, which the stored schema_diff calls added
+    added = tuple(udxf["schema_diff"]["added"])
+    assert added
+    assert any(label.startswith(f"out + {added[0]}") for label in columns)
+
+
+def test_expand_columns_of_a_node_without_a_schema_adds_nothing(
+    multi_join_expression: Expr,
+) -> None:
+    """Not every stored node carries a schema (a Field, a Literal): there is
+    nothing to expand there, and asking is not an error."""
+    dag = extract_lineage_dag(multi_join_expression)
+    schemaless = [nid for nid, node in dag.by_id.items() if not node_columns(node)]
+    assert schemaless
+
+    assert compact_lineage_rows(
+        dag, expand_columns=frozenset(schemaless)
+    ) == compact_lineage_rows(dag)
+
+
+def test_compact_lineage_rooted_at_an_unknown_node_is_empty(
+    udxf_expression: Expr,
+) -> None:
+    assert format_compact_lineage(
+        extract_lineage_dag(udxf_expression), root="@nope"
+    ) == ("(empty)")
+
+
+def test_mermaid_lineage_is_a_flowchart_of_the_compact_graph(
+    udxf_expression: Expr,
+) -> None:
+    """Same views as the text tree, emitted as mermaid: downstream edges, a
+    subgraph per Flight scope, one classDef per boundary kind."""
+    dag = extract_lineage_dag(udxf_expression)
+    [udxf] = dag.boundaries(kind="flight_udxf")
+
+    diagram = format_mermaid_lineage(dag)
+    lines = diagram.splitlines()
+
+    assert lines[0] == "flowchart TD"
+    # ids are mermaid-safe: no '@'
+    assert "@" not in diagram
+    assert f'{_mermaid_id(udxf["id"])}["UDXF[add_c]' in diagram
+    # the nested input lineage is a subgraph, per its stored scope
+    stripped = [line.strip() for line in lines]
+    assert (
+        f'subgraph {_mermaid_id(udxf["id"])}_scope["input of UDXF[add_c]"]' in stripped
+    )
+    assert "end" in stripped
+    # kinds carry a class, and every classed node was declared
+    assert any(line.startswith("  classDef flight_udxf ") for line in lines)
+    for line in lines:
+        if line.startswith("  class "):
+            for member in line.split()[1].split(","):
+                assert f"{member}[" in diagram
+
+
+def test_mermaid_lineage_edges_point_downstream(udxf_expression: Expr) -> None:
+    """The stored edges are depends-on; the diagram reverses them so `TD` reads
+    sources-to-output."""
+    dag = extract_lineage_dag(udxf_expression)
+    diagram = format_mermaid_lineage(dag)
+
+    root = _mermaid_id(dag.root)
+    arrows = [line.strip() for line in diagram.splitlines() if "-->" in line]
+    assert arrows
+    # nothing flows out of the final expression; something flows into it
+    assert not any(line.startswith(f"{root} -->") for line in arrows)
+    assert any(line.endswith(f"> {root}") for line in arrows)
+    # a collapsed run keeps its `via` as the edge label
+    if any(e["via"] for e in dag.compact()["edges"]):
+        assert any("|via " in line for line in arrows)
+
+
+_STABILITY_SCRIPT = """
+import hashlib, json, sys
+from xorq.common.utils.lineage_utils import LineageDAG, format_mermaid_lineage
+
+dag = LineageDAG.from_dict(json.load(sys.stdin))
+for kwargs in ({}, {"raw": True}, {"expand_columns": "@cache"}):
+    print(hashlib.md5(format_mermaid_lineage(dag, **kwargs).encode()).hexdigest())
+"""
+
+
+def _stability_dag() -> dict:
+    """A graph with a run of non-boundary ops between two boundaries, so the
+    compact, raw and expand_columns renders all differ."""
+    nodes = [
+        {
+            "id": "@join",
+            "type": "JoinChain",
+            "is_boundary": True,
+            "boundary_kind": "join",
+            "n_inputs": 2,
+        },
+        {
+            "id": "@cache",
+            "type": "CachedNode",
+            "is_boundary": True,
+            "boundary_kind": "cache",
+            "cache_kind": "ParquetCache",
+        },
+        {
+            "id": "@table",
+            "type": "DatabaseTable",
+            "is_boundary": True,
+            "boundary_kind": "table",
+            "table_name": "t",
+        },
+    ] + [
+        {"id": f"@field_{i}", "type": "Field", "label": f"Field:c{i}"} for i in range(8)
+    ]
+    edges = [
+        {"from": "@join", "to": f"@field_{i}", "scope": ROOT_SCOPE} for i in range(8)
+    ]
+    edges += [
+        {"from": f"@field_{i}", "to": "@cache", "scope": ROOT_SCOPE} for i in range(8)
+    ]
+    edges += [{"from": "@cache", "to": "@table", "scope": ROOT_SCOPE}]
+    return {"version": 2, "root": "@join", "nodes": nodes, "edges": edges}
+
+
+@pytest.mark.parametrize(
+    "index",
+    (
+        pytest.param(0, id="compact"),
+        pytest.param(1, id="raw"),
+        pytest.param(2, id="expand_columns"),
+    ),
+)
+def test_mermaid_lineage_is_byte_stable_across_processes(
+    index: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A diagram pasted into docs must not churn between runs. Set iteration order
+    is only stable *within* a process, so this has to fork rather than render
+    twice in-process."""
+    payload = json.dumps(_stability_dag())
+    digests = set()
+    for seed in (1, 2, 3, 4):
+        monkeypatch.setenv("PYTHONHASHSEED", str(seed))
+        result = subprocess.run(
+            [sys.executable, "-c", _STABILITY_SCRIPT],
+            input=payload,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        digests.add(result.stdout.splitlines()[index])
+    assert len(digests) == 1, digests
+
+
+def test_mermaid_lineage_is_byte_stable(udxf_expression: Expr) -> None:
+    """Node order comes from a BFS, not set iteration: a diagram pasted into docs
+    must not churn between processes."""
+    dag = extract_lineage_dag(udxf_expression)
+    assert format_mermaid_lineage(dag) == format_mermaid_lineage(
+        LineageDAG.from_dict(dag.to_dict())
+    )
+
+
+def test_mermaid_lineage_rooted_at_a_node_and_of_nothing(
+    udxf_expression: Expr,
+) -> None:
+    dag = extract_lineage_dag(udxf_expression)
+    [udxf] = dag.boundaries(kind="flight_udxf")
+
+    subtree = format_mermaid_lineage(dag, root=udxf["id"])
+
+    assert subtree.splitlines()[0] == "flowchart TD"
+    assert _mermaid_id(udxf["id"]) in subtree
+    assert _mermaid_id(dag.root) not in subtree
+    assert "(empty)" in format_mermaid_lineage(dag, root="@nope")
+
+
+def test_mermaid_raw_draws_the_stored_graph(udxf_expression: Expr) -> None:
+    """`raw=True` renders `dag.scope()` -- the stored graph -- instead of the
+    compact one, so the runs folded into `via` become real nodes."""
+    dag = extract_lineage_dag(udxf_expression)
+
+    compact = format_mermaid_lineage(dag)
+    expanded = format_mermaid_lineage(dag, raw=True)
+
+    def declared(diagram: str) -> set[str]:
+        return {
+            line.strip().split("[", 1)[0]
+            for line in diagram.splitlines()
+            if "[" in line and not line.strip().startswith(("subgraph", "class"))
+        }
+
+    assert declared(compact) < declared(expanded)
+    assert len(declared(expanded)) == len(dag.nodes)
+    # nothing is collapsed any more, so no edge carries a `via` label
+    assert "|via " not in expanded
+    assert "classDef unknown " in expanded
+    # nested Flight scopes are expanded too, not just the outer graph
+    [udxf] = dag.boundaries(kind="flight_udxf")
+    nested_ids = {n["id"] for n in dag.scope(udxf["id"])["nodes"]}
+    assert len(nested_ids) > 1
+    for nid in nested_ids:
+        assert _mermaid_id(nid) in expanded
+
+
+def test_mermaid_expand_columns_lists_them_inside_the_node(
+    multi_join_expression: Expr,
+) -> None:
+    """Expanding in a diagram puts the columns inside the node, so the graph keeps
+    its shape: same nodes, same edges, one label grown."""
+    dag = extract_lineage_dag(multi_join_expression)
+    [crossing, *_] = dag.boundaries(kind="engine_crossing")
+
+    compact = format_mermaid_lineage(dag)
+    expanded = format_mermaid_lineage(dag, expand_columns=crossing["id"])
+
+    def structure(diagram: str) -> list[str]:
+        return [
+            line.strip().split("[", 1)[0] if "[" in line else line.strip()
+            for line in diagram.splitlines()
+        ]
+
+    assert structure(compact) == structure(expanded)
+    [label] = [
+        line
+        for line in expanded.splitlines()
+        if _mermaid_id(crossing["id"]) + "[" in line
+    ]
+    for name in dag.by_id[crossing["id"]]["schema"]:
+        assert name in label
+    assert "<br/>" in label
+
+
+def test_mermaid_expand_columns_accepts_several_nodes(
+    multi_join_expression: Expr,
+) -> None:
+    dag = extract_lineage_dag(multi_join_expression)
+    crossings = tuple(n["id"] for n in dag.boundaries(kind="engine_crossing"))
+    assert len(crossings) > 1
+
+    one = format_mermaid_lineage(dag, expand_columns=crossings[:1])
+    several = format_mermaid_lineage(dag, expand_columns=crossings)
+
+    assert several != one
+    for nid in crossings:
+        [label] = [
+            line for line in several.splitlines() if _mermaid_id(nid) + "[" in line
+        ]
+        assert "<br/>" in label
+
+
+def test_mermaid_label_escaping() -> None:
+    """A label reaching mermaid must not break out of its quoted node."""
+    assert _mermaid_text('a "b" <c> & d') == "a &quot;b&quot; &lt;c&gt; &amp; d"
 
 
 def test_compact_lineage_rows_of_an_empty_dag() -> None:

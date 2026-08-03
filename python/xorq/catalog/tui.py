@@ -26,6 +26,7 @@ from pygments.token import (
     String,
     Token,
 )
+from rich.cells import cell_len
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -225,19 +226,67 @@ BOUNDARY_STYLES: dict[str, KindStyle] = {
 UNKNOWN_BOUNDARY_STYLE = KindStyle(icon="·", color=XORQ_DARK.variables["panel-dim-fg"])
 
 
-def _render_lineage_rows(rows: "tuple[LineageRow, ...]", prefix: str = "") -> Text:
+# Fold gutter, two columns wide on every row so the labels stay aligned: a node
+# that stores a schema can be expanded with `]` to list its columns, and folded
+# back with `[`.
+EXPANDABLE_MARKER = "▸ "
+EXPANDED_MARKER = "▾ "
+NO_MARKER = "  "
+
+# Lines the panel prints above the tree: Cache, Hash, and the blank between.
+LINEAGE_TREE_OFFSET = 3
+
+# Columns are the expansion itself, not something to expand further, so they get
+# no icon and no gutter marker -- just a dim, indented row.
+COLUMN_ROW_STYLE = "dim italic"
+
+
+def _render_lineage_rows(
+    rows: "tuple[LineageRow, ...]",
+    expanded: frozenset[str] = frozenset(),
+    cursor_row: int | None = None,
+    expandable: frozenset[str] = frozenset(),
+) -> Text:
     """Style a compact lineage tree: glyphs dim, icon+label per boundary kind,
-    collapsed `via [...]` runs dim.  Its `.plain` is the plain-text tree."""
+    collapsed `via [...]` runs dim.  Its `.plain` is the plain-text tree.
+
+    *expanded* is the set of node ids whose columns are listed, which marks their
+    rows `▾`; *expandable* is the set that could be, marked `▸`; *cursor_row* is
+    the index of the row the fold keys act on, rendered reversed.
+    """
+    from xorq.common.utils.lineage_utils import COLUMN_KIND  # noqa: PLC0415
+
     text = Text(no_wrap=False, overflow="fold")
     for i, row in enumerate(rows):
-        style = BOUNDARY_STYLES.get(row.kind, UNKNOWN_BOUNDARY_STYLE)
         if i:
             text.append("\n")
-        text.append(prefix + row.prefix, style="dim")
-        text.append(f"{style.icon} ", style=f"bold {style.color}")
-        text.append(row.label, style=style.color)
+        on_cursor = i == cursor_row
+        # The cursor is a whole-line reverse, so every span on the line carries it.
+        cursor = " reverse" if on_cursor else ""
+        if row.kind == COLUMN_KIND:
+            text.append(row.prefix, style=f"dim{cursor}")
+            text.append(NO_MARKER, style=f"dim{cursor}")
+            text.append(row.label, style=f"{COLUMN_ROW_STYLE}{cursor}")
+            if on_cursor:
+                text.append(" ", style="reverse")
+            continue
+        style = BOUNDARY_STYLES.get(row.kind, UNKNOWN_BOUNDARY_STYLE)
+        if row.node_id in expanded:
+            marker = EXPANDED_MARKER
+        elif row.node_id in expandable:
+            marker = EXPANDABLE_MARKER
+        else:
+            marker = NO_MARKER
+        text.append(row.prefix, style=f"dim{cursor}")
+        text.append(marker, style=f"dim{cursor}")
+        text.append(f"{style.icon} ", style=f"bold {style.color}{cursor}")
+        text.append(row.label, style=f"{style.color}{cursor}")
         if row.via:
-            text.append(row.via_suffix, style="dim italic")
+            text.append(row.via_suffix, style=f"dim italic{cursor}")
+        elif on_cursor:
+            # one reversed trailing cell, so the cursor reads as a cursor even
+            # when the label ends the line (Rich pads with unstyled cells)
+            text.append(" ", style="reverse")
     return text
 
 
@@ -314,15 +363,50 @@ class CatalogRowData:
         return self.entry.metadata.sql_queries
 
     @cached_property
-    def lineage_rich(self) -> Text:
+    def _lineage_line_cache(self) -> dict:
+        # The TUI re-renders the panel on every keypress, so the walk is done once
+        # per fold state rather than once per key.
+        return {}
+
+    def lineage_lines(
+        self, expand_columns: frozenset[str] = frozenset()
+    ) -> "tuple[LineageRow, ...]":
+        """The tree's rows, listing the columns of every node in *expand_columns*."""
         from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
             compact_lineage_rows,
         )
 
+        if expand_columns in self._lineage_line_cache:
+            return self._lineage_line_cache[expand_columns]
+        lineage = self.entry.metadata.lineage
+        rows = (
+            ()
+            if not lineage or not lineage.nodes
+            else compact_lineage_rows(lineage, expand_columns=expand_columns)
+        )
+        self._lineage_line_cache[expand_columns] = rows
+        return rows
+
+    @cached_property
+    def lineage_expandable(self) -> frozenset[str]:
+        """Ids of the nodes that store a schema, so `]` has columns to show."""
+        from xorq.common.utils.lineage_utils import node_columns  # noqa: PLC0415
+
         lineage = self.entry.metadata.lineage
         if not lineage or not lineage.nodes:
-            return Text("(empty)", style="dim")
-        return _render_lineage_rows(compact_lineage_rows(lineage))
+            return frozenset()
+        return frozenset(
+            nid for nid, node in lineage.by_id.items() if node_columns(node)
+        )
+
+    @cached_property
+    def lineage_rich(self) -> Text:
+        rows = self.lineage_lines()
+        return (
+            Text("(empty)", style="dim")
+            if not rows
+            else _render_lineage_rows(rows, expandable=self.lineage_expandable)
+        )
 
     @cached_property
     def lineage_text(self) -> str:
@@ -340,32 +424,39 @@ class CatalogRowData:
             case _:
                 return "○ uncached"
 
-    @cached_property
-    def info_rich(self) -> Text:
-        from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
-            compact_lineage_rows,
-        )
-
-        lineage = self.entry.metadata.lineage
-        # The lineage is a multi-line tree: label it, then indent the tree under
-        # the label so the branch glyphs stay aligned.
-        tree = (
-            _render_lineage_rows(compact_lineage_rows(lineage), prefix="  ")
-            if lineage and lineage.nodes
-            else Text("  (empty)", style="dim")
-        )
+    def lineage_panel_rich(
+        self,
+        expand_columns: frozenset[str] = frozenset(),
+        cursor_row: int | None = None,
+    ) -> Text:
+        # Cache/Hash first: the lineage tree is unbounded in depth, so rendering
+        # it last would push the entry's identity off the top of the panel.
         text = Text(no_wrap=False, overflow="fold")
-        text.append("Lineage:\n", style="bold")
-        text.append_text(tree)
-        text.append("\nCache: ", style="bold")
+        text.append("Cache: ", style="bold")
         text.append(self.cache_info_text)
         text.append("\nHash: ", style="bold")
         text.append(self.hash)
+        text.append("\n\n")
+        rows = self.lineage_lines(expand_columns)
+        if not rows:
+            text.append("(empty)", style="dim")
+        else:
+            text.append_text(
+                _render_lineage_rows(
+                    rows,
+                    expanded=expand_columns,
+                    cursor_row=cursor_row,
+                    expandable=self.lineage_expandable,
+                )
+            )
         return text
 
-    @cached_property
-    def info_text(self) -> str:
-        return self.info_rich.plain
+    def lineage_panel_text(
+        self,
+        expand_columns: frozenset[str] = frozenset(),
+        cursor_row: int | None = None,
+    ) -> str:
+        return self.lineage_panel_rich(expand_columns, cursor_row).plain
 
     @property
     def row_key(self) -> str:
@@ -840,6 +931,13 @@ class CatalogScreen(Screen):
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("l", "tree_expand", "Expand", show=False),
+        # Fold a lineage node's columns. Separate keys from the tree's h/l so the
+        # two folds never depend on which panel happens to hold focus; shown in
+        # the footer only while the Lineage panel does (see check_action).
+        Binding("]", "lineage_expand", "Columns", key_display="]"),
+        Binding("[", "lineage_collapse", "Fold", key_display="["),
+        Binding("right_square_bracket", "lineage_expand", "Columns", show=False),
+        Binding("left_square_bracket", "lineage_collapse", "Fold", show=False),
         Binding("tab", "focus_next_panel", "Next", show=False),
         Binding("shift+tab", "focus_prev_panel", "Prev", show=False),
         Binding("e", "open_data_view", "Explore"),
@@ -851,15 +949,16 @@ class CatalogScreen(Screen):
         Binding("d", "delete_entry", "Delete"),
         Binding("v", "toggle_revisions", "Revisions"),
         Binding("g", "toggle_git_log", "Git Log"),
-        Binding("1", "view_sql", "SQL", priority=True),
-        Binding("2", "view_data", "Data", priority=True),
+        Binding("1", "view_lineage", "Lineage", priority=True),
+        Binding("2", "view_sql", "SQL", priority=True),
+        Binding("3", "view_data", "Data", priority=True),
     )
 
     FOCUS_CYCLE = (
         "#catalog-tree",
+        "#lineage-panel",
         "#sql-panel",
         "#data-preview-panel",
-        "#info-panel",
         "#schema-preview-table",
     )
 
@@ -873,10 +972,17 @@ class CatalogScreen(Screen):
         self._git_log_visible = options.tui.git_log_open
         self._git_log_loaded = False
         self._refresh_lock = threading.Lock()
-        self._active_view: Literal["sql", "data"] = "sql"
+        self._active_view: Literal["lineage", "sql", "data"] = "lineage"
         self._data_preview_hash: str | None = None
         self._current_sql_hash: str | None = None
         self._highlight_timer = None
+        # Lineage fold state, per entry: which nodes are drawn raw, and the node
+        # the fold keys act on. Keyed by entry hash so browsing away and back
+        # keeps each entry's expansions, and a refresh re-render preserves them.
+        self._lineage_expanded: dict[str, frozenset[str]] = {}
+        self._lineage_cursor: dict[str, str] = {}
+        # Rows of the entry rendered last, so cursor moves need no re-walk.
+        self._lineage_rows: "tuple[LineageRow, ...]" = ()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -889,15 +995,15 @@ class CatalogScreen(Screen):
                 with Vertical(id="git-log-panel"):
                     yield DataTable(id="git-log-table")
             with Vertical(id="right-column"):
+                # Scrollable: the lineage tree is multi-line and unbounded in
+                # depth, so the panel cannot show all of it at any fixed height.
+                with VerticalScroll(id="lineage-panel"):
+                    yield Static("", id="lineage-content")
                 with VerticalScroll(id="sql-panel"):
                     yield Static("", id="sql-preview")
                 with Vertical(id="data-preview-panel"):
                     yield Static("", id="data-preview-status")
                     yield DataTable(id="data-preview-table")
-                # Scrollable: the lineage tree is multi-line and unbounded in
-                # depth, so the panel cannot show all of it at any fixed height.
-                with VerticalScroll(id="info-panel"):
-                    yield Static("", id="info-content")
                 with Vertical(id="schema-panel"):
                     with Horizontal(id="schema-split"):
                         with Vertical(id="schema-in-half"):
@@ -944,12 +1050,14 @@ class CatalogScreen(Screen):
         self.query_one("#catalog-panel").border_title = "Expressions"
         self.query_one("#schema-panel").border_title = "Schema"
         self.query_one("#schema-in-half").display = False
-        self.query_one("#sql-panel").border_title = "SQL"
+        sql_panel = self.query_one("#sql-panel")
+        sql_panel.border_title = "SQL"
+        sql_panel.display = False
         self.query_one("#sql-preview", Static).update(
             Text("← Select an expression to view its SQL", style="dim")
         )
-        self.query_one("#info-panel").border_title = "Info"
-        self.query_one("#info-content", Static).update(
+        self.query_one("#lineage-panel").border_title = "Lineage"
+        self.query_one("#lineage-content", Static).update(
             Text("← Select an expression", style="dim")
         )
         self.query_one("#revisions-panel").border_title = "Revisions"
@@ -1013,8 +1121,7 @@ class CatalogScreen(Screen):
         schema_in_table.clear()
         schema_out_table = self.query_one("#schema-preview-table", DataTable)
         schema_out_table.clear()
-        sql_preview = self.query_one("#sql-preview", Static)
-        info_content = self.query_one("#info-content", Static)
+        lineage_content = self.query_one("#lineage-content", Static)
         rev_table = self.query_one("#revisions-preview-table", DataTable)
         rev_table.clear()
 
@@ -1029,8 +1136,9 @@ class CatalogScreen(Screen):
         )
         if row_data is None:
             self._current_sql_hash = None
-            sql_preview.update("")
-            info_content.update("")
+            self.query_one("#sql-preview", Static).update("")
+            lineage_content.update("")
+            self._lineage_rows = ()
             self.query_one("#schema-in-half").display = False
             self.query_one("#revisions-panel").border_title = "Revisions"
             return
@@ -1053,29 +1161,18 @@ class CatalogScreen(Screen):
         for name, dtype in row_data.schema_out:
             schema_out_table.add_row(name, dtype)
 
-        # SQL preview
-        sql_panel = self.query_one("#sql-panel")
-        match row_data.sqls:
-            case ():
-                self._current_sql_hash = None
-                sql_preview.update("(SQL unavailable)")
-                sql_panel.border_subtitle = ""
-            case ((_, engine, sql),):
-                sql_panel.border_subtitle = engine
-                self._current_sql_hash = row_data.row_key
-                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
-                self._load_sql_preview(row_data.row_key, sql)
-            case sqls:
-                engines = sorted({engine for _, engine, _ in sqls})
-                sql_panel.border_subtitle = (
-                    f"{len(sqls)} queries · {', '.join(engines)}"
-                )
-                self._current_sql_hash = row_data.row_key
-                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
-                self._load_sql_preview(row_data.row_key, sqls)
+        # Lineage panel: cheap (metadata only), so render regardless of view.
+        self._render_lineage_panel(row_data)
 
-        # Info panel
-        info_content.update(row_data.info_rich)
+        # SQL and data previews both cost a worker, so only the active view pays
+        # for them; switching views renders the current selection on demand.
+        match self._active_view:
+            case "sql":
+                self._refresh_sql_preview(row_data)
+            case "data":
+                self._refresh_data_preview(row_data)
+            case _:
+                pass
 
         # Revisions preview
         match row_data.aliases:
@@ -1098,10 +1195,6 @@ class CatalogScreen(Screen):
                 self.query_one(
                     "#revisions-panel"
                 ).border_title = "Revisions — (no alias)"
-
-        # Update data preview if data view is active
-        if self._active_view == "data":
-            self._refresh_data_preview(row_data)
 
     def _tree_entry_hashes(self) -> set[str]:
         """Return set of entry hashes currently in the tree."""
@@ -1293,7 +1386,7 @@ class CatalogScreen(Screen):
     def _apply_alias_changes(self, keys: set[str]) -> None:
         self._relabel_leaves(keys)
         # If the cursor sits on an affected entry, the side panels (Revisions
-        # title, Info) were rendered from the stale aliases; re-render them.
+        # title, Lineage) were rendered from the stale aliases; re-render them.
         tree = self.query_one("#catalog-tree", Tree)
         node = tree.cursor_node
         if node is not None and node.data in keys:
@@ -1362,22 +1455,151 @@ class CatalogScreen(Screen):
             for i, row_data in enumerate(rows):
                 table.add_row(*row_data.row, key=str(i))
 
-    # --- View switching (1/2) ---
+    # --- View switching (1/2/3) ---
 
-    def _set_active_view(self, view: Literal["sql", "data"]) -> None:
+    def _set_active_view(self, view: Literal["lineage", "sql", "data"]) -> None:
         self._active_view = view
+        self.query_one("#lineage-panel").display = view == "lineage"
         self.query_one("#sql-panel").display = view == "sql"
         self.query_one("#data-preview-panel").display = view == "data"
 
-        if view == "data":
-            tree = self.query_one("#catalog-tree", Tree)
-            node = tree.cursor_node
-            if node is not None and node.data is not None:
-                row_data = self._row_cache.get(node.data)
-                if row_data is not None:
-                    self._refresh_data_preview(row_data)
-        else:
+        # The inactive views' dedup guards are cleared so re-entering a view
+        # re-renders the selection that changed while it was hidden.
+        if view != "data":
             self._data_preview_hash = None
+        if view != "sql":
+            self._current_sql_hash = None
+        if view == "lineage":
+            return
+
+        row_data = self._selected_row_data()
+        if row_data is None:
+            return
+        if view == "sql":
+            self._refresh_sql_preview(row_data)
+        else:
+            self._refresh_data_preview(row_data)
+
+    def action_view_lineage(self) -> None:
+        self._set_active_view("lineage")
+
+    # --- Lineage panel: fold state and cursor (l / h / j / k) ---
+
+    def _lineage_focused(self) -> bool:
+        """Whether the fold keys and the row cursor are live.
+
+        Gated on focus because `h`/`l`/`j`/`k` already drive the entries tree:
+        the panel has to own them before it can fold anything.
+        """
+        return self.is_mounted and self.app.focused is self.query_one("#lineage-panel")
+
+    def _render_lineage_panel(
+        self, row_data: CatalogRowData, keep_node: str | None = None
+    ) -> None:
+        """Draw the panel for *row_data* and remember its rows for the cursor.
+
+        *keep_node* re-seats the cursor on that node's row after a fold changed
+        the row set: expanding a node inserts the ops above it, so the row the
+        cursor sat on moves down, and the user expects to still be on it.
+        """
+        expanded = self._lineage_expanded.get(row_data.row_key, frozenset())
+        rows = row_data.lineage_lines(expanded)
+        self._lineage_rows = rows
+        cursor = self._lineage_cursor.get(row_data.row_key, 0)
+        if keep_node is not None:
+            # First occurrence: a node repeated as `↻` renders in full only once.
+            cursor = next(
+                (i for i, row in enumerate(rows) if row.node_id == keep_node), cursor
+            )
+        cursor = min(max(cursor, 0), max(len(rows) - 1, 0))
+        self._lineage_cursor[row_data.row_key] = cursor
+        self.query_one("#lineage-content", Static).update(
+            row_data.lineage_panel_rich(
+                expanded, cursor if self._lineage_focused() else None
+            )
+        )
+
+    def _lineage_cursor_row(self) -> "LineageRow | None":
+        """The row the fold keys act on, or None when the panel has no rows."""
+        row_data = self._selected_row_data()
+        if row_data is None or not self._lineage_rows:
+            return None
+        cursor = self._lineage_cursor.get(row_data.row_key, 0)
+        if not 0 <= cursor < len(self._lineage_rows):
+            return None
+        return self._lineage_rows[cursor]
+
+    def _move_lineage_cursor(self, direction: int) -> None:
+        # The cursor is a row, not a node: a node can render on more than one row
+        # (`↻` pointers, a shared node in the compact tree), so an id would be
+        # ambiguous here and the cursor would jump back to the first occurrence.
+        row_data = self._selected_row_data()
+        rows = self._lineage_rows
+        if row_data is None or not rows:
+            return
+        cursor = self._lineage_cursor.get(row_data.row_key, 0)
+        target = min(max(cursor + direction, 0), len(rows) - 1)
+        self._lineage_cursor[row_data.row_key] = target
+        self._render_lineage_panel(row_data)
+        self._scroll_lineage_cursor(row_data, target)
+
+    def _scroll_lineage_cursor(self, row_data: CatalogRowData, row_index: int) -> None:
+        """Keep the cursor row inside the panel's viewport.
+
+        The panel is one Static, so Textual has no per-row region to scroll to:
+        the y offset is counted off the rendered lines above the cursor row.
+        The content folds (`overflow="fold"`), so a long Hash or label takes one
+        display line per panel-width of cells, not one per source line.
+        """
+        panel = self.query_one("#lineage-panel", VerticalScroll)
+        height = panel.content_size.height
+        if height <= 0:
+            return
+        expanded = self._lineage_expanded.get(row_data.row_key, frozenset())
+        lines = row_data.lineage_panel_text(expanded).split("\n")
+        width = self.query_one("#lineage-content", Static).content_size.width
+        y = sum(
+            max(1, math.ceil(cell_len(line) / width)) if width > 0 else 1
+            for line in lines[: row_index + LINEAGE_TREE_OFFSET]
+        )
+        top = panel.scroll_offset.y
+        if y < top:
+            panel.scroll_to(y=y, animate=False)
+        elif y >= top + height:
+            panel.scroll_to(y=y - height + 1, animate=False)
+
+    def action_lineage_expand(self) -> None:
+        """`]`: list the columns of the node under the lineage cursor."""
+        if self._lineage_focused():
+            self._toggle_lineage_expand(True)
+
+    def action_lineage_collapse(self) -> None:
+        """`[`: fold those columns away again."""
+        if self._lineage_focused():
+            self._toggle_lineage_expand(False)
+
+    def _toggle_lineage_expand(self, expand: bool) -> None:
+        row_data = self._selected_row_data()
+        row = self._lineage_cursor_row()
+        if row_data is None or row is None or row.node_id is None:
+            return
+        key = row_data.row_key
+        # A column row carries its owner's id, so `[` on one folds the node it
+        # came from -- which is the node the user is looking at.
+        node_id = row.node_id
+        expanded = self._lineage_expanded.get(key, frozenset())
+        if expand:
+            # No schema stored at this node: `]` is a no-op, as the missing marker
+            # already says.
+            if node_id not in row_data.lineage_expandable or node_id in expanded:
+                return
+            expanded = expanded | {node_id}
+        else:
+            if node_id not in expanded:
+                return
+            expanded = expanded - {node_id}
+        self._lineage_expanded[key] = expanded
+        self._render_lineage_panel(row_data, keep_node=node_id)
 
     def action_view_sql(self) -> None:
         self._set_active_view("sql")
@@ -1385,7 +1607,31 @@ class CatalogScreen(Screen):
     def action_view_data(self) -> None:
         self._set_active_view("data")
 
-    def _refresh_data_preview(self, row_data) -> None:
+    def _refresh_sql_preview(self, row_data: CatalogRowData) -> None:
+        if self._current_sql_hash == row_data.row_key:
+            return
+        sql_preview = self.query_one("#sql-preview", Static)
+        sql_panel = self.query_one("#sql-panel")
+        match row_data.sqls:
+            case ():
+                self._current_sql_hash = None
+                sql_preview.update("(SQL unavailable)")
+                sql_panel.border_subtitle = ""
+            case ((_, engine, sql),):
+                sql_panel.border_subtitle = engine
+                self._current_sql_hash = row_data.row_key
+                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
+                self._load_sql_preview(row_data.row_key, sql)
+            case sqls:
+                engines = sorted({engine for _, engine, _ in sqls})
+                sql_panel.border_subtitle = (
+                    f"{len(sqls)} queries · {', '.join(engines)}"
+                )
+                self._current_sql_hash = row_data.row_key
+                sql_preview.update(Text("Rendering SQL Query…", style="dim"))
+                self._load_sql_preview(row_data.row_key, sqls)
+
+    def _refresh_data_preview(self, row_data: CatalogRowData) -> None:
         entry_hash = row_data.row_key
         if self._data_preview_hash == entry_hash:
             return
@@ -1474,7 +1720,7 @@ class CatalogScreen(Screen):
     # --- Navigation ---
 
     def action_tree_collapse(self) -> None:
-        """h: collapse branch in tree, scroll left in DataTable."""
+        """h: collapse branch in tree, scroll left in a DataTable."""
         focused = self.app.focused
         tree = self.query_one("#catalog-tree", Tree)
         if focused is tree:
@@ -1495,6 +1741,8 @@ class CatalogScreen(Screen):
             tree.action_cursor_down()
         elif isinstance(focused, DataTable):
             focused.action_cursor_down()
+        elif self._lineage_focused():
+            self._move_lineage_cursor(1)
         elif isinstance(focused, VerticalScroll):
             focused.scroll_down()
 
@@ -1505,11 +1753,13 @@ class CatalogScreen(Screen):
             tree.action_cursor_up()
         elif isinstance(focused, DataTable):
             focused.action_cursor_up()
+        elif self._lineage_focused():
+            self._move_lineage_cursor(-1)
         elif isinstance(focused, VerticalScroll):
             focused.scroll_up()
 
     def action_tree_expand(self) -> None:
-        """l: expand branch in tree, scroll right in DataTable."""
+        """l: expand branch in tree, scroll right in a DataTable."""
         focused = self.app.focused
         tree = self.query_one("#catalog-tree", Tree)
         if focused is tree:
@@ -1583,10 +1833,19 @@ class CatalogScreen(Screen):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action in ("add_alias", "remove_alias", "delete_entry"):
             return self._tree_action_available()
+        if action in ("lineage_expand", "lineage_collapse"):
+            # None hides the binding: the fold keys only mean anything while the
+            # Lineage panel has focus, so that is the only time they are offered.
+            return True if self._lineage_focused() else None
         return super().check_action(action, parameters)
 
     def on_descendant_focus(self) -> None:
         self.refresh_bindings()
+        # The lineage cursor is only drawn while its panel holds focus, so the
+        # panel is re-rendered whenever focus lands on or leaves it.
+        row_data = self._selected_row_data()
+        if row_data is not None and self._lineage_rows:
+            self._render_lineage_panel(row_data)
 
     def action_delete_entry(self) -> None:
         row_data = self._tree_action_row()
@@ -2206,7 +2465,7 @@ class CatalogTUI(App):
     #revisions-panel,
     #git-log-panel,
     #sql-panel,
-    #info-panel,
+    #lineage-panel,
     #schema-panel,
     #data-preview-panel,
     DataViewScreen #stack-browser-panel {
@@ -2218,7 +2477,7 @@ class CatalogTUI(App):
     #revisions-panel:focus-within,
     #git-log-panel:focus-within,
     #sql-panel:focus-within,
-    #info-panel:focus-within,
+    #lineage-panel:focus-within,
     #schema-panel:focus-within,
     #data-preview-panel:focus-within,
     DataViewScreen #stack-browser-panel:focus-within {
@@ -2242,8 +2501,7 @@ class CatalogTUI(App):
     DataTable:focus { border: none; }
     Tree:focus { border: none; }
 
-    #info-panel { height: auto; max-height: 6; padding: 0 1; }
-    #info-content { height: auto; }
+    #lineage-panel { height: 2fr; padding: 0 1; }
 
     #schema-panel { height: 1fr; }
     #schema-split { height: 1fr; }

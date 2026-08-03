@@ -23,6 +23,7 @@ from xorq.catalog import constants as catalog_constants
 
 if TYPE_CHECKING:
     from xorq.catalog.content_store import ContentStoreConfig
+    from xorq.common.utils.lineage_utils import LineageDAG
 
 from xorq.cli import (
     _get_cache_dir,
@@ -1018,6 +1019,223 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
+def _resolve_lineage(dag: LineageDAG, handle: str, name: str) -> tuple[dict, ...]:
+    """Nodes a `--node`/`--expand` handle names, or a pointer to the listing."""
+    if matches := dag.resolve(handle):
+        return matches
+    raise click.ClickException(
+        f"No lineage node matches {handle!r} — run "
+        f"'xorq catalog lineage {name} --level boundaries' to see the "
+        f"available ids, kinds and hashes."
+    )
+
+
+def _lineage_boundary_line(node: dict) -> str:
+    from xorq.common.utils.lineage_utils import compact_node_label  # noqa: PLC0415
+
+    return f"{node['id']}\t{node['boundary_kind']}\t{compact_node_label(node)}"
+
+
+def _lineage_boundaries_lines(
+    dag: LineageDAG, nodes: tuple[dict, ...], *, capabilities: bool = False
+) -> Iterator[str]:
+    """One line per boundary: id, kind, and the compact label's facts.
+
+    Non-boundary nodes appear too when selected by handle -- a `--node` query
+    should never answer with nothing for a node that exists. Capability lines are
+    for that expansion case only: on the full listing they would double the
+    output with what the kind column already implies.
+    """
+    for node in nodes:
+        yield _lineage_boundary_line(
+            node if node.get("boundary_kind") else {**node, "boundary_kind": "-"}
+        )
+        if capabilities and (dims := dag.capabilities(node)):
+            yield f"# capabilities\t{node['id']}\t{','.join(dims)}"
+        if (nested_root := node.get("nested_root")) is not None:
+            n_nodes = len(dag.compact(scope=node["id"])["nodes"])
+            plural = "" if n_nodes == 1 else "s"
+            yield f"# nested\t{node['id']}\t{n_nodes} node{plural}\troot={nested_root}"
+
+
+@cli.command()
+@click.argument("name", shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "-l",
+    "--level",
+    type=click.Choice(("compact", "boundaries", "raw")),
+    default="compact",
+    show_default=True,
+    help="How much lineage detail to print.",
+)
+@click.option(
+    "--node",
+    "handle",
+    default=None,
+    help="Expand one node: a snapshot hash, an @label, a tag value, or a "
+    "boundary kind. Scopes every level to the match(es).",
+)
+@click.option(
+    "-f",
+    "--format",
+    "fmt",
+    type=click.Choice(("text", "mermaid")),
+    default="text",
+    show_default=True,
+    help="Render the graph as a text tree or a mermaid flowchart.",
+)
+@click.option(
+    "--expand",
+    "expand_handle",
+    default=None,
+    help="List this node's columns under it: name and type per field, and both "
+    "sides of a Flight boundary's schema change. Same handle forms as --node.",
+)
+@click.pass_context
+def lineage(
+    ctx: click.Context,
+    name: str,
+    level: str,
+    handle: str | None,
+    fmt: str,
+    expand_handle: str | None,
+) -> None:
+    """Show the lineage recorded in an entry's metadata sidecar.
+
+    The sidecar stores one node table with scope-tagged edges; the compact
+    boundary tree is derived from it, so no level re-walks the expression.
+
+    `--level` picks how much detail, `--node` picks how much of the graph,
+    `--format` picks the rendering, and `--expand` opens a node up: its columns
+    are listed under it in the tree, or inside it in the diagram. With `--node`,
+    the compact level prints the subtree feeding that node — including a Flight
+    boundary's nested input lineage — and a handle matching several nodes (a
+    kind, a tag) prints each match in turn.
+
+    The TUI's Lineage panel expands the same way, with `]` and `[` on the node
+    under its cursor.
+
+    \b
+    Levels:
+    - `compact` (default)—the boundary-only tree, as the TUI renders it.
+    - `boundaries`—one tab-separated line per boundary: id, kind, label.
+    - `raw`—the stored lineage as JSON; pipe it to `jq`.
+
+    \b
+    Formats:
+    - `text` (default)—the level's own format: a tree, a listing, or JSON.
+    - `mermaid`—a `flowchart TD` to paste into docs or an issue. Edges point
+      downstream, so sources sit at the top, and a Flight boundary's nested
+      input lineage becomes a `subgraph`. With `--level compact` it draws the
+      boundary graph; with `--level raw`, the expanded one, where the runs
+      collapsed into `via` become real nodes. `--level boundaries` has no graph
+      to draw and is rejected. A `--node` handle matching several nodes emits
+      one `flowchart` block per match—paste them one at a time.
+
+    \b
+    Arguments:
+      NAME  Entry name or alias.
+
+    \b
+    Examples:
+      # The tree the TUI shows
+      xorq catalog lineage penguins-prod
+      # Grep-able boundary list
+      xorq catalog lineage penguins-prod --level boundaries
+      # Every stored field, for jq
+      xorq catalog lineage penguins-prod --level raw | jq '.nodes[0]'
+      # What feeds one node, addressed by its content hash
+      xorq catalog lineage penguins-prod --node 8f3a91c2e4
+      # Every UDXF's stored facts, addressed by kind
+      xorq catalog lineage penguins-prod --node flight_udxf --level raw
+      # A catalog-tagged source, addressed by tag value
+      xorq catalog lineage penguins-prod --node catalog-source
+      # A mermaid diagram, whole graph or one node's upstream
+      xorq catalog lineage penguins-prod --format mermaid
+      xorq catalog lineage penguins-prod --node flight_udxf -f mermaid
+      # The same diagram expanded to every op, not just the boundaries
+      xorq catalog lineage penguins-prod --level raw --format mermaid
+      # What flows through one node: its columns, in the tree or in the diagram
+      xorq catalog lineage penguins-prod --expand @cached_node_14
+      xorq catalog lineage penguins-prod -f mermaid --expand @cached_node_14
+    """
+    from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
+        format_compact_lineage,
+        format_mermaid_lineage,
+    )
+
+    if fmt == "mermaid" and level == "boundaries":
+        raise click.UsageError(
+            "--format mermaid renders a graph; 'boundaries' is a flat listing. "
+            "Use --level compact for the boundary graph or --level raw for the "
+            "expanded one."
+        )
+    # --expand lists a node's columns inside a rendered tree or diagram. The flat
+    # listing and the raw JSON already carry every stored schema, so there is
+    # nothing there for it to add.
+    if expand_handle is not None and not (fmt == "mermaid" or level == "compact"):
+        raise click.UsageError(
+            f"--expand lists a node's columns in the rendered tree or diagram, "
+            f"which --level {level} with --format text does not draw "
+            f"(--level raw already prints every stored field as JSON). "
+            f"Use --level compact, or --format mermaid."
+        )
+
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        entry = _get_catalog_entry(catalog, name)
+
+        dag = entry.metadata.lineage
+        if dag is None or not dag.nodes:
+            # A sidecar written before lineage existed, or an expression with none.
+            raise click.ClickException(
+                f"Entry {name!r} has no lineage in its metadata sidecar — "
+                f"rebuild it with a current xorq to record one."
+            )
+
+        selected = dag.nodes if handle is None else _resolve_lineage(dag, handle, name)
+        expand_ids = (
+            ()
+            if expand_handle is None
+            else tuple(n["id"] for n in _resolve_lineage(dag, expand_handle, name))
+        )
+
+        if fmt == "mermaid":
+            # `--level raw` is the stored graph: the same diagram with the runs
+            # that compact() folds into `via` drawn as real nodes. --expand is the
+            # other axis -- what flows through a node, not what surrounds it.
+            def render(dag: LineageDAG, root: str | None = None) -> str:
+                return format_mermaid_lineage(
+                    dag, root=root, raw=level == "raw", expand_columns=expand_ids
+                )
+        else:
+
+            def render(dag: LineageDAG, root: str | None = None) -> str:
+                return format_compact_lineage(dag, root=root, expand_columns=expand_ids)
+
+        # `--format mermaid` renders a graph at every level it accepts, so it
+        # takes precedence over the level's own listing format.
+        match (level if fmt == "text" else "graph", handle):
+            case ("raw", None):
+                click.echo(json.dumps(dag.to_dict(), indent=2, default=str))
+            case ("raw", _):
+                click.echo(json.dumps(list(selected), indent=2, default=str))
+            case ("boundaries", None):
+                for line in _lineage_boundaries_lines(dag, dag.boundaries()):
+                    click.echo(line)
+            case ("boundaries", _):
+                for line in _lineage_boundaries_lines(dag, selected, capabilities=True):
+                    click.echo(line)
+            case (_, None):
+                click.echo(render(dag))
+            case _:
+                # One subtree per match, blank-line separated.
+                for i, node in enumerate(selected):
+                    if i:
+                        click.echo()
+                    click.echo(render(dag, root=node["id"]))
+
+
 @cli.command()
 @click.argument("name", shell_complete=_complete_entry_or_alias_names)
 @json_option
@@ -1029,7 +1247,7 @@ def schema(ctx, name, as_json):
     help="Print the metadata sidecar file as-is (YAML).",
 )
 @click.pass_context
-def show(ctx, name, as_json, as_raw):
+def show(ctx: click.Context, name: str, as_json: bool, as_raw: bool) -> None:
     """Show full metadata for a catalog entry.
 
     Prints name, aliases, kind, backends, schemas, parameters, builders,

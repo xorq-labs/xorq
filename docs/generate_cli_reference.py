@@ -97,6 +97,7 @@ CATALOG_GROUPS = (
             "list",
             "show",
             "schema",
+            "lineage",
             "get",
             "add-alias",
             "remove-alias",
@@ -212,11 +213,18 @@ SEE_ALSO = {
     ),
     "catalog/show": (
         "[`catalog schema`](schema.qmd)—schema-only view",
+        "[`catalog lineage`](lineage.qmd)—lineage-only view",
         "[`catalog list`](list.qmd)—list entries",
     ),
     "catalog/schema": (
         "[`catalog show`](show.qmd)—full metadata for an entry",
+        "[`catalog lineage`](lineage.qmd)—where an entry's data comes from",
         "[`catalog list`](list.qmd)—list available entries",
+    ),
+    "catalog/lineage": (
+        "[`catalog show`](show.qmd)—the rest of an entry's metadata",
+        "[`catalog schema`](schema.qmd)—input and output schemas only",
+        "[`catalog tui`](tui.qmd)—browse the same lineage tree interactively",
     ),
     "catalog/get": (
         "[`catalog add`](add.qmd)—re-add an exported archive to another catalog",

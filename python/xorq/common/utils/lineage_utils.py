@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from functools import singledispatch
 from itertools import count
 from typing import Any, Callable, Tuple
@@ -26,14 +26,18 @@ from xorq.vendor.ibis.expr.operations.core import Node
 
 __all__ = [
     "CAPABILITY_REGISTRY",
+    "COLUMN_KIND",
     "LineageDAG",
     "LineageRow",
     "base_kind",
     "build_column_trees",
     "build_tree",
     "compact_lineage_rows",
+    "compact_node_label",
     "extract_lineage_dag",
     "format_compact_lineage",
+    "format_mermaid_lineage",
+    "node_columns",
     "schema_diff",
 ]
 
@@ -525,6 +529,10 @@ class LineageRow:
     label: str = field(validator=instance_of(str))
     kind: str | None = field(default=None)
     via: Tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
+    # The graph node this line renders, so a caller that lets the user point at a
+    # line (``catalog/tui.py``) can address the node behind it. Column trees have
+    # no lineage node, so they leave it None.
+    node_id: str | None = field(default=None)
 
     @property
     def via_suffix(self) -> str:
@@ -546,6 +554,7 @@ class TextTree:
     # Only the compact lineage tree sets these; column trees leave them empty.
     kind: str | None = field(default=None)
     via: Tuple[str, ...] = field(factory=tuple, validator=instance_of(tuple))
+    node_id: str | None = field(default=None)
 
     def rows(
         self, prefix: str = "", is_last: bool = True, is_root: bool = True
@@ -557,7 +566,11 @@ class TextTree:
             line_prefix = prefix + ("└── " if is_last else "├── ")
             child_prefix = prefix + ("    " if is_last else "│   ")
         row = LineageRow(
-            prefix=line_prefix, label=self.label, kind=self.kind, via=self.via
+            prefix=line_prefix,
+            label=self.label,
+            kind=self.kind,
+            via=self.via,
+            node_id=self.node_id,
         )
         return (row,) + tuple(
             descendant
@@ -1194,7 +1207,7 @@ _BACKEND_TAG_KINDS = (
 )
 
 
-def _compact_node_label(node: dict) -> str:
+def compact_node_label(node: dict) -> str:
     """One-line label for a boundary node: what it is, how wide, and where.
 
     ``<kind label> (<n> cols) [<backend>]``, dropping any piece the node cannot
@@ -1258,70 +1271,372 @@ def _via_suffix(via: list) -> str:
     return f"   via [{shown}]"
 
 
-def _compact_lineage_tree(dag: LineageDAG) -> TextTree | None:
+def _view_containing(
+    dag: LineageDAG, nid: str, view_of: Callable[[str], dict] | None = None
+) -> dict | None:
+    """The view *nid* lives in: the root graph, or a Flight's own scope.
+
+    A node reached only inside a Flight's nested lineage is absent from the root
+    view, so rooting a subtree at it means finding its scope first. *view_of*
+    selects the flavour of view (compact by default, ``dag.scope`` for the
+    stored graph).
+    """
+    if view_of is None:
+
+        def view_of(scope: str) -> dict:
+            return dag.compact(scope=scope)
+
+    view = view_of(ROOT_SCOPE)
+    if any(n["id"] == nid for n in view["nodes"]):
+        return view
+    for boundary in dag.boundaries():
+        if boundary.get("nested_root") is None:
+            continue
+        nested = view_of(boundary["id"])
+        if any(n["id"] == nid for n in nested["nodes"]):
+            return nested
+    return None
+
+
+def _expand_ids(expand_columns: str | Iterable[str] | None) -> frozenset[str]:
+    """One node id, several, or none, as a set. Shared by both renderers."""
+    return frozenset(
+        (expand_columns,) if isinstance(expand_columns, str) else (expand_columns or ())
+    )
+
+
+COLUMN_KIND = "column"
+
+# Schemas a node stores, in the order they read, and how a column row labels the
+# side it came from. A Flight boundary is the one kind whose schema changes across
+# it, so both sides are drawn; everything else has the one schema.
+_COLUMN_SCHEMAS: dict[str, tuple[tuple[str, str], ...]] = {
+    "flight_udxf": (("schema_in_observed", "in "), ("schema_out", "out ")),
+    "flight_expr": (("input_schema", "in "), ("output_schema", "out ")),
+}
+_DEFAULT_COLUMN_SCHEMAS = (("schema", ""),)
+
+
+def node_columns(node: dict) -> tuple[str, ...]:
+    """One label per column the node stores: ``name  dtype``, names padded.
+
+    A Flight boundary labels each side (``in``/``out``) and marks what its stored
+    ``schema_diff`` says changed, so the transition reads off the rows themselves.
+    Returns ``()`` for a node that stores no schema -- there is nothing to expand.
+    """
+    kind = base_kind(node.get("boundary_kind"))
+    diff = node.get("schema_diff") or {}
+    added = set(diff.get("added") or ())
+    removed = set(diff.get("removed") or ())
+    retyped = set(diff.get("retyped") or ())
+    rows: list[tuple[str, str]] = []
+    for key, side in _COLUMN_SCHEMAS.get(kind, _DEFAULT_COLUMN_SCHEMAS):
+        schema = node.get(key) or {}
+        for name, dtype in schema.items():
+            # `+`/`~` come from the stored diff; a column the diff calls renamed
+            # is a plain row on both sides, which is what the rename says it is.
+            if name in added:
+                mark = "+ "
+            elif name in retyped:
+                mark = "~ "
+            else:
+                mark = ""
+            rows.append((f"{side}{mark}{name}", str(dtype)))
+        # A dropped column is gone from `after`, so it only shows on the in side.
+        if side == "out ":
+            for name in sorted(removed):
+                rows.append((f"{side}- {name}", ""))
+    if not rows:
+        return ()
+    width = max(len(label) for label, _ in rows) + 2
+    return tuple(f"{label:<{width}}{dtype}".rstrip() for label, dtype in rows)
+
+
+def _compact_lineage_tree(
+    dag: LineageDAG,
+    root: str | None = None,
+    expand_columns: str | Iterable[str] | None = None,
+) -> TextTree | None:
     """Compact boundary tree, or ``None`` when there is nothing to render.
 
     Non-boundary runs collapse into ``via [...]`` on the surviving edges; Flight
     boundaries carry their nested input lineage as an indented sub-tree. Each
     node keeps its ``kind`` so a renderer can style per boundary kind without
-    re-parsing the label.
+    re-parsing the label, and its ``node_id`` so a renderer can address it.
+
+    Two dials:
+
+    - *root* — render the subtree feeding one node instead of the whole expression.
+    - *expand_columns* — node ids to expand: their columns become child rows,
+      tagged ``kind="column"`` and carrying the node's id, so a renderer can style
+      them apart and a caller can fold them back.
     """
     by_id = dag.by_id
+    expand_ids = _expand_ids(expand_columns)
+    # Views and their child indexes are built once per scope, not once per node,
+    # so the walk stays O(V+E) however often a caller re-renders (the TUI does it
+    # on every keypress).
+    views: dict[str, dict] = {}
+    child_index: dict[str, dict[str, list]] = {}
 
-    def build(view: dict, nid: str, seen: frozenset, marker: str = "") -> TextTree:
+    def view_for(scope: str) -> dict:
+        if scope not in views:
+            views[scope] = dag.compact(scope=scope)
+        return views[scope]
+
+    def children_of(scope: str) -> dict[str, list]:
+        if scope not in child_index:
+            index: dict[str, list] = defaultdict(list)
+            for edge in view_for(scope)["edges"]:
+                index[edge["from"]].append((edge["to"], tuple(edge.get("via") or ())))
+            child_index[scope] = index
+        return child_index[scope]
+
+    def column_kids(nid: str, node: dict) -> list[TextTree]:
+        if nid not in expand_ids:
+            return []
+        return [
+            TextTree(label, kind=COLUMN_KIND, node_id=nid)
+            for label in node_columns(node)
+        ]
+
+    def build(scope: str, nid: str, seen: frozenset, marker: str = "") -> TextTree:
         node = by_id.get(nid, {"label": nid, "type": "?"})
-        children_of: dict = defaultdict(list)
-        for edge in view["edges"]:
-            children_of[edge["from"]].append((edge["to"], edge.get("via", [])))
-
-        kids: list[TextTree] = []
+        # Columns first: they describe this node, where the rest are its inputs.
+        kids: list[TextTree] = column_kids(nid, node)
 
         nested_root = node.get("nested_root")
         if nested_root is not None:
             # A Flight boundary's input lineage lives in its own scope: render it
             # as a sub-tree marked with the crossing arrow at its root.
-            kids.append(
-                build(
-                    dag.compact(scope=nid),
-                    nested_root,
-                    frozenset({nested_root}),
-                    "↳ ",
-                )
-            )
+            kids.append(build(nid, nested_root, frozenset({nested_root}), "↳ "))
 
-        for child_id, via in children_of.get(nid, ()):
+        for child_id, via in children_of(scope).get(nid, ()):
             child = by_id[child_id]
             if child_id in seen:
                 kids.append(
                     TextTree(
-                        f"↻ {_compact_node_label(child)}",
+                        f"↻ {compact_node_label(child)}",
                         kind=base_kind(child.get("boundary_kind")),
+                        node_id=child_id,
                     )
                 )
                 continue
-            subtree = build(view, child_id, seen | {child_id})
-            kids.append(evolve(subtree, via=tuple(via)))
+            subtree = build(scope, child_id, seen | {child_id})
+            kids.append(evolve(subtree, via=via))
 
         return TextTree(
-            marker + _compact_node_label(node),
+            marker + compact_node_label(node),
             tuple(kids),
             kind=base_kind(node.get("boundary_kind")),
+            node_id=nid,
         )
 
-    view = dag.compact()
-    if not view["nodes"] or view["root"] is None:
+    if root is None:
+        root, scope = view_for(ROOT_SCOPE)["root"], ROOT_SCOPE
+    else:
+        # A node the compact view dropped (non-boundary, or unreachable) still
+        # renders as its own one-line tree rather than nothing.
+        view = _view_containing(dag, root, view_for) or {"scope": ROOT_SCOPE}
+        scope = view.get("scope", ROOT_SCOPE)
+    if root is None or root not in by_id:
         return None
-    return build(view, view["root"], frozenset({view["root"]}))
+    return build(scope, root, frozenset({root}))
 
 
-def compact_lineage_rows(dag: LineageDAG) -> tuple[LineageRow, ...]:
-    """One row per rendered line, with the tree glyphs, label, kind and ``via``
-    kept apart so a renderer can style each piece (see ``catalog/tui.py``)."""
-    tree = _compact_lineage_tree(dag)
+def compact_lineage_rows(
+    dag: LineageDAG,
+    root: str | None = None,
+    expand_columns: str | Iterable[str] | None = None,
+) -> tuple[LineageRow, ...]:
+    """One row per rendered line, with the tree glyphs, label, kind, ``via`` and
+    node id kept apart so a renderer can style or address each piece (see
+    ``catalog/tui.py``).
+
+    *root* and *expand_columns* are :func:`_compact_lineage_tree`'s dials.
+    """
+    tree = _compact_lineage_tree(dag, root=root, expand_columns=expand_columns)
     return () if tree is None else tree.rows()
 
 
-def format_compact_lineage(dag: LineageDAG) -> str:
-    """Render a :class:`LineageDAG` as a compact boundary-only text tree."""
-    tree = _compact_lineage_tree(dag)
+def format_compact_lineage(
+    dag: LineageDAG,
+    root: str | None = None,
+    expand_columns: str | Iterable[str] | None = None,
+) -> str:
+    """Render a :class:`LineageDAG` as a compact boundary-only text tree.
+
+    Pass *root* (a node id) to render only what feeds that node, or
+    *expand_columns* (node ids) to list those nodes' columns under them.
+    """
+    tree = _compact_lineage_tree(dag, root=root, expand_columns=expand_columns)
     return "(empty)" if tree is None else str(tree)
+
+
+# ── mermaid rendering ──────────────────────────────────────────────────
+#
+# A second renderer over the same compact views. Unlike the text tree this keeps
+# the *graph*: a node shared by two consumers is one mermaid node with two
+# inbound edges, where the tree has to repeat it (or mark it `↻`).
+
+# Fill/stroke per boundary kind. Deliberately not the TUI's theme colours: a
+# mermaid diagram is pasted into docs and issues with their own background.
+_MERMAID_STYLES: dict[str, str] = {
+    "flight_udxf": "fill:#ffe0f0,stroke:#c2185b,color:#111",
+    "flight_expr": "fill:#ffe0f0,stroke:#c2185b,color:#111",
+    "engine_crossing": "fill:#e3f2fd,stroke:#1976d2,color:#111",
+    "cache": "fill:#e8f5e9,stroke:#2e7d32,color:#111",
+    "pin": "fill:#e8f5e9,stroke:#1b5e20,color:#111",
+    "ingestion": "fill:#fff8e1,stroke:#f9a825,color:#111",
+    "udf": "fill:#f3e5f5,stroke:#7b1fa2,color:#111",
+    "join": "fill:#eceff1,stroke:#455a64,color:#111",
+    "table": "fill:#f5f5f5,stroke:#616161,color:#111",
+    "unbound": "fill:#fff3e0,stroke:#ef6c00,color:#111",
+    "tag": "fill:#f5f5f5,stroke:#9e9e9e,color:#111",
+    # Non-boundary plumbing, only drawn in the expanded graph: recede visually so
+    # the boundaries still read as the structure.
+    "unknown": "fill:#fafafa,stroke:#bdbdbd,stroke-dasharray:3 3,color:#555",
+}
+_MERMAID_UNKNOWN = "unknown"
+
+
+def _mermaid_slug(text: str) -> str:
+    """Anything -> a bare word, which is all a mermaid id may contain."""
+    return "".join(c if c.isalnum() or c == "_" else "_" for c in text)
+
+
+def _mermaid_id(node_id: str) -> str:
+    """`@flight_u_d_x_f_17` -> `n_flight_u_d_x_f_17` (mermaid ids are bare words)."""
+    return "n_" + _mermaid_slug(node_id)
+
+
+def _mermaid_text(label: str) -> str:
+    """Escape a label for a mermaid `["..."]` node."""
+    return (
+        label.replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _mermaid_scope_title(node: dict) -> str:
+    """`UDXF[OrderEnricher]` out of the full label: a subgraph title wants the
+    node's identity, not its widths and column delta."""
+    label = compact_node_label(node)
+    for separator in ("   ", " : ", " ("):
+        label = label.split(separator, 1)[0]
+    return f"input of {label}"
+
+
+def format_mermaid_lineage(
+    dag: LineageDAG,
+    root: str | None = None,
+    raw: bool = False,
+    expand_columns: str | Iterable[str] | None = None,
+) -> str:
+    """Render a :class:`LineageDAG` as a mermaid `flowchart`.
+
+    Edges point **downstream** (a source to its consumer), the reverse of the
+    stored depends-on direction, so `TD` lays the diagram out as the pipeline
+    reads: sources at the top, the final expression at the bottom. A Flight
+    boundary's nested input lineage becomes a `subgraph`, which is what the
+    stored `scope` tag means.
+
+    Three dials, which compose:
+
+    - *root* — render only what feeds that node.
+    - *raw* — draw the *stored* graph instead of the compact one: every node, with
+      the runs that `compact()` folds into `via` drawn as real nodes.
+    - *expand_columns* — node ids to expand: their columns are listed inside the
+      node, leaving the shape of the graph alone.
+
+    The walk is a DFS: a node is declared once, edges once, and a per-path
+    ``seen`` set stops a cycle.
+    """
+    by_id = dag.by_id
+    lines = ["flowchart TD"]
+    kinds: dict[str, set[str]] = defaultdict(set)
+    declared: set[str] = set()
+    drawn: set[tuple[str, str]] = set()
+    expand_ids = _expand_ids(expand_columns)
+    # Views and their child indexes are built once per scope, not once per node,
+    # as in `_compact_lineage_tree`: the walk visits every node, and a raw view
+    # of a large graph re-derived per visit would make the render quadratic.
+    views: dict[str, dict] = {}
+    child_index: dict[str, dict[str, list]] = {}
+
+    def view_for(scope: str) -> dict:
+        # dag.scope() is the stored graph for one scope; dag.compact() collapses it.
+        if scope not in views:
+            views[scope] = dag.scope(scope) if raw else dag.compact(scope=scope)
+        return views[scope]
+
+    def children_of(scope: str) -> dict[str, list]:
+        if scope not in child_index:
+            index: dict[str, list] = defaultdict(list)
+            for edge in view_for(scope)["edges"]:
+                index[edge["from"]].append((edge["to"], tuple(edge.get("via") or ())))
+            child_index[scope] = index
+        return child_index[scope]
+
+    def declare(nid: str, indent: str) -> None:
+        node = by_id.get(nid, {})
+        kind = base_kind(node.get("boundary_kind")) or _MERMAID_UNKNOWN
+        kinds[kind].add(_mermaid_id(nid))
+        parts = [compact_node_label(node) if node else nid]
+        if nid in expand_ids:
+            # `<br/>` keeps the columns inside the node: expanding says what flows
+            # through it, not what the graph around it looks like.
+            parts.extend(node_columns(node))
+        label = "<br/>".join(_mermaid_text(part) for part in parts)
+        lines.append(f'{indent}{_mermaid_id(nid)}["{label}"]')
+
+    def draw_edge(upstream: str, downstream: str, via: tuple, indent: str) -> None:
+        if (upstream, downstream) in drawn:
+            return
+        drawn.add((upstream, downstream))
+        # reversed: data flows from the upstream node into its consumer
+        if via:
+            # truncate as the text renderer's `_via_suffix` does, ellipsis and all
+            shown = ", ".join(via[:3]) + ("…" if len(via) > 3 else "")
+            arrow = f"-->|via {shown}|"
+        else:
+            arrow = "-->"
+        lines.append(
+            f"{indent}{_mermaid_id(upstream)} {arrow} {_mermaid_id(downstream)}"
+        )
+
+    def walk(nid: str, scope: str, indent: str, seen: frozenset) -> None:
+        if nid not in declared:
+            declared.add(nid)
+            declare(nid, indent)
+            nested_root = by_id.get(nid, {}).get("nested_root")
+            if nested_root is not None:
+                # the Flight node itself sits outside its own input subgraph
+                title = _mermaid_text(_mermaid_scope_title(by_id[nid]))
+                lines.append(f'{indent}subgraph {_mermaid_id(nid)}_scope["{title}"]')
+                walk(nested_root, nid, indent + "  ", frozenset({nested_root}))
+                lines.append(f"{indent}end")
+                draw_edge(nested_root, nid, (), indent)
+        for child_id, via in children_of(scope).get(nid, ()):
+            if child_id in seen:
+                continue
+            walk(child_id, scope, indent, seen | {child_id})
+            draw_edge(child_id, nid, via, indent)
+
+    if root is None:
+        start = view_for(ROOT_SCOPE)["root"]
+        scope = ROOT_SCOPE
+    else:
+        view = _view_containing(dag, root, view_for) or {"scope": ROOT_SCOPE}
+        start, scope = root, view.get("scope", ROOT_SCOPE)
+    if start is None or start not in by_id:
+        return 'flowchart TD\n  empty["(empty)"]'
+
+    walk(start, scope, "  ", frozenset({start}))
+    for kind, members in sorted(kinds.items()):
+        if style := _MERMAID_STYLES.get(kind):
+            lines.append(f"  classDef {kind} {style}")
+            lines.append(f"  class {','.join(sorted(members))} {kind}")
+    return "\n".join(lines)
