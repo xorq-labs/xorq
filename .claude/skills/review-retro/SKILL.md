@@ -1,12 +1,21 @@
 ---
 name: review-retro
-description: After sequential independent review rounds on a change, run a retrospective that groups ALL findings by generating cause and converts causes into structural fixes. Use when two or more review rounds have completed, before merge — or whenever review findings feel like whack-a-mole.
+description: The retrospective step of xorq's sequential-review policy for shared-infrastructure changes (CONTRIBUTING § "Review policy") — group ALL findings from the review rounds by generating cause and convert causes into structural fixes. Use when two or more review rounds have completed, before merge — or whenever review findings feel like whack-a-mole.
 ---
 
 # Review retrospective: from findings to generators
 
 Individual review findings are symptoms. This skill finds the process that
 *generated* them, so the fix kills the class, not the instance.
+
+## When this runs (repo policy)
+
+Per CONTRIBUTING § "Review policy: shared-infrastructure changes", changes to
+shared traversal/hashing/serialization infrastructure get two or more
+sequential independent cold reviews; when the rounds produce findings, this
+retrospective runs before merge. The convergence curve (step 4) is the stop
+criterion for the review loop itself. ADR-0016 records the #2177/#2196 case
+study this practice was distilled from.
 
 ## Method
 
@@ -27,9 +36,11 @@ Individual review findings are symptoms. This skill finds the process that
    10 → 5 (one high) → 5 (zero blocking) → suggestions-only means converged;
    flat or rising means the generators are still live.
 5. **Route outputs to their durable homes.** Mechanisms → code + tests;
-   design decisions → an ADR; process rules → CONTRIBUTING (with team
-   consent — norms are not riders on feature PRs); environment facts →
-   memory; unresolved causes → named follow-ups with owners.
+   design decisions → `docs/adr/` (see `template.md` there); process rules →
+   CONTRIBUTING § "Removing or changing behavior" (with team consent — norms
+   are not riders on feature PRs); agent-facing summaries → AGENTS.md;
+   environment facts → memory; unresolved causes → named follow-ups with
+   owners (ours: declaration-site spec registration → XOR-363).
 6. **Apply cause #1 below to the new mechanisms themselves.** Every checker
    added gets a planted-violation test (prove it catches a real violation)
    and a stated blind spot (what it does NOT catch). Enforcement layers
@@ -37,8 +48,11 @@ Individual review findings are symptoms. This skill finds the process that
 
 ## Known cause taxonomy (prior, not fence)
 
-Start from these — they have recurred — but explicitly hunt for causes that
-do not fit; a taxonomy that only confirms itself is another enumeration.
+Distilled from the #2177/#2196 review rounds (28 findings, four rounds; see
+ADR-0016 for the code-side outcome). Start from these — they have recurred —
+but explicitly hunt for causes that do not fit; a taxonomy that only confirms
+itself is another enumeration. Amend this list when a retro finds a new
+cause.
 
 1. **Claims without enforcement** — invariants living in prose (docstrings,
    comments, PR bodies) with no tier that makes them fail when violated.

@@ -133,6 +133,24 @@ case study):
   editors, and it can silently stop testing anything when those internals are
   restructured.
 
+## Review policy: shared-infrastructure changes (trial)
+
+Changes to shared traversal, hashing, or serialization infrastructure (e.g.
+`common/utils/graph_utils.py`, `common/utils/dasher/`, `ibis_yaml/`) get at
+least two sequential *independent* reviews — each a cold read with no context
+from the previous round. Sequential rounds find different classes of issue;
+stop when the findings-per-round curve converges (declining count and
+severity).
+
+When review rounds produce findings, run a structural retrospective before
+merge: group all findings (including declined ones and operational hiccups)
+by generating cause, and convert causes into mechanisms, not just fixes.
+Agents run this as the `/review-retro` skill;
+`.claude/skills/review-retro/SKILL.md` doubles as the manual checklist.
+
+This is a trial norm adopted from the #2177/#2196 retrospectives (ADR-0016
+records the case study); revisit after a few uses.
+
 ## Writing the commit
 
 xorq follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.

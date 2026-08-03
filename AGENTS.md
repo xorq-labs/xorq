@@ -21,6 +21,13 @@ prose-only invariant is a review finding, not documentation.
 A test pinning module A's behavior belongs in A's test module. Monkeypatching
 another module's globals in a test is a smell.
 
+## Sequential reviews + retrospective (trial policy)
+
+Shared-infrastructure changes (traversal, hashing, serialization) get two or
+more independent cold reviews; when rounds produce findings, run
+`/review-retro` before merge. See CONTRIBUTING § "Review policy:
+shared-infrastructure changes".
+
 ## Graph traversal / opaque ops (`common/utils/graph_utils.py`)
 
 An op holding sub-expressions that `__children__` does not surface
