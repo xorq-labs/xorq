@@ -131,6 +131,19 @@ def _assert_canonicalizable(typ: pa.DataType) -> None:
             f"data can hash unequally"
         )
     if pa.types.is_dictionary(typ):
+        if pa.types.is_string_view(typ.value_type) or pa.types.is_binary_view(
+            typ.value_type
+        ):
+            # pyarrow has no take kernel for view-typed dictionary values,
+            # so the decoding cast fails (verified on 18 and 21). The raw
+            # ArrowNotImplementedError already satisfies the refusal
+            # contract (it subclasses NotImplementedError); refusing here
+            # keeps the diagnostic framing uniform and the behavior
+            # version-independent should a future pyarrow grow the kernel.
+            raise NotImplementedError(
+                f"cannot canonically hash dictionary-of-view type {typ!r}: "
+                f"pyarrow cannot decode view-typed dictionary values"
+            )
         _assert_canonicalizable(typ.value_type)
     for i in range(typ.num_fields):
         _assert_canonicalizable(typ.field(i).type)
@@ -174,10 +187,11 @@ def _canonical_type(typ: pa.DataType) -> pa.DataType:
             ]
         )
     if pa.types.is_map(typ):
+        # keys_sorted is a constraint flag like nullability, not data —
+        # dropped so sorted/unsorted spellings of the same entries agree
         return pa.map_(
             _canonical_type(typ.key_type),
             _canonical_type(typ.item_type),
-            keys_sorted=typ.keys_sorted,
         )
     return typ
 
@@ -257,9 +271,10 @@ def normalize_pyarrow_table_canonical(table: pa.Table) -> tuple:
     Deliberately excluded from identity, at every nesting level: field
     nullability (a constraint on future writes, not data —
     ``_canonical_type``'s reconstruction drops nested ``not null`` and the
-    tuple below omits ``field.nullable``) and the dictionary ``ordered``
-    flag (meaningless once the encoding it qualifies is erased); both
-    exclusions are pinned in ``test_hash_contract.py``."""
+    tuple below omits ``field.nullable``), the dictionary ``ordered`` flag
+    (meaningless once the encoding it qualifies is erased), and the map
+    ``keys_sorted`` flag (a constraint assertion, same family as
+    nullability); all exclusions are pinned in ``test_hash_contract.py``."""
     for field in table.schema:
         _assert_canonicalizable(field.type)
     return (
@@ -292,7 +307,12 @@ def normalize_memory_databasetable_canonical(dt: DatabaseTable) -> tuple:
     memory: the canonical digest compacts each column across ALL chunks
     (that compaction is what erases batch boundaries), so every batch must
     be resident anyway — and an incremental per-batch fold would re-couple
-    the hash to batch boundaries, the exact defect being removed."""
+    the hash to batch boundaries, the exact defect being removed. This IS
+    a peak-memory regression relative to the old rule, which hashed each
+    batch's bytes and held only one at a time: full residency (plus a
+    transient ``combine_chunks`` copy of the largest column) is the price
+    of batch-boundary-free identity, paid only for memory-backed tables —
+    whose data is by definition already resident in the backend."""
     return (
         "xorq.MemoryDatabaseTable",
         NORMALIZATION_VERSION,

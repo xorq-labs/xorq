@@ -47,7 +47,6 @@ def _canonical_type(typ: pa.DataType) -> pa.DataType:
         return pa.map_(
             _canonical_type(typ.key_type),
             _canonical_type(typ.item_type),
-            keys_sorted=typ.keys_sorted,
         )
     return typ
 

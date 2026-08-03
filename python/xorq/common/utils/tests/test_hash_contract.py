@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime as dt
 import decimal
 import importlib.util
+import types
 from pathlib import Path
 
 import numpy as np
@@ -396,6 +397,31 @@ def test_nullability_excluded_from_identity_at_every_level() -> None:
     assert normalize_pyarrow_table_canonical(nn) == normalize_pyarrow_table_canonical(n)
 
 
+def test_map_keys_sorted_excluded_from_identity() -> None:
+    # keys_sorted is a constraint assertion, same family as nullability:
+    # sorted/unsorted spellings of the same entries must normalize
+    # identically (round-3 review found the exclusion policy was applied
+    # non-uniformly here).
+    data = [[("a", 1), ("b", 2)], None]
+    plain = pa.array(data, type=pa.map_(pa.string(), pa.int64()))
+    sorted_arr = plain.cast(pa.map_(pa.string(), pa.int64(), keys_sorted=True))
+    assert normalize_pyarrow_table_canonical(
+        pa.table({"c": sorted_arr})
+    ) == normalize_pyarrow_table_canonical(pa.table({"c": plain}))
+
+
+def test_digest_refuses_dictionary_of_view_values() -> None:
+    # pyarrow has no take kernel for view-typed dictionary values, so the
+    # decode cast fails with a raw ArrowNotImplementedError; the module
+    # refuses with its own framing instead, uniformly across versions.
+    dict_of_sv = pa.DictionaryArray.from_arrays(
+        pa.array([0, 1], type=pa.int32()),
+        pa.array(["a", "b"], type=pa.string_view()),
+    )
+    with pytest.raises(NotImplementedError, match="dictionary-of-view"):
+        canonical_column_digest(dict_of_sv)
+
+
 def test_dictionary_ordered_flag_excluded_from_identity() -> None:
     # ordered qualifies the dictionary encoding; the canonical form erases
     # the encoding entirely, so ordered/unordered categoricals of equal
@@ -472,12 +498,7 @@ def test_dispatcher_fallthrough_net_reroutes_dasher_memory_rule(
     assert normalized[:2] == ("xorq.MemoryDatabaseTable", NORMALIZATION_VERSION)
 
 
-def test_probe_script_matches_module() -> None:
-    # scripts/canonical_digest_xver_probe.py is a hand-maintained standalone
-    # replica of the module's digest logic (it must import nothing from
-    # xorq so it runs in bare venvs across pyarrow versions). Any edit to
-    # one that misses the other silently invalidates the cross-version
-    # verification story — pin them to each other over the probe's corpus.
+def _load_probe() -> types.ModuleType:
     probe_path = (
         Path(__file__).parents[5] / "scripts" / "canonical_digest_xver_probe.py"
     )
@@ -488,11 +509,86 @@ def test_probe_script_matches_module() -> None:
     )
     probe = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(probe)
+    return probe
+
+
+def test_probe_script_matches_module() -> None:
+    # scripts/canonical_digest_xver_probe.py is a hand-maintained standalone
+    # replica of the module's digest logic (it must import nothing from
+    # xorq so it runs in bare venvs across pyarrow versions). Any edit to
+    # one that misses the other silently invalidates the cross-version
+    # verification story — pin them to each other over the probe's corpus.
+    probe = _load_probe()
     for name, col in probe.corpus().items():
         assert probe.canonical_column_digest(col) == canonical_column_digest(col), (
             f"probe script and _canonical module disagree on corpus column {name!r}: "
             f"their digest logic has drifted apart"
         )
+
+
+# Fixed values for the ENTIRE probe corpus (canonical type string + digest).
+# The parity test above only proves probe == module; without these, a change
+# applied to both in the same PR would pass every test while silently
+# renaming artifacts (round-3 review finding). Regenerate deliberately with
+# a NORMALIZATION_VERSION bump:
+#   python scripts/canonical_digest_xver_probe.py
+PROBE_CORPUS_GOLDENS = {
+    "int64_nulls": ("int64", "f7e0cccc78c213f89bac19e52fb2f67d"),
+    "float64_edges": ("double", "8a2d78480547a06c5665712722a97e30"),
+    "bool_nulls": ("bool", "448934082adc04da19a2274aab5d3b69"),
+    "decimal128": ("decimal128(38, 9)", "27f431c699954a75aa6a9ff7a5be1881"),
+    "string": ("large_string", "8174a8d746db7b57a1d0721bf83487cd"),
+    "large_string": ("large_string", "408a226ea70d15e92319a8f109ac47db"),
+    "binary": ("large_binary", "263964d66d52e8bd6d28b60bfe01822d"),
+    "timestamp_tz": ("timestamp[us, tz=UTC]", "0a0e7066f0f567772d2185e5e7eff7d4"),
+    "date32": ("date32[day]", "91add32bd9842f85a28ea8d2d9202026"),
+    "duration": ("duration[us]", "f3d55be10391c507378e8825ba4740ff"),
+    "float32": ("float", "0a591e570f92340dc843c8e642d716fc"),
+    "list_int": ("large_list<item: int64>", "26e34968d249b6e878408d1c638b1066"),
+    "list_string": (
+        "large_list<item: large_string>",
+        "7c87d85d181f2e895904238463730e0a",
+    ),
+    "fixed_size_list": (
+        "fixed_size_list<item: int64>[2]",
+        "8c1a7f5dc7f6f03166c117e4810033f9",
+    ),
+    "fixed_size_list_string": (
+        "fixed_size_list<item: large_string>[2]",
+        "fa3d177e87ab1270155e121659545dc6",
+    ),
+    "struct": (
+        "struct<a: int64, b: large_string>",
+        "d7c505e657beab1d3b433ee2633c9131",
+    ),
+    "map": ("map<large_string, int64>", "d4a434fe254471ca2176cd8b7ae9120e"),
+    "dictionary_multichunk": ("large_string", "b50c865c81720aa1354729bda834915d"),
+    "nested_dict_in_list": (
+        "large_list<item: large_string>",
+        "5ea7e62c328b1dc0af45bf7307b544c0",
+    ),
+    "empty_string": ("large_string", "1ff18035104640f53e6bbf8ca6bb9aa1"),
+    "string_view": ("large_string", "a8d8f0321b2ca4aa7ca2b1768f9ee97e"),
+    "binary_view": ("large_binary", "1495aac6483cd881d05fa96d77c05d40"),
+    "string_sliced": ("large_string", "b8b4b84c3b1ef871ba2127f45ba7601d"),
+    "string_chunked": ("large_string", "5c01935870bed4cc22cbb756bac9293f"),
+    "bool_sliced_unaligned": ("bool", "ab5bd07b5acc07d6bfccbd795be26a37"),
+    "list_sliced": ("large_list<item: int64>", "acaa20fdc5da1b88e919b00dcdead6d8"),
+    "string_view_sliced": ("large_string", "679e4697d3fc93103a1bd8c802e9e50f"),
+    "string_view_chunked": ("large_string", "3aefd06ede44ea213065e15d09994a69"),
+}
+
+
+def test_probe_corpus_matches_goldens() -> None:
+    probe = _load_probe()
+    corpus = probe.corpus()
+    assert set(corpus) == set(PROBE_CORPUS_GOLDENS), (
+        "probe corpus and PROBE_CORPUS_GOLDENS list different columns — "
+        "add goldens for new corpus entries"
+    )
+    for name, col in corpus.items():
+        actual = (str(probe._canonical_type(col.type)), canonical_column_digest(col))
+        assert actual == PROBE_CORPUS_GOLDENS[name], _contract_message(name, col)
 
 
 def test_refuses_extension_types() -> None:
