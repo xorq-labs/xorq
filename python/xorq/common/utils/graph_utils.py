@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
+from types import MappingProxyType
 from typing import Any, OrderedDict, Tuple
+
+from attrs import field, frozen
+from attrs.validators import deep_iterable, instance_of, optional
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
@@ -11,15 +17,106 @@ from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
-opaque_ops = (
-    rel.Read,
-    rel.CachedNode,
-    rel.CacheTag,
-    rel.RemoteTable,
-    rel.FlightUDXF,
-    rel.FlightExpr,
-    udf.ExprScalarUDF,
+@frozen
+class OpaqueSpec:
+    """Everything graph traversal needs to know about one opaque op type.
+
+    An *opaque* op holds children the standard ``__children__`` protocol does not
+    surface (they are ``Expr``-typed or stored in ``__config__``); the edge fields
+    naming those children, plus the per-op quirks of rewriting them, live here so
+    one entry tells the whole story for one op type.
+    """
+
+    # Edge fields the read side descends (``gen_children_of`` + policy variants).
+    read_edges: Tuple[str, ...] = field(
+        default=(), validator=deep_iterable(instance_of(str))
+    )
+    # Edge fields the write side descends (``replace_nodes``); ``None`` means
+    # "same as read_edges". Set it only where the two genuinely differ.
+    write_edges: Tuple[str, ...] | None = field(
+        default=None, validator=optional(deep_iterable(instance_of(str)))
+    )
+    # Whether ``replace_nodes`` forwards the pre-replacer ``_kwargs`` to
+    # ``__recreate__``.
+    forward_kwargs: bool = field(default=True, validator=instance_of(bool))
+    # For ops whose sub-expression rebinds through a dedicated method rather than
+    # a plain ``__recreate__`` kwarg: ``rebind(op, new_sub_expr) -> op``.
+    rebind: Callable | None = field(
+        default=None, validator=optional(instance_of(Callable))
+    )
+
+    def __attrs_post_init__(self) -> None:
+        # ``replace_nodes`` rebinds by passing the single rewritten sub-expression
+        # to ``rebind``; a multi-edge rebind has no defined call shape. Reject it
+        # here so a bad table entry fails at import time, not mid-traversal.
+        if self.rebind is not None and len(self.descend_edges) != 1:
+            raise ValueError(
+                f"rebind requires exactly one write-side edge, "
+                f"got {self.descend_edges!r}"
+            )
+
+    @property
+    def descend_edges(self) -> Tuple[str, ...]:
+        return self.read_edges if self.write_edges is None else self.write_edges
+
+
+# Single source of truth for opaque descent, consumed by both the read side
+# (``gen_children_of`` + policy variants) and the write side (``replace_nodes``).
+# Read-side descent policies are edge overrides of the derived ``OPAQUE_EDGES``
+# (see ``_gen_children_exec``/``_gen_children_skip_pins``/``_gen_children_flight_leaf``).
+OPAQUE_SPECS = MappingProxyType(
+    {
+        rel.RemoteTable: OpaqueSpec(("remote_expr",)),
+        rel.CachedNode: OpaqueSpec(("parent",)),
+        rel.CacheTag: OpaqueSpec(
+            # The read/write asymmetry is load-bearing, not accidental -- it is covered
+            # by test_pinned_cache_yaml_roundtrip. Reads descend both children (see the
+            # CacheTag docstring). Writes descend only the opaque ``uncached`` payload
+            # and do not forward ``_kwargs``: ``parent`` is the materialized cache read
+            # paired with ``cache``, already produced correctly by the replacer, and
+            # re-driving it from the BFS rewrite diverges the read's backend identity
+            # from ``cache``, breaking profile resolution on load.
+            read_edges=("parent", "uncached"),
+            write_edges=("uncached",),
+            forward_kwargs=False,
+        ),
+        rel.FlightExpr: OpaqueSpec(("input_expr",)),
+        rel.FlightUDXF: OpaqueSpec(("input_expr",)),
+        udf.ExprScalarUDF: OpaqueSpec(
+            # ``computed_kwargs_expr`` lives in ``__config__``, so it is rebound by
+            # method instead of by ``__recreate__`` kwarg.
+            ("computed_kwargs_expr",),
+            rebind=lambda op, sub_expr: op.with_computed_kwargs_expr(sub_expr),
+        ),
+        rel.Read: OpaqueSpec(),  # opaque leaf: no edges on either side
+    }
 )
+
+# The opaque op types themselves -- derived from OPAQUE_SPECS so the two cannot
+# drift: being opaque and having a spec are by construction the same test
+# (``isinstance`` over the table's keys).
+opaque_ops = tuple(OPAQUE_SPECS)
+
+# Read-side edge names, derived. Descent policies override entries of this.
+OPAQUE_EDGES = MappingProxyType(
+    {typ: spec.read_edges for typ, spec in OPAQUE_SPECS.items()}
+)
+
+
+def _opaque_lookup(node: Node, table: Mapping) -> Any | None:
+    """Return *table*'s value for *node*'s opaque op type, or ``None``.
+
+    The single lookup shared by the read side (edge tables) and the write side
+    (``OPAQUE_SPECS``), so the two cannot diverge on how they resolve an op --
+    an exact ``type()`` lookup on one and ``isinstance`` on the other would
+    come apart the moment an opaque op grows a subclass. Matches by
+    ``isinstance`` (preserving the original ``match`` semantics); the opaque op
+    types are mutually non-subclassing, so iteration order is immaterial.
+    """
+    for typ, value in table.items():
+        if isinstance(node, typ):
+            return value
+    return None
 
 
 def to_node(maybe_expr: Any) -> Node:
@@ -32,44 +129,59 @@ def to_node(maybe_expr: Any) -> Node:
             raise ValueError(f"Don't know how to handle type {type(maybe_expr)}")
 
 
-def gen_children_of(node: Node) -> Tuple[Node, ...]:
-    match node:
-        case ops.Field():
-            rel_node = node.rel
-            gen = () if rel_node is None else (to_node(rel_node),)
+def gen_children_of(
+    node: Node, *, opaque_edges: Mapping = OPAQUE_EDGES
+) -> Iterator[Node]:
+    """Yield a node's children, descending opaque ops per *opaque_edges*.
 
-        case rel.RemoteTable():
-            gen = (to_node(node.remote_expr),)
+    For an opaque op, children are the nodes referenced by its edge fields (see
+    ``OPAQUE_EDGES``); a descent policy passes a modified *opaque_edges* to prune
+    or redirect specific edges (see ``_gen_children_exec`` and friends). All
+    other nodes fall back to the standard ``__children__`` protocol.
 
-        case rel.CachedNode():
-            gen = (to_node(node.parent),)
-
-        case rel.CacheTag():
-            # descend both opaque children (see CacheTag docstring)
-            gen = (to_node(node.parent), to_node(node.uncached))
-
-        case rel.FlightExpr() | rel.FlightUDXF():
-            gen = (to_node(node.input_expr),)
-
-        case udf.ExprScalarUDF():
-            gen = (to_node(node.computed_kwargs_expr),)
-
-        case rel.Read():
-            gen = ()
-        case _:
-            raw_children = getattr(node, "__children__", ())
-            gen = map(to_node, raw_children)
+    Edge fields are read unguarded: a stale/misspelled name in an edge table
+    raises ``AttributeError`` and an unexpectedly ``None`` edge raises
+    ``ValueError`` from ``to_node``, rather than silently yielding an incomplete
+    child set. Prune an edge by removing it from the table, not by nulling it.
+    """
+    edges = _opaque_lookup(node, opaque_edges)
+    if edges is not None:
+        gen = (to_node(getattr(node, name)) for name in edges)
+    else:
+        match node:
+            case ops.Field():
+                rel_node = node.rel
+                gen = () if rel_node is None else (to_node(rel_node),)
+            case _:
+                raw_children = getattr(node, "__children__", ())
+                gen = map(to_node, raw_children)
     yield from filter(None, gen)
 
 
-def bfs(node):
+def bfs(
+    node: Expr | Node,
+    *,
+    children: Callable[[Node], Any] = gen_children_of,
+) -> Graph:
+    """Build an opaque-descending :class:`Graph` from *node* by BFS.
+
+    ``children`` overrides child enumeration (default ``gen_children_of``); pass
+    a policy variant to prune opaque edges.
+
+    Boundary-*terminating* descent (record a node but do not descend it, as
+    ``LineageDAG.compact()`` needs to emit boundary-to-boundary edges) is not
+    expressible here and is deliberately absent: the vendored ``bfs_while``
+    filter shape drops a non-matching node together with its whole subtree, so
+    the terminating node never lands in the graph. XOR-363 adds that mechanism
+    with its first caller.
+    """
     queue = deque((to_node(node),))
     dct = {}
     while queue:
         if (node := queue.popleft()) not in dct:
-            children = tuple(gen_children_of(node))
-            dct[node] = children
-            queue.extend(children)
+            kids = tuple(children(node))
+            dct[node] = kids
+            queue.extend(kids)
     return Graph(dct)
 
 
@@ -150,37 +262,24 @@ def replace_nodes(
 
     def process_node(op, _kwargs):
         op = replacer(op, _kwargs)
-        match op:
-            case rel.RemoteTable():
-                remote_expr = _replace_sub(op.remote_expr.op())
-                return do_recreate(op, _kwargs, remote_expr=remote_expr)
-            case rel.CachedNode():
-                parent = _replace_sub(to_node(op.parent))
-                return do_recreate(op, _kwargs, parent=parent)
-            case rel.CacheTag():
-                # Do NOT forward _kwargs (the asymmetry vs the sibling branches
-                # is load-bearing, not accidental -- it is covered by
-                # test_pinned_cache_yaml_roundtrip). ``parent`` is the materialized
-                # cache read paired with ``cache``; re-driving it from the BFS
-                # rewrite diverges the read's backend identity from ``cache`` and
-                # breaks profile resolution on load. The replacer has already
-                # produced ``op`` with the correct native ``parent``; only the opaque
-                # ``uncached`` payload still needs descending here.
-                uncached = _replace_sub(to_node(op.uncached))
-                return do_recreate(op, None, uncached=uncached)
-            case rel.FlightExpr() | rel.FlightUDXF():
-                input_expr = _replace_sub(op.input_expr.op())
-                return do_recreate(op, _kwargs, input_expr=input_expr)
-            case udf.ExprScalarUDF():
-                computed_kwargs_expr = _replace_sub(op.computed_kwargs_expr.op())
-                with_cke = op.with_computed_kwargs_expr(computed_kwargs_expr)
-                return do_recreate(with_cke, _kwargs)
-            case rel.Read():
-                return op
-            case _:
-                if isinstance(op, opaque_ops):
-                    raise ValueError(f"unhandled opaque op {type(op)}")
-                return op
+        # No "unhandled opaque op" guard: opaque_ops is derived from
+        # OPAQUE_SPECS and this lookup matches by isinstance over the same
+        # keys, so "no spec" and "not opaque" are the same condition.
+        spec = _opaque_lookup(op, OPAQUE_SPECS)
+        if spec is None:
+            return op
+        if spec.rebind is not None:
+            # Exactly one edge, enforced at spec construction time.
+            (name,) = spec.descend_edges
+            rebound = spec.rebind(op, _replace_sub(to_node(getattr(op, name))))
+            return do_recreate(rebound, _kwargs if spec.forward_kwargs else None)
+        if not spec.descend_edges:
+            return op
+        overrides = {
+            name: _replace_sub(to_node(getattr(op, name)))
+            for name in spec.descend_edges
+        }
+        return do_recreate(op, _kwargs if spec.forward_kwargs else None, **overrides)
 
     # hasattr(x, "op") is unreliable: some Nodes have an `op` field (e.g. IntervalAdd)
     initial_op = to_node(expr)
@@ -430,6 +529,14 @@ def get_ordered_unique_sources(nodes: Tuple[Node, ...]) -> Tuple[Any, ...]:
     return sources
 
 
+# Descent policies are OPAQUE_EDGES with specific edges overridden.
+_EXEC_EDGES = MappingProxyType({**OPAQUE_EDGES, rel.CacheTag: ("parent",)})
+_SKIP_PINS_EDGES = MappingProxyType({**OPAQUE_EDGES, rel.CacheTag: ()})
+_FLIGHT_LEAF_EDGES = MappingProxyType(
+    {**OPAQUE_EDGES, rel.FlightExpr: (), rel.FlightUDXF: ()}
+)
+
+
 def _gen_children_exec(node: Node) -> Tuple[Node, ...]:
     """Child enumeration along the *execution* path only.
 
@@ -439,9 +546,7 @@ def _gen_children_exec(node: Node) -> Tuple[Node, ...]:
     pruning of pinned-leaf data so source discovery stays consistent with
     hashing.
     """
-    if isinstance(node, rel.CacheTag):
-        return (to_node(node.parent),)
-    return tuple(gen_children_of(node))
+    return tuple(gen_children_of(node, opaque_edges=_EXEC_EDGES))
 
 
 def _gen_children_skip_pins(node: Node) -> Tuple[Node, ...]:
@@ -451,9 +556,18 @@ def _gen_children_skip_pins(node: Node) -> Tuple[Node, ...]:
     leaves reachable *without* passing through any pin -- the "live" leaves used
     by :func:`exclusively_pinned_leaves`.
     """
-    if isinstance(node, rel.CacheTag):
-        return ()
-    return tuple(gen_children_of(node))
+    return tuple(gen_children_of(node, opaque_edges=_SKIP_PINS_EDGES))
+
+
+def _gen_children_flight_leaf(node: Node) -> Tuple[Node, ...]:
+    """Child enumeration treating ``FlightExpr``/``FlightUDXF`` as opaque leaves.
+
+    So a Flight node's ``input_expr`` is not flattened into the outer graph; its
+    lineage is extracted separately as a nested sub-DAG (see XOR-363). Private
+    until XOR-363 lands its caller; covered by
+    ``test_gen_children_flight_leaf_treats_flight_as_leaf``.
+    """
+    return tuple(gen_children_of(node, opaque_edges=_FLIGHT_LEAF_EDGES))
 
 
 def exclusively_pinned_leaves(

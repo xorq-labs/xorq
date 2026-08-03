@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import itertools
 import operator
 
 import pytest
@@ -10,11 +13,17 @@ import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
+    OPAQUE_EDGES,
+    OpaqueSpec,
+    _gen_children_flight_leaf,
     find_all_sources,
+    gen_children_of,
+    opaque_ops,
     walk_nodes,
 )
 from xorq.expr.relations import Tag
 from xorq.ml import deferred_fit_predict_sklearn
+from xorq.vendor.ibis import Expr
 
 
 LinearRegression = pytest.importorskip("sklearn.linear_model").LinearRegression
@@ -116,3 +125,79 @@ def test_replace_computed_kwargs_expr(parquet_dir):
     removed = xo.expr.api._remove_tag_nodes(predicted)
     assert not walk_nodes(Tag, removed)
     assert not walk_nodes(Tag, predicted.ls.untagged)
+
+
+def test_opaque_edges_name_real_fields() -> None:
+    """Every ``OPAQUE_EDGES`` name must resolve on its op type.
+
+    ``gen_children_of`` reads edge fields unguarded, so a stale name after a
+    rename is an ``AttributeError`` at traversal time; catch it here instead.
+    """
+    for typ, edges in OPAQUE_EDGES.items():
+        for name in edges:
+            assert name in typ.__argnames__ or hasattr(typ, name), (
+                f"{typ.__name__} has no field {name!r}"
+            )
+
+
+def test_opaque_ops_matches_opaque_edges() -> None:
+    assert set(opaque_ops) == set(OPAQUE_EDGES)
+
+
+def test_opaque_ops_mutually_non_subclassing() -> None:
+    """``_opaque_lookup`` resolves to the first ``isinstance`` match, so its
+    order-independence rests on no opaque op subclassing another. A new opaque
+    op related by inheritance to an existing one needs an explicit ordering
+    decision in ``OPAQUE_SPECS``, not an accidental one."""
+    for a, b in itertools.permutations(opaque_ops, 2):
+        assert not issubclass(a, b), f"{a.__name__} subclasses {b.__name__}"
+
+
+def test_opaque_edges_is_read_only() -> None:
+    """The edge tables are shared semantic constants; mutation must fail loudly."""
+    with pytest.raises(TypeError):
+        OPAQUE_EDGES[rel.Read] = ("nope",)
+
+
+def test_gen_children_of_raises_on_stale_edge_name() -> None:
+    """Edge fields are read unguarded: a stale name in an edge table must raise
+    ``AttributeError`` at traversal time, not silently drop a child."""
+    node = make_flight_expr().op()
+    stale = {**OPAQUE_EDGES, rel.FlightExpr: ("input_exprs",)}
+    with pytest.raises(AttributeError):
+        tuple(gen_children_of(node, opaque_edges=stale))
+
+
+def test_opaque_spec_rejects_multi_edge_rebind() -> None:
+    """``rebind`` passes a single rewritten sub-expression, so a spec pairing it
+    with more than one write-side edge must fail at construction time."""
+    with pytest.raises(ValueError, match="rebind requires exactly one"):
+        OpaqueSpec(("a", "b"), rebind=lambda op, sub_expr: op)
+    with pytest.raises(ValueError, match="rebind requires exactly one"):
+        OpaqueSpec(("a",), write_edges=(), rebind=lambda op, sub_expr: op)
+
+
+def make_flight_expr() -> Expr:
+    con = xo.connect()
+    t = con.register(xo.memtable({"a": [1, 2, 3]}).to_pyarrow(), "t")
+    return rel.FlightExpr(
+        name="test_flight",
+        schema=t.schema(),
+        source=con,
+        input_expr=t,
+        unbound_expr=xo.table(t.schema(), name="u"),
+        make_server=toolz.identity,
+        make_connection=toolz.identity,
+    ).to_expr()
+
+
+def test_gen_children_flight_leaf_treats_flight_as_leaf() -> None:
+    expr = make_flight_expr()
+    node = expr.op()
+    assert tuple(gen_children_of(node)) == (node.input_expr.op(),)
+    assert _gen_children_flight_leaf(node) == ()
+    # the outer graph no longer reaches the input_expr's leaves
+    assert walk_nodes(ops.DatabaseTable, node)
+    assert walk_nodes(
+        (ops.DatabaseTable,), node, gen_children=_gen_children_flight_leaf
+    ) == (node,)
