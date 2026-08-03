@@ -26,6 +26,7 @@ from pygments.token import (
     String,
     Token,
 )
+from rich.cells import cell_len
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -226,8 +227,8 @@ UNKNOWN_BOUNDARY_STYLE = KindStyle(icon="·", color=XORQ_DARK.variables["panel-d
 
 
 # Fold gutter, two columns wide on every row so the labels stay aligned: a node
-# that stores a schema can be expanded with `l` to list its columns, and folded
-# back with `h`.
+# that stores a schema can be expanded with `]` to list its columns, and folded
+# back with `[`.
 EXPANDABLE_MARKER = "▸ "
 EXPANDED_MARKER = "▾ "
 NO_MARKER = "  "
@@ -283,7 +284,8 @@ def _render_lineage_rows(
         if row.via:
             text.append(row.via_suffix, style=f"dim italic{cursor}")
         elif on_cursor:
-            # extend the highlight to the full panel width, as a cursor should
+            # one reversed trailing cell, so the cursor reads as a cursor even
+            # when the label ends the line (Rich pads with unstyled cells)
             text.append(" ", style="reverse")
     return text
 
@@ -387,7 +389,7 @@ class CatalogRowData:
 
     @cached_property
     def lineage_expandable(self) -> frozenset[str]:
-        """Ids of the nodes that store a schema, so `l` has columns to show."""
+        """Ids of the nodes that store a schema, so `]` has columns to show."""
         from xorq.common.utils.lineage_utils import node_columns  # noqa: PLC0415
 
         lineage = self.entry.metadata.lineage
@@ -1539,21 +1541,28 @@ class CatalogScreen(Screen):
         target = min(max(cursor + direction, 0), len(rows) - 1)
         self._lineage_cursor[row_data.row_key] = target
         self._render_lineage_panel(row_data)
-        self._scroll_lineage_cursor(target)
+        self._scroll_lineage_cursor(row_data, target)
 
-    def _scroll_lineage_cursor(self, row_index: int) -> None:
+    def _scroll_lineage_cursor(self, row_data: CatalogRowData, row_index: int) -> None:
         """Keep the cursor row inside the panel's viewport.
 
         The panel is one Static, so Textual has no per-row region to scroll to:
-        the row index *is* the y offset of the tree, which starts after the
-        Cache/Hash lines and the blank one.
+        the y offset is counted off the rendered lines above the cursor row.
+        The content folds (`overflow="fold"`), so a long Hash or label takes one
+        display line per panel-width of cells, not one per source line.
         """
         panel = self.query_one("#lineage-panel", VerticalScroll)
-        y = row_index + LINEAGE_TREE_OFFSET
-        top = panel.scroll_offset.y
         height = panel.content_size.height
         if height <= 0:
             return
+        expanded = self._lineage_expanded.get(row_data.row_key, frozenset())
+        lines = row_data.lineage_panel_text(expanded).split("\n")
+        width = self.query_one("#lineage-content", Static).content_size.width
+        y = sum(
+            max(1, math.ceil(cell_len(line) / width)) if width > 0 else 1
+            for line in lines[: row_index + LINEAGE_TREE_OFFSET]
+        )
+        top = panel.scroll_offset.y
         if y < top:
             panel.scroll_to(y=y, animate=False)
         elif y >= top + height:
@@ -1575,12 +1584,12 @@ class CatalogScreen(Screen):
         if row_data is None or row is None or row.node_id is None:
             return
         key = row_data.row_key
-        # A column row carries its owner's id, so `h` on one folds the node it
+        # A column row carries its owner's id, so `[` on one folds the node it
         # came from -- which is the node the user is looking at.
         node_id = row.node_id
         expanded = self._lineage_expanded.get(key, frozenset())
         if expand:
-            # No schema stored at this node: `l` is a no-op, as the missing marker
+            # No schema stored at this node: `]` is a no-op, as the missing marker
             # already says.
             if node_id not in row_data.lineage_expandable or node_id in expanded:
                 return

@@ -1560,10 +1560,25 @@ def format_mermaid_lineage(
     declared: set[str] = set()
     drawn: set[tuple[str, str]] = set()
     expand_ids = _expand_ids(expand_columns)
+    # Views and their child indexes are built once per scope, not once per node,
+    # as in `_compact_lineage_tree`: the walk visits every node, and a raw view
+    # of a large graph re-derived per visit would make the render quadratic.
+    views: dict[str, dict] = {}
+    child_index: dict[str, dict[str, list]] = {}
 
     def view_for(scope: str) -> dict:
         # dag.scope() is the stored graph for one scope; dag.compact() collapses it.
-        return dag.scope(scope) if raw else dag.compact(scope=scope)
+        if scope not in views:
+            views[scope] = dag.scope(scope) if raw else dag.compact(scope=scope)
+        return views[scope]
+
+    def children_of(scope: str) -> dict[str, list]:
+        if scope not in child_index:
+            index: dict[str, list] = defaultdict(list)
+            for edge in view_for(scope)["edges"]:
+                index[edge["from"]].append((edge["to"], tuple(edge.get("via") or ())))
+            child_index[scope] = index
+        return child_index[scope]
 
     def declare(nid: str, indent: str) -> None:
         node = by_id.get(nid, {})
@@ -1582,7 +1597,12 @@ def format_mermaid_lineage(
             return
         drawn.add((upstream, downstream))
         # reversed: data flows from the upstream node into its consumer
-        arrow = f"-->|via {', '.join(via[:3])}|" if via else "-->"
+        if via:
+            # truncate as the text renderer's `_via_suffix` does, ellipsis and all
+            shown = ", ".join(via[:3]) + ("…" if len(via) > 3 else "")
+            arrow = f"-->|via {shown}|"
+        else:
+            arrow = "-->"
         lines.append(
             f"{indent}{_mermaid_id(upstream)} {arrow} {_mermaid_id(downstream)}"
         )
@@ -1599,11 +1619,11 @@ def format_mermaid_lineage(
                 walk(nested_root, nid, indent + "  ", frozenset({nested_root}))
                 lines.append(f"{indent}end")
                 draw_edge(nested_root, nid, (), indent)
-        for edge in view_for(scope)["edges"]:
-            if edge["from"] != nid or edge["to"] in seen:
+        for child_id, via in children_of(scope).get(nid, ()):
+            if child_id in seen:
                 continue
-            walk(edge["to"], scope, indent, seen | {edge["to"]})
-            draw_edge(edge["to"], nid, tuple(edge.get("via") or ()), indent)
+            walk(child_id, scope, indent, seen | {child_id})
+            draw_edge(child_id, nid, via, indent)
 
     if root is None:
         start = view_for(ROOT_SCOPE)["root"]

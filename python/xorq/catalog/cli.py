@@ -1129,7 +1129,8 @@ def lineage(
       input lineage becomes a `subgraph`. With `--level compact` it draws the
       boundary graph; with `--level raw`, the expanded one, where the runs
       collapsed into `via` become real nodes. `--level boundaries` has no graph
-      to draw and is rejected.
+      to draw and is rejected. A `--node` handle matching several nodes emits
+      one `flowchart` block per match—paste them one at a time.
 
     \b
     Arguments:
@@ -1174,9 +1175,10 @@ def lineage(
     # nothing there for it to add.
     if expand_handle is not None and not (fmt == "mermaid" or level == "compact"):
         raise click.UsageError(
-            f"--expand lists a node's columns in the tree or the diagram, and "
-            f"--level {level} with --format text already prints every stored "
-            f"field. Use --level compact, or --format mermaid."
+            f"--expand lists a node's columns in the rendered tree or diagram, "
+            f"which --level {level} with --format text does not draw "
+            f"(--level raw already prints every stored field as JSON). "
+            f"Use --level compact, or --format mermaid."
         )
 
     with click_context_catalog(ctx):
