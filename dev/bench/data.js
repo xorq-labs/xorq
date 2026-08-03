@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785797305161,
+  "lastUpdate": 1785800490309,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -30930,6 +30930,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.07320287733502526",
             "extra": "mean: 1.7655386321999913 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b1d1a451e5c5333306027e9c7256cbfe0f61564a",
+          "message": "feat(lineage): compact, boundary-aware lineage in expr metadata (XOR-363) (#2185)\n\n> **Stacked on #2177.** Based on `main`, so the diff includes #2177's\nfour `graph_utils` refactor commits (already under review there —\n`d160a240`, `e1e31381`, `73fab4bb`, `d64e247c`). Review and merge #2177\nfirst; this diff shrinks to the lineage work once it lands. The only\n`graph_utils` change *owned by this PR* is the\n`gen_children_flight_leaf` visibility flip described below.\n\n## What\n\nEnrich the sidecar `LineageDAG` with a semantic boundary taxonomy, and\nmake the compact and nested views **derived** rather than stored.\n\n## Why\n\nXOR-363. The sidecar recorded a flat node list with `\" ->\n\".join(labels)` rendering: no notion of which nodes are semantically\nmeaningful, no way to expand or collapse, and Flight `input_expr` nodes\nflattened into the outer graph so they appeared twice with wrong edges.\n\n## How\n\n- **Boundary taxonomy** via singledispatch — `_boundary_kind`\n(`ingestion`, `cache`, `pin`, `engine_crossing`, `flight_udxf`,\n`flight_expr`, `udf`, `table`, `unbound`, `join`, `tag`/`tag:<value>`)\nand `_boundary_extras` for per-kind intrinsic facts. The dispatch\nregistry is the single source of truth; a test asserts every\n`opaque_ops` type registers. `base_kind()` strips a tag's qualifier so\nkind queries and registry lookups match either form.\n- **Node identity from `content_hash`** for relations, so a relation\nkeys identically in `expr.yaml` and the sidecar (`snapshot_hash`);\n`@op_N` stays the doc-local readable label. Value ops (`Field`,\n`SortKey`, `Literal`, …) use a memoized structural token instead —\n`content_hash` snapshot-normalizes and compiles to SQL, which fails\noutright on `SortKey` and is wasted work for nodes that never reach\n`expr.yaml`.\n- **Flight-leaf outer walk** — `bfs(root,\nchildren=gen_children_flight_leaf)`, the policy landed in #2177. A\nFlight node's `input_expr` is no longer flattened into the outer graph;\nit is recursed as a *nested* sub-DAG whose nodes live in the one shared\nnode table under a `scope: <flight label>` tag. BFS dedup guards\nnested-of-nested recursion.\n- Structured `{from, to, scope}` edges, `version: 2`, an `overlays`\nscaffold for future dimensions (columns, engines), and a code-side\n`CAPABILITY_REGISTRY` keyed by `boundary_kind`.\n- **Query API** on `LineageDAG`: `resolve` (hash | label | tag | kind |\npredicate), `boundaries`, `capabilities`, `available`, `expand`,\n`scope`, `compact`, `by_id`.\n- `compact()` is an adjacency BFS over the **id-graph** (stored labels +\nedges, not the op-graph — at render time there are no ops), collapsing\nnon-boundary runs into `via: [types]` and keeping one edge per boundary\npair (the most direct run).\n- `from_dict` tolerates legacy sidecars (integer ids, 2-tuple edges, no\nversion).\n- **TUI**: `lineage_text` renders the compact tree instead of `\" ->\n\".join(labels)`. `FlightUDXF` shows as `UDXF[class] : N->M cols` with\nits schema delta and nested input sub-tree; `FlightExpr`'s label no\nlonger stringifies `input_expr`.\n- **TUI panel** (`25adf622`): the Info panel becomes a `VerticalScroll`\nand joins `FOCUS_CYCLE` -- the old single-line lineage fit in\n`max-height: 6`, a tree of unbounded depth does not, and a plain\n`Vertical` outside the focus cycle had no scrollbar, no keys and no\nwheel target. Same treatment `#sql-panel` already has; `j`/`k` needed no\nchange because `action_cursor_down`/`_up` already dispatch to a focused\n`VerticalScroll`.\n- **TUI colours** (`802fdc81`): `BOUNDARY_STYLES` gives each base kind\nan icon and a theme colour, loudest for the Flight boundaries (the only\nhop that leaves the process); tree glyphs dim, collapsed `via [...]`\nruns dim italic.\n\n```\n  Join(2 inputs) (6 cols) [xorq_datafusion]\n  |-- Cache[ParquetCache] (4 cols) [xorq_datafusion]   via [Field, JoinReference]\n  |   `-- -> xorq_datafusion (4 cols)\n  |       `-- UDXF[OrderEnricher] : 3->4 cols [xorq_datafusion]   (+order_score)\n  |           `-- xorq_datafusion:raw_orders (3 cols)     <- nested input scope\n  `-- RemoteTable[duckdb -> xorq_datafusion] (3 cols)   via [Field, JoinReference]\n      `-- duckdb:raw_customers (3 cols)\n```\n\nStyling reads `LineageRow.kind`, never the rendered label: `Cache[...]`,\n`UDXF[...]` and `via [...]` all contain brackets, so Rich markup would\nmisparse them. `lineage_rich`/`info_rich` are the renders and\n`lineage_text`/`info_text` are their `.plain`, so the two forms cannot\ndrift. Icons live in the renderer, so `expr_metadata.json` is untouched\nby this.\n- **Label widths + backend tag** (`7e07cd41`): every boundary label is\nnow `<what> (<n> cols) [<backend>]`, matching the ticket's target\nrender. Pieces drop out when the node cannot supply them (a legacy\nsidecar with no schema renders bare); Flight kinds keep their schema\n*transition* instead of one width; the tag is appended only for kinds\nwhose label does not already name a backend, so `duckdb:orders`,\n`Read[duckdb]` and `RemoteTable[duckdb -> xorq]` are untouched. Two\nextras were needed: `backend` on the Flight nodes (they have a `source`\nand never reported it) and `backend` on `JoinChain`, which has none -- a\njoin's is its *left input's* (`first.parent`), because walking to the\nleaves reaches the remote side of an `into_backend` and would report a\nsingle-backend join as multi-backend.\n- **`LineageRow`** (`fed211c2`): `compact_lineage_rows(dag)` returns the\ncompact tree with the glyph prefix, label, boundary kind and `via` kept\napart, which is what makes the styling above possible without label\nparsing. `TextTree._lines` is derived from the same rows; the plain-text\noutput is unchanged.\n- **`scope()` fix** (`fed211c2`): the view derived its id set from the\nscope's edges alone, so a Flight node whose `input_expr` is a bare table\n(one node, zero edges) came back with `nodes: ()` while `root` still\npointed at that node. Found by exercising the sidecar-inspection recipes\non a real build; the existing tests missed it because their UDXF input\nwas a filter over an `into_backend`.\n- One `graph_utils` change: `_gen_children_flight_leaf` →\n`gen_children_flight_leaf`. #2177 left it private with a \"private until\nXOR-363 lands its caller\" note; this branch is that caller.\n\n## Per-kind boundary facts (`31013717`)\n\nEvery field in the ticket's per-kind table is stored:\n\n- **tags** — `tag:<tag-value>` for `HashingTag`, full sanitized\n`tag_metadata`.\n- **RemoteTable** — `remote_name`, `source_backend`, resolved with\n`find_all_sources(remote_expr, execution_only=True)` rather than off the\nnode: the remote expr's root is usually a `Project`/`Filter` with no\n`source` of its own. A multi-source or memtable-rooted input has no\nsingle origin, so the field is omitted rather than guessed.\n- **Read** — `format`, `path_or_uri`, `read_kwargs`, with\ncredential-looking keys redacted to `***` and URI userinfo collapsed to\n`scheme://***@host`. The sidecar is committed next to the build, so a\n`postgres://user:pw@host/db` must not travel with it.\n- **DatabaseTable / UnboundTable** — `table_name`, `database`,\n`catalog`.\n- **JoinChain** — `n_inputs`, `predicates_summary` (column refs and\noperators only, never a literal's value).\n- **ExprScalarUDF** — `udf_name`, `udf_signature`.\n- **FlightUDXF** — `udxf_class`, `udxf_command`, `schema_in_required`,\n`schema_in_observed`, `schema_out`, `process_boundary`,\n`server_factory`, `do_instrument_reader`, and a stored `schema_diff`\n(ticket open question #3, resolved in favour of the sidecar so external\nreaders get the transition for free).\n- **FlightExpr** — `flight_command`, `input_schema`, `output_schema`,\n`server_factory`. The command is built from `UnboundExprExchanger`:\n`FlightExpr.to_rbr` registers one and exchanges on *its* `command`, so\nthe exchanger is the only authority and recomputing the format string\nhere would rot silently. Construction is pure (walk + rename + tokenize\n— no server, no connection) and a failure degrades to no field.\n- **CachedNode / CacheTag** — `cache_kind`, `cache_key_prefix`,\n`cache_key` (pins), and `cache_path` as the storage's **relative** path\nonly. The resolved directory is `base_path / relative_path` with\n`base_path` defaulting to the user's cache dir — an absolute per-machine\npath that must not enter a committed sidecar. The per-entry parquet path\nis also excluded: it needs `cache.calc_key(expr)`, which stats the\nsource data under `ModificationTimeStrategy`. `SourceCache` has no path\nat all; its location is the `backend`.\n\nNo `server_kind` flavour is inferred: the `FlightExpr` default factory\nis the bare `FlightServer` class and the `FlightUDXF` default is a\n`make_mtls_server` closure, so name-sniffing yields a class name as\noften as a flavour. `server_factory` alone carries it.\n\n## Deviations from the ticket text\n\n- **No `BOUNDARY_TYPES` constant.** The `_boundary_kind` dispatch\nregistry is the single source of truth; a parallel tuple would drift. A\ntest asserts every `opaque_ops` type has a registration.\n- **`read_options` is stored as `read_kwargs`** — the op's own attribute\nname.\n- **Nested lineage is not a per-node `nested_input_lineage`\nsub-document.** One shared node table (deduped by `snapshot_hash`) plus\n`scope`-tagged edges and a `nested_root` pointer; `scope(label)` returns\nthe nested view by filtering. This keeps global hash-addressing and lets\na future overlay span a Flight boundary.\n- **`via` lives on the derived `compact()` edges, not on a stored\n`compact_edges`** (ticket open question #1). Nothing about the compact\nview is serialized.\n- **TUI is a plain-text tree** — no icons or colour; `Cache[...]`,\n`UDXF[...]`, `RemoteTable[a -> b]`, `↳`, `↻` carry the signal.\n\n## Build hash\n\nBuild-stability snapshots move **only** in `expr_metadata.json`.\n`build_dir_name` and `expr.yaml` are unchanged, so the richer sidecar\ndoes not affect the build hash.\n\n## Verification\n\n`test_lineage_utils.py` + `test_graph_utils.py` + `test_content_hash.py`\n+ `test_tui.py` + `test_compiler.py` — **526 passed, 1 skipped**; the\nfull `test_tui.py` again after the Info-panel change — **355 passed**;\n`test_lineage_utils.py` + `test_tui.py` + `test_compiler.py` +\n`test_graph_utils.py` after the colour and `scope()` work — **530\npassed, 1 skipped** with no snapshot movement; and again after the label\nwidths — **543 passed, 1 skipped**, where two `expr_metadata.json`\nhashes move (the new `backend` field) and nothing else. The three\n`expected.json` stability snapshots move as described above (verified\nfield-by-field against the failure diff before regenerating).\n\nCoverage added for every new field, plus the behaviours that are easy to\nget wrong: kwarg/URI redaction, `schema_diff`\nadd/drop/retype/unambiguous-rename/ambiguous/no-delta cases,\n`flight_command` compared against the exchanger itself rather than a\nhard-coded string, no resolved cache dir or `$HOME` in a cache node,\n`source_backend` present for duckdb → xorq and omitted when\nunresolvable, and a catalog entry containing a `FlightUDXF` rendering\n`UDXF[AddB] : 1->2 cols` with `(+b)` and its nested input source.\nFurther tests assert the Info panel is a `VerticalScroll` that `tab`\nlands on and `j`/`k` scroll; that `LineageRow`s concatenate back to\nexactly the plain tree and keep `via` off the label; that a single-node\nnested scope keeps its root; that each boundary kind renders with its\nown icon and colour while a legacy sidecar falls back to a neutral one;\nthat labels carry the width and the backend exactly once; and that a\njoin's backend is its left input's rather than the remote side of an\n`into_backend`.\n\n## Scope\n\nDraft. Third and last link of the XOR-363 chain: Prep #1 `content_hash`\n→ Prep #2 graph refactor (#2177) → **this**.\n\nRefs XOR-363\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T19:35:20-04:00",
+          "tree_id": "07b34544f338cd819275e1829ed7bc975f98b900",
+          "url": "https://github.com/xorq-labs/xorq/commit/b1d1a451e5c5333306027e9c7256cbfe0f61564a"
+        },
+        "date": 1785800486583,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.08647551225886,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007410465656298834",
+            "extra": "mean: 123.66326942856988 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.3500437052903975,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07377300035574996",
+            "extra": "mean: 425.5240009999852 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7106336084822029,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16119916323793881",
+            "extra": "mean: 1.4071949145999951 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.716776065307051,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06427774064306527",
+            "extra": "mean: 368.0833370000187 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.368527074385697,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07962078865770711",
+            "extra": "mean: 422.2033224000029 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.3710493276165088,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07854620228292628",
+            "extra": "mean: 421.75419480000755 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 153.15741304110816,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00809517710274228",
+            "extra": "mean: 6.529230157025409 msec\nrounds: 242"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 2.90200354359478,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1596623707461207",
+            "extra": "mean: 344.58951719999504 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 12.11907381163004,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016689970353130718",
+            "extra": "mean: 82.51455643750205 msec\nrounds: 16"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 13.107388805902442,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004083625870213027",
+            "extra": "mean: 76.29284633333573 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.362439792553788,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007429626482596332",
+            "extra": "mean: 96.50237010000069 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.072756057960278,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009798765689900645",
+            "extra": "mean: 141.38759937500112 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.8649013253278754,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012208335309738663",
+            "extra": "mean: 205.55401500000698 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.522574589807513,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009984244806185035",
+            "extra": "mean: 221.1129921999941 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.2480484644070757,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05949138847900849",
+            "extra": "mean: 444.83026760001394 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.4440491729106273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012490458099328887",
+            "extra": "mean: 290.35590080001157 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7584055034356292,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08835211551247932",
+            "extra": "mean: 568.6970371999905 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8762041562705578,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06376644251234005",
+            "extra": "mean: 532.9910375999589 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4529738917777104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10768358719321114",
+            "extra": "mean: 688.2436124000151 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5287424665061973,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11699357774183242",
+            "extra": "mean: 654.1324139999915 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2286540274782671,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13744562202781585",
+            "extra": "mean: 813.8987686000064 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.029905148370318,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13879274682782533",
+            "extra": "mean: 970.9632014000135 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9921784160500406,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13528435831950963",
+            "extra": "mean: 1.0078832434000105 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.565125613725293,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07260775328577106",
+            "extra": "mean: 1.7695180959999788 sec\nrounds: 5"
           }
         ]
       }
