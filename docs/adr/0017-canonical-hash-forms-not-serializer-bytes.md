@@ -1,4 +1,4 @@
-# ADR-0016: Hash identity comes from xorq-owned canonical forms, never dependency-serializer bytes
+# ADR-0017: Hash identity comes from xorq-owned canonical forms, never dependency-serializer bytes
 
 - **Status:** Proposed
 - **Date:** 2026-07-29
