@@ -17,11 +17,13 @@ from typing import TYPE_CHECKING
 from xorq_dasher.rules.expr import (
     normalize_cached_node,
     normalize_databasetable,
-    normalize_memory_databasetable,
     normalize_remote_table,
 )
 
 from xorq.common.constants import READ_IDENTITY_KEYS, REMOTE_SCHEMES
+from xorq.common.utils.dasher._canonical import (
+    normalize_memory_databasetable_canonical,
+)
 from xorq.common.utils.dasher._gap_rules import normalize_ibis_schema
 from xorq.common.utils.dasher._opaque import _MISSING, _rename_unbound_xorq
 from xorq.common.utils.dasher._paths import (
@@ -130,7 +132,7 @@ def _normalize_duckdb_databasetable_xorq(dt):
         )
     scan_kind = scan_match.group(1)
     if scan_kind in ("ARROW_SCAN", "PANDAS_SCAN"):
-        return normalize_memory_databasetable(dt)
+        return normalize_memory_databasetable_canonical(dt)
     if scan_kind in ("READ_PARQUET", "READ_CSV", "SEQ_SCAN"):
         sql_name = sg.exp.convert(dt.name).sql(dialect=dt.source.name)
         (sql_ddl,) = dt.source.con.sql(
@@ -183,7 +185,7 @@ def _normalize_datafusion_databasetable_xorq(dt):
             f"no parquet/csv paths extractable from execution plan: {ep_str!r}"
         )
     if ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
-        return normalize_memory_databasetable(dt)
+        return normalize_memory_databasetable_canonical(dt)
     if "PyRecordBatchProviderExec" in ep_str:
         return (
             "ibis.DatabaseTable.datafusion.recordbatch",
@@ -342,16 +344,34 @@ def _dispatch_databasetable(dt):
     # column label and crashes on every table; use the fixed xorq version.
     if dt.source.name == "bigquery":
         return _normalize_bigquery_databasetable_xorq(dt)
+    # pandas-backend tables and in-memory sqlite are memory-resident:
+    # xorq_dasher's dispatch hashes the IPC bytes of their
+    # ``to_pyarrow_batches()`` stream, which is pyarrow-version-coupled
+    # (issue #2191) — route them to the canonical form instead.
+    if dt.source.name == "pandas":
+        return normalize_memory_databasetable_canonical(dt)
+    if dt.source.name == "sqlite" and dt.source.is_in_memory():
+        return normalize_memory_databasetable_canonical(dt)
     # All remaining backends fall through to ``xorq_dasher``
     # ``normalize_databasetable`` (bigquery is handled above and never reaches
     # here), which is itself a per-backend dispatch table postgres calls
     # ``get_postgres_n_reltuples``, snowflake calls
     # ``get_snowflake_last_modification_time``, pyiceberg calls
-    # ``get_iceberg_snapshots_ids``, sqlite calls ``get_sqlite_stats``,
+    # ``get_iceberg_snapshots_ids``, file-backed sqlite calls
+    # ``get_sqlite_stats`` (memory-backed is intercepted above),
     # trino/gizmosql fall back to ``normalize_remote_databasetable``.
     # Data-sensitivity is preserved upstream, not blindly flattened to
     # schema+name, see xorq_dasher/rules/expr.py::normalize_databasetable.
-    return normalize_databasetable(dt)
+    result = normalize_databasetable(dt)
+    if isinstance(result, tuple) and result[:1] == ("ibis.MemoryDatabaseTable",):
+        # Safety net: dasher resolved this table to its memory rule, whose
+        # token hashes the to_pyarrow_batches() IPC stream — the
+        # pyarrow-version-coupled form (#2191). Known memory backends are
+        # intercepted above before dasher runs; this catches renamed or
+        # future ones (dasher still maps a backend *named* "xorq" to that
+        # rule) at the cost of one redundant materialization.
+        return normalize_memory_databasetable_canonical(dt)
+    return result
 
 
 __all__ = [

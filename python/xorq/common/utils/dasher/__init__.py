@@ -10,6 +10,9 @@ types, Python callables (FunctionType/MethodType/CodeType/CellType/classmethod
 This package adds the gap rules and xorq-specific normalizers split across
 submodules:
 
+* ``_canonical`` — pyarrow-version-stable logical hashing of in-memory
+                   table data (InMemoryTable, memory DatabaseTable,
+                   ``pa.Table``), versioned by ``NORMALIZATION_VERSION``
 * ``_gap_rules`` — stdlib/toolz/numpy/pandas/ibis-Schema normalizers
 * ``_paths``     — catalog path canonicalization, stat helpers, plan/DDL
                    extractors
@@ -52,6 +55,9 @@ _current_hasher: contextvars.ContextVar[Hasher | None] = contextvars.ContextVar(
 # have no in-package deps; ``_opaque`` lazily imports HASHER from this
 # module so it can be loaded before HASHER is built; ``_relations`` depends
 # on ``_paths`` + ``_opaque._rename_unbound_xorq``.
+from xorq.common.utils.dasher._canonical import (  # noqa: E402
+    normalize_pyarrow_table_canonical,
+)
 from xorq.common.utils.dasher._gap_rules import (  # noqa: E402
     normalize_attrs,
     normalize_builtin_callable,
@@ -118,6 +124,7 @@ _EXTRA_RULES: tuple[tuple[str, object], ...] = (
     ("xorq.vendor.ibis.expr.types.core.Expr", _normalize_expr_xorq),
     ("xorq.vendor.ibis.expr.schema.Schema", normalize_ibis_schema),
     ("xorq.vendor.ibis.expr.operations.udf.ScalarUDF", _normalize_scalar_udf_xorq),
+    ("pyarrow.lib.Table", normalize_pyarrow_table_canonical),
     ("numpy.dtype", normalize_numpy_dtype),
     ("pandas.core.series.Series", normalize_pandas_series),
     ("pandas.core.frame.DataFrame", normalize_pandas_dataframe),

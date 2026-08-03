@@ -780,8 +780,8 @@ def test_normalize_ibis_schema_decimal_precision_distinguishes():
 
 
 def test_normalize_pandas_dataframe_returns_pa_table():
-    """normalize_pandas_dataframe returns a raw pa.Table for dasher's
-    normalize_pyarrow_table rule to hash."""
+    """normalize_pandas_dataframe returns a raw pa.Table for the registered
+    pa.Table rule (``_canonical.normalize_pyarrow_table_canonical``) to hash."""
     df = pd.DataFrame({"a": [1, 2, 3]})
     result = normalize_pandas_dataframe(df)
     assert result[0] == "pandas.DataFrame"
@@ -1080,6 +1080,7 @@ def test_extra_rules_fqn_strings() -> None:
         "xorq.vendor.ibis.expr.types.core.Expr": Expr,
         "xorq.vendor.ibis.expr.schema.Schema": Schema,
         "xorq.vendor.ibis.expr.operations.udf.ScalarUDF": ScalarUDF,
+        "pyarrow.lib.Table": pa.Table,
         "numpy.dtype": np.dtype,
         "pandas.core.series.Series": pd.Series,
         "pandas.core.frame.DataFrame": pd.DataFrame,
