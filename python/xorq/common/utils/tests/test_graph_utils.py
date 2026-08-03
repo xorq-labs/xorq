@@ -168,8 +168,10 @@ def test_expr_typed_fields_are_registered() -> None:
     Complements the runtime tripwire
     (``test_traversal_raises_on_unregistered_expr_bearing_op``): this catches
     ``Expr``-annotated fields without constructing instances; the tripwire
-    catches ops whose Expr payload hides behind ``Any`` annotations or
-    ``__config__`` at first traversal.
+    catches ops whose Expr payload hides behind ``Any`` annotations at first
+    traversal. Known blind spot for both: an Expr living only in
+    ``__config__`` (the ExprScalarUDF shape) never appears in ``__args__`` or
+    annotations -- registering such ops is enforced by review, per AGENTS.md.
     """
     for cls in _op_classes(rel) + _op_classes(udf):
         expr_fields = tuple(
@@ -179,7 +181,9 @@ def test_expr_typed_fields_are_registered() -> None:
         )
         if not expr_fields:
             continue
-        spec = next((s for t, s in OPAQUE_SPECS.items() if issubclass(cls, t)), None)
+        spec = next(
+            (sp for typ, sp in OPAQUE_SPECS.items() if issubclass(cls, typ)), None
+        )
         assert spec is not None, (
             f"{cls.__name__} holds Expr-typed field(s) {expr_fields} "
             f"but has no OpaqueSpec"
@@ -210,6 +214,34 @@ def test_traversal_raises_on_unregistered_expr_bearing_op() -> None:
     with pytest.raises(ValueError, match="not registered in OPAQUE_SPECS"):
         tuple(gen_children_of(node))
     with pytest.raises(ValueError, match="not registered in OPAQUE_SPECS"):
+        replace_nodes(lambda op, _kwargs: op, node)
+
+
+def test_traversal_raises_on_unrecorded_expr_arg_of_registered_op() -> None:
+    """Registered ops are tripwired too: an ``Expr``-valued arg that is
+    neither a descent edge nor recorded in ``NON_EDGE_EXPR_FIELDS`` must raise
+    on both traversal paths, so a new ``Any``-typed field holding an ``Expr``
+    cannot grow on an existing opaque op unnoticed.
+    """
+
+    class SneakyFlightExpr(rel.FlightExpr):
+        payload: Expr = None
+
+    con = xo.connect()
+    t = con.register(xo.memtable({"a": [1, 2, 3]}).to_pyarrow(), "t")
+    node = SneakyFlightExpr(
+        name="sneaky",
+        schema=t.schema(),
+        source=con,
+        input_expr=t,
+        unbound_expr=xo.table(t.schema(), name="u"),
+        make_server=toolz.identity,
+        make_connection=toolz.identity,
+        payload=t,
+    )
+    with pytest.raises(ValueError, match="NON_EDGE_EXPR_FIELDS"):
+        tuple(gen_children_of(node))
+    with pytest.raises(ValueError, match="NON_EDGE_EXPR_FIELDS"):
         replace_nodes(lambda op, _kwargs: op, node)
 
 

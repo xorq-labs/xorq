@@ -33,7 +33,10 @@ restructured.
 An op holding sub-expressions the `__children__` protocol does not surface
 (`Expr`-typed fields, `__config__` payloads) **must** be registered in
 `OPAQUE_SPECS` — otherwise hashing, lineage, and source discovery silently skip
-its subtree. A runtime tripwire raises on unregistered `Expr`-bearing ops, and a
-completeness test sweeps `Expr`-annotated fields; an `Expr` field that is
-deliberately *not* a descent edge must be recorded in `NON_EDGE_EXPR_FIELDS`
-with the reason.
+its subtree. A runtime tripwire raises on `Expr`-bearing ops that are
+unregistered (or whose `Expr` args are unrecorded), and a completeness test
+sweeps `Expr`-annotated fields; an `Expr` field that is deliberately *not* a
+descent edge must be recorded in `NON_EDGE_EXPR_FIELDS` with the reason.
+Known blind spot: an `Expr` living only in `__config__` (the `ExprScalarUDF`
+shape) is invisible to both mechanisms — registration of such ops is enforced
+by review, not machinery.
