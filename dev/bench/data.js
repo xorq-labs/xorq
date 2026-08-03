@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785800490309,
+  "lastUpdate": 1785801115891,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -31122,6 +31122,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.07260775328577106",
             "extra": "mean: 1.7695180959999788 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5aff8637eaceecf1fa0b19480e82befebaeffb2c",
+          "message": "feat(catalog): add `xorq catalog lineage` (--level, --node, --format) (#2188)\n\n> **Stacked on #2185**\n(`mesejo/xor-363-compact-semantically-meaningful-lineage-in-expr-metadata`),\nwhich is itself stacked on #2177. Review and merge those first; this\ndiff is one command, renderer additions to `lineage_utils`, a TUI rework\nof the right panel, their tests, and the docs-nav entry.\n\n## What\n\n`xorq catalog lineage <entry> [--level compact|boundaries|raw] [--node\nHANDLE] [--format text|mermaid] [--expand HANDLE]`.\n\nFour independent dials: `--level` how much detail, `--node` how much of\nthe graph, `--format` the rendering, `--expand` one node opened up to\nits columns.\n\nThe TUI keeps pace: the right panel becomes a 3-way Lineage/SQL/Data\nswitch, and the Lineage panel gains a row cursor with the same column\nexpansion the CLI's `--expand` does.\n\n## Why\n\nXOR-363 gave the sidecar a boundary-annotated `LineageDAG` and the TUI a\ncompact tree to render it, but left no way to read either outside the\nTUI. Inspecting a build meant hand-writing `jq` over\n`expr_metadata.json` or a `python -c` against `LineageDAG`. The ticket\nnever asked for a CLI -- this is the follow-up.\n\n## Levels\n\nEvery level is **read or derived from the stored sidecar**. None\nre-walks the expression or loads the build's expr, so the command is\ncheap and works on a build whose backends are unreachable.\n\n```\n$ xorq catalog lineage lineage-demo                        # compact (default)\nJoin(2 inputs) (6 cols) [xorq_datafusion]\n|-- Cache[ParquetCache] (4 cols) [xorq_datafusion]   via [Field, JoinReference]\n|   `-- -> xorq_datafusion (4 cols)\n|       `-- UDXF[OrderEnricher] : 3->4 cols [xorq_datafusion]   (+order_score)\n|           `-- xorq_datafusion:raw_orders (3 cols)\n`-- RemoteTable[duckdb -> xorq_datafusion] (3 cols)   via [Field, JoinReference]\n    `-- duckdb:raw_customers (3 cols)\n\n$ xorq catalog lineage lineage-demo --level boundaries     # tab-separated\n@join_chain_1       join             Join(2 inputs) (6 cols) [xorq_datafusion]\n@remote_table_10    engine_crossing  RemoteTable[duckdb -> xorq_datafusion] (3 cols)\n@database_table_13  table            duckdb:raw_customers (3 cols)\n@cached_node_14     cache            Cache[ParquetCache] (4 cols) [xorq_datafusion]\n@flight_u_d_x_f_17  flight_udxf      UDXF[OrderEnricher] : 3->4 cols [...]   (+order_score)\n# nested  @flight_u_d_x_f_17   1 node   root=@database_table_18\n\n$ xorq catalog lineage lineage-demo -l raw | jq '.nodes[0]'\n```\n\n- **compact** is exactly what the TUI's Lineage panel shows (same\n`format_compact_lineage`), minus the colour.\n- **boundaries** is tab-separated with no tree glyphs, for `grep`/`cut`.\nA `flight_udxf`/`flight_expr` boundary also reports its nested scope on\na `# nested` line, so a UDXF's input lineage is discoverable without\nswitching levels.\n- **raw** is `LineageDAG.to_dict()` as JSON: every node, not just the\nboundaries the compact view keeps, plus the `{from,to,scope}` edges.\n\n## Narrowing to one node (`--node`, `0d7abe79`)\n\nThe plan's Q3 (\"stable expand-by-hash\") and Q9 (`resolve(handle)` over\n`hash | @label | tag | kind | predicate`) were only reachable from\nPython. `--node` surfaces them; `resolve` needed no change -- it already\nmatches a hash, an id, a kind (qualified or base), then a bare tag\nvalue.\n\n```\n$ xorq catalog lineage demo --node 2997f938a27d      # content hash (durable)\n$ xorq catalog lineage demo --node @cached_node_14   # doc-local label\n$ xorq catalog lineage demo --node catalog-source    # tag value\n$ xorq catalog lineage demo --node flight_udxf       # boundary kind\n\n$ xorq catalog lineage demo --node flight_udxf\nUDXF[OrderEnricher] : 3->4 cols [xorq_datafusion]   (+order_score)\n`-- xorq_datafusion:raw_orders (3 cols)              <- nested input scope\n\n$ xorq catalog lineage demo --node flight_udxf --level boundaries\n@flight_u_d_x_f_17  flight_udxf  UDXF[OrderEnricher] : 3->4 cols [...]   (+order_score)\n# capabilities  @flight_u_d_x_f_17  schema_in_required,schema_in_observed,schema_out,schema_diff,nested\n# nested  @flight_u_d_x_f_17  1 node  root=@database_table_18\n```\n\n- **compact** renders the subtree *feeding* the node, including a Flight\nboundary's nested input lineage.\n- **boundaries** adds `# capabilities` (the code registry for that kind)\nand `# nested` scope lines. Capability lines are suppressed on the full\nlisting, where they would double the output with what the kind column\nalready implies.\n- **raw** prints a JSON array of the matched node dicts instead of the\nwhole document.\n- A handle matching **several** nodes (a kind, a tag) prints every\nmatch, blank-line separated -- `--node table` listing all tables is\nuseful. A handle matching **none** fails pointing at `--level\nboundaries`.\n\n`format_compact_lineage`/`compact_lineage_rows` gain `root=`, with a\n`_view_containing` helper: a node reached only inside a Flight's nested\nlineage is absent from the root view, so rooting a subtree at it means\nresolving its scope first.\n\n## Mermaid output (`--format`, `d4beaff2`)\n\n`--format` defaults to `text`, so nothing above changes. `--format\nmermaid` is a second renderer over the same compact views:\n\n```\n$ xorq catalog lineage demo -f mermaid\nflowchart TD\n  n__join_chain_1[\"Join(2 inputs) (6 cols) [xorq_datafusion]\"]\n  n__flight_u_d_x_f_17[\"UDXF[OrderEnricher] : 3->4 cols [...]   (+order_score)\"]\n  subgraph n__flight_u_d_x_f_17_scope[\"input of UDXF[OrderEnricher]\"]\n    n__database_table_18[\"xorq_datafusion:raw_orders (3 cols)\"]\n  end\n  n__database_table_18 --> n__flight_u_d_x_f_17\n  n__cached_node_14 -->|via Field, JoinReference| n__join_chain_1\n  n__remote_table_10 -->|via Field, JoinReference| n__join_chain_1\n  classDef flight_udxf fill:#ffe0f0,stroke:#c2185b,color:#111\n  class n__flight_u_d_x_f_17 flight_udxf\n```\n\n- **Edges are reversed.** The stored direction is depends-on; a diagram\nwants data flow, so `TD` puts sources at the top and the final\nexpression at the bottom. A collapsed run becomes the edge label.\n- **It keeps the graph**, where the text tree cannot: a node with two\nconsumers is one mermaid node with two inbound edges instead of a repeat\nmarked `↻`.\n- **A Flight scope becomes a `subgraph`** -- which is what the stored\n`scope` tag already means.\n- **Its own palette**, not the TUI's theme colours: a diagram gets\npasted into docs and issues with their own background.\n- Ids are sanitized (`@` is not legal in mermaid), labels are\nHTML-escaped so one cannot break out of its quoted node, and node order\ncomes from a BFS rather than set iteration -- byte-identical under three\n`PYTHONHASHSEED`s, so a committed diagram does not churn.\n- Composes with `--node`: `--node flight_udxf -f mermaid` diagrams just\nthat node's upstream. A handle matching several nodes emits one\n`flowchart` block per match, to paste one at a time.\n\n### The un-collapsed graph (`-l raw -f mermaid`, `9efffab6`)\n\n`-l raw` is the stored graph -- every node, including the\n`Field`/`JoinReference`/`Literal` plumbing that `compact()` folds into\n`via`. Rendering *that* as mermaid is a third diagram, not a re-spelling\nof the compact one:\n\n```\n$ xorq catalog lineage demo -l raw -f mermaid\n  n__join_reference_2[\"JoinReference (3 cols)\"]\n  n__field_4[\"Field:id\"]\n  n__equals_12[\"Equals\"]\n  n__field_4 --> n__equals_12\n  classDef unknown fill:#fafafa,stroke:#bdbdbd,stroke-dasharray:3 3,color:#555\n```\n\nNon-boundary nodes get a dashed grey class so the boundaries still read\nas the structure.\n\n`-l boundaries -f mermaid` stays a **UsageError**: keeping its edges\nwould just re-spell `-l compact -f mermaid`, and dropping them draws an\nedgeless pile of nodes -- a worse listing than the text one. Erroring\nsays the flag did nothing rather than silently picking one. (An earlier\nrevision rejected `raw` on the same grounds; that was wrong, since `raw`\nreally is a different graph.)\n\n### Columns of one node (`--expand HANDLE`, `58b2b084`)\n\n`--node` *narrows* -- it roots the view at the match and drops\neverything above it. `--expand` keeps the whole view and opens one node\nup to its columns:\n\n```\n$ xorq catalog lineage demo --expand @flight_u_d_x_f_17\n...\n|       `-- UDXF[OrderEnricher] : 3->4 cols [xorq_datafusion]   (+order_score)\n|           |-- in id            int64\n|           |-- in amount        float64\n|           |-- out + order_score  float64      <- `+`/`~`/`-` from the stored schema_diff\n|           `-- ...\n```\n\nEvery relational node already stores its schema in the sidecar, so\n`expand_columns` lists those columns as child rows in the text tree, and\ninside the node's label (`<br/>`-joined) in mermaid, leaving the graph's\nshape alone. A Flight boundary is the one kind whose schema changes\nacross it, so both sides are drawn (`in `/`out `) and the stored\n`schema_diff` marks what it added (`+`), retyped (`~`) or dropped (`-`).\n\nSame handle forms as `--node`, and every match expands. `--expand` needs\na rendered tree or diagram, so `--level boundaries|raw` with `--format\ntext` is a UsageError (raw JSON already carries every stored schema).\n\n> An earlier revision of this branch made `--expand` switch one *region*\nof the mermaid diagram to the stored op graph. That reading does not\nsurvive in a tree -- it repeats every shared op per consumer, so one\nexpansion of a 681-node graph came to 1207 rows -- and `--level raw`\nalready draws every op, so the mixed-detail dial and its\n`_stored_expansion` machinery were dropped in `58b2b084`\n(`format_mermaid_lineage`'s `expand`/`expand_from` args became\n`raw`/`expand_columns`).\n\n## TUI (`21df8291`, `58b2b084`)\n\n- **3-way right panel.** The Info panel was always on screen, capped at\nsix rows, so a lineage tree deeper than that scrolled inside a sliver\nwhile SQL held the tall slot. It becomes the first of three swappable\nviews -- `1` Lineage, `2` SQL, `3` Data -- one full-height slot above\nthe always-visible Schema panel, with Lineage as the startup view. SQL\nand data previews cost a worker, so only the active view pays for them.\n- **Row cursor and column folds.** While the Lineage panel holds focus,\n`j`/`k` move a row cursor (the panel scrolls to follow), `]` lists the\ncursor node's columns and `[` folds them back -- the same expansion as\nthe CLI's `--expand`. A two-column gutter (`▸`/`▾`) marks expandable\nrows; fold state is kept per entry, so browsing to a neighbour and back\nleaves it as you left it. Rows are cached per fold state, so a keypress\nre-render does no tree walk.\n\n## Behaviour\n\n- Entry lookup goes through the existing `_get_catalog_entry`, so an\n**alias works** and a typo points at `xorq catalog list` /\n`list-aliases`.\n- A sidecar with **no lineage** (written before XOR-363) fails with how\nto get one rather than printing an empty tree.\n- The whole body runs inside `click_context_catalog`, as the sibling\ncommands do, so a malformed sidecar reports instead of tracebacking.\n- `--level` and `--format` are `click.Choice`s, so an unknown value is\nrejected by Click with the valid set.\n\n## Verification\n\n`test_cli_lineage.py` (new; 25 tests parameterized across the three\ncatalog backends) + `test_lineage_utils.py` (77) + `test_tui.py` (386) +\n`test_compiler.py` + `test_graph_utils.py` + `docs/test_cli_contract.py`\n-- all green locally.\n\nCovers: compact is the default and matches `--level compact`; alias\nresolves to the same output; `boundaries` rows are 3 tab-separated\nfields with `@`-prefixed ids, carry the expected kinds and no glyphs,\nand report the nested scope; `raw` round-trips against the entry's\nstored `LineageDAG`; unknown level, unknown entry, and a lineage-less\nsidecar all fail with a useful message. For `--node`: hash and `@label`\nagree, a tag resolves by value as well as by kind, a kind handle prints\none subtree per match, `raw` narrows to the matched nodes, `boundaries`\nreports capabilities and nested scope (and does not on the full\nlisting), and an unknown handle points at `--level boundaries`. For\n`--format`: text is the default and matches `--format text`, mermaid\nemits a `flowchart TD` with a subgraph, edges and classDefs and no tree\nglyphs, composes with `--node`, and is rejected on the boundaries level;\n`-l raw -f mermaid` draws strictly more nodes than compact and no `via`\nlabels. For `--expand`: it lists a node's columns in the tree and in the\ndiagram, shows both sides of a Flight boundary's transition with the\ndiff marks, accepts hash/label/kind handles interchangeably, and errors\non the listing levels and on an unknown handle. In\n`test_lineage_utils.py`: `root=` renders the subtree feeding a node,\nresolves a node that lives only in a nested scope, and degrades to\n`(empty)` for an unknown id; the mermaid renderer declares every node it\nclasses, declares each node once, points its edges downstream, escapes\nlabels, and is byte-stable across processes. TUI tests cover the view\nswitch, the cursor, fold/unfold, per-entry fold state, and the no-op\ncases.\n\n## Not changed\n\nThe **sidecar format** and `compiler.py`. Nothing new is stored and\nnothing is re-extracted: this only adds readers (and the TUI\npresentation of them).\n\n`lineage_utils` does grow, in ways the CLI and TUI share:\n\n- `format_mermaid_lineage` -- the second renderer, with `root=`, `raw=`\nand `expand_columns=`.\n- `root=` and `expand_columns=` on `format_compact_lineage` /\n`compact_lineage_rows`, plus `node_columns`, `_view_containing`, and\n`node_id` on `LineageRow` so a renderer can address the node behind a\nrow.\n- `_compact_node_label` → public `compact_node_label` (rename only).\n\n`LineageDAG` itself -- fields, serialization,\n`resolve`/`compact`/`scope` semantics -- is untouched.\n\n## Docs\n\n`docs/generate_cli_reference.py` fails when a visible command is in no\nnav group, so the new command is added to *Entries and aliases* with\nSee-also links to `show`, `schema` and `tui` (and back-links from\n`show`/`schema`). The page body comes from the command docstring, so\n`--help` and the reference site cannot disagree. Docstring lists use the\nrepo's `` - `name`—description `` bullet form (as in `xorq init -t`),\nwhich survives both Click's `\\b` and markdown; the aligned two-column\nform collapsed in the generated page.\n\nRefs XOR-363\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_019xTFQFkPvzLa4cNEc689pg\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-08-03T19:45:55-04:00",
+          "tree_id": "9916bea9c42caf9d0e0a05cb18be84a6d2596774",
+          "url": "https://github.com/xorq-labs/xorq/commit/5aff8637eaceecf1fa0b19480e82befebaeffb2c"
+        },
+        "date": 1785801111588,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.331495179851967,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009142110593869896",
+            "extra": "mean: 120.02647525000043 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.455654751440016,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0476427710119111",
+            "extra": "mean: 407.2233686000004 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7404270852968945,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19606595536505683",
+            "extra": "mean: 1.3505718791999926 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.432069901782644,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06616434753057815",
+            "extra": "mean: 411.1723923999989 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.589234601962417,
+            "unit": "iter/sec",
+            "range": "stddev: 0.059175120999754596",
+            "extra": "mean: 386.2145204000001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.0162303596954,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03083555463970286",
+            "extra": "mean: 331.53966399999604 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 151.85645991723615,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008466435413462411",
+            "extra": "mean: 6.585166021550968 msec\nrounds: 232"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.998651522110173,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013197098193757195",
+            "extra": "mean: 200.05395366665843 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 17.98419235697405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01358619313806491",
+            "extra": "mean: 55.604387461537144 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.102492696481548,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01639463841709054",
+            "extra": "mean: 98.98547121427522 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.481030610994944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018625899360589518",
+            "extra": "mean: 117.91019816666903 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.295154622791669,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03269377278303681",
+            "extra": "mean: 158.85233325000314 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.877541234649978,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011118790189924638",
+            "extra": "mean: 205.02133183334573 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.726369963454658,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014284349474021352",
+            "extra": "mean: 211.57886659999576 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.384358524531084,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07204033802799552",
+            "extra": "mean: 419.4000146000121 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.2371870919339405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.050223416379517084",
+            "extra": "mean: 308.9101653999819 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7254337692788246,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09132162523789375",
+            "extra": "mean: 579.5644073999824 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.7723870296999455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09227346965689684",
+            "extra": "mean: 564.210854199996 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5496196976335206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1018143694974523",
+            "extra": "mean: 645.319623599994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5411224257418827,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09039988477114769",
+            "extra": "mean: 648.8777162000019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.251170231403541,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13821770123786642",
+            "extra": "mean: 799.251752400005 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1840441222504778,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09968472432779153",
+            "extra": "mean: 844.5631216000038 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.029765494786759,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16247019579281297",
+            "extra": "mean: 971.0948804000054 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6188909690199401,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21788758118362406",
+            "extra": "mean: 1.6157934920000117 sec\nrounds: 5"
           }
         ]
       }
