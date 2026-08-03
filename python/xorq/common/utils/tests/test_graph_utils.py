@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import itertools
 import operator
 
 import pytest
@@ -139,6 +142,15 @@ def test_opaque_edges_name_real_fields() -> None:
 
 def test_opaque_ops_matches_opaque_edges() -> None:
     assert set(opaque_ops) == set(OPAQUE_EDGES)
+
+
+def test_opaque_ops_mutually_non_subclassing() -> None:
+    """``_opaque_lookup`` resolves to the first ``isinstance`` match, so its
+    order-independence rests on no opaque op subclassing another. A new opaque
+    op related by inheritance to an existing one needs an explicit ordering
+    decision in ``OPAQUE_SPECS``, not an accidental one."""
+    for a, b in itertools.permutations(opaque_ops, 2):
+        assert not issubclass(a, b), f"{a.__name__} subclasses {b.__name__}"
 
 
 def test_opaque_edges_is_read_only() -> None:

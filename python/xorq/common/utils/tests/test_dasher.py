@@ -45,7 +45,6 @@ import xorq.common.utils.dasher as dasher
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
 from xorq.caching import ParquetCache
-from xorq.common.utils import graph_utils
 from xorq.common.utils.dasher import (
     _EXTRA_RULES,
     HASHER,
@@ -80,7 +79,6 @@ from xorq.expr import api
 from xorq.expr.ml.metrics import MetricComputation, deferred_sklearn_metric
 from xorq.expr.udf import agg, make_pandas_expr_udf
 from xorq.ibis_yaml.compiler import build_expr
-from xorq.vendor.ibis.expr.operations.generic import Cast
 from xorq.vendor.ibis.expr.operations.relations import DatabaseTable, Schema
 from xorq.vendor.ibis.expr.operations.udf import ScalarUDF
 from xorq.vendor.ibis.expr.types import Expr
@@ -642,18 +640,12 @@ def test_normalize_computed_kwargs_expr_is_data_free():
     )
 
 
-def test_replace_nodes_raises_on_unhandled_opaque(monkeypatch):
-    """A future addition to ``opaque_ops`` without a corresponding ``case``
-    arm in ``replace_nodes.process_node`` must raise loudly rather than
-    silently producing a wrong hash."""
-    monkeypatch.setattr(graph_utils, "opaque_ops", graph_utils.opaque_ops + (Cast,))
-
-    con = xo.connect()
-    con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
-    expr = con.table("t").mutate(a_float=xo._.a.cast("float64"))
-
-    with pytest.raises(ValueError, match="unhandled opaque op"):
-        graph_utils.replace_nodes(lambda op, _kw: op, expr.op())
+# NOTE: test_replace_nodes_raises_on_unhandled_opaque was removed: it guarded
+# against ``opaque_ops`` drifting from ``replace_nodes``'s match arms, drift
+# that is now impossible by construction (both derive from OPAQUE_SPECS and
+# resolve via the same isinstance lookup). Its structural replacements live in
+# test_graph_utils.py: test_opaque_ops_matches_opaque_edges and
+# test_opaque_ops_mutually_non_subclassing.
 
 
 # --- _gap_rules normalizers ------------------------------------------------
