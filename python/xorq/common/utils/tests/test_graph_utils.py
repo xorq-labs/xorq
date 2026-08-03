@@ -171,7 +171,7 @@ def test_expr_typed_fields_are_registered() -> None:
     catches ops whose Expr payload hides behind ``Any`` annotations at first
     traversal. Known blind spot for both: an Expr living only in
     ``__config__`` (the ExprScalarUDF shape) never appears in ``__args__`` or
-    annotations -- registering such ops is enforced by review, per AGENTS.md.
+    annotations -- registering such ops is enforced by review, per ADR-0016.
     """
     for cls in _op_classes(rel) + _op_classes(udf):
         expr_fields = tuple(

@@ -62,6 +62,8 @@ class OpaqueSpec:
 
 # Single source of truth for opaque descent, consumed by both the read side
 # (``gen_children_of`` + policy variants) and the write side (``replace_nodes``).
+# Registration is mandatory for Expr-bearing ops and tripwire-enforced; see
+# ADR-0016 for the full design and its known blind spot.
 # Read-side descent policies are edge overrides of the derived ``OPAQUE_EDGES``
 # (see ``_gen_children_exec``/``_gen_children_skip_pins``/``gen_children_flight_leaf``).
 OPAQUE_SPECS = MappingProxyType(
