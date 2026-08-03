@@ -27,12 +27,17 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import importlib.util
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
 import xorq_dasher
+from xorq_dasher.rules.expr import (
+    normalize_memory_databasetable as dasher_normalize_memory_databasetable,
+)
 
 import xorq
 import xorq.api as xo
@@ -106,6 +111,16 @@ def _fixture_columns() -> dict[str, pa.Array | pa.ChunkedArray]:
                 pa.array(["cherry", "banana", None]).dictionary_encode(),
             ]
         ),
+        # interior dictionary layer: erased by ``col.cast``'s nested decode,
+        # the most cast-machinery-dependent canonicalization branch
+        "nested_dict_in_list": pa.array(
+            [["a", "b"], None, ["a"]], type=pa.list_(pa.string())
+        ).cast(pa.list_(pa.dictionary(pa.int32(), pa.string()))),
+        # view type: canonicalized to large_string (long value forces an
+        # out-of-line buffer, the layout-dependent case)
+        "string_view": pa.array(
+            ["apple", None, "", "é中文", "x" * 100], type=pa.string_view()
+        ),
         "empty_string": pa.array([], type=pa.string()),
     }
 
@@ -121,6 +136,8 @@ GOLDEN_COLUMN_DIGESTS = {
     "struct": "d7c505e657beab1d3b433ee2633c9131",
     "map": "d4a434fe254471ca2176cd8b7ae9120e",
     "dictionary_multichunk": "b50c865c81720aa1354729bda834915d",
+    "nested_dict_in_list": "5ea7e62c328b1dc0af45bf7307b544c0",
+    "string_view": "a8d8f0321b2ca4aa7ca2b1768f9ee97e",
     "empty_string": "1ff18035104640f53e6bbf8ca6bb9aa1",
 }
 
@@ -178,6 +195,11 @@ SLICE_CASES = {
         [[i, None, i * 2] if i % 3 else None for i in range(30)],
         type=pa.list_(pa.int64()),
     ),
+    # view: serializes its physical buffer layout verbatim — only the cast
+    # to large_string erases it (concat_arrays does NOT compact views)
+    "string_view": pa.array(
+        [f"s{i}" * (i % 5 + 1) for i in range(30)], type=pa.string_view()
+    ),
 }
 
 
@@ -206,6 +228,39 @@ def test_digest_erases_offset_width() -> None:
     ) == normalize_pyarrow_table_canonical(
         pa.table({"c": pa.array(strings, type=pa.large_string())})
     )
+
+
+def test_digest_erases_view_encoding() -> None:
+    # string_view/binary_view serialize their physical buffer layout (views
+    # + variadic data buffers), which varies with how the array was built —
+    # the canonical form rewrites them to large_string/large_binary, so all
+    # three offset representations of the same values must agree, digests
+    # and full-table normalizations alike.
+    strings = ["apple", None, "", "é中文", "x" * 100]
+    want = canonical_column_digest(pa.array(strings, type=pa.large_string()))
+    assert canonical_column_digest(pa.array(strings, type=pa.string_view())) == want
+    bins = [b"\x00\x01" * 20, None, b""]
+    assert canonical_column_digest(pa.array(bins, type=pa.binary_view())) == (
+        canonical_column_digest(pa.array(bins, type=pa.large_binary()))
+    )
+    assert normalize_pyarrow_table_canonical(
+        pa.table({"c": pa.array(strings, type=pa.string_view())})
+    ) == normalize_pyarrow_table_canonical(
+        pa.table({"c": pa.array(strings, type=pa.large_string())})
+    )
+
+
+def test_digest_refuses_list_view_types() -> None:
+    # pyarrow's list_view -> list cast emits invalid arrays (offsets fail
+    # validate(full=True); seen on 18 and 21), so list-view columns cannot
+    # be canonicalized — and hashing them raw would serialize physical
+    # buffer layout. Refuse loudly, at any nesting depth.
+    lv = pa.array([[1, 2, None], None, []], type=pa.list_view(pa.int64()))
+    with pytest.raises(NotImplementedError, match="list-view"):
+        canonical_column_digest(lv)
+    nested = pa.array([], type=pa.struct([("x", pa.large_list_view(pa.int64()))]))
+    with pytest.raises(NotImplementedError, match="list-view"):
+        canonical_column_digest(nested)
 
 
 def test_digest_erases_dictionary_encoding() -> None:
@@ -259,7 +314,7 @@ def test_memtable_normalization_does_not_execute_backends(
 
 
 def test_digest_refuses_unerasable_nested_dictionary() -> None:
-    # ``_dictionary_free_type`` does not rewrite union types, so a
+    # ``_canonical_type`` does not rewrite union types, so a
     # dictionary nested inside one cannot be decoded away — and serializing
     # it would drop the dictionary values from the digest. Refusing loudly
     # beats silently under-discriminating.
@@ -301,6 +356,21 @@ def test_sqlite_memory_databasetable_routes_to_canonical() -> None:
     assert normalized[:2] == ("xorq.MemoryDatabaseTable", NORMALIZATION_VERSION)
 
 
+def test_dasher_memory_rule_tag_still_matches_safety_net() -> None:
+    # The fall-through safety net in _dispatch_databasetable recognizes
+    # dasher's memory rule by its tuple tag ("ibis.MemoryDatabaseTable", ...).
+    # The fallthrough test below proves the net catches that tag, but only
+    # this test proves dasher still EMITS it — if a dasher release renames
+    # the tag, the net dies silently and #2191 revives; fail here instead.
+    con = PandasBackend().connect({"t": _fixture_df()})
+    result = dasher_normalize_memory_databasetable(con.table("t").op())
+    assert result[:1] == ("ibis.MemoryDatabaseTable",), (
+        "xorq_dasher renamed its memory-rule tag "
+        f"(got {result[:1]!r}; {_env_versions()}); update the safety net in "
+        "_relations._dispatch_databasetable to match"
+    )
+
+
 def test_dispatcher_fallthrough_net_reroutes_dasher_memory_rule(
     monkeypatch: pytest.MonkeyPatch, tmp_path: object
 ) -> None:
@@ -319,6 +389,29 @@ def test_dispatcher_fallthrough_net_reroutes_dasher_memory_rule(
     )
     normalized = _dispatch_databasetable(dt)
     assert normalized[:2] == ("xorq.MemoryDatabaseTable", NORMALIZATION_VERSION)
+
+
+def test_probe_script_matches_module() -> None:
+    # scripts/canonical_digest_xver_probe.py is a hand-maintained standalone
+    # replica of the module's digest logic (it must import nothing from
+    # xorq so it runs in bare venvs across pyarrow versions). Any edit to
+    # one that misses the other silently invalidates the cross-version
+    # verification story — pin them to each other over the probe's corpus.
+    probe_path = (
+        Path(__file__).parents[5] / "scripts" / "canonical_digest_xver_probe.py"
+    )
+    if not probe_path.exists():
+        pytest.skip("probe script not present (installed-package test run)")
+    spec = importlib.util.spec_from_file_location(
+        "canonical_digest_xver_probe", probe_path
+    )
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    for name, col in probe.corpus().items():
+        assert probe.canonical_column_digest(col) == canonical_column_digest(col), (
+            f"probe script and _canonical module disagree on corpus column {name!r}: "
+            f"their digest logic has drifted apart"
+        )
 
 
 def test_refuses_extension_types() -> None:

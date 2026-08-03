@@ -12,22 +12,26 @@ The canonical form hashed here is a *logical* one:
 
 * never re-execute an ``InMemoryTable`` through a backend — hash the stored
   proxy data (``op.data.to_pyarrow(op.schema)``);
-* per column: recursively decode dictionary encoding and widen int32
-  offsets to ``large_*`` (both erase physical encoding; an un-decoded
-  dictionary batch message would serialize indices *without* the dictionary
-  values — an under-discrimination hazard), compact via
-  ``combine_chunks``/``concat_arrays`` (erases chunk layout and slicing),
-  then xxh128 the IPC bytes of a metadata-free single-column RecordBatch;
+* per column: recursively decode dictionary encoding, widen int32
+  offsets to ``large_*``, and rewrite ``string_view``/``binary_view`` to
+  their ``large_*`` offset forms (all erase physical encoding; an
+  un-decoded dictionary batch message would serialize indices *without*
+  the dictionary values — an under-discrimination hazard — and a view
+  array serializes its physical buffer layout, which varies with how the
+  array was built), compact via ``combine_chunks``/``concat_arrays``
+  (erases chunk layout and slicing), then xxh128 the IPC bytes of a
+  metadata-free single-column RecordBatch;
 * carry the schema as an explicit ``(name, str(canonical type))`` tuple —
   ``RecordBatch.serialize()`` emits no schema message, so type identity
   must not be left to the value bytes alone;
-* refuse what cannot be canonicalized (extension types, dictionaries
-  nested where they cannot be decoded away) with ``NotImplementedError``
-  rather than hash them unstably or collidingly.
+* refuse what cannot be canonicalized (extension types, list-view types,
+  dictionaries nested where they cannot be decoded away) with
+  ``NotImplementedError`` rather than hash them unstably or collidingly.
 
 The column digest was verified byte-identical across pyarrow 18.0.0, 20.0.0,
 21.0.0 and 25.0.0 for a corpus covering nulls, NaN/-0.0/inf, decimals, tz
-timestamps, nested list/struct/map, multi-chunk dictionary arrays, and
+timestamps, nested list/struct/map, multi-chunk dictionary arrays,
+string_view/binary_view arrays (plain, sliced and chunked), and
 sliced/chunked var-length arrays — rerun
 ``scripts/canonical_digest_xver_probe.py`` (a standalone replica of this
 logic) to re-verify. If a future pyarrow breaks IPC byte stability, swap the
@@ -75,6 +79,14 @@ def _assert_canonicalizable(typ: pa.DataType) -> None:
     different tables (e.g. pandas period columns of freq 'M' vs 'D' with
     equal ordinals). Loud refusal is the only option that neither collides
     nor version-couples; support requires a ``NORMALIZATION_VERSION`` bump.
+
+    List-view types are refused because they cannot be canonicalized:
+    pyarrow's ``list_view`` → ``list`` cast emits invalid arrays (offsets
+    fail ``validate(full=True)``; verified on pyarrow 18 and 21), and
+    passing a view array through uncanonicalized would serialize its
+    physical buffer layout — equal data hashing unequally, breaking the
+    layout-invariance contract. (``string_view``/``binary_view`` cast
+    correctly and are canonicalized by :func:`_canonical_type` instead.)
     """
     import pyarrow as pa  # noqa: PLC0415
 
@@ -85,6 +97,13 @@ def _assert_canonicalizable(typ: pa.DataType) -> None:
             f"contract and str(type) omits them, so logically different "
             f"tables would collide"
         )
+    if pa.types.is_list_view(typ) or pa.types.is_large_list_view(typ):
+        raise NotImplementedError(
+            f"cannot canonically hash list-view type {typ!r}: pyarrow's "
+            f"list_view->list cast produces invalid arrays, and serializing "
+            f"the view uncanonicalized would hash its physical buffer layout "
+            f"instead of its logical values"
+        )
     for i in range(typ.num_fields):
         _assert_canonicalizable(typ.field(i).type)
 
@@ -92,24 +111,28 @@ def _assert_canonicalizable(typ: pa.DataType) -> None:
 def _canonical_type(typ: pa.DataType) -> pa.DataType:
     """Return the canonical logical type for ``typ``: every dictionary layer
     (at any nesting depth) replaced by its logical value type, and
-    int32-offset var-length types widened to their ``large_*`` (int64-offset)
-    variants.
+    int32-offset and view var-length types rewritten to their ``large_*``
+    (int64-offset) variants.
 
     Widening does double duty: offset width is a physical encoding, not a
     logical property (ibis maps string and large_string to the same dtype),
     and a single contiguous int32-offset array can address at most 2 GiB of
     value data — a chunked column can hold more in memory just fine, so
     canonicalizing to one contiguous array would overflow where the widened
-    type cannot. (``map`` has no large variant in Arrow; a >2^31-entry map
-    column fails loudly in ``combine_chunks`` rather than mis-hashing.)
+    type cannot. View types additionally MUST be rewritten because their
+    IPC form serializes the physical buffer layout — equal data built
+    differently serializes differently. (``map`` has no large variant in
+    Arrow; a >2^31-entry map column fails loudly in ``combine_chunks``
+    rather than mis-hashing. Likewise a ``dictionary`` of view values —
+    pyarrow cannot decode it, so the cast fails loudly.)
     """
     import pyarrow as pa  # noqa: PLC0415
 
     if pa.types.is_dictionary(typ):
         return _canonical_type(typ.value_type)
-    if pa.types.is_string(typ):
+    if pa.types.is_string(typ) or pa.types.is_string_view(typ):
         return pa.large_string()
-    if pa.types.is_binary(typ):
+    if pa.types.is_binary(typ) or pa.types.is_binary_view(typ):
         return pa.large_binary()
     if pa.types.is_list(typ) or pa.types.is_large_list(typ):
         return pa.large_list(_canonical_type(typ.value_type))
@@ -133,9 +156,10 @@ def _canonical_type(typ: pa.DataType) -> pa.DataType:
 
 def _contains_dictionary(typ: pa.DataType) -> bool:
     """True if ``typ`` has a dictionary layer anywhere in its nesting,
-    traversing child fields generically (so union / list_view / run-end
-    encoded families — which :func:`_canonical_type` does not rewrite —
-    are still inspected)."""
+    traversing child fields generically (so union / run-end encoded
+    families — which :func:`_canonical_type` does not rewrite — are still
+    inspected; list-view families are refused outright in
+    :func:`_assert_canonicalizable` before this runs)."""
     import pyarrow as pa  # noqa: PLC0415
 
     if pa.types.is_dictionary(typ):
@@ -162,7 +186,7 @@ def canonical_column_digest(col: pa.Array | pa.ChunkedArray) -> str:
     canonical_type = _canonical_type(col.type)
     if _contains_dictionary(canonical_type):
         # ``_canonical_type`` does not rewrite this type family
-        # (union / list_view / run-end encoded …), so a dictionary layer
+        # (union / run-end encoded …), so a dictionary layer
         # survived. Serializing it would emit indices *without* the
         # dictionary values — refuse loudly rather than under-discriminate.
         raise NotImplementedError(
@@ -224,7 +248,11 @@ def normalize_memory_databasetable_canonical(dt: DatabaseTable) -> tuple:
     backend, so one execution is unavoidable — but hashing the canonical
     form of the materialized table (rather than the raw batch stream)
     erases the batch-size and IPC-dictionary variance that execution
-    introduces."""
+    introduces. Streaming ``to_pyarrow_batches()`` here would save no peak
+    memory: the canonical digest compacts each column across ALL chunks
+    (that compaction is what erases batch boundaries), so every batch must
+    be resident anyway — and an incremental per-batch fold would re-couple
+    the hash to batch boundaries, the exact defect being removed."""
     return (
         "xorq.MemoryDatabaseTable",
         NORMALIZATION_VERSION,

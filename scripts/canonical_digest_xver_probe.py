@@ -25,9 +25,9 @@ import xxhash
 def _canonical_type(typ: pa.DataType) -> pa.DataType:
     if pa.types.is_dictionary(typ):
         return _canonical_type(typ.value_type)
-    if pa.types.is_string(typ):
+    if pa.types.is_string(typ) or pa.types.is_string_view(typ):
         return pa.large_string()
-    if pa.types.is_binary(typ):
+    if pa.types.is_binary(typ) or pa.types.is_binary_view(typ):
         return pa.large_binary()
     if pa.types.is_list(typ) or pa.types.is_large_list(typ):
         return pa.large_list(_canonical_type(typ.value_type))
@@ -105,6 +105,12 @@ def corpus() -> dict[str, pa.Array | pa.ChunkedArray]:
             [["a", "b"], None, ["a"]], type=pa.list_(pa.string())
         ).cast(pa.list_(pa.dictionary(pa.int32(), pa.string()))),
         "empty_string": pa.array([], type=pa.string()),
+        # view types: physical buffer layout is erased by canonicalizing to
+        # large_string/large_binary (long values force out-of-line buffers)
+        "string_view": pa.array(
+            ["apple", None, "", "é中文", "x" * 100], type=pa.string_view()
+        ),
+        "binary_view": pa.array([b"\x00\x01" * 20, None, b""], type=pa.binary_view()),
     }
     # physical-layout variants: sliced and chunked forms of var-length data
     s = pa.array([f"s{i}" * (i % 3 + 1) for i in range(30)])
@@ -117,6 +123,9 @@ def corpus() -> dict[str, pa.Array | pa.ChunkedArray]:
         type=pa.list_(pa.int64()),
     )
     cols["list_sliced"] = li.slice(3, 10)
+    sv = pa.array([f"s{i}" * (i % 5 + 1) for i in range(30)], type=pa.string_view())
+    cols["string_view_sliced"] = sv.slice(3, 10)
+    cols["string_view_chunked"] = pa.chunked_array([sv.slice(0, 11), sv.slice(11)])
     return cols
 
 
