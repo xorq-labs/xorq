@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785778848950,
+  "lastUpdate": 1785797305161,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -30738,6 +30738,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.06103918818709339",
             "extra": "mean: 1.8586639698000114 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "394170e81a3ccba2240e722f4269d18169414aa8",
+          "message": "feat(dasher): pyarrow-version-stable canonical hashing of in-memory tables (#2192)\n\n## Problem\n\nMemtable identity was hashed from the IPC bytes of a backend-executed\n`to_pyarrow_batches()` stream (`xorq_dasher.normalize_inmemorytable`).\npyarrow's IPC dictionary-batch layout changed between 20 and 21, so the\nsame expression got a different build name per pyarrow version. That\nsurfaced as the `ci-test-lowest-direct` snapshot failures in #2191 when\nuv's resolution drifted 21 to 20. Arrow guarantees logical readability\nacross versions, not byte stability, so any hash over serializer output\nis implicitly version-coupled.\n\nCloses #2191.\n\n## What to read first\n\n| File | Lines | Role |\n| --- | --- | --- |\n| `dasher/_canonical.py` | 375 | the new mechanism |\n| `tests/test_hash_contract.py` | 685 | the contract: goldens,\ninvariants, refusals, residuals |\n| `scripts/canonical_digest_xver_probe.py` | 147 | standalone replica,\nrun under several pyarrow versions |\n| `docs/adr/0017-canonical-hash-forms-not-serializer-bytes.md` | 162 |\nwhy identity never comes from serializer bytes |\n\nThe other 7 files are call-site swaps (`_opaque.py`, `_relations.py`,\n`__init__.py`, `_gap_rules.py`) and two regenerated snapshots.\n\n## Fix\n\nNew `xorq.common.utils.dasher._canonical` replaces the dasher IPC-stream\nrules at every call site. All in-repo; no dasher fork.\n\nInMemoryTable identity is the **stored proxy data**\n(`op.data.to_pyarrow(op.schema)`), never re-executed through a backend.\n\nThe per-column canonical digest, in order:\n\n1. Recursively decode dictionary encoding. An un-decoded dictionary\nbatch message serializes indices *without* the dictionary values, an\nunder-discrimination hazard.\n2. Widen int32-offset var-length types to `large_*`, and rewrite\n`string_view`/`binary_view` to `large_string`/`large_binary`. View IPC\nserializes physical buffer layout, so sliced or chunked views of equal\ndata would otherwise hash unequally.\n3. Compact via `combine_chunks`/`concat_arrays`, erasing chunk layout\nand un-rebased slice offsets.\n4. xxh128 the IPC bytes of a metadata-free single-column RecordBatch.\n\nSteps 1 and 2 are a single chunk-wise `cast` and must precede step 3: a\n>2 GiB string column holds more value data than one contiguous\nint32-offset array can address, so compacting first would overflow.\n\nRow count and schema are carried explicitly, as `num_rows` (a\nzero-column table has no digests to carry it) and `(name, str(canonical\ntype))`. `RecordBatch.serialize()` emits no schema message, so type\nidentity cannot ride on value bytes alone; int8 and uint8 with identical\nbuffers must differ.\n\nExcluded from identity at every nesting level, each pinned by a test:\nfield nullability, the dictionary `ordered` flag, and the map\n`keys_sorted` flag. All three are constraint assertions, not data.\n\n### Cost\n\nStep 3 compacts each column across all chunks, so peak memory is the\nfull table plus a transient copy of the largest column. Three\nconsequences:\n\n* Memory-backed `DatabaseTable`s are fully materialized. Streaming would\nsave nothing, since the compaction is what erases batch boundaries, and\nan incremental per-batch fold would re-couple identity to batch size,\nthe exact defect being removed. Paid only for tables whose data is\nalready resident in the backend.\n* The registered `pyarrow.lib.Table` rule means every pandas\nDataFrame/Series normalization pays the cast and compaction too. The old\nrule streamed batches and held one at a time.\n* This is a real peak-memory regression against the old rule, accepted\nas the price of batch-boundary-free identity.\n\n### Refused rather than hashed\n\n`NotImplementedError`, detected at any nesting depth including as a\ndictionary's value type, which `num_fields`-based walks miss since\n`pa.DictionaryType.num_fields == 0`:\n\n| Family | Why | Test |\n| --- | --- | --- |\n| extension | parameters live in `__arrow_ext_serialize__` bytes with no\ncross-version contract, and `str(type)` omits them, so hashing the\nstorage collides logically different tables |\n`test_refuses_extension_types`,\n`test_refuses_extension_type_hidden_as_dictionary_values` |\n| list-view | pyarrow's `list_view`→`list` cast emits arrays that fail\n`validate(full=True)` (upstream bug, reproduced on 18 and 21), and raw\nview bytes hash buffer layout | `test_digest_refuses_list_view_types` |\n| union | sparse unions serialize their type-masked child slots, so\nequal data hashes unequally | `test_digest_refuses_union_types` |\n| run-end-encoded | the serialized form depends on run partitioning;\n`[3,5]/[7,9]` and `[2,3,5]/[7,7,9]` encode the same values |\n`test_digest_refuses_run_end_encoded_types` |\n\n\"Equal data can hash unequally\" is not on its own the criterion, since\nthe accepted null-slot residual under Known limitations has the same\nshape. What separates these four is that their layout variance is\nunbounded and not producer-stable (a concat re-partitions an REE\ncolumn's runs within one process), none is covered by the cross-version\nprobe, and all are rare enough that loud refusal costs almost nothing.\n\n### Changing the canonical form\n\n`NORMALIZATION_VERSION`, currently `1`, lives at the top of\n`_canonical.py` and is folded into every tuple the module produces, so\nhash identity moves when xorq decides rather than when a dependency\nreleases. Any edit that changes a digest, a canonical type string, or a\ntuple shape obliges a bump plus regenerated goldens in\n`test_hash_contract.py`. The golden tests fail with the dependency\nversions and the normalized tuple printed, to distinguish \"I changed\nthis on purpose\" from \"a dependency moved under me\". Rationale in\nADR-0017.\n\n## Verification\n\n* Canonical digests **and** canonical type strings are byte-identical\nacross pyarrow 18.0.0, 20.0.0, 21.0.0 and 25.0.0 in isolated venvs.\nSupported range is `pyarrow>=18,<22`; 25 is checked as forward headroom,\nnot as support. The corpus covers nulls, NaN/−0.0/inf, decimals, tz\ntimestamps, nested list/struct/map, fixed-size lists with var-length\nchildren, multi-chunk dictionary arrays with per-chunk dictionaries,\ndictionary-in-list, sliced and chunked var-length arrays, and plain,\nsliced and chunked `string_view`/`binary_view`.\n`test_probe_script_matches_module` pins the probe replica to the module\nso the two cannot drift apart silently.\n* The #2191 repro, `build_expr` of the awards/batting join, now yields\nthe same build name under pyarrow 20 and 21 (`00c36ffbdac0`). On main it\nproduces `222f26324a6e` and `9d8f46b5e7ac`.\n* `test_hash_contract.py`, 49 tests: goldens over the full probe corpus,\nso a digest-changing edit applied to module and probe together still\nfails; invariants (chunked==single, sliced==direct per type family,\ndict-encoded==plain, view==offset forms, plus the three exclusions\nabove); under-discrimination guards (dictionary values, signedness,\nno-backend-execution, zero-column row count, pandas and in-memory-sqlite\ndispatcher routing); and a pin on the dasher memory-rule tuple tag that\nthe `_relations` safety net matches, so a dasher rename fails the pin\ninstead of silently reviving #2191. Goldens pass under pyarrow 20 and\n21.\n* `test_dasher.py`: 106 passed, 1 xfailed. `ibis_yaml`: green except\npre-existing postgres-service-dependent tests, env-only.\n\n## Known limitations\n\nTwo over-discrimination residuals are accepted, documented in the module\ndocstring and ADR-0017, and pinned by test. Both cost recomputation,\nnever a wrong answer, and neither re-opens #2191, because each is\ndeterministic given the producer.\n\n**Null-slot payload reaches the digest.** The columnar spec leaves\nnull-slot contents unspecified and `serialize()` writes the values\nbuffer verbatim, so two producers of `.equals()`-identical data can\ndisagree: `pa.Table.from_pandas` leaves NaN, NaT or mask garbage under a\nnull where a literal `None` leaves zero. Confirmed for `float64`, pandas\nnullable `Int64` and `datetime64`.\n\nIf a hash changes with no data change, check this first. It means the\ncolumn reached the memtable by a different route (`from_pandas`,\nliterals, or a parquet round-trip), not that its values differ.\n\nErasing it requires the per-type recursive buffer fold that ADR-0017\ndefers as the designated escalation. A primitives-only partial fix was\nrejected: it would leave nested nullable children, such as a struct or\nlist of nullable primitives, untouched, and a non-uniform exclusion is\nworse than a documented one. Refusing the types outright was also\nrejected, since that would refuse nearly every nullable column. Pinned\nby `test_null_slot_payload_is_accepted_residual`.\n\n**Timezone spelling.** `str(type)` distinguishes `tz=UTC` from\n`tz=+00:00` for the same instant, so the schema component diverges while\nthe value digests agree. Pinned by\n`test_timezone_spelling_is_accepted_residual`.\n\n## Breaking, and what to do about it\n\n### 1. Arrow extension types now raise instead of hashing\n\nTokenizing data that contains Arrow extension types raises\n`NotImplementedError`. In practice that means pandas **period and\ninterval columns**, which is not an exotic case. It is a loud failure at\ntokenize time rather than silent corruption, and it replaces a real\ncollision: before this PR, period columns of freq `M` and `D` with equal\nordinals normalized identically.\n\nConvert before tokenizing:\n\n| Column | Use | Avoid |\n| --- | --- | --- |\n| period | `.dt.to_timestamp()` or `.astype(str)` | `.astype(\"int64\")` |\n| interval | split into separate `left`/`right` columns | |\n\n`.astype(\"int64\")` re-introduces exactly the collision the refusal\nexists to prevent: it keeps the ordinal and drops the freq, so `M` and\n`D` columns with equal ordinals hash identically (verified).\n`to_timestamp()` and `astype(str)` both preserve the distinction.\n\nList-view, union and run-end-encoded types also raise. These are rare in\npandas- and ibis-shaped data and have no in-place workaround;\nmaterialize to the equivalent plain type first.\n\n### 2. One-time hash bump for expressions containing memtables or\nin-memory tables\n\nBuild names and cache keys change once. Previously they changed whenever\npyarrow did.\n\nA stale cache entry is a **silent recompute, not an error**: the new key\nmisses, `set_default` writes a fresh entry, and the pre-upgrade entry\nstays on disk orphaned. Build directories behave the same way, with the\nold name simply no longer produced. Reclaim disk by dropping pre-upgrade\ncache and build directories; nothing reads them again. Two snapshots are\nregenerated here.\n\n## Review\n\nFour sequential independent cold reviews, per the trial policy proposed\nin #2197, which names dasher shared infrastructure. One blocker, in\nround 2: an extension type hidden as a dictionary's value type bypassed\nthe refusal walk because `pa.DictionaryType.num_fields == 0`, producing\na real collision. Every finding is fixed or pinned by a test named\nabove; the two entries under Known limitations are the deliberate\n\"pinned\" cases.\n\nFindings-per-round curve and what it implies for #2197's stopping rule:\nhttps://github.com/xorq-labs/xorq/pull/2197#issuecomment-5172474664\n\nA #2198-style blast-radius grep caught a stale docstring and an ADR\nnumber collision with #2196, so this ADR is 0017 rather than 0016 (#2197\nand #2198 reference #2196's by number).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01PGsyV5Vi2pzw24SXghKcWJ\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T18:42:20-04:00",
+          "tree_id": "ca424656c6be21cf6a4e522d024fe2a667b73ddb",
+          "url": "https://github.com/xorq-labs/xorq/commit/394170e81a3ccba2240e722f4269d18169414aa8"
+        },
+        "date": 1785797301561,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.6436563628539576,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03260654413727517",
+            "extra": "mean: 150.51952499999922 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.764722882276214,
+            "unit": "iter/sec",
+            "range": "stddev: 0.028526408113138543",
+            "extra": "mean: 361.69990359999247 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7382491548740707,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17231867832262787",
+            "extra": "mean: 1.3545562408000023 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.280962941369789,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05150904275746936",
+            "extra": "mean: 438.41133140000466 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.642327969534533,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057907339272583146",
+            "extra": "mean: 378.4541554000043 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.903721874549842,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02958353612452136",
+            "extra": "mean: 344.3856000000096 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 129.79179981717317,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016675876061690933",
+            "extra": "mean: 7.704646991632879 msec\nrounds: 239"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.9191110912072764,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07799249896636022",
+            "extra": "mean: 255.1599014999984 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 16.959480885398115,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010396282975453253",
+            "extra": "mean: 58.96406893332369 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 12.17193538975416,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009326570787252426",
+            "extra": "mean: 82.15620342856563 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.146299454944938,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005484996712422623",
+            "extra": "mean: 98.55810036363911 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.714761971848082,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006093259196382742",
+            "extra": "mean: 148.92560662500642 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.709799106099915,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014325711257260778",
+            "extra": "mean: 212.3232812000083 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.517425158477928,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007547833066300315",
+            "extra": "mean: 221.3650398000027 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.1935909669334857,
+            "unit": "iter/sec",
+            "range": "stddev: 0.059573489707331534",
+            "extra": "mean: 455.8735038000009 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.318484486894959,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00915472403053347",
+            "extra": "mean: 301.3423759999796 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7067837790875329,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11378004202422244",
+            "extra": "mean: 585.8972954000137 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8271449975623086,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10547119199818325",
+            "extra": "mean: 547.301938999999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4408400527685206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11332511556032761",
+            "extra": "mean: 694.0395625999827 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5252922659413333,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09661293198656738",
+            "extra": "mean: 655.6120570000076 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2271089293034436,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11597946384598391",
+            "extra": "mean: 814.923578600019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.0773626922171324,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11686998620018466",
+            "extra": "mean: 928.1925271999853 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9455308137853853,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14278916709826386",
+            "extra": "mean: 1.0576069922000215 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5663993875647605,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07320287733502526",
+            "extra": "mean: 1.7655386321999913 sec\nrounds: 5"
           }
         ]
       }
