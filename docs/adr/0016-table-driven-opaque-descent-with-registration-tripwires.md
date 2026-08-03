@@ -64,14 +64,20 @@ which is what makes the lookup order-independent.
   `gen_children_of` (read) and `replace_nodes` (write), an op holding
   `Expr`-valued args raises. This catches ops whose `Expr` payload hides
   behind `Any` annotations (the `CachedNode.parent` / `CacheTag.uncached`
-  shape), which static inspection cannot see.
+  shape), which static inspection cannot see. It distinguishes the two ways to
+  land there — genuinely unregistered, versus registered but pruned out of the
+  descent-policy table in use by key deletion instead of an `()` override —
+  because they share a symptom and have opposite fixes.
 - **Registered-op tripwire**: on the spec branch of both paths, every
   `Expr`-valued arg must be a descent edge or listed in
   `NON_EDGE_EXPR_FIELDS` — so a new `Any`-typed `Expr`-holding field cannot
   grow on an already-registered op unnoticed.
 - **Static completeness test**: every op class in `expr/relations.py` and
   `expr/udf.py` with an `Expr`-annotated field must have a spec, and each such
-  field must be an edge or a recorded non-edge.
+  field must be an edge or a recorded non-edge. Those two modules are the
+  sweep's declared scope (`_SWEPT_OP_MODULES`), not a global search: op classes
+  elsewhere (`backends/pandas/rewrites.py`, `expr/operations.py`) hold only
+  `Node`s today, and the tripwires — which are module-blind — backstop them.
 
 `NON_EDGE_EXPR_FIELDS` records deliberate exclusions with the reason attached
 (sole entry: `FlightExpr.unbound_expr`, which executes server-side, not in the
@@ -100,9 +106,12 @@ Rejected because:
 ### Static completeness test only (no runtime tripwires)
 
 Rejected because:
-- Two of the six edge-bearing ops annotate their `Expr` fields as `Any`;
-  static inspection cannot see them. Only an instance-level check catches that
-  shape, and only at traversal time.
+- Only three of the six edge-bearing ops annotate an `Expr` field as `Expr`
+  (`RemoteTable`, `FlightExpr`, `FlightUDXF`). Two annotate theirs as `Any`
+  (`CachedNode.parent`, `CacheTag.uncached`) and the sixth
+  (`ExprScalarUDF.computed_kwargs_expr`) has no annotation at all — it lives in
+  `__config__`. Static inspection sees half the edges. Only an instance-level
+  check catches the `Any` shape, and only at traversal time.
 
 ### Declaration-site registration
 
@@ -131,10 +140,16 @@ Deferred because:
 
 ### Negative
 
-- ~25–30% constant-factor overhead on pure traversal microbenchmarks (no
-  measurable wall-clock movement in real suites; traversal is never the
-  dominant cost). A sound per-type memo is impossible because `Any`-typed
-  fields make `Expr`-bearing an instance property, not a type property.
+- Constant-factor traversal overhead, strongly shape-dependent. Measured:
+  **+1.3%** on a full `walk_nodes` over an 11,161-node `Field`-heavy graph;
+  **+9.2%** on isolated `gen_children_of` over the same nodes; **+60%** on
+  isolated `gen_children_of` over the worst shape — nodes with wide arg lists
+  and no `ops.Field` to take the bypass (a 200-column `Project`), which is
+  ~2.3 µs/node in absolute terms. The relative worst case is large because the
+  operation it is relative to is nearly free; graph construction dominates any
+  real walk, and no suite shows wall-clock movement. A sound per-type memo is
+  impossible because `Any`-typed fields make `Expr`-bearing an instance
+  property, not a type property.
 - The `__config__` blind spot remains review-enforced.
 - External code defining `Expr`-bearing ops without specs now hard-fails
   instead of silently mis-hashing — intended, but it is a behavior change for
@@ -150,7 +165,8 @@ Deferred because:
   file)
 - Completeness and tripwire tests: `test_expr_typed_fields_are_registered`,
   `test_traversal_raises_on_unregistered_expr_bearing_op`,
-  `test_traversal_raises_on_unrecorded_expr_arg_of_registered_op` in
+  `test_traversal_raises_on_unrecorded_expr_arg_of_registered_op`,
+  `test_policy_table_missing_registered_type_names_that_mistake` in
   `python/xorq/common/utils/tests/test_graph_utils.py`
 - PR #2177 — the table refactor (`OPAQUE_SPECS`, derived tables, policies)
 - PR #2196 — the tripwires, completeness test, and `NON_EDGE_EXPR_FIELDS`
