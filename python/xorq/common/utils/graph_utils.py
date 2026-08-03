@@ -63,7 +63,7 @@ class OpaqueSpec:
 # Single source of truth for opaque descent, consumed by both the read side
 # (``gen_children_of`` + policy variants) and the write side (``replace_nodes``).
 # Read-side descent policies are edge overrides of the derived ``OPAQUE_EDGES``
-# (see ``_gen_children_exec``/``_gen_children_skip_pins``/``_gen_children_flight_leaf``).
+# (see ``_gen_children_exec``/``_gen_children_skip_pins``/``gen_children_flight_leaf``).
 OPAQUE_SPECS = MappingProxyType(
     {
         rel.RemoteTable: OpaqueSpec(("remote_expr",)),
@@ -559,13 +559,12 @@ def _gen_children_skip_pins(node: Node) -> Tuple[Node, ...]:
     return tuple(gen_children_of(node, opaque_edges=_SKIP_PINS_EDGES))
 
 
-def _gen_children_flight_leaf(node: Node) -> Tuple[Node, ...]:
+def gen_children_flight_leaf(node: Node) -> Tuple[Node, ...]:
     """Child enumeration treating ``FlightExpr``/``FlightUDXF`` as opaque leaves.
 
     So a Flight node's ``input_expr`` is not flattened into the outer graph; its
-    lineage is extracted separately as a nested sub-DAG (see XOR-363). Private
-    until XOR-363 lands its caller; covered by
-    ``test_gen_children_flight_leaf_treats_flight_as_leaf``.
+    lineage is extracted separately as a nested sub-DAG -- see
+    ``lineage_utils.extract_lineage_dag``, which passes this as ``bfs(children=)``.
     """
     return tuple(gen_children_of(node, opaque_edges=_FLIGHT_LEAF_EDGES))
 
