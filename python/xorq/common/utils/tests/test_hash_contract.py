@@ -98,6 +98,11 @@ def _fixture_columns() -> dict[str, pa.Array | pa.ChunkedArray]:
             type=pa.timestamp("us", tz="UTC"),
         ),
         "list_int": pa.array([[1, 2, None], None, []], type=pa.list_(pa.int64())),
+        # fixed_size_list with a var-length child: the only fixture whose
+        # fixed_size_list branch actually requires the child cast
+        "fixed_size_list_string": pa.array(
+            [["a", "bb"], None, ["c", None]], type=pa.list_(pa.string(), 2)
+        ),
         "struct": pa.array(
             [{"a": 1, "b": "x"}, None, {"a": None, "b": ""}],
             type=pa.struct([("a", pa.int64()), ("b", pa.string())]),
@@ -133,6 +138,7 @@ GOLDEN_COLUMN_DIGESTS = {
     "string": "8174a8d746db7b57a1d0721bf83487cd",
     "timestamp_tz": "0a0e7066f0f567772d2185e5e7eff7d4",
     "list_int": "26e34968d249b6e878408d1c638b1066",
+    "fixed_size_list_string": "fa3d177e87ab1270155e121659545dc6",
     "struct": "d7c505e657beab1d3b433ee2633c9131",
     "map": "d4a434fe254471ca2176cd8b7ae9120e",
     "dictionary_multichunk": "b50c865c81720aa1354729bda834915d",
@@ -313,17 +319,92 @@ def test_memtable_normalization_does_not_execute_backends(
     tokenize(normalize_inmemorytable_canonical(op))
 
 
-def test_digest_refuses_unerasable_nested_dictionary() -> None:
-    # ``_canonical_type`` does not rewrite union types, so a
-    # dictionary nested inside one cannot be decoded away — and serializing
-    # it would drop the dictionary values from the digest. Refusing loudly
-    # beats silently under-discriminating.
+def test_digest_refuses_union_types() -> None:
+    # A sparse union serializes its type-masked child slots: two unions
+    # with equal to_pylist() but different values in the masked slots
+    # digest differently (verified — round-2 cold review). No verified
+    # canonicalizing cast exists, so refuse loudly, dictionary children or
+    # not.
     dict_arr = pa.array(["x", "y"]).dictionary_encode()
     int_arr = pa.array([1, 2], type=pa.int64())
     type_ids = pa.array([0, 1], type=pa.int8())
     union = pa.UnionArray.from_sparse(type_ids, [dict_arr, int_arr])
-    with pytest.raises(NotImplementedError, match="dictionary"):
+    with pytest.raises(NotImplementedError, match="union"):
         canonical_column_digest(union)
+    plain_union = pa.UnionArray.from_sparse(type_ids, [int_arr, pa.array(["a", "b"])])
+    with pytest.raises(NotImplementedError, match="union"):
+        canonical_column_digest(plain_union)
+
+
+def test_digest_refuses_run_end_encoded_types() -> None:
+    # A run-end-encoded array serializes its run partitioning:
+    # [3,5]/[7,9] and [2,3,5]/[7,7,9] encode the same logical values but
+    # digest differently (verified — round-2 cold review). Refuse until a
+    # decode step is verified cross-version.
+    ree = pa.RunEndEncodedArray.from_arrays([3, 5], [7, 9])
+    with pytest.raises(NotImplementedError, match="run-end"):
+        canonical_column_digest(ree)
+
+
+def test_refuses_extension_type_hidden_as_dictionary_values() -> None:
+    # BLOCKER regression (round-2 cold review): pa.DictionaryType has
+    # num_fields == 0, so a field-only walk never visits the value type —
+    # an extension type smuggled in as a dictionary's value type slipped
+    # past the refusal, and _canonical_type then unwrapped the dictionary
+    # straight to the extension type, whose str() omits its parameters:
+    # logically different tables collided.
+    monthly = pa.Table.from_pandas(
+        pd.DataFrame({"p": pd.PeriodIndex.from_ordinals([0, 1], freq="M")})
+    )
+    period_type = monthly.schema.field("p").type
+    dict_of_ext = pa.dictionary(pa.int32(), period_type)
+    with pytest.raises(NotImplementedError, match="extension"):
+        canonical_column_digest(pa.array([], type=dict_of_ext))
+    # dictionary-of-list_view must hit the curated refusal too, not an
+    # uncurated ArrowNotImplementedError from deep inside cast
+    # (from_arrays because pa.array's converter can't build this type)
+    dict_of_lv = pa.DictionaryArray.from_arrays(
+        pa.array([], type=pa.int32()), pa.array([], type=pa.list_view(pa.int64()))
+    )
+    with pytest.raises(NotImplementedError, match="list-view"):
+        canonical_column_digest(dict_of_lv)
+
+
+def test_nullability_excluded_from_identity_at_every_level() -> None:
+    # Nullability is a constraint on future writes, not data: the schema
+    # tuple omits field.nullable and _canonical_type's reconstruction
+    # drops nested "not null", so the exclusion is uniform (round-2 review
+    # suspected an inconsistency; this pins the deliberate behavior).
+    nn = pa.table(
+        {
+            "c": pa.array(
+                [{"x": 1}], type=pa.struct([pa.field("x", pa.int64(), nullable=False)])
+            )
+        }
+    ).cast(
+        pa.schema(
+            [
+                pa.field(
+                    "c",
+                    pa.struct([pa.field("x", pa.int64(), nullable=False)]),
+                    nullable=False,
+                )
+            ]
+        )
+    )
+    n = pa.table({"c": pa.array([{"x": 1}], type=pa.struct([("x", pa.int64())]))})
+    assert normalize_pyarrow_table_canonical(nn) == normalize_pyarrow_table_canonical(n)
+
+
+def test_dictionary_ordered_flag_excluded_from_identity() -> None:
+    # ordered qualifies the dictionary encoding; the canonical form erases
+    # the encoding entirely, so ordered/unordered categoricals of equal
+    # values normalize identically (deliberate; also true of the old
+    # batch-stream rule).
+    values = pa.array(["a", "b", "a"])
+    unordered = values.dictionary_encode()
+    ordered = unordered.cast(pa.dictionary(pa.int32(), pa.string(), ordered=True))
+    assert canonical_column_digest(ordered) == canonical_column_digest(unordered)
 
 
 def test_zero_column_table_discriminates_row_count() -> None:

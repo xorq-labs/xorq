@@ -87,6 +87,20 @@ def _assert_canonicalizable(typ: pa.DataType) -> None:
     physical buffer layout — equal data hashing unequally, breaking the
     layout-invariance contract. (``string_view``/``binary_view`` cast
     correctly and are canonicalized by :func:`_canonical_type` instead.)
+
+    Union and run-end-encoded types are refused for the same
+    layout-invariance reason: a sparse union serializes its type-masked
+    child slots (logically invisible values enter the bytes) and a
+    run-end-encoded array serializes its run partitioning (``[3,5]/[7,9]``
+    vs ``[2,3,5]/[7,7,9]`` encode the same values), so equal data hashes
+    unequally, and neither has a verified canonicalizing cast. Support for
+    either requires a decode step plus a ``NORMALIZATION_VERSION`` bump.
+
+    The child walk cannot rely on ``num_fields`` alone:
+    ``pa.DictionaryType.num_fields == 0``, so a dictionary's value type
+    must be descended explicitly — an extension type smuggled in as a
+    dictionary's value type would otherwise slip past this refusal and
+    collide (found by the round-2 cold review).
     """
     import pyarrow as pa  # noqa: PLC0415
 
@@ -104,6 +118,20 @@ def _assert_canonicalizable(typ: pa.DataType) -> None:
             f"the view uncanonicalized would hash its physical buffer layout "
             f"instead of its logical values"
         )
+    if pa.types.is_union(typ):
+        raise NotImplementedError(
+            f"cannot canonically hash union type {typ!r}: a sparse union "
+            f"serializes its type-masked child slots, so equal data can "
+            f"hash unequally"
+        )
+    if pa.types.is_run_end_encoded(typ):
+        raise NotImplementedError(
+            f"cannot canonically hash run-end-encoded type {typ!r}: its "
+            f"serialized form depends on the run partitioning, so equal "
+            f"data can hash unequally"
+        )
+    if pa.types.is_dictionary(typ):
+        _assert_canonicalizable(typ.value_type)
     for i in range(typ.num_fields):
         _assert_canonicalizable(typ.field(i).type)
 
@@ -155,11 +183,15 @@ def _canonical_type(typ: pa.DataType) -> pa.DataType:
 
 
 def _contains_dictionary(typ: pa.DataType) -> bool:
-    """True if ``typ`` has a dictionary layer anywhere in its nesting,
-    traversing child fields generically (so union / run-end encoded
-    families — which :func:`_canonical_type` does not rewrite — are still
-    inspected; list-view families are refused outright in
-    :func:`_assert_canonicalizable` before this runs)."""
+    """True if ``typ`` has a dictionary layer anywhere in its nesting.
+
+    Backstop, believed unreachable for currently-supported families: every
+    field-bearing family :func:`_canonical_type` does not rewrite (union,
+    run-end encoded, list-view) is refused in
+    :func:`_assert_canonicalizable` before this runs. It stays because it
+    is cheap and a future pyarrow type family could reopen the path — an
+    un-erased dictionary hashing indices without values is the worst
+    silent failure this module can have."""
     import pyarrow as pa  # noqa: PLC0415
 
     if pa.types.is_dictionary(typ):
@@ -185,10 +217,11 @@ def canonical_column_digest(col: pa.Array | pa.ChunkedArray) -> str:
     _assert_canonicalizable(col.type)
     canonical_type = _canonical_type(col.type)
     if _contains_dictionary(canonical_type):
-        # ``_canonical_type`` does not rewrite this type family
-        # (union / run-end encoded …), so a dictionary layer
-        # survived. Serializing it would emit indices *without* the
-        # dictionary values — refuse loudly rather than under-discriminate.
+        # A dictionary layer survived canonicalization — only possible for
+        # a type family this module does not know (the known un-rewritable
+        # families are refused in _assert_canonicalizable). Serializing it
+        # would emit indices *without* the dictionary values — refuse
+        # loudly rather than under-discriminate.
         raise NotImplementedError(
             f"cannot erase dictionary encoding nested in {canonical_type!r}; "
             f"hashing it would drop the dictionary values from the digest"
@@ -219,7 +252,14 @@ def normalize_pyarrow_table_canonical(table: pa.Table) -> tuple:
     count is carried explicitly because a zero-column table has no digests
     to carry it implicitly. The schema carries the *canonical* type string,
     so representations that differ only in physical encoding (dictionary
-    vs plain, string vs large_string) normalize identically."""
+    vs plain, string vs large_string) normalize identically.
+
+    Deliberately excluded from identity, at every nesting level: field
+    nullability (a constraint on future writes, not data —
+    ``_canonical_type``'s reconstruction drops nested ``not null`` and the
+    tuple below omits ``field.nullable``) and the dictionary ``ordered``
+    flag (meaningless once the encoding it qualifies is erased); both
+    exclusions are pinned in ``test_hash_contract.py``."""
     for field in table.schema:
         _assert_canonicalizable(field.type)
     return (

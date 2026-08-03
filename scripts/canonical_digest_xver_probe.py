@@ -2,8 +2,11 @@
 
 Standalone replica of ``xorq.common.utils.dasher._canonical`` digest logic
 (no xorq import, so it runs in a bare venv with just pyarrow+xxhash+pandas).
-Writes one ``name<TAB>digest`` line per corpus column to stdout; run under
-multiple pyarrow versions and diff the outputs — they must be byte-identical.
+Writes one ``name<TAB>canonical-type<TAB>digest`` line per corpus column to
+stdout; run under multiple pyarrow versions and diff the outputs — they must
+be byte-identical. The canonical-type column guards the ``str(type)`` schema
+surface of the normalized tuple: a pyarrow type-repr change across versions
+would drift tokens even with stable digests.
 
     for v in 18.0.0 20.0.0 21.0.0 25.0.0; do
       uv venv /tmp/pa$v -q && uv pip install -p /tmp/pa$v -q pyarrow==$v xxhash pandas
@@ -88,6 +91,9 @@ def corpus() -> dict[str, pa.Array | pa.ChunkedArray]:
         "fixed_size_list": pa.array(
             [[1, 2], None, [3, None]], type=pa.list_(pa.int64(), 2)
         ),
+        "fixed_size_list_string": pa.array(
+            [["a", "bb"], None, ["c", None]], type=pa.list_(pa.string(), 2)
+        ),
         "struct": pa.array(
             [{"a": 1, "b": "x"}, None, {"a": None, "b": ""}],
             type=pa.struct([("a", pa.int64()), ("b", pa.string())]),
@@ -132,7 +138,10 @@ def corpus() -> dict[str, pa.Array | pa.ChunkedArray]:
 def main() -> None:
     sys.stdout.write(f"# pyarrow=={pa.__version__}\n")
     for name, col in corpus().items():
-        sys.stdout.write(f"{name}\t{canonical_column_digest(col)}\n")
+        canonical_type = _canonical_type(col.type)
+        sys.stdout.write(
+            f"{name}\t{canonical_type!s}\t{canonical_column_digest(col)}\n"
+        )
 
 
 if __name__ == "__main__":
