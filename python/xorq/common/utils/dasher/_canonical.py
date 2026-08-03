@@ -28,6 +28,27 @@ The canonical form hashed here is a *logical* one:
   dictionaries nested where they cannot be decoded away) with
   ``NotImplementedError`` rather than hash them unstably or collidingly.
 
+Two over-discrimination residuals are accepted rather than refused or erased
+(recorded in ADR-0017):
+
+* **bytes under null slots enter the digest.** The Arrow spec leaves null-slot
+  contents unspecified and ``RecordBatch.serialize()`` writes the values
+  buffer verbatim, so logically-equal columns built by different producers
+  can hash unequally: ``pa.Table.from_pandas`` of a float column leaves the
+  NaN under a null where a literal ``[1.0, None, 3.0]`` leaves zero (same for
+  pandas nullable ``Int64`` and ``datetime64`` ``NaT``).
+* **``str(type)`` distinguishes timezone spellings.** ``tz=UTC`` and
+  ``tz=+00:00`` denote the same instant but produce different schema
+  components (their value digests do agree).
+
+Both cost recomputation, never a wrong answer, and — unlike #2191's defect —
+neither couples identity to a dependency version: each is deterministic given
+the producer. Erasing them requires the per-type buffer-level fold that
+ADR-0017 defers as the designated escalation, not a refusal (see
+:func:`_assert_canonicalizable` for why the refused families are judged
+differently). Pinned by ``test_null_slot_payload_is_accepted_residual`` and
+``test_timezone_spelling_is_accepted_residual``.
+
 The column digest was verified byte-identical across pyarrow 18.0.0, 20.0.0,
 21.0.0 and 25.0.0 for a corpus covering nulls, NaN/-0.0/inf, decimals, tz
 timestamps, nested list/struct/map, multi-chunk dictionary arrays,
@@ -95,6 +116,16 @@ def _assert_canonicalizable(typ: pa.DataType) -> None:
     vs ``[2,3,5]/[7,7,9]`` encode the same values), so equal data hashes
     unequally, and neither has a verified canonicalizing cast. Support for
     either requires a decode step plus a ``NORMALIZATION_VERSION`` bump.
+
+    "Equal data can hash unequally" is not by itself the refusal criterion —
+    the accepted null-slot-payload residual (module docstring) has the same
+    shape. What separates the families refused here is that their layout
+    variance is unbounded and not producer-stable (a concat can re-partition
+    an REE column's runs within a single process), neither family is covered
+    by the cross-version digest probe, and both are rare enough that loud
+    refusal costs almost nothing. Refusing null-slot variance would instead
+    refuse nearly every nullable column — the residual is priced as
+    recomputation, per ADR-0015's asymmetry.
 
     The child walk cannot rely on ``num_fields`` alone:
     ``pa.DictionaryType.num_fields == 0``, so a dictionary's value type
@@ -214,11 +245,15 @@ def _contains_dictionary(typ: pa.DataType) -> bool:
 
 
 def canonical_column_digest(col: pa.Array | pa.ChunkedArray) -> str:
-    """xxh128 digest of one column's logical values, physical-layout-free.
+    """xxh128 digest of one column's values, with physical *encoding* erased.
 
     Identical for chunked vs contiguous, sliced vs compact,
     dictionary-encoded vs plain, and int32- vs int64-offset representations
     of the same values (invariants asserted in ``test_hash_contract.py``).
+
+    Not fully layout-free: the bytes occupying null slots survive into the
+    digest, so two producers of the same logical column can disagree — an
+    accepted over-discrimination residual, see the module docstring.
 
     The digest carries NO type identity: ``RecordBatch.serialize()`` emits
     no schema message, so e.g. int8 and uint8 arrays with identical buffers
@@ -274,7 +309,17 @@ def normalize_pyarrow_table_canonical(table: pa.Table) -> tuple:
     tuple below omits ``field.nullable``), the dictionary ``ordered`` flag
     (meaningless once the encoding it qualifies is erased), and the map
     ``keys_sorted`` flag (a constraint assertion, same family as
-    nullability); all exclusions are pinned in ``test_hash_contract.py``."""
+    nullability); all exclusions are pinned in ``test_hash_contract.py``.
+
+    Cost: each column is cast and compacted, so peak memory is the table plus
+    a copy of the largest column — see
+    :func:`normalize_memory_databasetable_canonical` for the full accounting.
+    This is the registered ``pa.Table`` rule, so pandas DataFrame/Series
+    normalization pays it too (the old rule streamed batches instead)."""
+    # Refuse before doing any of the per-column cast/compaction work below:
+    # a table whose last column is an extension type should not first pay a
+    # full compaction of the preceding columns. (canonical_column_digest
+    # re-checks its own column; this loop is for the fail-fast ordering.)
     for field in table.schema:
         _assert_canonicalizable(field.type)
     return (

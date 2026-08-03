@@ -45,18 +45,33 @@ sqlglot-coupled.
 1. **Identity is a hash of a logical canonical form, defined and versioned
    by xorq** (`python/xorq/common/utils/dasher/_canonical.py`). For
    in-memory table data the canonical form is: stored proxy data (never a
-   backend re-execution), per column `combine_chunks` → recursively decode
-   dictionary encoding → metadata-free single-column RecordBatch → xxh128
-   of its IPC bytes; plus an explicit `(name, str(type))` schema tuple and
-   row count.
+   backend re-execution), then per column — recursively decode dictionary
+   encoding, widen int32-offset var-length types to `large_*`, and rewrite
+   `string_view`/`binary_view` to `large_string`/`large_binary` (one
+   chunk-wise `cast`) → `combine_chunks`/`concat_arrays` → metadata-free
+   single-column RecordBatch → xxh128 of its IPC bytes; plus an explicit
+   `(name, str(canonical type))` schema tuple and row count.
 
-2. **No normalizer may hash a dependency serializer's byte output** (Arrow
-   IPC streams, parquet bytes, pickle) as identity unless the exact byte
-   surface is covered by a cross-version stability check. The canonical
-   column digest is currently the one sanctioned use: it was verified
-   byte-identical across pyarrow 18.0.0–25.0.0 (probe on #2191), and its
-   body is isolated so a buffer-level logical fold can replace it without
-   another design change.
+   The cast **precedes** compaction and the order is load-bearing: a
+   >2 GiB string column holds more value data than one contiguous
+   int32-offset array can address, so compacting before widening would
+   overflow.
+
+2. **No normalizer may hash or embed a dependency-owned representation**
+   (Arrow IPC streams, parquet bytes, pickle, type reprs) as identity
+   unless that exact surface is covered by a cross-version stability
+   check. Two surfaces are currently sanctioned, both verified across
+   pyarrow 18.0.0–25.0.0 by `scripts/canonical_digest_xver_probe.py`
+   (#2191) and both emitted by that probe so the check keeps running:
+
+   - the canonical column digest (IPC bytes), whose body is isolated so a
+     buffer-level logical fold can replace it without another design
+     change; and
+   - `str(canonical type)` in the schema component, i.e. pyarrow's
+     `DataType.__str__`. It carries real identity — `RecordBatch.serialize()`
+     emits no schema message, so int8 and uint8 with equal buffers are
+     otherwise indistinguishable — and is therefore as much a stability
+     dependency as the digest, not a free-form label.
 
 3. **Every canonical tuple embeds `NORMALIZATION_VERSION`.** Changing any
    canonical form requires bumping it — a deliberate, release-noted,
@@ -73,8 +88,16 @@ sqlglot-coupled.
    carries no schema message (int8 vs uint8 with identical buffers collide
    without an explicit type component) and no dictionary values (encoded
    indices hash alone unless decoded). Where a dictionary layer cannot be
-   erased (union / list_view / run-end nesting), refuse loudly rather than
-   hash indices without values.
+   erased, refuse loudly rather than hash indices without values — and the
+   walk that looks for such types must descend a dictionary's value type
+   explicitly, since `pa.DictionaryType.num_fields == 0`.
+
+   Separately and unconditionally, four families are refused outright
+   because no verified canonicalizing cast exists for them: extension types
+   (parameters live in `__arrow_ext_serialize__` bytes that `str(type)`
+   omits — an under-discrimination hole), and list-view, union and
+   run-end-encoded types (their serialized form is unboundedly
+   layout-coupled). This is independent of whether they nest a dictionary.
 
 ## Alternatives considered
 
@@ -87,10 +110,14 @@ sqlglot-coupled.
   string; parquet 21→22 changes live inside SNAPPY-compressed bytes.
 - **Fully logical buffer-level hash (per-type folds over value bytes, null
   masks, offsets).** Strictly more robust (immune to IPC framing/padding
-  choices) but more per-type code; deferred as the designated escalation:
-  swap the body of `canonical_column_digest` and bump
-  `NORMALIZATION_VERSION` if a future pyarrow breaks IPC byte stability
-  (see #2194's monitor and escalation policy).
+  choices, and the only thing that erases the null-slot-payload residual
+  below at every nesting level) but more per-type code; deferred as the
+  designated escalation: swap the body of `canonical_column_digest` and bump
+  `NORMALIZATION_VERSION` if a future pyarrow breaks IPC byte stability (see
+  #2194's monitor and escalation policy). Rejected as a partial measure:
+  zeroing null payloads for top-level primitives only would leave nested
+  children (struct/list of nullable primitives) untouched, reproducing the
+  non-uniform-exclusion defect that round 3 fixed for `keys_sorted`.
 - **Upstream a canonical-bytes mode into Arrow.** Arrow explicitly declines
   byte-stability guarantees; not a realistic dependency.
 
@@ -106,6 +133,23 @@ sqlglot-coupled.
 - Known over-discrimination surfaces remain (UDF cloudpickle tokens,
   generated SQL text) — acceptable per ADR-0015's asymmetry, tracked by the
   monitor rather than golden tokens.
+- Two over-discrimination residuals are accepted *inside* the canonical form
+  itself, priced as recomputation and pinned by tests in
+  `test_hash_contract.py` rather than left undocumented:
+  - **Null-slot payload.** The columnar spec leaves null-slot contents
+    unspecified and `RecordBatch.serialize()` writes the values buffer
+    verbatim, so producers disagree on `.equals()`-identical data:
+    `pa.Table.from_pandas` leaves NaN/NaT/mask-garbage under a null where a
+    literal `None` leaves zero (float64, nullable `Int64`, `datetime64`
+    confirmed). Not refused, unlike union/run-end-encoded — those have
+    unbounded, non-producer-stable layout variance and are rare, whereas
+    refusing null-slot variance would refuse nearly every nullable column.
+    Closing it is exactly the deferred buffer-level fold below.
+  - **Timezone spelling.** `str(type)` distinguishes `tz=UTC` from
+    `tz=+00:00` for the same instant; the value digests agree.
+
+  Neither re-opens #2191: both are deterministic given the producer, so
+  identity never moves because a dependency moved.
 
 ## References
 

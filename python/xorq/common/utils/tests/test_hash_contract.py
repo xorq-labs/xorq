@@ -433,6 +433,82 @@ def test_dictionary_ordered_flag_excluded_from_identity() -> None:
     assert canonical_column_digest(ordered) == canonical_column_digest(unordered)
 
 
+@pytest.mark.parametrize(
+    ("name", "frame", "literal"),
+    [
+        pytest.param(
+            "float64_nan_null",
+            pd.DataFrame({"c": [1.0, np.nan, 3.0]}),
+            pa.array([1.0, None, 3.0], type=pa.float64()),
+            id="float64_nan_null",
+        ),
+        pytest.param(
+            "nullable_int64_masked",
+            pd.DataFrame({"c": pd.array([1, None, 3], dtype="Int64")}),
+            pa.array([1, None, 3], type=pa.int64()),
+            id="nullable_int64_masked",
+        ),
+        pytest.param(
+            "datetime_nat",
+            pd.DataFrame({"c": pd.to_datetime(["2020-01-01", None, "2020-01-03"])}),
+            pa.array(
+                [dt.datetime(2020, 1, 1), None, dt.datetime(2020, 1, 3)],
+                type=pa.timestamp("ns"),
+            ),
+            id="datetime_nat",
+        ),
+    ],
+)
+def test_null_slot_payload_is_accepted_residual(
+    name: str, frame: pd.DataFrame, literal: pa.Array
+) -> None:
+    # ACCEPTED RESIDUAL, not a bug to fix opportunistically: the Arrow spec
+    # leaves null-slot contents unspecified and RecordBatch.serialize() writes
+    # the values buffer verbatim, so the bytes under nulls reach the digest.
+    # ``from_pandas`` leaves NaN/NaT/mask-garbage there where a literal None
+    # leaves zero — two producers of ``.equals()``-identical data disagree.
+    #
+    # Pinned as an inequality rather than a golden digest on purpose: the
+    # inequality is the contract statement and holds on every pyarrow version,
+    # whereas a fixed digest over pandas-produced padding would add a
+    # cross-version liability the probe script cannot check.
+    #
+    # This costs recomputation, never a wrong answer, and is deterministic per
+    # producer — so it does NOT re-open #2191 (identity never moves because a
+    # dependency moved). Closing it needs the per-type buffer-level fold
+    # ADR-0017 defers; if that lands, this test flips to assert equality and
+    # NORMALIZATION_VERSION bumps. See _canonical's module docstring for why
+    # the refused families (union / run-end-encoded) are judged differently.
+    from_pandas = pa.Table.from_pandas(frame, preserve_index=False).column("c")
+    from_literal = pa.chunked_array([literal])
+    assert from_pandas.equals(from_literal), (
+        f"{name}: fixture no longer builds logically-equal columns, so it "
+        f"cannot demonstrate the residual"
+    )
+    assert canonical_column_digest(from_pandas) != canonical_column_digest(
+        from_literal
+    ), (
+        f"{name}: null-slot payload no longer reaches the digest. If this was "
+        f"deliberate (buffer-level fold landed), invert this assertion, bump "
+        f"NORMALIZATION_VERSION and regenerate the goldens; if it was "
+        f"incidental, a pyarrow change moved the canonical form under us "
+        f"({_env_versions()})"
+    )
+
+
+def test_timezone_spelling_is_accepted_residual() -> None:
+    # ACCEPTED RESIDUAL: type identity rides on pyarrow's DataType.__str__,
+    # which spells the same zero offset as "UTC" or "+00:00". The value
+    # digests agree; only the schema component diverges. Same pricing as the
+    # null-slot residual above (recomputation, producer-deterministic).
+    utc = pa.array([1, 2], type=pa.timestamp("us", tz="UTC"))
+    offset = pa.array([1, 2], type=pa.timestamp("us", tz="+00:00"))
+    assert canonical_column_digest(utc) == canonical_column_digest(offset)
+    assert normalize_pyarrow_table_canonical(
+        pa.table({"c": utc})
+    ) != normalize_pyarrow_table_canonical(pa.table({"c": offset}))
+
+
 def test_zero_column_table_discriminates_row_count() -> None:
     # With no columns there are no digests to carry the row count, so the
     # normalization carries ``num_rows`` explicitly.
