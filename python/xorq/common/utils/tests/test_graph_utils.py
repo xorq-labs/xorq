@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import itertools
 import operator
+import re
 import types
 
 import pytest
@@ -172,12 +173,15 @@ def test_expr_typed_fields_are_registered() -> None:
     traversal. Known blind spot for both: an Expr living only in
     ``__config__`` (the ExprScalarUDF shape) never appears in ``__args__`` or
     annotations -- registering such ops is enforced by review, per ADR-0016.
+    Annotations naming an Expr *subclass* (e.g. ``ir.Table``) are also not
+    matched; the runtime tripwire backstops those instances.
     """
+    expr_ann = re.compile(r"\bExpr\b")
     for cls in _op_classes(rel) + _op_classes(udf):
         expr_fields = tuple(
             name
             for name, ann in getattr(cls, "__annotations__", {}).items()
-            if ann is Expr or ann == "Expr"
+            if ann is Expr or (isinstance(ann, str) and expr_ann.search(ann))
         )
         if not expr_fields:
             continue

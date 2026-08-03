@@ -183,10 +183,10 @@ def _require_registered_if_expr_bearing(node: Node) -> None:
             f"not registered in OPAQUE_SPECS; traversal would silently skip "
             f"those sub-expressions. Add an OpaqueSpec naming its Expr edges -- "
             f"note a registered op's children come only from its edges, never "
-            f"``__children__``, so name every Node-typed child as an edge too; "
-            f"an edge-less spec (like rel.Read's) makes it an opaque leaf. An "
-            f"Expr field that is deliberately not descended goes in "
-            f"NON_EDGE_EXPR_FIELDS."
+            f"from the __children__ protocol, so name every Node-typed child "
+            f"as an edge too; an edge-less spec (like rel.Read's) makes it an "
+            f"opaque leaf. An Expr field that is deliberately not descended "
+            f"goes in NON_EDGE_EXPR_FIELDS."
         )
 
 
@@ -623,7 +623,11 @@ def get_ordered_unique_sources(nodes: Tuple[Node, ...]) -> Tuple[Any, ...]:
     return sources
 
 
-# Descent policies are OPAQUE_EDGES with specific edges overridden.
+# Descent policies are OPAQUE_EDGES with specific edges overridden. Prune by
+# overriding a type's edges to (), never by deleting its key: a registered
+# type missing from the table falls to the spec-less branch, where the
+# unregistered-op tripwire raises an error whose message is misleading for
+# that mistake.
 _EXEC_EDGES = MappingProxyType({**OPAQUE_EDGES, rel.CacheTag: ("parent",)})
 _SKIP_PINS_EDGES = MappingProxyType({**OPAQUE_EDGES, rel.CacheTag: ()})
 _FLIGHT_LEAF_EDGES = MappingProxyType(
