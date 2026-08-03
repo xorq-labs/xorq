@@ -11,6 +11,7 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
     OPAQUE_EDGES,
+    OpaqueSpec,
     _gen_children_flight_leaf,
     find_all_sources,
     gen_children_of,
@@ -138,6 +139,30 @@ def test_opaque_edges_name_real_fields() -> None:
 
 def test_opaque_ops_matches_opaque_edges() -> None:
     assert set(opaque_ops) == set(OPAQUE_EDGES)
+
+
+def test_opaque_edges_is_read_only() -> None:
+    """The edge tables are shared semantic constants; mutation must fail loudly."""
+    with pytest.raises(TypeError):
+        OPAQUE_EDGES[rel.Read] = ("nope",)
+
+
+def test_gen_children_of_raises_on_stale_edge_name() -> None:
+    """Edge fields are read unguarded: a stale name in an edge table must raise
+    ``AttributeError`` at traversal time, not silently drop a child."""
+    node = make_flight_expr().op()
+    stale = {**OPAQUE_EDGES, rel.FlightExpr: ("input_exprs",)}
+    with pytest.raises(AttributeError):
+        tuple(gen_children_of(node, opaque_edges=stale))
+
+
+def test_opaque_spec_rejects_multi_edge_rebind() -> None:
+    """``rebind`` passes a single rewritten sub-expression, so a spec pairing it
+    with more than one write-side edge must fail at construction time."""
+    with pytest.raises(ValueError, match="rebind requires exactly one"):
+        OpaqueSpec(("a", "b"), rebind=lambda op, sub_expr: op)
+    with pytest.raises(ValueError, match="rebind requires exactly one"):
+        OpaqueSpec(("a",), write_edges=(), rebind=lambda op, sub_expr: op)
 
 
 def make_flight_expr() -> Expr:
