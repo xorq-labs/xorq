@@ -156,5 +156,6 @@ Deferred because:
 - PR #2196 — the tripwires, completeness test, and `NON_EDGE_EXPR_FIELDS`
 - XOR-363 — compact/expandable lineage; prospective home of declaration-site
   registration
-- `CONTRIBUTING.md` § "Removing or changing behavior" — the process
-  conventions distilled from the same review retrospective
+- PR #2198 — proposes the process conventions (blast-radius greps, invariant
+  enforcement tiers, contract-test co-location) distilled from the same
+  review retrospective, as a `CONTRIBUTING.md` section
