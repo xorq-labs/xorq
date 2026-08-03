@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-03
-- **Deciders:** dlovell, mesejo
+- **Deciders:** Dan Lovell, Daniel Mesejo
+- **Context area:** `python/xorq/common/utils/graph_utils.py`, `python/xorq/common/utils/tests/test_graph_utils.py`
 
 ## Context
 
@@ -141,8 +142,18 @@ Deferred because:
 
 ## References
 
-- #2177 — the table refactor (`OPAQUE_SPECS`, derived tables, policies)
-- #2196 — the tripwires, completeness test, and `NON_EDGE_EXPR_FIELDS`
+- Spec table and derived tables: `OPAQUE_SPECS`, `opaque_ops`, `OPAQUE_EDGES`,
+  `NON_EDGE_EXPR_FIELDS`, `_RECORDED_EXPR_FIELDS` in
+  `python/xorq/common/utils/graph_utils.py`
+- Shared lookup: `_opaque_lookup`; tripwires:
+  `_require_registered_if_expr_bearing`, `_require_expr_args_recorded` (same
+  file)
+- Completeness and tripwire tests: `test_expr_typed_fields_are_registered`,
+  `test_traversal_raises_on_unregistered_expr_bearing_op`,
+  `test_traversal_raises_on_unrecorded_expr_arg_of_registered_op` in
+  `python/xorq/common/utils/tests/test_graph_utils.py`
+- PR #2177 — the table refactor (`OPAQUE_SPECS`, derived tables, policies)
+- PR #2196 — the tripwires, completeness test, and `NON_EDGE_EXPR_FIELDS`
 - XOR-363 — compact/expandable lineage; prospective home of declaration-site
   registration
 - `CONTRIBUTING.md` § "Removing or changing behavior" — the process
