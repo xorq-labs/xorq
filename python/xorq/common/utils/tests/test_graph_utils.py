@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import itertools
 import operator
+import types
 
 import pytest
 import toolz
@@ -10,15 +12,19 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
 import xorq.expr.selectors as s
+import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
+    NON_EDGE_EXPR_FIELDS,
     OPAQUE_EDGES,
+    OPAQUE_SPECS,
     OpaqueSpec,
     find_all_sources,
     gen_children_flight_leaf,
     gen_children_of,
     opaque_ops,
+    replace_nodes,
     walk_nodes,
 )
 from xorq.expr.relations import Tag
@@ -142,6 +148,69 @@ def test_opaque_edges_name_real_fields() -> None:
 
 def test_opaque_ops_matches_opaque_edges() -> None:
     assert set(opaque_ops) == set(OPAQUE_EDGES)
+
+
+def _op_classes(mod: types.ModuleType) -> tuple:
+    return tuple(
+        cls
+        for _, cls in inspect.getmembers(mod, inspect.isclass)
+        if issubclass(cls, ops.Node) and cls.__module__ == mod.__name__
+    )
+
+
+def test_expr_typed_fields_are_registered() -> None:
+    """Static completeness sweep: every op class in ``relations``/``udf`` with
+    an ``Expr``-annotated field must have an ``OpaqueSpec``, and each such
+    field must be a descent edge or recorded in ``NON_EDGE_EXPR_FIELDS`` --
+    "forgot to consider it" and "considered and excluded it" must not look the
+    same.
+
+    Complements the runtime tripwire
+    (``test_traversal_raises_on_unregistered_expr_bearing_op``): this catches
+    ``Expr``-annotated fields without constructing instances; the tripwire
+    catches ops whose Expr payload hides behind ``Any`` annotations or
+    ``__config__`` at first traversal.
+    """
+    for cls in _op_classes(rel) + _op_classes(udf):
+        expr_fields = tuple(
+            name
+            for name, ann in getattr(cls, "__annotations__", {}).items()
+            if ann is Expr or ann == "Expr"
+        )
+        if not expr_fields:
+            continue
+        spec = next((s for t, s in OPAQUE_SPECS.items() if issubclass(cls, t)), None)
+        assert spec is not None, (
+            f"{cls.__name__} holds Expr-typed field(s) {expr_fields} "
+            f"but has no OpaqueSpec"
+        )
+        allowed = (
+            spec.read_edges
+            + (spec.write_edges or ())
+            + NON_EDGE_EXPR_FIELDS.get(cls, ())
+        )
+        for name in expr_fields:
+            assert name in allowed, (
+                f"{cls.__name__}.{name} is Expr-typed but neither a descent "
+                f"edge nor recorded in NON_EDGE_EXPR_FIELDS"
+            )
+
+
+def test_traversal_raises_on_unregistered_expr_bearing_op() -> None:
+    """Runtime tripwire: a spec-less op holding an ``Expr`` arg must raise on
+    both the read path (``gen_children_of``) and the write path
+    (``replace_nodes``) instead of silently not descending -- silent
+    non-descent means wrong hashes/lineage with no failure anywhere.
+    """
+
+    class UnregisteredExprHolder(ops.Node):
+        payload: Expr
+
+    node = UnregisteredExprHolder(payload=xo.memtable({"a": [1]}).select("a"))
+    with pytest.raises(ValueError, match="not registered in OPAQUE_SPECS"):
+        tuple(gen_children_of(node))
+    with pytest.raises(ValueError, match="not registered in OPAQUE_SPECS"):
+        replace_nodes(lambda op, _kwargs: op, node)
 
 
 def test_opaque_ops_mutually_non_subclassing() -> None:

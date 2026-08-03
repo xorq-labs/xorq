@@ -102,6 +102,20 @@ OPAQUE_EDGES = MappingProxyType(
     {typ: spec.read_edges for typ, spec in OPAQUE_SPECS.items()}
 )
 
+# Expr-typed fields on registered opaque ops that are deliberately NOT descent
+# edges. Every such exclusion is a recorded decision: the completeness test
+# (test_expr_typed_fields_are_registered) fails on an Expr-typed field that is
+# neither an edge nor listed here, so "forgot to consider it" and "considered
+# and excluded it" cannot look the same.
+NON_EDGE_EXPR_FIELDS = MappingProxyType(
+    {
+        # ``unbound_expr`` is the server-side expression over an UnboundTable;
+        # it executes inside the Flight server, not in the outer graph, so
+        # outer traversal must not surface its (unbound) leaves.
+        rel.FlightExpr: ("unbound_expr",),
+    }
+)
+
 
 def _opaque_lookup(node: Node, table: Mapping) -> Any | None:
     """Return *table*'s value for *node*'s opaque op type, or ``None``.
@@ -117,6 +131,37 @@ def _opaque_lookup(node: Node, table: Mapping) -> Any | None:
         if isinstance(node, typ):
             return value
     return None
+
+
+def _expr_args_of(node: Node) -> Tuple[str, ...]:
+    """Names of *node*'s args holding ``Expr`` values, looking one level into
+    tuple and dict containers."""
+    names = []
+    for name, value in zip(
+        getattr(node, "__argnames__", ()), getattr(node, "__args__", ())
+    ):
+        if isinstance(value, dict):
+            value = tuple(value.values())
+        items = value if isinstance(value, tuple) else (value,)
+        if any(isinstance(item, Expr) for item in items):
+            names.append(name)
+    return tuple(names)
+
+
+def _require_registered_if_expr_bearing(node: Node) -> None:
+    """Tripwire: a spec-less op holding ``Expr`` args is an *unregistered*
+    opaque op -- traversal would silently skip its sub-expressions (wrong
+    hashes, lineage and source discovery, with no failure anywhere). Raise at
+    first traversal instead. Only called for nodes with no ``OpaqueSpec``.
+    """
+    names = _expr_args_of(node)
+    if names:
+        raise ValueError(
+            f"{type(node).__name__} holds Expr-typed argument(s) {names} but is "
+            f"not registered in OPAQUE_SPECS; traversal would silently skip "
+            f"those sub-expressions. Add an OpaqueSpec for it (an edge-less "
+            f"spec, like rel.Read's, makes it an opaque leaf)."
+        )
 
 
 def to_node(maybe_expr: Any) -> Node:
@@ -153,6 +198,7 @@ def gen_children_of(
                 rel_node = node.rel
                 gen = () if rel_node is None else (to_node(rel_node),)
             case _:
+                _require_registered_if_expr_bearing(node)
                 raw_children = getattr(node, "__children__", ())
                 gen = map(to_node, raw_children)
     yield from filter(None, gen)
@@ -267,6 +313,7 @@ def replace_nodes(
         # keys, so "no spec" and "not opaque" are the same condition.
         spec = _opaque_lookup(op, OPAQUE_SPECS)
         if spec is None:
+            _require_registered_if_expr_bearing(op)
             return op
         if spec.rebind is not None:
             # Exactly one edge, enforced at spec construction time.
