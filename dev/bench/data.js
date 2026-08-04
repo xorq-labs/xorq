@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785801115891,
+  "lastUpdate": 1785856263089,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -31314,6 +31314,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.21788758118362406",
             "extra": "mean: 1.6157934920000117 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "877763c48d3d6983319e3e5ecbc955dbfb7b7ba2",
+          "message": "feat(graph_utils): fail loudly on unregistered Expr-bearing ops (#2196)\n\n## What\n\nFollow-up to #2177, closing the structural gap that refactor left open:\n`OPAQUE_SPECS` protects only *registered* ops. A future op holding an\n`Expr`-typed child would silently fall through to `__children__` (which\nnever surfaces `Expr` fields): wrong hashes, lineage, and source\ndiscovery, with no failure anywhere.\n\n## How — complementary mechanisms\n\n- **Unregistered-op tripwire** (`_require_registered_if_expr_bearing`):\na spec-less op holding `Expr` args (scanning one level into\ntuple/list/set/dict containers) raises at first traversal, on both the\nread path (`gen_children_of`) and the write path (`replace_nodes`). The\nonly mechanism that catches `Expr` payloads behind `Any` annotations —\nthe `CachedNode.parent`/`CacheTag.uncached` shape. It distinguishes the\ntwo ways to reach it — genuinely unregistered, versus registered but\npruned out of the descent-policy table in use by key deletion rather\nthan an `()` override — since those share a symptom and have opposite\nfixes.\n- **Registered-op tripwire** (`_require_expr_args_recorded`): every\n`Expr`-valued arg of a spec'd op must be a descent edge or recorded in\n`NON_EDGE_EXPR_FIELDS` (sole entry: `FlightExpr.unbound_expr`, which\nexecutes server-side). Allowed sets are derived per type\n(`_RECORDED_EXPR_FIELDS`) so they cannot drift; the non-edge table is\nruntime-load-bearing, not test-only. `NON_EDGE_EXPR_FIELDS` keys are\nvalidated against `OPAQUE_SPECS` at import time — an exclusion entry for\nan unregistered type would otherwise be silently inert.\n- **Static completeness test**: every op class in `relations`/`udf` (the\nsweep's declared scope, `_SWEPT_OP_MODULES`) with an `Expr` in its\nannotations (including compound forms like `Expr | None`) must have a\nspec, and each such field must be an edge or a recorded non-edge —\n\"forgot to consider it\" and \"considered and excluded it\" cannot look the\nsame.\n- **ADR-0016** documents the design, the alternatives (declaration-site\nregistration deferred to XOR-363), and the known blind spot: an `Expr`\nliving only in `__config__` (the `ExprScalarUDF` shape) is invisible to\nall three mechanisms; registering such ops is enforced by review.\n\nThis restores, in structural monkeypatch-free form, the protection of\nthe retired `test_replace_nodes_raises_on_unhandled_opaque`.\n\n## Performance\n\nConstant-factor and strongly shape-dependent. Measured: **+1.3%** on a\nfull `walk_nodes` over an 11,161-node `Field`-heavy graph; **+9.2%** on\nisolated `gen_children_of` over the same nodes; **+60%** (~2.3 µs/node)\non the worst shape — wide arg lists with no `ops.Field` to take the\nbypass. The relative worst case is large because the operation it is\nrelative to is nearly free; graph construction dominates any real walk,\nand no suite shows wall-clock movement.\n\n## Review history\n\nFour independent cold reviews, all **approve**. (Branch rebased onto\nmain after review 3; SHAs below are post-rebase.)\n\n1. First review requested one fix (docstring overclaimed `__config__`\ncoverage — fixed) and identified the registered-op exemption gap, closed\nby the second tripwire (`9b310d13`).\n2. Second review found zero blocking issues; verified the descent-policy\ninteraction and every ADR factual claim. Its suggestions landed in\n`abf25135` (compound-annotation matching, policy-table delete-key\ncomment, plain-text error message). Declined as negligible: threading\nthe resolved type to skip a duplicate isinstance scan.\n3. Third review found zero blocking issues, and independently confirmed\nthe load-bearing claims: mutation-tested the completeness test (both\nmutations killed), verified `CachedNode.parent` is an `ir.Table` behind\nan `Any` annotation that only the runtime tripwire can see, and\nre-measured the overhead. Its four suggestions and three nits landed in\n`7784ddb0`:\n- the unregistered-op message asserted \"not registered in OPAQUE_SPECS\"\nfor an op that *is* registered but was pruned from a policy table by key\ndeletion — now named specifically, with a test; resolved only on the\nraise path, so the hot path is unchanged\n- `_expr_args_of` accepted `tuple`/`dict` but not\n`list`/`set`/`frozenset`; ibis coerces annotated fields, but `Any`-typed\nones — the tripwires' whole reason for existing — arrive uncoerced\n- the completeness sweep resolved the spec subclass-aware but\n`NON_EDGE_EXPR_FIELDS` by exact key, so a future `FlightExpr` subclass\nwould have failed on the `unbound_expr` it inherits; both now use\n`_subclass_lookup`\n- sweep scope made explicit (`_SWEPT_OP_MODULES`) with a note on why\n`backends/pandas/rewrites.py` and `expr/operations.py` are out of it\n- documented that the annotation match is textual and approximate both\nways, and why the `ann is Expr` arm looks dead\n- ADR: replaced the unsourced \"~25–30% on microbenchmarks\" with the\nthree measured figures above and their shapes; corrected \"two of the six\nedge-bearing ops [are `Any`]\" to the actual 3 `Expr` / 2 `Any` / 1\n`__config__` split\n4. Fourth review (post-rebase) found zero blocking issues; independently\nverified the completeness sweep is non-vacuous (matches exactly the 3\nclasses / 4 fields the ADR claims). Its one suggestion landed in\n`7252418c`: a `NON_EDGE_EXPR_FIELDS` entry for a type without an\n`OpaqueSpec` would have been silently inert — the derivation iterates\n`OPAQUE_SPECS` keys, and the completeness sweep only checks swept\nmodules — now rejected at import time.\n\n## Scope\n\nPurely additive to `graph_utils.py` + its tests + ADR-0016. Process\nconventions distilled from the same retrospective are **not** here —\nthey are priced separately in #2198 (CONTRIBUTING/AGENTS/blast-radius\nskill) and #2197 (/review-retro skill).\n\n## Verification\n\nAll at `7252418c`, re-run after rebasing onto main (which gained #2188,\n`xorq catalog lineage`, and its tests); head `6850d2a1` adds only an ADR\nparagraph on top:\n\n- `test_graph_utils` — 14 passed, incl. 4 new\n- `test_graph_utils` + `test_node_utils` + `test_dasher` +\n`test_lineage_utils` — 221 passed, 1 xfailed\n- `test_cache_pin` + `test_gen_downstream_performance` + ibis_yaml\n`test_compiler` — 122 passed, 1 skipped\n\nNo false positives in any traversal-heavy suite. `ruff check` / `ruff\nformat` / `codespell` clean via pre-commit.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-04T11:05:07-04:00",
+          "tree_id": "426136d1daa36d844561416d72e209de317f6227",
+          "url": "https://github.com/xorq-labs/xorq/commit/877763c48d3d6983319e3e5ecbc955dbfb7b7ba2"
+        },
+        "date": 1785856259946,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.092664679252705,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010284698213949894",
+            "extra": "mean: 123.56869333332396 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5277287381129905,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06045721174695724",
+            "extra": "mean: 395.6120705999979 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7932177821071071,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19067530401133848",
+            "extra": "mean: 1.2606878243999973 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5197575791829685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05610026409413131",
+            "extra": "mean: 396.8635746000018 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8246276817718674,
+            "unit": "iter/sec",
+            "range": "stddev: 0.050675744263689836",
+            "extra": "mean: 354.0289598000072 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.967469112729667,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04038522729587392",
+            "extra": "mean: 336.9875008000122 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 159.87969556150534,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006499641684287602",
+            "extra": "mean: 6.254702928273355 msec\nrounds: 237"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.134061305057525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07550891338865945",
+            "extra": "mean: 241.89288116666793 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 15.15513705705233,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009642375313353352",
+            "extra": "mean: 65.98422675000866 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.647301565498116,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014412192773300974",
+            "extra": "mean: 93.92051064285008 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.862656221426809,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01712757592008388",
+            "extra": "mean: 112.83298990909171 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.291698893076247,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0349993619050176",
+            "extra": "mean: 158.93958324999602 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.910393908452091,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014212565424755937",
+            "extra": "mean: 203.64964983333303 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.715939954860945,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005322558962109493",
+            "extra": "mean: 212.0468049999772 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.392925738124579,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08354544739168489",
+            "extra": "mean: 417.89846799998713 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.2858491569605768,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03977316092227162",
+            "extra": "mean: 304.3353337999861 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.768562586368908,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09921717356232287",
+            "extra": "mean: 565.4309367999986 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8033359032288845,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09590943026413397",
+            "extra": "mean: 554.5278603999918 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6608008200327737,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06215037935688031",
+            "extra": "mean: 602.1191631999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5771053369453596,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10198618383182625",
+            "extra": "mean: 634.0730555999926 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.311301135593487,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11684446296283608",
+            "extra": "mean: 762.601337600006 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1752838910931875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13175452728940132",
+            "extra": "mean: 850.8582544000092 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0712371643023626,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11276672256250155",
+            "extra": "mean: 933.5001000000261 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6054357271137077,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07729430594434761",
+            "extra": "mean: 1.6517029887999797 sec\nrounds: 5"
           }
         ]
       }
