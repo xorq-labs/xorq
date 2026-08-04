@@ -82,6 +82,9 @@ which is what makes the lookup order-independent.
 `NON_EDGE_EXPR_FIELDS` records deliberate exclusions with the reason attached
 (sole entry: `FlightExpr.unbound_expr`, which executes server-side, not in the
 outer graph). An exclusion is a decision with a paper trail, not an omission.
+Its keys are validated against `OPAQUE_SPECS` at import time: the derived
+recorded-field sets iterate spec keys, so an exclusion for an unregistered
+type would otherwise be silently inert.
 
 ### Known blind spot
 
