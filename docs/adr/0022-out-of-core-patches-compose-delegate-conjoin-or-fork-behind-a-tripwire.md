@@ -157,6 +157,14 @@ Rejected because:
 
 ## References
 
+*Where the implementation lives now:* the citations below are as of this
+ADR's claim date, when the plugin lived at `plugins/xorq-rest-plugin/` on
+`prototype/rest-plugin-shim`. That tree was extracted — history preserved —
+to the standalone repo `xorq-labs/xorq-mixpanel-plugin-shim`, which is the
+live line; the branch and the in-repo `plugins/` path are retired. Read the
+repo for current code, the citations here for what the decision was made
+against.
+
 - Implementation: `plugins/xorq-rest-plugin/src/xorq_rest_plugin/shims.py`
   (module docstring states the rule; `_assert_fork_source` is the tripwire),
   commit 8533613a; 13 tests in `plugins/xorq-rest-plugin/tests/test_plugin.py`
