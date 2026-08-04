@@ -118,6 +118,16 @@ NON_EDGE_EXPR_FIELDS = MappingProxyType(
     }
 )
 
+# A non-edge exclusion only means something for a registered op: the derivation
+# below iterates OPAQUE_SPECS keys, so an entry for an unregistered type would
+# be silently inert. Fail at import time instead.
+if not set(NON_EDGE_EXPR_FIELDS) <= set(OPAQUE_SPECS):
+    raise ValueError(
+        f"NON_EDGE_EXPR_FIELDS entries for types without an OpaqueSpec "
+        f"(they would be silently ignored): "
+        f"{sorted(t.__name__ for t in set(NON_EDGE_EXPR_FIELDS) - set(OPAQUE_SPECS))}"
+    )
+
 # Per registered op type: every field name where an Expr-valued arg is
 # accounted for (descent edges on either side, plus recorded non-edges).
 # Derived, so the runtime tripwire for registered ops cannot drift from the
