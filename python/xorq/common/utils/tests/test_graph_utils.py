@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import itertools
 import operator
+import re
+import types
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Any
 
 import pytest
 import toolz
@@ -10,15 +16,19 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
 import xorq.expr.selectors as s
+import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
+    NON_EDGE_EXPR_FIELDS,
     OPAQUE_EDGES,
+    OPAQUE_SPECS,
     OpaqueSpec,
     find_all_sources,
     gen_children_flight_leaf,
     gen_children_of,
     opaque_ops,
+    replace_nodes,
     walk_nodes,
 )
 from xorq.expr.relations import Tag
@@ -142,6 +152,145 @@ def test_opaque_edges_name_real_fields() -> None:
 
 def test_opaque_ops_matches_opaque_edges() -> None:
     assert set(opaque_ops) == set(OPAQUE_EDGES)
+
+
+# Modules swept by test_expr_typed_fields_are_registered. Deliberately the two
+# that define Expr-bearing ops today; ops elsewhere (backends/pandas/rewrites.py,
+# expr/operations.py) hold only Nodes, and the runtime tripwires -- which are
+# module-blind -- backstop them if that changes. Add a module here when it grows
+# an Expr-annotated op, to get the static failure instead of the traversal one.
+_SWEPT_OP_MODULES = (rel, udf)
+
+
+def _op_classes(mod: types.ModuleType) -> tuple:
+    return tuple(
+        cls
+        for _, cls in inspect.getmembers(mod, inspect.isclass)
+        if issubclass(cls, ops.Node) and cls.__module__ == mod.__name__
+    )
+
+
+def _subclass_lookup(table: Mapping, cls: type, default: Any) -> Any:
+    """``_opaque_lookup``'s rule (first ``issubclass`` match) at the class level.
+
+    Both the spec and the recorded-exclusion lookups must use it: resolving the
+    spec subclass-aware but the exclusions by exact key would fail a future
+    ``FlightExpr`` subclass on the ``unbound_expr`` it inherits.
+    """
+    return next((v for typ, v in table.items() if issubclass(cls, typ)), default)
+
+
+def test_expr_typed_fields_are_registered() -> None:
+    """Static completeness sweep: every op class in ``_SWEPT_OP_MODULES`` with
+    an ``Expr``-annotated field must have an ``OpaqueSpec``, and each such
+    field must be a descent edge or recorded in ``NON_EDGE_EXPR_FIELDS`` --
+    "forgot to consider it" and "considered and excluded it" must not look the
+    same.
+
+    Complements the runtime tripwire
+    (``test_traversal_raises_on_unregistered_expr_bearing_op``): this catches
+    ``Expr``-annotated fields without constructing instances; the tripwire
+    catches ops whose Expr payload hides behind ``Any`` annotations at first
+    traversal. Known blind spot for both: an Expr living only in
+    ``__config__`` (the ExprScalarUDF shape) never appears in ``__args__`` or
+    annotations -- registering such ops is enforced by review, per ADR-0016.
+
+    The annotation match is textual and therefore approximate in both
+    directions: an annotation naming an Expr *subclass* (e.g. ``ir.Table``) is
+    missed, and one merely mentioning ``Expr`` (e.g. ``Callable[[Expr],
+    Expr]``) is a false positive. Misses are backstopped by the runtime
+    tripwire; a false positive would surface here as a spurious failure, fixed
+    by narrowing the pattern.
+    """
+    expr_ann = re.compile(r"\bExpr\b")
+    for cls in itertools.chain.from_iterable(map(_op_classes, _SWEPT_OP_MODULES)):
+        expr_fields = tuple(
+            name
+            for name, ann in getattr(cls, "__annotations__", {}).items()
+            # Both modules use ``from __future__ import annotations``, so every
+            # annotation arrives as a string; the ``is Expr`` arm guards a
+            # future module that does not.
+            if ann is Expr or (isinstance(ann, str) and expr_ann.search(ann))
+        )
+        if not expr_fields:
+            continue
+        spec = _subclass_lookup(OPAQUE_SPECS, cls, None)
+        assert spec is not None, (
+            f"{cls.__name__} holds Expr-typed field(s) {expr_fields} "
+            f"but has no OpaqueSpec"
+        )
+        allowed = (
+            spec.read_edges
+            + (spec.write_edges or ())
+            + _subclass_lookup(NON_EDGE_EXPR_FIELDS, cls, ())
+        )
+        for name in expr_fields:
+            assert name in allowed, (
+                f"{cls.__name__}.{name} is Expr-typed but neither a descent "
+                f"edge nor recorded in NON_EDGE_EXPR_FIELDS"
+            )
+
+
+def test_traversal_raises_on_unregistered_expr_bearing_op() -> None:
+    """Runtime tripwire: a spec-less op holding an ``Expr`` arg must raise on
+    both the read path (``gen_children_of``) and the write path
+    (``replace_nodes``) instead of silently not descending -- silent
+    non-descent means wrong hashes/lineage with no failure anywhere.
+    """
+
+    class UnregisteredExprHolder(ops.Node):
+        payload: Expr
+
+    node = UnregisteredExprHolder(payload=xo.memtable({"a": [1]}).select("a"))
+    with pytest.raises(ValueError, match="not registered in OPAQUE_SPECS"):
+        tuple(gen_children_of(node))
+    with pytest.raises(ValueError, match="not registered in OPAQUE_SPECS"):
+        replace_nodes(lambda op, _kwargs: op, node)
+
+
+def test_traversal_raises_on_unrecorded_expr_arg_of_registered_op() -> None:
+    """Registered ops are tripwired too: an ``Expr``-valued arg that is
+    neither a descent edge nor recorded in ``NON_EDGE_EXPR_FIELDS`` must raise
+    on both traversal paths, so a new ``Any``-typed field holding an ``Expr``
+    cannot grow on an existing opaque op unnoticed.
+    """
+
+    class SneakyFlightExpr(rel.FlightExpr):
+        payload: Expr = None
+
+    con = xo.connect()
+    t = con.register(xo.memtable({"a": [1, 2, 3]}).to_pyarrow(), "t")
+    node = SneakyFlightExpr(
+        name="sneaky",
+        schema=t.schema(),
+        source=con,
+        input_expr=t,
+        unbound_expr=xo.table(t.schema(), name="u"),
+        make_server=toolz.identity,
+        make_connection=toolz.identity,
+        payload=t,
+    )
+    with pytest.raises(ValueError, match="NON_EDGE_EXPR_FIELDS"):
+        tuple(gen_children_of(node))
+    with pytest.raises(ValueError, match="NON_EDGE_EXPR_FIELDS"):
+        replace_nodes(lambda op, _kwargs: op, node)
+
+
+def test_policy_table_missing_registered_type_names_that_mistake() -> None:
+    """A descent policy must prune an edge by overriding it to ``()``, not by
+    deleting the type's key -- a deleted key drops the op to the spec-less
+    branch. The tripwire still catches it, and must say *which* mistake it is:
+    "unregistered" and "registered but absent from this policy table" have the
+    same symptom and opposite fixes.
+    """
+    con = xo.connect()
+    t = con.register(xo.memtable({"a": [1, 2, 3]}).to_pyarrow(), "t")
+    node = t.cache(SourceCache.from_kwargs(source=con)).op()
+    deleted_key = MappingProxyType(
+        {typ: edges for typ, edges in OPAQUE_EDGES.items() if typ is not rel.CachedNode}
+    )
+    with pytest.raises(ValueError, match="missing from the descent-policy edge table"):
+        tuple(gen_children_of(node, opaque_edges=deleted_key))
 
 
 def test_opaque_ops_mutually_non_subclassing() -> None:

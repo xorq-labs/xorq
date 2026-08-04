@@ -62,6 +62,8 @@ class OpaqueSpec:
 
 # Single source of truth for opaque descent, consumed by both the read side
 # (``gen_children_of`` + policy variants) and the write side (``replace_nodes``).
+# Registration is mandatory for Expr-bearing ops and tripwire-enforced; see
+# ADR-0016 for the full design and its known blind spot.
 # Read-side descent policies are edge overrides of the derived ``OPAQUE_EDGES``
 # (see ``_gen_children_exec``/``_gen_children_skip_pins``/``gen_children_flight_leaf``).
 OPAQUE_SPECS = MappingProxyType(
@@ -102,6 +104,45 @@ OPAQUE_EDGES = MappingProxyType(
     {typ: spec.read_edges for typ, spec in OPAQUE_SPECS.items()}
 )
 
+# Expr-typed fields on registered opaque ops that are deliberately NOT descent
+# edges. Every such exclusion is a recorded decision: the completeness test
+# (test_expr_typed_fields_are_registered) fails on an Expr-typed field that is
+# neither an edge nor listed here, so "forgot to consider it" and "considered
+# and excluded it" cannot look the same.
+NON_EDGE_EXPR_FIELDS = MappingProxyType(
+    {
+        # ``unbound_expr`` is the server-side expression over an UnboundTable;
+        # it executes inside the Flight server, not in the outer graph, so
+        # outer traversal must not surface its (unbound) leaves.
+        rel.FlightExpr: ("unbound_expr",),
+    }
+)
+
+# A non-edge exclusion only means something for a registered op: the derivation
+# below iterates OPAQUE_SPECS keys, so an entry for an unregistered type would
+# be silently inert. Fail at import time instead.
+if not set(NON_EDGE_EXPR_FIELDS) <= set(OPAQUE_SPECS):
+    raise ValueError(
+        f"NON_EDGE_EXPR_FIELDS entries for types without an OpaqueSpec "
+        f"(they would be silently ignored): "
+        f"{sorted(t.__name__ for t in set(NON_EDGE_EXPR_FIELDS) - set(OPAQUE_SPECS))}"
+    )
+
+# Per registered op type: every field name where an Expr-valued arg is
+# accounted for (descent edges on either side, plus recorded non-edges).
+# Derived, so the runtime tripwire for registered ops cannot drift from the
+# spec table or the non-edge table.
+_RECORDED_EXPR_FIELDS = MappingProxyType(
+    {
+        typ: (
+            frozenset(spec.read_edges)
+            | frozenset(spec.write_edges or ())
+            | frozenset(NON_EDGE_EXPR_FIELDS.get(typ, ()))
+        )
+        for typ, spec in OPAQUE_SPECS.items()
+    }
+)
+
 
 def _opaque_lookup(node: Node, table: Mapping) -> Any | None:
     """Return *table*'s value for *node*'s opaque op type, or ``None``.
@@ -117,6 +158,85 @@ def _opaque_lookup(node: Node, table: Mapping) -> Any | None:
         if isinstance(node, typ):
             return value
     return None
+
+
+# Containers an arg may hold Exprs in. Annotated fields are coerced by ibis
+# (VarTuple -> tuple, Mapping -> FrozenDict), but ``Any``-typed fields are not
+# -- and ``Any`` is exactly where the tripwires earn their keep, so accept the
+# uncoerced shapes too.
+_EXPR_CONTAINERS = (tuple, list, set, frozenset)
+
+
+def _expr_args_of(node: Node) -> Tuple[str, ...]:
+    """Names of *node*'s args holding ``Expr`` values, looking one level into
+    dict and sequence/set containers.
+
+    Deliberately shallower than ``__children__``'s recursive
+    ``_flatten_collections``: no in-tree op nests an ``Expr`` two container
+    levels deep, and the static completeness test catches annotated shapes.
+    """
+    names = []
+    for name, value in zip(
+        getattr(node, "__argnames__", ()), getattr(node, "__args__", ())
+    ):
+        if isinstance(value, dict):
+            value = tuple(value.values())
+        items = value if isinstance(value, _EXPR_CONTAINERS) else (value,)
+        if any(isinstance(item, Expr) for item in items):
+            names.append(name)
+    return tuple(names)
+
+
+def _require_registered_if_expr_bearing(node: Node) -> None:
+    """Tripwire: a spec-less op holding ``Expr`` args is an *unregistered*
+    opaque op -- traversal would silently skip its sub-expressions (wrong
+    hashes, lineage and source discovery, with no failure anywhere). Raise at
+    first traversal instead. Only called for nodes with no ``OpaqueSpec``.
+    """
+    names = _expr_args_of(node)
+    if not names:
+        return
+    # Reached from ``gen_children_of``, a registered type can be absent from the
+    # *descent-policy* table in use rather than genuinely unregistered. Same
+    # symptom, opposite fix, so say which one it is. Looked up only on the raise
+    # path, so the hot path pays nothing for the distinction.
+    if _opaque_lookup(node, OPAQUE_SPECS) is not None:
+        raise ValueError(
+            f"{type(node).__name__} holds Expr-typed argument(s) {names} and "
+            f"has an OpaqueSpec, but is missing from the descent-policy edge "
+            f"table in use, so traversal would silently skip those "
+            f"sub-expressions. Prune a policy edge by overriding the type's "
+            f"edges to (), never by deleting its key."
+        )
+    raise ValueError(
+        f"{type(node).__name__} holds Expr-typed argument(s) {names} but is "
+        f"not registered in OPAQUE_SPECS; traversal would silently skip "
+        f"those sub-expressions. Add an OpaqueSpec naming its Expr edges -- "
+        f"note a registered op's children come only from its edges, never "
+        f"from the __children__ protocol, so name every Node-typed child "
+        f"as an edge too; an edge-less spec (like rel.Read's) makes it an "
+        f"opaque leaf. An Expr field that is deliberately not descended "
+        f"goes in NON_EDGE_EXPR_FIELDS."
+    )
+
+
+def _require_expr_args_recorded(node: Node) -> None:
+    """Tripwire for *registered* opaque ops: every ``Expr``-valued arg must be
+    a descent edge or a recorded non-edge. Catches a new ``Any``-typed field
+    holding an ``Expr`` growing on an already-registered op -- otherwise
+    exempt from :func:`_require_registered_if_expr_bearing`, which only runs
+    on the spec-less branch.
+    """
+    recorded = _opaque_lookup(node, _RECORDED_EXPR_FIELDS)
+    if recorded is None:
+        return
+    unrecorded = tuple(n for n in _expr_args_of(node) if n not in recorded)
+    if unrecorded:
+        raise ValueError(
+            f"{type(node).__name__} holds Expr-typed argument(s) {unrecorded} "
+            f"that are neither descent edges in its OpaqueSpec nor recorded in "
+            f"NON_EDGE_EXPR_FIELDS; traversal would silently skip them."
+        )
 
 
 def to_node(maybe_expr: Any) -> Node:
@@ -146,6 +266,7 @@ def gen_children_of(
     """
     edges = _opaque_lookup(node, opaque_edges)
     if edges is not None:
+        _require_expr_args_recorded(node)
         gen = (to_node(getattr(node, name)) for name in edges)
     else:
         match node:
@@ -153,6 +274,7 @@ def gen_children_of(
                 rel_node = node.rel
                 gen = () if rel_node is None else (to_node(rel_node),)
             case _:
+                _require_registered_if_expr_bearing(node)
                 raw_children = getattr(node, "__children__", ())
                 gen = map(to_node, raw_children)
     yield from filter(None, gen)
@@ -267,7 +389,9 @@ def replace_nodes(
         # keys, so "no spec" and "not opaque" are the same condition.
         spec = _opaque_lookup(op, OPAQUE_SPECS)
         if spec is None:
+            _require_registered_if_expr_bearing(op)
             return op
+        _require_expr_args_recorded(op)
         if spec.rebind is not None:
             # Exactly one edge, enforced at spec construction time.
             (name,) = spec.descend_edges
@@ -529,7 +653,12 @@ def get_ordered_unique_sources(nodes: Tuple[Node, ...]) -> Tuple[Any, ...]:
     return sources
 
 
-# Descent policies are OPAQUE_EDGES with specific edges overridden.
+# Descent policies are OPAQUE_EDGES with specific edges overridden. Prune by
+# overriding a type's edges to (), never by deleting its key: a registered type
+# missing from the table falls to the spec-less branch, where the
+# unregistered-op tripwire raises (it names this mistake specifically, but only
+# for Expr-bearing ops -- a key deleted on a spec'd op with no Expr arg would
+# change descent silently).
 _EXEC_EDGES = MappingProxyType({**OPAQUE_EDGES, rel.CacheTag: ("parent",)})
 _SKIP_PINS_EDGES = MappingProxyType({**OPAQUE_EDGES, rel.CacheTag: ()})
 _FLIGHT_LEAF_EDGES = MappingProxyType(
