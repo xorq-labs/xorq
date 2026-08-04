@@ -85,9 +85,12 @@ deliberately trades this away since the profile covers the whole config).
 
 The `rest` backend's secret keys live inside the `config` kwarg being
 checked, so a static `_secret_keys` cannot express them:
-`get_declared_secret_keys` now prefers a backend classmethod
-`_get_secret_keys(kwargs)` (reads `config.auth.secret_fields`), falling back
-to the static attribute, then the legacy dict.
+`get_dynamic_secret_keys` prefers a backend classmethod
+`_get_secret_keys(kwargs)` (reads `config.auth.secret_fields`) over the static
+`con_name_to_secret_keys` mirror, falling back to the mirror, then
+`("password",)`. It consults the hook without importing anything — only an
+already-imported backend is inspected — which the `rest` path satisfies:
+having a rest config in hand means the backend module is loaded.
 
 ## Alternatives considered
 
