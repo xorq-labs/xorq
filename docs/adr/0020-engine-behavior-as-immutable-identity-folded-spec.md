@@ -149,8 +149,12 @@ Deferred because:
 
 - **One-time build-hash migration**: existing build artifacts get new hashes
   once, as their now-folded rule set becomes identity-bearing. A graduation
-  cost, exactly ADR-0018's framing; no golden-literal test churn was observed,
-  but catalog artifacts rebuild.
+  cost, exactly ADR-0018's framing; catalog artifacts rebuild. Two goldens pin
+  a build-hash literal and were regenerated once with the fold
+  (`test_artifact_store_expr_hash`, and `build_dir_name` in
+  `test_build_file_stability_and_relocatability/expected.json` — where the
+  per-file md5s did *not* move, which is the fold's blast radius in miniature:
+  the derived name changes, the written bytes do not).
 - **Body-blind fingerprint**: a rule whose implementation changes under an
   unchanged name is invisible to identity (same #2155 line). Accepted; names
   are the contract.
