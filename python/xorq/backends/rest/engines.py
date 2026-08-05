@@ -17,6 +17,7 @@ import email.utils
 import itertools
 import json
 import time
+import warnings
 from datetime import (
     datetime,
     timezone,
@@ -186,6 +187,46 @@ def _envelope_keys(data: object) -> object:
     return f"<{type(data).__name__}>"
 
 
+def warn_on_absent_columns(records: tuple, resource_config: ResourceConfig) -> None:
+    """Warn when a declared column is absent from EVERY record on a page.
+
+    Shaping fills a missing field with NULL, so an API field that was renamed
+    or removed becomes an all-NULL column with no signal at all. The
+    distinction that makes a signal possible: a genuinely sparse field is
+    absent from *some* records, a vanished field from *all* of them. So only
+    the all-of-them case is reported, and a sparse field stays quiet.
+
+    A warning, not an error: pages legitimately differ (an API can omit a whole
+    block for a page whose records are all of one kind), and raising would turn
+    an upstream field rename into a hard pipeline failure. NULLs are still a
+    truthful answer -- what was missing was the notification. Extra fields the
+    API sends are not reported: capturing them is what ``residual_column``
+    declares, and every unmapped field on a wide API would be noise.
+    """
+    if not records:
+        return
+    named = tuple(
+        name
+        for name in resource_config.schema.names
+        if name != resource_config.residual_column
+    )
+    absent = tuple(
+        name
+        for name in named
+        if not any(isinstance(record, dict) and name in record for record in records)
+    )
+    if absent:
+        warnings.warn(
+            f"resource {resource_config.name!r}: declared column(s) "
+            f"{absent} appear in none of the {len(records)} records on this "
+            "page, so they will be all-NULL. An API field that was renamed or "
+            "removed looks exactly like this; a field that is merely sparse "
+            "does not (it is present in some records).",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
 def record_to_row(record: dict, resource_config: ResourceConfig) -> dict:
     def render(value: object) -> object:
         if isinstance(value, (dict, list)):
@@ -250,6 +291,7 @@ class NativeEngine:
         for page in itertools.count(1):
             resp = self._get_with_backoff(url, query, request_kwargs)
             records = extract_records(resp, resource_config)
+            warn_on_absent_columns(records, resource_config)
             rows.extend(record_to_row(record, resource_config) for record in records)
             nxt = paginator.next(resp, records, url, query)
             if nxt is None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import email.utils
 import json
 import pathlib
+import warnings
 from datetime import (
     datetime,
     timedelta,
@@ -10,6 +11,7 @@ from datetime import (
 )
 
 import attr
+import pandas as pd
 import pytest
 import requests
 
@@ -29,6 +31,7 @@ from xorq.backends.rest.engines import (
     NativeEngine,
     record_to_row,
     retry_after_seconds,
+    warn_on_absent_columns,
 )
 from xorq.backends.rest.paginators import (
     HeaderLinkPaginator,
@@ -545,6 +548,40 @@ def test_present_but_empty_record_path_is_an_empty_page() -> None:
 def test_make_paginator_unknown() -> None:
     with pytest.raises(ValueError, match="unknown paginator"):
         make_paginator("nope")
+
+
+def test_absent_column_warns_but_a_sparse_one_stays_quiet() -> None:
+    """`reindex`+`record.get` turn a renamed or removed API field into an
+    all-NULL column with no signal. Absent from EVERY record on a page is
+    distinguishable from per-record nulls, so only that case is reported --
+    a genuinely sparse field must not cry wolf."""
+    resource = ResourceConfig(name="things", schema=things_schema)
+    vanished = ({"id": 1, "properties": "{}"}, {"id": 2, "properties": "{}"})
+    with pytest.warns(UserWarning, match=r"'name'.* none of the 2 records"):
+        warn_on_absent_columns(vanished, resource)
+    # still a truthful answer, just now announced: shaping fills the absent
+    # field with NULL exactly as the fetch loop does
+    frame = pd.DataFrame(
+        [record_to_row(record, resource) for record in vanished]
+    ).reindex(columns=tuple(resource.schema))
+    assert frame.name.isna().all()
+    sparse = ({"id": 1, "name": "a", "properties": "{}"}, {"id": 2, "properties": "{}"})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_on_absent_columns(sparse, resource)
+    # an empty page has no columns to speak about
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_on_absent_columns((), resource)
+    # a declared residual_column is not an API field, so it is never reported
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_on_absent_columns(
+            ({"id": 1, "name": "a"},),
+            ResourceConfig(
+                name="things", schema=things_schema, residual_column="properties"
+            ),
+        )
 
 
 def test_record_to_row_nests_to_json() -> None:
