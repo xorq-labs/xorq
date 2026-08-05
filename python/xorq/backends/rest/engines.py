@@ -279,11 +279,12 @@ class NativeEngine:
         url = config.base_url(
             resource_config.base_url_key
         ) + resource_config.path.format(**params)
-        query = {
-            k: v
-            for k, v in params.items()
-            if k not in resource_config.path_placeholders
-        }
+        # scope params are identity-only discriminators (ADR-0024): they must
+        # not reach the wire, where a server would ignore them at best
+        on_the_wire_excluded = set(resource_config.path_placeholders) | set(
+            resource_config.scope_params
+        )
+        query = {k: v for k, v in params.items() if k not in on_the_wire_excluded}
         request_kwargs = dict(self._auth_kwargs(config.auth, credentials))
         query = {**query, **request_kwargs.pop("params", {})}
         query = paginator.initial_params(query)

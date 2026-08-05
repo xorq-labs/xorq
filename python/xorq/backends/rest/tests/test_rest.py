@@ -171,6 +171,70 @@ def test_auth_kind_is_identity_bearing() -> None:
     assert tokenize(none_auth.read("other")) != tokenize(bearer.read("other"))
 
 
+def test_caller_scoped_requires_a_declared_discriminator() -> None:
+    """Identity carries env-var *references*, never credential values, so for a
+    caller-scoped endpoint (`/user/repos`-style) two users with the same
+    reference names and different credentials would otherwise share a read
+    identity -- and a cache entry. The marker turns that silent leak into a
+    config-assembly error."""
+    with pytest.raises(ValueError, match="caller_scoped=True requires"):
+        ResourceConfig(
+            name="my_repos",
+            schema=things_schema,
+            path="/user/repos",
+            caller_scoped=True,
+        )
+    with pytest.raises(ValueError, match="scope params .* must be required"):
+        ResourceConfig(
+            name="my_repos",
+            schema=things_schema,
+            path="/user/repos",
+            params=(ParamSpec("account", kind="scope"),),
+        )
+    ok = ResourceConfig(
+        name="my_repos",
+        schema=things_schema,
+        path="/user/repos",
+        caller_scoped=True,
+        params=(ParamSpec("account", required=True, kind="scope"),),
+    )
+    assert ok.scope_params == ("account",)
+
+
+def test_scope_param_discriminates_identity_without_touching_the_wire() -> None:
+    config = RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="my_repos",
+                schema=things_schema,
+                path="/user/repos",
+                caller_scoped=True,
+                params=(ParamSpec("account", required=True, kind="scope"),),
+            ),
+        ),
+    )
+
+    class ScopedBackend(RestBackend):
+        pass
+
+    ScopedBackend.config = config
+    con = ScopedBackend().connect()
+    # the discriminator enters read identity...
+    assert tokenize(con.read("my_repos", account="alice")) != tokenize(
+        con.read("my_repos", account="bob")
+    )
+    # ...but is not a query param, so declaring it changes no request
+    session = FakeSession((FakeResponse([{"id": 1, "name": "a"}]),))
+    NativeEngine(session=session).fetch(
+        config, config.get_resource("my_repos"), {"account": "alice"}, {}
+    )
+    ((url, params),) = session.calls
+    assert url == "https://api.example.com/user/repos"
+    assert params == {}
+
+
 def test_path_placeholders_validated_at_construction() -> None:
     with pytest.raises(ValueError, match="not declared params"):
         ResourceConfig(

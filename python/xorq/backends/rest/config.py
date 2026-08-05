@@ -150,11 +150,19 @@ class ParamSpec:
     substituted into the path template when named there, else sent as a
     query param. ``kind="range"`` marks date/cursor-style params — the
     no-cursor-state rule means ranges are always explicit here, never
-    backend state; chunking is constructing multiple reads."""
+    backend state; chunking is constructing multiple reads.
+
+    ``kind="scope"`` marks a **caller-scope discriminator**: a non-secret
+    value naming whose data this read is (an account, org, or workspace). It
+    is identity-only — never sent as a query param, so declaring one cannot
+    change what goes on the wire — and it is what
+    ``ResourceConfig(caller_scoped=True)`` requires. When the name also appears
+    in the path template it is substituted there as usual.
+    """
 
     name = field(validator=instance_of(str))
     required = field(validator=instance_of(bool), default=False)
-    kind = field(validator=in_(("scalar", "range")), default="scalar")
+    kind = field(validator=in_(("scalar", "range", "scope")), default="scalar")
 
     @classmethod
     def from_dict(cls, dct: dict) -> ParamSpec:
@@ -253,7 +261,19 @@ class AuthConfig:
 
 @frozen
 class ResourceConfig:
-    """One API resource exposed as a relation."""
+    """One API resource exposed as a relation.
+
+    ``caller_scoped=True`` declares that what the endpoint returns depends on
+    *who is asking* — ``/user/repos``, an org-scoped listing, a "my
+    workspaces" endpoint. Identity deliberately carries env-var *references*,
+    never credential values (ADR-0024), so two users with the same reference
+    names and different credentials otherwise produce the same read identity
+    and can serve each other's data out of a shared cache. Marking the
+    resource makes the config **fail assembly** unless a required
+    ``ParamSpec(kind="scope")`` is declared, turning that silent leak into a
+    config-time error; the scope value is identity-only and never hits the
+    wire, so declaring one changes no request.
+    """
 
     name = field(validator=instance_of(str))
     schema = field(validator=instance_of(Schema))
@@ -275,6 +295,8 @@ class ResourceConfig:
     # Declared, not name-sniffed, so an API with a genuine field named
     # "properties" can still have it as a typed column.
     residual_column = field(validator=optional(instance_of(str)), default=None)
+    # "whose data is this?" — see the class docstring and __attrs_post_init__
+    caller_scoped = field(validator=instance_of(bool), default=False)
     # the one identity opt-out on this class: fetch_override is code, and
     # refactoring code must not invalidate builds/caches (ADR-0025's line)
     fetch_override = field(
@@ -306,6 +328,25 @@ class ResourceConfig:
                 f"resource {self.name!r}: path placeholders {sorted(not_required)} "
                 "must be required params (the path cannot format without them)"
             )
+        optional_scope = tuple(
+            p.name for p in self.params if p.kind == "scope" and not p.required
+        )
+        if optional_scope:
+            raise ValueError(
+                f"resource {self.name!r}: scope params {sorted(optional_scope)} "
+                "must be required -- a discriminator the caller may omit does "
+                "not discriminate"
+            )
+        if self.caller_scoped and not self.scope_params:
+            raise ValueError(
+                f"resource {self.name!r}: caller_scoped=True requires a "
+                'required ParamSpec(kind="scope") naming a non-secret '
+                "discriminator (an account, org, or workspace). Identity "
+                "carries env-var references, never credential values "
+                "(ADR-0024), so without one two callers with the same "
+                "reference names and different credentials share a read "
+                "identity -- and a cache entry"
+            )
 
     @property
     def path_placeholders(self) -> frozenset[str]:
@@ -324,6 +365,11 @@ class ResourceConfig:
     @property
     def param_names(self) -> tuple[str, ...]:
         return tuple(p.name for p in self.params)
+
+    @property
+    def scope_params(self) -> tuple[str, ...]:
+        """Caller-scope discriminators: identity-only, never sent on the wire."""
+        return tuple(p.name for p in self.params if p.kind == "scope")
 
     @property
     def content_hash(self) -> str:
