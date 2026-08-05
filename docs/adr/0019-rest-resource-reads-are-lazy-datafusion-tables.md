@@ -138,7 +138,10 @@ test — while a larger one spills and keeps RAM bounded. `spill_disk_capacity`
 exceeding it raises. Both are class attributes, so an API whose reads are
 known-small or known-enormous can retune them without touching the read path.
 The spill directory is per-connection, created on first use and removed by a
-`weakref.finalize` when the backend is collected.
+`weakref.finalize` when the backend is collected. The *bound*, though, is
+per-read: each `fetch_resource` call builds its own cache with its own hot
+layer, so a session's RAM ceiling is (number of distinct reads) x 128 MiB
+rather than 128 MiB. See the retention-lifetime negative below.
 
 What is honestly *not* recovered: a bare reader streams in constant memory, and
 a replay cache does not. Disk footprint is O(result). The trade is bounded RAM
@@ -273,6 +276,32 @@ wrapper (engine-agnostic) and is out of scope for the substrate decision.
 - **Replay retains.** Disk footprint is O(result) on reads larger than the hot
   layer, and the constant-memory streaming of a bare single-scan reader is not
   recovered. See the trade-off section; the alternative is silent wrongness.
+- **Retention is bounded per read, not per connection.** Each `fetch_resource`
+  call builds a fresh `StreamCache` with its own hot layer (capped at
+  `spill_memory_capacity`, 128 MiB) and registers it as a table on the owned
+  connection. Nothing releases it, so N *distinct* resource reads in one
+  long-lived session leave N live caches, N registered tables and N spill
+  subdirectories: the RAM ceiling is N x 128 MiB, and spill (for the reads that
+  exceed the hot layer at all) accumulates across reads rather than being
+  O(one result). Release is tied to the connection, by
+  two separate mechanisms that happen to coincide: the hot layer goes when the
+  last reference to the cache does, which is when the owned `self._df` and its
+  registered tables are dropped with the backend, and the spill *directory*
+  goes when `_spill_root`'s `weakref.finalize` fires. Re-executing one
+  expression is the already-bounded case -- the `Read`'s `table_name` is fixed
+  at construction and `read_record_batches` deregisters that name before
+  re-registering, which drops the previous cache -- so the unbounded axis is
+  distinct reads, not repeated execution.
+
+  Rest caches are also the one materialized resource with **no owner in the
+  transform scope**: `_make_deferred_reads_replacer` calls `node.make_dt()` and
+  adopts nothing, while the remote pass adopts its reader, cache and
+  placeholder table into the `RemoteTableScope` that `to_pyarrow_batches` closes
+  on reader exhaustion. The normal release path therefore does not reach these
+  at all. The fix is to adopt the registered table and its cache into that
+  scope, so both are dropped when the result reader is exhausted; it is a
+  follow-up because the deferred-reads pass is `expr/api.py`, core rather than
+  rest.
 - **`make_dt` source swap**: the resolved table's `op().source` is the owned
   `self._df`, not the `Read`'s `source`. `make_dt` is the deferred→concrete
   boundary so this is sound, but it breaks the csv/parquet invariant that

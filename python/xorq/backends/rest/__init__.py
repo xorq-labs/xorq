@@ -98,10 +98,14 @@ class RestBackend(PandasBackend):
     paginators = PAGINATORS
     auth_appliers = AUTH_APPLIERS
     # Bounds on the replay cache every resource read registers behind
-    # (`_replay_cache`). The hot layer is what keeps RAM bounded; the disk
-    # budget is a diagnosable ceiling rather than an invitation to fill the
-    # volume. Class-level so an API whose reads are known-small (or
-    # known-enormous) can retune them without touching the read path.
+    # (`_replay_cache`). The hot layer is what keeps RAM bounded *per read* --
+    # per connection it is not bounded at all: each read builds its own cache
+    # with its own hot layer and nothing releases it before the connection is
+    # collected, so N distinct reads in one session cap at N x this (ADR-0019's
+    # retention-lifetime negative). The disk budget is a diagnosable ceiling
+    # rather than an invitation to fill the volume. Class-level so an API whose
+    # reads are known-small (or known-enormous) can retune them without touching
+    # the read path.
     spill_memory_capacity = 128 << 20  # 128 MiB retained in RAM
     spill_disk_capacity = 64 << 30  # 64 GiB spilled at most
 
@@ -453,10 +457,15 @@ class RestBackend(PandasBackend):
         at ``spill_memory_capacity`` and ``write_policy="on_eviction"`` only
         writes when that cap is exceeded, so a result smaller than the cap
         never touches disk while a larger one keeps RAM bounded instead of
-        growing with the result. ``max_readers`` is deliberately left unset
-        (retain everything): the scan count is not knowable here -- unlike the
-        RemoteTable path, which derives it from a *compiled* plan -- and an
-        under-estimate would evict batches a later scan still needs.
+        growing with the result -- bounded for *this* read. The cache built here
+        lives as long as the table it is registered as, which is as long as the
+        connection, so a session's ceiling is one hot layer per distinct read
+        (ADR-0019's retention-lifetime negative).
+
+        ``max_readers`` is deliberately left unset (retain everything): the scan
+        count is not knowable here -- unlike the RemoteTable path, which derives
+        it from a *compiled* plan -- and an under-estimate would evict batches a
+        later scan still needs.
         """
         from batchcorder import StreamCache  # noqa: PLC0415
 
@@ -471,7 +480,10 @@ class RestBackend(PandasBackend):
     def _spill_root(self) -> str:
         """The per-connection spill directory, created on first use and removed
         when this backend is garbage-collected. Each cache takes its own
-        subdirectory of it, so one root per connection is enough."""
+        subdirectory of it, so one root per connection is enough. A cache
+        reclaims its own subdirectory when it is dropped, but a resource read's
+        cache is not dropped until the connection is, so in practice the
+        subdirectories accumulate and this finalizer is what removes them."""
         if self._spill_dir is None:
             self._spill_dir = tempfile.mkdtemp(prefix=f"xorq-{self.name}-spill-")
             weakref.finalize(self, shutil.rmtree, self._spill_dir, True)
