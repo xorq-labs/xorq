@@ -13,6 +13,7 @@ over the base registry — never by overriding private fetch methods.
 
 from __future__ import annotations
 
+import itertools
 import json
 import time
 from types import MappingProxyType
@@ -27,6 +28,7 @@ from attr import (
 )
 from attr.validators import instance_of
 
+import xorq.common.exceptions as com
 from xorq.backends.rest.paginators import (
     PAGINATORS,
     make_paginator,
@@ -178,6 +180,10 @@ class NativeEngine:
     session = field(factory=requests.Session, eq=False)
     max_tries = field(validator=instance_of(int), default=5)
     timeout = field(validator=instance_of(int), default=600)
+    # unconditional page bound, across every paginator: a server that ignores
+    # `offset`, or re-serves its last page for an out-of-range `page`, would
+    # otherwise loop forever. Transport safety, so it carries no identity.
+    max_pages = field(validator=instance_of(int), default=10_000)
 
     def fetch(
         self,
@@ -203,13 +209,23 @@ class NativeEngine:
         query = {**query, **request_kwargs.pop("params", {})}
         query = paginator.initial_params(query)
         rows: list[dict] = []
-        while True:
+        for page in itertools.count(1):
             resp = self._get_with_backoff(url, query, request_kwargs)
             records = extract_records(resp, resource_config)
             rows.extend(record_to_row(record, resource_config) for record in records)
             nxt = paginator.next(resp, records, url, query)
             if nxt is None:
                 break
+            if page >= self.max_pages:
+                raise com.XorqError(
+                    f"resource {resource_config.name!r}: pagination did not "
+                    f"terminate within max_pages={self.max_pages} (last request "
+                    f"{url} with {query}). A server that ignores the pagination "
+                    "param -- or re-serves its last page for an out-of-range "
+                    "page number -- looks like this; check the paginator config, "
+                    "or raise the engine's max_pages if the resource really is "
+                    "this large."
+                )
             url, query = nxt
         return (
             pd.DataFrame(rows)

@@ -22,7 +22,10 @@ from attr import (
     field,
     frozen,
 )
-from attr.validators import instance_of
+from attr.validators import (
+    instance_of,
+    optional,
+)
 
 
 if TYPE_CHECKING:
@@ -93,13 +96,56 @@ class JsonLinkPaginator(BasePaginator):
         return (next_url, {}) if next_url else None
 
 
+_MISSING = object()
+
+
 @frozen
 class OffsetPaginator(BasePaginator):
-    """``offset``/``limit`` query params; stops on a short page."""
+    """``offset``/``limit`` query params, with a declared termination check.
+
+    Terminating on a short page alone is unsafe, and not fixable by
+    representation: "the server clamped my page size" and "the data is
+    exhausted" are genuinely indistinguishable on the wire. Against an API
+    that clamps -- ask for 100, get 50, very common -- *every* full page
+    satisfies ``len(records) < limit``, so the fetch stops after one request
+    and a truncated frame caches as a complete one. So the config must declare
+    which cross-check applies (dlt draws the same line):
+
+    - ``total_path``: dotted path to the total record count in the response
+      body. The strongest check -- pagination runs until the offset reaches it,
+      and a clamping server is simply walked in smaller steps.
+    - ``maximum_offset``: a hard offset bound, for APIs that publish no total.
+    - ``stop_on_short_page=True``: an explicit acknowledgement that for this
+      API a short page does mean exhaustion. Declaring it is how an author
+      consciously accepts the clamp risk instead of inheriting it silently.
+
+    Offsets advance by the number of records actually returned, never by the
+    requested limit, so a clamped page does not skip rows. The unconditional
+    page bound against a server that ignores ``offset`` altogether lives in the
+    engine (``NativeEngine.max_pages``), where it covers every paginator.
+    """
 
     limit = field(validator=instance_of(int), default=100)
     offset_key = field(validator=instance_of(str), default="offset")
     limit_key = field(validator=instance_of(str), default="limit")
+    total_path = field(validator=optional(instance_of(str)), default=None)
+    maximum_offset = field(validator=optional(instance_of(int)), default=None)
+    stop_on_short_page = field(validator=instance_of(bool), default=False)
+
+    def __attrs_post_init__(self) -> None:
+        if (
+            self.total_path is None
+            and self.maximum_offset is None
+            and not self.stop_on_short_page
+        ):
+            raise ValueError(
+                "offset pagination needs a declared termination check: "
+                "total_path=<dotted path to a total count>, "
+                "maximum_offset=<int>, or stop_on_short_page=True to accept "
+                "that a short page means exhaustion for this API. Without one, "
+                "a server that clamps the page size truncates the result "
+                "silently and the partial fetch caches as complete."
+            )
 
     def initial_params(self, params: dict) -> dict:
         return {**params, self.limit_key: self.limit, self.offset_key: 0}
@@ -107,14 +153,42 @@ class OffsetPaginator(BasePaginator):
     def next(
         self, resp: requests.Response, records: tuple, url: str, params: dict
     ) -> tuple[str, dict] | None:
-        if len(records) < self.limit:
+        if not records:
+            # nothing to advance by, and no server clamps to zero
             return None
-        return (url, {**params, self.offset_key: params[self.offset_key] + self.limit})
+        offset = params[self.offset_key] + len(records)
+        if self.total_path is not None:
+            if offset >= self._total(resp):
+                return None
+        elif self.maximum_offset is not None:
+            if offset >= self.maximum_offset:
+                return None
+        elif len(records) < self.limit:
+            return None
+        return (url, {**params, self.offset_key: offset})
+
+    def _total(self, resp: requests.Response) -> int:
+        total = toolz.get_in(self.total_path.split("."), resp.json(), _MISSING)
+        if total is _MISSING or total is None:
+            raise ValueError(
+                f"offset pagination declares total_path {self.total_path!r} but "
+                "the response carries no total there; absence is not zero -- "
+                "check the path against the API's current response shape"
+            )
+        return int(total)
 
 
 @frozen
 class PageNumberPaginator(BasePaginator):
-    """``page=N`` query param starting at ``start``; stops on an empty page."""
+    """``page=N`` query param starting at ``start``; stops on an empty page.
+
+    An empty page is a genuine terminator here (unlike a *full* page under
+    offset pagination, which a clamping server makes ambiguous), so no
+    cross-check is required. The residual hazard is an API that re-serves the
+    last page for an out-of-range page number and so never returns an empty
+    one; that is bounded by ``NativeEngine.max_pages``, which raises rather
+    than looping forever.
+    """
 
     page_key = field(validator=instance_of(str), default="page")
     start = field(validator=instance_of(int), default=1)

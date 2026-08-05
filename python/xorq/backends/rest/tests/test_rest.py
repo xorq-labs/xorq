@@ -272,7 +272,7 @@ def test_header_link_paginator() -> None:
 
 
 def test_offset_paginator() -> None:
-    paginator = OffsetPaginator(limit=2)
+    paginator = OffsetPaginator(limit=2, stop_on_short_page=True)
     params = paginator.initial_params({})
     assert params == {"limit": 2, "offset": 0}
     full = [{"id": 1}, {"id": 2}]
@@ -282,6 +282,53 @@ def test_offset_paginator() -> None:
     )
     short = [{"id": 3}]
     assert paginator.next(FakeResponse(short), short, "u", params) is None
+
+
+def test_offset_paginator_requires_a_declared_termination_check() -> None:
+    """ "Server clamped my page size" and "data exhausted" are indistinguishable
+    on the wire, so the config must say which cross-check applies rather than
+    inheriting a silent truncation."""
+    with pytest.raises(ValueError, match="declared termination check"):
+        OffsetPaginator(limit=100)
+    # each of the three declarations is sufficient
+    OffsetPaginator(limit=100, total_path="total")
+    OffsetPaginator(limit=100, maximum_offset=1_000)
+    OffsetPaginator(limit=100, stop_on_short_page=True)
+
+
+def test_offset_paginator_walks_a_clamping_server_to_exhaustion() -> None:
+    """The reproduction: 150 rows on the server, limit=100, server clamps to
+    50. The old short-page rule stopped after one request with 50 rows."""
+    paginator = OffsetPaginator(limit=100, total_path="total")
+    params = paginator.initial_params({})
+    assert params == {"limit": 100, "offset": 0}
+    clamped = tuple({"id": i} for i in range(50))
+    body = {"total": 150}
+    # offsets advance by rows RETURNED, not by the requested limit
+    assert paginator.next(FakeResponse([], body=body), clamped, "u", params) == (
+        "u",
+        {"limit": 100, "offset": 50},
+    )
+    at_100 = {"limit": 100, "offset": 100}
+    assert paginator.next(FakeResponse([], body=body), clamped, "u", at_100) is None
+    # a missing total is not zero
+    with pytest.raises(ValueError, match="no total there"):
+        paginator.next(FakeResponse([], body={}), clamped, "u", params)
+
+
+def test_offset_paginator_maximum_offset_bounds_the_walk() -> None:
+    paginator = OffsetPaginator(limit=50, maximum_offset=100)
+    full = tuple({"id": i} for i in range(50))
+    assert paginator.next(
+        FakeResponse(full), full, "u", {"offset": 0, "limit": 50}
+    ) == (
+        "u",
+        {"offset": 50, "limit": 50},
+    )
+    assert (
+        paginator.next(FakeResponse(full), full, "u", {"offset": 50, "limit": 50})
+        is None
+    )
 
 
 def test_page_number_paginator() -> None:
@@ -304,6 +351,72 @@ class FakeSession:
     ) -> FakeResponse:
         self.calls.append((url, dict(params or {})))
         return self._responses.pop(0)
+
+
+class LoopingSession:
+    """A server that ignores pagination params and re-serves one page forever."""
+
+    def __init__(self, body: dict) -> None:
+        self._body = body
+        self.calls: list = []
+
+    def get(
+        self, url: str, params: dict | None = None, **kwargs: object
+    ) -> FakeResponse:
+        self.calls.append((url, dict(params or {})))
+        return FakeResponse([], body=self._body)
+
+
+def make_offset_config(**paginator_kwargs: object) -> RestBackendConfig:
+    return RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="rows",
+                schema=things_schema,
+                path="/rows",
+                record_path="items",
+                paginator="offset",
+                paginator_kwargs=paginator_kwargs,
+            ),
+        ),
+    )
+
+
+def test_engine_fetches_a_clamping_server_completely() -> None:
+    """150 rows on the server, limit=100, server clamps every page to 50.
+    Before the declared cross-check this returned 50 rows from one request and
+    cached the truncated frame as complete."""
+    config = make_offset_config(limit=100, total_path="total")
+    pages = tuple(
+        FakeResponse(
+            [],
+            body={
+                "items": [{"id": i, "name": str(i)} for i in range(start, start + 50)],
+                "total": 150,
+            },
+        )
+        for start in (0, 50, 100)
+    )
+    session = FakeSession(pages)
+    df = NativeEngine(session=session).fetch(
+        config, config.get_resource("rows"), {}, {}
+    )
+    assert len(df) == 150  # not the clamped 50
+    assert len(session.calls) == 3
+    assert [params["offset"] for _, params in session.calls] == [0, 50, 100]
+
+
+def test_engine_bounds_a_server_that_ignores_offset() -> None:
+    config = make_offset_config(limit=2, total_path="total")
+    session = LoopingSession(
+        {"items": [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}], "total": 1_000}
+    )
+    engine = NativeEngine(session=session, max_pages=3)
+    with pytest.raises(com.XorqError, match="did not terminate within max_pages=3"):
+        engine.fetch(config, config.get_resource("rows"), {}, {})
+    assert len(session.calls) == 3  # bounded, not forever
 
 
 def test_engine_retries_github_style_rate_limit(
