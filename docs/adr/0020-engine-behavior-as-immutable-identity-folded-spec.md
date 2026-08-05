@@ -88,8 +88,9 @@ shifts absolute values without breaking asserted relationships.
 The end state is an engine constructed from an immutable spec bundling its
 compiler, normalize/tokenize rules, paginators, and auth. The seams already
 exist — `Hasher.override` composes rule sets, and `normalization_context`
-(`provenance_utils.py:19`, used by `SnapshotStrategy`) already swaps the
-active hasher per call. What this ADR commits to is the **partition** any such
+(defined on `SnapshotStrategy`, `python/xorq/caching/strategy.py:102`; called
+from `get_expr_hash` in `provenance_utils.py`) already swaps the active hasher
+per call. What this ADR commits to is the **partition** any such
 spec must respect:
 
 - **Per-engine**: compilers (backend-local; no cross-object consistency

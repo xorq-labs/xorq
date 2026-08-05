@@ -196,8 +196,9 @@ Rejected because:
   retire), ADR-0018 (declarative config precedent; paginator/auth
   namespacing hazard), ADR-0015 (build vs cache hash grain)
 - `xorq_dasher.Hasher` (`core.py:84`); `dasher/__init__.py`
-  (`_current_hasher`, `snapshot_hasher`); `provenance_utils.py`
-  (`normalization_context`, `get_expr_hash` fold)
+  (`_current_hasher`, `snapshot_hasher`); `caching/strategy.py`
+  (`SnapshotStrategy.normalization_context`); `provenance_utils.py`
+  (`get_expr_hash` fold, which calls it)
 - The shim-vs-core-enabler extension-point audit behind ADR-0019/0020
 
 ## Amendment (2026-07-30)
