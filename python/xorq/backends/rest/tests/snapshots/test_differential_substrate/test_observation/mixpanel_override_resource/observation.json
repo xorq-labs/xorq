@@ -1,10 +1,9 @@
 {
   "batches": {
     "chunk_size_2": {
-      "batch_count": 2,
+      "batch_count": 1,
       "batch_row_counts": [
-        2,
-        1
+        3
       ],
       "first_batch_arrow_schema": {
         "distinct_id": "string",
@@ -13,7 +12,7 @@
       "http_after_full_drain": 0,
       "http_after_reader_construction": 0,
       "materialized_before_first_pull": false,
-      "peak_batch_rows": 2,
+      "peak_batch_rows": 3,
       "total_rows": 3
     },
     "chunk_size_7": {
@@ -72,15 +71,15 @@
           "distinct_id": "string",
           "properties": "string"
         },
-        "source_backend_name": "mixpanel",
-        "source_is_read_source": true
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
       }
     ],
     "read_ops_in_expression": 1,
-    "read_to_pyarrow_batches_seam": "none",
+    "read_to_pyarrow_batches_seam": "absent",
     "request_log_after_make_dt": [],
-    "tables_registered_on_source_dictionary": 1,
-    "to_pyarrow_batches_defined_by": "RestBackend.to_pyarrow_batches"
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
   },
   "materialized": {
     "column_order": [

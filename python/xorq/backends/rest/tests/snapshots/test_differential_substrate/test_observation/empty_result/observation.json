@@ -5,8 +5,8 @@
       "batch_row_counts": [],
       "first_batch_arrow_schema": null,
       "http_after_full_drain": 1,
-      "http_after_reader_construction": 1,
-      "materialized_before_first_pull": true,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
       "peak_batch_rows": 0,
       "total_rows": 0
     },
@@ -15,23 +15,15 @@
       "batch_row_counts": [],
       "first_batch_arrow_schema": null,
       "http_after_full_drain": 1,
-      "http_after_reader_construction": 1,
-      "materialized_before_first_pull": true,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
       "peak_batch_rows": 0,
       "total_rows": 0
     },
     "no_chunk_size": {
-      "batch_count": 1,
-      "batch_row_counts": [
-        0
-      ],
-      "first_batch_arrow_schema": {
-        "flag": "bool",
-        "id": "int64",
-        "name": "string",
-        "qty": "int64",
-        "score": "double"
-      },
+      "batch_count": 0,
+      "batch_row_counts": [],
+      "first_batch_arrow_schema": null,
       "http_after_full_drain": 1,
       "http_after_reader_construction": 0,
       "materialized_before_first_pull": false,
@@ -54,7 +46,7 @@
     "tokenize": "36240ba05f42cfc2d7c0508cbe6fe8fd"
   },
   "lifecycle": {
-    "http_after_make_dt": 1,
+    "http_after_make_dt": 0,
     "http_after_read_construction": 0,
     "make_dt": [
       {
@@ -67,17 +59,15 @@
           "qty": "int64",
           "score": "float64"
         },
-        "source_backend_name": "rest",
-        "source_is_read_source": true
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
       }
     ],
     "read_ops_in_expression": 1,
-    "read_to_pyarrow_batches_seam": "reader",
-    "request_log_after_make_dt": [
-      "https://harness.example.com/nothing {}"
-    ],
-    "tables_registered_on_source_dictionary": 1,
-    "to_pyarrow_batches_defined_by": "RestBackend.to_pyarrow_batches"
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
   },
   "materialized": {
     "column_order": [

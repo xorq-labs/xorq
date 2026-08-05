@@ -12,9 +12,9 @@
         "qty": "int64",
         "score": "double"
       },
-      "http_after_full_drain": 4,
-      "http_after_reader_construction": 4,
-      "materialized_before_first_pull": true,
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
       "peak_batch_rows": 1,
       "total_rows": 1
     },
@@ -30,9 +30,9 @@
         "qty": "int64",
         "score": "double"
       },
-      "http_after_full_drain": 4,
-      "http_after_reader_construction": 4,
-      "materialized_before_first_pull": true,
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
       "peak_batch_rows": 1,
       "total_rows": 1
     },
@@ -48,9 +48,9 @@
         "qty": "int64",
         "score": "double"
       },
-      "http_after_full_drain": 4,
-      "http_after_reader_construction": 4,
-      "materialized_before_first_pull": true,
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
       "peak_batch_rows": 1,
       "total_rows": 1
     }
@@ -70,7 +70,7 @@
     "tokenize": "626699e51c1fd73cbd33593763e2e6b7"
   },
   "lifecycle": {
-    "http_after_make_dt": 4,
+    "http_after_make_dt": 0,
     "http_after_read_construction": 0,
     "make_dt": [
       {
@@ -83,20 +83,15 @@
           "qty": "int64",
           "score": "float64"
         },
-        "source_backend_name": "rest",
-        "source_is_read_source": true
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
       }
     ],
     "read_ops_in_expression": 1,
-    "read_to_pyarrow_batches_seam": "none",
-    "request_log_after_make_dt": [
-      "https://harness.example.com/widgets/b1 {\"page\": 1}",
-      "https://harness.example.com/widgets/b1 {\"page\": 2}",
-      "https://harness.example.com/widgets/b1 {\"page\": 3}",
-      "https://harness.example.com/widgets/b1 {\"page\": 4}"
-    ],
-    "tables_registered_on_source_dictionary": 1,
-    "to_pyarrow_batches_defined_by": "RestBackend.to_pyarrow_batches"
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
   },
   "materialized": {
     "column_order": [
@@ -109,7 +104,7 @@
     "content_canonical_sorted": [
       "{\"flag\": null, \"id\": 0, \"name\": null, \"qty\": null, \"score\": null}"
     ],
-    "http_after_execute": 4,
+    "http_after_execute": 2,
     "null_counts": {
       "flag": 1,
       "id": 0,

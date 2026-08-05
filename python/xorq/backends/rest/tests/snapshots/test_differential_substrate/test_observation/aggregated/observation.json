@@ -3,7 +3,7 @@
     "chunk_size_2": {
       "batch_count": 1,
       "batch_row_counts": [
-        2
+        3
       ],
       "first_batch_arrow_schema": {
         "flag": "bool",
@@ -12,15 +12,15 @@
         "total_score": "double"
       },
       "http_after_full_drain": 4,
-      "http_after_reader_construction": 4,
-      "materialized_before_first_pull": true,
-      "peak_batch_rows": 2,
-      "total_rows": 2
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
     },
     "chunk_size_7": {
       "batch_count": 1,
       "batch_row_counts": [
-        2
+        3
       ],
       "first_batch_arrow_schema": {
         "flag": "bool",
@@ -29,15 +29,15 @@
         "total_score": "double"
       },
       "http_after_full_drain": 4,
-      "http_after_reader_construction": 4,
-      "materialized_before_first_pull": true,
-      "peak_batch_rows": 2,
-      "total_rows": 2
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
     },
     "no_chunk_size": {
       "batch_count": 1,
       "batch_row_counts": [
-        2
+        3
       ],
       "first_batch_arrow_schema": {
         "flag": "bool",
@@ -46,10 +46,10 @@
         "total_score": "double"
       },
       "http_after_full_drain": 4,
-      "http_after_reader_construction": 4,
-      "materialized_before_first_pull": true,
-      "peak_batch_rows": 2,
-      "total_rows": 2
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
     }
   },
   "case": "aggregated",
@@ -67,7 +67,7 @@
     "tokenize": "6be59e7f89721b9360437cefa86e3314"
   },
   "lifecycle": {
-    "http_after_make_dt": 4,
+    "http_after_make_dt": 0,
     "http_after_read_construction": 0,
     "make_dt": [
       {
@@ -80,20 +80,15 @@
           "qty": "int64",
           "score": "float64"
         },
-        "source_backend_name": "rest",
-        "source_is_read_source": true
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
       }
     ],
     "read_ops_in_expression": 1,
-    "read_to_pyarrow_batches_seam": "none",
-    "request_log_after_make_dt": [
-      "https://harness.example.com/widgets/b1 {\"page\": 1}",
-      "https://harness.example.com/widgets/b1 {\"page\": 2}",
-      "https://harness.example.com/widgets/b1 {\"page\": 3}",
-      "https://harness.example.com/widgets/b1 {\"page\": 4}"
-    ],
-    "tables_registered_on_source_dictionary": 1,
-    "to_pyarrow_batches_defined_by": "RestBackend.to_pyarrow_batches"
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
   },
   "materialized": {
     "column_order": [
@@ -104,35 +99,39 @@
     ],
     "content_canonical_sorted": [
       "{\"flag\": false, \"max_qty\": 444, \"n\": 68, \"total_score\": 1079.5}",
+      "{\"flag\": null, \"max_qty\": 396, \"n\": 14, \"total_score\": 231.0}",
       "{\"flag\": true, \"max_qty\": 447, \"n\": 68, \"total_score\": 1079.0}"
     ],
     "http_after_execute": 4,
     "null_counts": {
-      "flag": 0,
+      "flag": 1,
       "max_qty": 0,
       "n": 0,
       "total_score": 0
     },
     "null_representation": {
-      "flag": null,
+      "flag": {
+        "repr": "None",
+        "type": "NoneType"
+      },
       "max_qty": null,
       "n": null,
       "total_score": null
     },
     "ordering": {
-      "first_row_as_returned": "{\"flag\": false, \"max_qty\": 444, \"n\": 68, \"total_score\": 1079.5}",
+      "first_row_as_returned": "{\"flag\": null, \"max_qty\": 396, \"n\": 14, \"total_score\": 231.0}",
       "first_row_sorted": "{\"flag\": false, \"max_qty\": 444, \"n\": 68, \"total_score\": 1079.5}",
-      "last_row_as_returned": "{\"flag\": true, \"max_qty\": 447, \"n\": 68, \"total_score\": 1079.0}",
+      "last_row_as_returned": "{\"flag\": false, \"max_qty\": 444, \"n\": 68, \"total_score\": 1079.5}",
       "last_row_sorted": "{\"flag\": true, \"max_qty\": 447, \"n\": 68, \"total_score\": 1079.0}",
-      "returned_in_sorted_order": true
+      "returned_in_sorted_order": false
     },
     "pandas_dtypes": {
-      "flag": "bool",
+      "flag": "object",
       "max_qty": "int64",
       "n": "int64",
       "total_score": "float64"
     },
-    "row_count": 2
+    "row_count": 3
   },
   "schema": {
     "arrow": {

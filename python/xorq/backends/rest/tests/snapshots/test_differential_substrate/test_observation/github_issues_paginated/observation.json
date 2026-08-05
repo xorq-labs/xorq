@@ -1,11 +1,10 @@
 {
   "batches": {
     "chunk_size_2": {
-      "batch_count": 3,
+      "batch_count": 2,
       "batch_row_counts": [
-        2,
-        2,
-        1
+        3,
+        2
       ],
       "first_batch_arrow_schema": {
         "created_at": "string",
@@ -16,15 +15,16 @@
         "user": "string"
       },
       "http_after_full_drain": 2,
-      "http_after_reader_construction": 2,
-      "materialized_before_first_pull": true,
-      "peak_batch_rows": 2,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
       "total_rows": 5
     },
     "chunk_size_7": {
-      "batch_count": 1,
+      "batch_count": 2,
       "batch_row_counts": [
-        5
+        3,
+        2
       ],
       "first_batch_arrow_schema": {
         "created_at": "string",
@@ -35,9 +35,9 @@
         "user": "string"
       },
       "http_after_full_drain": 2,
-      "http_after_reader_construction": 2,
-      "materialized_before_first_pull": true,
-      "peak_batch_rows": 5,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
       "total_rows": 5
     },
     "no_chunk_size": {
@@ -76,7 +76,7 @@
     "tokenize": "bbccee46ec9084043eb0f7e48fc2bada"
   },
   "lifecycle": {
-    "http_after_make_dt": 2,
+    "http_after_make_dt": 0,
     "http_after_read_construction": 0,
     "make_dt": [
       {
@@ -90,18 +90,15 @@
           "title": "string",
           "user": "string"
         },
-        "source_backend_name": "github",
-        "source_is_read_source": true
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
       }
     ],
     "read_ops_in_expression": 1,
-    "read_to_pyarrow_batches_seam": "reader",
-    "request_log_after_make_dt": [
-      "https://api.github.com/repos/xorq-labs/xorq/issues {}",
-      "https://api.github.com/issues?page=2 {}"
-    ],
-    "tables_registered_on_source_dictionary": 1,
-    "to_pyarrow_batches_defined_by": "RestBackend.to_pyarrow_batches"
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
   },
   "materialized": {
     "column_order": [
