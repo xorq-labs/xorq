@@ -4,11 +4,28 @@
 - **Date:** 2026-07-30
 - **Deciders:** Dan Lovell
 
+> **This ADR is a proposal, not a description of the system. None of the
+> machinery below is implemented.** The `xorq.identity_specs` entry-point group
+> is declared in no `pyproject.toml` and loaded by no code; there is no
+> contribution type, no composition step, and no conflict check. Nor does the
+> `DEFAULT_BUILDER` this extends exist — it is proposed by ADR-0021, which is
+> itself unimplemented. As of this branch every name below appears only in this
+> document. The Decision section is written in the indicative for readability;
+> read it as the design, not as the code.
+>
 > Drafted ahead of implementation, like ADR-0021 (this branch is
 > discussion-stage; the ADR-lands-with-credible-implementation discipline is
-> relaxed by agreement). The named gate for Accepted status: a prototype
-> re-expressing the rest plugin's identity mutations as a single declared
-> contribution, with the composed fingerprint visible in a build.
+> relaxed by agreement).
+>
+> **Acceptance gate:** ADR-0021 phase 1 lands (this ADR has nothing to extend
+> until `DEFAULT_BUILDER` is a value), and a prototype re-expresses the rest
+> plugin's two identity mutations as a single declared contribution, with the
+> composed fingerprint visible in a build.
+>
+> One section below is *not* proposal: "The transitional duck-typed protocols
+> this is meant to dissolve" describes seams that really exist. Two of the
+> three do, at the file:line references given there — see the note on the
+> third.
 
 ## Context
 
@@ -100,7 +117,11 @@ quietly become a *second*, competing extension protocol alongside them:
   source (`_maybe_streaming_read_reader`, `python/xorq/expr/api.py`), by which
   a backend opts a bare `Read` into page-wise streaming. Transport, not
   identity — but it is the same unnamed-protocol shape, and a plugin
-  discovers it only by reading core.
+  discovers it only by reading core. **Not present on this branch:** this seam
+  was described from the prototype; core carries no
+  `_maybe_streaming_read_reader`. It is named here for the shape, which the
+  other two do exhibit, and because any future streaming opt-in should be a
+  declared capability rather than a third `getattr` protocol.
 - **`read.source._profile`** — the private reach-in inside
   `normalize_read_source_identity`, where core takes a backend's profile out
   of a private attribute to hash it. Identity depends on an attribute no
@@ -203,9 +224,10 @@ Rejected because:
 - `prototype/rest-plugin-shim` — `shims._patch_dasher` /
   `_patch_normalize_registry`, the two mutations a contribution replaces
 - The transitional protocols above: `normalize_read_source_identity`
-  (`python/xorq/common/utils/file_utils.py`, `read_identity_parts` consumer
-  and `_profile` reach-in) and `_maybe_streaming_read_reader`
-  (`python/xorq/expr/api.py`, `read_to_pyarrow_batches` consumer)
+  (`python/xorq/common/utils/file_utils.py:138` for the `read_identity_parts`
+  lookup, `:123` for the `_profile` reach-in). The third,
+  `_maybe_streaming_read_reader` / `read_to_pyarrow_batches`, is a prototype
+  shape with no counterpart in core on this branch.
 - `notes/rest-api-source-registration-threads.md` — Thread B
   (registration as packaging) meets Thread D (registrations as
   identity-folded values); this ADR is their intersection

@@ -1,7 +1,7 @@
 # ADR-0020: Engine behavior is an immutable, identity-folded declarative spec
 
-- **Status:** Proposed
-- **Date:** 2026-07-30
+- **Status:** Accepted
+- **Date:** 2026-07-30 (accepted 2026-08-05)
 - **Deciders:** Dan Lovell
 
 ## Context
@@ -76,12 +76,18 @@ unchanged name — names are the contract, not pickled callables (#2155).
 Implementation-body changes remain out of identity scope, the same line
 ADR-0017 draws for `fetch_override`.
 
-Verified by prototype (this branch): fingerprint deterministic and stable
-across cold processes; build hash changes iff the rule set changes, with no
-edit to the expression; `test_dasher` (106), `test_provenance_utils`,
-`test_cache_pin`, and REST `into_backend`/cache roundtrips (55 total) all pass
-— the suites assert build-hash *properties*, not golden literals, so folding
-shifts absolute values without breaking asserted relationships.
+This is what landed on this branch, not a sketch: `dasher.rules_fingerprint`
+(`python/xorq/common/utils/dasher/__init__.py:250`),
+`normalize_registry.rules_fingerprint`
+(`python/xorq/ibis_yaml/normalize_registry.py:47`), and the fold in
+`get_expr_hash` (`python/xorq/common/utils/provenance_utils.py:32`). The
+fingerprint is deterministic and stable across cold processes, and the build
+hash changes iff the rule set changes with no edit to the expression
+(`python/xorq/common/utils/tests/test_rules_fingerprint.py`). `test_dasher`
+(106), `test_provenance_utils`, `test_cache_pin`, and REST
+`into_backend`/cache roundtrips (55 total) all pass — the suites assert
+build-hash *properties*, not golden literals, so folding shifts absolute
+values without breaking asserted relationships.
 
 ### North star: engine behavior as a constructed spec (partitioned)
 
@@ -168,9 +174,14 @@ Deferred because:
 - ADR-0015 (build vs cache hash), ADR-0017, ADR-0018, ADR-0019
 - `xorq_dasher.Hasher` (`core.py:84`) — the frozen composable registry
 - `test_dasher.py:1101` — the hand-maintained FQN-drift check this promotes
-- Prototype (this branch): `dasher.rules_fingerprint`,
-  `normalize_registry.rules_fingerprint`, the `get_expr_hash` fold, and
-  `test_rules_fingerprint.py`
+- The implementation (this branch): `dasher.rules_fingerprint`
+  (`python/xorq/common/utils/dasher/__init__.py:250`),
+  `normalize_registry.rules_fingerprint`
+  (`python/xorq/ibis_yaml/normalize_registry.py:47`),
+  `SnapshotStrategy.declared_rules` / `declared_hasher`
+  (`python/xorq/caching/strategy.py:137`), the `get_expr_hash` fold and the
+  provenance stamps (`python/xorq/common/utils/provenance_utils.py:32`, `:53`),
+  and `python/xorq/common/utils/tests/test_rules_fingerprint.py`
 
 ## Amendment (2026-07-30)
 

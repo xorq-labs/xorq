@@ -4,10 +4,22 @@
 - **Date:** 2026-07-30
 - **Deciders:** Dan Lovell
 
+> **This ADR is a proposal, not a description of the system. None of the
+> machinery below is implemented.** `IdentitySpec`, `EngineBuilder`, and
+> `DEFAULT_BUILDER` do not exist anywhere in the tree — as of this branch they
+> appear only in this document. The Decision section is written in the
+> indicative for readability; read it as the design, not as the code. What
+> *does* exist is ADR-0020's fingerprint fold, which this ADR builds on.
+>
 > Drafted ahead of implementation, deliberately: this branch is
 > discussion-stage (no PR), and the ADR-lands-with-credible-implementation
-> discipline is relaxed for it by agreement. The Phases section names the
-> implementation gate for Accepted status.
+> discipline is relaxed for it by agreement.
+>
+> **Acceptance gate:** phases 1 and 2 of the Phases section land — the frozen
+> `IdentitySpec` / `EngineBuilder` / `DEFAULT_BUILDER` values with no hash
+> change (phase 1), and the fingerprint-agreement assert at the tokenize-time
+> normalization chokepoint (phase 2, as revised by amendment 1). Phase 3
+> (per-engine spec threading) is explicitly *not* part of the gate.
 
 ## Context
 
