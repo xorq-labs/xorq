@@ -12,7 +12,7 @@ except ModuleNotFoundError:
 
 
 @functools.cache
-def _load_entry_points() -> tuple:
+def _load_entry_points() -> tuple[importlib_metadata.EntryPoint, ...]:
     # cached: scanning the installed distributions costs ~15ms, and this is
     # called on paths that run per-object rather than once -- Profile
     # construction (validate_con_name) and secret validation. Returns a tuple so
@@ -35,6 +35,10 @@ def _find_entry_point(name: str) -> importlib_metadata.EntryPoint | None:
     Rescanning only on a miss keeps the hit path free: a name that resolves
     never pays for it, and a name that genuinely doesn't exist pays a ~15ms
     rescan rather than staying unresolvable for the life of the process.
+
+    Resolve names through here rather than by scanning `_load_entry_points()`
+    directly -- a direct scan sees the cache as it was, so it would reject a
+    just-installed backend (see `profiles.Profile.validate_con_name`).
     """
     if entry_point := next(
         (ep for ep in _load_entry_points() if ep.name == name), None
