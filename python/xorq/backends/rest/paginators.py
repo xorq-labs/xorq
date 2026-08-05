@@ -113,7 +113,10 @@ class OffsetPaginator(BasePaginator):
 
     - ``total_path``: dotted path to the total record count in the response
       body. The strongest check -- pagination runs until the offset reaches it,
-      and a clamping server is simply walked in smaller steps.
+      and a clamping server is simply walked in smaller steps. It also governs
+      the empty-page case: an empty page below the declared total is a hole, not
+      the end, and raises rather than truncating (see
+      ``_maybe_raise_on_sparse_page``).
     - ``maximum_offset``: a hard offset bound, for APIs that publish no total.
     - ``stop_on_short_page=True``: an explicit acknowledgement that for this
       API a short page does mean exhaustion. Declaring it is how an author
@@ -154,7 +157,10 @@ class OffsetPaginator(BasePaginator):
         self, resp: requests.Response, records: tuple, url: str, params: dict
     ) -> tuple[str, dict] | None:
         if not records:
-            # nothing to advance by, and no server clamps to zero
+            # An empty page is the end -- unless a declared total says
+            # otherwise, in which case it is a hole and stopping here would
+            # truncate. See `_maybe_raise_on_sparse_page`.
+            self._maybe_raise_on_sparse_page(resp, params)
             return None
         offset = params[self.offset_key] + len(records)
         if self.total_path is not None:
@@ -166,6 +172,44 @@ class OffsetPaginator(BasePaginator):
         elif len(records) < self.limit:
             return None
         return (url, {**params, self.offset_key: offset})
+
+    def _maybe_raise_on_sparse_page(
+        self, resp: requests.Response, params: dict
+    ) -> None:
+        """Refuse to terminate on an empty page the declared total contradicts.
+
+        Terminating on any empty page silently defeated the cross-check this
+        paginator forces a config to declare: a config carrying ``total_path``
+        still truncated on a sparse mid-stream page -- one hole and the fetch
+        stopped, with the partial result cached as complete. That is the exact
+        failure ``total_path`` exists to make impossible, so where the total
+        says rows remain, this raises rather than returning fewer rows than the
+        server said it had. Consistent with a missing total, which already
+        raises: a declared cross-check that cannot be satisfied is an error, not
+        a default.
+
+        ``maximum_offset`` and ``stop_on_short_page`` are deliberately NOT
+        cross-checked here. Neither claims to know how many records exist, so an
+        empty page is the only end-of-data signal they have; only a declared
+        total can contradict one.
+        """
+        if self.total_path is None:
+            return
+        offset = params[self.offset_key]
+        total = self._total(resp)
+        if offset < total:
+            raise ValueError(
+                f"offset pagination: empty page at {self.offset_key}={offset}, "
+                f"but the declared total_path {self.total_path!r} says the "
+                f"server holds {total} records. Stopping here would return a "
+                "truncated result and cache the partial fetch as complete -- "
+                "which is what declaring a cross-check is meant to prevent. If "
+                "this API genuinely serves holes mid-stream, its total is not a "
+                "usable termination check: bound the walk with "
+                "maximum_offset=<int> instead, or declare "
+                "stop_on_short_page=True if a short page really does mean "
+                "exhaustion for it."
+            )
 
     def _total(self, resp: requests.Response) -> int:
         total = toolz.get_in(self.total_path.split("."), resp.json(), _MISSING)

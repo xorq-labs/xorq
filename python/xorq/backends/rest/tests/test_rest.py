@@ -414,6 +414,56 @@ def test_offset_paginator_walks_a_clamping_server_to_exhaustion() -> None:
         paginator.next(FakeResponse([], body={}), clamped, "u", params)
 
 
+def test_offset_paginator_refuses_to_truncate_on_a_sparse_page() -> None:
+    """The gap the declared cross-check still had: `next` returned None on ANY
+    empty page, so a config carrying `total_path` truncated silently on a
+    sparse mid-stream page and cached the partial fetch as complete. A total
+    that says rows remain now contradicts the empty page, and contradiction is
+    an error -- the same way a missing total already was."""
+    paginator = OffsetPaginator(limit=50, total_path="total")
+    body = {"total": 150}
+    with pytest.raises(ValueError, match="empty page at offset=50"):
+        paginator.next(
+            FakeResponse([], body=body), (), "u", {"offset": 50, "limit": 50}
+        )
+    # a genuinely final empty page still terminates: the total is reached
+    assert (
+        paginator.next(
+            FakeResponse([], body=body), (), "u", {"offset": 150, "limit": 50}
+        )
+        is None
+    )
+    # and the checks that cannot know a total have no way to contradict an
+    # empty page, so for them it stays the end of the data
+    for bounded in (
+        OffsetPaginator(limit=50, maximum_offset=1_000),
+        OffsetPaginator(limit=50, stop_on_short_page=True),
+    ):
+        assert (
+            bounded.next(FakeResponse([]), (), "u", {"offset": 50, "limit": 50}) is None
+        )
+
+
+def test_engine_raises_rather_than_truncating_on_a_sparse_page() -> None:
+    """End to end through the engine: a hole at offset 50 of 150 must not come
+    back as a complete 50-row relation."""
+    config = make_offset_config(limit=50, total_path="total")
+    pages = (
+        FakeResponse(
+            [],
+            body={
+                "items": [{"id": i, "name": str(i)} for i in range(50)],
+                "total": 150,
+            },
+        ),
+        FakeResponse([], body={"items": [], "total": 150}),
+    )
+    with pytest.raises(ValueError, match="empty page at offset=50"):
+        NativeEngine(session=FakeSession(pages)).fetch(
+            config, config.get_resource("rows"), {}, {}
+        )
+
+
 def test_offset_paginator_maximum_offset_bounds_the_walk() -> None:
     paginator = OffsetPaginator(limit=50, maximum_offset=100)
     full = tuple({"id": i} for i in range(50))
