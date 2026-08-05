@@ -84,6 +84,46 @@ A contribution may not override a *base* rule either: overriding core
 normalization from a plugin is ADR-0022 shim territory (a stop-gap with a
 deletion path), never a durable registration.
 
+### The transitional duck-typed protocols this is meant to dissolve
+
+Three source-side protocols already carry identity or transport across the
+core/backend seam by duck typing rather than by declaration. They are
+**transitional predecessors**, named here so the entry-point channel does not
+quietly become a *second*, competing extension protocol alongside them:
+
+- **`read_identity_parts`** — a method looked up with `getattr` on a read's
+  source (`normalize_read_source_identity`,
+  `python/xorq/common/utils/file_utils.py`); its only producer is the rest
+  backend in this stack. It lets a source append identity parts of its own to
+  a path-less `Read`.
+- **`read_to_pyarrow_batches`** — a method looked up the same way on the
+  source (`_maybe_streaming_read_reader`, `python/xorq/expr/api.py`), by which
+  a backend opts a bare `Read` into page-wise streaming. Transport, not
+  identity — but it is the same unnamed-protocol shape, and a plugin
+  discovers it only by reading core.
+- **`read.source._profile`** — the private reach-in inside
+  `normalize_read_source_identity`, where core takes a backend's profile out
+  of a private attribute to hash it. Identity depends on an attribute no
+  contract names.
+
+All three are transitional for one reason: they are **unnamed and
+per-instance**. Presence is decided by whether a particular object happens to
+carry an attribute, so nothing about them reaches the fingerprint regime this
+ADR and ADR-0020 build — a source that starts or stops contributing identity
+parts, or a private attribute that is renamed, changes what a build hash means
+with no visible rule-set change. Names are the contract; these have no names
+in any table, and so cannot be fingerprinted, conflict-checked, or diffed
+across processes.
+
+The intent is that each dissolves into declared identity contributions: the
+identity parts a source wants folded become a contribution (or a declared
+per-read contribution keyed by name) rather than a method core hopes to find,
+and the profile hash becomes something the source *states* instead of
+something core extracts. Streaming, being transport, should end up as a
+declared capability on the backend rather than a second `getattr` protocol.
+Until then they stay as they are — pinned by ADR-0022's stop-gap discipline,
+named here for deletion.
+
 ### Constructed builders are unaffected
 
 Contributions extend `DEFAULT_BUILDER` only. An explicitly constructed
@@ -162,6 +202,10 @@ Rejected because:
   (by-name registries; append-only hazard)
 - `prototype/rest-plugin-shim` — `shims._patch_dasher` /
   `_patch_normalize_registry`, the two mutations a contribution replaces
+- The transitional protocols above: `normalize_read_source_identity`
+  (`python/xorq/common/utils/file_utils.py`, `read_identity_parts` consumer
+  and `_profile` reach-in) and `_maybe_streaming_read_reader`
+  (`python/xorq/expr/api.py`, `read_to_pyarrow_batches` consumer)
 - `notes/rest-api-source-registration-threads.md` — Thread B
   (registration as packaging) meets Thread D (registrations as
   identity-folded values); this ADR is their intersection
