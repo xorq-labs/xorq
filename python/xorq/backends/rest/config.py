@@ -47,12 +47,6 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.schema import Schema
 
 
-# the natively-supported kinds (appliers ship in engines.AUTH_APPLIERS). The
-# declared set is open: a curated backend may declare a new kind and supply
-# its applier via the class-level `auth_appliers` registry; unknown kinds
-# fail at do_connect, when the backend's registry is in hand.
-auth_kinds = ("basic", "bearer", "none")
-
 _dtype_to_pandas = MappingProxyType(
     {
         "int8": "Int8",
@@ -189,9 +183,14 @@ class AuthConfig:
     serves unauthenticated, rate-limited requests) — those are not required
     at ``do_connect``.
 
-    ``kind`` is an open set: role validation applies to the native kinds
-    (``auth_kinds``); other kinds are declarative here and validated at
-    ``do_connect`` against the backend's ``auth_appliers`` registry.
+    ``kind`` is an open set, and this class deliberately does not police it.
+    The role rules below apply to the two kinds that have roles (``basic``,
+    ``bearer``); any other kind is accepted here as declarative and is
+    resolved to an applier at ``do_connect``, which rejects unknown kinds
+    against the backend's class-level ``auth_appliers`` registry (defaulting
+    to ``engines.AUTH_APPLIERS``, the single source of truth for which kinds
+    can actually be applied). A curated backend extends the set by declaring
+    an applier there, not by editing this module.
     """
 
     kind = field(validator=instance_of(str))
