@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import importlib
 import pathlib
 import sys
+from collections.abc import Iterator
 
 import pytest
 
@@ -27,6 +29,28 @@ def _write_fake_dist(root: pathlib.Path, con_name: str) -> None:
     )
 
 
+@contextlib.contextmanager
+def installed_mid_process(root: pathlib.Path, con_name: str) -> Iterator[str]:
+    """Install a backend distribution into this live process, with an
+    entry-point cache that predates it -- i.e. `pip install` in a Jupyter kernel.
+
+    Shared with test_profile.py, which asserts the same staleness is invisible to
+    `Profile` construction.
+    """
+    _write_fake_dist(root, con_name)
+    # populate the cache *before* the install, which is the stale-cache setup
+    assert not any(ep.name == con_name for ep in _load_entry_points())
+    sys.path.insert(0, str(root))
+    try:
+        # the cached value still predates the install
+        assert not any(ep.name == con_name for ep in _load_entry_points())
+        yield con_name
+    finally:
+        sys.path.remove(str(root))
+        importlib.invalidate_caches()
+        _load_entry_points.cache_clear()
+
+
 def test_load_entry_points_returns_cached_tuple() -> None:
     """The value is a tuple (callers share it, so it must not be mutable in
     place) and repeated calls reuse it rather than rescanning."""
@@ -48,22 +72,11 @@ def test_find_entry_point_refreshes_a_stale_cache(tmp_path: pathlib.Path) -> Non
     is invisible to an already-populated cache. Resolution refreshes on a miss so
     that staleness never surfaces as an unresolvable backend.
     """
-    con_name = "xorqfakebackend"
-    _write_fake_dist(tmp_path, con_name)
-    # populate the cache *before* the install, which is the stale-cache setup
-    assert not any(ep.name == con_name for ep in _load_entry_points())
-    sys.path.insert(0, str(tmp_path))
-    try:
-        # the cached value still predates the install ...
-        assert not any(ep.name == con_name for ep in _load_entry_points())
-        # ... but resolution refreshes past it
+    with installed_mid_process(tmp_path, "xorqfakebackend") as con_name:
+        # resolution refreshes past the stale cache
         entry_point = _find_entry_point(con_name)
         assert entry_point is not None
         assert entry_point.name == con_name
-    finally:
-        sys.path.remove(str(tmp_path))
-        importlib.invalidate_caches()
-        _load_entry_points.cache_clear()
     assert not any(ep.name == con_name for ep in _load_entry_points())
 
 
