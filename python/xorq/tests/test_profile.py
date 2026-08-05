@@ -772,11 +772,15 @@ def test_get_dynamic_secret_keys_none_when_not_imported(
     assert get_dynamic_secret_keys(con_name, {}) is None
 
 
-def test_get_dynamic_secret_keys_fail_closed_on_hook_error(
+def test_get_dynamic_secret_keys_drops_keys_and_warns_on_hook_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A hook that raises degrades to None (fail closed) rather than
-    propagating and aborting/bypassing the secret check."""
+    """A raising hook degrades to None -- it neither propagates (aborting the
+    save) nor bypasses the check. Dropping this tier is fail-*open* for the
+    dynamic keys (tiers 1+2 still apply, see
+    test_raising_hook_does_not_weaken_checking), so it must warn rather than
+    swallow: an always-raising hook otherwise contributes nothing forever and
+    silently."""
 
     class Backend:
         @classmethod
@@ -784,7 +788,8 @@ def test_get_dynamic_secret_keys_fail_closed_on_hook_error(
             raise RuntimeError("boom")
 
     con_name = _install_fake_backend(monkeypatch, Backend)
-    assert get_dynamic_secret_keys(con_name, {}) is None
+    with pytest.warns(RuntimeWarning, match="RuntimeError: boom"):
+        assert get_dynamic_secret_keys(con_name, {}) is None
 
 
 def test_check_for_exposed_secrets_uses_dynamic_keys(
@@ -837,8 +842,9 @@ def test_hook_returning_empty_does_not_disable_checking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A hook returning () must not be read as "nothing is secret": the
-    unconditional password default still applies. (RestBackend._get_secret_keys
-    returns () when its config does not resolve.)"""
+    unconditional password default still applies. () is the natural return for a
+    hook whose kwargs-dependent rule finds nothing to name (e.g. the kwarg it
+    keys off of is absent), so it must not read as an opt-out."""
 
     class Backend:
         @classmethod
@@ -884,12 +890,14 @@ def test_raising_hook_does_not_weaken_checking(
             raise RuntimeError("boom")
 
     _install_fake_backend(monkeypatch, Backend, con_name="snowflake")
-    assert profiles_mod.get_secret_keys("snowflake", {}) == (
-        "password",
-        *con_name_to_secret_keys["snowflake"][1:],
-    )
-    with pytest.raises(ValueError, match="private_key"):
-        check_for_exposed_secrets("snowflake", {"private_key": "plaintext"})
+    with pytest.warns(RuntimeWarning, match="_get_secret_keys hook raised"):
+        assert profiles_mod.get_secret_keys("snowflake", {}) == (
+            "password",
+            *con_name_to_secret_keys["snowflake"][1:],
+        )
+    with pytest.warns(RuntimeWarning, match="_get_secret_keys hook raised"):
+        with pytest.raises(ValueError, match="private_key"):
+            check_for_exposed_secrets("snowflake", {"private_key": "plaintext"})
 
 
 def test_unimported_backend_still_checks_password(
