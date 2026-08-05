@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import contextlib
-import importlib
 import pathlib
-import sys
-from collections.abc import Iterator
 
 import pytest
 
@@ -13,42 +9,7 @@ from xorq.loader import (
     _load_entry_points,
     load_backend,
 )
-
-
-def _write_fake_dist(root: pathlib.Path, con_name: str) -> None:
-    """Write a minimal installed distribution declaring a xorq.backends entry
-    point, so adding `root` to sys.path is indistinguishable from installing a
-    backend plugin."""
-    dist_info = root / f"xorq_{con_name}-0.1.dist-info"
-    dist_info.mkdir(parents=True)
-    (dist_info / "METADATA").write_text(
-        f"Metadata-Version: 2.1\nName: xorq-{con_name}\nVersion: 0.1\n"
-    )
-    (dist_info / "entry_points.txt").write_text(
-        f"[xorq.backends]\n{con_name} = xorq_{con_name}\n"
-    )
-
-
-@contextlib.contextmanager
-def installed_mid_process(root: pathlib.Path, con_name: str) -> Iterator[str]:
-    """Install a backend distribution into this live process, with an
-    entry-point cache that predates it -- i.e. `pip install` in a Jupyter kernel.
-
-    Shared with test_profile.py, which asserts the same staleness is invisible to
-    `Profile` construction.
-    """
-    _write_fake_dist(root, con_name)
-    # populate the cache *before* the install, which is the stale-cache setup
-    assert not any(ep.name == con_name for ep in _load_entry_points())
-    sys.path.insert(0, str(root))
-    try:
-        # the cached value still predates the install
-        assert not any(ep.name == con_name for ep in _load_entry_points())
-        yield con_name
-    finally:
-        sys.path.remove(str(root))
-        importlib.invalidate_caches()
-        _load_entry_points.cache_clear()
+from xorq.tests.util import installed_mid_process
 
 
 def test_load_entry_points_returns_cached_tuple() -> None:

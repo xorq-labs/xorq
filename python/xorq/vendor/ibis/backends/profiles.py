@@ -480,6 +480,29 @@ con_name_to_secret_keys = MappingProxyType(
 default_secret_keys = ("password",)
 
 
+def _redact_kwarg_values(text: str, kwargs: dict) -> str:
+    """Mask any kwarg value that appears in ``text``.
+
+    A hook's exception is interpolated into the warning below, and a hook that
+    fails while parsing a credential tends to echo it -- ``int(kwargs["token"])``
+    raises ``invalid literal for int() with base 10: 'hunter2'``. This module
+    exists to keep secrets out of plaintext sinks, so it must not put them on
+    stderr (or in CI logs) itself.
+
+    Values shorter than 4 characters are left alone: masking those mangles
+    unrelated words in the message without hiding anything a value that short
+    could hide. Longest first, so masking one value can't strand a prefix of
+    another.
+    """
+    for value in sorted(
+        (v for v in kwargs.values() if isinstance(v, str) and len(v) >= 4),
+        key=len,
+        reverse=True,
+    ):
+        text = text.replace(value, "***")
+    return text
+
+
 def get_dynamic_secret_keys(
     con_name: str, kwargs: dict | None = None
 ) -> tuple[str, ...] | None:
@@ -503,11 +526,16 @@ def get_dynamic_secret_keys(
     not imported, has no entry point, declares no dynamic hook, or the hook
     raises.
 
-    A hook is handed the profile's kwargs with their values, i.e. the plaintext
-    credentials, at validation time. Name keys off of them; do not log, persist,
-    or send them anywhere. Names that aren't ``str`` are dropped with a warning
-    (they could never match a kwarg), and a return that isn't a sequence of
-    names drops this tier entirely rather than propagating out of the save.
+    A hook is handed a *copy* of the kwargs, with their values as authored: an
+    env-var reference for a well-formed profile, the plaintext credential for the
+    profile this check exists to reject. Name keys off of them; do not log,
+    persist, or send them anywhere. The copy is what makes this tier additive --
+    a hook cannot delete or rewrite the entries the caller is about to scan --
+    and it is shallow, which is enough because only top-level names are matched.
+
+    Names that aren't ``str`` are dropped with a warning (they could never match
+    a kwarg), and a return that isn't a sequence of names drops this tier
+    entirely rather than propagating out of the save.
 
     This tier is purely additive: ``check_for_exposed_secrets`` unions whatever
     is returned here with the unconditional ``("password",)`` default and the
@@ -530,8 +558,14 @@ def get_dynamic_secret_keys(
     getter = getattr(getattr(module, "Backend", None), "_get_secret_keys", None)
     if not callable(getter):
         return None
+    kwargs = {} if kwargs is None else kwargs
     try:
-        keys = getter({} if kwargs is None else kwargs)
+        # A copy: the caller scans this same dict *after* we return, so a hook
+        # that mutates what it is handed -- `kwargs.pop(...)` while walking a
+        # config, say -- would delete entries from the scan and let a plaintext
+        # secret save. That is the one way a hook could weaken rather than widen
+        # the check, and the union of tiers cannot protect against it.
+        keys = getter(dict(kwargs))
         if isinstance(keys, (str, bytes)):
             # A bare name is iterable, so tuple("api_key") would quietly become
             # ('a','p','i',...): the intended key dropped from this tier and
@@ -552,8 +586,9 @@ def get_dynamic_secret_keys(
         # comes from get_secret_keys, so no frame here names the backend that
         # actually needs fixing -- the message does.
         warnings.warn(
-            f"{con_name}: _get_secret_keys hook raised {type(e).__name__}: {e}; "
-            "ignoring its keys and checking only the default and static keys",
+            f"{con_name}: _get_secret_keys hook raised {type(e).__name__}: "
+            f"{_redact_kwarg_values(str(e), kwargs)}; ignoring its keys and "
+            "checking only the default and static keys",
             RuntimeWarning,
         )
         return None
@@ -565,9 +600,9 @@ def get_dynamic_secret_keys(
         # well-formed names rather than dropping the tier: they are unambiguous,
         # and checking them is strictly safer than not.
         warnings.warn(
-            f"{con_name}: _get_secret_keys returned non-str names {not_str!r}; "
-            "ignoring them (a name that isn't a str cannot match a kwarg) and "
-            "checking the rest",
+            f"{con_name}: _get_secret_keys returned non-str names "
+            f"{_redact_kwarg_values(repr(not_str), kwargs)}; ignoring them (a "
+            "name that isn't a str cannot match a kwarg) and checking the rest",
             RuntimeWarning,
         )
         keys = tuple(key for key in keys if isinstance(key, str))
@@ -586,7 +621,9 @@ def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...
 
     Consequently a dynamic hook can only ADD keys. A hook returning ``()``, a
     hook returning a subset of the mirror, a raising hook, and a backend that
-    isn't imported yet all leave tiers 1 and 2 intact.
+    isn't imported yet all leave tiers 1 and 2 intact. Nor can a hook shrink the
+    other side of the check: it is handed a copy of ``kwargs``, so it cannot
+    delete or rewrite the entries the caller goes on to scan.
 
     Ordering is deterministic (first occurrence wins, tiers in the order above)
     so error messages are reproducible.
