@@ -1,6 +1,7 @@
 import itertools
 import json
 import sys
+import warnings
 from pathlib import Path
 from types import MappingProxyType
 
@@ -476,10 +477,16 @@ def get_dynamic_secret_keys(
     """Return secret keys from a backend's dynamic ``_get_secret_keys(kwargs)``
     hook, or None.
 
-    A backend may declare a classmethod ``_get_secret_keys(kwargs)`` when its
-    secret keys depend on the connection kwargs themselves (e.g. keys nested
-    inside a ``config`` kwarg being checked) and so can't be captured in the
-    static ``con_name_to_secret_keys`` mirror.
+    A backend may declare a classmethod ``_get_secret_keys(kwargs)`` when which
+    kwargs are secret depends on the kwargs themselves -- e.g. a backend whose
+    auth kwarg is named differently per configured mode -- and so can't be
+    captured in the static ``con_name_to_secret_keys`` mirror.
+
+    **Return top-level kwarg names only.** ``check_for_exposed_secrets`` matches
+    the returned names against the top level of ``kwargs``, so a hook cannot
+    reach inside a nested value: for ``kwargs={"config": {"token": ...}}``,
+    returning ``"token"`` matches nothing and returning ``"config"`` flags the
+    whole kwarg (a dict is not an env-var reference, so it is reported).
 
     Only an already-imported backend is inspected -- we never import a backend
     purely to validate secrets (that would import a heavy backend, e.g.
@@ -492,6 +499,12 @@ def get_dynamic_secret_keys(
     static ``con_name_to_secret_keys`` mirror. An unavailable or raising hook
     (None) therefore cannot weaken the check, and neither can a hook that
     returns fewer keys than the mirror declares.
+
+    The corollary for hook authors: because resolution is best-effort, this tier
+    is NOT a guarantee. A profile hand-authored and saved in a fresh process
+    where the backend was never imported gets tiers 1 and 2 only. Any key that
+    must *always* be caught belongs in ``con_name_to_secret_keys`` as well; keep
+    the hook for keys that only a kwargs-dependent rule can name.
     """
     entry_point = next((ep for ep in _load_entry_points() if ep.name == con_name), None)
     if entry_point is None:
@@ -504,7 +517,16 @@ def get_dynamic_secret_keys(
         return None
     try:
         keys = getter(kwargs)
-    except Exception:
+    except Exception as e:
+        # Degrade to tiers 1+2 rather than crashing a save or skipping the check
+        # entirely -- but say so, since an always-raising hook otherwise
+        # contributes nothing forever and silently.
+        warnings.warn(
+            f"{con_name}: _get_secret_keys hook raised {type(e).__name__}: {e}; "
+            "ignoring its keys and checking only the default and static keys",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return None
     return tuple(keys) if keys is not None else None
 
