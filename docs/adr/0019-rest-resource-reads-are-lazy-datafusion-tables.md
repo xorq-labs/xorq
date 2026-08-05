@@ -159,11 +159,17 @@ documented way, by `into_backend`-ing it onto a full connection.
 
 Note that single-partition does not mean single-threaded: DataFusion still
 polls two reader-backed scans on separate threads, so two reads on one
-connection can paginate concurrently through one `NativeEngine` and therefore
-one `requests.Session`. That hazard is not introduced here — the deleted
-workaround's page-wise readers could already be drained concurrently — but it
-is now on the default path and should be closed (per-read transport, or a
-per-request transport lock).
+connection paginate concurrently through one `NativeEngine`. With an
+engine-lifetime `requests.Session` — documented non-thread-safe — that put
+every two-read expression on the racy side of a shared connection pool and
+cookie jar. The hazard was not introduced here (the deleted workaround's
+page-wise readers could already be drained concurrently) but it landed on the
+default path, and it is now closed with per-read transport: `NativeEngine`
+builds one session per `fetch_batches` call, so keep-alive still spans the
+pages of a pagination and no two paginations share a session. A per-request
+lock was the alternative and is worse: it leaves pagination state interleaved,
+and a lock held across a generator's `yield` can deadlock a plan that
+interleaves both scans — a hang rather than a failure.
 
 ### Composition, not inheritance
 

@@ -286,8 +286,24 @@ class NativeEngine:
 
     paginators = field(default=PAGINATORS)
     auth_appliers = field(default=AUTH_APPLIERS)
-    # reused across pages for connection keep-alive; carries no identity
-    session = field(factory=requests.Session, eq=False)
+    # Transport, so neither of these carries identity (`eq=False`).
+    #
+    # One session per `fetch_batches` call, NOT one per engine. A
+    # `requests.Session` is documented non-thread-safe -- its connection pool
+    # and cookie jar are shared mutable state -- and since resource reads
+    # became lazy readers (ADR-0019) the substrate polls one scan per read on
+    # its own thread, so a two-read expression paginates two resources
+    # CONCURRENTLY through whatever session they share. That is now the default
+    # execution path, not an opt-in drain, and an engine-lifetime session put
+    # every such expression on the racy side of it. Keep-alive is preserved
+    # where it actually pays -- across the pages of one pagination, which is
+    # where the round trips are -- and what is given up is reuse *between*
+    # reads: one extra handshake per resource read.
+    session_factory = field(default=requests.Session, eq=False)
+    # An explicit shared session, and the injection point the tests use (a fake
+    # must observe every request). Setting it reintroduces engine-lifetime
+    # sharing, so set it only for a fake or a provably single-threaded caller.
+    session = field(default=None, eq=False)
     max_tries = field(validator=instance_of(int), default=5)
     timeout = field(validator=instance_of(int), default=600)
     # unconditional page bound, across every paginator: a server that ignores
@@ -327,6 +343,10 @@ class NativeEngine:
 
         Always yields at least one (possibly empty) frame, so ``pd.concat``
         needs no empty-input guard and dtypes hold for empty results.
+
+        Owns its HTTP session for the duration of the pagination (see the
+        ``session_factory`` field): two of these can be drained concurrently,
+        which is what the substrate does with a two-read expression.
         """
         paginator = make_paginator(
             resource_config.paginator,
@@ -346,24 +366,43 @@ class NativeEngine:
         request_kwargs = dict(self._auth_kwargs(config.auth, credentials))
         query = {**query, **request_kwargs.pop("params", {})}
         query = paginator.initial_params(query)
-        for page in itertools.count(1):
-            resp = self._get_with_backoff(url, query, request_kwargs)
-            records = extract_records(resp, resource_config)
-            yield frame_from_records(records, resource_config)
-            nxt = paginator.next(resp, records, url, query)
-            if nxt is None:
-                return
-            if page >= self.max_pages:
-                raise com.XorqError(
-                    f"resource {resource_config.name!r}: pagination did not "
-                    f"terminate within max_pages={self.max_pages} (last request "
-                    f"{url} with {query}). A server that ignores the pagination "
-                    "param -- or re-serves its last page for an out-of-range "
-                    "page number -- looks like this; check the paginator config, "
-                    "or raise the engine's max_pages if the resource really is "
-                    "this large."
-                )
-            url, query = nxt
+        session, owned = self._session()
+        try:
+            for page in itertools.count(1):
+                resp = self._get_with_backoff(session, url, query, request_kwargs)
+                records = extract_records(resp, resource_config)
+                yield frame_from_records(records, resource_config)
+                nxt = paginator.next(resp, records, url, query)
+                if nxt is None:
+                    return
+                if page >= self.max_pages:
+                    raise com.XorqError(
+                        f"resource {resource_config.name!r}: pagination did not "
+                        f"terminate within max_pages={self.max_pages} (last request "
+                        f"{url} with {query}). A server that ignores the pagination "
+                        "param -- or re-serves its last page for an out-of-range "
+                        "page number -- looks like this; check the paginator config, "
+                        "or raise the engine's max_pages if the resource really is "
+                        "this large."
+                    )
+                url, query = nxt
+        finally:
+            # an abandoned generator (`.limit(1)`, a plan that stops early)
+            # runs this through GeneratorExit, so a session this call created
+            # never outlives the pagination that owns it. A caller-supplied
+            # session is the caller's to close.
+            if owned:
+                session.close()
+
+    def _session(self) -> tuple[object, bool]:
+        """The session for one ``fetch_batches`` call, and whether we own it.
+
+        A fresh one per call by default (see the ``session_factory`` field);
+        the explicitly injected ``session`` is shared, and not ours to close.
+        """
+        if self.session is not None:
+            return self.session, False
+        return self.session_factory(), True
 
     def _auth_kwargs(self, auth: AuthConfig, credentials: Mapping) -> dict:
         try:
@@ -376,9 +415,12 @@ class NativeEngine:
         return applier(auth, credentials)
 
     def _get_with_backoff(
-        self, url: str, params: dict, request_kwargs: dict
+        self, session: object, url: str, params: dict, request_kwargs: dict
     ) -> requests.Response:
-        """GET with rate-limit backoff.
+        """GET with rate-limit backoff on the calling fetch's session.
+
+        The session is a parameter, not ``self.session``: it belongs to the
+        ``fetch_batches`` call, so two concurrent paginations never share one.
 
         The exhausted-budget path is reachable and says what happened: the
         previous shape called ``raise_for_status()`` on the final attempt, so
@@ -388,7 +430,7 @@ class NativeEngine:
         but is a behavior change of its own.
         """
         for tries in range(1, self.max_tries + 1):
-            resp = self.session.get(
+            resp = session.get(
                 url, params=params, timeout=self.timeout, **request_kwargs
             )
             if not _is_rate_limited(resp):

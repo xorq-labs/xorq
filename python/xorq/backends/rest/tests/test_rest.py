@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import concurrent.futures
 import email.utils
 import json
 import pathlib
+import threading
 import warnings
 from datetime import (
     datetime,
@@ -632,6 +634,135 @@ def test_exhausted_rate_limit_retries_raise_a_diagnosable_error(
     with pytest.raises(requests.exceptions.RetryError, match="all 3 attempts"):
         engine.fetch(config, config.get_resource("other"), {}, {})
     assert len(session.calls) == 3
+
+
+def make_page_number_config() -> RestBackendConfig:
+    return RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="rows",
+                schema=things_schema,
+                path="/rows",
+                paginator="page_number",
+                params=(ParamSpec("bucket", required=True),),
+            ),
+        ),
+    )
+
+
+def test_concurrent_fetches_do_not_share_a_session() -> None:
+    """A `requests.Session` is not thread-safe (connection pool and cookie jar
+    are shared mutable state), and since resource reads became lazy readers the
+    substrate polls one scan per read on its own thread -- so a two-read
+    expression paginates two resources concurrently. An engine-lifetime session
+    put every such expression on the racy side of that; a session per
+    `fetch_batches` call takes it off.
+
+    Two threads drive `fetch_batches` with each thread's first request held at
+    a barrier, so the paginations genuinely overlap, and the ledger records
+    which session OBJECT served each request. A shared session shows one
+    session serving both interleaved paginations; per-fetch sessions show two,
+    each serving its own pages 1..3 in order. The barrier is thread-keyed, not
+    session-keyed, so a regression fails on the assertion rather than by
+    timing out.
+    """
+    config = make_page_number_config()
+    resource = config.get_resource("rows")
+    page_count = 2
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    gated: set = set()
+    served: list = []  # (session object, page) -- the objects keep ids distinct
+
+    class ThreadSession:
+        def get(
+            self, url: str, params: dict | None = None, **kwargs: object
+        ) -> FakeResponse:
+            page = int(dict(params or {}).get("page", 1))
+            with lock:
+                served.append((self, page))
+                gate = threading.current_thread() not in gated
+                gated.add(threading.current_thread())
+            if gate:
+                # both paginations are now in flight
+                barrier.wait(timeout=30)
+            records = [{"id": page, "name": str(page)}] if page <= page_count else []
+            return FakeResponse(records)
+
+        def close(self) -> None:
+            pass
+
+    engine = NativeEngine(session_factory=ThreadSession)
+
+    def drain(bucket: str) -> int:
+        frames = engine.fetch_batches(config, resource, {"bucket": bucket}, {})
+        return sum(len(frame) for frame in frames)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(drain, bucket) for bucket in ("a", "b")]
+        totals = [future.result(timeout=60) for future in futures]
+
+    assert totals == [page_count, page_count]  # both paginations completed
+    by_session: dict = {}
+    for session, page in served:
+        by_session.setdefault(id(session), []).append(page)
+    # one session per fetch_batches call, and each saw only its own pages
+    assert len(by_session) == 2
+    assert sorted(by_session.values()) == [[1, 2, 3], [1, 2, 3]]
+
+
+def test_injected_session_is_shared_and_not_closed() -> None:
+    """The explicit `session` override stays engine-lifetime: it is how a fake
+    observes every request across fetches, and closing it would break the
+    second fetch. Ownership therefore follows construction -- we close only a
+    session we created."""
+
+    class ClosableSession(FakeSession):
+        def __init__(self, responses: list) -> None:
+            super().__init__(responses)
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    config = make_config()
+    resource = config.get_resource("other")
+    session = ClosableSession(
+        (FakeResponse([{"id": 1, "name": "a"}]), FakeResponse([{"id": 2, "name": "b"}]))
+    )
+    engine = NativeEngine(session=session)
+    for _ in range(2):
+        engine.fetch(config, resource, {}, {})
+    assert len(session.calls) == 2
+    assert not session.closed
+
+
+def test_abandoned_fetch_closes_the_session_it_created() -> None:
+    """A read that stops early (`.limit(1)`, a plan that stops pulling) abandons
+    the generator, so the close has to ride on GeneratorExit rather than on
+    reaching the end of the pagination."""
+    closed = []
+
+    class ClosingSession:
+        def get(
+            self, url: str, params: dict | None = None, **kwargs: object
+        ) -> FakeResponse:
+            return FakeResponse([{"id": 1, "name": "a"}])
+
+        def close(self) -> None:
+            closed.append(self)
+
+    config = make_page_number_config()
+    engine = NativeEngine(session_factory=ClosingSession)
+    frames = engine.fetch_batches(
+        config, config.get_resource("rows"), {"bucket": "a"}, {}
+    )
+    next(frames)  # one page pulled, many more available
+    assert not closed
+    frames.close()
+    assert len(closed) == 1
 
 
 def make_enveloped_config(record_path: str = "items") -> RestBackendConfig:
