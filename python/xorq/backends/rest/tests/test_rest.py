@@ -856,13 +856,17 @@ def test_fetch_empty_result_keeps_declared_dtypes() -> None:
     assert str(df.id.dtype) == "Int64"  # not the all-float64 empty-frame trap
 
 
-def make_paged_pages() -> tuple:
+def make_paged_pages(first: int = 1, second: int = 1) -> tuple:
+    """Two link-paginated pages carrying `first`/`second` records (ids are
+    globally sequential, so page size is the only thing that varies)."""
     return (
         FakeResponse(
-            [{"id": 1, "name": "a"}],
+            [{"id": i, "name": f"n{i}"} for i in range(1, first + 1)],
             links={"next": {"url": "https://api.example.com/paged?page=2"}},
         ),
-        FakeResponse([{"id": 2, "name": "b"}]),
+        FakeResponse(
+            [{"id": i, "name": f"n{i}"} for i in range(first + 1, first + second + 1)]
+        ),
     )
 
 
@@ -882,9 +886,11 @@ class PagedBackend(RestBackend):
     )
 
 
-def connect_paged_backend() -> tuple[PagedBackend, FakeSession]:
+def connect_paged_backend(
+    first: int = 1, second: int = 1
+) -> tuple[PagedBackend, FakeSession]:
     con = PagedBackend().connect()
-    session = FakeSession(make_paged_pages())
+    session = FakeSession(make_paged_pages(first, second))
     con._engine = NativeEngine(session=session)
     return con, session
 
@@ -897,6 +903,31 @@ def test_to_pyarrow_batches_streams_bare_reads() -> None:
     assert len(session.calls) == 2
     assert not con.dictionary  # the paginator fed the reader directly
     assert [b["id"].to_pylist() for b in batches] == [[1], [2]]
+
+
+def test_chunk_size_is_inert_batches_follow_http_pages() -> None:
+    """`chunk_size` cannot bound a resource read's batches; HTTP pages do.
+
+    This pins a limitation, not an endorsement: `to_pyarrow_batches`'s core
+    docstring promises a maximum row count per batch, and for a resource read
+    the value is accepted and dropped. The parameter never reaches this backend
+    -- the transform pipeline resolves the `Read` onto the owned DataFusion
+    connection, whose `to_pyarrow_batches` takes `chunk_size` and ignores it --
+    so the honest fix is an engine-agnostic rebatch wrapper, which ADR-0019
+    defers because its blast radius is every DataFusion-backed read. Until then
+    `RestBackend.read` documents the limitation and this keeps the
+    documentation true: a rebatch wrapper fails here and must retire the words.
+    """
+    for kwargs in ({}, {"chunk_size": 1}, {"chunk_size": 2}, {"chunk_size": 1_000_000}):
+        con, session = connect_paged_backend(first=4, second=3)
+        reader = con.read("paged").to_pyarrow_batches(**kwargs)
+        assert [batch.num_rows for batch in reader] == [4, 3]
+        assert len(session.calls) == 2
+    # page shape is the lever that does work: one page of 7 is one batch of 7,
+    # chunk_size=2 notwithstanding
+    con, session = connect_paged_backend(first=7, second=0)
+    reader = con.read("paged").to_pyarrow_batches(chunk_size=2)
+    assert [batch.num_rows for batch in reader] == [7]
 
 
 def test_into_backend_consumes_the_page_stream() -> None:

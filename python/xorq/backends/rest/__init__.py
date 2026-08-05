@@ -298,7 +298,31 @@ class RestBackend(PandasBackend):
     def read(
         self, resource: str, table_name: str | None = None, **params: str
     ) -> ir.Table:
-        """Deferred read of a resource: construction never fetches."""
+        """Deferred read of a resource: construction never fetches.
+
+        **Batch boundaries are HTTP page boundaries, and ``chunk_size`` cannot
+        move them.** The returned expression accepts
+        ``to_pyarrow_batches(chunk_size=n)`` -- whose core docstring promises a
+        maximum row count per batch -- and the value has no effect: the
+        transform pipeline resolves this `Read` via `fetch_resource` onto the
+        owned DataFusion connection, so ``chunk_size`` is forwarded to
+        `xorq_datafusion.Backend.to_pyarrow_batches`, which accepts it and never
+        applies it. Batches arrive one per engine chunk (`_resource_reader`) --
+        one HTTP page, for the native engine. That is engine-wide inherited
+        behaviour rather than anything rest does, so it is documented here
+        rather than papered over: honoring a per-call ``chunk_size`` wants an
+        engine-agnostic rebatch wrapper, which ADR-0019 defers (see its
+        "Set the DataFusion batch size to the api ``chunk_size``" alternative
+        and the execution-semantics negative). Pinned by
+        `test_chunk_size_is_inert_batches_follow_http_pages` and by the
+        differential harness's ``batches.chunk_size_*`` records, so a rebatch
+        wrapper that fixes it cannot land without retiring these words.
+
+        To bound rows per batch today, bound the *page*: declaratively, where
+        the API's pagination exposes a page size (``paginator_kwargs`` --
+        e.g. ``{"limit": n}`` on the ``offset`` paginator), which is
+        identity-bearing config rather than a per-call transport knob.
+        """
         from xorq.common.utils.defer_utils import make_read_kwargs  # noqa: PLC0415
         from xorq.expr.relations import Read  # noqa: PLC0415
         from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
@@ -380,6 +404,10 @@ class RestBackend(PandasBackend):
     ) -> pa.ipc.RecordBatchReader:
         """A lazy reader over the resource's chunk stream, one RecordBatch per
         engine chunk (one HTTP page, for the native engine).
+
+        This is the only place a resource read's batch shape is decided: nothing
+        downstream rebatches, so a caller's ``chunk_size`` cannot change it (see
+        `read`).
 
         Lazy end to end: ``fetch_batches`` is a generator and the batch
         conversion is a generator expression, so constructing this issues no
