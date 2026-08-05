@@ -126,6 +126,25 @@ def test_identity_is_stable_across_processes(
     assert run("0") == run("12345")
 
 
+def test_kwargs_and_parts_do_not_alias() -> None:
+    """The identity encoding must be injective across its two groups.
+
+    Flat ``(*parts, *sorted(kwargs))`` concatenation is not: a source
+    contributing ``(("resource", "things"),)`` via ``read_identity_parts`` with
+    no kwargs would tokenize identically to a read contributing no parts but
+    carrying ``resource="things"`` as a kwarg.
+    """
+    con_kwarg = xo.connect()
+    con_parts = xo.connect()
+    con_parts.read_identity_parts = lambda read: (("resource", "things"),)
+    from_kwarg = make_read(con_kwarg, read_kwargs=(("resource", "things"),))
+    from_parts = make_read(con_parts, read_kwargs=())
+    assert normalize_read_source_identity(
+        from_kwarg.op()
+    ) != normalize_read_source_identity(from_parts.op())
+    assert tokenize(from_kwarg) != tokenize(from_parts)
+
+
 def test_snapshot_strategy_accepts_pathless_read() -> None:
     expr = make_read(xo.connect())
     normalized = snapshot_normalize_read(expr.op())

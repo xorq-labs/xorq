@@ -106,6 +106,15 @@ def normalize_read_source_identity(read: Read) -> tuple[tuple[str, object], ...]
     profile's content hash plus the read's declarative kwargs. `table_name`
     is excluded (gen_name'd, unstable across constructions) and the profile
     idx suffix is excluded (session-global, unstable across sessions).
+
+    The two contributions are returned *framed* --
+    ``(("parts", ...), ("kwargs", ...))`` -- rather than flat-concatenated.
+    Flat concatenation is not injective: a source contributing
+    ``(("resource", "things"),)`` via ``read_identity_parts`` with no kwargs
+    tokenizes identically to a read contributing no parts but carrying a
+    ``resource="things"`` kwarg -- two semantically different reads, one
+    identity. Framing keeps the encoding injective. This tuple shape is an
+    append-only identity contract.
     """
     import toolz  # noqa: PLC0415
 
@@ -130,6 +139,9 @@ def normalize_read_source_identity(read: Read) -> tuple[tuple[str, object], ...]
     if read_identity_parts is not None:
         parts += tuple(read_identity_parts(read))
     return (
-        *parts,
-        *sorted((k, v) for k, v in read.read_kwargs if k != "table_name"),
+        ("parts", parts),
+        (
+            "kwargs",
+            tuple(sorted((k, v) for k, v in read.read_kwargs if k != "table_name")),
+        ),
     )
