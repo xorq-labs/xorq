@@ -10,7 +10,7 @@ import pytest
 import xorq.api as xo
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.loader import _load_entry_points
-from xorq.tests.test_loader import installed_mid_process
+from xorq.tests.util import installed_mid_process
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.backends import profiles as profiles_mod
 from xorq.vendor.ibis.backends.profiles import (
@@ -691,6 +691,33 @@ def test_declared_secret_keys_are_mirrored(con_name: str) -> None:
     assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
 
 
+@pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
+def test_dynamic_hook_backends_also_mirror_static_keys(con_name: str) -> None:
+    """A backend declaring the dynamic _get_secret_keys hook must also declare
+    static _secret_keys.
+
+    The dynamic tier is best-effort by construction -- it is skipped for a
+    backend that isn't imported -- so a backend relying on it alone gets only
+    ("password",) checked when a profile is hand-authored in a fresh process.
+    get_dynamic_secret_keys' docstring says as much, but a docstring is not a
+    guarantee; this makes the belt-and-braces convention enforceable so a future
+    backend can't quietly opt out of it.
+    """
+    entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
+    try:
+        module = entry_point.load()
+    except ImportError as e:
+        pytest.skip(f"{con_name} backend not importable: {e}")
+    backend = getattr(module, "Backend", None)
+    if getattr(backend, "_get_secret_keys", None) is None:
+        pytest.skip(f"{con_name} declares no _get_secret_keys hook")
+    assert getattr(backend, "_secret_keys", None), (
+        f"{con_name} declares a dynamic _get_secret_keys hook but no static "
+        "_secret_keys; mirror the keys the hook always names, since the hook is "
+        "skipped whenever the backend isn't already imported"
+    )
+
+
 def _install_fake_backend(
     monkeypatch: pytest.MonkeyPatch,
     backend_cls: type,
@@ -835,7 +862,8 @@ def test_get_dynamic_secret_keys_drops_a_non_sequence_return(
             return 42
 
     con_name = _install_fake_backend(monkeypatch, Backend)
-    with pytest.warns(RuntimeWarning, match="TypeError.+not iterable"):
+    # matched on the exception type only: the message text is CPython's wording
+    with pytest.warns(RuntimeWarning, match="hook raised TypeError"):
         assert get_dynamic_secret_keys(con_name, {}) is None
     with pytest.warns(RuntimeWarning):
         assert profiles_mod.get_secret_keys(con_name, {}) == ("password",)
@@ -947,6 +975,89 @@ def test_check_for_exposed_secrets_uses_dynamic_keys(
         check_for_exposed_secrets(con_name, {"api_key": "plaintext"})
     # an env-var reference is accepted
     check_for_exposed_secrets(con_name, {"api_key": "${API_KEY}"})
+
+
+def test_save_is_blocked_by_a_dynamic_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The dynamic tier is enforced through Profile.save(), not just the
+    module-level helper: the save aborts and writes nothing."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key",)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    profile = Profile(con_name=con_name, kwargs_tuple=(("api_key", "plaintext"),))
+    with pytest.raises(ValueError, match="api_key"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+    # the same profile with an env-var reference saves
+    Profile(con_name=con_name, kwargs_tuple=(("api_key", "${API_KEY}"),)).save(
+        profile_dir=tmp_path
+    )
+    assert tuple(tmp_path.iterdir())
+
+
+def test_hook_mutating_kwargs_does_not_weaken_checking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A hook that mutates what it is handed cannot delete entries from the scan.
+
+    The hook is called with the kwargs the caller then scans, so before the copy
+    a hook doing `kwargs.pop(...)` -- plausible in a hook that consumes a config
+    while walking it -- removed the key from the scan entirely, and
+    `Profile.save()` wrote the plaintext secret to disk. The union of key tiers
+    cannot protect against this: it is the other side of the check.
+    """
+    plaintext = "plaintext-hunter2"
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            kwargs.clear()
+            return ()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    kwargs = {"password": plaintext}
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, kwargs)
+    assert kwargs == {"password": plaintext}, "the caller's kwargs were mutated"
+    profile = Profile(con_name=con_name, kwargs_tuple=(("password", plaintext),))
+    with pytest.raises(ValueError, match="password"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+
+
+def test_hook_error_warning_redacts_kwarg_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A secret echoed by a hook's exception is masked in the warning.
+
+    A hook that fails while parsing a credential tends to quote it back
+    (`int("hunter2-super-secret")`), and warnings go to stderr and CI logs --
+    which would leak, out of the one module whose job is keeping secrets out of
+    plaintext sinks. Short values are left alone, so the message stays readable.
+    """
+    plaintext = "hunter2-super-secret"
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return (int(kwargs["password"]),)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning) as records:
+        assert get_dynamic_secret_keys(con_name, {"password": plaintext}) is None
+    message = str(records[0].message)
+    assert plaintext not in message
+    assert "***" in message
+    # the useful part survives: which backend, and what went wrong
+    assert con_name in message
+    assert "ValueError" in message
 
 
 def test_get_secret_keys_unions_default_mirror_and_hook(
