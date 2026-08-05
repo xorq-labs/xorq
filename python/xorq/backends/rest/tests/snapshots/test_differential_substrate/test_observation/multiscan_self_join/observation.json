@@ -1,0 +1,85 @@
+{
+  "batches": {
+    "chunk_size_2": {
+      "error": "OperationNotDefinedError: No translation rule for SelfReference"
+    },
+    "chunk_size_7": {
+      "error": "OperationNotDefinedError: No translation rule for SelfReference"
+    },
+    "no_chunk_size": {
+      "error": "OperationNotDefinedError: No translation rule for SelfReference"
+    }
+  },
+  "case": "multiscan_self_join",
+  "identity": {
+    "build_dir_name": "37d15db0cbc4",
+    "build_dir_name_length": 12,
+    "expr_hash": "37d15db0cbc4",
+    "http_during_identity": 0,
+    "read_method_names": [
+      "fetch_resource"
+    ],
+    "read_source_backend_names": [
+      "rest"
+    ],
+    "tokenize": "a07c4fb13a9ebed7603dd0bac24e54e6"
+  },
+  "lifecycle": {
+    "http_after_make_dt": 4,
+    "http_after_read_construction": 0,
+    "make_dt": [
+      {
+        "name_equals_read_name": true,
+        "op_type": "DatabaseTable",
+        "schema": {
+          "flag": "boolean",
+          "id": "int64",
+          "name": "string",
+          "qty": "int64",
+          "score": "float64"
+        },
+        "source_backend_name": "rest",
+        "source_is_read_source": true
+      }
+    ],
+    "read_ops_in_expression": 1,
+    "read_to_pyarrow_batches_seam": "none",
+    "request_log_after_make_dt": [
+      "https://harness.example.com/widgets/b1 {\"page\": 1}",
+      "https://harness.example.com/widgets/b1 {\"page\": 2}",
+      "https://harness.example.com/widgets/b1 {\"page\": 3}",
+      "https://harness.example.com/widgets/b1 {\"page\": 4}"
+    ],
+    "tables_registered_on_source_dictionary": 1,
+    "to_pyarrow_batches_defined_by": "RestBackend.to_pyarrow_batches"
+  },
+  "materialized": {
+    "error": "OperationNotDefinedError: No translation rule for SelfReference",
+    "http_after_execute": 4
+  },
+  "schema": {
+    "arrow": {
+      "flag": "bool",
+      "flag_right": "bool",
+      "id": "int64",
+      "name": "string",
+      "name_right": "string",
+      "qty": "int64",
+      "qty_right": "int64",
+      "score": "double",
+      "score_right": "double"
+    },
+    "ibis": {
+      "flag": "boolean",
+      "flag_right": "boolean",
+      "id": "int64",
+      "name": "string",
+      "name_right": "string",
+      "qty": "int64",
+      "qty_right": "int64",
+      "score": "float64",
+      "score_right": "float64"
+    }
+  },
+  "what": "t.join(t.view(), 'id') -- unexecutable on the pandas substrate; the recorded error is the baseline"
+}

@@ -1,0 +1,178 @@
+{
+  "batches": {
+    "chunk_size_2": {
+      "batch_count": 3,
+      "batch_row_counts": [
+        2,
+        2,
+        1
+      ],
+      "first_batch_arrow_schema": {
+        "created_at": "string",
+        "number": "int64",
+        "properties": "string",
+        "state": "string",
+        "title": "string",
+        "user": "string"
+      },
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 2,
+      "materialized_before_first_pull": true,
+      "peak_batch_rows": 2,
+      "total_rows": 5
+    },
+    "chunk_size_7": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        5
+      ],
+      "first_batch_arrow_schema": {
+        "created_at": "string",
+        "number": "int64",
+        "properties": "string",
+        "state": "string",
+        "title": "string",
+        "user": "string"
+      },
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 2,
+      "materialized_before_first_pull": true,
+      "peak_batch_rows": 5,
+      "total_rows": 5
+    },
+    "no_chunk_size": {
+      "batch_count": 2,
+      "batch_row_counts": [
+        3,
+        2
+      ],
+      "first_batch_arrow_schema": {
+        "created_at": "string",
+        "number": "int64",
+        "properties": "string",
+        "state": "string",
+        "title": "string",
+        "user": "string"
+      },
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 5
+    }
+  },
+  "case": "github_issues_paginated",
+  "identity": {
+    "build_dir_name": "cf7434f3a560",
+    "build_dir_name_length": 12,
+    "expr_hash": "cf7434f3a560",
+    "http_during_identity": 0,
+    "read_method_names": [
+      "fetch_resource"
+    ],
+    "read_source_backend_names": [
+      "github"
+    ],
+    "tokenize": "bbccee46ec9084043eb0f7e48fc2bada"
+  },
+  "lifecycle": {
+    "http_after_make_dt": 2,
+    "http_after_read_construction": 0,
+    "make_dt": [
+      {
+        "name_equals_read_name": true,
+        "op_type": "DatabaseTable",
+        "schema": {
+          "created_at": "string",
+          "number": "int64",
+          "properties": "string",
+          "state": "string",
+          "title": "string",
+          "user": "string"
+        },
+        "source_backend_name": "github",
+        "source_is_read_source": true
+      }
+    ],
+    "read_ops_in_expression": 1,
+    "read_to_pyarrow_batches_seam": "reader",
+    "request_log_after_make_dt": [
+      "https://api.github.com/repos/xorq-labs/xorq/issues {}",
+      "https://api.github.com/issues?page=2 {}"
+    ],
+    "tables_registered_on_source_dictionary": 1,
+    "to_pyarrow_batches_defined_by": "RestBackend.to_pyarrow_batches"
+  },
+  "materialized": {
+    "column_order": [
+      "number",
+      "title",
+      "state",
+      "created_at",
+      "user",
+      "properties"
+    ],
+    "content_canonical_sorted": [
+      "{\"created_at\": \"2026-01-01T00:00:00Z\", \"number\": 1, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l1\\\"]}}\", \"state\": \"open\", \"title\": \"issue 1\", \"user\": \"{\\\"login\\\": \\\"user1\\\"}\"}",
+      "{\"created_at\": \"2026-01-02T00:00:00Z\", \"number\": 2, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l2\\\"]}}\", \"state\": \"closed\", \"title\": \"issue 2\", \"user\": \"{\\\"login\\\": \\\"user2\\\"}\"}",
+      "{\"created_at\": \"2026-01-03T00:00:00Z\", \"number\": 3, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l3\\\"]}}\", \"state\": \"open\", \"title\": null, \"user\": \"{\\\"login\\\": \\\"user3\\\"}\"}",
+      "{\"created_at\": \"2026-01-04T00:00:00Z\", \"number\": 4, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l4\\\"]}}\", \"state\": \"closed\", \"title\": \"issue 4\", \"user\": \"{\\\"login\\\": \\\"user4\\\"}\"}",
+      "{\"created_at\": \"2026-01-05T00:00:00Z\", \"number\": 5, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l5\\\"]}}\", \"state\": \"open\", \"title\": \"issue 5\", \"user\": \"{\\\"login\\\": \\\"user5\\\"}\"}"
+    ],
+    "http_after_execute": 2,
+    "null_counts": {
+      "created_at": 0,
+      "number": 0,
+      "properties": 0,
+      "state": 0,
+      "title": 1,
+      "user": 0
+    },
+    "null_representation": {
+      "created_at": null,
+      "number": null,
+      "properties": null,
+      "state": null,
+      "title": {
+        "repr": "None",
+        "type": "NoneType"
+      },
+      "user": null
+    },
+    "ordering": {
+      "first_row_as_returned": "{\"created_at\": \"2026-01-01T00:00:00Z\", \"number\": 1, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l1\\\"]}}\", \"state\": \"open\", \"title\": \"issue 1\", \"user\": \"{\\\"login\\\": \\\"user1\\\"}\"}",
+      "first_row_sorted": "{\"created_at\": \"2026-01-01T00:00:00Z\", \"number\": 1, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l1\\\"]}}\", \"state\": \"open\", \"title\": \"issue 1\", \"user\": \"{\\\"login\\\": \\\"user1\\\"}\"}",
+      "last_row_as_returned": "{\"created_at\": \"2026-01-05T00:00:00Z\", \"number\": 5, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l5\\\"]}}\", \"state\": \"open\", \"title\": \"issue 5\", \"user\": \"{\\\"login\\\": \\\"user5\\\"}\"}",
+      "last_row_sorted": "{\"created_at\": \"2026-01-05T00:00:00Z\", \"number\": 5, \"properties\": \"{\\\"unmapped\\\": {\\\"labels\\\": [\\\"l5\\\"]}}\", \"state\": \"open\", \"title\": \"issue 5\", \"user\": \"{\\\"login\\\": \\\"user5\\\"}\"}",
+      "returned_in_sorted_order": true
+    },
+    "pandas_dtypes": {
+      "created_at": "object",
+      "number": "int64",
+      "properties": "object",
+      "state": "object",
+      "title": "object",
+      "user": "object"
+    },
+    "row_count": 5
+  },
+  "schema": {
+    "arrow": {
+      "created_at": "string",
+      "number": "int64",
+      "properties": "string",
+      "state": "string",
+      "title": "string",
+      "user": "string"
+    },
+    "ibis": {
+      "created_at": "string",
+      "number": "int64",
+      "properties": "string",
+      "state": "string",
+      "title": "string",
+      "user": "string"
+    }
+  },
+  "what": "curated backend, header_link pagination, residual_column"
+}
