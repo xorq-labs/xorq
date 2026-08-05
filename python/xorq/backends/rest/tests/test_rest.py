@@ -327,6 +327,54 @@ def test_engine_retries_github_style_rate_limit(
     assert df.id.tolist() == [1]
 
 
+def make_enveloped_config(record_path: str = "items") -> RestBackendConfig:
+    return RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="enveloped",
+                schema=things_schema,
+                path="/enveloped",
+                record_path=record_path,
+            ),
+        ),
+    )
+
+
+def test_missing_record_path_raises_rather_than_reading_as_empty() -> None:
+    """ "Path absent from the envelope" and "path present and empty" are
+    distinguishable on the wire, so they must not collapse into zero rows: a
+    typo'd record_path, or a renamed envelope, otherwise cached a permanently
+    empty relation as a complete fetch."""
+    config = make_enveloped_config(record_path="data.rows")  # not what the API sends
+    body = {"items": [{"id": 1, "name": "a"}], "total": 1}
+    with pytest.raises(ValueError, match=r"record_path 'data.rows' is absent"):
+        NativeEngine(session=FakeSession((FakeResponse([], body=body),))).fetch(
+            config, config.get_resource("enveloped"), {}, {}
+        )
+    # the message must be debuggable: resource name and the shape that arrived
+    with pytest.raises(ValueError, match=r"'enveloped'.*envelope keys: \['items'"):
+        NativeEngine(session=FakeSession((FakeResponse([], body=body),))).fetch(
+            config, config.get_resource("enveloped"), {}, {}
+        )
+    # a null at the path is equally not an empty result
+    present = make_enveloped_config()
+    with pytest.raises(ValueError, match="is null in"):
+        NativeEngine(
+            session=FakeSession((FakeResponse([], body={"items": None}),))
+        ).fetch(present, present.get_resource("enveloped"), {}, {})
+
+
+def test_present_but_empty_record_path_is_an_empty_page() -> None:
+    config = make_enveloped_config()
+    df = NativeEngine(
+        session=FakeSession((FakeResponse([], body={"items": [], "total": 0}),))
+    ).fetch(config, config.get_resource("enveloped"), {}, {})
+    assert df.empty
+    assert str(df.id.dtype) == "Int64"
+
+
 def test_make_paginator_unknown() -> None:
     with pytest.raises(ValueError, match="unknown paginator"):
         make_paginator("nope")

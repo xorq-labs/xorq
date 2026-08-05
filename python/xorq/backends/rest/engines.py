@@ -104,14 +104,46 @@ def _is_rate_limited(resp: requests.Response) -> bool:
 # -- record shaping ----------------------------------------------------------
 
 
+_MISSING = object()
+
+
 def extract_records(resp: requests.Response, resource_config: ResourceConfig) -> tuple:
+    """The records on one page, at the resource's declared ``record_path``.
+
+    A missing path RAISES. Defaulting it to ``()`` collapsed two facts that
+    the wire distinguishes perfectly well -- "the envelope has no such key"
+    (a typo'd `record_path`, or an API that renamed its envelope) and "the key
+    is there and empty" -- into zero rows with no error, on every page. With
+    page-number pagination the first "empty page" then terminates the fetch, so
+    a permanently empty relation cached as a complete one. A genuinely present
+    empty list still yields an empty page, which is the honest answer.
+    """
     data = resp.json()
     if resource_config.record_path:
-        data = toolz.get_in(resource_config.record_path.split("."), data, ())
+        keys = resource_config.record_path.split(".")
+        found = toolz.get_in(keys, data, _MISSING)
+        if found is _MISSING or found is None:
+            raise ValueError(
+                f"resource {resource_config.name!r}: record_path "
+                f"{resource_config.record_path!r} is "
+                + ("null in" if found is None else "absent from")
+                + f" the response envelope from {getattr(resp, 'url', None)!r}"
+                + f" (envelope keys: {_envelope_keys(data)}). An empty result "
+                "must be an empty list at that path; check the path against the "
+                "API's current response shape."
+            )
+        data = found
     if isinstance(data, dict):
         # a single-record resource (e.g. /repos/{owner}/{repo})
         return (data,)
     return tuple(data)
+
+
+def _envelope_keys(data: object) -> object:
+    """The shape of what came back, for a record_path error message."""
+    if isinstance(data, dict):
+        return sorted(data)
+    return f"<{type(data).__name__}>"
 
 
 def record_to_row(record: dict, resource_config: ResourceConfig) -> dict:
