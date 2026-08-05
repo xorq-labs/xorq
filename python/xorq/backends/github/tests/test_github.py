@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import sys
 
 import pytest
 
@@ -11,6 +12,11 @@ from xorq.expr.relations import Read
 from xorq.ibis_yaml.compiler import (
     build_expr,
     load_expr,
+)
+from xorq.vendor.ibis.backends.profiles import (
+    Profile,
+    get_dynamic_secret_keys,
+    get_secret_keys,
 )
 
 
@@ -50,6 +56,24 @@ def test_build_artifact_is_declarative(tmp_path: pathlib.Path) -> None:
     assert "github" in (build_path / "profiles.yaml").read_text()
     loaded = load_expr(build_path)
     assert loaded.schema() == con.get_schema("repo")
+
+
+def test_secret_keys_survive_an_unimported_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The static mirror is what makes the check work when the dynamic
+    config-derived tier cannot answer. `get_dynamic_secret_keys` inspects
+    already-imported modules only, so before this entry's mirror addition a
+    process that never imported the backend checked `("password",)` alone --
+    which matches none of these backends' fields, and a raw token saved
+    silently."""
+    monkeypatch.delitem(sys.modules, "xorq.backends.github", raising=False)
+    assert get_dynamic_secret_keys("github") is None  # the tier is unavailable
+    assert "token" in get_secret_keys("github")  # the mirror still answers
+    monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
+    profile = Profile(con_name="github", kwargs_tuple=(("token", "raw-token"),))
+    with pytest.raises(ValueError, match="exposed secret keys: 'token'"):
+        profile.save(alias="bad")
 
 
 @pytest.mark.skipif(not have_token, reason="GITHUB_TOKEN not in env")

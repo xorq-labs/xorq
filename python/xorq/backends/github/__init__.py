@@ -78,3 +78,7 @@ GITHUB_CONFIG = RestBackendConfig(
 class Backend(RestBackend):
     name = "github"
     config = GITHUB_CONFIG
+    # the static mirror's counterpart (`con_name_to_secret_keys["github"]`),
+    # derived from the config so the two cannot say different things; it makes
+    # the check work in a process that never imported this module
+    _secret_keys = GITHUB_CONFIG.auth.effective_secret_fields

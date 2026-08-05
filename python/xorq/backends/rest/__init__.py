@@ -54,6 +54,15 @@ __all__ = [
 class RestBackend(PandasBackend):
     name = "rest"
     config: RestBackendConfig | None = None
+    # The static floor, mirrored in `con_name_to_secret_keys["rest"]`. The
+    # authoritative answer is config-derived (`_get_secret_keys` below), but
+    # that tier only answers for an already-imported backend; a process that
+    # validates a saved self-service profile without importing this module
+    # would otherwise check `("password",)` alone. Self-service field names are
+    # config-defined, so no static tuple can be complete -- this is the
+    # conventional set, and the tiers are unioned, so it can only widen the
+    # check. Curated subclasses override it from their own config.
+    _secret_keys = ("token", "secret", "api_key", "access_token")
     # engine extension registries: subclasses extend by merging over these
     # (e.g. `paginators = {**RestBackend.paginators, "acme.cursor": Cls}`);
     # `make_engine` threads them into the default engine

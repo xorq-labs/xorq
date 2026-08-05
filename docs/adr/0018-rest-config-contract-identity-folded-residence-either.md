@@ -84,13 +84,22 @@ deliberately trades this away since the profile covers the whole config).
 ### Dynamic secret keys
 
 The `rest` backend's secret keys live inside the `config` kwarg being
-checked, so a static `_secret_keys` cannot express them:
-`get_dynamic_secret_keys` prefers a backend classmethod
-`_get_secret_keys(kwargs)` (reads `config.auth.secret_fields`) over the static
-`con_name_to_secret_keys` mirror, falling back to the mirror, then
-`("password",)`. It consults the hook without importing anything — only an
-already-imported backend is inspected — which the `rest` path satisfies:
-having a rest config in hand means the backend module is loaded.
+checked, so a static `_secret_keys` cannot express them in full: the backend
+declares the classmethod `_get_secret_keys(kwargs)`, which reads
+`config.auth.secret_fields`. `check_for_exposed_secrets` **unions** that hook
+with the unconditional `("password",)` and the static
+`con_name_to_secret_keys` mirror, so every tier can only widen the check.
+
+The hook consults nothing it would have to import — only an already-imported
+backend is inspected — which is exactly why the mirror still matters here.
+Validating a *saved* profile (`Profile.save` on a hand-built profile, a CLI
+audit) can happen in a process that never imported the backend, where the
+hook cannot answer and the union would fall back to `("password",)` alone —
+a key that matches none of these backends' fields. So all three REST-family
+names carry mirror entries: `github` and `mixpanel` mirror their configs'
+`secret_fields` exactly, and `rest`, whose field names are config-defined and
+therefore not statically knowable, carries a deliberate **floor** of the
+conventional credential kwarg names that the hook widens per config.
 
 ## Alternatives considered
 

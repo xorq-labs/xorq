@@ -468,6 +468,19 @@ con_name_to_secret_keys = MappingProxyType(
             "private_key_path",
             "oauth_token",
         ),
+        # REST-family backends. Their authoritative keys are config-derived
+        # (the declared sources below read `config.auth.secret_fields`), but a
+        # source resolves only when the kwargs actually carry a config -- so
+        # these entries are what covers a curated connection or a hand-authored
+        # profile with no config kwarg at all. Without them those cases check
+        # `("password",)` alone, which matches none of these backends' fields.
+        # The tiers are unioned, so a mirror entry can only widen the check.
+        "github": ("token",),
+        # `rest` is self-service: field names come from the profile's own
+        # config, so no static tuple can be complete. This is a deliberate
+        # FLOOR of the conventional credential kwarg names -- the declared
+        # sources widen it to whatever the config actually declares.
+        "rest": ("token", "secret", "api_key", "access_token"),
     }
 )
 
