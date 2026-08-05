@@ -23,6 +23,7 @@ from xorq.backends.rest.config import (
     ParamSpec,
     ResourceConfig,
     RestBackendConfig,
+    content_hash,
     identity_field_names,
     schema_to_nullable_dtypes,
 )
@@ -40,6 +41,7 @@ from xorq.backends.rest.paginators import (
     SinglePagePaginator,
     make_paginator,
 )
+from xorq.common.utils.attr_utils import non_identity_field
 from xorq.common.utils.dasher import tokenize
 from xorq.expr.relations import Read
 from xorq.vendor import ibis
@@ -136,6 +138,27 @@ def test_identity_field_membership_is_derived_from_the_declaration() -> None:
         assert {
             f.name for f in attr.fields(cls) if f.metadata.get("identity") is False
         } == opted_out
+
+
+def test_non_identity_field_excludes_rather_than_includes() -> None:
+    """The polarity trap `non_identity_field` exists to close: the metadata key
+    is named for the concept ("identity"), so the value that EXCLUDES a field
+    is `False`, and the raw annotation therefore reads as its own inverse. An
+    author copying it onto a field they wanted hashed would silently exclude it
+    -- the one direction with cache-poisoning consequences. These assertions
+    pin that the helper excludes."""
+
+    @attr.frozen
+    class Thing:
+        kept = attr.field(default=1)
+        dropped = non_identity_field(default=2)
+
+    assert identity_field_names(Thing) == ("kept",)
+    assert attr.fields(Thing).dropped.metadata == {"identity": False}
+    assert content_hash(Thing(kept=1, dropped=2)) == content_hash(
+        Thing(kept=1, dropped=99)
+    )
+    assert content_hash(Thing(kept=1)) != content_hash(Thing(kept=2))
 
 
 class CuratedStagingBackend(RestBackend):

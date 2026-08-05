@@ -15,7 +15,7 @@ behind it. Three deliberate omissions vs dlt's RESTAPIConfig:
 Identity: both config classes carry a ``content_hash`` DERIVED from their
 attrs declaration (``identity_field_names``) rather than a hand-written
 tuple — a field is identity-bearing by default and opting out takes an
-explicit ``metadata={"identity": False}``. ``ResourceConfig`` covers the
+explicit ``non_identity_field(...)`` declaration. ``ResourceConfig`` covers the
 resource's declarative fields (``fetch_override`` excluded — code is
 refactorable, per ADR-0025's line); ``RestBackendConfig`` covers the
 API-wide contract, the resolved ``base_urls`` and the auth shape. The
@@ -43,6 +43,10 @@ from attr.validators import (
     optional,
 )
 
+from xorq.common.utils.attr_utils import (
+    IDENTITY_METADATA_KEY,
+    non_identity_field,
+)
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -84,17 +88,19 @@ def _tuplify(value: object) -> tuple:
 # direction -- a new field is identity-bearing BY DEFAULT, and the worst a
 # mistake can do is a spurious cache miss.
 
-IDENTITY_EXCLUDED = "identity"
-
 
 def identity_field_names(cls: type) -> tuple[str, ...]:
     """Identity-bearing field names of an attrs class: every declared field
-    except those annotated ``metadata={"identity": False}``.
+    except those declared with ``non_identity_field`` (which is the annotation
+    ``metadata={"identity": False}``, spelled as what it means -- see that
+    helper for why the raw annotation is a polarity trap).
 
-    Opting a field out is therefore a conscious annotation carrying its own
+    Opting a field out is therefore a conscious declaration carrying its own
     justification, not an omission from a list nobody re-reads.
     """
-    return tuple(f.name for f in fields(cls) if f.metadata.get(IDENTITY_EXCLUDED, True))
+    return tuple(
+        f.name for f in fields(cls) if f.metadata.get(IDENTITY_METADATA_KEY, True)
+    )
 
 
 def _identity_value(value: object) -> object:
@@ -298,10 +304,9 @@ class ResourceConfig:
     caller_scoped = field(validator=instance_of(bool), default=False)
     # the one identity opt-out on this class: fetch_override is code, and
     # refactoring code must not invalidate builds/caches (ADR-0025's line)
-    fetch_override = field(
+    fetch_override = non_identity_field(
         validator=optional(is_callable()),
         default=None,
-        metadata={IDENTITY_EXCLUDED: False},
     )
 
     def __attrs_post_init__(self) -> None:
@@ -418,10 +423,9 @@ class RestBackendConfig:
     # resource contributes its own `ResourceConfig.content_hash` per read, so
     # editing one resource must not invalidate its siblings (ADR-0018). Folding
     # the whole tuple here would undo that.
-    resources = field(
+    resources = non_identity_field(
         validator=deep_iterable(instance_of(ResourceConfig), instance_of(tuple)),
         converter=tuple,
-        metadata={IDENTITY_EXCLUDED: False},
     )
 
     def __attrs_post_init__(self) -> None:
