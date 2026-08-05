@@ -373,5 +373,5 @@
       "score_right": "float64"
     }
   },
-  "what": "two independent reads of the same resource with the same params, joined -- genuinely two scans today (HTTP doubles)"
+  "what": "two independent reads of the same resource with the same params, joined -- genuinely two scans, so HTTP doubles, and the shape whose two paginations run concurrently"
 }

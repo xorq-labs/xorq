@@ -1,32 +1,37 @@
-"""Differential observation harness gating the REST execution-substrate swap.
+"""Differential observation harness pinning the REST execution substrate.
 
 WHY THIS EXISTS
 ---------------
-`RestBackend` (and its `github`/`mixpanel` subclasses) currently execute on
-`PandasBackend`: the `make_dt` boundary (`fetch_resource`) paginates an API
-into a pandas frame and stashes it in `self.dictionary`. ADR-0019 proposes
-replacing that substrate with an owned xorq-DataFusion connection into which
-resource reads register as *lazy* tables, deleting the current streaming
-workaround (`RestBackend.read_to_pyarrow_batches`, the
-`RestBackend.to_pyarrow_batches` override, and the api-level
-`_maybe_streaming_read_reader` interceptor).
+It gated the substrate swap; it now pins the result. `RestBackend` (and its
+`github`/`mixpanel` subclasses) USED TO execute on `PandasBackend`: the
+`make_dt` boundary (`fetch_resource`) paginated an API into a pandas frame and
+stashed it in `self.dictionary`. ADR-0019 (Accepted) replaced that substrate
+with an owned xorq-DataFusion connection into which resource reads register as
+*lazy* tables, and deleted the streaming workaround
+(`RestBackend.read_to_pyarrow_batches`, the `RestBackend.to_pyarrow_batches`
+override, and the api-level `_maybe_streaming_read_reader` interceptor).
 
 pandas and Arrow/DataFusion disagree about null representation, integer
 widening and string types (`utf8` vs `large_utf8`); and laziness, multi-scan
-behaviour and expression identity could all shift. The pre-existing rest
-suites were written against pandas behaviour by someone not hunting for
-semantic divergence, so *them* passing is not evidence of equivalence. This
+behaviour and expression identity could all have shifted. The pre-existing rest
+suites had been written against pandas behaviour by someone not hunting for
+semantic divergence, so *them* passing was not evidence of equivalence. This
 module records a structured observation record per expression and compares it
-against a committed baseline, so that every difference the substrate swap
-produces has to be adjudicated as intended-or-bug rather than discovered in
-production.
+against a committed baseline, so every difference the swap produced had to be
+adjudicated as intended-or-bug rather than discovered in production.
 
-The harness is deliberately assertion-free about what behaviour *ought* to be.
-It records what *is*. Notably it records behaviour that is arguably wrong
-today -- `.limit(1)` fetching every page, an explicit `chunk_size` opting out
-of the streaming fast path (commit `c9682942`), a self-join being unexecutable
-on the pandas substrate -- because a baseline that encodes opinions cannot
-distinguish "the substrate changed" from "the opinion changed".
+The baseline now holds the POST-swap values, and that is the harness's standing
+job: the records that gated the swap are what pin the substrate's observable
+behaviour from here on. Any later change to it -- a fix, a dependency bump, the
+next substrate -- surfaces as a per-field diff that has to be adjudicated the
+same way. This is permanent infrastructure, not scaffolding to delete now that
+the swap has landed.
+
+The harness stays deliberately assertion-free about what behaviour *ought* to
+be. It records what *is*, including behaviour that is arguably wrong -- an
+explicit `chunk_size` is now inert, because batch boundaries follow HTTP pages
+rather than a rebatching step -- because a baseline that encodes opinions
+cannot distinguish "the substrate changed" from "the opinion changed".
 
 WHAT IS OBSERVED (per case, see `observe`)
 ------------------------------------------
@@ -35,14 +40,15 @@ WHAT IS OBSERVED (per case, see `observe`)
   construction but before any pull, and after a full drain. Plus the
   `make_dt` boundary facts ADR-0019 makes claims about: the resolved table's
   op type, its source backend, and whether `dt.source is read.source` (the
-  ADR admits this invariant breaks; that must be mechanically visible).
-  Plus which of the three workaround seams still exists.
+  ADR admits this invariant breaks; that is mechanically visible here).
+  Plus the workaround seams -- which now record their own ABSENCE, so a
+  reintroduction is a diff (see `observe_lifecycle`).
 - `identity`   `tokenize(expr)`, `get_expr_hash(expr)`, and the 12-char build
-  directory name via `ArtifactStore`. ADR-0019 claims identity is untouched
-  even though `make_dt`'s table source becomes the owned connection; these
-  fields are how that claim gets checked. Read hashes were deliberately
-  changed by the fix folding resolved `base_urls` and auth shape into read
-  identity, so these are current values, not historical ones.
+  directory name via `ArtifactStore`. ADR-0019 claimed identity was untouched
+  even though `make_dt`'s table source became the owned connection; these
+  fields are how that claim was checked, and they keep it checked. Read hashes
+  were deliberately changed by the fix folding resolved `base_urls` and auth
+  shape into read identity, so these are current values, not historical ones.
 - `schema`     the expression's ibis schema and its Arrow schema (`utf8` vs
   `large_utf8` lives here), plus the Arrow schema of the first transported
   record batch, which need not agree with either.
@@ -60,25 +66,36 @@ WHAT IS OBSERVED (per case, see `observe`)
 MULTI-SCAN (the observation most likely to catch a silent break)
 ---------------------------------------------------------------
 A lazy `pa.RecordBatchReader` registered as a DataFusion table is *one-shot*.
-If the physical plan scans that table twice, the second scan yields nothing.
-Three shapes pin this down, and the current substrate answers all three
-differently from what a naive reading would guess:
+If the physical plan scans that table twice, the second scan yields nothing --
+silently, as zero rows rather than an error. That is what the `StreamCache`
+replay layer (`RestBackend._replay_cache`) exists to prevent, and these three
+shapes are how the prevention stays checked:
 
 - `multiscan_union_all` -- one `Read` op referenced twice
-  (`t.union(t, distinct=False)`). The pandas executor memoises by op node
-  (`Node.map_clear`), so this is folded into a SINGLE materialisation today:
-  4 HTTP calls, 1 table registered, 300 rows. The 300 is the tripwire: under
-  a one-shot reader scanned twice by DataFusion it becomes 150.
+  (`t.union(t, distinct=False)`). Recorded: 4 HTTP calls (ONE pagination) and
+  300 rows. The 300 is the tripwire -- with a bare one-shot reader the second
+  scan contributes nothing and this drops to 150 -- and the 4 is the other
+  half: the replay serves the second scan from the buffer instead of
+  re-paginating. Under the pandas substrate the same numbers came from a
+  different mechanism (the executor memoised by op node, `Node.map_clear`,
+  into a single materialisation), which is why the case is worth keeping: same
+  observation, and it now describes replay rather than memoisation.
 - `multiscan_two_reads` -- two independent reads of the same resource with the
-  same params, joined. This genuinely scans twice *today*: 8 HTTP calls (two
-  complete paginations) and 2 tables registered, versus 4 and 1 for a bare
-  read. That is how "two scans really happen" is confirmed, and it is the
-  shape a one-shot/exhausted source perturbation goes red on.
-- `multiscan_self_join` -- `t.join(t.view(), "id")`. Records the current
-  `OperationNotDefinedError: No translation rule for SelfReference`: a
-  self-join is simply not executable on the pandas substrate. Recording the
-  error rather than skipping the case means the substrate swap making it work
-  shows up as a diff to adjudicate instead of passing unnoticed.
+  same params, joined. Two `Read` ops are two registrations, so this genuinely
+  scans twice: 8 HTTP calls (two complete paginations) and 150 joined rows,
+  versus 4 calls for a bare read. That is how "two scans really happen" stays
+  confirmed, and it is the shape an exhausted-source perturbation goes red on.
+  It is also the concurrent-pagination shape: DataFusion polls the two
+  reader-backed scans on separate threads, which is why the fixture is
+  page-addressed (see `WidgetSession`) and why the engine builds one HTTP
+  session per fetch.
+- `multiscan_self_join` -- `t.join(t.view(), "id")`. This was UNEXECUTABLE on
+  the pandas substrate (`OperationNotDefinedError: No translation rule for
+  SelfReference`) and the recorded error was the pre-swap baseline; recording
+  the error rather than skipping the case is exactly what made the swap making
+  it work show up as a diff to adjudicate instead of passing unnoticed. It now
+  records 150 rows on 4 HTTP calls -- one pagination, replayed for the second
+  scan.
 
 RETENTION (INFORMATIONAL-ONLY)
 ------------------------------
@@ -385,7 +402,7 @@ CASES = (
     ),
     Case(
         name="limit_one",
-        what="bare read .limit(1) -- currently fetches every page anyway",
+        what="bare read .limit(1) -- the limit stops the pagination early",
         connect=connect_rest,
         build=lambda con: widgets(con).limit(1),
     ),
@@ -399,16 +416,17 @@ CASES = (
     ),
     Case(
         name="multiscan_union_all",
-        what="t.union(t, distinct=False) -- ONE Read op referenced twice; the "
-        "pandas executor memoises the node, so this is one scan today. The "
-        "row count is the tripwire for a one-shot reader scanned twice",
+        what="t.union(t, distinct=False) -- ONE Read op referenced twice, so "
+        "one pagination and a replayed second scan. The row count is the "
+        "tripwire for a one-shot reader scanned twice",
         connect=connect_rest,
         build=lambda con: widgets(con).union(widgets(con), distinct=False),
     ),
     Case(
         name="multiscan_two_reads",
         what="two independent reads of the same resource with the same "
-        "params, joined -- genuinely two scans today (HTTP doubles)",
+        "params, joined -- genuinely two scans, so HTTP doubles, and the "
+        "shape whose two paginations run concurrently",
         connect=connect_rest,
         build=lambda con: widgets(con, "scan_a").join(
             widgets(con, "scan_b"), "id", how="inner"
@@ -416,8 +434,8 @@ CASES = (
     ),
     Case(
         name="multiscan_self_join",
-        what="t.join(t.view(), 'id') -- unexecutable on the pandas substrate; "
-        "the recorded error is the baseline",
+        what="t.join(t.view(), 'id') -- was unexecutable on the pandas "
+        "substrate; the swap made it execute, on a replayed second scan",
         connect=connect_rest,
         build=lambda con: widgets(con).join(widgets(con).view(), "id"),
     ),
@@ -533,8 +551,15 @@ def http_log(session: Any) -> list[str]:
 
 def observe_lifecycle(case: Case) -> dict:
     """Stage-separated HTTP counts up to `make_dt`, plus the `make_dt`
-    boundary facts ADR-0019 makes claims about, plus which of the three
-    workaround seams still exists."""
+    boundary facts ADR-0019 makes claims about, plus the workaround seams.
+
+    The seam fields (`read_to_pyarrow_batches_seam`,
+    `tables_registered_on_source_dictionary`, `to_pyarrow_batches_defined_by`)
+    recorded which of the pre-swap workarounds still existed; they are kept
+    because they now record their own absence, which makes REINTRODUCTION a
+    diff. Someone reaching for a materialising `fetch_resource`, or restoring a
+    `to_pyarrow_batches` override, cannot do it quietly.
+    """
     con, session = case.connect()
     expr = case.build(con)
     after_read_construction = len(session.calls)
@@ -565,15 +590,17 @@ def observe_lifecycle(case: Case) -> dict:
         "http_after_read_construction": after_read_construction,
         "http_after_make_dt": len(session.calls),
         "read_ops_in_expression": len(reads),
-        # each fetch_resource stashes one frame here; the count is the
-        # substrate's own materialisation ledger and therefore also the
-        # scan count. ADR-0019 makes this storage vestigial.
+        # pre-swap, each fetch_resource stashed one frame here, so this was
+        # the substrate's own materialisation ledger and therefore its scan
+        # count. ADR-0019 made the storage vestigial and this reads 0
+        # everywhere: a nonzero value means something materialised onto the
+        # pandas table store again.
         "tables_registered_on_source_dictionary": len(getattr(con, "dictionary", {})),
         "make_dt": resolved,
         "read_to_pyarrow_batches_seam": seam,
-        # which class actually serves to_pyarrow_batches: ADR-0019 deletes
-        # RestBackend's override, so this becomes BasePandasBackend's (or the
-        # owned connection's) and the deletion is visible rather than implied
+        # which class actually serves to_pyarrow_batches: ADR-0019 deleted
+        # RestBackend's override, so this is BasePandasBackend's, and the
+        # deletion is visible rather than implied -- as would be its return
         "to_pyarrow_batches_defined_by": type(con).to_pyarrow_batches.__qualname__,
         "request_log_after_make_dt": http_log(session),
     }
@@ -584,9 +611,11 @@ def observe_identity(case: Case, builds_dir: pathlib.Path) -> dict:
 
     Read hashes were deliberately changed by the fix folding resolved
     `base_urls` and the auth shape into read identity; these are the CURRENT
-    values. A divergence here after the substrate swap contradicts ADR-0019's
-    "identity is untouched" claim and is a bug unless the change was
-    deliberately an identity change.
+    values. They were byte-identical across the substrate swap, which is how
+    ADR-0019's "identity is untouched" claim was checked. A divergence here is
+    therefore an identity change: a bug unless it was deliberately one, in
+    which case it needs its own adjudicated baseline (every build directory and
+    cache entry in the world moves with it).
     """
     con, session = case.connect()
     expr = case.build(con)

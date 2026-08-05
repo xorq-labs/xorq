@@ -163,5 +163,5 @@
       "score": "float64"
     }
   },
-  "what": "bare read .limit(1) -- currently fetches every page anyway"
+  "what": "bare read .limit(1) -- the limit stops the pagination early"
 }

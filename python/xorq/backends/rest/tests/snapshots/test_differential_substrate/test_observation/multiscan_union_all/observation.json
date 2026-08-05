@@ -477,5 +477,5 @@
       "score": "float64"
     }
   },
-  "what": "t.union(t, distinct=False) -- ONE Read op referenced twice; the pandas executor memoises the node, so this is one scan today. The row count is the tripwire for a one-shot reader scanned twice"
+  "what": "t.union(t, distinct=False) -- ONE Read op referenced twice, so one pagination and a replayed second scan. The row count is the tripwire for a one-shot reader scanned twice"
 }

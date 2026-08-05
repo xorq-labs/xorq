@@ -360,5 +360,5 @@
       "score_right": "float64"
     }
   },
-  "what": "t.join(t.view(), 'id') -- unexecutable on the pandas substrate; the recorded error is the baseline"
+  "what": "t.join(t.view(), 'id') -- was unexecutable on the pandas substrate; the swap made it execute, on a replayed second scan"
 }
