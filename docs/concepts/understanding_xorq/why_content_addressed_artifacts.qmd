@@ -55,6 +55,38 @@ another host produces the same name. Note that it fingerprints the
 *specification*, not the bytes of the output—a run can still differ in timestamps
 or floating-point rounding, but its identity as a computation is fixed.
 
+## When the hash moves
+
+A build's name answers "was *this* pipeline, under *these* rules, built?", so
+two things move it: the expression graph, and the set of normalization rules
+Xorq hashed it under. The second is why a Xorq upgrade can change build hashes
+without you editing a pipeline—the rule set in force is folded into the build
+hash, so a build produced under a different set of rules is honestly a
+different artifact.
+
+Build hashes and cache keys are separate, and only the first is affected. Cache
+keys are computed by the [cache strategies](intelligent_caching_system.qmd) and
+are deliberately rule-set-neutral, so an upgrade that moves build hashes does
+not move cache keys.
+
+::: {.callout-note}
+### Build hashes change once in this release
+
+Xorq now folds the identity-bearing normalization rule set into the build hash.
+Concretely:
+
+- **Build directory names change**, and catalog entries keyed by build hash
+  move with them. **Rebuild your pipelines** so catalog entries are re-keyed
+  and aliases point at hashes produced under the new regime.
+- The `xorq:expr_hash` value recorded in cached-Parquet provenance metadata
+  changes for the same reason.
+- **Cache keys do not change.** Existing cache entries still hit, and nothing
+  recomputes.
+- **Existing builds still load and run.** A build's hash is read from its
+  directory name and never recompared, so artifacts built before this release
+  are unaffected.
+:::
+
 ## Why Xorq uses it
 
 Three properties fall out of naming by content, and Xorq leans on all three.
