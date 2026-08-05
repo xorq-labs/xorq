@@ -12,6 +12,7 @@ import contextlib
 import contextvars
 import itertools
 import logging
+from pathlib import PurePath
 from typing import TYPE_CHECKING
 
 import xxhash
@@ -115,6 +116,23 @@ def _rename_unbound_xorq(op: Node, prefix: str = "static") -> Node:
     return op.replace(rename)
 
 
+def _canonicalize_opaque_part(part: object) -> object:
+    """Map filesystem paths (and paths nested in sequences) to their string
+    form, elementwise; leave everything else alone.
+
+    ``PurePath.__str__`` is defined by the class, so it is address-free and
+    process-stable -- but dasher has no ``PurePath`` normalizer, and read
+    anchors reach ``_stable_opaque_name`` as a ``Path`` or a sequence of them.
+    Converting here keeps them hashable without registering a global rule that
+    would change how paths tokenize everywhere else.
+    """
+    if isinstance(part, PurePath):
+        return str(part)
+    if isinstance(part, (list, tuple)):
+        return tuple(_canonicalize_opaque_part(el) for el in part)
+    return part
+
+
 def _stable_opaque_name(prefix: str, *parts: str | Schema | FrozenOrderedDict) -> str:
     """Build a deterministic placeholder name from xxhash of structural parts.
 
@@ -122,8 +140,23 @@ def _stable_opaque_name(prefix: str, *parts: str | Schema | FrozenOrderedDict) -
     leaf names, which breaks across catalog reloads (different Python object
     identities for semantically-identical Reads). This helper keys on a
     content-stable hash of the supplied parts instead.
+
+    Each part is run through the project's canonical ``tokenize`` rather than
+    ``str``. ``str`` is only process-stable for types that define ``__str__``:
+    for a container (``tuple``, ``dict``, ...) it reprs its members, so a single
+    member whose class inherits the default ``object.__repr__`` embeds a memory
+    address and the placeholder name -- and therefore ``tokenize(expr)``, the
+    build hash, and the build directory name -- silently varies between
+    processes. Tokenizing per part makes any part type safe by construction: a
+    part dasher cannot normalize now raises instead of hashing an address.
     """
-    payload = "|".join(str(p) for p in parts).encode("utf-8")
+    # Lazy: HASHER is constructed in ``__init__`` *after* this module is
+    # imported, so a top-level import here would create a bootstrap cycle.
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+
+    payload = "|".join(tokenize(_canonicalize_opaque_part(p)) for p in parts).encode(
+        "utf-8"
+    )
     return f"{prefix}-{xxhash.xxh128(payload).hexdigest()[:16]}"
 
 

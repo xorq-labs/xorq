@@ -11,6 +11,11 @@ declarative read kwargs.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
+import pytest
+
 import xorq.api as xo
 from xorq.caching.strategy import snapshot_normalize_read
 from xorq.common.utils.dasher import tokenize
@@ -68,6 +73,57 @@ def test_source_contributes_identity_parts() -> None:
     assert tokenize(make_read(con_one)) != tokenize(make_read(con_two))
     con_two.read_identity_parts = lambda read: (("config", "hash-one"),)
     assert tokenize(make_read(con_one)) == tokenize(make_read(con_two))
+
+
+class Cursor:
+    """Tokenizable, but inherits the default ``object.__repr__``, so ``str()``
+    of any container holding one embeds a memory address."""
+
+    def __init__(self, page: int) -> None:
+        self.page = page
+
+    def __dasher_tokenize__(self) -> tuple:
+        return ("Cursor", self.page)
+
+
+_CROSS_PROCESS_SCRIPT = """
+import xorq.api as xo
+from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.graph_utils import replace_nodes
+from xorq.common.utils.dasher._opaque import _xorq_opaque_to_placeholder
+from xorq.tests.test_pathless_read_identity import Cursor, make_read
+
+expr = make_read(xo.connect(), read_kwargs=(("cursor", Cursor(7)),))
+print(replace_nodes(_xorq_opaque_to_placeholder, expr.op()).name)
+print(tokenize(expr))
+"""
+
+
+def test_identity_is_stable_across_processes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The opaque placeholder name and the expression token must not vary
+    between interpreters.
+
+    ``_stable_opaque_name`` used to ``str()`` each part; for the path-less
+    anchor (a nested tuple) that reprs its members, so a member with the
+    default ``__repr__`` leaked a memory address into the placeholder name and
+    the build hash -- silent permanent cache misses and unstable build
+    directory names, with no error raised. Two subprocesses with different
+    ``PYTHONHASHSEED`` values pin that down.
+    """
+
+    def run(seed: str) -> str:
+        monkeypatch.setenv("PYTHONHASHSEED", seed)
+        proc = subprocess.run(
+            [sys.executable, "-c", _CROSS_PROCESS_SCRIPT],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        return proc.stdout
+
+    assert run("0") == run("12345")
 
 
 def test_snapshot_strategy_accepts_pathless_read() -> None:
