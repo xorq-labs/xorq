@@ -32,15 +32,10 @@ def write_fake_dist(root: pathlib.Path, con_name: str) -> None:
 
 @contextlib.contextmanager
 def installed_mid_process(root: pathlib.Path, con_name: str) -> Iterator[str]:
-    """Install a backend distribution into this live process, with an
-    entry-point cache that predates it -- i.e. `pip install` in a Jupyter kernel.
-
-    Used by test_loader.py (resolution refreshes past the stale cache) and
-    test_profile.py (the staleness is invisible to `Profile` construction).
-    """
+    """Install a backend distribution into this live process, with an entry-point
+    cache that predates it -- i.e. `pip install` in a Jupyter kernel."""
     write_fake_dist(root, con_name)
-    # populate the cache *before* the install, which is the stale-cache setup
-    assert not any(ep.name == con_name for ep in _load_entry_points())
+    assert not any(ep.name == con_name for ep in _load_entry_points())  # warm it
     sys.path.insert(0, str(root))
     try:
         # the cached value still predates the install

@@ -693,16 +693,10 @@ def test_declared_secret_keys_are_mirrored(con_name: str) -> None:
 
 @pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
 def test_dynamic_hook_backends_also_mirror_static_keys(con_name: str) -> None:
-    """A backend declaring the dynamic _get_secret_keys hook must also declare
-    static _secret_keys.
-
-    The dynamic tier is best-effort by construction -- it is skipped for a
-    backend that isn't imported -- so a backend relying on it alone gets only
-    ("password",) checked when a profile is hand-authored in a fresh process.
-    get_dynamic_secret_keys' docstring says as much, but a docstring is not a
-    guarantee; this makes the belt-and-braces convention enforceable so a future
-    backend can't quietly opt out of it.
-    """
+    """A backend declaring the dynamic hook must also declare static
+    _secret_keys: the dynamic tier is skipped for a backend that isn't imported,
+    so a backend relying on it alone gets only ("password",) checked when a
+    profile is hand-authored in a fresh process."""
     entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
     try:
         module = entry_point.load()
@@ -726,14 +720,8 @@ def _install_fake_backend(
     imported: bool = True,
 ) -> str:
     """Register a throwaway backend so get_dynamic_secret_keys resolves to
-    backend_cls. Patches the entry-point lookup, and (when imported=True) marks
-    the module as already-imported in sys.modules -- the resolver only inspects
-    already-imported backends. Pass imported=False to simulate a backend whose
-    module has not been imported.
-
-    The fakes let a hook's *contract* be tested without a real plugin;
-    test_get_dynamic_secret_keys_resolves_a_real_backend covers the resolution
-    these patches stand in for."""
+    backend_cls: patch the entry-point lookup, and mark the module as imported,
+    which the resolver requires. Pass imported=False for the not-imported case."""
     module = types.ModuleType(module_name)
     module.Backend = backend_cls
     entry_point = types.SimpleNamespace(
@@ -812,12 +800,8 @@ def test_get_dynamic_secret_keys_none_when_not_imported(
 def test_get_dynamic_secret_keys_drops_keys_and_warns_on_hook_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A raising hook degrades to None -- it neither propagates (aborting the
-    save) nor bypasses the check. Dropping this tier is fail-*open* for the
-    dynamic keys (tiers 1+2 still apply, see
-    test_raising_hook_does_not_weaken_checking), so it must warn rather than
-    swallow: an always-raising hook otherwise contributes nothing forever and
-    silently."""
+    """A raising hook degrades to None -- neither propagating (aborting the save)
+    nor bypassing the check -- and warns, since dropping the tier is fail-open."""
 
     class Backend:
         @classmethod
@@ -1007,12 +991,9 @@ def test_hook_mutating_kwargs_does_not_weaken_checking(
 ) -> None:
     """A hook that mutates what it is handed cannot delete entries from the scan.
 
-    The hook is called with the kwargs the caller then scans, so before the copy
-    a hook doing `kwargs.pop(...)` -- plausible in a hook that consumes a config
-    while walking it -- removed the key from the scan entirely, and
-    `Profile.save()` wrote the plaintext secret to disk. The union of key tiers
-    cannot protect against this: it is the other side of the check.
-    """
+    The caller scans the same kwargs after the hook returns, so without the copy
+    a hook doing `kwargs.pop(...)` dropped the key from the scan and
+    `Profile.save()` wrote the plaintext secret to disk."""
     plaintext = "plaintext-hunter2"
 
     class Backend:
@@ -1035,13 +1016,8 @@ def test_hook_mutating_kwargs_does_not_weaken_checking(
 def test_hook_error_warning_redacts_kwarg_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A secret echoed by a hook's exception is masked in the warning.
-
-    A hook that fails while parsing a credential tends to quote it back
-    (`int("hunter2-super-secret")`), and warnings go to stderr and CI logs --
-    which would leak, out of the one module whose job is keeping secrets out of
-    plaintext sinks. Short values are left alone, so the message stays readable.
-    """
+    """A secret echoed by a hook's exception -- `int("hunter2...")` quotes its
+    input back -- is masked in the warning, which reaches stderr and CI logs."""
     plaintext = "hunter2-super-secret"
 
     class Backend:
@@ -1170,13 +1146,9 @@ def test_unimported_backend_still_checks_password(
 def test_validate_con_name_sees_a_backend_installed_mid_process(
     tmp_path: pathlib.Path,
 ) -> None:
-    """A backend installed into a live process is usable without a restart.
-
-    validate_con_name resolves through `_find_entry_point` for this reason:
-    scanning the cached entry points directly would reject the just-installed
-    backend as "Unknown backend" -- and list a stale set as the installed ones --
-    for the life of the process.
-    """
+    """A backend installed into a live process is usable without a restart: a
+    direct scan of the cached entry points would reject it as "Unknown backend",
+    listing a stale set as the installed ones, until the process restarted."""
     with installed_mid_process(tmp_path, "xorqfakeprofilebackend") as con_name:
         profile = Profile(con_name=con_name, kwargs_tuple=())
         assert profile.con_name == con_name
