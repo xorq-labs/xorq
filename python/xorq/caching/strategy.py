@@ -38,7 +38,15 @@ def snapshot_normalize_read(read: Read) -> tuple:
     if "hash_path" not in read_kwargs:
         # path-less Read (e.g. an API-backed source): the registered
         # normalize_method already yields declarative (stat-free) identity
-        return ("snapshot_normalize_read", read.schema, read.normalize_method(read))
+        from xorq.common.utils.dasher._opaque import (  # noqa: PLC0415
+            require_normalize_method,
+        )
+
+        return (
+            "snapshot_normalize_read",
+            read.schema,
+            require_normalize_method(read)(read),
+        )
     # Materialized build-bundle reads carry a content-hash-named read_path that is
     # stable across environments. Their hash_path is an absolute tmpdir path that
     # changes every run, so prefer read_path when available.

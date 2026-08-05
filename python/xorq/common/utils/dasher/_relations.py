@@ -25,7 +25,11 @@ from xorq.common.utils.dasher._canonical import (
     normalize_memory_databasetable_canonical,
 )
 from xorq.common.utils.dasher._gap_rules import normalize_ibis_schema
-from xorq.common.utils.dasher._opaque import _MISSING, _rename_unbound_xorq
+from xorq.common.utils.dasher._opaque import (
+    _MISSING,
+    _rename_unbound_xorq,
+    require_normalize_method,
+)
 from xorq.common.utils.dasher._paths import (
     _extract_datafusion_plan_paths,
     _extract_duckdb_file_paths,
@@ -65,13 +69,7 @@ def _normalize_read_xorq(read):
     if "hash_path" not in read_kwargs:
         # path-less Read (e.g. an API-backed source): identity comes entirely
         # from the registered normalize_method, which receives the op itself
-        if read.normalize_method is None:
-            raise ValueError(
-                f"Read op {getattr(read, 'name', read)!r} has neither a "
-                "hash_path nor a normalize_method; path-less reads must set a "
-                "registered normalize_method"
-            )
-        return ("xorq.Read", read.schema, read.normalize_method(read))
+        return ("xorq.Read", read.schema, require_normalize_method(read)(read))
     path = read_kwargs["hash_path"]
     if path is None:
         raise ValueError(

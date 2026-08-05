@@ -21,7 +21,7 @@ from xorq.common.utils.dasher._canonical import normalize_inmemorytable_canonica
 
 
 if TYPE_CHECKING:
-    from typing import Literal, TypedDict
+    from typing import Callable, Literal, TypedDict
 
     from xorq.vendor.ibis.common.collections import FrozenOrderedDict
     from xorq.vendor.ibis.expr.operations.core import Node
@@ -133,6 +133,25 @@ def _canonicalize_opaque_part(part: object) -> object:
     return part
 
 
+def require_normalize_method(read: Read) -> Callable:
+    """Return ``read.normalize_method``, raising a diagnosable error if unset.
+
+    Shared by every path-less-``Read`` identity site (the xorq Read rule, the
+    snapshot Read normalizer, and the opaque-placeholder rewrite) so they all
+    fail the same explicable way instead of one raising ``ValueError`` and the
+    others a bare ``TypeError`` from calling ``None``. Unreachable through the
+    public constructors -- defense in depth for hand-built ops.
+    """
+    normalize_method = read.normalize_method
+    if normalize_method is None:
+        raise ValueError(
+            f"Read op {getattr(read, 'name', read)!r} has neither a "
+            "hash_path nor a normalize_method; path-less reads must set a "
+            "registered normalize_method"
+        )
+    return normalize_method
+
+
 def _stable_opaque_name(prefix: str, *parts: str | Schema | FrozenOrderedDict) -> str:
     """Build a deterministic placeholder name from xxhash of structural parts.
 
@@ -147,8 +166,7 @@ def _stable_opaque_name(prefix: str, *parts: str | Schema | FrozenOrderedDict) -
     member whose class inherits the default ``object.__repr__`` embeds a memory
     address and the placeholder name -- and therefore ``tokenize(expr)``, the
     build hash, and the build directory name -- silently varies between
-    processes. Tokenizing per part makes any part type safe by construction: a
-    part dasher cannot normalize now raises instead of hashing an address.
+    processes. Tokenizing per part makes any part type safe by construction.
     """
     # Lazy: HASHER is constructed in ``__init__`` *after* this module is
     # imported, so a top-level import here would create a bootstrap cycle.
@@ -262,7 +280,7 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
                 # path-less Read (e.g. an API-backed source): anchor on the
                 # registered normalize_method's identity, mirroring the
                 # path-less branch of _normalize_read_xorq
-                anchor = node.normalize_method(node)
+                anchor = require_normalize_method(node)(node)
             name = _stable_opaque_name("read", node.schema, anchor)
         case RemoteTable():
             name = _stable_opaque_name(
