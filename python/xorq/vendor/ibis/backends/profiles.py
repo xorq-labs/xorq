@@ -517,6 +517,15 @@ def get_dynamic_secret_keys(
         return None
     try:
         keys = getter(kwargs)
+        if isinstance(keys, (str, bytes)):
+            # A bare name is iterable, so tuple("api_key") would quietly become
+            # ('a','p','i',...): the intended key dropped from this tier and
+            # junk single-character keys added. Raise so it is reported below
+            # instead of silently not checking the key the hook meant to name.
+            raise TypeError(
+                "must return a sequence of names or None, not a bare "
+                f"{type(keys).__name__} ({keys!r})"
+            )
     except Exception as e:
         # Degrade to tiers 1+2 rather than crashing a save or skipping the check
         # entirely -- but say so, since an always-raising hook otherwise

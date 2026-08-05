@@ -792,6 +792,25 @@ def test_get_dynamic_secret_keys_drops_keys_and_warns_on_hook_error(
         assert get_dynamic_secret_keys(con_name, {}) is None
 
 
+def test_get_dynamic_secret_keys_rejects_bare_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning a bare name instead of a sequence is reported, not
+    iterated: tuple("api_key") would drop the key the hook meant to name and add
+    junk single-character keys."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return "api_key"
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning, match="not a bare str"):
+        assert get_dynamic_secret_keys(con_name, {}) is None
+    with pytest.warns(RuntimeWarning):
+        assert "a" not in profiles_mod.get_secret_keys(con_name, {})
+
+
 def test_check_for_exposed_secrets_uses_dynamic_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
