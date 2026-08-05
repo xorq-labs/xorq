@@ -485,8 +485,13 @@ def get_dynamic_secret_keys(
     purely to validate secrets (that would import a heavy backend, e.g.
     snowflake, on every ``Profile.save()``). Returns None when the backend is
     not imported, has no entry point, declares no dynamic hook, or the hook
-    raises (fail closed: the caller then falls back to the static mirror rather
-    than skipping the check).
+    raises.
+
+    This tier is purely additive: ``check_for_exposed_secrets`` unions whatever
+    is returned here with the unconditional ``("password",)`` default and the
+    static ``con_name_to_secret_keys`` mirror. An unavailable or raising hook
+    (None) therefore cannot weaken the check, and neither can a hook that
+    returns fewer keys than the mirror declares.
     """
     entry_point = next((ep for ep in _load_entry_points() if ep.name == con_name), None)
     if entry_point is None:
@@ -504,13 +509,48 @@ def get_dynamic_secret_keys(
     return tuple(keys) if keys is not None else None
 
 
+# Checked for every backend, unconditionally, on top of whatever the mirror and
+# the dynamic hook contribute. A backend cannot declare that a kwarg literally
+# named `password` is not a secret.
+default_secret_keys = ("password",)
+
+
+def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...]:
+    """Return every secret key to check for ``con_name``.
+
+    The result is the *union* of three tiers, so the combination is monotone --
+    each tier can only widen the set, never shrink it:
+
+    1. the unconditional ``default_secret_keys`` (``("password",)``),
+    2. the static ``con_name_to_secret_keys`` mirror entry, if any,
+    3. the backend's dynamic ``_get_secret_keys(kwargs)`` hook, if resolvable.
+
+    Consequently a dynamic hook can only ADD keys. A hook returning ``()``, a
+    hook returning a subset of the mirror, a raising hook, and a backend that
+    isn't imported yet all leave tiers 1 and 2 intact.
+
+    Ordering is deterministic (first occurrence wins, tiers in the order above)
+    so error messages are reproducible.
+    """
+    return tuple(
+        dict.fromkeys(
+            (
+                *default_secret_keys,
+                *con_name_to_secret_keys.get(con_name, ()),
+                *(get_dynamic_secret_keys(con_name, kwargs) or ()),
+            )
+        )
+    )
+
+
 def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
     """Check if profile contains exposed secret keys.
 
-    A backend may declare a dynamic `_get_secret_keys(kwargs)` hook, which
-    takes precedence when it yields keys; otherwise secret keys come from the
-    static `con_name_to_secret_keys` mirror, defaulting to `("password",)` for
-    backends not listed.
+    The keys checked are the union of the unconditional ``("password",)``
+    default, the static `con_name_to_secret_keys` mirror entry for `con_name`,
+    and the backend's dynamic `_get_secret_keys(kwargs)` hook -- see
+    `get_secret_keys`. The dynamic hook can only widen that set; a hook that is
+    unavailable, raises, or returns fewer keys cannot weaken the check.
 
     Raises
     ------
@@ -518,12 +558,7 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
         If profile contains exposed secret keys not using environment variables
     """
 
-    relevant_keys = get_dynamic_secret_keys(con_name, kwargs)
-    if relevant_keys is None:
-        relevant_keys = con_name_to_secret_keys.get(
-            con_name,
-            ("password",),  # default to just password
-        )
+    relevant_keys = get_secret_keys(con_name, kwargs)
 
     exposed_secrets = tuple(
         key

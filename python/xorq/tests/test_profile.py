@@ -791,7 +791,7 @@ def test_check_for_exposed_secrets_uses_dynamic_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """End-to-end: a key surfaced only by the dynamic hook is enforced by
-    check_for_exposed_secrets, and takes precedence over the static mapping."""
+    check_for_exposed_secrets, on top of the default/static keys."""
 
     class Backend:
         @classmethod
@@ -803,3 +803,107 @@ def test_check_for_exposed_secrets_uses_dynamic_keys(
         check_for_exposed_secrets(con_name, {"api_key": "plaintext"})
     # an env-var reference is accepted
     check_for_exposed_secrets(con_name, {"api_key": "${API_KEY}"})
+
+
+def test_get_secret_keys_unions_default_mirror_and_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The three tiers are unioned, not chained: a backend that is both mirrored
+    and declares a hook is checked for the default, the mirrored, and the
+    dynamic keys together. Ordering is deterministic (default, mirror, hook)."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("token", "sslcert")
+
+    _install_fake_backend(monkeypatch, Backend, con_name="postgres")
+    keys = profiles_mod.get_secret_keys("postgres", {})
+    assert keys == (
+        "password",
+        "sslcert",
+        "sslkey",
+        "sslrootcert",
+        "sslcrl",
+        "options",
+        "passfile",
+        "token",
+    )
+    # no duplicates even though the hook repeated a mirrored key
+    assert len(keys) == len(set(keys))
+
+
+def test_hook_returning_empty_does_not_disable_checking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning () must not be read as "nothing is secret": the
+    unconditional password default still applies. (RestBackend._get_secret_keys
+    returns () when its config does not resolve.)"""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {}) == ()
+    assert profiles_mod.get_secret_keys(con_name, {}) == ("password",)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, {"password": "plaintext"})
+
+
+def test_hook_returning_subset_does_not_shrink_mirrored_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning a subset of a mirrored backend's keys must not stop the
+    mirrored keys from being checked."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("token",)
+
+    _install_fake_backend(monkeypatch, Backend, con_name="postgres")
+    keys = profiles_mod.get_secret_keys("postgres", {})
+    assert set(con_name_to_secret_keys["postgres"]) <= set(keys)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets("postgres", {"password": "plaintext"})
+    with pytest.raises(ValueError, match="sslcert"):
+        check_for_exposed_secrets("postgres", {"sslcert": "/path/to/cert"})
+
+
+def test_raising_hook_does_not_weaken_checking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising hook degrades to the default-plus-mirror union, which still
+    catches every statically known key."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            raise RuntimeError("boom")
+
+    _install_fake_backend(monkeypatch, Backend, con_name="snowflake")
+    assert profiles_mod.get_secret_keys("snowflake", {}) == (
+        "password",
+        *con_name_to_secret_keys["snowflake"][1:],
+    )
+    with pytest.raises(ValueError, match="private_key"):
+        check_for_exposed_secrets("snowflake", {"private_key": "plaintext"})
+
+
+def test_unimported_backend_still_checks_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backend whose module has not been imported contributes no dynamic keys,
+    but the unconditional default still applies."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key",)
+
+    con_name = _install_fake_backend(monkeypatch, Backend, imported=False)
+    assert profiles_mod.get_secret_keys(con_name, {}) == ("password",)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, {"password": "plaintext"})
