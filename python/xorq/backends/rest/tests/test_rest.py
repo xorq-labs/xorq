@@ -14,6 +14,7 @@ from datetime import (
 
 import attr
 import pandas as pd
+import pyarrow as pa
 import pytest
 import requests
 
@@ -1072,6 +1073,36 @@ def test_curated_sibling_independence() -> None:
     )
     # ...but not the sibling's (config-in-code: profile excludes the config)
     assert tokenize(con.read("other")) == tokenize(edited.read("other"))
+
+
+def test_pandas_substrate_is_unreachable(tmp_path: pathlib.Path) -> None:
+    """The inherited `BasePandasBackend` registration methods write
+    `self.dictionary` and then execute through `PandasExecutor`, so leaving
+    them reachable made one connection serve TWO execution engines: a
+    `read_parquet` table joined against a resource read would carry pandas
+    nulls on one side and Arrow nulls on the other. They are refused for the
+    same reason the mutation methods are.
+    """
+    con = CuratedBackend().connect()
+    path = tmp_path / "t.parquet"
+    pd.DataFrame({"a": [1, 2, 3]}).to_parquet(path)
+    for call in (
+        lambda: con.read_parquet(path),
+        lambda: con.read_csv(path),
+        lambda: con.read_record_batches(pa.table({"a": [1]}), table_name="t"),
+        lambda: con.from_dataframe(pd.DataFrame({"a": [1]})),
+    ):
+        with pytest.raises(com.XorqError, match="does not support"):
+            call()
+    # ... and none of them left anything behind on the pandas table store
+    assert not con.dictionary
+    # the mutation refusals are unchanged
+    for mutate in (
+        lambda: con.create_table("t", pd.DataFrame({"a": [1]})),
+        lambda: con.drop_table("t"),
+    ):
+        with pytest.raises(com.XorqError, match="read-only"):
+            mutate()
 
 
 class AcmePaginator(SinglePagePaginator):

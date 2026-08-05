@@ -20,7 +20,11 @@ supplies Backend plumbing (profile machinery, ``do_connect``,
 ``_filter_with_like``) while a private owned xorq-DataFusion connection
 supplies execution and storage. ``fetch_resource`` -- the ``Read.make_dt``
 boundary -- registers a *lazy* table over the engine's page stream there, so
-nothing is fetched until the engine pulls batches.
+nothing is fetched until the engine pulls batches. Inheriting the base for
+plumbing also inherits its *execution* engine, so the registration methods
+that would reach it (``read_csv``, ``read_parquet``, ``read_record_batches``,
+``from_dataframe``) are refused: one connection must not serve two execution
+engines with divergent null/int/string semantics.
 """
 
 from __future__ import annotations
@@ -241,6 +245,13 @@ class RestBackend(PandasBackend):
         return (("api", config.content_hash), ("config", resource.content_hash))
 
     # -- resource surface ---------------------------------------------------
+    #
+    # The `self.dictionary` branches below are the inherited pandas table
+    # store. Nothing on this class writes it any more (`fetch_resource`
+    # registers on the owned DataFusion connection, and the registration
+    # methods that used to write it are refused -- see "read-only" below), but
+    # serving what is there is deliberate: a caller who put a frame in it
+    # directly should still be able to read it back.
 
     def list_tables(
         self, like: str | None = None, database: str | None = None
@@ -267,8 +278,9 @@ class RestBackend(PandasBackend):
         if name in self.dictionary:
             if params:
                 raise com.XorqError(
-                    f"{name!r} is a fetched table; params are only valid for "
-                    f"resources {self.current_config.resource_names}"
+                    f"{name!r} is a registered table, not a resource; params "
+                    "are only valid for resources "
+                    f"{self.current_config.resource_names}"
                 )
             return super().table(name, schema=schema)
         if name not in self.current_config.resource_names:
@@ -438,6 +450,52 @@ class RestBackend(PandasBackend):
         return self._spill_dir
 
     # -- read-only ----------------------------------------------------------
+    #
+    # Two families of refusal, on the same argument. The mutation methods
+    # refuse because this backend is read-only. The registration methods
+    # inherited from `BasePandasBackend` refuse because they are the live
+    # entrance to a *second* execution engine on the same connection: they
+    # write `self.dictionary` and then execute through `PandasExecutor`, while
+    # resource reads execute on the owned DataFusion connection (ADR-0019).
+    # One connection serving both is exactly the divergence the differential
+    # harness catalogues -- pandas nulls on one side of a join, Arrow nulls on
+    # the other -- so the pandas substrate is not reachable from here at all.
+
+    def _no_second_substrate(self, method: str, what: str) -> com.XorqError:
+        return com.XorqError(
+            f"the {self.name} backend does not support {method}(): registering "
+            f"{what} here would execute it on the inherited pandas engine, "
+            "while resource reads execute on Arrow/DataFusion (ADR-0019) -- one "
+            "connection, two execution engines, and a join across them mixes "
+            "two sets of null/int/string semantics. This backend serves "
+            "resources only: use con.read(<resource>) (see con.list_tables()) "
+            "for API data, and load files on a full connection "
+            "(xo.connect().read_parquet(...)), bringing one side to the other "
+            "with .into_backend()."
+        )
+
+    def read_csv(
+        self, source: object, table_name: str | None = None, **kwargs: object
+    ) -> ir.Table:
+        raise self._no_second_substrate("read_csv", "a CSV file")
+
+    def read_parquet(
+        self, source: object, table_name: str | None = None, **kwargs: object
+    ) -> ir.Table:
+        raise self._no_second_substrate("read_parquet", "a parquet file")
+
+    def read_record_batches(
+        self, record_batches: object, table_name: str | None = None
+    ) -> ir.Table:
+        raise self._no_second_substrate("read_record_batches", "record batches")
+
+    def from_dataframe(
+        self,
+        df: object,
+        name: str = "df",
+        client: RestBackend | None = None,
+    ) -> ir.Table:
+        raise self._no_second_substrate("from_dataframe", "a pandas DataFrame")
 
     def create_table(
         self,
