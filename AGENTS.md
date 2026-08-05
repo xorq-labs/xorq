@@ -41,6 +41,13 @@ not exist yet and the gate for accepting it. This recurs even right after being
 diagnosed, so check it deliberately: grep changed docs for "verified", "now",
 "currently", "this branch".
 
+Cite the status, not just the number: `ADR-0019 (proposed in #2201, not yet
+merged)`, never a bare `ADR-0019 (#2201)` for something not in the tree — the
+parenthetical is self-expiring and stops an unmerged proposal reading as an
+accepted record. Prefer PR numbers to short SHAs for anything outside the tree
+(SHAs die to rebase, squash-merge and subtree extraction). For a closed unmerged
+PR, inline the substance instead of citing it.
+
 ## Isolate before you diagnose
 
 A story that explains the evidence is not the cause. Apply the one suspected

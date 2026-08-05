@@ -91,7 +91,8 @@ Distilled from two cases. Causes 1–5 come from the #2177/#2196 review rounds
 the over-unification and failure-direction notes in steps 2–3, and the two
 techniques above come from the rest-backend landing-stack retro of 2026-08-05
 (~35 findings across five per-part reviews plus two blind structural passes;
-ADRs 0018–0025 record the code-side outcomes). Cause 2 recurred there as the
+its ADRs 0018–0025 record the code-side outcomes, and are unmerged at the time
+of writing — see the rest-backend landing stack). Cause 2 recurred there as the
 highest-severity finding, which is the main reason to start from this list
 rather than from scratch. Start from these — they have recurred — but
 explicitly hunt for causes that do not fit; a taxonomy that only confirms
@@ -126,6 +127,21 @@ cause.
    Consequences; a status of Proposed also requires naming what does not exist
    yet and the gate for accepting it. Grep candidates when reviewing docs:
    "verified", "now", "currently", "this branch".
+
+   **Corollary — cite the status, not just the number.** A cross-reference to
+   something not yet in the tree carries its state:
+   `ADR-0019 (proposed in #2201, not yet merged)`, not `ADR-0019 (#2201)`. The
+   bare number reads as "the record is over there", so if that PR closes
+   unmerged the reader follows a link that resolves to a document never
+   accepted — worse than a dangling reference, which at least announces that
+   something is missing. The status parenthetical is also self-expiring: it gets
+   deleted when the thing lands.
+   Prefer PR numbers to short SHAs for anything outside the tree — SHAs do not
+   survive rebases, squash-merges or subtree extraction (two citations died that
+   way in the case above; `refs/pull/N/head` persists even past merge and branch
+   deletion, though a default clone does not fetch it). But for a *closed
+   unmerged* PR, do not cite it as a record at all: either the substance matters
+   and you **inline it**, or it does not.
 
 ## Reviewing against a document that may itself be wrong
 
