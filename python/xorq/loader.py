@@ -13,40 +13,25 @@ except ModuleNotFoundError:
 
 @functools.cache
 def _load_entry_points() -> tuple[importlib_metadata.EntryPoint, ...]:
-    # cached: scanning the installed distributions costs ~15ms, and this is
-    # called on paths that run per-object rather than once -- Profile
-    # construction (validate_con_name) and secret validation. Returns a tuple so
-    # the shared cached value can't be mutated in place by a caller.
-    #
-    # The cache can go stale: installing a backend distribution into a live
-    # process (pip install in a Jupyter kernel) adds entry points that an
-    # already-populated cache will not show. Resolution therefore refreshes on a
-    # miss -- see _find_entry_point -- so the staleness is not observable as an
-    # unresolvable backend.
+    # cached: the scan costs ~15ms and validate_con_name runs per Profile. A
+    # tuple, so the shared value can't be mutated in place by a caller.
     eps = importlib_metadata.entry_points(group="xorq.backends")
     return tuple(sorted(eps))
 
 
 def _find_entry_point(name: str) -> importlib_metadata.EntryPoint | None:
-    """Look up a `xorq.backends` entry point by name, refreshing once on a miss.
+    """Look up a `xorq.backends` entry point, refreshing the cache once on a miss.
 
-    A miss can mean either "no such backend" or "the cache predates a
-    mid-process install", and the two are indistinguishable without rescanning.
-    Rescanning only on a miss keeps the hit path free: a name that resolves
-    never pays for it, and a name that genuinely doesn't exist pays a ~15ms
-    rescan rather than staying unresolvable for the life of the process.
-
-    Resolve names through here rather than by scanning `_load_entry_points()`
-    directly -- a direct scan sees the cache as it was, so it would reject a
-    just-installed backend (see `profiles.Profile.validate_con_name`).
+    Resolve through here rather than scanning `_load_entry_points()`: a direct
+    scan sees the cache as it was, so it rejects a backend installed into a live
+    process (pip install in a Jupyter kernel) until that process restarts. Only a
+    miss pays the rescan.
     """
     if entry_point := next(
         (ep for ep in _load_entry_points() if ep.name == name), None
     ):
         return entry_point
-    # a distribution installed after the cache was populated may also postdate
-    # the import system's own path caches
-    importlib.invalidate_caches()
+    importlib.invalidate_caches()  # a new dist postdates the import caches too
     _load_entry_points.cache_clear()
     return next((ep for ep in _load_entry_points() if ep.name == name), None)
 

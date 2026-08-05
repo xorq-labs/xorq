@@ -26,13 +26,9 @@ def test_find_entry_point_resolves_an_installed_backend() -> None:
 
 
 def test_find_entry_point_refreshes_a_stale_cache(tmp_path: pathlib.Path) -> None:
-    """A backend installed after the cache was populated is still resolvable.
-
-    The cache is what makes repeated Profile construction cheap, but it means a
-    distribution installed into a live process (pip install in a Jupyter kernel)
-    is invisible to an already-populated cache. Resolution refreshes on a miss so
-    that staleness never surfaces as an unresolvable backend.
-    """
+    """A backend installed after the cache was populated is still resolvable:
+    resolution refreshes on a miss, so staleness never surfaces as an
+    unresolvable backend."""
     with installed_mid_process(tmp_path, "xorqfakebackend") as con_name:
         # resolution refreshes past the stale cache
         entry_point = _find_entry_point(con_name)
@@ -51,13 +47,9 @@ def test_load_backend_returns_none_for_unknown_backend() -> None:
 
 @pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
 def test_load_backend_entry_points_are_loadable(con_name: str) -> None:
-    """Every declared entry point names a module exposing a `Backend`, which is
-    what both `load_backend` and the dynamic secret-key lookup assume.
-
-    A backend whose optional dependencies aren't installed is skipped: entry
-    points are declared for every backend regardless of which extras the
-    environment has.
-    """
+    """Every declared entry point names a module exposing a `Backend`, which both
+    `load_backend` and the dynamic secret-key lookup assume. Skipped for a backend
+    whose extras aren't installed -- entry points are declared regardless."""
     entry_point = _find_entry_point(con_name)
     assert entry_point is not None
     try:
