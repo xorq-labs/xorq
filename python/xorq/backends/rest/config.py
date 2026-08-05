@@ -12,11 +12,16 @@ behind it. Three deliberate omissions vs dlt's RESTAPIConfig:
    (NDJSON export, nonstandard pagination) supply a callable. Overrides are
    code-path-only: they cannot ride in a self-service profile.
 
-Identity: each resource carries a ``content_hash`` over its *declarative*
-fields (``fetch_override`` excluded — code is refactorable, per ADR-0017's
-line), folded into ``normalize_read_source_identity`` so editing a
-resource's path/params changes build and cache hashes (ADR-0015) without
-invalidating sibling resources.
+Identity: both config classes carry a ``content_hash`` DERIVED from their
+attrs declaration (``identity_field_names``) rather than a hand-written
+tuple — a field is identity-bearing by default and opting out takes an
+explicit ``metadata={"identity": False}``. ``ResourceConfig`` covers the
+resource's declarative fields (``fetch_override`` excluded — code is
+refactorable, per ADR-0025's line); ``RestBackendConfig`` covers the
+API-wide contract, the resolved ``base_urls`` and the auth shape. The
+backend folds both into ``normalize_read_source_identity``, so editing a
+resource's path/params, or repointing a base URL, changes build and cache
+hashes (ADR-0015) without invalidating sibling resources.
 """
 
 from __future__ import annotations
@@ -26,7 +31,9 @@ from types import MappingProxyType
 
 from attr import (
     field,
+    fields,
     frozen,
+    has,
 )
 from attr.validators import (
     deep_iterable,
@@ -71,6 +78,61 @@ def schema_to_nullable_dtypes(schema: Schema) -> dict[str, str]:
 
 def _tuplify(value: object) -> tuple:
     return tuple(value) if isinstance(value, (list, tuple)) else (value,)
+
+
+# -- derived identity --------------------------------------------------------
+#
+# Identity membership is DERIVED from the attrs declaration, never
+# hand-enumerated. A hand-written tuple beside a growing attrs class drifts
+# silently in the dangerous direction: a field that is identity-bearing but
+# unhashed makes two different configs share a hash, so cached data from one
+# is served as current data for the other. Deriving flips the failure
+# direction -- a new field is identity-bearing BY DEFAULT, and the worst a
+# mistake can do is a spurious cache miss.
+
+IDENTITY_EXCLUDED = "identity"
+
+
+def identity_field_names(cls: type) -> tuple[str, ...]:
+    """Identity-bearing field names of an attrs class: every declared field
+    except those annotated ``metadata={"identity": False}``.
+
+    Opting a field out is therefore a conscious annotation carrying its own
+    justification, not an omission from a list nobody re-reads.
+    """
+    return tuple(f.name for f in fields(cls) if f.metadata.get(IDENTITY_EXCLUDED, True))
+
+
+def _identity_value(value: object) -> object:
+    if has(type(value)):
+        return identity_parts(value)
+    if isinstance(value, (MappingProxyType, dict)):
+        return tuple(sorted((k, _identity_value(v)) for k, v in value.items()))
+    if isinstance(value, (tuple, list)):
+        return tuple(_identity_value(v) for v in value)
+    return value
+
+
+def identity_parts(inst: object) -> tuple[tuple[str, object], ...]:
+    """``(field_name, value)`` pairs over an attrs instance's identity fields.
+
+    Named pairs, not a bare tuple: the encoding stays injective under field
+    renames and reorderings. Nested attrs values (``ParamSpec``,
+    ``AuthConfig``) recurse through the same rule, so they need no bespoke
+    normalization; mappings are sorted so declaration order is not
+    identity-bearing.
+    """
+    return tuple(
+        (name, _identity_value(getattr(inst, name)))
+        for name in identity_field_names(type(inst))
+    )
+
+
+def content_hash(inst: object) -> str:
+    """Tokenized digest of an attrs instance's derived identity parts."""
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+
+    return tokenize(identity_parts(inst))
 
 
 def _freeze_kv_pairs(value: object) -> tuple:
@@ -213,7 +275,13 @@ class ResourceConfig:
     # Declared, not name-sniffed, so an API with a genuine field named
     # "properties" can still have it as a typed column.
     residual_column = field(validator=optional(instance_of(str)), default=None)
-    fetch_override = field(validator=optional(is_callable()), default=None)
+    # the one identity opt-out on this class: fetch_override is code, and
+    # refactoring code must not invalidate builds/caches (ADR-0025's line)
+    fetch_override = field(
+        validator=optional(is_callable()),
+        default=None,
+        metadata={IDENTITY_EXCLUDED: False},
+    )
 
     def __attrs_post_init__(self) -> None:
         if (
@@ -259,24 +327,19 @@ class ResourceConfig:
 
     @property
     def content_hash(self) -> str:
-        """Identity over declarative fields only: ``fetch_override`` is code
-        and stays out (refactoring it must not invalidate builds/caches,
-        the same line ADR-0017 draws for fetch code)."""
-        from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+        """Identity over declarative fields only, DERIVED from the attrs
+        declaration (``identity_field_names``): every field but
+        ``fetch_override``, which is code and stays out (refactoring it must
+        not invalidate builds/caches, the same line ADR-0025 draws for fetch
+        code).
 
-        return tokenize(
-            (
-                self.name,
-                self.schema,
-                self.path,
-                self.base_url_key,
-                self.record_path,
-                self.paginator,
-                self.paginator_kwargs,
-                tuple((p.name, p.required, p.kind) for p in self.params),
-                self.residual_column,
-            )
-        )
+        Note what this hash does *not* cover: the resolved base URL. It folds
+        ``base_url_key``, the name of a route; the URL that name resolves to
+        lives in ``RestBackendConfig.base_urls`` and is folded by
+        ``RestBackendConfig.content_hash``, which the backend contributes to
+        read identity alongside this one.
+        """
+        return content_hash(self)
 
     @classmethod
     def from_dict(cls, dct: dict) -> ResourceConfig:
@@ -306,9 +369,14 @@ class RestBackendConfig:
         validator=instance_of(MappingProxyType),
     )
     auth = field(validator=instance_of(AuthConfig))
+    # excluded from *this* class's content_hash, not from identity: each
+    # resource contributes its own `ResourceConfig.content_hash` per read, so
+    # editing one resource must not invalidate its siblings (ADR-0018). Folding
+    # the whole tuple here would undo that.
     resources = field(
         validator=deep_iterable(instance_of(ResourceConfig), instance_of(tuple)),
         converter=tuple,
+        metadata={IDENTITY_EXCLUDED: False},
     )
 
     def __attrs_post_init__(self) -> None:
@@ -325,6 +393,20 @@ class RestBackendConfig:
                 f"resources reference unknown base_urls keys: {unrouted}; "
                 f"available: {sorted(self.base_urls)}"
             )
+
+    @property
+    def content_hash(self) -> str:
+        """Identity of the API-wide contract: the resolved ``base_urls`` and
+        the whole auth shape, DERIVED from the attrs declaration.
+
+        This is what makes *where the data came from* identity-bearing. For a
+        curated backend the profile carries credentials only, so without this
+        hash repointing ``base_urls`` from prod to staging changed nothing a
+        read hashed on -- and cached data from the old host was served as
+        current data from the new one. ``resources`` is excluded here because
+        it is folded per-resource (see the field comment).
+        """
+        return content_hash(self)
 
     @property
     def resource_names(self) -> tuple[str, ...]:

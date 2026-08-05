@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import pathlib
 
+import attr
 import pytest
 import requests
 
@@ -14,6 +15,7 @@ from xorq.backends.rest.config import (
     ParamSpec,
     ResourceConfig,
     RestBackendConfig,
+    identity_field_names,
     schema_to_nullable_dtypes,
 )
 from xorq.backends.rest.engines import (
@@ -54,10 +56,14 @@ config_dict = {
 }
 
 
-def make_config(things_path: str = "/things/{bucket}") -> RestBackendConfig:
+def make_config(
+    things_path: str = "/things/{bucket}",
+    base_url: str = "https://api.example.com",
+    auth: AuthConfig | None = None,
+) -> RestBackendConfig:
     return RestBackendConfig(
-        base_urls={"default": "https://api.example.com"},
-        auth=AuthConfig(kind="none"),
+        base_urls={"default": base_url},
+        auth=auth if auth is not None else AuthConfig(kind="none"),
         resources=(
             ResourceConfig(
                 name="things",
@@ -97,6 +103,61 @@ def test_resource_content_hash_is_declarative() -> None:
         name="other", schema=things_schema, path="/other", fetch_override=lambda b: None
     )
     assert overridden.content_hash == other.content_hash
+
+
+def test_identity_field_membership_is_derived_from_the_declaration() -> None:
+    """Identity membership must be derived from `attrs.fields`, so a field
+    added later is identity-bearing by default. The only way out is an
+    explicit metadata annotation -- these assertions are the tripwire that a
+    new field cannot silently escape the hash."""
+    excluded = {
+        ResourceConfig: {"fetch_override"},  # code, not declarative config
+        RestBackendConfig: {"resources"},  # folded per-resource instead
+        AuthConfig: set(),
+        ParamSpec: set(),
+    }
+    for cls, opted_out in excluded.items():
+        declared = tuple(f.name for f in attr.fields(cls))
+        assert identity_field_names(cls) == tuple(
+            name for name in declared if name not in opted_out
+        )
+        # the exclusions are exactly the annotated ones, not an ambient list
+        assert {
+            f.name for f in attr.fields(cls) if f.metadata.get("identity") is False
+        } == opted_out
+
+
+class CuratedStagingBackend(RestBackend):
+    # differs from CuratedBackend in the resolved base URL and NOTHING else
+    config = make_config(base_url="https://staging.example.com")
+
+
+class CuratedBearerBackend(RestBackend):
+    # differs from CuratedBackend in auth kind and NOTHING else; the token is
+    # optional, so both connect with an identical (empty) credential profile
+    config = make_config(
+        auth=AuthConfig(kind="bearer", fields=("token",), optional_fields=("token",))
+    )
+
+
+def test_resolved_base_url_is_identity_bearing() -> None:
+    """The bug this pins: a curated profile carries credentials only, so
+    repointing base_urls from prod to staging changed no hash -- and cached
+    data from the old host was served as current data from the new one."""
+    prod = CuratedBackend().connect()
+    staging = CuratedStagingBackend().connect()
+    assert prod._profile.almost_equals(staging._profile)  # the profile cannot tell
+    assert tokenize(prod.read("other")) != tokenize(staging.read("other"))
+    assert (
+        prod.current_config.content_hash != staging.current_config.content_hash
+    )  # ... but the config hash does
+
+
+def test_auth_kind_is_identity_bearing() -> None:
+    none_auth = CuratedBackend().connect()
+    bearer = CuratedBearerBackend().connect()
+    assert none_auth._profile.almost_equals(bearer._profile)
+    assert tokenize(none_auth.read("other")) != tokenize(bearer.read("other"))
 
 
 def test_path_placeholders_validated_at_construction() -> None:

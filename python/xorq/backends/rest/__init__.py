@@ -174,11 +174,19 @@ class RestBackend(PandasBackend):
 
     def read_identity_parts(self, read: Read) -> tuple:
         """This backend's contribution to path-less Read identity
-        (`normalize_read_source_identity` delegates here): the per-resource
-        config content hash, so editing a resource's declarative config
-        changes build/cache hashes without invalidating siblings."""
-        resource = self.current_config.get_resource(dict(read.read_kwargs)["resource"])
-        return (("config", resource.content_hash),)
+        (`normalize_read_source_identity` delegates here): two derived hashes.
+
+        - ``api``: the API-wide contract (resolved ``base_urls`` + auth shape).
+          Required for correctness in curated mode, where the profile carries
+          credentials only: without it, repointing ``base_urls`` from prod to
+          staging changed no hash and cached data from the old host was served
+          as current data from the new one.
+        - ``config``: the per-resource declarative config, so editing one
+          resource changes build/cache hashes without invalidating siblings.
+        """
+        config = self.current_config
+        resource = config.get_resource(dict(read.read_kwargs)["resource"])
+        return (("api", config.content_hash), ("config", resource.content_hash))
 
     # -- resource surface ---------------------------------------------------
 
