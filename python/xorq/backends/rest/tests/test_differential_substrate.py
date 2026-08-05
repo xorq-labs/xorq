@@ -200,15 +200,46 @@ def widget_records(start: int, count: int) -> list[dict]:
     ]
 
 
-def widget_pages() -> tuple:
-    """Three full pages then the empty page that terminates page_number
-    pagination. Repeated four times so a case that scans the resource more
-    than once is served, rather than exhausting the canned responses."""
-    one_pass = tuple(
-        FakeResponse(widget_records(start, PAGE_SIZE))
-        for start in range(0, ROW_COUNT, PAGE_SIZE)
-    ) + (FakeResponse([]),)
-    return one_pass * 4
+class WidgetSession:
+    """A ``page_number`` server that answers the page it was *asked* for.
+
+    `FakeSession` serves one global FIFO and ignores the request entirely,
+    which is exactly right for a single sequential pagination. It cannot
+    represent CONCURRENT pagination: two independent reads in one expression
+    are paginated on separate threads (an execution engine polls the two table
+    scans concurrently -- no session/partition option changes that), and a FIFO
+    then hands read B a page that was fetched for read A. Each read still asks
+    for its own pages 1, 2, 3, ... in order -- verified by the recorded
+    ``page`` params -- so the misassignment is the fixture's, and the recorded
+    row count becomes a coin flip across runs (50/100/150 observed) that
+    describes the fixture rather than the substrate.
+
+    Addressing the response by the ``page`` param the paginator actually sent
+    fixes that without weakening a single observation: one pagination still
+    sees pages 1..PAGE_COUNT+1 in order with the same records, the same URL
+    and params are still ledgered in ``calls``, and an exhausted one-shot
+    source still goes red on ``row_count`` (it would return no rows at all).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def get(
+        self, url: str, params: dict | None = None, **kwargs: object
+    ) -> FakeResponse:
+        params = dict(params or {})
+        self.calls.append((url, params))
+        page = int(params.get("page", 1))
+        if not 1 <= page <= PAGE_COUNT:
+            # the empty page that terminates page_number pagination
+            return FakeResponse([])
+        return FakeResponse(widget_records((page - 1) * PAGE_SIZE, PAGE_SIZE))
+
+
+def empty_session() -> FakeSession:
+    """A present-and-empty page: the single_page paginator's one request. Not
+    page-addressed -- single_page sends no page param and asks exactly once."""
+    return FakeSession((FakeResponse([]),))
 
 
 def github_issue_records(start: int, count: int) -> list[dict]:
@@ -262,26 +293,24 @@ MIXPANEL_ENGAGE_FRAME = pd.DataFrame(
 
 # -- connections -------------------------------------------------------------
 #
-# Every case gets a freshly connected backend whose engine is the existing
-# FakeSession from test_rest.py, so no request ever leaves the process and
-# `session.calls` is the HTTP ledger. `_engine` is the same injection point
-# `test_rest.connect_paged_backend` uses.
+# Every case gets a freshly connected backend whose engine is an in-process
+# fake session, so no request ever leaves the process and `session.calls` is
+# the HTTP ledger. `_engine` is the same injection point
+# `test_rest.connect_paged_backend` uses. The single-read cases use
+# `test_rest.FakeSession` (a canned FIFO) directly; the widget resource, which
+# the multi-scan cases read more than once, needs the page-addressed
+# `WidgetSession` above.
 
 
 def connect_rest(
-    pages: Callable[[], tuple] = widget_pages,
-) -> tuple[BaseBackend, FakeSession]:
+    make_session: Callable[[], Any] = WidgetSession,
+) -> tuple[BaseBackend, Any]:
     con = xo.load_backend("rest").connect(
         token="${XORQ_HARNESS_TOKEN}", config=REST_CONFIG_DICT
     )
-    session = FakeSession(pages())
+    session = make_session()
     con._engine = NativeEngine(session=session)
     return con, session
-
-
-def empty_pages() -> tuple:
-    """A present-and-empty page: the single_page paginator's one request."""
-    return (FakeResponse([]),) * 4
 
 
 def connect_github(pages: Callable[[], tuple]) -> tuple[BaseBackend, FakeSession]:
@@ -365,7 +394,7 @@ CASES = (
         what="a resource whose page is present and empty (the "
         "empty-plus-declared-dtypes canary, cf. "
         "test_fetch_empty_result_keeps_declared_dtypes)",
-        connect=lambda: connect_rest(empty_pages),
+        connect=lambda: connect_rest(empty_session),
         build=lambda con: con.read("nothing", table_name="nothing_read"),
     ),
     Case(
@@ -493,7 +522,7 @@ def error_repr(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {message}"
 
 
-def http_log(session: FakeSession) -> list[str]:
+def http_log(session: Any) -> list[str]:
     return [
         f"{url} {json.dumps(params, sort_keys=True)}" for url, params in session.calls
     ]
