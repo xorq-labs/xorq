@@ -111,16 +111,22 @@ declares the classmethod `_get_secret_keys(kwargs)`, which reads
 with the unconditional `("password",)` and the static
 `con_name_to_secret_keys` mirror, so every tier can only widen the check.
 
-The hook consults nothing it would have to import — only an already-imported
-backend is inspected — which is exactly why the mirror still matters here.
-Validating a *saved* profile (`Profile.save` on a hand-built profile, a CLI
-audit) can happen in a process that never imported the backend, where the
-hook cannot answer and the union would fall back to `("password",)` alone —
-a key that matches none of these backends' fields. So all three REST-family
-names carry mirror entries: `github` and `mixpanel` mirror their configs'
-`secret_fields` exactly, and `rest`, whose field names are config-defined and
-therefore not statically knowable, carries a deliberate **floor** of the
-conventional credential kwarg names that the hook widens per config.
+Resolution reads `sys.modules` first and otherwise imports the backend. An
+earlier draft inspected `sys.modules` alone, to keep a heavy backend out of
+`Profile.save`; that made the check's answer depend on the importing history
+of the process, so a hand-authored profile naming an auth field outside the
+mirror was rejected in one process and saved its credential in the clear in
+another. The import is confined to that cold path — anything holding a live
+connection is already in `sys.modules` and pays nothing.
+
+The mirror still matters, for a different case: a backend whose extra is not
+installed cannot be imported at all, the hook cannot answer, and the union
+falls back to `("password",)` — a key that matches none of these backends'
+fields. So all three REST-family names carry mirror entries: `github` and
+`mixpanel` mirror their configs' `secret_fields` exactly, and `rest`, whose
+field names are config-defined and therefore not statically knowable, carries
+a deliberate **floor** of the conventional credential kwarg names that the
+hook widens per config.
 
 ## Alternatives considered
 

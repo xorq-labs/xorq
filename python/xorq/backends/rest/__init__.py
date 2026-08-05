@@ -56,9 +56,10 @@ class RestBackend(PandasBackend):
     config: RestBackendConfig | None = None
     # The static floor, mirrored in `con_name_to_secret_keys["rest"]`. The
     # authoritative answer is config-derived (`_get_secret_keys` below), but
-    # that tier only answers for an already-imported backend; a process that
-    # validates a saved self-service profile without importing this module
-    # would otherwise check `("password",)` alone. Self-service field names are
+    # that tier needs this module importable; where the rest extra is absent it
+    # cannot answer at all, and a process validating a saved self-service
+    # profile would otherwise check `("password",)` alone. Self-service field
+    # names are
     # config-defined, so no static tuple can be complete -- this is the
     # conventional set, and the tiers are unioned, so it can only widen the
     # check. Curated subclasses override it from their own config.
