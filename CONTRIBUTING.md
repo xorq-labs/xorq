@@ -148,8 +148,23 @@ by generating cause, and convert causes into mechanisms, not just fixes.
 Agents run this as the `/review-retro` skill;
 `.claude/skills/review-retro/SKILL.md` doubles as the manual checklist.
 
+For a change that lands as several parts (a stacked series, or an enabler plus
+its first consumer), one retrospective pass reads the parts *together*: some
+hazards are invisible to every per-part review by construction, because a
+guard that is merely latent in the part that adds it becomes live in the part
+that adds its first caller. Each per-part reviewer ranks such a finding
+correctly for their part and wrongly for the whole. The cheap form is one pass
+whose input is "guarantees each part provides" × "guarantees each later part
+assumes".
+
+When a change implements a design document, review it against the property the
+change exists to win, not against conformance to the document — and treat "this
+should not land" as an available conclusion. A document whose evidence cannot
+be reproduced from the repo is a lead, not an authority.
+
 This is a trial norm adopted from the #2177/#2196 retrospectives (ADR-0016
-records the case study); revisit after a few uses.
+records the case study) and extended after the rest-backend landing-stack
+retrospective; revisit after a few uses.
 
 ## Writing the commit
 
