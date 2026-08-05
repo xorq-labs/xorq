@@ -62,12 +62,33 @@ the hand-rolled conformance baseline).
 
 ### Identity: always folded
 
-`normalize_read_source_identity` folds the **per-resource**
-`ResourceConfig.content_hash` (declarative fields only; `fetch_override`
-excluded — code stays refactorable per ADR-0017's line). Editing a
-resource's path/params/paginator changes build and cache hashes; editing a
-sibling resource does not (verified for config-in-code; config-in-profile
-deliberately trades this away since the profile covers the whole config).
+`normalize_read_source_identity` folds **two** hashes, both derived from the
+attrs declaration (`identity_field_names`) rather than hand-listed:
+
+- the **per-resource** `ResourceConfig.content_hash` (declarative fields only;
+  `fetch_override` excluded — code stays refactorable per ADR-0025's line).
+  Editing a resource's path/params/paginator changes build and cache hashes;
+  editing a sibling resource does not (verified for config-in-code;
+  config-in-profile deliberately trades this away since the profile covers the
+  whole config).
+- the **API-wide** `RestBackendConfig.content_hash` — the resolved `base_urls`
+  and the whole auth shape.
+
+The second is not decoration. The rule is *the resolved endpoint is
+identity-bearing, not just the name of the route to it*: a resource folds
+`base_url_key` ("default", "data"), which is a key into a mapping the resource
+cannot see. A curated profile carries credentials only, so with only the
+per-resource hash, repointing `base_urls` from prod to staging changed nothing
+any read hashed on — and cached data from the old host was served as current
+data from the new one. `resources` is excluded from the API-wide hash precisely
+so sibling independence survives: whole-config folding would undo the first
+bullet.
+
+Membership in both hashes is derived from `attrs.fields`, so a field added to
+either class is identity-bearing by default and excluding one takes an explicit
+`metadata={"identity": False}` annotation. The direction of that default is the
+point: a hand-written tuple drifts toward *under*-hashing, whose failure is a
+stale cache hit; deriving makes the worst case a spurious miss.
 
 ### Residence: either, per API
 
@@ -138,9 +159,13 @@ Rejected because:
   override code, and live-verified (161 issues across 4 header-link pages,
   cross-checked against the repo record's `open_issues_count`).
 - Users define APIs without releases; self-service profiles round-trip
-  yaml → `get_con` → live fetch, with raw secrets rejected via dynamic keys.
-- Build hashes reproducible across processes (`f619195575ac` twice) and
-  per-resource sensitive.
+  yaml → `get_con` → live fetch, with raw secrets rejected via the union of
+  the dynamic config-derived keys and the static mirror.
+- Build hashes reproducible across processes, per-resource sensitive, and
+  sensitive to the resolved endpoint. (An earlier draft pinned a literal hash
+  here as evidence; the value moved when the API-wide hash was folded in, so
+  the claim is stated as the property the tests assert rather than a number
+  that decays.)
 
 ### Negative
 
@@ -157,6 +182,11 @@ Rejected because:
   and therefore effectively append-only; backend-registered paginator and
   auth-kind names share that property and should be namespaced
   (`"mixpanel.session_id"`) to keep the base set unambiguous.
+- Deriving identity membership from `attrs.fields` means **adding any field to
+  either config class moves every rest read hash once**, even at its default
+  value, and even for resources that never set it. Accepted deliberately: the
+  alternative default — new fields excluded until someone remembers — fails as
+  a stale cache hit on data, while this fails as a one-time recompute.
 - Override-only resources have near-empty declarative identity: with
   `fetch_override` excluded from `content_hash` (code stays refactorable),
   a resource that is 100% override code — mixpanel's, deliberately — is
