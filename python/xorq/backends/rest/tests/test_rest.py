@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import email.utils
 import json
 import pathlib
+from datetime import (
+    datetime,
+    timedelta,
+    timezone,
+)
 
 import attr
 import pytest
@@ -19,8 +25,10 @@ from xorq.backends.rest.config import (
     schema_to_nullable_dtypes,
 )
 from xorq.backends.rest.engines import (
+    MAX_RETRY_WAIT,
     NativeEngine,
     record_to_row,
+    retry_after_seconds,
 )
 from xorq.backends.rest.paginators import (
     HeaderLinkPaginator,
@@ -438,6 +446,52 @@ def test_engine_retries_github_style_rate_limit(
     df = engine.fetch(config, config.get_resource("other"), {}, {})
     assert len(session.calls) == 2  # one rate-limited attempt, one success
     assert df.id.tolist() == [1]
+
+
+def test_retry_after_parses_both_legal_forms_and_caps() -> None:
+    """`Retry-After` is delay-seconds OR an HTTP-date (RFC 9110). A bare
+    `int(...)` raised ValueError on the date form, turning the server's
+    politeness into a crash mid-fetch. And an uncapped honour of
+    `Retry-After: 86400` blocks the pipeline for a day."""
+    assert retry_after_seconds(FakeResponse([], headers={"Retry-After": "5"}), 99) == 5
+    when = datetime.now(timezone.utc) + timedelta(seconds=10)
+    from_date = retry_after_seconds(
+        FakeResponse([], headers={"Retry-After": email.utils.format_datetime(when)}), 99
+    )
+    assert 0 < from_date <= 11
+    # a day-long wait is capped, not honoured
+    assert (
+        retry_after_seconds(FakeResponse([], headers={"Retry-After": "86400"}), 1)
+        == MAX_RETRY_WAIT
+    )
+    # a date in the past is a zero wait, never negative
+    past = email.utils.format_datetime(datetime.now(timezone.utc) - timedelta(hours=1))
+    assert retry_after_seconds(FakeResponse([], headers={"Retry-After": past}), 99) == 0
+    # unparsable and absent both fall back to the caller's backoff, capped
+    assert (
+        retry_after_seconds(FakeResponse([], headers={"Retry-After": "soon"}), 3) == 3
+    )
+    assert retry_after_seconds(FakeResponse([]), 3) == 3
+    assert retry_after_seconds(FakeResponse([]), 10_000) == MAX_RETRY_WAIT
+
+
+def test_exhausted_rate_limit_retries_raise_a_diagnosable_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The old loop called raise_for_status() on the final attempt, so the
+    trailing `raise RetryError` was dead code and the operator saw a bare 429
+    instead of "you spent the whole retry budget on rate limits"."""
+    monkeypatch.setattr("xorq.backends.rest.engines.time.sleep", lambda _: None)
+    limited = tuple(
+        FakeResponse([], status_code=429, headers={"Retry-After": "1"})
+        for _ in range(3)
+    )
+    session = FakeSession(limited)
+    config = make_config()
+    engine = NativeEngine(session=session, max_tries=3)
+    with pytest.raises(requests.exceptions.RetryError, match="all 3 attempts"):
+        engine.fetch(config, config.get_resource("other"), {}, {})
+    assert len(session.calls) == 3
 
 
 def make_enveloped_config(record_path: str = "items") -> RestBackendConfig:

@@ -13,9 +13,14 @@ over the base registry — never by overriding private fetch methods.
 
 from __future__ import annotations
 
+import email.utils
 import itertools
 import json
 import time
+from datetime import (
+    datetime,
+    timezone,
+)
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Callable, Mapping, Protocol
 
@@ -101,6 +106,39 @@ def _is_rate_limited(resp: requests.Response) -> bool:
     return resp.status_code == 429 or (
         resp.status_code == 403 and resp.headers.get("X-RateLimit-Remaining") == "0"
     )
+
+
+# A server can legally ask us to wait a day (`Retry-After: 86400`). Honouring
+# that would hang a pipeline with no output; cap the wait and let the retry
+# budget run out with a diagnosable error instead.
+MAX_RETRY_WAIT = 60.0
+
+
+def retry_after_seconds(
+    resp: requests.Response, default: float, cap: float = MAX_RETRY_WAIT
+) -> float:
+    """Seconds to wait per RFC 9110 ``Retry-After``, capped.
+
+    The header has two legal forms: delay-seconds and an HTTP-date. A bare
+    ``int(...)`` raises ValueError on the date form -- turning a server's
+    politeness into a crash mid-fetch -- so parse both, and fall back to the
+    caller's backoff for anything unparsable.
+    """
+    value = resp.headers.get("Retry-After") if resp.headers else None
+    if value is None:
+        return min(default, cap)
+    value = str(value).strip()
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            when = email.utils.parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return min(default, cap)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        seconds = (when - datetime.now(timezone.utc)).total_seconds()
+    return min(max(seconds, 0.0), cap)
 
 
 # -- record shaping ----------------------------------------------------------
@@ -246,17 +284,29 @@ class NativeEngine:
     def _get_with_backoff(
         self, url: str, params: dict, request_kwargs: dict
     ) -> requests.Response:
+        """GET with rate-limit backoff.
+
+        The exhausted-budget path is reachable and says what happened: the
+        previous shape called ``raise_for_status()`` on the final attempt, so
+        the 429 surfaced as a bare HTTPError and the "exceeded N tries" message
+        was dead code. Transient 5xx and connection errors are deliberately
+        still NOT retried -- only rate limits are -- which is worth revisiting
+        but is a behavior change of its own.
+        """
         for tries in range(1, self.max_tries + 1):
             resp = self.session.get(
                 url, params=params, timeout=self.timeout, **request_kwargs
             )
-            if _is_rate_limited(resp) and tries != self.max_tries:
-                time.sleep(int(resp.headers.get("Retry-After", 2**tries)))
-                continue
-            resp.raise_for_status()
-            return resp
+            if not _is_rate_limited(resp):
+                resp.raise_for_status()
+                return resp
+            if tries == self.max_tries:
+                break
+            time.sleep(retry_after_seconds(resp, default=2**tries))
         raise requests.exceptions.RetryError(
-            f"exceeded {self.max_tries} tries for {url}"
+            f"rate limited by {url} on all {self.max_tries} attempts "
+            f"(last status {resp.status_code}, "
+            f"Retry-After={(resp.headers or {}).get('Retry-After')!r})"
         )
 
 
