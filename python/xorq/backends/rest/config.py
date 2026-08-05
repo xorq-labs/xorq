@@ -21,7 +21,28 @@ refactorable, per ADR-0025's line); ``RestBackendConfig`` covers the
 API-wide contract, the resolved ``base_urls`` and the auth shape. The
 backend folds both into ``normalize_read_source_identity``, so editing a
 resource's path/params, or repointing a base URL, changes build and cache
-hashes (ADR-0015) without invalidating sibling resources.
+hashes (ADR-0015).
+
+Sibling independence — editing one resource not invalidating the others —
+is **mode-dependent**, and the unconditional claim this docstring used to
+make was true of curated backends only:
+
+- **curated** (config in code): the profile carries credentials only, so the
+  per-resource hash is the only place a resource's config enters identity.
+  Editing resource B leaves A's read identity byte-identical. This is the
+  property the ``resources`` identity exclusion exists to deliver.
+- **self-service** (config in profile): the whole config dict rides in the
+  profile, and ``normalize_read_source_identity`` folds the profile's content
+  hash (``file_utils``), so editing resource B changes *every* sibling read's
+  identity — and the touched resource's config is counted twice, once through
+  the profile and once through its own hash.
+
+The failure direction is safe (spurious invalidation, never stale data served
+as current) and ADR-0018 records the trade as deliberate. Making the property
+uniform would mean ``dissoc``-ing ``config`` from the profile's contribution
+to read identity, which is itself an identity change — every build directory
+and cache entry for every self-service rest read moves — so it needs its own
+adjudicated baseline and is deliberately not done here.
 """
 
 from __future__ import annotations
@@ -421,8 +442,12 @@ class RestBackendConfig:
     auth = field(validator=instance_of(AuthConfig))
     # excluded from *this* class's content_hash, not from identity: each
     # resource contributes its own `ResourceConfig.content_hash` per read, so
-    # editing one resource must not invalidate its siblings (ADR-0018). Folding
+    # editing one resource does not invalidate its siblings (ADR-0018). Folding
     # the whole tuple here would undo that.
+    #
+    # This delivers sibling independence in CURATED mode only. In self-service
+    # mode the config rides in the profile, whose hash every read folds, so
+    # siblings move anyway -- see the module docstring for why that stands.
     resources = non_identity_field(
         validator=deep_iterable(instance_of(ResourceConfig), instance_of(tuple)),
         converter=tuple,

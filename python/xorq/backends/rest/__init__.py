@@ -191,7 +191,10 @@ class RestBackend(PandasBackend):
           staging changed no hash and cached data from the old host was served
           as current data from the new one.
         - ``config``: the per-resource declarative config, so editing one
-          resource changes build/cache hashes without invalidating siblings.
+          resource changes build/cache hashes. In curated mode that also leaves
+          siblings untouched; in self-service mode the config rides in the
+          profile, whose hash is folded alongside these parts, so siblings move
+          too (deliberate -- see `config.py`'s module docstring).
         """
         config = self.current_config
         resource = config.get_resource(dict(read.read_kwargs)["resource"])
