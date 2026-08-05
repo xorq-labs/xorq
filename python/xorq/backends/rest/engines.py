@@ -53,10 +53,21 @@ if TYPE_CHECKING:
 class Engine(Protocol):
     """Structural contract for an extraction engine.
 
-    ``fetch`` executes one resource read: given the API config, the resource
+    Both methods execute one resource read: given the API config, the resource
     config, the read-time params, and the (already env-resolved) credentials,
-    return a DataFrame conforming to the resource's schema. Engines must be
+    produce DataFrames conforming to the resource's schema. Engines must be
     interchangeable: same config, any engine, same rows.
+
+    - ``fetch`` returns the whole result as one frame.
+    - ``fetch_batches`` returns an iterator of schema-conformed chunks, and is
+      the method the ``make_dt`` boundary uses (ADR-0019): it is what lets a
+      resource read register as a lazy table rather than materialize. It is
+      part of the protocol -- not an off-protocol extra on one implementation
+      -- precisely because the read path depends on it. Chunking is transport,
+      never identity, so an engine may choose any chunk boundary (the native
+      engine uses one frame per HTTP page); it must yield at least one
+      (possibly empty) schema-conformed frame so an empty result still carries
+      the declared dtypes.
     """
 
     def fetch(
@@ -66,6 +77,14 @@ class Engine(Protocol):
         params: dict,
         credentials: Mapping,
     ) -> pd.DataFrame: ...
+
+    def fetch_batches(
+        self,
+        config: RestBackendConfig,
+        resource_config: ResourceConfig,
+        params: dict,
+        credentials: Mapping,
+    ) -> Iterator[pd.DataFrame]: ...
 
 
 # -- auth appliers -----------------------------------------------------------
@@ -297,11 +316,14 @@ class NativeEngine:
     ) -> Iterator[pd.DataFrame]:
         """Page-wise fetch: one schema-conformed frame per HTTP page.
 
-        The intermediary between pagination and materialization: ``fetch``
-        concatenates, and a future streaming consumer (spill-to-parquet at
-        the Read boundary) can pull pages without holding the whole result.
-        Deliberately not part of the :class:`Engine` protocol until such a
-        consumer exists — streaming is transport, never identity.
+        The intermediary between pagination and materialization, and the
+        method the ``make_dt`` boundary pulls (ADR-0019): a resource read
+        registers as a lazy DataFusion table over this iterator, so no page is
+        requested until the engine consumes the reader, and ``fetch`` is now
+        just the concatenating convenience over it.
+
+        Lazy by construction — this is a generator, so nothing is requested
+        until the first ``next``.
 
         Always yields at least one (possibly empty) frame, so ``pd.concat``
         needs no empty-input guard and dtypes hold for empty results.
@@ -399,3 +421,22 @@ class FetchOverrideEngine:
         credentials: Mapping,
     ) -> pd.DataFrame:
         return resource_config.fetch_override(self.backend, **params)
+
+    def fetch_batches(
+        self,
+        config: RestBackendConfig,
+        resource_config: ResourceConfig,
+        params: dict,
+        credentials: Mapping,
+    ) -> Iterator[pd.DataFrame]:
+        """The override's single frame as one chunk.
+
+        An override owns its own transport, so it has no page boundary to
+        expose; one chunk is the honest answer. Implementing it is what lets
+        the ``make_dt`` boundary treat override resources uniformly instead of
+        branching to a materializing path (ADR-0019) -- and because this is a
+        generator, the override callable is not invoked until the reader is
+        pulled, so an override read is as lazy at construction as a paginated
+        one.
+        """
+        yield resource_config.fetch_override(self.backend, **params)

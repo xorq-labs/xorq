@@ -13,12 +13,23 @@ packaging choice"):
 In both modes resources are path-less ``Read`` ops
 (ADR-api-relations-are-pathless-read-ops) whose identity folds the per-resource
 config content hash (``normalize_read_source_identity``).
+
+Execution is composed, not inherited
+(ADR-rest-resource-reads-are-lazy-datafusion-tables): the ``PandasBackend`` base
+supplies Backend plumbing (profile machinery, ``do_connect``,
+``_filter_with_like``) while a private owned xorq-DataFusion connection
+supplies execution and storage. ``fetch_resource`` -- the ``Read.make_dt``
+boundary -- registers a *lazy* table over the engine's page stream there, so
+nothing is fetched until the engine pulls batches.
 """
 
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any
+import shutil
+import tempfile
+import weakref
+from typing import TYPE_CHECKING
 
 import xorq.common.exceptions as com
 from xorq import __version__
@@ -34,11 +45,14 @@ from xorq.backends.rest.engines import (
     NativeEngine,
 )
 from xorq.backends.rest.paginators import PAGINATORS
+from xorq.backends.xorq_datafusion import connect as xorq_datafusion_connect
 from xorq.common.utils.file_utils import normalize_read_source_identity
+from xorq.internal import SessionConfig
 
 
 if TYPE_CHECKING:
     import pyarrow as pa
+    from batchcorder import StreamCache
 
     import xorq.vendor.ibis.expr.schema as sch
     import xorq.vendor.ibis.expr.types as ir
@@ -79,6 +93,13 @@ class RestBackend(PandasBackend):
     # `make_engine` threads them into the default engine
     paginators = PAGINATORS
     auth_appliers = AUTH_APPLIERS
+    # Bounds on the replay cache every resource read registers behind
+    # (`_replay_cache`). The hot layer is what keeps RAM bounded; the disk
+    # budget is a diagnosable ceiling rather than an invitation to fill the
+    # volume. Class-level so an API whose reads are known-small (or
+    # known-enormous) can retune them without touching the read path.
+    spill_memory_capacity = 128 << 20  # 128 MiB retained in RAM
+    spill_disk_capacity = 64 << 30  # 64 GiB spilled at most
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         # Profile.from_con and make_read_kwargs flatten a var-keyword bucket
@@ -161,6 +182,26 @@ class RestBackend(PandasBackend):
         self._config = config
         self._credentials = dict(credentials)
         self._engine = self.make_engine()
+        # Composition, not inheritance (ADR-0019): resource reads register as
+        # lazy tables here, so execution and storage are DataFusion's while
+        # this class stays a read-only, resource-shaped Backend. Owned and
+        # private -- it is never captured in a profile or a build artifact, and
+        # nothing outside this module should reach for it.
+        #
+        # Single-partition on purpose. Every input here is one page-wise
+        # RecordBatchReader, so repartitioning parallelizes nothing it can
+        # exploit; what it does do is insert a buffering shuffle in front of a
+        # stream this ADR exists to keep bounded, and make row order and batch
+        # boundaries a function of thread scheduling (a two-read join returned
+        # its 150 rows in a different order on every run). Deterministic order
+        # is worth more than parallelism on an API-latency-bound read: it is
+        # what makes a `.cache()` of a rest expression reproducible rather than
+        # merely correct. Parallel compute over a resource read is available
+        # the documented way, by `into_backend`-ing it onto a full connection.
+        self._df = xorq_datafusion_connect(
+            SessionConfig().set("datafusion.execution.target_partitions", "1")
+        )
+        self._spill_dir = None
 
     def make_engine(self) -> Engine:
         """The engine seam: the default is the native paginator engine,
@@ -291,72 +332,17 @@ class RestBackend(PandasBackend):
 
     # -- execution (Read.make_dt boundary) ----------------------------------
 
-    def read_to_pyarrow_batches(self, expr: ir.Expr) -> pa.ipc.RecordBatchReader | None:
-        """Serve a bare resource Read as a page-wise RecordBatchReader.
-
-        The producer half of the ``into_backend`` path: the api-level
-        ``to_pyarrow_batches`` fast path (and the RemoteTable replacer
-        through it) pulls this, so ``con.read(...).into_backend(other)``
-        streams one RecordBatch per HTTP page — nothing materialized into
-        ``self.dictionary``. Returns None when this read can't stream (an
-        override resource, or not a bare Read on this backend), sending the
-        caller down the normal materializing path. Transport only: identity
-        is untouched.
-        """
-        import pyarrow as pa  # noqa: PLC0415
-
-        from xorq.expr.relations import Read  # noqa: PLC0415
-
-        op = expr.op()
-        if (
-            not isinstance(op, Read)
-            or op.source is not self
-            or op.method_name != "fetch_resource"
-        ):
-            return None
-        read_kwargs = dict(op.read_kwargs)
-        resource_config = self.current_config.get_resource(read_kwargs["resource"])
-        if resource_config.fetch_override is not None:
-            return None
-        read_params = {
-            k: v for k, v in read_kwargs.items() if k not in ("resource", "table_name")
-        }
-        schema = expr.schema().to_pyarrow()
-        frames = self._engine.fetch_batches(
-            self.current_config, resource_config, read_params, self._credentials
-        )
-        return pa.RecordBatchReader.from_batches(
-            schema,
-            (
-                pa.RecordBatch.from_pandas(frame, schema=schema, preserve_index=False)
-                for frame in frames
-            ),
-        )
-
-    def to_pyarrow_batches(
-        self,
-        expr: ir.Expr,
-        *,
-        params: Any = None,
-        limit: int | str | None = None,
-        chunk_size: int = 1_000_000,
-        **kwargs: Any,
-    ) -> pa.ipc.RecordBatchReader:
-        """Stream bare resource Reads page-wise; everything else (downstream
-        pandas compute, fetched tables, override resources) falls back to
-        the inherited materialize-then-chunk."""
-        if params is None and limit is None:
-            reader = self.read_to_pyarrow_batches(expr)
-            if reader is not None:
-                return reader
-        return super().to_pyarrow_batches(
-            expr, params=params, limit=limit, chunk_size=chunk_size, **kwargs
-        )
-
     def fetch_resource(
         self, resource: str, table_name: str | None = None, **kwargs: str
     ) -> ir.Table:
-        """Eagerly fetch a resource and serve it as a table.
+        """Register a resource as a *lazy* table on the owned connection.
+
+        The ``Read.make_dt`` boundary (ADR-0019). Nothing is fetched here: the
+        return value is a DataFusion table backed by a replayable cache over
+        the engine's page stream, and the first HTTP request fires when the
+        engine drains that cache. Paginated and ``fetch_override`` resources
+        take exactly this path -- an override contributes one chunk -- so
+        there is no materializing branch.
 
         The var-kwargs bucket must be named ``kwargs``: `make_read_kwargs`
         flattens that name into the Read op's hashable ``read_kwargs``.
@@ -364,13 +350,92 @@ class RestBackend(PandasBackend):
         from xorq.vendor.ibis.util import gen_name  # noqa: PLC0415
 
         resource_config = self.current_config.get_resource(resource)
-        df = self._engine_for(resource_config).fetch(
-            self.current_config, resource_config, kwargs, self._credentials
-        )
+        # the declared schema, which every chunk is conformed to below, so the
+        # retype-only StreamCache registration never needs to project
+        schema = resource_config.schema.to_pyarrow()
         table_name = table_name or gen_name("xorq-fetch_resource")
-        self.dictionary[table_name] = df
-        self.schemas[table_name] = resource_config.schema
-        return super().table(table_name)
+        return self._df.read_record_batches(
+            self._replay_cache(self._resource_reader(resource_config, kwargs, schema)),
+            table_name=table_name,
+            schema=schema,
+        )
+
+    def _resource_reader(
+        self,
+        resource_config: ResourceConfig,
+        params: dict,
+        schema: pa.Schema,
+    ) -> pa.ipc.RecordBatchReader:
+        """A lazy reader over the resource's chunk stream, one RecordBatch per
+        engine chunk (one HTTP page, for the native engine).
+
+        Lazy end to end: ``fetch_batches`` is a generator and the batch
+        conversion is a generator expression, so constructing this issues no
+        request. Every batch carries exactly ``schema``'s fields, in order --
+        the engine contract conforms each chunk to the declared schema, and
+        ``from_pandas(..., schema=...)`` is what enforces it here.
+
+        Empty chunks are dropped. Most paginators terminate on an empty page,
+        so the last chunk of nearly every read is a zero-row frame; forwarding
+        it would push a zero-row RecordBatch into the engine, which carries no
+        rows (the *schema* travels on the reader, not the batch) and only adds a
+        batch boundary the plan has to interleave -- observably making batch
+        arrival order nondeterministic where the row-bearing batches alone are
+        stable. An all-empty result is still fine: the reader declares the
+        schema even with no batches at all.
+        """
+        import pyarrow as pa  # noqa: PLC0415
+
+        frames = self._engine_for(resource_config).fetch_batches(
+            self.current_config, resource_config, params, self._credentials
+        )
+        return pa.RecordBatchReader.from_batches(
+            schema,
+            (
+                pa.RecordBatch.from_pandas(frame, schema=schema, preserve_index=False)
+                for frame in frames
+                if len(frame)
+            ),
+        )
+
+    def _replay_cache(self, reader: pa.ipc.RecordBatchReader) -> StreamCache:
+        """Wrap a one-shot reader in a replayable, disk-spilling cache.
+
+        A bare ``pa.RecordBatchReader`` registered as a DataFusion table is
+        single-scan: if the physical plan scans it twice (a self-join, one read
+        referenced twice, any re-scanning plan) the second scan gets an
+        exhausted reader and silently returns *no rows*. `StreamCache` ingests
+        the upstream lazily and exactly once while serving independent replay
+        handles, so repeated scans share one buffer.
+
+        Replay means retention, which is the honest cost of not being silently
+        wrong. It is paid to disk rather than to RAM: the hot layer is capped
+        at ``spill_memory_capacity`` and ``write_policy="on_eviction"`` only
+        writes when that cap is exceeded, so a result smaller than the cap
+        never touches disk while a larger one keeps RAM bounded instead of
+        growing with the result. ``max_readers`` is deliberately left unset
+        (retain everything): the scan count is not knowable here -- unlike the
+        RemoteTable path, which derives it from a *compiled* plan -- and an
+        under-estimate would evict batches a later scan still needs.
+        """
+        from batchcorder import StreamCache  # noqa: PLC0415
+
+        return StreamCache(
+            reader,
+            memory_capacity=self.spill_memory_capacity,
+            disk_path=self._spill_root(),
+            disk_capacity=self.spill_disk_capacity,
+            write_policy="on_eviction",
+        )
+
+    def _spill_root(self) -> str:
+        """The per-connection spill directory, created on first use and removed
+        when this backend is garbage-collected. Each cache takes its own
+        subdirectory of it, so one root per connection is enough."""
+        if self._spill_dir is None:
+            self._spill_dir = tempfile.mkdtemp(prefix=f"xorq-{self.name}-spill-")
+            weakref.finalize(self, shutil.rmtree, self._spill_dir, True)
+        return self._spill_dir
 
     # -- read-only ----------------------------------------------------------
 
