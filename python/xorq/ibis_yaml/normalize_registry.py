@@ -28,6 +28,7 @@ from xorq.common.exceptions import NormalizeMethodError
 from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
+    normalize_read_source_identity,
 )
 
 
@@ -36,6 +37,7 @@ from xorq.common.utils.file_utils import (
 _NORMALIZE_RULES: tuple[tuple[str, object], ...] = (
     ("read_path_stat", normalize_read_path_stat),
     ("read_path_md5sum", normalize_read_path_md5sum),
+    ("read_source_identity", normalize_read_source_identity),
 )
 _KEY_TO_FN = dict(_NORMALIZE_RULES)
 _FN_TO_KEY = {fn: key for key, fn in _NORMALIZE_RULES}

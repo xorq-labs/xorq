@@ -12,6 +12,7 @@ import contextlib
 import contextvars
 import itertools
 import logging
+from pathlib import PurePath
 from typing import TYPE_CHECKING
 
 import xxhash
@@ -20,7 +21,7 @@ from xorq.common.utils.dasher._canonical import normalize_inmemorytable_canonica
 
 
 if TYPE_CHECKING:
-    from typing import Literal, TypedDict
+    from typing import Callable, Literal, TypedDict
 
     from xorq.vendor.ibis.common.collections import FrozenOrderedDict
     from xorq.vendor.ibis.expr.operations.core import Node
@@ -115,6 +116,42 @@ def _rename_unbound_xorq(op: Node, prefix: str = "static") -> Node:
     return op.replace(rename)
 
 
+def _canonicalize_opaque_part(part: object) -> object:
+    """Map filesystem paths (and paths nested in sequences) to their string
+    form, elementwise; leave everything else alone.
+
+    ``PurePath.__str__`` is defined by the class, so it is address-free and
+    process-stable -- but dasher has no ``PurePath`` normalizer, and read
+    anchors reach ``_stable_opaque_name`` as a ``Path`` or a sequence of them.
+    Converting here keeps them hashable without registering a global rule that
+    would change how paths tokenize everywhere else.
+    """
+    if isinstance(part, PurePath):
+        return str(part)
+    if isinstance(part, (list, tuple)):
+        return tuple(_canonicalize_opaque_part(el) for el in part)
+    return part
+
+
+def require_normalize_method(read: Read) -> Callable:
+    """Return ``read.normalize_method``, raising a diagnosable error if unset.
+
+    Shared by every path-less-``Read`` identity site (the xorq Read rule, the
+    snapshot Read normalizer, and the opaque-placeholder rewrite) so they all
+    fail the same explicable way instead of one raising ``ValueError`` and the
+    others a bare ``TypeError`` from calling ``None``. Unreachable through the
+    public constructors -- defense in depth for hand-built ops.
+    """
+    normalize_method = read.normalize_method
+    if normalize_method is None:
+        raise ValueError(
+            f"Read op {getattr(read, 'name', read)!r} has neither a "
+            "hash_path nor a normalize_method; path-less reads must set a "
+            "registered normalize_method"
+        )
+    return normalize_method
+
+
 def _stable_opaque_name(prefix: str, *parts: str | Schema | FrozenOrderedDict) -> str:
     """Build a deterministic placeholder name from xxhash of structural parts.
 
@@ -122,8 +159,22 @@ def _stable_opaque_name(prefix: str, *parts: str | Schema | FrozenOrderedDict) -
     leaf names, which breaks across catalog reloads (different Python object
     identities for semantically-identical Reads). This helper keys on a
     content-stable hash of the supplied parts instead.
+
+    Each part is run through the project's canonical ``tokenize`` rather than
+    ``str``. ``str`` is only process-stable for types that define ``__str__``:
+    for a container (``tuple``, ``dict``, ...) it reprs its members, so a single
+    member whose class inherits the default ``object.__repr__`` embeds a memory
+    address and the placeholder name -- and therefore ``tokenize(expr)``, the
+    build hash, and the build directory name -- silently varies between
+    processes. Tokenizing per part makes any part type safe by construction.
     """
-    payload = "|".join(str(p) for p in parts).encode("utf-8")
+    # Lazy: HASHER is constructed in ``__init__`` *after* this module is
+    # imported, so a top-level import here would create a bootstrap cycle.
+    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
+
+    payload = "|".join(tokenize(_canonicalize_opaque_part(p)) for p in parts).encode(
+        "utf-8"
+    )
     return f"{prefix}-{xxhash.xxh128(payload).hexdigest()[:16]}"
 
 
@@ -220,8 +271,15 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
             )
         case Read():
             read_kwargs = dict(node.read_kwargs)
-            rp = read_kwargs.get("read_path")
-            anchor = rp if rp is not None else read_kwargs["hash_path"]
+            if "hash_path" not in read_kwargs:
+                # path-less Read (e.g. an API-backed source): anchor on the
+                # registered normalize_method's identity, mirroring the
+                # path-less branch of _normalize_read_xorq. Checked before
+                # read_path so all three path-less sites share one predicate.
+                anchor = require_normalize_method(node)(node)
+            else:
+                rp = read_kwargs.get("read_path")
+                anchor = rp if rp is not None else read_kwargs["hash_path"]
             name = _stable_opaque_name("read", node.schema, anchor)
         case RemoteTable():
             name = _stable_opaque_name(
@@ -513,9 +571,14 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
     structural_hash = hasher.tokenize(*hash_args)
 
     def _read_name(r: Read) -> str:
+        # a label for the expr_metadata slot, not identity: computed after
+        # structural_hash and feeds only `slots`
         read_kwargs = dict(r.read_kwargs)
         rp = read_kwargs.get("read_path")
-        name = rp if rp is not None else read_kwargs.get("hash_path", "")
+        name = rp if rp is not None else read_kwargs.get("hash_path")
+        if name is None:
+            # path-less Read: no path to label it by
+            return str(getattr(r, "method_name", "") or "")
         if isinstance(name, (list, tuple)):
             name = ", ".join(str(p) for p in name) if name else ""
         return str(name)
