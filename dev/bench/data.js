@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785856263089,
+  "lastUpdate": 1786023095768,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -31506,6 +31506,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.07729430594434761",
             "extra": "mean: 1.6517029887999797 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa16abcdc0c459a410ce304c4e35ada0d0324e73",
+          "message": "feat(identity): path-less Reads take identity from their registered normalize_method (#2199)\n\nEntry 1 of a 4-entry landing stack for the REST-backend workstream. This\none is\nthe core identity enabler; the backend that consumes it lands two\nentries later.\n\n## ⚠️ This moves every build hash\n\n`_stable_opaque_name` now tokenizes each part instead of `str()`-ing it,\nwhich\nchanges every opaque placeholder name — and therefore `tokenize(expr)`,\nbuild\nhashes, and build directory names — for **existing** reads, not just\npath-less\nones. Existing build caches are invalidated. **The next entry in the\nstack\n(declarative identity registry) moves them again**, folding a rule-set\nfingerprint into `get_expr_hash`; the double touch is deliberate, so\nthat each\nentry is green at its own head.\n\n## What it does\n\nA `Read` op with no filesystem anchor (`hash_path` absent from\n`read_kwargs`)\ntakes its identity from its registered `normalize_method` instead of\nfrom a\npath. Four identity sites learn the path-less branch — the dasher Read\nrule,\nthe snapshot-cache Read normalizer, the opaque-placeholder rewrite, and\nthe\nbuild-name sanitizer — and `read_source_identity` joins the normalize\nregistry.\n\nThree fixes came out of getting that right, and two of them are live for\nreads\nthat exist today:\n\n- **`_stable_opaque_name` built its payload with `str(p)`.** `str` is\nonly\nprocess-stable for types that define `__str__`; for a container it reprs\nits\nmembers, so one member whose class inherits `object.__repr__` embeds a\nmemory\naddress. The placeholder name — and with it the build hash and the build\ndirectory name — varied between processes: permanent cache misses and\nunstable\nbuild dirs, **with no error raised at all**. Now each part goes through\nthe\n  project's canonical `tokenize`, which makes any part type safe by\nconstruction. (`PurePath` is canonicalized to `str` first, elementwise,\nbecause dasher has no `PurePath` rule and `PurePath.__str__` is\nclass-defined\n  and therefore address-free.)\n- **`normalize_read_source_identity` returned a flat `(*parts,\n*sorted(kwargs))`.**\n  Flat concatenation is not injective across the two groups: a source\ncontributing `((\"resource\", \"things\"),)` via `read_identity_parts` with\nno\nkwargs tokenized identically to a read contributing no parts but\ncarrying\n  `resource=\"things\"` as a kwarg — two semantically different reads, one\nidentity. The groups are now framed as `((\"parts\", …), (\"kwargs\", …))`.\nThis\ntuple shape is an append-only identity contract, so it had to be right\nbefore\n  it is locked in.\n- **One diagnosable guard** (`require_normalize_method`) shared by all\npath-less identity sites, so a `normalize_method`-less Read fails the\nsame\nexplicable way everywhere instead of raising `ValueError` at one site\nand a\nbare `TypeError` from calling `None` at the others. Defense in depth —\nthe\n`Read` op's `Callable` annotation rejects `None` at construction, so the\nstate\n  is unreachable through the public constructor.\n\n## The four regenerated goldens\n\nAll regenerated with `pytest --snapshot-update`, none by hand.\n\n| golden | what moved |\n|---|---|\n| `test_build_file_stability_local` | `expr.yaml` `5a037e3a…` →\n`00a8f026…`; `expr_metadata.json` `e366873b…` → `d0d0bb71…` |\n| `test_build_file_stability_https` | `expr.yaml` `1f2feefe…` →\n`be336d29…`; `expr_metadata.json` `3728e0d0…` → `46fbf25d…` |\n| `test_build_file_stability_and_relocatability` | both files, **plus\n`build_dir_name` `00c36ffbdac0` → `9bf634f73ecc`** — this fixture's read\ncarries no explicit `table_name`, so the generated placeholder reaches\nthe expr hash and the directory name moves too |\n| `test_generated_name_sanitization_parquet` | generated read name\n`ibis_xorq-read_parquet_647ce9c0…` → `…9d2b1603…` |\n\n**What did NOT move, checked field by field:** every `<hash>.sql`\nfilename\n(`tokenize(sql)[:12]`) and its md5, `sql.yaml`, `deferred_reads.yaml`\nand\n`profiles.yaml` are byte-identical. The https/local reads carry explicit\nuser-given `table_name`s, so the placeholder never reaches the emitted\nSQL;\nread serialization and profile serialization are untouched. Inside\n`expr.yaml`\nand `expr_metadata.json` only hash-derived identifiers changed — node\nkeys,\n`node_refs`, `snapshot_hash`, the `RemoteTable` table hash, and the\nsnapshot\ncache key. Structural fields (`method_name`, `read_kwargs`,\n`normalize_method`,\n`schema_ref`, `profile`) are unchanged.\n\nTwo goldens that could plausibly have moved and correctly did not:\n`test_generated_name_sanitization_memtable` names itself from a memtable\ncontent\nhash rather than a read name, and `test_artifact_store_expr_hash`'s\nfixture is a\nbare `ibis.table` with no `Read`, so `_stable_opaque_name` is called\nzero times\nfor it.\n\n## Verification\n\nCore suite (`-m core --ignore=python/xorq/catalog -k 'not\nscript_execution and not slow'`)\nat this head: **14 failed / 2706 passed / 39 skipped / 16 xfailed / 12\nxpassed**.\nThe 14 are exactly the failure set present on `main` — 7×\n`expr/ml/tests/test_split_lib.py`,\n2× `ibis_yaml/tests/test_sql.py`, 4× `tests/test_cli.py`, and\n`test_profile.py::test_connection_with_env_vars_preserves_env_vars`\n(needs a\nlocal postgres). Nothing beyond.\n\n## Review note\n\nThe path-less branches added here have no in-tree producer until the\nREST\nbackend lands two entries later; `test_pathless_read_identity.py`\nexercises them\nby constructing the op directly. The scaffolding is deliberately ahead\nof its\nconsumer so that the identity contract is reviewable on its own,\nseparately from\n~3,000 lines of backend. The `_stable_opaque_name` and injectivity fixes\nare the\nhalf that is live on `main` immediately.\n\nAn earlier structural review covered an older shape of this branch,\nbefore the\nstreaming seam was removed; the current five commits are being reviewed\nindependently.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01JsWNHN92Jrq3AykZkNw2sx\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-06T09:25:39-04:00",
+          "tree_id": "45c6fa19fc3cadce2f36e3f05a2795fb1df1f28f",
+          "url": "https://github.com/xorq-labs/xorq/commit/fa16abcdc0c459a410ce304c4e35ada0d0324e73"
+        },
+        "date": 1786023092560,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.417304388488822,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022954791388973692",
+            "extra": "mean: 155.8286687777771 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5052927139563663,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07545246137526225",
+            "extra": "mean: 399.15495479999095 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.754407775063406,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1996038056186674",
+            "extra": "mean: 1.3255430724000064 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.1768504846870513,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01008372674144788",
+            "extra": "mean: 314.77716840001335 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.841116818519577,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07217336656096232",
+            "extra": "mean: 351.97426359999895 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.5693168754349895,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06305467107845623",
+            "extra": "mean: 389.2085128000019 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 170.57836742974234,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007268979895713167",
+            "extra": "mean: 5.862408082970305 msec\nrounds: 229"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 2.9204190339886917,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14921053569089618",
+            "extra": "mean: 342.4166150000076 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 12.93531658721662,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016530704032408344",
+            "extra": "mean: 77.30773292307774 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.672083337776368,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017304575612652685",
+            "extra": "mean: 103.39034157142635 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.997304098125368,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02239274924210232",
+            "extra": "mean: 125.04213766666794 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.82731132486023,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03821108243506838",
+            "extra": "mean: 171.6057276249927 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.956925498815905,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018037527287417754",
+            "extra": "mean: 201.7379523333318 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.635343733733882,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015525989803515704",
+            "extra": "mean: 215.73373139999603 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.309727112606104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07549424482879287",
+            "extra": "mean: 432.95157880000943 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.2454790590299427,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03614146753559161",
+            "extra": "mean: 308.1209220000005 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.6413925867793442,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1339587909332022",
+            "extra": "mean: 609.2387695999946 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.7848521931807138,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10477167902635925",
+            "extra": "mean: 560.2704828000014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5385601881003623,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10077391095315806",
+            "extra": "mean: 649.9583232000077 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5368978574397614,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10291060720104327",
+            "extra": "mean: 650.6613274000188 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.244716740360345,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10755953779084289",
+            "extra": "mean: 803.3956381999815 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1379339914787785,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16708331567604948",
+            "extra": "mean: 878.7855952000086 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9737761913906714,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18808810652378946",
+            "extra": "mean: 1.0269300162000037 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6017935256054474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11507562870814159",
+            "extra": "mean: 1.6616994989999738 sec\nrounds: 5"
           }
         ]
       }
