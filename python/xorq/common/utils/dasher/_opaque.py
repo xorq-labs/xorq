@@ -274,17 +274,8 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
             if "hash_path" not in read_kwargs:
                 # path-less Read (e.g. an API-backed source): anchor on the
                 # registered normalize_method's identity, mirroring the
-                # path-less branch of _normalize_read_xorq.
-                #
-                # Tested first, and before read_path, so that all three
-                # path-less identity sites agree on the same predicate. The
-                # other two (_normalize_read_xorq, snapshot_normalize_read)
-                # branch on hash_path absence alone; checking read_path first
-                # here would make a read_path-without-hash_path op anchor
-                # structurally on the path while its data identity came from
-                # the normalize_method. No in-tree producer emits that shape,
-                # so this changes no reachable behavior -- it removes the
-                # divergence before a producer can rely on either reading.
+                # path-less branch of _normalize_read_xorq. Checked before
+                # read_path so all three path-less sites share one predicate.
                 anchor = require_normalize_method(node)(node)
             else:
                 rp = read_kwargs.get("read_path")
@@ -580,16 +571,13 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
     structural_hash = hasher.tokenize(*hash_args)
 
     def _read_name(r: Read) -> str:
-        # A human-facing label for the expr_metadata slot, not identity: it is
-        # computed after structural_hash and feeds only `slots`. A path-less
-        # Read has neither path, so it falls back to method_name -- otherwise
-        # every path-less slot labels as "" and they become indistinguishable
-        # to anyone reading the metadata. method_name is declarative and
-        # stable, unlike the gen_name'd `name`.
+        # a label for the expr_metadata slot, not identity: computed after
+        # structural_hash and feeds only `slots`
         read_kwargs = dict(r.read_kwargs)
         rp = read_kwargs.get("read_path")
         name = rp if rp is not None else read_kwargs.get("hash_path")
         if name is None:
+            # path-less Read: no path to label it by
             return str(getattr(r, "method_name", "") or "")
         if isinstance(name, (list, tuple)):
             name = ", ".join(str(p) for p in name) if name else ""

@@ -979,9 +979,8 @@ def test_uv_build_with_extra(tmpdir):
     assert build_path.exists()
 
 
-# Snapshot-strategy expr hashes of nodes in the pipeline_https fixture build.
-# These are hand-maintained literals, not pytest-snapshot files: --snapshot-update
-# does not reach them, so any change moving expr hashes has to update them here.
+# hand-maintained expr hashes from the pipeline_https build -- not
+# pytest-snapshot files, so --snapshot-update does not reach them
 serve_hashes = (
     "74cb251c1f21ee5582635555511b89de",  # batting, rel.Read
     "d906ac84789bfcc55348cc308123f7c6",  # awards_players, rel.Read
