@@ -979,11 +979,14 @@ def test_uv_build_with_extra(tmpdir):
     assert build_path.exists()
 
 
+# Snapshot-strategy expr hashes of nodes in the pipeline_https fixture build.
+# These are hand-maintained literals, not pytest-snapshot files: --snapshot-update
+# does not reach them, so any change moving expr hashes has to update them here.
 serve_hashes = (
-    "c0480036de329f7d90bd9ebda3b58fc6",  # batting, rel.Read
-    "9f91abf3ff66d64d441724f71cab534e",  # awards_players, rel.Read
-    "3ce4de9ff26d12bbd0159061325af767",  # left, ops.Filter
-    "dd76e5abc15dc283090fa73338c1ecf3",  # right, ops.DropColumns
+    "74cb251c1f21ee5582635555511b89de",  # batting, rel.Read
+    "d906ac84789bfcc55348cc308123f7c6",  # awards_players, rel.Read
+    "87cf59fbf985ecbc80127ffdc47884b9",  # left, ops.Filter
+    "c0fb27e82cb99ea21d17642a7758674b",  # right, ops.DropColumns
 )
 
 
@@ -1052,8 +1055,8 @@ def hit_server(port, expr):
 @pytest.mark.parametrize("serve_hash", serve_hashes)
 def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     lookup = {
-        "dd76e5abc15dc283090fa73338c1ecf3": "xorq.vendor.ibis.expr.operations.DropColumns",
-        "3ce4de9ff26d12bbd0159061325af767": "xorq.vendor.ibis.expr.operations.Filter",
+        "c0fb27e82cb99ea21d17642a7758674b": "xorq.vendor.ibis.expr.operations.DropColumns",
+        "87cf59fbf985ecbc80127ffdc47884b9": "xorq.vendor.ibis.expr.operations.Filter",
     }
     expr = load_expr(pipeline_https_build)
     typ = lookup.get(serve_hash)
@@ -1211,7 +1214,8 @@ def test_serve_penguins_template(tmpdir, tmp_path):
     assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        serve_hash = "5ee5e0d98754937a205e8be7e0728bb7"  # CachedNode (test split)
+        # see serve_hashes above: a hand-maintained literal, not a snapshot
+        serve_hash = "f6bac73b04c52568518121e950435371"  # CachedNode (test split)
 
         serve_args = (
             "xorq",
