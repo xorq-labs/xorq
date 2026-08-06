@@ -32,6 +32,11 @@ from typing import TYPE_CHECKING
 
 from xorq_dasher import DEFAULT_HASHER, Hasher, fqn
 
+from xorq.common.utils.fingerprint_utils import (
+    fingerprint_rule_pairs,
+    validate_rule_pairs,
+)
+
 
 if TYPE_CHECKING:
     from xorq.common.utils.dasher._opaque import ExprMetadata
@@ -133,7 +138,13 @@ _EXTRA_RULES: tuple[tuple[str, object], ...] = (
     ("sklearn.utils._param_validation.Hidden", normalize_sklearn_hidden),
 )
 
-HASHER: Hasher = DEFAULT_HASHER.override(*_EXTRA_RULES)
+HASHER: Hasher = DEFAULT_HASHER.override(*validate_rule_pairs(_EXTRA_RULES))
+
+# The base table comes from the ``xorq_dasher`` dependency, so validate the
+# composed result too: a dependency that ships an unnameable normalizer then
+# fails at import with a message naming the rule, rather than at every build
+# with an AttributeError inside ``get_expr_hash``.
+validate_rule_pairs(HASHER.rules)
 
 
 def _install_per_call_memos():
@@ -237,13 +248,39 @@ def expr_metadata(expr: Expr) -> ExprMetadata:
     return _expr_metadata_unwrapped(expr)
 
 
-def snapshot_hasher(*extra_rules) -> Hasher:
+def snapshot_hasher(*extra_rules: tuple[str, object]) -> Hasher:
     """Return a Hasher with snapshot-specific overrides layered on top of HASHER.
 
     Used by ``SnapshotStrategy`` to swap in backend / DatabaseTable / Read
     normalizers for the duration of a single key calculation.
+
+    Layered rules are validated here rather than at fingerprint time: this is
+    where they are declared, so this is where an unnameable normalizer should
+    fail (ADR-0020).
     """
-    return HASHER.override(*extra_rules)
+    return HASHER.override(*validate_rule_pairs(extra_rules))
+
+
+def rules_fingerprint(hasher: Hasher | None = None) -> str:
+    """Stable digest of a Hasher's identity-bearing rule set: the *ordered*
+    tuple of (rule key, normalizer name) pairs (order is identity-bearing --
+    the earliest match wins on MRO ties, so a reorder can change
+    normalization).
+
+    Sensitive to rules added, removed, reordered, or REPLACED (the normalizer
+    is identified by its module-qualified name); deliberately insensitive to
+    an implementation-body edit under an unchanged name -- rule *names* are
+    the contract, never pickled callables (#2155). The cost of that choice runs
+    both ways, and ADR-0020 records it: a pure rename moves every build hash
+    though nothing behavioral changed. Computed with sha256 directly (not
+    ``HASHER.tokenize``) so the fingerprint depends only on the rule table
+    itself, never on another table's rules. Folded into the build hash
+    (ADR-0015/ADR-0020) so a change to the rule set yields a new build
+    identity, promoting ``test_dasher``'s hand-maintained FQN-drift check to a
+    first-class identity input rather than a test that must be remembered.
+    """
+    hasher = HASHER if hasher is None else hasher
+    return fingerprint_rule_pairs(hasher.rules)
 
 
 __all__ = [
@@ -255,5 +292,6 @@ __all__ = [
     "tokenize",
     "normalize",
     "normalize_attrs",
+    "rules_fingerprint",
     "snapshot_hasher",
 ]
