@@ -14,14 +14,13 @@ The on-disk shape is a tagged envelope with a ``kind`` discriminator::
     {"kind": "pickle", "pickle": "<base64>"}      # RESERVED -- never emitted
 
 Only ``none`` and ``named`` are emitted. The ``pickle`` tag is reserved so that
-re-enabling custom callables later stays purely additive (see the plan). Legacy
+re-enabling custom callables later stays purely additive. Legacy
 builds stored a bare base64 string; ``deserialize_normalize_method`` still reads
 those through the guarded legacy branch.
 """
 
 from __future__ import annotations
 
-import hashlib
 import pickle
 from typing import Any, Callable, Optional
 
@@ -30,6 +29,10 @@ from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
     normalize_read_path_stat,
     normalize_read_source_identity,
+)
+from xorq.common.utils.fingerprint_utils import (
+    fingerprint_rule_pairs,
+    validate_rule_pairs,
 )
 
 
@@ -40,6 +43,11 @@ _NORMALIZE_RULES: tuple[tuple[str, object], ...] = (
     ("read_path_md5sum", normalize_read_path_md5sum),
     ("read_source_identity", normalize_read_source_identity),
 )
+# Validated where the table is declared, so an unnameable normalizer fails at
+# import naming the rule, not at build time inside ``get_expr_hash``
+# (ADR-0020).
+validate_rule_pairs(_NORMALIZE_RULES)
+
 _KEY_TO_FN = dict(_NORMALIZE_RULES)
 _FN_TO_KEY = {fn: key for key, fn in _NORMALIZE_RULES}
 
@@ -49,18 +57,18 @@ def rules_fingerprint() -> str:
     (key, normalizer name) pairs (lookup here is by name, so unlike the dasher
     rule table, order is not identity-bearing). Sensitive to keys added,
     removed, or rebound to a differently-named function; insensitive to an
-    implementation-body edit under an unchanged name. Computed with sha256
-    directly (not ``HASHER.tokenize``) so the fingerprint depends only on this
-    registry, never on the dasher rule table. Companion to
+    implementation-body edit under an unchanged name, and conversely moved by a
+    pure rename (ADR-0020 records both directions of that trade). Computed with
+    sha256 directly (not ``HASHER.tokenize``) so the fingerprint depends only on
+    this registry, never on the dasher rule table. Companion to
     ``dasher.rules_fingerprint``; both fold into the build hash (ADR-0020) so
     appending a serializable normalizer is a build-identity change, caught by
-    the hash rather than only by a test."""
-    return hashlib.sha256(
-        "\x00".join(
-            f"{key}\x1f{fn.__module__}.{fn.__qualname__}"
-            for key, fn in sorted(_KEY_TO_FN.items())
-        ).encode()
-    ).hexdigest()
+    the hash rather than only by a test.
+
+    Digests the declared table, not ``_KEY_TO_FN``: a duplicate key would be
+    silently collapsed by the dict and vanish from the fingerprint.
+    """
+    return fingerprint_rule_pairs(sorted(_NORMALIZE_RULES))
 
 
 def is_registered(fn: Optional[Callable]) -> bool:

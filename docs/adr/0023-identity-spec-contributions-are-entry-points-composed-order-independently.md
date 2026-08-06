@@ -38,10 +38,10 @@
 
 ADR-0021 gives rehydration and builder-less code a canonical
 `DEFAULT_BUILDER`, but is silent on how that default gets *extended*. The
-gap is not hypothetical: `prototype/rest-plugin-shim` ships backends via the
-`xorq.backends` entry-point group, and its identity needs (a dasher rule
-override, a `normalize_registry` key) are met today by mutating module
-state at package import. Under ADR-0021's own analysis that is the rejected
+gap is not hypothetical: an out-of-tree REST plugin, prototyped against this
+design, ships backends via the `xorq.backends` entry-point group, and its
+identity needs (a dasher rule override, a `normalize_registry` key) are met
+today by mutating module state at package import. Under ADR-0021's own analysis that is the rejected
 alternative — a mutable `register()` API whose meaning depends on which
 modules imported first. Yet plugins have no other move: they are loaded by
 entry point, hold no builder, and cannot be constructor arguments to a
@@ -228,13 +228,11 @@ Rejected because:
   (fingerprint visibility of contributed and replaced rules), ADR-0022
   (the stop-gap composition rule contributions graduate from), ADR-0018
   (by-name registries; append-only hazard)
-- `prototype/rest-plugin-shim` — `shims._patch_dasher` /
-  `_patch_normalize_registry`, the two mutations a contribution replaces
+- The out-of-tree REST plugin prototype patches the dasher rule table and the
+  `normalize_registry` at import; those are the two mutations a single
+  declared contribution replaces
 - The transitional protocols above: `normalize_read_source_identity`
   (`python/xorq/common/utils/file_utils.py:138` for the `read_identity_parts`
   lookup, `:123` for the `_profile` reach-in). The third,
   `_maybe_streaming_read_reader` / `read_to_pyarrow_batches`, is a prototype
   shape with no counterpart in core on this branch.
-- `notes/rest-api-source-registration-threads.md` — Thread B
-  (registration as packaging) meets Thread D (registrations as
-  identity-folded values); this ADR is their intersection

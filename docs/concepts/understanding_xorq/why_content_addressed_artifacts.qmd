@@ -64,10 +64,14 @@ without you editing a pipeline—the rule set in force is folded into the build
 hash, so a build produced under a different set of rules is honestly a
 different artifact.
 
-Build hashes and cache keys are separate, and only the first is affected. Cache
-keys are computed by the [cache strategies](intelligent_caching_system.qmd) and
-are deliberately rule-set-neutral, so an upgrade that moves build hashes does
-not move cache keys.
+Build hashes and cache keys are separate. Cache keys are computed by the
+[cache strategies](intelligent_caching_system.qmd) and are deliberately
+neutral to *which rules are registered*, so adding, removing or replacing a
+rule moves build hashes and leaves cache keys alone. That is the case below,
+and it is the common one for an upgrade.
+
+It is not a blanket guarantee: cache keys are computed *by* those rules, so an
+upgrade that changes what an existing normalizer actually does moves both.
 
 ::: {.callout-note}
 ### Build hashes change once in this release

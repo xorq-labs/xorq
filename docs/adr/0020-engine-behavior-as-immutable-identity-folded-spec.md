@@ -165,6 +165,25 @@ Deferred because:
 - **Body-blind fingerprint**: a rule whose implementation changes under an
   unchanged name is invisible to identity (same #2155 line). Accepted; names
   are the contract.
+- **Rename-loud fingerprint** — the same trade running the other way, and the
+  costlier half in practice. Because the digest is over `module.qualname`, a
+  *pure rename* moves every build hash though nothing behavioral changed:
+  renaming a normalizer for clarity, or moving one between modules, is a
+  build-identity change and forces a rebuild. So the fingerprint is
+  anti-correlated with semantic change in both directions — silent on edits
+  that alter behavior, loud on edits that do not. It is still the right proxy
+  here (cheap, cross-process stable, and immune to the pickled-callable
+  failure of #2155), but the refactoring tax is real and unbudgeted: rule
+  normalizers are effectively rename-frozen the way `_EXTRA_RULES` keys
+  already are. Tracked for revisit as
+  [#2204](https://github.com/xorq-labs/xorq/issues/2204).
+- **Names must be nameable**: a normalizer with no stable
+  `module.qualname` — a `functools.partial`, a callable object, a lambda or
+  closure whose name is not unique — cannot carry the contract, so it is
+  rejected at registration (`common/utils/fingerprint_utils.py`). This
+  narrows what may be registered as an identity rule; the alternative was an
+  `AttributeError` inside `get_expr_hash`, i.e. every build failing with a
+  traceback that never mentions rule registration.
 - **Per-engine rule swapping is not yet wired**: swapping `HASHER` today is a
   global operation. True per-engine specs need the `normalization_context` /
   `_current_hasher` seam threaded through construction — scoped as follow-up.
@@ -186,9 +205,10 @@ Deferred because:
 ## Amendment (2026-07-30)
 
 The decision stands; four implementation details of the fingerprint are
-revised, prompted by the `prototype/rest-plugin-shim` experience (a plugin's
-most natural mutation — `Hasher.override` on an existing rule key — replaces
-in place and was invisible to the fingerprint as originally specified).
+revised, prompted by experience prototyping a REST backend as an out-of-tree
+plugin: a plugin's most natural mutation — `Hasher.override` on an existing
+rule key — replaces in place and was invisible to the fingerprint as
+originally specified.
 
 1. **Fingerprints digest `(rule-key, normalizer-name)` pairs, not keys
    alone.** `Hasher.override` on an existing key preserves the key tuple, so
