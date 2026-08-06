@@ -11,15 +11,25 @@
 > indicative for readability; read it as the design, not as the code. What
 > *does* exist is ADR-0020's fingerprint fold, which this ADR builds on.
 >
-> Drafted ahead of implementation, deliberately: this branch is
-> discussion-stage (no PR), and the ADR-lands-with-credible-implementation
-> discipline is relaxed for it by agreement.
+> Drafted ahead of implementation, deliberately — and landing that way, in
+> PR #2200, with none of its machinery. That departs from the project
+> convention that an ADR lands with a credible implementation, paired with its
+> implementing PR. The reason is sequencing, not doubt about the decision:
+> phases 1 and 2 are unblocked work with no owning stack entry yet, and phase 3
+> threads per-engine specs through vendored-ibis backend construction — a
+> high-conflict surface that should not be touched while the REST backend
+> entries are still in flight. The document lands now so the design stays
+> reviewable beside ADR-0020's fold, which it builds on, and so the number is
+> claimed where other in-flight branches can see it (see
+> [`README.md`](README.md) on why an unclaimed number is a hazard here).
 >
 > **Acceptance gate:** phases 1 and 2 of the Phases section land — the frozen
 > `IdentitySpec` / `EngineBuilder` / `DEFAULT_BUILDER` values with no hash
 > change (phase 1), and the fingerprint-agreement assert at the tokenize-time
 > normalization chokepoint (phase 2, as revised by amendment 1). Phase 3
-> (per-engine spec threading) is explicitly *not* part of the gate.
+> (per-engine spec threading) is explicitly *not* part of the gate. Tracked as
+> [#2202](https://github.com/xorq-labs/xorq/issues/2202) — the gate has an
+> owner, so "Proposed" here is a scheduled state, not an open-ended one.
 
 ## Context
 

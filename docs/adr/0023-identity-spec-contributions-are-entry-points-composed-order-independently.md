@@ -13,14 +13,21 @@
 > document. The Decision section is written in the indicative for readability;
 > read it as the design, not as the code.
 >
-> Drafted ahead of implementation, like ADR-0021 (this branch is
-> discussion-stage; the ADR-lands-with-credible-implementation discipline is
-> relaxed by agreement).
+> Drafted ahead of implementation, like ADR-0021, and landing unimplemented in
+> the same PR (#2200) — the same departure from the
+> ADR-lands-with-implementation convention, for a sharper reason: this ADR's
+> gate cannot be met at this head at all. It has nothing to extend until
+> ADR-0021 phase 1 makes `DEFAULT_BUILDER` a value, and its prototype
+> re-expresses a REST plugin that reaches `main` in a later stack entry. What
+> is *not* deferred is the obligation to name the predecessors this would
+> dissolve — see "The transitional duck-typed protocols this is meant to
+> dissolve" below.
 >
 > **Acceptance gate:** ADR-0021 phase 1 lands (this ADR has nothing to extend
-> until `DEFAULT_BUILDER` is a value), and a prototype re-expresses the rest
-> plugin's two identity mutations as a single declared contribution, with the
-> composed fingerprint visible in a build.
+> until `DEFAULT_BUILDER` is a value — tracked as
+> [#2202](https://github.com/xorq-labs/xorq/issues/2202)), and a prototype
+> re-expresses the rest plugin's two identity mutations as a single declared
+> contribution, with the composed fingerprint visible in a build.
 >
 > One section below is *not* proposal: "The transitional duck-typed protocols
 > this is meant to dissolve" describes seams that really exist. Two of the
