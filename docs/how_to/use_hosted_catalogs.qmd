@@ -26,6 +26,10 @@ xorq catalog --path ./analytics-catalog init \
 
 `--remote-url` is required and must be the catalog's only remote, with an `owner/slug.git` path below the configured service URL. Do not put credentials in it.
 
+`--content-store` reads its settings from the process environment, not from `--env-file` (which configures an annex remote instead). Export the two variables above, or source a file that does, before running `init`.
+
+If Git is configured with a `url.<base>.insteadOf` rewrite that covers the service, the rewritten URL is what gets validated, and a hosted catalog whose rewritten remote leaves the service URL is rejected.
+
 Initialization commits only `catalog_id` and `service_url` in `content_store.yaml`:
 
 ```yaml

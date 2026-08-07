@@ -3,22 +3,25 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import tempfile
 import threading
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
+from attr import define, field, frozen
 from git import Repo
 
 import xorq.api as xo
-from xorq.catalog.backend import GitPointerBackend
+from xorq.catalog.backend import _FETCH_BATCH_SIZE, GitPointerBackend
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.constants import CONTENT_STORE_YAML
 from xorq.catalog.content_store import (
+    _PRESIGNED_BATCH_SIZE,
     ContentCache,
     ContentSpec,
     ContentStoreConfig,
@@ -57,29 +60,27 @@ def _download_headers(sha256: str) -> dict[str, str]:
     return {"x-xorq-signed-test": f"download-{sha256[:8]}"}
 
 
-@dataclass
+@define
 class _ServiceState:
     service_url: str = ""
-    uploads: dict[str, tuple[str, int]] = field(default_factory=dict)
-    objects: dict[str, bytes] = field(default_factory=dict)
-    already_verified: set[str] = field(default_factory=set)
-    corrupt_downloads: set[str] = field(default_factory=set)
-    control_requests: list[tuple[str, str | None, dict[str, Any]]] = field(
-        default_factory=list
-    )
-    object_requests: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
-    completed: list[str] = field(default_factory=list)
+    uploads: dict[str, tuple[str, int]] = field(factory=dict)
+    objects: dict[str, bytes] = field(factory=dict)
+    already_verified: set[str] = field(factory=set)
+    corrupt_downloads: set[str] = field(factory=set)
+    control_requests: list[tuple[str, str | None, dict[str, Any]]] = field(factory=list)
+    object_requests: list[tuple[str, str, dict[str, str]]] = field(factory=list)
+    completed: list[str] = field(factory=list)
     reverse_uploads: bool = False
     reverse_downloads: bool = False
     next_control_error: int | None = None
-    rejected_authorizations: dict[str, tuple[int, str]] = field(default_factory=dict)
+    rejected_authorizations: dict[str, tuple[int, str]] = field(factory=dict)
     redirect_download: bool = False
     redirect_was_followed: bool = False
     max_batch_size: int | None = None
     expire_next_upload_batch: bool = False
     expire_next_download_batch: bool = False
     upload_request_headers: dict[str, str] | None = None
-    completion_response_overrides: dict[str, Any] = field(default_factory=dict)
+    completion_response_overrides: dict[str, Any] = field(factory=dict)
     redirect_upload: bool = False
     next_upload_id: int = 1
 
@@ -309,7 +310,7 @@ class _HostedBlobHandler(BaseHTTPRequestHandler):
         self._send_bytes(200, content)
 
 
-@dataclass(frozen=True)
+@frozen
 class _ServiceFixture:
     url: str
     state: _ServiceState
@@ -794,7 +795,10 @@ def test_public_download_does_not_disclose_a_foreign_service_token(
 
 @pytest.mark.parametrize(
     ("status", "error_code"),
-    ((401, "unauthorized"), (403, "forbidden")),
+    (
+        pytest.param(401, "unauthorized", id="unauthorized"),
+        pytest.param(403, "forbidden", id="forbidden"),
+    ),
 )
 def test_public_download_retries_anonymously_after_a_rejected_scoped_token(
     tmp_path: Path,
@@ -1166,12 +1170,30 @@ def test_hosted_write_preflight_leaves_no_partial_catalog_files(
 @pytest.mark.parametrize(
     "pointer_bytes",
     (
-        f"xorq-pointer v1\nsha256 {'a' * 64}\nsize 1".encode(),
-        f"xorq-pointer v1\r\nsha256 {'a' * 64}\r\nsize 1\r\n".encode(),
-        f"xorq-pointer v1\nsha256 {'a' * 64}\nsize 00\n".encode(),
-        f"xorq-pointer v1\nsha256 {'a' * 64}\nsize +1\n".encode(),
-        f"xorq-pointer v1\nsha256 {'A' * 64}\nsize 10\n".encode(),
-        f"xorq-pointer v1\nsha256 {'a' * 64}\nsize 5000000001\n".encode(),
+        pytest.param(
+            f"xorq-pointer v1\nsha256 {'a' * 64}\nsize 1".encode(),
+            id="missing-trailing-newline",
+        ),
+        pytest.param(
+            f"xorq-pointer v1\r\nsha256 {'a' * 64}\r\nsize 1\r\n".encode(),
+            id="crlf-line-endings",
+        ),
+        pytest.param(
+            f"xorq-pointer v1\nsha256 {'a' * 64}\nsize 00\n".encode(),
+            id="leading-zero-size",
+        ),
+        pytest.param(
+            f"xorq-pointer v1\nsha256 {'a' * 64}\nsize +1\n".encode(),
+            id="signed-size",
+        ),
+        pytest.param(
+            f"xorq-pointer v1\nsha256 {'A' * 64}\nsize 10\n".encode(),
+            id="uppercase-digest",
+        ),
+        pytest.param(
+            f"xorq-pointer v1\nsha256 {'a' * 64}\nsize 5000000001\n".encode(),
+            id="size-over-the-blob-limit",
+        ),
     ),
 )
 def test_hosted_backend_rejects_noncanonical_pointer_bytes(
@@ -1332,3 +1354,133 @@ def test_pointer_backend_batch_failure_leaves_targets_and_cache_untouched(
 
     assert all(not target.exists() for target, _, _ in prepared)
     assert all(not backend.cache.contains(key) for _, key, _ in prepared)
+
+
+def _download_batches(service: _ServiceFixture) -> list[dict[str, Any]]:
+    return [
+        body
+        for path, _auth, body in service.state.control_requests
+        if path.endswith("downloads:batch")
+    ]
+
+
+def test_fetch_content_batches_beyond_the_service_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """More objects than one mint allows are fetched in bounded groups."""
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    backend = _backend(tmp_path, hosted_blob_service)
+    hosted_blob_service.state.max_batch_size = _PRESIGNED_BATCH_SIZE
+    contents = tuple(f"archive number {index}".encode() for index in range(12))
+    prepared = _prepare_downloads(backend, hosted_blob_service, contents)
+
+    backend.fetch_content(*(target for target, _, _ in prepared))
+
+    assert [target.read_bytes() for target, _, _ in prepared] == list(contents)
+    assert all(backend.cache.contains(key) for _, key, _ in prepared)
+    # 12 objects staged in groups of _FETCH_BATCH_SIZE, each group one mint
+    # that stays inside the service's per-request limit.
+    batches = _download_batches(hosted_blob_service)
+    assert [len(body["objects"]) for body in batches] == [_FETCH_BATCH_SIZE, 2]
+
+
+def test_fetch_content_stages_downloads_beside_the_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """In-flight objects land on the cache volume, never in the system temp dir."""
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    backend = _backend(tmp_path, hosted_blob_service)
+    prepared = _prepare_downloads(backend, hosted_blob_service, (b"staged archive",))
+
+    staging_dirs = []
+    real_mkstemp = tempfile.mkstemp
+
+    def recording_mkstemp(*args: Any, **kwargs: Any):
+        staging_dirs.append(kwargs.get("dir"))
+        return real_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkstemp", recording_mkstemp)
+    backend.fetch_content(prepared[0][0])
+
+    assert backend.cache.cache_dir in [Path(d) for d in staging_dirs if d is not None]
+    # None would mean the system temp dir, which is not the volume the user
+    # sized for content.
+    assert None not in staging_dirs
+
+
+def test_fetch_content_keeps_batches_that_already_succeeded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """A corrupt object fails its own group without discarding earlier groups."""
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    backend = _backend(tmp_path, hosted_blob_service)
+    contents = tuple(f"archive number {index}".encode() for index in range(12))
+    prepared = _prepare_downloads(backend, hosted_blob_service, contents)
+    hosted_blob_service.state.corrupt_downloads.add(prepared[-1][2])
+
+    with pytest.raises(ContentIntegrityError, match="SHA256 mismatch"):
+        backend.fetch_content(*(target for target, _, _ in prepared))
+
+    # The first full group survives; the group containing the corrupt object
+    # is discarded whole.
+    for target, key, _sha in prepared[:_FETCH_BATCH_SIZE]:
+        assert target.exists()
+        assert backend.cache.contains(key)
+    for target, key, _sha in prepared[_FETCH_BATCH_SIZE:]:
+        assert not target.exists()
+        assert not backend.cache.contains(key)
+    # No staging files are left behind on the cache volume.
+    assert list(backend.cache.cache_dir.rglob("*.tmp")) == []
+
+
+def test_hosted_single_object_get_reports_an_unsupported_capability(
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """The key-only ContentStore.get contract is refused, not silently wrong."""
+    store = _store(hosted_blob_service)
+    key = compute_content_key(CATALOG_ID, _digest(b"anything"))
+
+    with pytest.raises(ContentStoreCapabilityError, match="use get_many"):
+        store.get(key, "/dev/null")
+
+
+@pytest.mark.parametrize(
+    ("size", "expected"),
+    (
+        pytest.param(0, 30, id="empty-object-uses-the-floor"),
+        pytest.param(1024, 30, id="small-object-uses-the-floor"),
+        pytest.param(1024 * 1024 * 1024, 102, id="one-gib-scales-with-size"),
+        pytest.param(5_000_000_000, 300, id="max-blob-caps-at-transfer-timeout"),
+    ),
+)
+def test_expiry_margin_scales_with_object_size(size: int, expected: int) -> None:
+    """Big bodies need more remaining validity than the connection-setup floor."""
+    assert PresignedContentStore._expiry_margin_seconds(size) == expected
+
+
+def test_expiry_margin_refuses_a_url_that_cannot_outlast_the_transfer() -> None:
+    """A URL expiring inside the transfer window is treated as expiring soon."""
+    soon = datetime.now(timezone.utc) + timedelta(seconds=90)
+    request = ("https://example/object", {}, soon)
+
+    assert not PresignedContentStore._request_expires_soon(request, 1024)
+    assert PresignedContentStore._request_expires_soon(request, 2 * 1024**3)
+
+
+def test_hosted_remote_rejection_names_the_effective_url(
+    tmp_path: Path,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """The error explains that Git URL rewrites can change what was validated."""
+    backend = _backend(tmp_path, hosted_blob_service)
+    backend.repo.remotes[0].set_url("https://elsewhere.example/alice/demo.git")
+
+    with pytest.raises(ValueError, match="insteadOf") as excinfo:
+        _ = backend.content_store
+    assert "https://elsewhere.example/alice/demo.git" in str(excinfo.value)

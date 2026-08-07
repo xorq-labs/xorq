@@ -26,7 +26,10 @@ if TYPE_CHECKING:
 
     from xorq.api import Expr
     from xorq.catalog.catalog import Catalog
-    from xorq.catalog.content_store import ContentStoreConfig
+    from xorq.catalog.content_store import (
+        ContentStoreConfig,
+        PresignedContentStoreConfig,
+    )
     from xorq.common.utils.lineage_utils import LineageDAG
     from xorq.ibis_yaml.packager import JointBundle
 
@@ -300,6 +303,23 @@ def _resolve_content_store_option(
             )
 
 
+def _hosted_config(
+    content_store_config: ContentStoreConfig | None,
+) -> PresignedContentStoreConfig | None:
+    """Return *content_store_config* when it is the hosted one, else None.
+
+    Callers need the config's type, not the CLI spelling: only the hosted
+    config carries ``validate_remote_url``.
+    """
+    from xorq.catalog.content_store import (  # noqa: PLC0415
+        PresignedContentStoreConfig,
+    )
+
+    if isinstance(content_store_config, PresignedContentStoreConfig):
+        return content_store_config
+    return None
+
+
 def _check_backend_exclusive_cli(
     content_store_config: object | None, annex: object | None
 ) -> None:
@@ -353,8 +373,9 @@ def init(
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
-        if content_store_type == "presigned":
-            content_store_config.validate_remote_url(remote_url)
+        hosted = _hosted_config(content_store_config)
+        if hosted is not None:
+            hosted.validate_remote_url(remote_url)
         try:
             catalog = ctx.obj.make_catalog(
                 init=True, annex=annex, content_store_config=content_store_config
@@ -366,7 +387,7 @@ def init(
             ) from err
         if remote_url:
             remote = catalog.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
-            if content_store_type == "presigned":
+            if hosted is not None:
                 # Validate the hosted binding before reporting success.
                 _ = catalog.backend.content_store
         click.echo(f"Initialized catalog at {catalog.repo_path}")
@@ -1759,13 +1780,14 @@ def replay(
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
-        if content_store_type == "presigned":
-            content_store_config.validate_remote_url(remote_url)
+        hosted = _hosted_config(content_store_config)
+        if hosted is not None:
+            hosted.validate_remote_url(remote_url)
         target = Catalog.from_repo_path(
             target_path, annex=annex, content_store_config=content_store_config
         )
         origin = None
-        if remote_url and content_store_type == "presigned":
+        if remote_url and hosted is not None:
             # Validate the binding before replay uploads.
             origin = target.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
             _ = target.backend.content_store
