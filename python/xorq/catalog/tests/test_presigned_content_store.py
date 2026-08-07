@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import tempfile
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
@@ -21,7 +20,12 @@ from xorq.catalog.backend import _FETCH_BATCH_SIZE, GitPointerBackend
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.constants import CONTENT_STORE_YAML
 from xorq.catalog.content_store import (
+    _MAX_PRESIGNED_BLOB_BYTES,
+    _MAX_TRANSFER_SECONDS,
+    _PRESIGNED_ASSUMED_BYTES_PER_SECOND,
     _PRESIGNED_BATCH_SIZE,
+    _PRESIGNED_EXPIRY_MARGIN_SECONDS,
+    _SOCKET_IDLE_TIMEOUT_SECONDS,
     ContentCache,
     ContentSpec,
     ContentStoreConfig,
@@ -1391,25 +1395,31 @@ def test_fetch_content_stages_downloads_beside_the_cache(
     monkeypatch: pytest.MonkeyPatch,
     hosted_blob_service: _ServiceFixture,
 ) -> None:
-    """In-flight objects land on the cache volume, never in the system temp dir."""
+    """In-flight objects land in the cache's staging dir, not the system temp dir.
+
+    Observed through the destinations the backend hands the store, which is the
+    actual contract, rather than through whichever temp-file call happens to
+    create them.
+    """
     _set_token(monkeypatch, hosted_blob_service, "read-token")
     backend = _backend(tmp_path, hosted_blob_service)
     prepared = _prepare_downloads(backend, hosted_blob_service, (b"staged archive",))
 
-    staging_dirs = []
-    real_mkstemp = tempfile.mkstemp
+    destinations: list[Path] = []
+    real_get_many = PresignedContentStore.get_many
 
-    def recording_mkstemp(*args: Any, **kwargs: Any):
-        staging_dirs.append(kwargs.get("dir"))
-        return real_mkstemp(*args, **kwargs)
+    def observing(self: PresignedContentStore, objects: Any) -> set[str]:
+        items = list(objects)
+        destinations.extend(Path(path) for _spec, path in items)
+        return real_get_many(self, items)
 
-    monkeypatch.setattr(tempfile, "mkstemp", recording_mkstemp)
+    monkeypatch.setattr(PresignedContentStore, "get_many", observing)
     backend.fetch_content(prepared[0][0])
 
-    assert backend.cache.cache_dir in [Path(d) for d in staging_dirs if d is not None]
-    # None would mean the system temp dir, which is not the volume the user
-    # sized for content.
-    assert None not in staging_dirs
+    assert destinations, "the store was never asked to download anything"
+    assert [path.parent for path in destinations] == [backend.cache.staging_dir]
+    # Staging is consumed by adopt(), so nothing is left behind.
+    assert list(backend.cache.staging_dir.iterdir()) == []
 
 
 def test_fetch_content_keeps_batches_that_already_succeeded(
@@ -1451,17 +1461,47 @@ def test_hosted_single_object_get_reports_an_unsupported_capability(
 
 
 @pytest.mark.parametrize(
-    ("size", "expected"),
+    "size",
     (
-        pytest.param(0, 30, id="empty-object-uses-the-floor"),
-        pytest.param(1024, 30, id="small-object-uses-the-floor"),
-        pytest.param(1024 * 1024 * 1024, 102, id="one-gib-scales-with-size"),
-        pytest.param(5_000_000_000, 300, id="max-blob-caps-at-transfer-timeout"),
+        pytest.param(0, id="empty"),
+        pytest.param(1024, id="small"),
+        pytest.param(1024 * 1024 * 1024, id="one-gib"),
+        pytest.param(_MAX_PRESIGNED_BLOB_BYTES, id="max-blob"),
     ),
 )
-def test_expiry_margin_scales_with_object_size(size: int, expected: int) -> None:
-    """Big bodies need more remaining validity than the connection-setup floor."""
-    assert PresignedContentStore._expiry_margin_seconds(size) == expected
+def test_expiry_margin_never_undercuts_the_time_the_body_needs(size: int) -> None:
+    """The margin covers the floor and the body, without pinning constants.
+
+    Asserting the relationship rather than the number means tuning the assumed
+    bandwidth or the blob ceiling does not churn this test.
+    """
+    margin = PresignedContentStore._expiry_margin_seconds(size)
+
+    assert margin >= _PRESIGNED_EXPIRY_MARGIN_SECONDS
+    assert margin >= min(
+        size // _PRESIGNED_ASSUMED_BYTES_PER_SECOND, _MAX_TRANSFER_SECONDS
+    )
+    assert margin <= _MAX_TRANSFER_SECONDS
+
+
+def test_expiry_margin_covers_the_largest_permitted_object() -> None:
+    """The cap is derived from the blob ceiling, not from the socket timeout.
+
+    A 5 GB object needs far longer than one socket idle timeout, so capping the
+    margin at that timeout would let the URL expire mid-transfer.
+    """
+    largest = PresignedContentStore._expiry_margin_seconds(_MAX_PRESIGNED_BLOB_BYTES)
+
+    assert largest == _MAX_TRANSFER_SECONDS
+    assert largest > _SOCKET_IDLE_TIMEOUT_SECONDS
+
+
+def test_expiry_margin_is_monotonic_in_size() -> None:
+    """A larger body never demands less remaining validity than a smaller one."""
+    sizes = (0, 1024, 10**7, 10**8, 10**9, _MAX_PRESIGNED_BLOB_BYTES)
+    margins = [PresignedContentStore._expiry_margin_seconds(s) for s in sizes]
+
+    assert margins == sorted(margins)
 
 
 def test_expiry_margin_refuses_a_url_that_cannot_outlast_the_transfer() -> None:
@@ -1484,3 +1524,86 @@ def test_hosted_remote_rejection_names_the_effective_url(
     with pytest.raises(ValueError, match="insteadOf") as excinfo:
         _ = backend.content_store
     assert "https://elsewhere.example/alice/demo.git" in str(excinfo.value)
+
+
+def test_hosted_download_is_not_hashed_a_second_time(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """get_many reports what it verified in transit, so the backend re-reads nothing."""
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    backend = _backend(tmp_path, hosted_blob_service)
+    prepared = _prepare_downloads(
+        backend, hosted_blob_service, (b"verified in transit",)
+    )
+
+    rehashed = []
+    original = GitPointerBackend._verify_content
+
+    def recording(self, local, path, sha256, size):  # type: ignore[no-untyped-def]
+        rehashed.append(Path(local))
+        return original(self, local, path, sha256, size)
+
+    monkeypatch.setattr(GitPointerBackend, "_verify_content", recording)
+    backend.fetch_content(prepared[0][0])
+
+    assert prepared[0][0].read_bytes() == b"verified in transit"
+    assert rehashed == [], "the hosted store already proved these bytes"
+
+
+def test_hosted_get_many_reports_every_key_it_verified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """The verified set is the store's proof, and it covers the whole request."""
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    store = _store(hosted_blob_service)
+    contents = (b"alpha payload", b"beta payload")
+    requested = []
+    for index, content in enumerate(contents):
+        sha256 = _digest(content)
+        hosted_blob_service.state.objects[sha256] = content
+        spec = ContentSpec(
+            key=compute_content_key(CATALOG_ID, sha256),
+            sha256=sha256,
+            size=len(content),
+        )
+        requested.append((spec, tmp_path / f"out-{index}.bin"))
+
+    verified = store.get_many(requested)
+
+    assert verified == {spec.key for spec, _path in requested}
+    assert [path.read_bytes() for _spec, path in requested] == list(contents)
+
+
+def test_unverified_store_downloads_are_still_checked_by_the_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """A store reporting nothing verified gets its bytes proved by the backend."""
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    backend = _backend(tmp_path, hosted_blob_service)
+    prepared = _prepare_downloads(backend, hosted_blob_service, (b"claims nothing",))
+
+    # Capture before patching, or the replacement calls itself.
+    real_get_many = PresignedContentStore.get_many
+    monkeypatch.setattr(
+        PresignedContentStore,
+        "get_many",
+        lambda self, objects: (real_get_many(self, objects), None)[1],
+    )
+    rehashed = []
+    original = GitPointerBackend._verify_content
+
+    def recording(self, local, path, sha256, size):  # type: ignore[no-untyped-def]
+        rehashed.append(Path(local))
+        return original(self, local, path, sha256, size)
+
+    monkeypatch.setattr(GitPointerBackend, "_verify_content", recording)
+    backend.fetch_content(prepared[0][0])
+
+    assert prepared[0][0].read_bytes() == b"claims nothing"
+    assert len(rehashed) == 1, "an unproven download must be verified locally"
