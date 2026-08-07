@@ -534,8 +534,6 @@ class GitPointerBackend(CatalogBackend):
         every object at once.
         """
         staging_dir = self.cache.staging_dir
-        if staging_dir is not None:
-            staging_dir.mkdir(parents=True, exist_ok=True)
         downloads: dict[str, Path] = {}
         try:
             for key, _entry in batch:
@@ -545,18 +543,24 @@ class GitPointerBackend(CatalogBackend):
                 os.close(fd)
                 downloads[key] = Path(tmp)
 
-            self.content_store.get_many(
-                (spec, downloads[key]) for key, (spec, _paths) in batch
+            verified = (
+                self.content_store.get_many(
+                    (spec, downloads[key]) for key, (spec, _paths) in batch
+                )
+                or frozenset()
             )
 
             for key, (spec, archive_paths) in batch:
                 downloaded = downloads[key]
-                self._verify_content(
-                    downloaded,
-                    archive_paths[0],
-                    spec.sha256,
-                    spec.size,
-                )
+                if key not in verified:
+                    # The store only moved bytes; prove them here. A store that
+                    # hashed them in transit reports the key and is trusted.
+                    self._verify_content(
+                        downloaded,
+                        archive_paths[0],
+                        spec.sha256,
+                        spec.size,
+                    )
                 for archive_path in archive_paths:
                     with atomic_write(archive_path) as tmp_path:
                         shutil.copy2(downloaded, tmp_path)

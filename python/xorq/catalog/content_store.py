@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -65,17 +66,29 @@ _MAX_PRESIGNED_BLOB_BYTES = 5_000_000_000
 _CONTROL_RESPONSE_MAX_BYTES = 256 * 1024
 _CONTROL_TIMEOUT_SECONDS = 300
 _PRESIGNED_BATCH_SIZE = 10
-_TRANSFER_TIMEOUT_SECONDS = 300
 _TRANSFER_CHUNK_BYTES = 1024 * 1024
+# urllib passes this to HTTPConnection, so it bounds how long a single socket
+# operation may block — NOT how long a whole transfer may take. A multi-hour
+# download is fine as long as no individual read stalls this long.
+_SOCKET_IDLE_TIMEOUT_SECONDS = 300
 # A signed URL is re-minted when it would expire before the transfer it was
-# minted for could plausibly finish. The floor covers round-trip and connection
-# setup; the size-derived term covers the body. Both are capped by the transfer
-# timeout, which is the longest a single transfer is ever allowed to run.
+# minted for could plausibly finish. The floor covers connection setup and
+# round trip; the size-derived term covers the body.
 _PRESIGNED_EXPIRY_MARGIN_SECONDS = 30
 _PRESIGNED_ASSUMED_BYTES_PER_SECOND = 10 * 1024 * 1024
+# Derived, not co-declared: the ceiling on the margin is the time the largest
+# permitted object needs, so raising the blob limit cannot silently leave the
+# margin too small to cover it.
+_MAX_TRANSFER_SECONDS = _MAX_PRESIGNED_BLOB_BYTES // _PRESIGNED_ASSUMED_BYTES_PER_SECOND
 # Pointer files are ~100 bytes; the cap bounds memory when parsing pointers
 # that came from an untrusted clone.
 _MAX_POINTER_BYTES = 4096
+# In-flight downloads live here, inside the cache dir but apart from cache
+# entries. Files older than the reap threshold cannot belong to a live fetch —
+# a single transfer is bounded by the socket idle timeout — so they are debris
+# from a killed process and are removed.
+_STAGING_DIRNAME = ".staging"
+_STAGING_REAP_SECONDS = 24 * 60 * 60
 _CATALOG_TOKEN_ENV = "XORQ_CATALOG_TOKEN"
 _CATALOG_TOKEN_SERVICE_ENV = "XORQ_CATALOG_TOKEN_SERVICE_URL"
 
@@ -361,12 +374,22 @@ class ContentStore(abc.ABC):
                 uploaded.add(spec.key)
         return uploaded
 
-    def get_many(self, objects: Iterable[tuple[ContentSpec, str | Path]]) -> None:
-        """Default multi-object download implementation."""
+    def get_many(
+        self, objects: Iterable[tuple[ContentSpec, str | Path]]
+    ) -> set[str] | None:
+        """Download many objects; return the keys already verified in transit.
+
+        A store that hashes bytes as it streams them has already proved they
+        match their ``ContentSpec``, and says so by returning those keys — the
+        caller then has no reason to read them a second time. Returning
+        ``None`` or an empty set means "verified nothing", which is the safe
+        default and what a store that only moves bytes should do.
+        """
         for spec, local_path in objects:
             # Keep legacy ContentStore implementations source-compatible. Stores
             # that need pointer metadata (the hosted adapter) override this method.
             self.get(spec.key, local_path)
+        return None
 
 
 @frozen
@@ -943,12 +966,12 @@ class PresignedContentStore(ContentStore):
         """Seconds of validity a signed URL needs to transfer *size* bytes.
 
         A fixed few seconds is not enough for a multi-gigabyte body: the URL
-        passes the pre-flight check and then expires mid-transfer. The margin
-        is capped at the transfer timeout, which is the longest any single
-        transfer can run before it is abandoned anyway.
+        passes the pre-flight check and then expires mid-transfer. The cap is
+        the time the largest permitted object needs, not the socket idle
+        timeout — that timeout bounds a single stalled read, not the transfer.
         """
         return min(
-            _TRANSFER_TIMEOUT_SECONDS,
+            _MAX_TRANSFER_SECONDS,
             max(
                 _PRESIGNED_EXPIRY_MARGIN_SECONDS,
                 size // _PRESIGNED_ASSUMED_BYTES_PER_SECOND,
@@ -979,7 +1002,7 @@ class PresignedContentStore(ContentStore):
                 request = Request(url, data=source, headers=headers, method="PUT")
                 with self._open(
                     request,
-                    timeout=_TRANSFER_TIMEOUT_SECONDS,
+                    timeout=_SOCKET_IDLE_TIMEOUT_SECONDS,
                     operation="presigned upload",
                 ) as response:
                     if not 200 <= response.status < 300:
@@ -1103,7 +1126,7 @@ class PresignedContentStore(ContentStore):
                 with (
                     self._open(
                         request,
-                        timeout=_TRANSFER_TIMEOUT_SECONDS,
+                        timeout=_SOCKET_IDLE_TIMEOUT_SECONDS,
                         operation="presigned download",
                     ) as response,
                     tmp.open("wb") as destination,
@@ -1134,7 +1157,13 @@ class PresignedContentStore(ContentStore):
                     f"SHA256 mismatch after download: expected {spec.sha256}, got {actual}"
                 )
 
-    def get_many(self, objects: Iterable[tuple[ContentSpec, str | Path]]) -> None:
+    def get_many(self, objects: Iterable[tuple[ContentSpec, str | Path]]) -> set[str]:
+        """Download many objects, verifying each against its spec in transit.
+
+        ``_download_presigned`` streams into a digest and checks both size and
+        SHA-256 before the file is published, so every key returned here is
+        proven and the caller need not read it back.
+        """
         by_identity: dict[tuple[str, int], tuple[ContentSpec, list[Path]]] = {}
         sizes_by_sha256: dict[str, int] = {}
         for spec, raw_path in objects:
@@ -1150,8 +1179,9 @@ class PresignedContentStore(ContentStore):
             else:
                 by_identity[identity] = (spec, [Path(raw_path)])
         if not by_identity:
-            return
+            return set()
 
+        verified: set[str] = set()
         specs = {identity: value[0] for identity, value in by_identity.items()}
         for batch in self._spec_batches(specs):
             results = self._batch_results(
@@ -1174,6 +1204,8 @@ class PresignedContentStore(ContentStore):
                             refreshed[identity].get("request")
                         )
                     self._download_presigned(spec, local_path, request_data)
+                verified.add(spec.key)
+        return verified
 
     @staticmethod
     def _unsupported(operation: str) -> ContentStoreCapabilityError:
@@ -1213,6 +1245,10 @@ class ContentCache:
             ) from exc
         if not os.access(self.cache_dir, os.W_OK):
             raise OSError(f"Content cache directory is not writable: {self.cache_dir}")
+        staging = self.staging_dir
+        if staging is not None:
+            staging.mkdir(parents=True, exist_ok=True)
+        self.reap_stale_staging()
 
     @property
     def disabled(self) -> bool:
@@ -1220,6 +1256,33 @@ class ContentCache:
 
     def _path(self, key: str) -> Path:
         return self.cache_dir / key
+
+    def _is_staged(self, path: Path) -> bool:
+        staging = self.staging_dir
+        return staging is not None and path.parent == staging
+
+    def reap_stale_staging(self) -> int:
+        """Delete staging files too old for any live fetch to still own them.
+
+        A process killed mid-fetch leaves full-size objects behind. They are
+        not cache entries, so nothing else would ever remove them. The age
+        threshold is what makes this safe to run while another process is
+        fetching: its in-flight files are minutes old at most.
+        """
+        staging = self.staging_dir
+        if staging is None or not staging.is_dir():
+            return 0
+        cutoff = time.time() - _STAGING_REAP_SECONDS
+        reaped = 0
+        for path in staging.iterdir():
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink(missing_ok=True)
+                    reaped += 1
+            except OSError:
+                # Another process may be reaping the same directory.
+                continue
+        return reaped
 
     def contains(self, key: str) -> bool:
         if self.disabled:
@@ -1275,9 +1338,13 @@ class ContentCache:
 
         Staging inside the cache directory keeps ``adopt`` a rename and puts
         the bytes on the volume the user sized for content, rather than on
-        whatever backs the system temp dir.
+        whatever backs the system temp dir. It is a dedicated subdirectory so
+        in-flight bytes stay distinguishable from cache entries: they count
+        against the budget but are not evictable, and they are reaped by age.
+        A catalog_id can never collide with it, since ``_SAFE_CATALOG_ID_RE``
+        forbids a leading dot.
         """
-        return None if self.disabled else self.cache_dir
+        return None if self.disabled else self.cache_dir / _STAGING_DIRNAME
 
     def _maybe_evict(self, protect: str | None = None) -> None:
         if self.max_bytes < 0:
@@ -1286,10 +1353,21 @@ class ContentCache:
         entries: list[tuple[float, int, Path]] = []
         total = 0
         for p in self.cache_dir.rglob("*"):
-            if p.is_file() and not p.name.endswith(".tmp"):
-                st = p.stat()
-                entries.append((st.st_atime, st.st_size, p))
+            if not p.is_file():
+                continue
+            st = p.stat()
+            if self._is_staged(p):
+                # In-flight bytes occupy the volume, so they count against the
+                # budget — but they belong to a live fetch and must not be
+                # evicted out from under it.
                 total += st.st_size
+                continue
+            if p.name.endswith(".tmp"):
+                # atomic_write scratch beside its destination: transient and
+                # owned by the writer.
+                continue
+            entries.append((st.st_atime, st.st_size, p))
+            total += st.st_size
         if total <= self.max_bytes:
             return
         entries.sort()
