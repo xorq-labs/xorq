@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import errno
 import gc
 import hashlib
 import os
@@ -49,6 +52,7 @@ from xorq.catalog.content_store import (
     _coerce_port,
     compute_content_key,
     compute_sha256,
+    copy_and_digest,
     parse_pointer,
     write_pointer,
 )
@@ -704,20 +708,131 @@ def test_from_repo_path_false_forces_plain_git(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_content_cache_fetch_from_protects_fetched_file(tmp_path: Path) -> None:
-    """A fetched file larger than max_bytes is not evicted by its own insertion."""
+def test_content_cache_adopt_consumes_the_staged_file(tmp_path: Path) -> None:
+    """adopt() moves the staged object in and protects it from its own eviction."""
     root = tmp_path
-    store = DirectoryContentStore(directory=root / "store")
     cache = ContentCache(cache_dir=root / "cache", max_bytes=10)
     key = "cat/aa/bb/deadbeef.zip"
-    src = root / "big.bin"
-    src.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
-    store.put(key, src)
+    staged = cache.cache_dir / "staged.tmp"
+    staged.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
 
-    dest = cache.fetch_from(store, key)
-    assert dest.exists()  # protected from its own eviction
+    cache.adopt(key, staged)
+
+    assert not staged.exists()  # consumed, not copied
+    dest = cache.get_path(key)
+    assert dest is not None
     assert dest.read_bytes() == b"x" * 100
-    assert cache.get_path(key) is not None
+
+
+def test_content_cache_adopt_falls_back_to_copy_across_filesystems(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cross-device rename degrades to copy-then-unlink, not a failure."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    staged = tmp_path / "elsewhere.tmp"
+    staged.write_bytes(b"payload")
+
+    real_replace = os.replace
+    failed = []
+
+    def cross_device(src, dst):
+        # Only adopt()'s own rename is cross-device; the copy fallback then
+        # renames within the cache dir and must be allowed to succeed.
+        if not failed:
+            failed.append((src, dst))
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", cross_device)
+    cache.adopt("cat/aa/bb/data.zip", staged)
+
+    assert not staged.exists()
+    dest = cache.get_path("cat/aa/bb/data.zip")
+    assert dest is not None
+    assert dest.read_bytes() == b"payload"
+
+
+def test_content_cache_adopt_disabled_drops_the_staged_file(tmp_path: Path) -> None:
+    """max_bytes=0: adopt() discards the staged file and caches nothing."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=0)
+    staged = tmp_path / "staged.tmp"
+    staged.write_bytes(b"payload")
+
+    cache.adopt("cat/aa/bb/data.zip", staged)
+
+    assert not staged.exists()
+    assert cache.get_path("cat/aa/bb/data.zip") is None
+    assert cache.staging_dir is None
+
+
+def test_copy_and_digest_matches_a_separate_hash_and_keeps_the_mode(
+    tmp_path: Path,
+) -> None:
+    """The single-pass copy is byte- mode- and digest-equivalent to shutil.copy."""
+    src = tmp_path / "src.zip"
+    src.write_bytes(b"payload" * 1000)
+    os.chmod(src, 0o640)
+    dest = tmp_path / "dest.zip"
+
+    digest = copy_and_digest(src, dest)
+
+    assert digest == compute_sha256(src)
+    assert dest.read_bytes() == src.read_bytes()
+    assert dest.stat().st_mode == src.stat().st_mode
+
+
+def test_parse_pointer_rejects_an_oversized_pointer_file(tmp_path: Path) -> None:
+    """A pointer from an untrusted clone is size-bounded before it is read."""
+    pointer = tmp_path / "entry.zip.pointer"
+    sha = "a" * 64
+    padding = b"#" * 8192
+    pointer.write_bytes(f"{POINTER_VERSION}\nsha256 {sha}\nsize 1\n".encode() + padding)
+
+    for canonical in (False, True):
+        with pytest.raises(ValueError, match="Invalid pointer file"):
+            parse_pointer(pointer, canonical=canonical)
+
+
+def test_parse_pointer_rejects_undecodable_bytes(tmp_path: Path) -> None:
+    """Non-UTF-8 pointer bytes fail as an invalid pointer, not a decode error."""
+    pointer = tmp_path / "entry.zip.pointer"
+    pointer.write_bytes(b"\xff\xfe not a pointer\n")
+
+    with pytest.raises(ValueError, match="Invalid pointer file"):
+        parse_pointer(pointer)
+
+
+def test_fetch_content_redownloads_when_the_cache_entry_vanished(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cache hit evicted between get_path() and use falls back to a download."""
+    repo = GitRepo.init(tmp_path / "repo")
+    store_dir = tmp_path / "store"
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    config.write_yaml(Path(repo.working_dir) / CONTENT_STORE_YAML)
+    store = DirectoryContentStore(directory=store_dir)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
+
+    archive = tmp_path / "data.zip"
+    archive.write_bytes(b"real content")
+    sha = compute_sha256(archive)
+    key = compute_content_key("testcat", sha)
+    store.put(key, archive)
+
+    target = tmp_path / "entry.zip"
+    write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
+
+    # Report a cache hit whose file is already gone, as a concurrent eviction
+    # between get_path() and the copy would.
+    monkeypatch.setattr(
+        ContentCache,
+        "get_path",
+        lambda self, key: self.cache_dir / "evicted-under-us.zip",
+    )
+    backend.fetch_content(target)
+
+    assert target.read_bytes() == b"real content"
 
 
 def test_content_cache_put_protects_and_refreshes_atime(tmp_path: Path) -> None:
@@ -746,7 +861,7 @@ def test_content_cache_evicts_older_entries(tmp_path: Path) -> None:
         src.write_bytes(bytes([i]) * 100)
         key = f"cat/{i:02d}/x/h{i}.zip"
         store.put(key, src)
-        cache.fetch_from(store, key)
+        cache.put(key, src)
         keys.append(key)
 
     total = sum(p.stat().st_size for p in (root / "cache").rglob("*") if p.is_file())
@@ -817,7 +932,7 @@ def test_content_cache_unlimited_never_evicts(tmp_path: Path) -> None:
         src.write_bytes(bytes([i]) * 1000)
         key = f"cat/{i:02d}/x/h{i}.zip"
         store.put(key, src)
-        cache.fetch_from(store, key)
+        cache.put(key, src)
         keys.append(key)
 
     for key in keys:
@@ -933,7 +1048,7 @@ def test_fetch_content_drops_corrupt_cache_entry(tmp_path: Path) -> None:
     write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
 
     # prime the cache, then corrupt the cached copy
-    cache.fetch_from(store, key)
+    cache.put(key, archive)
     cached_path = cache._path(key)
     cached_path.write_bytes(b"corrupt")
 
@@ -966,7 +1081,7 @@ def test_fetch_content_drops_cache_entry_on_size_mismatch(tmp_path: Path) -> Non
     # write a pointer with the correct sha but wrong size
     write_pointer(backend._pointer_path(target), sha, archive.stat().st_size + 999)
 
-    cache.fetch_from(store, key)
+    cache.put(key, archive)
     cached_path = cache._path(key)
     assert cached_path.exists()
 
@@ -997,7 +1112,7 @@ def test_fetch_content_no_partial_file_on_copy_failure(
     sha = compute_sha256(archive)
     key = compute_content_key("testcat", sha)
     store.put(key, archive)
-    cache.fetch_from(store, key)  # prime cache so the failure hits the archive copy
+    cache.put(key, archive)  # prime cache so the failure hits the archive copy
 
     target = tmp_path / "entry.zip"
     write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)

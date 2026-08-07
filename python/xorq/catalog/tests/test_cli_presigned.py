@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml12
+from click.testing import CliRunner, Result
 from git import PushInfo, Remote, Repo
 
 from xorq.catalog.catalog import Catalog
@@ -15,19 +19,21 @@ SERVICE_URL = "https://catalog.example/"
 REMOTE_URL = f"{SERVICE_URL}alice/demo.git"
 
 
-def _set_hosted_env(monkeypatch) -> None:
+def _set_hosted_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XORQ_CONTENT_STORE_PRESIGNED_CATALOG_ID", CATALOG_ID)
     monkeypatch.setenv("XORQ_CONTENT_STORE_PRESIGNED_SERVICE_URL", SERVICE_URL)
 
 
-def _invoke_init(runner, target: Path, *options: str):
+def _invoke_init(runner: CliRunner, target: Path, *options: str) -> Result:
     return runner.invoke(
         cli,
         ["--path", str(target), "init", "--content-store", "presigned", *options],
     )
 
 
-def _invoke_replay(runner, source: Catalog, target: Path, *options: str):
+def _invoke_replay(
+    runner: CliRunner, source: Catalog, target: Path, *options: str
+) -> Result:
     return runner.invoke(
         cli,
         [
@@ -43,7 +49,7 @@ def _invoke_replay(runner, source: Catalog, target: Path, *options: str):
 
 
 def test_init_presigned_commits_only_public_config_and_sets_remote(
-    runner, tmp_path: Path, monkeypatch
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_hosted_env(monkeypatch)
     target = tmp_path / "hosted"
@@ -64,7 +70,7 @@ def test_init_presigned_commits_only_public_config_and_sets_remote(
 
 
 def test_init_presigned_requires_remote_before_creating_repo(
-    runner, tmp_path: Path, monkeypatch
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_hosted_env(monkeypatch)
     target = tmp_path / "hosted"
@@ -76,7 +82,9 @@ def test_init_presigned_requires_remote_before_creating_repo(
     assert not target.exists()
 
 
-def test_init_presigned_rejects_gcs(runner, tmp_path: Path, monkeypatch) -> None:
+def test_init_presigned_rejects_gcs(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _set_hosted_env(monkeypatch)
     target = tmp_path / "hosted"
 
@@ -88,7 +96,7 @@ def test_init_presigned_rejects_gcs(runner, tmp_path: Path, monkeypatch) -> None
 
 
 def test_init_presigned_rejects_remote_outside_service(
-    runner, tmp_path: Path, monkeypatch
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_hosted_env(monkeypatch)
     target = tmp_path / "hosted"
@@ -106,7 +114,7 @@ def test_init_presigned_rejects_remote_outside_service(
 
 
 def test_replay_presigned_dry_run_does_not_require_remote(
-    runner, tmp_path: Path, monkeypatch
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_hosted_env(monkeypatch)
     source = Catalog.from_repo_path(tmp_path / "source")
@@ -119,7 +127,7 @@ def test_replay_presigned_dry_run_does_not_require_remote(
 
 
 def test_replay_presigned_requires_remote_before_creating_target(
-    runner, tmp_path: Path, monkeypatch
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_hosted_env(monkeypatch)
     source = Catalog.from_repo_path(tmp_path / "source")
@@ -133,7 +141,7 @@ def test_replay_presigned_requires_remote_before_creating_target(
 
 
 def test_replay_sets_hosted_remote_before_materializing_store(
-    runner, tmp_path: Path, monkeypatch
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_hosted_env(monkeypatch)
     source = Catalog.from_repo_path(tmp_path / "source")
@@ -164,7 +172,7 @@ def test_replay_sets_hosted_remote_before_materializing_store(
 
 
 def test_replay_reports_a_remote_hook_rejection(
-    runner, tmp_path: Path, monkeypatch
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _set_hosted_env(monkeypatch)
     source = Catalog.from_repo_path(tmp_path / "source")

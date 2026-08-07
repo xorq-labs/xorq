@@ -34,6 +34,7 @@ from attr.validators import in_, instance_of, matches_re, optional
 
 from xorq.catalog.enums import ContentStoreType
 from xorq.catalog.exceptions import (
+    CatalogServiceHTTPError,
     ContentIntegrityError,
     ContentStoreCapabilityError,
     ContentStoreError,
@@ -64,9 +65,17 @@ _MAX_PRESIGNED_BLOB_BYTES = 5_000_000_000
 _CONTROL_RESPONSE_MAX_BYTES = 256 * 1024
 _CONTROL_TIMEOUT_SECONDS = 300
 _PRESIGNED_BATCH_SIZE = 10
-_PRESIGNED_EXPIRY_MARGIN_SECONDS = 5
 _TRANSFER_TIMEOUT_SECONDS = 300
 _TRANSFER_CHUNK_BYTES = 1024 * 1024
+# A signed URL is re-minted when it would expire before the transfer it was
+# minted for could plausibly finish. The floor covers round-trip and connection
+# setup; the size-derived term covers the body. Both are capped by the transfer
+# timeout, which is the longest a single transfer is ever allowed to run.
+_PRESIGNED_EXPIRY_MARGIN_SECONDS = 30
+_PRESIGNED_ASSUMED_BYTES_PER_SECOND = 10 * 1024 * 1024
+# Pointer files are ~100 bytes; the cap bounds memory when parsing pointers
+# that came from an untrusted clone.
+_MAX_POINTER_BYTES = 4096
 _CATALOG_TOKEN_ENV = "XORQ_CATALOG_TOKEN"
 _CATALOG_TOKEN_SERVICE_ENV = "XORQ_CATALOG_TOKEN_SERVICE_URL"
 
@@ -190,6 +199,22 @@ def compute_sha256(path: str | Path) -> str:
     return file_digest(path, hashlib.sha256)
 
 
+def copy_and_digest(src: str | Path, dest: str | Path) -> str:
+    """Copy *src* onto *dest*, returning the SHA-256 of the bytes copied.
+
+    Equivalent to ``shutil.copy`` followed by ``compute_sha256``, but reads the
+    source once rather than twice.
+    """
+    digest = hashlib.sha256()
+    with open(src, "rb") as source, open(dest, "wb") as destination:
+        while chunk := source.read(_TRANSFER_CHUNK_BYTES):
+            digest.update(chunk)
+            destination.write(chunk)
+    # shutil.copy propagates the source mode; keep that observable behaviour.
+    shutil.copymode(src, dest)
+    return digest.hexdigest()
+
+
 def compute_content_key(catalog_id: str, sha256: str) -> str:
     if not _SAFE_CATALOG_ID_RE.match(catalog_id):
         raise ValueError(f"Unsafe catalog_id: {catalog_id!r}")
@@ -233,9 +258,22 @@ def write_pointer(path: str | Path, sha256: str, size: int) -> None:
         tmp.write_text(f"{POINTER_VERSION}\nsha256 {sha256}\nsize {size}\n")
 
 
+def _read_pointer_bytes(path: str | Path) -> bytes:
+    """Read a pointer file, refusing anything too large to be one.
+
+    Pointer files come from cloned repositories, so the size is bounded before
+    the read rather than after.
+    """
+    path = Path(path)
+    if path.stat().st_size > _MAX_POINTER_BYTES:
+        raise ValueError(f"Invalid pointer file: {path}")
+    return path.read_bytes()
+
+
 def parse_pointer(path: str | Path, *, canonical: bool = False) -> tuple[str, int]:
+    raw = _read_pointer_bytes(path)
     if canonical:
-        match = _CANONICAL_POINTER_RE.fullmatch(Path(path).read_bytes())
+        match = _CANONICAL_POINTER_RE.fullmatch(raw)
         if match is None:
             raise ValueError(f"Invalid pointer file: {path}")
         sha256 = match.group(1).decode("ascii")
@@ -244,7 +282,11 @@ def parse_pointer(path: str | Path, *, canonical: bool = False) -> tuple[str, in
             raise ValueError(f"Invalid pointer file: {path}")
         return sha256, size
 
-    lines = Path(path).read_text().strip().splitlines()
+    try:
+        text = raw.decode()
+    except UnicodeDecodeError:
+        raise ValueError(f"Invalid pointer file: {path}") from None
+    lines = text.strip().splitlines()
     if len(lines) != 3 or lines[0] != POINTER_VERSION:
         raise ValueError(f"Invalid pointer file: {path}")
     sha_parts = lines[1].split(" ", 1)
@@ -279,7 +321,16 @@ class ContentStore(abc.ABC):
     ) -> None: ...
 
     @abc.abstractmethod
-    def get(self, key: str, local_path: str | Path) -> None: ...
+    def get(self, key: str, local_path: str | Path) -> None:
+        """Download one object by key alone.
+
+        Only stores that own their own blob lifecycle
+        (``client_managed_lifecycle``) can honour this: a key is not enough for
+        a store whose transport requires the pointer's SHA-256 and size up
+        front. Stores that cannot honour it raise
+        ``ContentStoreCapabilityError``. ``get_many`` is the portable path and
+        is what the catalog backend uses.
+        """
 
     @abc.abstractmethod
     def exists(self, key: str) -> bool: ...
@@ -483,21 +534,17 @@ class S3ContentStore(ContentStore):
 
 
 class _RejectRedirects(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-class _CatalogServiceHTTPError(ContentStoreError):
-    def __init__(
+    def redirect_request(
         self,
-        message: str,
-        *,
-        status: int,
-        error_code: str | None,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
     ) -> None:
-        super().__init__(message)
-        self.status = status
-        self.error_code = error_code
+        """Returning None makes urllib surface the 3xx instead of following it."""
+        return None
 
 
 @frozen
@@ -514,11 +561,11 @@ class PresignedContentStore(ContentStore):
         _validate_remote_binding(self.service_url, self.remote_url)
 
     @cached_property
-    def _opener(self):
+    def _opener(self) -> Any:
         return build_opener(_RejectRedirects())
 
     @cached_property
-    def _direct_opener(self):
+    def _direct_opener(self) -> Any:
         return build_opener(ProxyHandler({}), _RejectRedirects())
 
     def _endpoint(self, suffix: str) -> str:
@@ -528,7 +575,10 @@ class PresignedContentStore(ContentStore):
         )
 
     def _token(self, *, required: bool) -> str | None:
-        token = os.environ.get(_CATALOG_TOKEN_ENV)
+        # Read straight from the environment on every request rather than
+        # through EnvConfigable: the token is short-lived, and a refreshed one
+        # must take effect without rebuilding the store.
+        token = os.environ.get(_CATALOG_TOKEN_ENV)  # xorq-style: disable=os-environ
         if token is None:
             if required:
                 raise ContentStoreError(
@@ -536,7 +586,9 @@ class PresignedContentStore(ContentStore):
                     "catalog requests"
                 )
             return None
-        token_service_url = os.environ.get(_CATALOG_TOKEN_SERVICE_ENV)
+        token_service_url = os.environ.get(  # xorq-style: disable=os-environ
+            _CATALOG_TOKEN_SERVICE_ENV
+        )
         if token_service_url is None:
             if required:
                 raise ContentStoreError(
@@ -590,13 +642,13 @@ class PresignedContentStore(ContentStore):
                     detail = f" ({error_code})"
         except (OSError, HTTPException, UnicodeDecodeError, json.JSONDecodeError):
             pass
-        return _CatalogServiceHTTPError(
+        return CatalogServiceHTTPError(
             f"{operation} failed with HTTP status {error.code}{detail}",
             status=error.code,
             error_code=error_code if isinstance(error_code, str) else None,
         )
 
-    def _open(self, request: Request, *, timeout: int, operation: str):
+    def _open(self, request: Request, *, timeout: int, operation: str) -> Any:
         hostname = urlsplit(request.full_url).hostname
         opener = (
             self._direct_opener
@@ -762,7 +814,7 @@ class PresignedContentStore(ContentStore):
                 request_payload,
                 token=token,
             )
-        except _CatalogServiceHTTPError as exc:
+        except CatalogServiceHTTPError as exc:
             rejected_optional_credentials = (exc.status, exc.error_code) in {
                 (401, "unauthorized"),
                 (403, "forbidden"),
@@ -792,7 +844,7 @@ class PresignedContentStore(ContentStore):
                 specs,
                 token_required=token_required,
             )
-        except _CatalogServiceHTTPError as exc:
+        except CatalogServiceHTTPError as exc:
             if (
                 exc.status == 400
                 and exc.error_code == "invalid_request"
@@ -887,10 +939,27 @@ class PresignedContentStore(ContentStore):
         return url, dict(headers), expiry.astimezone(timezone.utc)
 
     @staticmethod
-    def _request_expires_soon(request: _PresignedRequest) -> bool:
+    def _expiry_margin_seconds(size: int) -> int:
+        """Seconds of validity a signed URL needs to transfer *size* bytes.
+
+        A fixed few seconds is not enough for a multi-gigabyte body: the URL
+        passes the pre-flight check and then expires mid-transfer. The margin
+        is capped at the transfer timeout, which is the longest any single
+        transfer can run before it is abandoned anyway.
+        """
+        return min(
+            _TRANSFER_TIMEOUT_SECONDS,
+            max(
+                _PRESIGNED_EXPIRY_MARGIN_SECONDS,
+                size // _PRESIGNED_ASSUMED_BYTES_PER_SECOND,
+            ),
+        )
+
+    @classmethod
+    def _request_expires_soon(cls, request: _PresignedRequest, size: int) -> bool:
         _url, _headers, expiry = request
         return expiry <= datetime.now(timezone.utc) + timedelta(
-            seconds=_PRESIGNED_EXPIRY_MARGIN_SECONDS
+            seconds=cls._expiry_margin_seconds(size)
         )
 
     def _put_presigned(
@@ -961,7 +1030,7 @@ class PresignedContentStore(ContentStore):
                 request_data = None
                 if status == "upload_required":
                     request_data = self._presigned_request(result.get("request"))
-                    if self._request_expires_soon(request_data):
+                    if self._request_expires_soon(request_data, spec.size):
                         result = self._batch_results(
                             "uploads:batch",
                             "uploads",
@@ -1014,8 +1083,9 @@ class PresignedContentStore(ContentStore):
         size: int | None = None,
     ) -> None:
         if sha256 is None or size is None:
-            raise ContentStoreError(
-                "hosted downloads require the pointer SHA-256 and expected size"
+            raise ContentStoreCapabilityError(
+                "hosted downloads require the pointer SHA-256 and expected "
+                "size; use get_many() with a ContentSpec"
             )
         self.get_many(((ContentSpec(key=key, sha256=sha256, size=size), local_path),))
 
@@ -1093,7 +1163,7 @@ class PresignedContentStore(ContentStore):
             for identity, spec in batch.items():
                 request_data = self._presigned_request(results[identity].get("request"))
                 for local_path in by_identity[identity][1]:
-                    if self._request_expires_soon(request_data):
+                    if self._request_expires_soon(request_data, spec.size):
                         refreshed = self._batch_results(
                             "downloads:batch",
                             "downloads",
@@ -1126,9 +1196,9 @@ class PresignedContentStore(ContentStore):
 class ContentCache:
     """LRU disk cache for content store objects.
 
-    *max_bytes* semantics: positive → bounded LRU, 0 → disabled (no
-    persistent caching; ``fetch_from`` still downloads to a temporary
-    location), negative → unlimited (never evict).
+    *max_bytes* semantics: positive → bounded LRU, 0 → disabled (nothing is
+    retained; callers still stage downloads, but via ``staging_dir`` in the
+    system temp dir), negative → unlimited (never evict).
     """
 
     cache_dir: Path = field(validator=instance_of(Path))
@@ -1174,27 +1244,40 @@ class ContentCache:
         os.utime(dest)
         self._maybe_evict(protect=key)
 
-    def fetch_from(
-        self,
-        store: ContentStore,
-        key: str,
-    ) -> Path:
+    def adopt(self, key: str, local_path: str | Path) -> None:
+        """Take ownership of *local_path*, moving it into the cache.
+
+        Unlike ``put`` this consumes the source, so the caller must be done
+        with it. When the source is already on the cache filesystem — which is
+        what ``staging_dir`` arranges — this is a rename rather than a copy of
+        the whole object.
+        """
+        local_path = Path(local_path)
         if self.disabled:
-            fd, tmp = tempfile.mkstemp(suffix=".xorq")
-            tmp_path = Path(tmp)
-            try:
-                os.close(fd)
-                store.get(key, tmp_path)
-                return tmp_path
-            except BaseException:
-                tmp_path.unlink(missing_ok=True)
-                raise
+            local_path.unlink(missing_ok=True)
+            return
         dest = self._path(key)
-        with atomic_write(dest) as tmp:
-            store.get(key, tmp)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.replace(local_path, dest)
+        except OSError:
+            # Typically a cross-device staging dir; any rename failure degrades
+            # to a copy rather than losing the object.
+            self.put(key, local_path)
+            local_path.unlink(missing_ok=True)
+            return
         os.utime(dest)
         self._maybe_evict(protect=key)
-        return dest
+
+    @property
+    def staging_dir(self) -> Path | None:
+        """Directory for in-flight downloads, or None for the system temp dir.
+
+        Staging inside the cache directory keeps ``adopt`` a rename and puts
+        the bytes on the volume the user sized for content, rather than on
+        whatever backs the system temp dir.
+        """
+        return None if self.disabled else self.cache_dir
 
     def _maybe_evict(self, protect: str | None = None) -> None:
         if self.max_bytes < 0:
@@ -1432,6 +1515,20 @@ class S3ContentStoreConfig(S3ClientMixin, ContentStoreConfig):
         return cls.from_env(**{**_S3_GCS_DEFAULTS, **kwargs})
 
 
+def hosted_remote_error(exc: ValueError, remote_url: str) -> ValueError:
+    """Annotate a remote-binding failure with the URL that was actually checked.
+
+    Effective Git URLs come from ``git remote get-url``, which applies
+    ``url.<base>.insteadOf`` rewrites — so the URL that failed can differ from
+    the one recorded in ``.git/config``, and the bare message reads as a
+    contradiction without this.
+    """
+    return ValueError(
+        f"{exc} (effective Git URL {remote_url!r}; Git applies "
+        "url.<base>.insteadOf rewrites, which can change it)"
+    )
+
+
 def _single_remote_url(repo: Any) -> str:
     if repo is None:
         raise ValueError("a Git repository is required for a presigned content store")
@@ -1469,7 +1566,10 @@ class PresignedContentStoreConfig(ContentStoreConfig):
     def bound_remote_url(self, repo: Any) -> str:
         """Return the current sole Git URL after validating its service binding."""
         remote_url = _single_remote_url(repo)
-        self.validate_remote_url(remote_url)
+        try:
+            self.validate_remote_url(remote_url)
+        except ValueError as exc:
+            raise hosted_remote_error(exc, remote_url) from exc
         return remote_url
 
     def make_store(self, *, repo: Any = None) -> PresignedContentStore:

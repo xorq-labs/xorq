@@ -37,6 +37,8 @@ from xorq.catalog.content_store import (
     atomic_write,
     compute_content_key,
     compute_sha256,
+    copy_and_digest,
+    hosted_remote_error,
     parse_pointer,
     write_pointer,
 )
@@ -45,6 +47,11 @@ from xorq.catalog.git_utils import commit_context
 
 
 _HOSTED_COMPONENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
+
+# Objects are staged on disk before being verified and adopted into the cache,
+# so a fetch of N objects must not stage all N at once. Matching the presigned
+# store's own mint batch size keeps this from costing extra round trips.
+_FETCH_BATCH_SIZE = 10
 
 
 def _repo_has_annex_artifacts(repo: Repo) -> bool:
@@ -325,7 +332,10 @@ class GitPointerBackend(CatalogBackend):
             raise ValueError(
                 "the presigned catalog Git remote fetch and push URLs must match"
             )
-        self._config.validate_remote_url(fetch_urls[0])
+        try:
+            self._config.validate_remote_url(fetch_urls[0])
+        except ValueError as exc:
+            raise hosted_remote_error(exc, fetch_urls[0]) from exc
 
     def preflight_content_write(self) -> None:
         _ = self.content_store
@@ -358,8 +368,9 @@ class GitPointerBackend(CatalogBackend):
         uploaded = False
         store = self.content_store
         with atomic_write(archive_path) as tmp:
-            shutil.copy(source_path, tmp)
-            sha256 = compute_sha256(tmp)
+            # One pass: the store re-verifies the digest against the bytes it
+            # is about to upload, so this copy must not also re-read them.
+            sha256 = copy_and_digest(source_path, tmp)
             size = tmp.stat().st_size
             key = compute_content_key(self.catalog_id, sha256)
 
@@ -504,20 +515,41 @@ class GitPointerBackend(CatalogBackend):
         if not pending:
             return
 
+        items = tuple(pending.items())
+        for start in range(0, len(items), _FETCH_BATCH_SIZE):
+            self._fetch_batch(items[start : start + _FETCH_BATCH_SIZE])
+
+    def _fetch_batch(
+        self, batch: tuple[tuple[str, tuple[ContentSpec, list[Path]]], ...]
+    ) -> None:
+        """Download one bounded group, then materialise and cache each object.
+
+        Objects are staged next to the cache rather than in the system temp
+        dir: that is the volume sized for content, and it lets ``adopt`` rename
+        instead of copying the whole object a second time.
+
+        ``get_many`` is all-or-nothing, so a transport failure discards this
+        whole group — but earlier groups are already adopted and stay cached,
+        which is why ``fetch_content`` splits the work rather than staging
+        every object at once.
+        """
+        staging_dir = self.cache.staging_dir
+        if staging_dir is not None:
+            staging_dir.mkdir(parents=True, exist_ok=True)
         downloads: dict[str, Path] = {}
         try:
-            for key in pending:
-                fd, tmp = tempfile.mkstemp(suffix=".xorq")
-                try:
-                    downloads[key] = Path(tmp)
-                finally:
-                    os.close(fd)
+            for key, _entry in batch:
+                # The ".tmp" suffix keeps in-flight files out of cache eviction
+                # and out of DirectoryContentStore.list_keys.
+                fd, tmp = tempfile.mkstemp(dir=staging_dir, suffix=".tmp")
+                os.close(fd)
+                downloads[key] = Path(tmp)
 
             self.content_store.get_many(
-                (spec, downloads[key]) for key, (spec, _paths) in pending.items()
+                (spec, downloads[key]) for key, (spec, _paths) in batch
             )
 
-            for key, (spec, archive_paths) in pending.items():
+            for key, (spec, archive_paths) in batch:
                 downloaded = downloads[key]
                 self._verify_content(
                     downloaded,
@@ -525,13 +557,12 @@ class GitPointerBackend(CatalogBackend):
                     spec.sha256,
                     spec.size,
                 )
-
-            for key, (_spec, archive_paths) in pending.items():
-                downloaded = downloads[key]
-                self.cache.put(key, downloaded)
                 for archive_path in archive_paths:
                     with atomic_write(archive_path) as tmp_path:
                         shutil.copy2(downloaded, tmp_path)
+                # adopt() consumes the staging file, so it goes last.
+                self.cache.adopt(key, downloaded)
+                downloads.pop(key)
         finally:
             for downloaded in downloads.values():
                 downloaded.unlink(missing_ok=True)
