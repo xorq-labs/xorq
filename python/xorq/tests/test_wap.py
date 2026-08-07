@@ -36,7 +36,7 @@ def _wap_expr(data: dict, staging: str, final: str, table_name: str) -> ir.Table
     return (
         xo.connect()
         .register(xo.memtable(data), table_name=table_name)
-        .pipe(make_parquet_wap_expr, staging, final, no_nulls)
+        .pipe(make_parquet_wap_expr(), staging, final, no_nulls)
     )
 
 
@@ -108,7 +108,7 @@ def test_parquet_wap_empty_input_fails_fast(tmp_path: Path) -> None:
         xo.connect()
         .register(xo.memtable(good), table_name="src_empty")
         .filter(_.a > 1000)
-        .pipe(make_parquet_wap_expr, staging, final, no_nulls)
+        .pipe(make_parquet_wap_expr(), staging, final, no_nulls)
     )
     with pytest.raises(RuntimeError, match="missing at publish.*empty"):
         expr.execute()
