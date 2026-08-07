@@ -69,9 +69,9 @@
   },
   "case": "multiscan_self_join",
   "identity": {
-    "build_dir_name": "37d15db0cbc4",
+    "build_dir_name": "8d6c09bc5f5b",
     "build_dir_name_length": 12,
-    "expr_hash": "37d15db0cbc4",
+    "expr_hash": "8d6c09bc5f5b",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"

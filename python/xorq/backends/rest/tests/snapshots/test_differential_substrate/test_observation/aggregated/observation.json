@@ -54,9 +54,9 @@
   },
   "case": "aggregated",
   "identity": {
-    "build_dir_name": "8f899763dbe8",
+    "build_dir_name": "c05da8a5a9b4",
     "build_dir_name_length": 12,
-    "expr_hash": "8f899763dbe8",
+    "expr_hash": "c05da8a5a9b4",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"

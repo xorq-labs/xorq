@@ -48,9 +48,9 @@
   },
   "case": "mixpanel_override_resource",
   "identity": {
-    "build_dir_name": "3a8e769631d2",
+    "build_dir_name": "35e7459e5070",
     "build_dir_name_length": 12,
-    "expr_hash": "3a8e769631d2",
+    "expr_hash": "35e7459e5070",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"

@@ -51,9 +51,9 @@
   },
   "case": "filtered_projected",
   "identity": {
-    "build_dir_name": "c20c9f923cda",
+    "build_dir_name": "3cb7a3efb06a",
     "build_dir_name_length": 12,
-    "expr_hash": "c20c9f923cda",
+    "expr_hash": "3cb7a3efb06a",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"

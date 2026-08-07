@@ -72,9 +72,9 @@
   },
   "case": "multiscan_union_all",
   "identity": {
-    "build_dir_name": "0edc60e04831",
+    "build_dir_name": "689408df4dc7",
     "build_dir_name_length": 12,
-    "expr_hash": "0edc60e04831",
+    "expr_hash": "689408df4dc7",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"

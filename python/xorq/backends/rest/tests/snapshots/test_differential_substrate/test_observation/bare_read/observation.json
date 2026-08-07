@@ -63,9 +63,9 @@
   },
   "case": "bare_read",
   "identity": {
-    "build_dir_name": "bc7c93f6c3e0",
+    "build_dir_name": "d302b3fa31f2",
     "build_dir_name_length": 12,
-    "expr_hash": "bc7c93f6c3e0",
+    "expr_hash": "d302b3fa31f2",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"

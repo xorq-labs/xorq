@@ -57,9 +57,9 @@
   },
   "case": "github_repo_single_record",
   "identity": {
-    "build_dir_name": "9b9c86d25c63",
+    "build_dir_name": "9e6625ec8256",
     "build_dir_name_length": 12,
-    "expr_hash": "9b9c86d25c63",
+    "expr_hash": "9e6625ec8256",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"

@@ -63,9 +63,9 @@
   },
   "case": "github_issues_paginated",
   "identity": {
-    "build_dir_name": "cf7434f3a560",
+    "build_dir_name": "9d57815818dc",
     "build_dir_name_length": 12,
-    "expr_hash": "cf7434f3a560",
+    "expr_hash": "9d57815818dc",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"
