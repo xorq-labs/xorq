@@ -1,5 +1,7 @@
 import itertools
 import json
+import sys
+import warnings
 from pathlib import Path
 from types import MappingProxyType
 
@@ -14,7 +16,7 @@ from attr.validators import (
 from xorq.backends._lazy import LazyBackend
 from xorq.common.utils.env_utils import compiled_env_var_substitution_re
 from xorq.common.utils.inspect_utils import get_arguments
-from xorq.loader import _load_entry_points, load_backend
+from xorq.loader import _find_entry_point, _load_entry_points, load_backend
 from xorq.vendor.ibis.config import options
 
 
@@ -181,9 +183,10 @@ class Profile:
 
     @con_name.validator
     def validate_con_name(self, attr, value):
-        entry_points = _load_entry_points()
-        if not any(ep.name == value for ep in entry_points):
-            installed = sorted(ep.name for ep in entry_points)
+        # _find_entry_point, not a direct scan of the cache: see its docstring.
+        # On a miss it has refreshed, so the names below are the fresh ones.
+        if _find_entry_point(value) is None:
+            installed = sorted(ep.name for ep in _load_entry_points())
             raise ValueError(
                 f"Unknown backend {value!r}; installed backends: {installed}"
             )
@@ -469,11 +472,130 @@ con_name_to_secret_keys = MappingProxyType(
 )
 
 
+# Checked for every backend, on top of the mirror and the hook: a backend cannot
+# declare that a kwarg literally named `password` is not a secret.
+default_secret_keys = ("password",)
+
+
+def _redact_kwarg_values(text: str, kwargs: dict) -> str:
+    """Mask any kwarg value appearing in ``text``.
+
+    A hook that fails parsing a credential tends to quote it back, and the
+    warnings below reach stderr and CI logs. Values under 4 characters are left
+    alone: masking those mangles the message without hiding anything. Longest
+    first, so masking one can't strand a prefix of another.
+    """
+    for value in sorted(
+        (v for v in kwargs.values() if isinstance(v, str) and len(v) >= 4),
+        key=len,
+        reverse=True,
+    ):
+        text = text.replace(value, "***")
+    return text
+
+
+def get_dynamic_secret_keys(
+    con_name: str, kwargs: dict | None = None
+) -> tuple[str, ...] | None:
+    """Return secret keys from a backend's dynamic ``_get_secret_keys(kwargs)``
+    hook, or None.
+
+    A backend declares this classmethod when which kwargs are secret depends on
+    the kwargs themselves -- an auth kwarg named differently per configured mode,
+    say -- and so can't be captured in the static ``con_name_to_secret_keys``
+    mirror. ``get_secret_keys`` unions the result with the other tiers, so a hook
+    can only ADD keys.
+
+    **Return top-level kwarg names only**, and treat ``kwargs`` as read-only.
+    Names are matched against the top level, so for ``{"config": {"token": ...}}``
+    returning ``"token"`` matches nothing -- a hook that gets this wrong is a
+    silent no-op. The dict passed in is a (shallow) copy, since the caller scans
+    it after this returns; its values are as authored, i.e. plaintext for the
+    profile this check exists to reject, so don't log or forward them.
+
+    Returns None when the backend has no entry point, isn't imported, declares no
+    hook, or the hook raises or returns something that isn't a sequence of names
+    (those last two warn). Only an already-imported backend is inspected, since
+    validating a profile must not import a heavy backend just to read its rule --
+    so this tier is best-effort, and any key that must *always* be caught belongs
+    in ``con_name_to_secret_keys`` too (enforced by
+    test_dynamic_hook_backends_also_mirror_static_keys).
+    """
+    entry_point = _find_entry_point(con_name)
+    if entry_point is None:
+        return None
+    module = sys.modules.get(entry_point.module)
+    if module is None:
+        return None
+    getter = getattr(getattr(module, "Backend", None), "_get_secret_keys", None)
+    if not callable(getter):
+        return None
+    kwargs = {} if kwargs is None else kwargs
+    try:
+        # a copy: the caller scans this dict after we return, so a hook popping
+        # from it would delete entries from the scan
+        keys = getter(dict(kwargs))
+        if isinstance(keys, (str, bytes)):
+            # tuple("api_key") would check 'a', 'p', 'i', ... and not api_key
+            raise TypeError(
+                "must return a sequence of names or None, not a bare "
+                f"{type(keys).__name__} ({keys!r})"
+            )
+        # inside the try, so a non-iterable return warns instead of raising
+        keys = tuple(keys) if keys is not None else None
+    except Exception as e:
+        # degrade to the other tiers, but not silently: an always-broken hook
+        # would otherwise contribute nothing forever
+        warnings.warn(
+            f"{con_name}: _get_secret_keys hook raised {type(e).__name__}: "
+            f"{_redact_kwarg_values(str(e), kwargs)}; ignoring its keys and "
+            "checking only the default and static keys",
+            RuntimeWarning,
+        )
+        return None
+    if keys is None:
+        return None
+    if not_str := tuple(key for key in keys if not isinstance(key, str)):
+        # a non-str name can't match a kwarg; keep the well-formed ones, which
+        # are unambiguous
+        warnings.warn(
+            f"{con_name}: _get_secret_keys returned non-str names "
+            f"{_redact_kwarg_values(repr(not_str), kwargs)}; ignoring them (a "
+            "name that isn't a str cannot match a kwarg) and checking the rest",
+            RuntimeWarning,
+        )
+        keys = tuple(key for key in keys if isinstance(key, str))
+    return keys
+
+
+def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...]:
+    """Return every secret key to check for ``con_name``: the *union* of
+
+    1. the unconditional ``default_secret_keys`` (``("password",)``),
+    2. the static ``con_name_to_secret_keys`` mirror entry, if any,
+    3. the backend's dynamic ``_get_secret_keys(kwargs)`` hook, if resolvable.
+
+    Unioning is what keeps this monotone: an empty, narrower, raising, or
+    unresolvable tier 3 leaves tiers 1 and 2 intact, so a hook can only widen
+    what is checked. Ordering is deterministic (first occurrence wins, tiers in
+    the order above) so error messages are reproducible.
+    """
+    return tuple(
+        dict.fromkeys(
+            (
+                *default_secret_keys,
+                *con_name_to_secret_keys.get(con_name, ()),
+                *(get_dynamic_secret_keys(con_name, kwargs) or ()),
+            )
+        )
+    )
+
+
 def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
     """Check if profile contains exposed secret keys.
 
-    Secret keys come from the static `con_name_to_secret_keys` mirror,
-    defaulting to `("password",)` for backends not listed.
+    The keys come from `get_secret_keys`, which unions the unconditional
+    default, the static mirror, and the backend's dynamic hook.
 
     Raises
     ------
@@ -481,10 +603,7 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
         If profile contains exposed secret keys not using environment variables
     """
 
-    relevant_keys = con_name_to_secret_keys.get(
-        con_name,
-        ("password",),  # default to just password
-    )
+    relevant_keys = get_secret_keys(con_name, kwargs)
 
     exposed_secrets = tuple(
         key

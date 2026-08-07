@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import os
 import pathlib
+import sys
+import types
 
 import pytest
 
 import xorq.api as xo
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.loader import _load_entry_points
+from xorq.tests.util import installed_mid_process
 from xorq.vendor.ibis.backends import BaseBackend
+from xorq.vendor.ibis.backends import profiles as profiles_mod
 from xorq.vendor.ibis.backends.profiles import (
     Profile,
     Profiles,
+    check_for_exposed_secrets,
     con_name_to_secret_keys,
+    get_dynamic_secret_keys,
 )
 
 
@@ -683,3 +689,469 @@ def test_declared_secret_keys_are_mirrored(con_name: str) -> None:
         "reflection of all declaring backends"
     )
     assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
+
+
+@pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
+def test_dynamic_hook_backends_also_mirror_static_keys(con_name: str) -> None:
+    """A backend declaring the dynamic hook must also declare static
+    _secret_keys: the dynamic tier is skipped for a backend that isn't imported,
+    so a backend relying on it alone gets only ("password",) checked when a
+    profile is hand-authored in a fresh process."""
+    entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
+    try:
+        module = entry_point.load()
+    except ImportError as e:
+        pytest.skip(f"{con_name} backend not importable: {e}")
+    backend = getattr(module, "Backend", None)
+    if getattr(backend, "_get_secret_keys", None) is None:
+        pytest.skip(f"{con_name} declares no _get_secret_keys hook")
+    assert getattr(backend, "_secret_keys", None), (
+        f"{con_name} declares a dynamic _get_secret_keys hook but no static "
+        "_secret_keys; mirror the keys the hook always names, since the hook is "
+        "skipped whenever the backend isn't already imported"
+    )
+
+
+def _install_fake_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    backend_cls: type,
+    con_name: str = "fakedb",
+    module_name: str = "xorq_fake_backend_mod",
+    imported: bool = True,
+) -> str:
+    """Register a throwaway backend so get_dynamic_secret_keys resolves to
+    backend_cls: patch the entry-point lookup, and mark the module as imported,
+    which the resolver requires. Pass imported=False for the not-imported case."""
+    module = types.ModuleType(module_name)
+    module.Backend = backend_cls
+    entry_point = types.SimpleNamespace(
+        name=con_name, module=module_name, load=lambda: module
+    )
+    monkeypatch.setattr(profiles_mod, "_load_entry_points", lambda: (entry_point,))
+    monkeypatch.setattr(
+        profiles_mod,
+        "_find_entry_point",
+        lambda name: entry_point if name == con_name else None,
+    )
+    if imported:
+        monkeypatch.setitem(sys.modules, module_name, module)
+    return con_name
+
+
+def test_get_dynamic_secret_keys_uses_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dynamic _get_secret_keys(kwargs) hook is used and receives kwargs."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("password", *(kwargs or {}).get("extra_secret_keys", ()))
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {"extra_secret_keys": ("api_key",)}) == (
+        "password",
+        "api_key",
+    )
+
+
+def test_get_dynamic_secret_keys_none_when_hook_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning None yields None so the caller falls back to the static
+    mapping."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return None
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_get_dynamic_secret_keys_none_without_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Backend with no dynamic hook resolves to None (caller uses the dict)."""
+
+    class Backend:
+        pass
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_get_dynamic_secret_keys_none_when_not_imported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backend that isn't imported is not force-imported: the hook is skipped
+    and None is returned even though the class declares one."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key",)
+
+    con_name = _install_fake_backend(monkeypatch, Backend, imported=False)
+    assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_get_dynamic_secret_keys_drops_keys_and_warns_on_hook_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising hook degrades to None -- neither propagating (aborting the save)
+    nor bypassing the check -- and warns, since dropping the tier is fail-open."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            raise RuntimeError("boom")
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning, match="RuntimeError: boom"):
+        assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_get_dynamic_secret_keys_rejects_bare_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning a bare name instead of a sequence is reported, not
+    iterated: tuple("api_key") would drop the key the hook meant to name and add
+    junk single-character keys."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return "api_key"
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning, match="not a bare str"):
+        assert get_dynamic_secret_keys(con_name, {}) is None
+    with pytest.warns(RuntimeWarning):
+        assert "a" not in profiles_mod.get_secret_keys(con_name, {})
+
+
+def test_get_dynamic_secret_keys_drops_a_non_sequence_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning something that isn't a sequence of names degrades like a
+    raising hook. The tier is materialized inside the try for this reason: a
+    stray `return 42` must not turn every Profile.save() for the backend into a
+    TypeError."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return 42
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    # matched on the exception type only: the message text is CPython's wording
+    with pytest.warns(RuntimeWarning, match="hook raised TypeError"):
+        assert get_dynamic_secret_keys(con_name, {}) is None
+    with pytest.warns(RuntimeWarning):
+        assert profiles_mod.get_secret_keys(con_name, {}) == ("password",)
+    with pytest.warns(RuntimeWarning):
+        with pytest.raises(ValueError, match="password"):
+            check_for_exposed_secrets(con_name, {"password": "plaintext"})
+
+
+def test_get_dynamic_secret_keys_drops_an_iterable_that_raises_midway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook whose return raises only once consumed degrades the same way -- the
+    guard has to cover materializing the keys, not just calling the hook."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            def gen():
+                yield "api_key"
+                raise RuntimeError("late boom")
+
+            return gen()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning, match="RuntimeError: late boom"):
+        assert get_dynamic_secret_keys(con_name, {}) is None
+
+
+def test_get_dynamic_secret_keys_ignores_non_str_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Names that aren't str are dropped with a warning, and the well-formed ones
+    are kept: a non-str name can never match a kwarg, but the str names alongside
+    it are unambiguous and checking them is strictly safer than dropping the
+    tier."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key", None, 3)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning, match=r"non-str names \(None, 3\)"):
+        assert get_dynamic_secret_keys(con_name, {}) == ("api_key",)
+    with pytest.warns(RuntimeWarning):
+        with pytest.raises(ValueError, match="api_key"):
+            check_for_exposed_secrets(con_name, {"api_key": "plaintext"})
+
+
+def test_get_dynamic_secret_keys_normalizes_missing_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook is always handed a dict, so hook authors needn't defend against
+    None."""
+    received = []
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            received.append(kwargs)
+            return ()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    # asserted outside the hook: an AssertionError raised inside one is caught
+    # and warned about, not propagated
+    assert get_dynamic_secret_keys(con_name) == ()
+    assert received == [{}]
+
+
+def test_get_dynamic_secret_keys_resolves_a_real_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolution works against a real installed backend, not just the fakes: the
+    entry point comes from the loader and the module from sys.modules, so the
+    hook is found on the imported xorq.backends.postgres Backend."""
+    postgres = pytest.importorskip("xorq.backends.postgres")
+
+    @classmethod
+    def _get_secret_keys(cls, kwargs):
+        return tuple(kwargs.get("secret_kwarg_names", ()))
+
+    monkeypatch.setattr(
+        postgres.Backend, "_get_secret_keys", _get_secret_keys, raising=False
+    )
+    assert get_dynamic_secret_keys(
+        "postgres", {"secret_kwarg_names": ("api_key",)}
+    ) == ("api_key",)
+    # and it widens the mirror rather than replacing it
+    keys = profiles_mod.get_secret_keys(
+        "postgres", {"secret_kwarg_names": ("api_key",)}
+    )
+    assert set(con_name_to_secret_keys["postgres"]) < set(keys)
+    assert keys[-1] == "api_key"
+
+
+def test_check_for_exposed_secrets_uses_dynamic_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end: a key surfaced only by the dynamic hook is enforced by
+    check_for_exposed_secrets, on top of the default/static keys."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key",)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {"api_key": "plaintext"})
+    # an env-var reference is accepted
+    check_for_exposed_secrets(con_name, {"api_key": "${API_KEY}"})
+
+
+def test_save_is_blocked_by_a_dynamic_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The dynamic tier is enforced through Profile.save(), not just the
+    module-level helper: the save aborts and writes nothing."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key",)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    profile = Profile(con_name=con_name, kwargs_tuple=(("api_key", "plaintext"),))
+    with pytest.raises(ValueError, match="api_key"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+    # the same profile with an env-var reference saves
+    Profile(con_name=con_name, kwargs_tuple=(("api_key", "${API_KEY}"),)).save(
+        profile_dir=tmp_path
+    )
+    assert tuple(tmp_path.iterdir())
+
+
+def test_hook_mutating_kwargs_does_not_weaken_checking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A hook that mutates what it is handed cannot delete entries from the scan.
+
+    The caller scans the same kwargs after the hook returns, so without the copy
+    a hook doing `kwargs.pop(...)` dropped the key from the scan and
+    `Profile.save()` wrote the plaintext secret to disk."""
+    plaintext = "plaintext-hunter2"
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            kwargs.clear()
+            return ()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    kwargs = {"password": plaintext}
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, kwargs)
+    assert kwargs == {"password": plaintext}, "the caller's kwargs were mutated"
+    profile = Profile(con_name=con_name, kwargs_tuple=(("password", plaintext),))
+    with pytest.raises(ValueError, match="password"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+
+
+def test_hook_error_warning_redacts_kwarg_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A secret echoed by a hook's exception -- `int("hunter2...")` quotes its
+    input back -- is masked in the warning, which reaches stderr and CI logs."""
+    plaintext = "hunter2-super-secret"
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return (int(kwargs["password"]),)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning) as records:
+        assert get_dynamic_secret_keys(con_name, {"password": plaintext}) is None
+    message = str(records[0].message)
+    assert plaintext not in message
+    assert "***" in message
+    # the useful part survives: which backend, and what went wrong
+    assert con_name in message
+    assert "ValueError" in message
+
+
+def test_get_secret_keys_unions_default_mirror_and_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The three tiers are unioned, not chained: a backend that is both mirrored
+    and declares a hook is checked for the default, the mirrored, and the
+    dynamic keys together. Ordering is deterministic (default, mirror, hook)."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("token", "sslcert")
+
+    _install_fake_backend(monkeypatch, Backend, con_name="postgres")
+    keys = profiles_mod.get_secret_keys("postgres", {})
+    assert keys == (
+        "password",
+        "sslcert",
+        "sslkey",
+        "sslrootcert",
+        "sslcrl",
+        "options",
+        "passfile",
+        "token",
+    )
+    # no duplicates even though the hook repeated a mirrored key
+    assert len(keys) == len(set(keys))
+
+
+def test_hook_returning_empty_does_not_disable_checking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning () must not be read as "nothing is secret": the
+    unconditional password default still applies. () is the natural return for a
+    hook whose kwargs-dependent rule finds nothing to name (e.g. the kwarg it
+    keys off of is absent), so it must not read as an opt-out."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert get_dynamic_secret_keys(con_name, {}) == ()
+    assert profiles_mod.get_secret_keys(con_name, {}) == ("password",)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, {"password": "plaintext"})
+
+
+def test_hook_returning_subset_does_not_shrink_mirrored_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook returning a subset of a mirrored backend's keys must not stop the
+    mirrored keys from being checked."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("token",)
+
+    _install_fake_backend(monkeypatch, Backend, con_name="postgres")
+    keys = profiles_mod.get_secret_keys("postgres", {})
+    assert set(con_name_to_secret_keys["postgres"]) <= set(keys)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets("postgres", {"password": "plaintext"})
+    with pytest.raises(ValueError, match="sslcert"):
+        check_for_exposed_secrets("postgres", {"sslcert": "/path/to/cert"})
+
+
+def test_raising_hook_does_not_weaken_checking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising hook degrades to the default-plus-mirror union, which still
+    catches every statically known key."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            raise RuntimeError("boom")
+
+    _install_fake_backend(monkeypatch, Backend, con_name="snowflake")
+    with pytest.warns(RuntimeWarning, match="_get_secret_keys hook raised"):
+        assert profiles_mod.get_secret_keys("snowflake", {}) == (
+            "password",
+            *con_name_to_secret_keys["snowflake"][1:],
+        )
+    with pytest.warns(RuntimeWarning, match="_get_secret_keys hook raised"):
+        with pytest.raises(ValueError, match="private_key"):
+            check_for_exposed_secrets("snowflake", {"private_key": "plaintext"})
+
+
+def test_unimported_backend_still_checks_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backend whose module has not been imported contributes no dynamic keys,
+    but the unconditional default still applies."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key",)
+
+    con_name = _install_fake_backend(monkeypatch, Backend, imported=False)
+    assert profiles_mod.get_secret_keys(con_name, {}) == ("password",)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, {"password": "plaintext"})
+
+
+def test_validate_con_name_sees_a_backend_installed_mid_process(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A backend installed into a live process is usable without a restart: a
+    direct scan of the cached entry points would reject it as "Unknown backend",
+    listing a stale set as the installed ones, until the process restarted."""
+    with installed_mid_process(tmp_path, "xorqfakeprofilebackend") as con_name:
+        profile = Profile(con_name=con_name, kwargs_tuple=())
+        assert profile.con_name == con_name
+        # a name that really doesn't exist still raises, against the fresh list
+        with pytest.raises(ValueError, match="Unknown backend 'xorqnosuchbackend'"):
+            Profile(con_name="xorqnosuchbackend", kwargs_tuple=())
