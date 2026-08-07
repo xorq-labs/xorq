@@ -6,6 +6,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import time
 import uuid
 from pathlib import Path
 
@@ -40,6 +41,7 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.constants import CONTENT_STORE_YAML, MAIN_BRANCH
 from xorq.catalog.content_store import (
+    _STAGING_REAP_SECONDS,
     POINTER_VERSION,
     ContentCache,
     ContentIntegrityError,
@@ -2523,3 +2525,54 @@ def test_extract_dir_cleaned_up_on_expr_gc(catalog):
 
     assert td not in _live_extract_dirs
     assert not Path(td).exists()
+
+
+def test_content_cache_reaps_staging_debris_but_spares_live_fetches(
+    tmp_path: Path,
+) -> None:
+    """A killed fetch leaves full-size objects behind; nothing else would remove them."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    staging = cache.staging_dir
+    assert staging is not None
+
+    stale = staging / "stale.tmp"
+    stale.write_bytes(b"x" * 5000)
+    old = time.time() - _STAGING_REAP_SECONDS - 60
+    os.utime(stale, (old, old))
+    live = staging / "live.tmp"
+    live.write_bytes(b"y" * 5000)
+
+    reaped = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+
+    assert not stale.exists()
+    assert live.exists(), "an in-flight file must survive a concurrent reap"
+    assert reaped.reap_stale_staging() == 0
+
+
+def test_staging_bytes_count_against_the_cache_budget(tmp_path: Path) -> None:
+    """In-flight bytes occupy the volume, so eviction must see them."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=1000)
+    staging = cache.staging_dir
+    assert staging is not None
+    (staging / "inflight.tmp").write_bytes(b"x" * 900)
+
+    old_entry = tmp_path / "old.bin"
+    old_entry.write_bytes(b"z" * 400)
+    cache.put("cat/aa/bb/old.zip", old_entry)
+    new_entry = tmp_path / "new.bin"
+    new_entry.write_bytes(b"w" * 400)
+    cache.put("cat/cc/dd/new.zip", new_entry)
+
+    # 900 staged + 800 of entries exceeds 1000, so an entry is evicted rather
+    # than the budget being silently overrun.
+    assert (staging / "inflight.tmp").exists(), "in-flight bytes are not evictable"
+    assert cache.get_path("cat/aa/bb/old.zip") is None
+    assert cache.get_path("cat/cc/dd/new.zip") is not None
+
+
+def test_staging_dir_is_absent_when_caching_is_disabled(tmp_path: Path) -> None:
+    """A disabled cache stages in the system temp dir and reaps nothing."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=0)
+
+    assert cache.staging_dir is None
+    assert cache.reap_stale_staging() == 0
