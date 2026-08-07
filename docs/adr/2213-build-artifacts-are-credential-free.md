@@ -205,3 +205,69 @@ Rejected because:
 - xorq-labs/xorq-mixpanel (the out-of-tree reference integration)
 - xorq.tests.fixture_backend / tests/test_build_artifacts_credential_free.py
   (the in-tree pin of the plugin contract)
+
+## Amendment (2026-08-07)
+
+The decision stands. The last negative — "identity cannot separate two holders
+of the same credential reference" — is amended to name a third residual it
+currently omits, and to record what is and is not being done about the family.
+
+### The temporal variant: one holder, a reference re-pointed
+
+The negative as written describes two *simultaneous* holders: two users, same
+reference name, different tokens. The same collision has a single-holder,
+single-machine form that the text does not name and that is easier to hit:
+
+**`${API_TOKEN}` is rotated to point at a different tenant.** For an API whose
+tenancy is implied by the credential rather than by `base_urls` or a param, no
+hash moves — the reference name is unchanged, and values are invisible to
+identity by design — so the new tenant's runs hit the old tenant's cache
+entries. No second user is required, and nothing about the pipeline changed.
+
+ADR-0025's negative acknowledges only the *conservative* inverse of this
+(different reference names resolving to the same account hash differently, a
+spurious miss). This is the non-conservative direction, and it belongs here
+rather than there because it follows from this ADR's decision, not from
+path-less read identity.
+
+Note what does *not* close it: the decision drivers above require that
+"credential rotation must not invalidate build or cache identity", and that
+requirement is doing real work — it is why rotating a password does not
+invalidate every artifact. The residual is the price of that requirement, not
+an oversight in it.
+
+### Status of the family, and what a discriminator does and does not buy
+
+The declarable half of the multi-holder case is closed by
+`ResourceConfig(caller_scoped=True)` requiring a `ParamSpec(kind="scope")`, as
+recorded above. A connection-level discriminator (a non-secret `principal`-style
+kwarg on `do_connect`, captured by `Profile.from_con` and therefore folded via
+the profile content hash) would extend that protection to resources the author
+never marked — the case where the residual is a confidentiality failure rather
+than mere staleness, since `github`'s `issues` resource on a *private* repo
+lets a caller with access populate a shared cache that a caller without access
+can then read.
+
+Two limits on any such discriminator, stated so it is not oversold:
+
+- **It is a self-asserted label, not authorization.** Two callers who both
+  declare the same principal while holding credentials of different visibility
+  still collide. It converts a silent cross-credential leak into an auditable
+  false declaration.
+- **It does not detect the temporal variant above.** A discriminator gives the
+  fact somewhere to live; nothing notices when the asserted fact goes stale
+  under a rotated reference. Closing *that* requires either credential values
+  in identity — which this ADR forbids — or cache-entry validity metadata
+  (e.g. a machine-salted one-way digest of the resolved secret, compared at
+  cache *get* and treated as a miss on mismatch). That second option keeps
+  hashes untouched and so does not violate the rotation driver, but it is
+  precisely the per-principal cache-namespacing decision this ADR declined to
+  make, and it does not travel across machines because the salt does not. It
+  therefore needs its own ADR, not a quiet landing under this one.
+
+**Both residuals are accepted for now**, and this amendment is the record that
+the temporal one is known rather than overlooked. The honest summary of the
+family: identity carries what is safe to write down, credential values are not,
+and so identity cannot distinguish two principals — the mitigations available
+are declarations that can be wrong and cache-layer checks that are out of this
+ADR's scope.

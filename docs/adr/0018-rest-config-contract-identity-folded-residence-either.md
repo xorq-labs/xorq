@@ -207,3 +207,96 @@ Rejected because:
   resolution ("identity: always folded; residence: either")
 - dlt `rest_api` / `RESTAPIConfig` (https://dlthub.com/docs) — the shape the
   omissions are defined against
+
+## Amendment (2026-08-07)
+
+The decision stands. Two consequences are added from an audit that classified
+every identity failure on this branch as *conservative* (identity too sensitive
+→ spurious cache miss → duplicated work, acceptable) or *non-conservative*
+(identity too coarse → two different things collide → a stale or wrong cache
+hit). The audit's finding was that this branch's deliberate choices push
+failures conservative wherever a derivation can do it — the `attrs`-derived
+membership above is the clearest instance — and that what remains
+non-conservative clusters where something meaning-bearing lives *outside* the
+folded set. These two are the ones this ADR owns.
+
+### 1. Curated artifacts record their config fingerprint but never verify it
+
+A third failure class the original text does not distinguish: a
+**build-hash-integrity** failure, where the hash lies about what an artifact
+will do but no cache ever serves wrong rows.
+
+`read_identity_parts` reads `self.current_config` **live**
+(`backends/rest/__init__.py`), and in curated residence that config lives in
+installed code (`backends/github/__init__.py`), not in the artifact. So an
+artifact built under version N and rehydrated under N+1 — where a curated
+config changed `path`, `record_path` or `paginator` but not the schema —
+executes against a different endpoint while still named by its old build hash.
+
+Two things bound this, and both matter:
+
+- **It is not a cache collision.** Cache keys are recomputed live at run time
+  from the same `current_config`, so a drifted rehydration gets *moved* keys: a
+  conservative miss returning correct, new-config rows. The hash lies; the
+  cache does not. It is dangerous only to consumers that key data reuse or
+  equivalence on the **build hash** — catalog dedup, cross-run comparison, and
+  any future result reuse keyed on build hash. That list is the risk register.
+- **The artifact already records enough to detect it.** `register_node`
+  (`ibis_yaml/common.py`) writes `snapshot_hash = content_hash(node)` for every
+  node, and for a rest `Read` that hash folds the api-wide and per-resource
+  content hashes via the path-less snapshot branch. Nothing ever reads it back
+  to compare — it is consumed only as a lineage node handle. So the remedy is
+  *verify at load*, not *record then verify*: recompute and compare, refusing on
+  mismatch and warning for artifacts written before the check existed.
+
+Note the inversion this exposes in the residence choice above. Residence is
+presented as a neutral per-API packaging decision with costs on both sides, and
+that framing holds — but on *this* axis they are not symmetric.
+**Self-service pins its config and curated does not**, because a self-service
+config rides in the profile, and the profile is serialized. The "graduation
+cost" negative already notes that promotion changes identity; this adds that
+promotion also changes *which* copy of the config an artifact is bound to.
+
+Deliberately not fixed here. Verify-at-load is cheap and is the recommended
+shape if it is; serializing the curated config is rejected, because it would
+freeze config bugs and security fixes into every old artifact and erase the
+distinction this ADR chose on purpose.
+
+### 2. The override-identity acceptance is withdrawn as a standing position
+
+The last negative above accepts that a 100%-`fetch_override` resource is
+identified by schema and params alone, so *changing what the override fetches
+keeps cache hits*. Under the conservative/non-conservative split that is a
+non-conservative acceptance — a stale hit on data, which is the failure
+direction every other decision in this ADR is arranged to avoid. It is also
+sharper in practice than the text admits: mixpanel's real regional data and
+query URLs live in `mixpanel/client.py`, not in the folded `base_urls`, so this
+ADR's own rule — *the resolved endpoint is identity-bearing, not just the name
+of the route to it* — is de facto void for that backend.
+
+The acceptance is therefore scheduled for retirement rather than left standing.
+The mechanism is a required `override_version` field on `ResourceConfig`:
+identity-bearing by the derived-membership rule above, and rejected at config
+assembly when `fetch_override` is set without it. Its contract is that the
+author bumps it when the override's *meaning* changes and leaves it alone
+across refactors — the ADR-0025 refactorability line kept intact, with a name
+to hold accountable instead of an invisible exclusion. A useful side effect:
+today an override resource and a config-driven resource with identical
+declarative fields hash identically, because the opt-out erases even the
+*presence* of an override; a non-`None` `override_version` makes
+override-ness itself identity-visible.
+
+Rejected strengthener, recorded so it is not re-proposed: folding
+`fetch_override`'s `module.qualname` into `content_hash`. It would make
+"which function" identity-visible, but rename-and-move is exactly the refactor
+the exclusion exists to protect, and the name is not the contract here the way
+a registry key's name is.
+
+**Gate:** the negative flips to retired when `override_version` lands and
+mixpanel's `events`/`engage` declare one. Until then the negative stands as
+written and this amendment is the record that it is not endorsed.
+
+Adding the field moves every rest read hash once, at its default value — the
+priced cost of derived membership, stated in the negative above. It should ride
+one batched, adjudicated migration together with the other identity-moving
+follow-ups rather than paying that cost twice.
