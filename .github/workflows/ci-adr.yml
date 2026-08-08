@@ -1,0 +1,40 @@
+name: ci-adr
+
+# Deliberately no `paths:` filter. A path-filtered workflow reports no status
+# at all on pull requests that miss the filter, so it can never be a required
+# check. scripts/adr_check.py is a sub-second no-op when nothing changed, so
+# running it everywhere costs less than the branch-protection workaround.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The new-ADR checks diff against the merge base with the target
+          # branch, which the default shallow clone does not contain.
+          fetch-depth: 0
+
+      # Stdlib only, so no setup-python and no uv sync: the runner's python3
+      # is enough. Values arrive as environment variables rather than inline
+      # `${{ }}` interpolation so a branch or title can't inject shell.
+      - name: Check ADR numbering and references
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/adr_check.py --base "$BASE_SHA" --pr "$PR_NUMBER"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      - name: Check ADR numbering and references
+        if: github.event_name != 'pull_request'
+        run: python3 scripts/adr_check.py

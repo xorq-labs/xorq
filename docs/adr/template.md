@@ -1,9 +1,14 @@
-# ADR-NNNN: <title — the decision, not the problem>
+# ADR-XXXX: <title — the decision, not the problem>
 
 <!--
-Save this file as docs/adr/NNNN-<slug>.md (e.g. 0012-click-option-decorators.md),
-where NNNN is the next sequential number after the highest existing ADR in
-this directory.
+Don't copy this file by hand — run `just adr-new <slug>`, which saves it as
+docs/adr/XXXX-<slug>.md.
+
+XXXX is a placeholder, not a number to fill in yourself. An ADR takes the
+number of the pull request that adds it, so the number doesn't exist until the
+pull request does. Open the pull request, then run `just adr-rename` to rename
+the file and fix up this heading. CI fails while XXXX is still in a filename.
+See README.md for the full numbering rule.
 
 The title should name the decision or design choice, not the bug or symptom.
 Good:  "Make git-annex optional via a CatalogBackend abstraction"
