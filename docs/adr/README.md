@@ -13,7 +13,7 @@ Start from [template.md](template.md).
 
 A new ADR takes the number of the pull request that adds it. GitHub allocates pull request numbers, so two branches can't claim the same ADR number and you never have to check which number is free.
 
-ADR-0002 through ADR-0017 predate this rule and keep their sequential numbers permanently. Roughly sixty comments across `python/xorq` cite them by number, so renumbering would either break those citations or require a risky sweep of them. Pull request numbers are already far above 1000, so the two ranges can't collide. A small allowlist in `scripts/adr_check.py` covers the legacy-numbered ADRs that were still in flight when this rule landed; it only shrinks.
+ADR-0002 through ADR-0017 predate this rule and keep their sequential numbers permanently. Around fifty comments across `python/xorq` cite them by number, so renumbering would either break those citations or require a risky sweep of them. Pull request numbers are already far above 1000, so the two ranges can't collide. A small allowlist in `scripts/adr_check.py` covers the legacy-numbered ADRs that were still in flight when this rule landed; it only shrinks.
 
 Numbers are sparse and non-consecutive under this rule. That's the trade: the number tells you which pull request introduced the decision rather than how many decisions came before it. For chronology, use `git log docs/adr/`.
 
@@ -45,6 +45,8 @@ CI treats the two asymmetrically. A numbered reference that doesn't resolve is a
 The `ci-adr` check fails while a filename still contains `XXXX`, so an unnumbered ADR can't merge.
 
 Write one ADR per pull request. The number comes from the pull request, so a second ADR in the same pull request has no number to take. Open another pull request — an ADR reviews fine on its own.
+
+The allowlist in `scripts/adr_check.py` is the one exception: a branch that predates this rule can land the legacy-numbered ADRs it already wrote, together, because their numbers were claimed before the rule existed. Each entry names one file, by number *and* slug, and is deleted when its branch merges.
 
 ## What CI checks
 

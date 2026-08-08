@@ -18,7 +18,7 @@ The repository shows three instances:
 
 A fourth pattern is not itself a collision but is what produces them. A stacked series of pull requests routinely needs an early entry to cite a decision recorded in a later one. When a number is the only way to cite an ADR, the author has to allocate the whole range before any of it reaches a forge, and then publish the reservation so nobody else takes it. That is how the largest block of contended numbers in this repository came to exist: eight numbers reserved by one stack, two of which a branch elsewhere had already claimed.
 
-A constraint shapes the fix: roughly sixty comments across `python/xorq` cite ADRs by number — `_paths.py`, `write_through.py`, `graph_utils.py`, `_canonical.py`, `catalog/*`, and many test files. Renumbering existing ADRs would either break those citations or require a sweep across production code to fix a documentation problem.
+A constraint shapes the fix: around fifty comments across `python/xorq` cite ADRs by number — `_paths.py`, `write_through.py`, `graph_utils.py`, `_canonical.py`, `catalog/*`, and many test files. Renumbering existing ADRs would either break those citations or require a sweep across production code to fix a documentation problem.
 
 ## Decision drivers
 
@@ -101,7 +101,7 @@ Rejected because it breaks citation. `ADR-0011` appears in code comments across 
 
 Kotlin KEEPs and arc42 identify decisions by title alone.
 
-Rejected *as the sole identifier*, for the same citation reason and more sharply: it would require rewriting all sixty-odd existing references and would leave nothing short to write in a comment.
+Rejected *as the sole identifier*, for the same citation reason and more sharply: it would require rewriting every existing numeric reference and would leave nothing short to write in a comment.
 
 Its core claim is nonetheless correct — a slug is a better identity than a number, because it is stable from the moment the file exists and carries meaning on its face. So it is adopted alongside rather than instead: the slug identifies, the number abbreviates. Keeping both is what allows an ADR to be cited before a forge has numbered it, at the cost of two citation forms to learn.
 
@@ -132,7 +132,7 @@ Rejected: this is the current de facto process, and all three incidents above ha
 - Collisions become impossible for new ADRs. The number is allocated by GitHub before any branch can contend for it.
 - No registry, index, allocator, or maintainer round trip.
 - Every new ADR gains a backlink to the pull request that introduced it, and usually to the implementing code.
-- Existing numbers and their sixty-odd code citations are untouched.
+- Existing numbers and their fifty-odd code citations are untouched.
 - Dangling `ADR-NNNN` references now fail CI across the whole directory, including the legacy range, which was previously unchecked.
 - A stack can cite its own unlanded entries by name, so it no longer has to reserve a range of numbers — removing the mechanism that produced the largest cluster of contended numbers in this repository.
 - An ADR is citable from the moment it is written rather than from the moment its pull request opens.
@@ -146,7 +146,7 @@ Rejected: this is the current de facto process, and all three incidents above ha
 - Unresolved named references are only a warning, so a misspelled slug survives CI until someone reads it. This is the deliberate price of allowing forward references at all; a `- **Pending:** <slug>` header line would let the guard harden it later by erroring on undeclared unresolved names.
 - One extra step: authors run `python3 scripts/adr_rename.py` after opening the pull request. CI fails until they do, which is the intent, but it does mean a red check on the first push of any pull request carrying an ADR.
 - Closing a pull request and opening a replacement strands the number and requires a second rename. The check catches it.
-- One ADR per pull request. A change that warrants two decision records needs two pull requests.
+- One ADR per pull request. A change that warrants two decision records needs two pull requests. The allowlist relaxes this for legacy branches that predate the rule, keyed to a specific file rather than to a number.
 - `ci-adr` must be added to branch protection as a required check. That is repository configuration, not something this pull request can carry.
 
 ## References

@@ -4,17 +4,19 @@
     python3 scripts/adr_rename.py <slug>     # pick one of several
 
 Renames ``docs/adr/XXXX-<slug>.md`` to ``docs/adr/<pr>-<slug>.md``, fixes the
-heading, rewrites named references to the numeric form, and re-runs the guard.
+heading, repoints citations at the new number, and re-runs the guard.
 
-The reference sweep is a readability pass, never a correctness one: an ADR is
-citable as ``ADR-<slug>`` and as ``ADR-<number>`` and both resolve forever, so
-a reference the sweep misses stays valid rather than breaking the build.
+Prose citations are a readability pass: an ADR is citable as ``ADR-<slug>`` and
+as ``ADR-<number>``, both resolve forever, so one the sweep misses stays valid.
+Relative links to the placeholder filename are not optional in the same way --
+the file has moved, so those are rewritten exactly.
 
 Stdlib only, matching scripts/adr_check.py.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -53,25 +55,56 @@ def pick_source(slug: str | None) -> Path | None:
     return candidates[0]
 
 
-def pull_request_number() -> str | None:
+def pull_request() -> tuple[str, str] | None:
+    """This branch's pull request number and base branch.
+
+    The base matters: a stacked pull request is based on its parent branch, not
+    on `main`, and diffing against the wrong base attributes every ADR the
+    parent added to this pull request as well.
+    """
     result = subprocess.run(
-        ["gh", "pr", "view", "--json", "number", "--jq", ".number"],
+        ["gh", "pr", "view", "--json", "number,baseRefName"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0 or not result.stdout.strip():
         sys.stderr.write("no pull request found for this branch; open one first\n")
         return None
-    return result.stdout.strip()
+    try:
+        payload = json.loads(result.stdout)
+        return (str(payload["number"]), payload["baseRefName"])
+    except (ValueError, KeyError):
+        sys.stderr.write(f"could not read the pull request: {result.stdout!r}\n")
+        return None
 
 
 def sweep_references(slug: str, number: str) -> int:
-    """Rewrite ADR-<slug> to ADR-<number> wherever it appears."""
+    """Point every citation of an ADR at its new number.
+
+    Two forms move together: the prose citation ``ADR-<slug>`` and any relative
+    link to the placeholder filename. Missing the second would leave a link to
+    a file the rename just moved, which the guard reports as a dead link -- so
+    the sweep is best-effort about prose but must be exact about paths.
+    """
     # The lookahead stops a slug that prefixes a longer one from matching it:
     # sweeping `tee-node` must leave `ADR-tee-node-deferred-writes` alone.
-    pattern = re.compile(rf"ADR-{re.escape(slug)}(?![a-z0-9-])")
+    rewrites = (
+        (re.compile(rf"ADR-{re.escape(slug)}(?![a-z0-9-])"), f"ADR-{number}"),
+        (
+            re.compile(rf"(?<=\()\s*{PLACEHOLDER}-{re.escape(slug)}\.md(?=[)#])"),
+            f"{number}-{slug}.md",
+        ),
+    )
     found = subprocess.run(
-        ["git", "grep", "--untracked", "-lIF", f"ADR-{slug}"],
+        [
+            "git",
+            "grep",
+            "--untracked",
+            "-lIe",
+            f"ADR-{slug}",
+            "-e",
+            f"{PLACEHOLDER}-{slug}.md",
+        ],
         capture_output=True,
         text=True,
     )
@@ -81,7 +114,9 @@ def sweep_references(slug: str, number: str) -> int:
             continue
         path = Path(line)
         text = path.read_text(encoding="utf-8")
-        rewritten = pattern.sub(f"ADR-{number}", text)
+        rewritten = text
+        for pattern, replacement in rewrites:
+            rewritten = pattern.sub(replacement, rewritten)
         if rewritten != text:
             path.write_text(rewritten, encoding="utf-8")
             changed += 1
@@ -100,9 +135,10 @@ def main() -> int:
     if src is None:
         return 1
 
-    number = pull_request_number()
-    if number is None:
+    found = pull_request()
+    if found is None:
         return 1
+    number, base = found
 
     slug = src.name[len(PLACEHOLDER) + 1 : -len(".md")]
     dest = ADR_DIR / f"{number}-{slug}.md"
@@ -123,12 +159,14 @@ def main() -> int:
         else f"no named references to ADR-{slug} to rewrite\n"
     )
 
+    # Located next to this file rather than by relative path, so the guard is
+    # found no matter where the caller invoked us from.
     return subprocess.run(
         [
             sys.executable,
-            "scripts/adr_check.py",
+            str(Path(__file__).resolve().with_name("adr_check.py")),
             "--base",
-            "main",
+            base,
             "--pr",
             number,
         ],
