@@ -16,6 +16,8 @@ The repository shows three instances:
 - `0001-git-annex-over-git-lfs.md` exists only on an unmerged branch. It claimed 0001 while 0002 through 0017 shipped past it.
 - `0018-content-store-capability-and-binding.md` is in flight on another unmerged branch. Any third branch is free to claim 0018 today.
 
+A fourth pattern is not itself a collision but is what produces them. A stacked series of pull requests routinely needs an early entry to cite a decision recorded in a later one. When a number is the only way to cite an ADR, the author has to allocate the whole range before any of it reaches a forge, and then publish the reservation so nobody else takes it. That is how the largest block of contended numbers in this repository came to exist: eight numbers reserved by one stack, two of which a branch elsewhere had already claimed.
+
 A constraint shapes the fix: roughly sixty comments across `python/xorq` cite ADRs by number — `_paths.py`, `write_through.py`, `graph_utils.py`, `_canonical.py`, `catalog/*`, and many test files. Renumbering existing ADRs would either break those citations or require a sweep across production code to fix a documentation problem.
 
 ## Decision drivers
@@ -25,6 +27,7 @@ A constraint shapes the fix: roughly sixty comments across `python/xorq` cite AD
 - Existing numbers must not change, because code comments cite them.
 - Must not add a human allocator to the path of writing an ADR.
 - The identifier stays short enough to cite in a comment.
+- An ADR must be citable before it has a number, so a stack can reference its own later entries without reserving a range.
 
 ## Decision
 
@@ -49,17 +52,34 @@ The number does not exist until the pull request does, so an ADR is authored as 
 
 `XXXX` rather than Rust's `0000` because a placeholder should not look like a number: `0000` parses as an integer, sorts as one, and a half-finished rename leaves something that reads as a real ADR. `XXXX` cannot be mistaken for a number or accidentally cited, and CI can distinguish "not renamed yet" from "wrong number".
 
+### Referring to an ADR that has no number yet
+
+A number that does not exist cannot be cited. That is the whole difficulty for a stacked series of pull requests, where an early entry needs to reference a decision recorded in a later one. If a number is the only citation form, the author must allocate ahead of the forge and publish the reservation — which is precisely the collision mode this decision exists to remove.
+
+So an ADR has two citation forms, and both resolve permanently:
+
+| Form | Example | Resolves against |
+|------|---------|------------------|
+| Numbered | `ADR-0011` | the number, for an ADR that has one |
+| Named | `ADR-catalog-single-git-remote` | the slug, whether or not the ADR is numbered yet |
+
+The two are lexically disjoint — a number begins with a digit, a slug with a letter — so nothing is needed to tell them apart.
+
+The slug is the ADR's identity and is fixed when the file is created; the number is an alias that arrives later. `just adr-rename` rewrites named references to the ADR it numbers, so landed prose settles on the short numeric form. Because the named form never stops resolving, a sweep that is partial or lags behind cannot break the build — which is what makes it safe to run across branches.
+
+A named reference to an ADR not yet in the tree — the forward reference — is reported as a warning rather than an error, since the target may legitimately live on an unlanded branch. A dangling *numeric* reference stays an error. The asymmetry is the point: a bare `ADR-NNNN` pointing at an unlanded decision tells a reader nothing and CI nothing until it lands, while `ADR-rest-apis-are-declarative-configs` is legible immediately and resolves by itself the moment its file appears.
+
 This works because ADRs here already ride along with their implementing pull request — #2196 carried ADR-0016, #2192 carried ADR-0017, #1899 carried ADR-0011. The pull request number is therefore not an arbitrary identifier but a direct pointer to the code that implemented the decision and the discussion that shaped it.
 
 ### Enforcement
 
-`scripts/adr_check.py`, run by `.github/workflows/ci-adr.yml`, fails a pull request that leaves a placeholder in a filename, adds an ADR whose number is not the pull request number, adds a second ADR to the same pull request, duplicates an existing number, disagrees between filename and heading, or references an ADR that does not exist.
+`scripts/adr_check.py`, run by `.github/workflows/ci-adr.yml`, fails a pull request that leaves a placeholder in a filename, adds an ADR whose number is not the pull request number, adds a second ADR to the same pull request, duplicates an existing number or slug, disagrees between filename and heading, or makes a numeric reference to an ADR that does not exist. Unresolved *named* references are listed as warnings and do not fail the run.
 
 The script is stdlib-only and needs no `uv sync`, so the workflow runs the runner's `python3` directly. It carries no `paths:` filter: a path-filtered workflow reports no status at all on pull requests that miss the filter, which makes it unusable as a required check. The script is a sub-second no-op instead.
 
 Two of the checks are retroactive. Duplicate detection and reference resolution run over the whole directory on every pull request, so they also cover the legacy range — and reference resolution closes a real gap, since ADRs are excluded from the rendered site and the existing `lychee` link check only walks `docs/_site`.
 
-A short allowlist in the script exempts the two legacy-numbered ADRs that were in flight when this landed, so their branches merge without renumbering. The list only shrinks.
+A short allowlist in the script exempts the legacy-numbered ADRs that were in flight when this landed, so their branches merge without renumbering. Each entry names the branch it covers and is deleted when that branch merges; the list only ever shrinks.
 
 CI reports; it does not rewrite. `.pre-commit-config.yaml` sets `autofix_prs: false`, and a check that silently renames a file the author is still editing would fit that convention badly.
 
@@ -81,13 +101,17 @@ Rejected because it breaks citation. `ADR-0011` appears in code comments across 
 
 Kotlin KEEPs and arc42 identify decisions by title alone.
 
-Rejected for the same citation reason, and more sharply: it would require rewriting all sixty-odd existing references and would leave nothing short to write in a comment.
+Rejected *as the sole identifier*, for the same citation reason and more sharply: it would require rewriting all sixty-odd existing references and would leave nothing short to write in a comment.
+
+Its core claim is nonetheless correct — a slug is a better identity than a number, because it is stable from the moment the file exists and carries meaning on its face. So it is adopted alongside rather than instead: the slug identifies, the number abbreviates. Keeping both is what allows an ADR to be cited before a forge has numbered it, at the cost of two citation forms to learn.
 
 ### An index file that reserves numbers
 
 Keep sequential numbers, and have each pull request append its claim to a shared `README` table.
 
 Rejected, though it is closer to workable than it looks. Its virtue is that concurrent claims collide on the same line range, so git *detects* what filenames hide. Its vice is that this happens on every concurrent ADR, turning a rare silent bug into a frequent noisy one, and it adds a second place where the number is recorded and can drift. Deriving the number from the forge gets the detection for free without the conflicts.
+
+An index also serves a second purpose that is easy to miss: reserving a number is the only way to cite an unlanded ADR when numbers are the sole citation form. That function is real, and rejecting the index without replacing it would have removed something load-bearing. Named references replace it directly, and better — a reservation records that a number is taken, while a named reference records *which decision is meant*, and it needs no shared file to do so.
 
 ### Content-addressed identifiers with a head check
 
@@ -110,12 +134,16 @@ Rejected: this is the current de facto process, and all three incidents above ha
 - Every new ADR gains a backlink to the pull request that introduced it, and usually to the implementing code.
 - Existing numbers and their sixty-odd code citations are untouched.
 - Dangling `ADR-NNNN` references now fail CI across the whole directory, including the legacy range, which was previously unchecked.
+- A stack can cite its own unlanded entries by name, so it no longer has to reserve a range of numbers — removing the mechanism that produced the largest cluster of contended numbers in this repository.
+- An ADR is citable from the moment it is written rather than from the moment its pull request opens.
 
 ### Negative
 
-- Numbers are sparse and jump. `ADR-2211` no longer tells a reader that it is the nineteenth decision. Chronology moves to `git log docs/adr/`, which was always the more reliable source — see ADR-0006 and ADR-0007.
+- Numbers are sparse and jump. A four-digit number in the 2000s no longer tells a reader that it is the nineteenth decision. Chronology moves to `git log docs/adr/`, which was always the more reliable source — see ADR-0006 and ADR-0007.
 - The directory sorts by pull request number, which is chronological but leaves visible gaps.
 - Two numbering conventions coexist permanently. The floor at 1000 makes the boundary unambiguous, but it is a rule a new contributor has to read.
+- Two citation forms coexist permanently, which is genuine added surface. A reader meeting `ADR-catalog-single-git-remote` and `ADR-0011` has to know they are the same document. The rename sweep keeps the long form mostly confined to unlanded prose, but it does not eliminate it.
+- Unresolved named references are only a warning, so a misspelled slug survives CI until someone reads it. This is the deliberate price of allowing forward references at all; a `- **Pending:** <slug>` header line would let the guard harden it later by erroring on undeclared unresolved names.
 - One extra step: authors run `just adr-rename` after opening the pull request. CI fails until they do, which is the intent, but it does mean a red check on the first push of any pull request carrying an ADR.
 - Closing a pull request and opening a replacement strands the number and requires a second rename. The check catches it.
 - One ADR per pull request. A change that warrants two decision records needs two pull requests.

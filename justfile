@@ -59,30 +59,45 @@ adr-new slug:
     echo "next: write it, open the pull request, then run 'just adr-rename'"
 
 # give the in-flight ADR the number of this branch's pull request
-adr-rename:
+# pass a slug to pick one when several ADRs are in flight at once
+adr-rename slug="":
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{ justfile_directory() }}"
     shopt -s nullglob
-    placeholders=(docs/adr/XXXX-*.md)
-    if [ "${#placeholders[@]}" -eq 0 ]; then
-        echo "no docs/adr/XXXX-*.md to rename" >&2
-        exit 1
+    if [ -n "{{ slug }}" ]; then
+        src="docs/adr/XXXX-{{ slug }}.md"
+        if [ ! -e "$src" ]; then
+            echo "$src does not exist" >&2
+            exit 1
+        fi
+    else
+        placeholders=(docs/adr/XXXX-*.md)
+        if [ "${#placeholders[@]}" -eq 0 ]; then
+            echo "no docs/adr/XXXX-*.md to rename" >&2
+            exit 1
+        fi
+        if [ "${#placeholders[@]}" -gt 1 ]; then
+            echo "more than one unnumbered ADR:" >&2
+            printf '  %s\n' "${placeholders[@]}" >&2
+            echo "pass the one this pull request adds: just adr-rename <slug>" >&2
+            exit 1
+        fi
+        src="${placeholders[0]}"
     fi
-    if [ "${#placeholders[@]}" -gt 1 ]; then
-        echo "more than one unnumbered ADR: ${placeholders[*]}" >&2
-        echo "each ADR takes its own pull request's number; split them up" >&2
-        exit 1
-    fi
-    src="${placeholders[0]}"
     if ! pr="$(gh pr view --json number --jq .number 2>/dev/null)"; then
         echo "no pull request found for this branch; open one first" >&2
         exit 1
     fi
-    dest="docs/adr/${pr}-${src#docs/adr/XXXX-}"
+    stem="${src#docs/adr/XXXX-}"
+    dest="docs/adr/${pr}-${stem}"
     git mv "$src" "$dest"
     python3 -c 'import pathlib, sys; p = pathlib.Path(sys.argv[1]); p.write_text(p.read_text().replace("# ADR-XXXX:", "# ADR-" + sys.argv[2] + ":", 1))' "$dest" "$pr"
     echo "renamed to $dest"
+    # Settle named references on the short numeric form now that one exists.
+    # Best-effort by design: both forms resolve forever, so a reference this
+    # misses stays valid rather than breaking the build.
+    python3 scripts/adr_sweep_refs.py "${stem%.md}" "$pr"
     python3 scripts/adr_check.py --base main --pr "$pr"
 
 # check ADR numbering and cross-references

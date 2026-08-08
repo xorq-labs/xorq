@@ -10,6 +10,11 @@ pull request does. Open the pull request, then run `just adr-rename` to rename
 the file and fix up this heading. CI fails while XXXX is still in a filename.
 See README.md for the full numbering rule.
 
+To cite an ADR that has no number yet -- one landing in a later pull request,
+say -- use its slug: ADR-catalog-single-git-remote rather than ADR-0011. Both
+forms resolve, and `just adr-rename` swaps the named form for the number once
+one exists. This is why you never need to reserve a number in advance.
+
 The title should name the decision or design choice, not the bug or symptom.
 Good:  "Make git-annex optional via a CatalogBackend abstraction"
 Bad:   "Fix catalog dependency issue"
@@ -20,6 +25,7 @@ Delete all guidance comments (HTML comments like this one) before merging.
 - **Status:** Proposed | Accepted | Amended | Rejected | Deprecated | Superseded by ADR-NNNN
 - **Date:** YYYY-MM-DD <!-- when the decision was last updated -->
 - **Deciders:** <names>
+- **Related:** <!-- ADR-0011, or ADR-catalog-single-git-remote if it has no number yet -->
 
 <!--
 Status guide:
