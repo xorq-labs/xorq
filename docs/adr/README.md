@@ -30,16 +30,16 @@ The slug is an ADR's real identity: it's fixed when the file is created and neve
 
 The named form is what lets you cite an ADR that isn't numbered yet — including one that lands in a *later* pull request, which is common in a stack. That's why no one has to reserve a block of numbers ahead of time.
 
-`just adr-rename` rewrites named references to the ADR it numbers, so prose settles on the short form. Because the named form never stops resolving, a sweep that misses something is harmless.
+`scripts/adr_rename.py` rewrites named references to the ADR it numbers, so prose settles on the short form. Because the named form never stops resolving, a sweep that misses something is harmless.
 
 CI treats the two asymmetrically. A numbered reference that doesn't resolve is an **error** — the forge allocated that number, so a missing one is a mistake. A named reference that doesn't resolve is a **warning**, because the ADR it names may still be on a branch that hasn't landed.
 
 ## Writing one
 
-1. `just adr-new my-decision` copies the template to `docs/adr/XXXX-my-decision.md`.
+1. `python3 scripts/adr_new.py my-decision` copies the template to `docs/adr/XXXX-my-decision.md`.
 2. Write it. The `XXXX` placeholder stays in the filename until a pull request exists.
 3. Open the pull request. An ADR usually rides along with the code that implements it, which is what makes the pull request number a useful identifier.
-4. `just adr-rename` reads the pull request number, renames the file, updates the heading, and rewrites any named references to it. Pass a slug — `just adr-rename my-decision` — if more than one ADR is in flight.
+4. `python3 scripts/adr_rename.py` reads the pull request number, renames the file, updates the heading, and rewrites any named references to it. Pass a slug — `python3 scripts/adr_rename.py my-decision` — if more than one ADR is in flight.
 5. Push.
 
 The `ci-adr` check fails while a filename still contains `XXXX`, so an unnumbered ADR can't merge.

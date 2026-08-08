@@ -1,18 +1,20 @@
 # ADR-XXXX: <title — the decision, not the problem>
 
 <!--
-Don't copy this file by hand — run `just adr-new <slug>`, which saves it as
+Don't copy this file by hand — run `python3 scripts/adr_new.py <slug>`,
+which saves it as
 docs/adr/XXXX-<slug>.md.
 
 XXXX is a placeholder, not a number to fill in yourself. An ADR takes the
 number of the pull request that adds it, so the number doesn't exist until the
-pull request does. Open the pull request, then run `just adr-rename` to rename
+pull request does. Open the pull request, then run
+`python3 scripts/adr_rename.py` to rename
 the file and fix up this heading. CI fails while XXXX is still in a filename.
 See README.md for the full numbering rule.
 
 To cite an ADR that has no number yet -- one landing in a later pull request,
 say -- use its slug: ADR-catalog-single-git-remote rather than ADR-0011. Both
-forms resolve, and `just adr-rename` swaps the named form for the number once
+forms resolve, and `scripts/adr_rename.py` swaps the named form for the number once
 one exists. This is why you never need to reserve a number in advance.
 
 The title should name the decision or design choice, not the bug or symptom.

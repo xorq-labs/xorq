@@ -46,9 +46,9 @@ The split at 1000 needs no registry to interpret. Legacy ADRs stop at 0017 and p
 
 The number does not exist until the pull request does, so an ADR is authored as `XXXX-<slug>.md` and renamed once the pull request is open:
 
-1. `just adr-new <slug>` copies the template to `docs/adr/XXXX-<slug>.md`.
+1. `python3 scripts/adr_new.py <slug>` copies the template to `docs/adr/XXXX-<slug>.md`.
 2. Write it, then open the pull request.
-3. `just adr-rename` reads the number from `gh pr view`, renames the file, and rewrites the `# ADR-XXXX:` heading.
+3. `python3 scripts/adr_rename.py` reads the number from `gh pr view`, renames the file, and rewrites the `# ADR-XXXX:` heading.
 
 `XXXX` rather than Rust's `0000` because a placeholder should not look like a number: `0000` parses as an integer, sorts as one, and a half-finished rename leaves something that reads as a real ADR. `XXXX` cannot be mistaken for a number or accidentally cited, and CI can distinguish "not renamed yet" from "wrong number".
 
@@ -65,7 +65,7 @@ So an ADR has two citation forms, and both resolve permanently:
 
 The two are lexically disjoint — a number begins with a digit, a slug with a letter — so nothing is needed to tell them apart.
 
-The slug is the ADR's identity and is fixed when the file is created; the number is an alias that arrives later. `just adr-rename` rewrites named references to the ADR it numbers, so landed prose settles on the short numeric form. Because the named form never stops resolving, a sweep that is partial or lags behind cannot break the build — which is what makes it safe to run across branches.
+The slug is the ADR's identity and is fixed when the file is created; the number is an alias that arrives later. `scripts/adr_rename.py` rewrites named references to the ADR it numbers, so landed prose settles on the short numeric form. Because the named form never stops resolving, a sweep that is partial or lags behind cannot break the build — which is what makes it safe to run across branches.
 
 A named reference to an ADR not yet in the tree — the forward reference — is reported as a warning rather than an error, since the target may legitimately live on an unlanded branch. A dangling *numeric* reference stays an error. The asymmetry is the point: a bare `ADR-NNNN` pointing at an unlanded decision tells a reader nothing and CI nothing until it lands, while `ADR-rest-apis-are-declarative-configs` is legible immediately and resolves by itself the moment its file appears.
 
@@ -144,7 +144,7 @@ Rejected: this is the current de facto process, and all three incidents above ha
 - Two numbering conventions coexist permanently. The floor at 1000 makes the boundary unambiguous, but it is a rule a new contributor has to read.
 - Two citation forms coexist permanently, which is genuine added surface. A reader meeting `ADR-catalog-single-git-remote` and `ADR-0011` has to know they are the same document. The rename sweep keeps the long form mostly confined to unlanded prose, but it does not eliminate it.
 - Unresolved named references are only a warning, so a misspelled slug survives CI until someone reads it. This is the deliberate price of allowing forward references at all; a `- **Pending:** <slug>` header line would let the guard harden it later by erroring on undeclared unresolved names.
-- One extra step: authors run `just adr-rename` after opening the pull request. CI fails until they do, which is the intent, but it does mean a red check on the first push of any pull request carrying an ADR.
+- One extra step: authors run `python3 scripts/adr_rename.py` after opening the pull request. CI fails until they do, which is the intent, but it does mean a red check on the first push of any pull request carrying an ADR.
 - Closing a pull request and opening a replacement strands the number and requires a second rename. The check catches it.
 - One ADR per pull request. A change that warrants two decision records needs two pull requests.
 - `ci-adr` must be added to branch protection as a required check. That is repository configuration, not something this pull request can carry.

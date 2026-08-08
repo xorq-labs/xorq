@@ -142,7 +142,8 @@ def check_directory(problems: Problems) -> dict[int, Path]:
             problems.add(
                 path,
                 f"still carries the {PLACEHOLDER} placeholder. Open the pull "
-                "request, then run `just adr-rename` to give it the pull "
+                "request, then run `python3 scripts/adr_rename.py` to give it "
+                "the pull "
                 "request number",
             )
         elif (previous := by_number.get(number)) is not None:
@@ -295,14 +296,14 @@ def check_added(problems: Problems, added: list[Path], pr: int | None) -> None:
                 path,
                 "new ADRs take the number of the pull request that adds them, "
                 f"which is at least {PR_NUMBER_FLOOR}. Numbers below that are "
-                "frozen legacy ADRs. Run `just adr-rename`",
+                "frozen legacy ADRs. Run `python3 scripts/adr_rename.py`",
             )
         elif pr is not None and number != pr:
             problems.add(
                 path,
                 f"numbered {number} but added by pull request {pr}. The ADR "
                 "number must equal the pull request number: run "
-                "`just adr-rename`",
+                "`python3 scripts/adr_rename.py`",
             )
 
 
