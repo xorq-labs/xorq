@@ -1,4 +1,4 @@
-# ADR-0016: Rebuildable protocol for recovered builder objects
+# ADR-2103: Rebuildable protocol for recovered builder objects
 
 - **Status:** Accepted
 - **Date:** 2026-06-22
