@@ -14,9 +14,8 @@ In both modes resources are path-less ``Read`` ops
 (ADR-api-relations-are-pathless-read-ops) whose identity folds the per-resource
 config content hash (``normalize_read_source_identity``).
 
-Execution is composed, not inherited
-(ADR-rest-resource-reads-are-lazy-datafusion-tables): the ``PandasBackend``
-base supplies Backend plumbing (profile machinery, ``do_connect``,
+Execution is composed, not inherited (ADR-2216): the ``PandasBackend`` base
+supplies Backend plumbing (profile machinery, ``do_connect``,
 ``_filter_with_like``) while a private owned xorq-DataFusion connection
 supplies execution and storage. ``fetch_resource`` -- the ``Read.make_dt``
 boundary -- registers a *lazy* table over the engine's page stream there, so
@@ -101,12 +100,11 @@ class RestBackend(PandasBackend):
     # (`_replay_cache`). The hot layer is what keeps RAM bounded *per read* --
     # per connection it is not bounded at all: each read builds its own cache
     # with its own hot layer and nothing releases it before the connection is
-    # collected, so N distinct reads in one session cap at N x this
-    # (ADR-rest-resource-reads-are-lazy-datafusion-tables's retention-lifetime
-    # negative). The disk budget is a diagnosable ceiling rather than an
-    # invitation to fill the volume. Class-level so an API whose reads are
-    # known-small (or known-enormous) can retune them without touching the read
-    # path.
+    # collected, so N distinct reads in one session cap at N x this (ADR-2216's
+    # retention-lifetime negative). The disk budget is a diagnosable ceiling
+    # rather than an invitation to fill the volume. Class-level so an API whose
+    # reads are known-small (or known-enormous) can retune them without
+    # touching the read path.
     spill_memory_capacity = 128 << 20  # 128 MiB retained in RAM
     spill_disk_capacity = 64 << 30  # 64 GiB spilled at most
 
@@ -191,12 +189,11 @@ class RestBackend(PandasBackend):
         self._config = config
         self._credentials = dict(credentials)
         self._engine = self.make_engine()
-        # Composition, not inheritance
-        # (ADR-rest-resource-reads-are-lazy-datafusion-tables): resource reads
-        # register as lazy tables here, so execution and storage are
-        # DataFusion's while this class stays a read-only, resource-shaped
-        # Backend. Owned and private -- it is never captured in a profile or a
-        # build artifact, and nothing outside this module should reach for it.
+        # Composition, not inheritance (ADR-2216): resource reads register as
+        # lazy tables here, so execution and storage are DataFusion's while
+        # this class stays a read-only, resource-shaped Backend. Owned and
+        # private -- it is never captured in a profile or a build artifact, and
+        # nothing outside this module should reach for it.
         #
         # Single-partition on purpose. Every input here is one page-wise
         # RecordBatchReader, so repartitioning parallelizes nothing it can
@@ -318,9 +315,9 @@ class RestBackend(PandasBackend):
         engine-wide inherited behaviour rather than anything rest does, so it
         is documented here rather than papered over: honoring a per-call
         ``chunk_size`` wants an engine-agnostic rebatch wrapper, which
-        ADR-rest-resource-reads-are-lazy-datafusion-tables defers (see its "Set
-        the DataFusion batch size to the api ``chunk_size``" alternative and
-        the execution-semantics negative). Pinned by
+        ADR-2216 defers (see its "Set the DataFusion batch size to the api
+        ``chunk_size``" alternative and the execution-semantics negative).
+        Pinned by
         `test_chunk_size_is_inert_batches_follow_http_pages` and by the
         differential harness's ``batches.chunk_size_*`` records, so a rebatch
         wrapper that fixes it cannot land without retiring these words.
@@ -380,13 +377,12 @@ class RestBackend(PandasBackend):
     ) -> ir.Table:
         """Register a resource as a *lazy* table on the owned connection.
 
-        The ``Read.make_dt`` boundary
-        (ADR-rest-resource-reads-are-lazy-datafusion-tables). Nothing is
-        fetched here: the return value is a DataFusion table backed by a
-        replayable cache over the engine's page stream, and the first HTTP
-        request fires when the engine drains that cache. Paginated and
-        ``fetch_override`` resources take exactly this path -- an override
-        contributes one chunk -- so there is no materializing branch.
+        The ``Read.make_dt`` boundary (ADR-2216). Nothing is fetched here: the
+        return value is a DataFusion table backed by a replayable cache over
+        the engine's page stream, and the first HTTP request fires when the
+        engine drains that cache. Paginated and ``fetch_override`` resources
+        take exactly this path -- an override contributes one chunk -- so there
+        is no materializing branch.
 
         The var-kwargs bucket must be named ``kwargs``: `make_read_kwargs`
         flattens that name into the Read op's hashable ``read_kwargs``.
@@ -464,8 +460,7 @@ class RestBackend(PandasBackend):
         growing with the result -- bounded for *this* read. The cache built
         here lives as long as the table it is registered as, which is as long
         as the connection, so a session's ceiling is one hot layer per distinct
-        read (ADR-rest-resource-reads-are-lazy-datafusion-tables's
-        retention-lifetime negative).
+        read (ADR-2216's retention-lifetime negative).
 
         ``max_readers`` is deliberately left unset (retain everything): the scan
         count is not knowable here -- unlike the RemoteTable path, which derives
@@ -501,20 +496,18 @@ class RestBackend(PandasBackend):
     # inherited from `BasePandasBackend` refuse because they are the live
     # entrance to a *second* execution engine on the same connection: they
     # write `self.dictionary` and then execute through `PandasExecutor`, while
-    # resource reads execute on the owned DataFusion connection
-    # (ADR-rest-resource-reads-are-lazy-datafusion-tables). One connection
-    # serving both is exactly the divergence the differential harness
-    # catalogues -- pandas nulls on one side of a join, Arrow nulls on the
-    # other -- so the pandas substrate is not reachable from here at all.
+    # resource reads execute on the owned DataFusion connection (ADR-2216). One
+    # connection serving both is exactly the divergence the differential
+    # harness catalogues -- pandas nulls on one side of a join, Arrow nulls on
+    # the other -- so the pandas substrate is not reachable from here at all.
 
     def _no_second_substrate(self, method: str, what: str) -> com.XorqError:
         return com.XorqError(
             f"the {self.name} backend does not support {method}(): registering "
             f"{what} here would execute it on the inherited pandas engine, "
-            "while resource reads execute on Arrow/DataFusion "
-            "(ADR-rest-resource-reads-are-lazy-datafusion-tables) -- one "
-            "connection, two execution engines, and a join across them mixes "
-            "two sets of null/int/string semantics. This backend serves "
+            "while resource reads execute on Arrow/DataFusion (ADR-2216) "
+            "-- one connection, two execution engines, and a join across them "
+            "mixes two sets of null/int/string semantics. This backend serves "
             "resources only: use con.read(<resource>) (see con.list_tables()) "
             "for API data, and load files on a full connection "
             "(xo.connect().read_parquet(...)), bringing one side to the other "

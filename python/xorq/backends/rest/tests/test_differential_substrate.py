@@ -5,10 +5,9 @@ WHY THIS EXISTS
 It gated the substrate swap; it now pins the result. `RestBackend` (and its
 `github`/`mixpanel` subclasses) USED TO execute on `PandasBackend`: the
 `make_dt` boundary (`fetch_resource`) paginated an API into a pandas frame and
-stashed it in `self.dictionary`.
-ADR-rest-resource-reads-are-lazy-datafusion-tables (Accepted) replaced that
-substrate with an owned xorq-DataFusion connection into which resource reads
-register as *lazy* tables, and deleted the streaming workaround
+stashed it in `self.dictionary`. ADR-2216 (Accepted) replaced that substrate
+with an owned xorq-DataFusion connection into which resource reads register as
+*lazy* tables, and deleted the streaming workaround
 (`RestBackend.read_to_pyarrow_batches`, the `RestBackend.to_pyarrow_batches`
 override, and the api-level `_maybe_streaming_read_reader` interceptor).
 
@@ -39,19 +38,17 @@ WHAT IS OBSERVED (per case, see `observe`)
 - `lifecycle`  HTTP call counts at four separate stages: after `con.read(...)`
   construction, after `make_dt` materialisation, after `to_pyarrow_batches`
   construction but before any pull, and after a full drain. Plus the `make_dt`
-  boundary facts ADR-rest-resource-reads-are-lazy-datafusion-tables makes
-  claims about: the resolved table's op type, its source backend, and whether
-  `dt.source is read.source` (the ADR admits this invariant breaks; that is
-  mechanically visible here). Plus the workaround seams -- which now record
-  their own ABSENCE, so a reintroduction is a diff (see `observe_lifecycle`).
+  boundary facts ADR-2216 makes claims about: the resolved table's op type, its
+  source backend, and whether `dt.source is read.source` (the ADR admits this
+  invariant breaks; that is mechanically visible here). Plus the workaround
+  seams -- which now record their own ABSENCE, so a reintroduction is a diff
+  (see `observe_lifecycle`).
 - `identity`   `tokenize(expr)`, `get_expr_hash(expr)`, and the 12-char build
-  directory name via `ArtifactStore`.
-  ADR-rest-resource-reads-are-lazy-datafusion-tables claimed identity was
-  untouched even though `make_dt`'s table source became the owned connection;
-  these fields are how that claim was checked, and they keep it checked. Read
-  hashes were deliberately changed by the fix folding resolved `base_urls` and
-  auth shape into read identity, so these are current values, not historical
-  ones.
+  directory name via `ArtifactStore`. ADR-2216 claimed identity was untouched
+  even though `make_dt`'s table source became the owned connection; these
+  fields are how that claim was checked, and they keep it checked. Read hashes
+  were deliberately changed by the fix folding resolved `base_urls` and auth
+  shape into read identity, so these are current values, not historical ones.
 - `schema`     the expression's ibis schema and its Arrow schema (`utf8` vs
   `large_utf8` lives here), plus the Arrow schema of the first transported
   record batch, which need not agree with either.
@@ -460,9 +457,8 @@ CASES = (
     ),
     Case(
         name="mixpanel_override_resource",
-        what="a fetch_override resource -- "
-        "ADR-rest-resource-reads-are-lazy-datafusion-tables claims the "
-        "override case 'folds in uniformly'",
+        what="a fetch_override resource -- ADR-2216 claims the override "
+        "case 'folds in uniformly'",
         connect=connect_mixpanel,
         build=lambda con: con.read("engage", where="", table_name="engage_read"),
     ),
@@ -555,8 +551,7 @@ def http_log(session: Any) -> list[str]:
 
 def observe_lifecycle(case: Case) -> dict:
     """Stage-separated HTTP counts up to `make_dt`, plus the `make_dt`
-    boundary facts ADR-rest-resource-reads-are-lazy-datafusion-tables makes
-    claims about, plus the workaround seams.
+    boundary facts ADR-2216 makes claims about, plus the workaround seams.
 
     The seam fields (`read_to_pyarrow_batches_seam`,
     `tables_registered_on_source_dictionary`, `to_pyarrow_batches_defined_by`)
@@ -576,10 +571,9 @@ def observe_lifecycle(case: Case) -> dict:
             {
                 "op_type": type(dt).__name__,
                 "source_backend_name": getattr(dt.source, "name", None),
-                # ADR-rest-resource-reads-are-lazy-datafusion-tables admits
-                # this invariant breaks (the resolved table's source becomes
-                # the owned DataFusion connection). It must be mechanically
-                # visible, not a prose claim.
+                # ADR-2216 admits this invariant breaks (the resolved table's
+                # source becomes the owned DataFusion connection). It must be
+                # mechanically visible, not a prose claim.
                 "source_is_read_source": dt.source is read.source,
                 "name_equals_read_name": dt.name == read.name,
                 "schema": dict(zip(dt.schema.names, map(str, dt.schema.types))),
@@ -598,14 +592,13 @@ def observe_lifecycle(case: Case) -> dict:
         "read_ops_in_expression": len(reads),
         # pre-swap, each fetch_resource stashed one frame here, so this was the
         # substrate's own materialisation ledger and therefore its scan count.
-        # ADR-rest-resource-reads-are-lazy-datafusion-tables made the storage
-        # vestigial and this reads 0 everywhere: a nonzero value means
-        # something materialised onto the pandas table store again.
+        # ADR-2216 made the storage vestigial and this reads 0 everywhere: a
+        # nonzero value means something materialised onto the pandas table
+        # store again.
         "tables_registered_on_source_dictionary": len(getattr(con, "dictionary", {})),
         "make_dt": resolved,
         "read_to_pyarrow_batches_seam": seam,
-        # which class actually serves to_pyarrow_batches:
-        # ADR-rest-resource-reads-are-lazy-datafusion-tables deleted
+        # which class actually serves to_pyarrow_batches: ADR-2216 deleted
         # RestBackend's override, so this is BasePandasBackend's, and the
         # deletion is visible rather than implied -- as would be its return
         "to_pyarrow_batches_defined_by": type(con).to_pyarrow_batches.__qualname__,
@@ -619,8 +612,8 @@ def observe_identity(case: Case, builds_dir: pathlib.Path) -> dict:
     Read hashes were deliberately changed by the fix folding resolved
     `base_urls` and the auth shape into read identity; these are the CURRENT
     values. They were byte-identical across the substrate swap, which is how
-    ADR-rest-resource-reads-are-lazy-datafusion-tables's "identity is
-    untouched" claim was checked. A divergence here is therefore an identity
+    ADR-2216's "identity is untouched" claim was checked. A divergence here is
+    therefore an identity
     change: a bug unless it was deliberately one, in which case it needs its
     own adjudicated baseline (every build directory and cache entry in the
     world moves with it).

@@ -1,4 +1,5 @@
-# ADR-XXXX: REST resource reads register as lazy DataFusion tables on an owned connection
+# ADR-2216: REST resource reads register as lazy DataFusion tables on an owned
+# connection
 
 - **Status:** Accepted
 - **Date:** 2026-07-25 (accepted 2026-08-05)

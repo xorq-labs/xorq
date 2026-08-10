@@ -129,5 +129,5 @@
       "properties": "string"
     }
   },
-  "what": "a fetch_override resource -- ADR-rest-resource-reads-are-lazy-datafusion-tables claims the override case 'folds in uniformly'"
+  "what": "a fetch_override resource -- ADR-2216 claims the override case 'folds in uniformly'"
 }
