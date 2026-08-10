@@ -1,6 +1,6 @@
 # ADR-2210: Derive ADR numbers from pull request numbers
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-08
 - **Deciders:** dlovell
 

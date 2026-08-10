@@ -44,7 +44,9 @@ CI treats the two asymmetrically. A numbered reference that doesn't resolve is a
 4. `python3 scripts/adr_rename.py` reads the pull request number, renames the file, updates the heading, and rewrites any named references to it. Pass a slug — `python3 scripts/adr_rename.py my-decision` — if more than one ADR is in flight.
 5. Push.
 
-The `ci-adr` check fails while a filename still contains `XXXX`. It blocks the merge once the `adr` job is a required check in branch protection — repository configuration this convention asks for but cannot set.
+The `ci-adr` check fails while a filename still contains `XXXX`, so an unnumbered ADR can't merge: its `adr` and `adr-tests` jobs are both required status checks on `main`. They are required by job name — `ci-adr` is the workflow, and requiring that would match nothing and silently never block.
+
+A pull request opened before those checks existed reports neither, and shows "Expected — waiting for status to be reported" until any push to its branch triggers a run. It does not need to be up to date with `main`.
 
 Write one ADR per pull request. The number comes from the pull request, so a second ADR in the same pull request has no number to take. Open another pull request — an ADR reviews fine on its own, and splitting a set of related decisions costs nothing, because each is citable as `ADR-<slug>` from the moment it is written. Cite the others by slug; don't wait for their numbers, and don't reserve any.
 
