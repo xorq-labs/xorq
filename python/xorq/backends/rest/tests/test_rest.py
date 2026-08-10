@@ -33,9 +33,9 @@ from xorq.backends.rest.config import (
 from xorq.backends.rest.engines import (
     MAX_RETRY_WAIT,
     NativeEngine,
+    frame_from_records,
     record_to_row,
     retry_after_seconds,
-    warn_on_absent_columns,
 )
 from xorq.backends.rest.paginators import (
     HeaderLinkPaginator,
@@ -766,6 +766,39 @@ def test_abandoned_fetch_closes_the_session_it_created() -> None:
     assert len(closed) == 1
 
 
+def test_fetch_batches_yields_one_conformed_frame_per_page() -> None:
+    pages = (
+        FakeResponse(
+            [{"id": 1, "name": "a"}],
+            links={"next": {"url": "https://api.example.com/paged?page=2"}},
+        ),
+        FakeResponse([{"id": 2, "name": "b"}]),
+    )
+    config = RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="paged",
+                schema=things_schema,
+                path="/paged",
+                paginator="header_link",
+                residual_column="properties",
+            ),
+        ),
+    )
+    resource = config.get_resource("paged")
+    batches = tuple(
+        NativeEngine(session=FakeSession(pages)).fetch_batches(config, resource, {}, {})
+    )
+    assert len(batches) == 2  # one frame per HTTP page
+    assert all(tuple(b.columns) == tuple(things_schema) for b in batches)
+    assert all(str(b.id.dtype) == "Int64" for b in batches)  # conformed per page
+    df = NativeEngine(session=FakeSession(pages)).fetch(config, resource, {}, {})
+    assert df.id.tolist() == [1, 2]
+    assert df.index.tolist() == [0, 1]
+
+
 def make_enveloped_config(record_path: str = "items") -> RestBackendConfig:
     return RestBackendConfig(
         base_urls={"default": "https://api.example.com"},
@@ -812,39 +845,6 @@ def test_present_but_empty_record_path_is_an_empty_page() -> None:
     ).fetch(config, config.get_resource("enveloped"), {}, {})
     assert df.empty
     assert str(df.id.dtype) == "Int64"
-
-
-def test_fetch_batches_yields_one_conformed_frame_per_page() -> None:
-    pages = (
-        FakeResponse(
-            [{"id": 1, "name": "a"}],
-            links={"next": {"url": "https://api.example.com/paged?page=2"}},
-        ),
-        FakeResponse([{"id": 2, "name": "b"}]),
-    )
-    config = RestBackendConfig(
-        base_urls={"default": "https://api.example.com"},
-        auth=AuthConfig(kind="none"),
-        resources=(
-            ResourceConfig(
-                name="paged",
-                schema=things_schema,
-                path="/paged",
-                paginator="header_link",
-                residual_column="properties",
-            ),
-        ),
-    )
-    resource = config.get_resource("paged")
-    batches = tuple(
-        NativeEngine(session=FakeSession(pages)).fetch_batches(config, resource, {}, {})
-    )
-    assert len(batches) == 2  # one frame per HTTP page
-    assert all(tuple(b.columns) == tuple(things_schema) for b in batches)
-    assert all(str(b.id.dtype) == "Int64" for b in batches)  # conformed per page
-    df = NativeEngine(session=FakeSession(pages)).fetch(config, resource, {}, {})
-    assert df.id.tolist() == [1, 2]
-    assert df.index.tolist() == [0, 1]
 
 
 def test_fetch_empty_result_keeps_declared_dtypes() -> None:
@@ -953,25 +953,20 @@ def test_absent_column_warns_but_a_sparse_one_stays_quiet() -> None:
     resource = ResourceConfig(name="things", schema=things_schema)
     vanished = ({"id": 1, "properties": "{}"}, {"id": 2, "properties": "{}"})
     with pytest.warns(UserWarning, match=r"'name'.* none of the 2 records"):
-        warn_on_absent_columns(vanished, resource)
-    # still a truthful answer, just now announced: shaping fills the absent
-    # field with NULL exactly as the fetch loop does
-    frame = pd.DataFrame(
-        [record_to_row(record, resource) for record in vanished]
-    ).reindex(columns=tuple(resource.schema))
-    assert frame.name.isna().all()
+        frame = frame_from_records(vanished, resource)
+    assert frame.name.isna().all()  # still a truthful answer, just now announced
     sparse = ({"id": 1, "name": "a", "properties": "{}"}, {"id": 2, "properties": "{}"})
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        warn_on_absent_columns(sparse, resource)
+        frame_from_records(sparse, resource)
     # an empty page has no columns to speak about
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        warn_on_absent_columns((), resource)
+        frame_from_records((), resource)
     # a declared residual_column is not an API field, so it is never reported
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        warn_on_absent_columns(
+        frame_from_records(
             ({"id": 1, "name": "a"},),
             ResourceConfig(
                 name="things", schema=things_schema, residual_column="properties"

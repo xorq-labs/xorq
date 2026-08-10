@@ -15,14 +15,14 @@ In both modes resources are path-less ``Read`` ops
 config content hash (``normalize_read_source_identity``).
 
 Execution is composed, not inherited
-(ADR-rest-resource-reads-are-lazy-datafusion-tables): the ``PandasBackend`` base
-supplies Backend plumbing (profile machinery, ``do_connect``,
+(ADR-rest-resource-reads-are-lazy-datafusion-tables): the ``PandasBackend``
+base supplies Backend plumbing (profile machinery, ``do_connect``,
 ``_filter_with_like``) while a private owned xorq-DataFusion connection
 supplies execution and storage. ``fetch_resource`` -- the ``Read.make_dt``
 boundary -- registers a *lazy* table over the engine's page stream there, so
 nothing is fetched until the engine pulls batches. Inheriting the base for
-plumbing also inherits its *execution* engine, so the registration methods
-that would reach it (``read_csv``, ``read_parquet``, ``read_record_batches``,
+plumbing also inherits its *execution* engine, so the registration methods that
+would reach it (``read_csv``, ``read_parquet``, ``read_record_batches``,
 ``from_dataframe``) are refused: one connection must not serve two execution
 engines with divergent null/int/string semantics.
 """

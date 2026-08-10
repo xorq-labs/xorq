@@ -208,6 +208,17 @@ def _envelope_keys(data: object) -> object:
     return f"<{type(data).__name__}>"
 
 
+def frame_from_records(records: tuple, resource_config: ResourceConfig) -> pd.DataFrame:
+    """One page of records as a schema-conformed frame: conforming per page
+    (not once at the end) is what makes pages independently consumable."""
+    warn_on_absent_columns(records, resource_config)
+    return (
+        pd.DataFrame([record_to_row(record, resource_config) for record in records])
+        .reindex(columns=tuple(resource_config.schema))
+        .astype(resource_config.dtypes)
+    )
+
+
 def warn_on_absent_columns(records: tuple, resource_config: ResourceConfig) -> None:
     """Warn when a declared column is absent from EVERY record on a page.
 
@@ -246,17 +257,6 @@ def warn_on_absent_columns(records: tuple, resource_config: ResourceConfig) -> N
             UserWarning,
             stacklevel=3,
         )
-
-
-def frame_from_records(records: tuple, resource_config: ResourceConfig) -> pd.DataFrame:
-    """One page of records as a schema-conformed frame: conforming per page
-    (not once at the end) is what makes pages independently consumable."""
-    warn_on_absent_columns(records, resource_config)
-    return (
-        pd.DataFrame([record_to_row(record, resource_config) for record in records])
-        .reindex(columns=tuple(resource_config.schema))
-        .astype(resource_config.dtypes)
-    )
 
 
 def record_to_row(record: dict, resource_config: ResourceConfig) -> dict:
