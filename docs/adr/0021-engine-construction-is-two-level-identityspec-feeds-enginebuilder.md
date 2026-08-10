@@ -19,9 +19,7 @@
 > threads per-engine specs through vendored-ibis backend construction — a
 > high-conflict surface that should not be touched while the REST backend
 > entries are still in flight. The document lands now so the design stays
-> reviewable beside ADR-0020's fold, which it builds on, and so the number is
-> claimed where other in-flight branches can see it (see
-> [`README.md`](README.md) on why an unclaimed number is a hazard here).
+> reviewable beside ADR-0020's fold, which it builds on.
 >
 > **Acceptance gate:** phases 1 and 2 of the Phases section land — the frozen
 > `IdentitySpec` / `EngineBuilder` / `DEFAULT_BUILDER` values with no hash
