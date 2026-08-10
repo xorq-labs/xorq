@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import base64
 import pathlib
+import re
 
 import pytest
 
 import xorq.api as xo
 import xorq.common.exceptions as com
+from xorq.backends.mixpanel.client import MixpanelClient
 from xorq.backends.mixpanel.tests.conftest import (
     env_ref_kwargs,
     fake_env,
 )
+from xorq.common.utils.attr_utils import secret_field_names
 from xorq.common.utils.env_utils import EnvConfigable
+from xorq.ibis_yaml.compiler import build_expr
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.backends.profiles import (
     Profile,
@@ -124,3 +129,84 @@ def test_live_read_events() -> None:
     df = con.read_events("2026-07-01", "2026-07-07").execute()
     assert not df.empty
     assert set(df.columns) == set(con.get_schema("events").names)
+
+
+def test_built_artifact_carries_no_resolved_credential(
+    con: BaseBackend, tmp_path: pathlib.Path
+) -> None:
+    """The invariant, checked against the bytes on disk rather than asserted.
+
+    This ADR's central claim is that a build artifact carries env-var
+    *references* and never credential values. The dangerous half of that claim
+    is unauditable by eye: the expression captures a client inside base64
+    cloudpickle bytes in `expr.yaml`, which no reviewer greps and no other test
+    reads. A regression as small as handing the deferred `Read` the resolved
+    client instead of the reference-holding one leaks every credential into
+    every artifact built from it, and would otherwise pass this whole suite.
+
+    So the artifact is built and searched, base64 payloads decoded, for the
+    resolved values -- and the references are asserted present, so that a build
+    which simply stopped capturing the client could not pass by carrying
+    nothing at all.
+    """
+    expr = con.read_events("2026-07-01", "2026-07-07")
+    build_expr(expr, builds_dir=tmp_path)
+
+    resolved = tuple(fake_env.values())
+    referenced = tuple(env_ref_kwargs.values())
+    found_reference = False
+
+    for path in tmp_path.rglob("*"):
+        if not path.is_file():
+            continue
+        raw = path.read_bytes()
+        haystacks = [raw]
+        # Decode every base64-looking run: a credential inside a cloudpickled
+        # client is invisible to a plain grep of the artifact, which is exactly
+        # the leak class this guards.
+        for blob in re.findall(rb"[A-Za-z0-9+/=]{64,}", raw):
+            try:
+                haystacks.append(base64.b64decode(blob, validate=True))
+            except Exception:
+                continue
+        for haystack in haystacks:
+            for value in resolved:
+                assert value.encode() not in haystack, (
+                    f"{path.relative_to(tmp_path)} carries the resolved value for "
+                    f"a credential; build artifacts must carry env-var references"
+                )
+            found_reference = found_reference or any(
+                ref.encode() in haystack for ref in referenced
+            )
+
+    assert found_reference, (
+        "no env-var reference found in the artifact, so this test proved "
+        "nothing -- the expression is no longer capturing the client"
+    )
+
+
+def test_secrecy_mechanisms_agree(con: BaseBackend) -> None:
+    """The tree has two disjoint secrecy mechanisms; this is the seam that makes
+    them check each other.
+
+    `secret_field` suppresses `repr` on the client, which holds RESOLVED
+    credentials. The profile machinery enforces env-var *references* in a saved
+    profile, via the secret keys `check_for_exposed_secrets` reads. Nothing
+    connects them, so they can drift: a credential added to the profile's keys
+    but declared with a plain `field()` would be profile-enforced and still
+    printable in every traceback.
+
+    The containment is one-directional. Everything the profile machinery calls a
+    secret must ALSO be unprintable where its resolved value lives. The reverse
+    does not hold and must not be asserted -- `username` is repr-suppressed as
+    half a basic-auth credential while deliberately not profile-enforced, and
+    that asymmetry is pinned below so it reads as a decision, not a gap.
+    """
+    unprintable = set(secret_field_names(MixpanelClient))
+    enforced = set(con_name_to_secret_keys["mixpanel"])
+    assert enforced <= unprintable, (
+        f"profile-enforced but printable: {sorted(enforced - unprintable)}"
+    )
+    # the deliberate asymmetry, stated rather than left to inference
+    assert "username" in unprintable and "username" not in enforced
+    assert fake_env["MIXPANEL_SERVICE_ACCOUNT_SECRET"] not in repr(con._client)

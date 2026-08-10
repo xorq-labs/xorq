@@ -13,6 +13,7 @@ from attr import (
 )
 from attr.validators import instance_of
 
+from xorq.common.utils.attr_utils import secret_field
 from xorq.common.utils.env_utils import maybe_substitute_env_var
 from xorq.vendor import ibis
 
@@ -92,8 +93,17 @@ class MixpanelClient:
     expressions and their serialized artifacts.
     """
 
-    username = field(validator=instance_of(str))
-    secret = field(validator=instance_of(str))
+    # `do_connect` builds this client from resolved values, so the credential
+    # fields are declared with `secret_field`: secrecy stated at the field, so
+    # `repr` -- and everything built on it, log lines, tracebacks, debugger
+    # frames, attrs validator errors -- cannot print the plaintext. `username`
+    # is included because a service-account username is one half of a
+    # basic-auth credential. This is a separate axis from the profile
+    # machinery's, which declares what must be an env-var *reference* in a
+    # saved profile and covers `secret` alone; the two are cross-checked by
+    # `test_secrecy_mechanisms_agree`.
+    username = secret_field(validator=instance_of(str))
+    secret = secret_field(validator=instance_of(str))
     project_id = field(validator=instance_of((str, int)))
     region = field(validator=instance_of(str), default="us")
 
