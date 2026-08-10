@@ -20,7 +20,9 @@ ADR_DIR = Path("docs/adr")
 TEMPLATE = ADR_DIR / "template.md"
 PLACEHOLDER = "XXXX"
 
-SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+# Must agree with FILENAME_RE's slug group in adr_check.py, including the
+# letter-initial rule that keeps a slug from parsing as a number.
+SLUG_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 
 
 def main() -> int:
@@ -32,7 +34,8 @@ def main() -> int:
     if not SLUG_RE.match(slug):
         sys.stderr.write(
             f"{slug!r} is not a valid slug: lowercase words joined by single "
-            "hyphens, for example content-store-capability-and-binding\n"
+            "hyphens and starting with a letter, for example "
+            "content-store-capability-and-binding\n"
         )
         return 1
 

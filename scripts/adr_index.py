@@ -6,20 +6,13 @@ A workflow script, in the sense scripts/README.md means: run by hand, by a
 person who reads the output. It is emphatically not a guard. Nothing in CI
 invokes it, and nothing should -- see below.
 
-Deliberately printed, never committed. `docs/adr/README.md` explains why there
-is no index *file*: a stored list is a second place that records each number,
-and every pull request adding an ADR appends to the same line range, so
-concurrent pull requests conflict there -- which is the coordination this
-numbering scheme exists to remove. Generating the list does not change that.
-It cures staleness, not conflicts; a checked-in generated table conflicts
-exactly as often as a hand-written one, and a CI check that demanded it be
-current would *force* that conflict on every concurrent pull request.
+Deliberately printed, never committed: `docs/adr/README.md`'s "Why there is no
+index file" section is the argument, and generating the table rather than
+writing it does not answer it. Nothing depends on this output, which is what
+makes it safe to have.
 
-So this is a reader's convenience, run when you want it. Nothing depends on
-its output, which is what makes it safe to have.
-
-It also sorts correctly, which `ls` will not once pull request numbers reach
-five digits: `10000-x.md` sorts before `2129-x.md` lexically. Numbers are not
+It sorts correctly, which `ls` will not once pull request numbers reach five
+digits: `10000-x.md` sorts before `2129-x.md` lexically. Numbers are not
 zero-padded -- an ADR's number is its pull request's number, written the way
 the forge writes it -- so ordering belongs in the tool that reads them.
 
@@ -105,6 +98,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    # The sibling import above resolves because Python puts a script's own
-    # directory on sys.path; this file is only ever run from scripts/.
     sys.exit(main())

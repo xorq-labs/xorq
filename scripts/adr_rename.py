@@ -1,32 +1,24 @@
 """Give the in-flight ADR the number of this branch's pull request.
 
     python3 scripts/adr_rename.py            # one ADR in flight
-    python3 scripts/adr_rename.py <slug>     # pick one of several
+    python3 scripts/adr_rename.py <slug>     # pick one of several, renumber
+                                             # a landed ADR, or sweep again
 
 Renames ``docs/adr/XXXX-<slug>.md`` to ``docs/adr/<pr>-<slug>.md``, fixes the
-heading, repoints citations at the new number, and re-runs the guard. Rerun it
-on an ADR already carrying its number to sweep citations again, which is how a
-run interrupted between the two steps is finished.
+heading, repoints citations at the new number, and re-runs the guard.
+
+Naming an ADR that already carries its number sweeps citations again, which is
+how a run interrupted between the rename and the sweep is finished. That needs
+the slug: a bare run only ever looks for a placeholder.
 
 Naming a numbered ADR renumbers it, which is how a collision gets resolved:
 two branches that each claimed 0017 cannot both keep it, and the one that has
 not landed takes its pull request number instead.
 
-Three citation forms move together: ``ADR-<slug>``, the old ``ADR-<number>``,
-and any relative link to the old filename. The middle form is the one worth
-being thorough about. A slug citation still resolves if the sweep misses it,
-and a dead relative link is reported by the guard -- but a stale number
-resolves *silently to whichever ADR now holds it*, and citations in code are
-outside the guard's reach entirely, so nothing would report them.
-
-Which is also why an old number is swept only when no other ADR still holds
-it. If one does, the citations are genuinely ambiguous -- some may already
-mean the other ADR -- so they are listed for review rather than rewritten.
-
-``ADR-XXXX`` is deliberately not a fourth form. The placeholder is not an
-identifier: template.md carries it permanently, and so does every other draft
-in flight, so a repository-wide rewrite of it would renumber all of them. It
-is rewritten only inside the file being numbered.
+Three things move together: the two citation forms, ``ADR-<slug>`` and the old
+``ADR-<number>``, and any relative link to the old filename. See
+``sweep_references`` for why the number is the one worth being thorough about,
+when it is left alone instead, and why ``ADR-XXXX`` is not swept at all.
 
 Stdlib only, matching scripts/adr_check.py.
 """
@@ -263,10 +255,10 @@ def sweep_references(
     Returns the number of files rewritten, or None if the search itself failed
     and nothing was read -- which is not the same answer as "nothing to do".
 
-    Three forms move together: the prose citation ``ADR-<slug>``, the old
-    ``ADR-<number>``, and any relative link to the old filename. The link is
-    the one that must be exact -- the file has moved, so a missed link is a
-    dead link -- but the old number is the one that fails quietly, including
+    Three things move together: both citation forms -- ``ADR-<slug>`` and the
+    old ``ADR-<number>`` -- and any relative link to the old filename. The link
+    is the one that must be exact, since the file has moved and a missed link
+    is a dead link, but the old number is the one that fails quietly, including
     in code the guard never reads.
 
     `include_previous` is False when another ADR still holds `previous`, which

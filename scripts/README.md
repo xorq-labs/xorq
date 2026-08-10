@@ -47,16 +47,19 @@ disagreeing about what a valid ADR filename looks like.
 
 ## Tests
 
-Tests live in `scripts/tests/` and run in the `adr-tests` job of `ci-adr.yml`:
+Tests live in `scripts/tests/`. Locally:
 
 ```sh
 uv run --no-sync pytest scripts/tests
 ```
 
-They need only `pytest` — the tests reach the scripts by path, so the job runs
-`uv run --isolated --no-project --with pytest`, and the guard job stays
-install-free. A guard without tests is a guard that can stop firing silently,
-which looks exactly like a repository with no problems.
+They run in the `adr-tests` job of `ci-adr.yml`, which invokes them as
+`uv run --isolated --no-project --with pytest -- pytest scripts/tests -q`:
+they need only `pytest`, because they reach the scripts by path, and that
+keeps the guard job itself install-free.
+
+Test the guards. A guard without tests is a guard that can stop firing
+silently, which looks exactly like a repository with no problems.
 
 `ruff` and `codespell` cover this directory; see `.pre-commit-config.yaml` and
 `ci-lint.yml`.

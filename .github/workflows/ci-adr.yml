@@ -31,8 +31,10 @@ jobs:
           fetch-depth: 0
 
       # Stdlib only, so no setup-python and no uv sync: the runner's python3
-      # is enough. Values arrive as environment variables rather than inline
-      # `${{ }}` interpolation so a branch or title can't inject shell.
+      # is enough. Event fields arrive as environment variables rather than
+      # inline `${{ }}` interpolation, so nothing from the event is ever pasted
+      # into the shell -- a habit worth keeping even where, as here, the two
+      # values are a sha and an integer.
       # The two steps are alternatives, named apart so the log says which one
       # ran: only the first checks that a new ADR carries its pull request
       # number, because only it has a pull request to compare against.
@@ -49,8 +51,8 @@ jobs:
         if: github.event_name != 'pull_request'
         run: python3 scripts/adr_check.py --format github
 
-  # A guard that silently stops firing looks exactly like a repository with no
-  # problems, so the guard's own tests run on every pull request too. Separate
+  # The guard's own tests run on every pull request too, for the reason
+  # scripts/README.md gives for testing any guard at all. Separate
   # job because the install-free property above is per-job: this one needs
   # pytest, the one above must keep proving it needs nothing.
   adr-tests:

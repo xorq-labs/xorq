@@ -1,13 +1,13 @@
 """Tests for the ADR tooling: the numbering guard and the scripts around it.
 
 `scripts/adr_check.py` is what makes the numbering scheme in `docs/adr/README.md`
-enforceable rather than advisory, so its own behaviour is worth pinning: a check
-that silently stops firing looks exactly like a repository with no problems.
+enforceable rather than advisory, so its own behaviour is worth pinning -- for
+the reason scripts/README.md gives for testing any guard.
 
 Each test builds a throwaway `docs/adr/` and runs the tooling against it, so
 nothing here depends on which ADRs happen to exist in the repository today.
-`docs/adr/template.md` is the one deliberate exception, read by
-`test_a_freshly_scaffolded_adr_satisfies_the_guard`.
+`docs/adr/template.md` is the one deliberate exception, read by the
+`scaffoldable` fixture so the scaffolding tests run against the real template.
 
     uv run --no-sync pytest scripts/tests
 
@@ -245,6 +245,19 @@ def test_placeholder_heading_must_say_placeholder(tree: ADRTree) -> None:
 # --- filenames ---------------------------------------------------------------
 
 
+def test_a_digit_initial_slug_is_rejected(tree: ADRTree) -> None:
+    """The invariant the two citation forms rest on, enforced by the grammar.
+
+    A slug starting with a digit is not lexically disjoint from a number:
+    `ADR-2024-migration` parses as a citation of ADR-2024, so the filename must
+    not be able to create one.
+    """
+    tree.write("2211-2024-migration.md", "# ADR-2211: Migration\n\nBody.\n")
+    result = tree.check()
+    assert result.returncode == 1
+    assert "starts with a letter" in result.stderr
+
+
 def test_malformed_filename_is_reported(tree: ADRTree) -> None:
     tree.write("0012_Bad_Slug.md", "# ADR-0012: Bad\n\nBody.\n")
     result = tree.check()
@@ -299,19 +312,20 @@ def test_wrong_pull_request_number_fails(tree: ADRTree) -> None:
     assert "must equal the pull request number" in result.stderr
 
 
-def test_a_renamed_adr_is_still_a_new_adr(tree: ADRTree) -> None:
-    """Rename detection would otherwise hide every ADR this tooling produces.
+def test_a_renumbered_adr_is_still_a_new_adr(tree: ADRTree) -> None:
+    """Rename detection hides the renumber, which is the collision fix.
 
-    The documented flow commits `XXXX-<slug>.md`, opens the pull request, then
-    renames it -- and renumbering a collision moves one number to another. Git
-    pairs both as `R`, not `A`, so without `--no-renames` the added-ADR checks
-    find nothing to check on exactly the branches they exist for.
+    Git pairs a rename only when the old name is at the base, so the ordinary
+    flow is unaffected -- the draft was never on `main`. Renumbering a landed
+    ADR is the case that pairs: one file moves, and `--diff-filter=A` alone
+    reports no new ADR, leaving the number unchecked on precisely the branch
+    that exists to fix a number.
     """
     tree.init_repo()
-    tree.write("XXXX-my-decision.md", "# ADR-XXXX: Mine\n\nBody enough to pair.\n")
+    tree.write("0016-old-thing.md", "# ADR-0016: Old\n\nBody enough to pair.\n")
     tree.commit_all()
-    tree.git("mv", "docs/adr/XXXX-my-decision.md", "docs/adr/0019-my-decision.md")
-    tree.write("0019-my-decision.md", "# ADR-0019: Mine\n\nBody enough to pair.\n")
+    tree.git("mv", "docs/adr/0016-old-thing.md", "docs/adr/0019-old-thing.md")
+    tree.write("0019-old-thing.md", "# ADR-0019: Old\n\nBody enough to pair.\n")
     tree.commit_all()
     result = tree.check("--base", "HEAD~1", "--pr", "2211")
     assert result.returncode == 1
@@ -847,6 +861,9 @@ def test_scaffold_writes_the_placeholder_filename(
         pytest.param("-my-decision", id="leading-hyphen"),
         pytest.param("my-decision-", id="trailing-hyphen"),
         pytest.param("", id="empty"),
+        # A digit-initial slug is what would break the two citation forms
+        # apart: `ADR-2024-migration` reads as a citation of ADR-2024.
+        pytest.param("2024-migration", id="digit-initial"),
     ],
 )
 def test_scaffold_rejects_a_slug_the_guard_would_reject(

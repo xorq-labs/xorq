@@ -40,7 +40,7 @@ An ADR's number is the number of the pull request that adds it.
 
 GitHub allocates pull request numbers from a single counter, so the number is unique, monotonic, and already assigned by the time anyone could collide over it. There is nothing to reserve and nothing to check.
 
-The split at 1000 needs no registry to interpret. Legacy ADRs stop at 0017 and pull request numbers were already past 2200 when this landed, so the ranges cannot meet. Legacy ADRs keep their numbers and their citations keep resolving.
+The split at 1000 needs no registry to interpret. Legacy ADRs stop in the twenties — 0017 on `main`, up to 0023 once the branches still in flight land — while pull request numbers were already past 2200 when this landed, so the ranges cannot meet. Legacy ADRs keep their numbers and their citations keep resolving.
 
 ### Why the number arrives late
 
@@ -54,7 +54,7 @@ The number does not exist until the pull request does, so an ADR is authored as 
 
 ### Referring to an ADR that has no number yet
 
-A number that does not exist cannot be cited. That is the whole difficulty for a stacked series of pull requests, where an early entry needs to reference a decision recorded in a later one. If a number is the only citation form, the author must allocate ahead of the forge and publish the reservation — which is precisely the collision mode this decision exists to remove.
+A number that does not exist cannot be cited — which leaves a stacked series with no way to reference its own later entries except the reservation described above, the very collision mode this decision removes.
 
 So an ADR has two citation forms, and both resolve permanently:
 
@@ -79,7 +79,7 @@ The script is stdlib-only and needs no `uv sync`, so the workflow runs the runne
 
 Two of the checks are retroactive. Duplicate detection and reference resolution run over the whole directory on every pull request, so they also cover the legacy range — and reference resolution closes a real gap, since ADRs are excluded from the rendered site and the existing `lychee` link check only walks `docs/_site`.
 
-A short allowlist in the script exempts the legacy-numbered ADRs that were in flight when this landed, so their branches merge without renumbering. Each entry names the branch it covers and is deleted when that branch merges; the list only ever shrinks.
+A short allowlist in the script exempts the legacy-numbered ADRs that were in flight when this landed, so their branches merge without renumbering. Each entry names one file and the branch or pull request it comes from, and is deleted when that lands; the list only ever shrinks.
 
 CI reports; it does not rewrite. `.pre-commit-config.yaml` sets `autofix_prs: false`, and a check that silently renames a file the author is still editing would fit that convention badly.
 

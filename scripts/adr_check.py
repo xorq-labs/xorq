@@ -24,8 +24,9 @@ from pathlib import Path
 
 ADR_DIR = Path("docs/adr")
 
-# Meta documents: they carry illustrative numbers that intentionally do not
-# resolve to real ADRs, so they are exempt from the reference checks.
+# Documents about ADRs rather than ADRs. They carry no number, so they cannot
+# satisfy the filename grammar, and the numbers they show are illustrative.
+# Skipped wholesale rather than reported as malformed.
 META_FILES = frozenset({"template.md", "README.md"})
 
 PLACEHOLDER = "XXXX"
@@ -54,8 +55,12 @@ LEGACY_IN_FLIGHT = {
     23: "identity-spec-contributions-are-entry-points-composed-order-independently",  # PR #2200
 }
 
+# The slug must start with a letter, which is what keeps it lexically disjoint
+# from a number. A digit-initial slug would make `ADR-2024-migration` parse as a
+# citation of ADR-2024 -- so the grammar enforces the property the two citation
+# forms rely on, rather than leaving it to convention.
 FILENAME_RE = re.compile(
-    rf"^(?P<num>\d{{4,}}|{PLACEHOLDER})-(?P<slug>[a-z0-9]+(?:-[a-z0-9]+)*)\.md$"
+    rf"^(?P<num>\d{{4,}}|{PLACEHOLDER})-(?P<slug>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)\.md$"
 )
 HEADING_RE = re.compile(rf"^#\s+ADR-(?P<num>\d{{4,}}|{PLACEHOLDER})\s*:", re.MULTILINE)
 
@@ -180,7 +185,8 @@ def check_directory(problems: Problems) -> None:
                 path,
                 "filename does not match NNNN-slug.md (four or more digits, or "
                 f"{PLACEHOLDER} before the pull request number is known), where "
-                "slug is lowercase words joined by single hyphens",
+                "slug is lowercase words joined by single hyphens and starts "
+                "with a letter",
             )
             continue
 
@@ -301,13 +307,14 @@ def added_adrs(base: str) -> list[Path] | None:
     shallow clone, or a branch this clone does not have. The message is written
     here; the caller turns it into an exit code.
 
-    `--no-renames` is what makes `--diff-filter=A` mean "this branch is
-    responsible for this file". Rename detection is on by default, and every
-    path this tooling produces is a rename: the documented flow commits
-    `XXXX-<slug>.md`, opens the pull request, then renames it, and renumbering a
-    collision moves one number to another. Git pairs those as `R`, so without
-    this the added-ADR checks would find nothing to check on exactly the
-    branches they exist for.
+    `--no-renames` covers the renumber. Rename detection is on by default, and
+    it pairs a rename only when the old name is present at the base -- so it
+    does not fire for the ordinary flow, where the `XXXX-<slug>.md` draft was
+    never on `main` and the ADR arrives as a plain `A`. It fires for the case
+    `adr_rename.py` exists to serve second: renumbering an ADR that has already
+    landed, where git sees one file move and `--diff-filter=A` would report no
+    new ADR at all. Without this flag the branch resolving a collision is the
+    one branch the number check never runs on.
     """
     result = subprocess.run(
         [
