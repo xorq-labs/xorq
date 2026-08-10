@@ -33,7 +33,10 @@ jobs:
       # Stdlib only, so no setup-python and no uv sync: the runner's python3
       # is enough. Values arrive as environment variables rather than inline
       # `${{ }}` interpolation so a branch or title can't inject shell.
-      - name: Check ADR numbering and references
+      # The two steps are alternatives, named apart so the log says which one
+      # ran: only the first checks that a new ADR carries its pull request
+      # number, because only it has a pull request to compare against.
+      - name: Check ADR numbering, references, and the ADR this pull request adds
         if: github.event_name == 'pull_request'
         run: |
           python3 scripts/adr_check.py --format github \
@@ -42,7 +45,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
 
-      - name: Check ADR numbering and references
+      - name: Check ADR numbering and references across the directory
         if: github.event_name != 'pull_request'
         run: python3 scripts/adr_check.py --format github
 

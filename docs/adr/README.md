@@ -32,6 +32,8 @@ The named form is what lets you cite an ADR that isn't numbered yet — includin
 
 `scripts/adr_rename.py` rewrites named references to the ADR it numbers, so prose settles on the short form. Because the named form never stops resolving, a sweep that misses something is harmless.
 
+The sweep leaves Markdown code spans and fences alone, on the same reasoning that makes CI skip them: a citation shown inside backticks is an example of the convention, not a use of it. So a slug written as `` `ADR-<slug>` `` in a document about ADRs survives being numbered. Prose outside them, and code anywhere, is rewritten. Note that `ADR-XXXX` is not a citation form at all — the placeholder names no particular ADR, since every draft in flight carries it — so cite an unnumbered ADR by slug.
+
 CI treats the two asymmetrically. A numbered reference that doesn't resolve is an **error** — the forge allocated that number, so a missing one is a mistake. A named reference that doesn't resolve is a **warning**, because the ADR it names may still be on a branch that hasn't landed.
 
 ## Writing one

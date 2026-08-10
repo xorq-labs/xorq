@@ -10,16 +10,21 @@ Naming a numbered ADR renumbers it, which is how a collision gets resolved:
 two branches that each claimed 0017 cannot both keep it, and the one that has
 not landed takes its pull request number instead.
 
-Three citation forms move together: ``ADR-<slug>``, the old ``ADR-<number>``
-(or ``ADR-XXXX``), and any relative link to the old filename. The middle form
-is the one worth being thorough about. A slug citation still resolves if the
-sweep misses it, and a dead relative link is reported by the guard -- but a
-stale number resolves *silently to whichever ADR now holds it*, and citations
-in code are outside the guard's reach entirely, so nothing would report them.
+Three citation forms move together: ``ADR-<slug>``, the old ``ADR-<number>``,
+and any relative link to the old filename. The middle form is the one worth
+being thorough about. A slug citation still resolves if the sweep misses it,
+and a dead relative link is reported by the guard -- but a stale number
+resolves *silently to whichever ADR now holds it*, and citations in code are
+outside the guard's reach entirely, so nothing would report them.
 
 Which is also why an old number is swept only when no other ADR still holds
 it. If one does, the citations are genuinely ambiguous -- some may already
 mean the other ADR -- so they are listed for review rather than rewritten.
+
+``ADR-XXXX`` is deliberately not a fourth form. The placeholder is not an
+identifier: template.md carries it permanently, and so does every other draft
+in flight, so a repository-wide rewrite of it would renumber all of them. It
+is rewritten only inside the file being numbered.
 
 Stdlib only, matching scripts/adr_check.py.
 """
@@ -37,7 +42,14 @@ from pathlib import Path
 # valid ADR filename is. A plain sibling import: python puts this script's
 # directory on sys.path, and pytest reaches it the same way (see
 # scripts/tests/test_adr_check.py).
-from adr_check import ADR_DIR, FILENAME_RE, PLACEHOLDER
+from adr_check import (
+    ADR_DIR,
+    CODE_FENCE_RE,
+    FILENAME_RE,
+    INLINE_CODE_RE,
+    PLACEHOLDER,
+    URL_RE,
+)
 
 
 def unnumbered() -> list[Path]:
@@ -120,11 +132,21 @@ def pull_request() -> tuple[str, str] | None:
     on `main`, and diffing against the wrong base attributes every ADR the
     parent added to this pull request as well.
     """
-    result = subprocess.run(
-        ["gh", "pr", "view", "--json", "number,baseRefName"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", "--json", "number,baseRefName"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        # The number has to come from the forge, and gh is how this script
+        # reaches it. Say what to do instead rather than raising.
+        sys.stderr.write(
+            "the GitHub CLI (gh) is not installed, so the pull request number "
+            "cannot be read. Install it, or rename the file by hand to "
+            "<pr>-<slug>.md and make the heading agree\n"
+        )
+        return None
     if result.returncode != 0 or not result.stdout.strip():
         sys.stderr.write("no pull request found for this branch; open one first\n")
         return None
@@ -140,26 +162,84 @@ def previous_citation_re(previous: str) -> re.Pattern[str]:
     """Match citations of the number an ADR is moving away from.
 
     `ADR-0*17` also catches the `ADR-17` short form the guard reports as a
-    typo, and the `(?!-\\d)` guard mirrors adr_check.py so a hyphenated date
-    like `ADR-2026-08-10` is never read as a citation of ADR-2026.
+    typo. The leading `\\b` supplies the boundary the number cannot: without it
+    `BADR-0017` reads as a citation. The trailing `(?!-\\d)` mirrors
+    adr_check.py, so a hyphenated date like `ADR-2026-08-10` is never read as a
+    citation of ADR-2026.
+
+    Never called with the placeholder, which `int()` would reject anyway --
+    see the note on that in `sweep_references`.
     """
-    if previous == PLACEHOLDER:
-        return re.compile(rf"ADR-{PLACEHOLDER}\b")
-    return re.compile(rf"ADR-0*{int(previous)}\b(?!-\d)")
+    return re.compile(rf"\bADR-0*{int(previous)}\b(?!-\d)")
 
 
 def previous_citation_search(previous: str) -> str:
     """The same thing, reduced to what `git grep -E` can parse.
 
     POSIX ERE has no lookahead, so the precise pattern above cannot be handed
-    to git. This is deliberately looser: it only has to find candidate files,
-    and `previous_citation_re` decides what actually gets rewritten. Passing
-    the lookahead form would make git grep fail and the sweep silently find
-    nothing at all.
+    to git, and `\\b` is a GNU extension this would rather not depend on. This
+    is deliberately looser: it only has to find candidate files, and
+    `previous_citation_re` decides what actually gets rewritten. Passing the
+    lookahead form would make git grep fail and the sweep silently find nothing
+    at all.
     """
-    if previous == PLACEHOLDER:
-        return rf"ADR-{PLACEHOLDER}"
     return rf"ADR-0*{int(previous)}"
+
+
+def shown_spans(text: str) -> list[tuple[int, int]]:
+    """Merged spans of the regions adr_check.py's `strip_shown_code` drops.
+
+    A fence, an inline-code span, and a URL display a citation rather than make
+    one, which is why the guard does not resolve references inside them. The
+    sweep honours the same boundary: docs/adr/README.md and CONTRIBUTING.md
+    both teach the named form by showing one, and numbering the ADR an example
+    happens to name should not edit the prose that explains the convention.
+
+    (Which is why no example slug is written out here: this file is Python, so
+    the sweep reads it as code and would rewrite one.)
+    """
+    spans = [
+        match.span()
+        for pattern in (CODE_FENCE_RE, INLINE_CODE_RE, URL_RE)
+        for match in pattern.finditer(text)
+    ]
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(spans):
+        # A URL inside a fence produces a span inside a span; keep the outer.
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def apply_rewrites(
+    text: str, rewrites: list[tuple[re.Pattern[str], str]], *, protect_shown: bool
+) -> str:
+    """Apply every rewrite, optionally leaving shown-code regions untouched.
+
+    `protect_shown` is on for Markdown and off for everything else. A backtick
+    in a Python docstring is not the same claim as one in prose, and a stale
+    number in code is precisely the failure this sweep exists to prevent -- so
+    code is rewritten throughout.
+    """
+
+    def rewrite(chunk: str) -> str:
+        for pattern, replacement in rewrites:
+            chunk = pattern.sub(replacement, chunk)
+        return chunk
+
+    if not protect_shown:
+        return rewrite(text)
+
+    out: list[str] = []
+    cursor = 0
+    for start, end in shown_spans(text):
+        out.append(rewrite(text[cursor:start]))
+        out.append(text[start:end])
+        cursor = end
+    out.append(rewrite(text[cursor:]))
+    return "".join(out)
 
 
 def sweep_references(
@@ -179,23 +259,36 @@ def sweep_references(
 
     `include_previous` is False when another ADR still holds `previous`, which
     makes those citations ambiguous rather than merely stale.
+
+    What makes a repository-wide rewrite safe is that every form swept here
+    identifies one ADR: two name the slug outright, and the third is a number
+    no other ADR holds, which `include_previous` is how the caller confirms.
+    `ADR-XXXX` has neither property -- template.md carries it permanently, and
+    so does every other draft in flight -- so the placeholder is never swept
+    from here. `main` rewrites it inside the file being numbered, which is the
+    one place it does mean a particular ADR.
     """
     # The lookahead stops a slug that prefixes a longer one from matching it:
-    # sweeping `tee-node` must leave `ADR-tee-node-deferred-writes` alone.
+    # sweeping `tee-node` must leave `ADR-tee-node-deferred-writes` alone. The
+    # leading `\b` does the same on the other side.
     rewrites = [
-        (re.compile(rf"ADR-{re.escape(slug)}(?![a-z0-9-])"), f"ADR-{number}"),
+        (re.compile(rf"\bADR-{re.escape(slug)}(?![a-z0-9-])"), f"ADR-{number}"),
+        # The link is matched with its opening paren so a bare filename in
+        # prose is left alone, and with any leading space put back, so a title
+        # -- `(0011-x.md "Why")` -- survives the rewrite intact.
         (
             re.compile(
-                rf"(?<=\()\s*{re.escape(previous)}-{re.escape(slug)}\.md(?=[)#])"
+                rf"(?<=\()(?P<lead>\s*){re.escape(previous)}-{re.escape(slug)}"
+                r"\.md(?=[)#\s])"
             ),
-            f"{number}-{slug}.md",
+            rf"\g<lead>{number}-{slug}.md",
         ),
     ]
     searches = [
         rf"ADR-{re.escape(slug)}",
         rf"{re.escape(previous)}-{re.escape(slug)}\.md",
     ]
-    if include_previous:
+    if include_previous and previous != PLACEHOLDER:
         rewrites.append((previous_citation_re(previous), f"ADR-{number}"))
         searches.append(previous_citation_search(previous))
 
@@ -210,13 +303,38 @@ def sweep_references(
             continue
         path = Path(line)
         text = path.read_text(encoding="utf-8")
-        rewritten = text
-        for pattern, replacement in rewrites:
-            rewritten = pattern.sub(replacement, rewritten)
+        rewritten = apply_rewrites(text, rewrites, protect_shown=path.suffix == ".md")
         if rewritten != text:
             path.write_text(rewritten, encoding="utf-8")
             changed += 1
     return changed
+
+
+def move(src: Path, dest: Path) -> bool:
+    """Move the ADR, reporting rather than raising when git objects.
+
+    `git mv` exits 128 on a file it does not track, which is the state
+    `adr_new.py` leaves behind: running the rename before committing the draft
+    is an easy first mistake, and a traceback is a poor way to describe it.
+    There is nothing for git to do with an untracked file, so it is simply
+    moved.
+    """
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", str(src)],
+        capture_output=True,
+        text=True,
+    )
+    if tracked.returncode != 0:
+        src.rename(dest)
+        return True
+
+    result = subprocess.run(
+        ["git", "mv", str(src), str(dest)], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr or f"could not move {src} to {dest}\n")
+        return False
+    return True
 
 
 def main() -> int:
@@ -248,17 +366,31 @@ def main() -> int:
         return 0
 
     dest = ADR_DIR / f"{number}-{slug}.md"
+    if dest.exists():
+        sys.stderr.write(f"{dest} already exists, so {src.name} cannot take it\n")
+        return 1
 
     # Decided before the move, while `src` is still the file to exclude.
     other = claimant(previous, src)
 
-    subprocess.run(["git", "mv", str(src), str(dest)], check=True)
-    dest.write_text(
-        dest.read_text(encoding="utf-8").replace(
-            f"# ADR-{previous}:", f"# ADR-{number}:", 1
-        ),
-        encoding="utf-8",
-    )
+    if not move(src, dest):
+        return 1
+
+    moved = dest.read_text(encoding="utf-8")
+    if previous == PLACEHOLDER:
+        # Every ADR-XXXX in this file, not only the heading: a draft may cite
+        # itself while it waits for a number. Confined to this file because the
+        # placeholder identifies nothing -- see the note in `sweep_references`.
+        moved = apply_rewrites(
+            moved,
+            [(re.compile(rf"\bADR-{PLACEHOLDER}\b"), f"ADR-{number}")],
+            protect_shown=True,
+        )
+    else:
+        # Only the heading. Other citations of the old number are the sweep's
+        # business, which knows to leave them alone if they are ambiguous.
+        moved = moved.replace(f"# ADR-{previous}:", f"# ADR-{number}:", 1)
+    dest.write_text(moved, encoding="utf-8")
     sys.stdout.write(f"renamed to {dest}\n")
 
     changed = sweep_references(slug, number, previous, include_previous=other is None)

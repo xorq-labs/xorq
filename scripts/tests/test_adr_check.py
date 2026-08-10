@@ -18,13 +18,15 @@ workflow's second job, which is what keeps the first free of an install step.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+
+# Captured at import, before any test can chdir away from it.
+STARTING_DIR = Path.cwd()
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = REPO_ROOT / "scripts"
@@ -137,6 +139,12 @@ def test_hyphenated_date_is_not_a_reference(tree: ADRTree) -> None:
     result = tree.check()
     assert result.returncode == 0
     assert "ADR-2026" not in result.stderr
+
+
+def test_the_tail_of_a_longer_word_is_not_a_reference(tree: ADRTree) -> None:
+    """`ADR-` has to start a word, or the guard invents citations nobody made."""
+    tree.write("0012-two.md", "# ADR-0012: Two\n\nThe BADR-9999 register.\n")
+    assert tree.check().returncode == 0
 
 
 def test_short_form_citation_is_reported(tree: ADRTree) -> None:
@@ -279,6 +287,25 @@ def test_wrong_pull_request_number_fails(tree: ADRTree) -> None:
     assert "must equal the pull request number" in result.stderr
 
 
+def test_a_renamed_adr_is_still_a_new_adr(tree: ADRTree) -> None:
+    """Rename detection would otherwise hide every ADR this tooling produces.
+
+    The documented flow commits `XXXX-<slug>.md`, opens the pull request, then
+    renames it -- and renumbering a collision moves one number to another. Git
+    pairs both as `R`, not `A`, so without `--no-renames` the added-ADR checks
+    find nothing to check on exactly the branches they exist for.
+    """
+    tree.init_repo()
+    tree.write("XXXX-my-decision.md", "# ADR-XXXX: Mine\n\nBody enough to pair.\n")
+    tree.commit_all()
+    tree.git("mv", "docs/adr/XXXX-my-decision.md", "docs/adr/0019-my-decision.md")
+    tree.write("0019-my-decision.md", "# ADR-0019: Mine\n\nBody enough to pair.\n")
+    tree.commit_all()
+    result = tree.check("--base", "HEAD~1", "--pr", "2211")
+    assert result.returncode == 1
+    assert "at least 1000" in result.stderr
+
+
 def test_new_legacy_number_is_rejected(tree: ADRTree) -> None:
     tree.init_repo()
     tree.write("0026-sneaking-in-sequential.md", "# ADR-0026: Nope\n\nBody.\n")
@@ -360,6 +387,23 @@ def test_annotations_are_off_by_default(tree: ADRTree) -> None:
 def test_github_format_emits_annotations(tree: ADRTree) -> None:
     tree.write("0012-two.md", "# ADR-0012: Two\n\nSee ADR-9999.\n")
     assert "::error file=" in tree.check("--format", "github").stdout
+
+
+def test_github_format_annotates_warnings_too(tree: ADRTree) -> None:
+    """An unresolved slug does not fail the run, so the annotation is the only
+    place a reviewer will see it."""
+    tree.write("0012-two.md", "# ADR-0012: Two\n\nSee ADR-not-landed-yet.\n")
+    result = tree.check("--format", "github")
+    assert "::warning file=" in result.stdout
+    assert result.returncode == 0
+
+
+def test_pr_without_a_base_is_a_usage_error(tree: ADRTree) -> None:
+    """`--pr` alone reads as a pull request that passed the new-ADR checks,
+    when in fact they never ran."""
+    result = tree.check("--pr", "2211")
+    assert result.returncode == 2
+    assert "--base" in result.stderr
 
 
 # --- the citation sweep in adr_rename.py -------------------------------------
@@ -457,16 +501,90 @@ def test_sweep_rewrites_the_short_form_of_the_previous_number(
     assert "See ADR-2211." in target.read_text()
 
 
-def test_sweep_rewrites_a_placeholder_citation(
+def test_sweep_never_rewrites_the_placeholder(
     tree: ADRTree, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A draft citing itself as ADR-XXXX is invisible to the guard: the
-    reference pattern only reads digits or a lowercase slug."""
+    """ADR-XXXX identifies nothing, so no sweep may claim it.
+
+    Every draft in flight carries it, and so does template.md permanently. A
+    repository-wide rewrite would renumber all of them to whichever ADR
+    happened to be renamed -- silently, in template.md's case, which the guard
+    exempts from the reference checks.
+    """
     tree.init_repo()
-    target = tree.write("0012-two.md", "# ADR-0012: Two\n\nSee ADR-XXXX.\n")
+    other = tree.write("XXXX-other-draft.md", "# ADR-XXXX: Other\n\nBody.\n")
+    template = tree.write("template.md", "# ADR-XXXX: <title>\n\nBody.\n")
     monkeypatch.chdir(tree.root)
     adr_rename.sweep_references("my-decision", "2211")
-    assert "See ADR-2211." in target.read_text()
+    assert other.read_text().startswith("# ADR-XXXX:")
+    assert template.read_text().startswith("# ADR-XXXX:")
+
+
+def test_rename_rewrites_the_placeholder_inside_the_file_it_numbers(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Where ADR-XXXX does mean one ADR: its own body, citing itself."""
+    tree.init_repo()
+    tree.write(
+        "XXXX-my-decision.md",
+        "# ADR-XXXX: Mine\n\nSupersedes nothing; ADR-XXXX stands alone.\n",
+    )
+    tree.commit_all()
+    monkeypatch.chdir(tree.root)
+    monkeypatch.setattr(sys, "argv", ["adr_rename.py"])
+    monkeypatch.setattr(adr_rename, "pull_request", lambda: ("2211", "HEAD~1"))
+
+    assert adr_rename.main() == 0
+
+    body = (tree.adr_dir / "2211-my-decision.md").read_text()
+    assert body.startswith("# ADR-2211:")
+    assert "ADR-2211 stands alone" in body
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "expected"),
+    [
+        pytest.param(
+            "0012-two.md",
+            "# ADR-0012: Two\n\nCite it as `ADR-my-decision` before it lands.\n",
+            "`ADR-my-decision`",
+            id="markdown-inline-code",
+        ),
+        pytest.param(
+            "0012-two.md",
+            "# ADR-0012: Two\n\n```\nADR-my-decision\n```\n",
+            "```\nADR-my-decision\n```",
+            id="markdown-fence",
+        ),
+        pytest.param(
+            "notes.py",
+            '"""Mechanism. See `ADR-my-decision`."""\n',
+            "`ADR-2211`",
+            id="code-is-swept-throughout",
+        ),
+    ],
+)
+def test_sweep_honours_the_boundary_the_guard_reads_by(
+    tree: ADRTree,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    body: str,
+    expected: str,
+) -> None:
+    """Prose that displays a citation is documentation, not a citation.
+
+    docs/adr/README.md and CONTRIBUTING.md both teach the named form using a
+    real-looking slug; numbering the ADR one of them names must not edit the
+    page that explains the convention. A backtick in a docstring makes no such
+    claim, and a stale number in code is the failure the sweep exists for, so
+    code is rewritten throughout.
+    """
+    tree.init_repo()
+    target = tree.adr_dir / name if name.endswith(".md") else tree.root / name
+    target.write_text(body, encoding="utf-8")
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211")
+    assert expected in target.read_text()
 
 
 def test_sweep_reaches_code_not_only_adrs(
@@ -513,6 +631,70 @@ def test_sweep_can_be_told_to_leave_the_previous_number(
     monkeypatch.chdir(tree.root)
     adr_rename.sweep_references("my-decision", "2211", "0017", include_previous=False)
     assert "See ADR-0017." in target.read_text()
+
+
+def test_sweep_keeps_a_link_title_and_its_spacing(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rewrite replaces the filename, not the whole link."""
+    tree.init_repo()
+    target = tree.write(
+        "0012-two.md",
+        '# ADR-0012: Two\n\nSee [it]( XXXX-my-decision.md "Why").\n',
+    )
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211")
+    assert '[it]( 2211-my-decision.md "Why")' in target.read_text()
+
+
+def test_rename_moves_a_draft_that_was_never_committed(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`git mv` exits 128 on an untracked file, and adr_new.py leaves one.
+
+    Renaming before committing the draft is an easy first mistake, and it used
+    to end in a traceback from `check=True`.
+    """
+    tree.init_repo()
+    tree.write("XXXX-my-decision.md", "# ADR-XXXX: Mine\n\nBody.\n")  # not committed
+    monkeypatch.chdir(tree.root)
+    monkeypatch.setattr(sys, "argv", ["adr_rename.py"])
+    monkeypatch.setattr(adr_rename, "pull_request", lambda: ("2211", "HEAD"))
+
+    assert adr_rename.main() == 0
+    assert (tree.adr_dir / "2211-my-decision.md").read_text().startswith("# ADR-2211:")
+
+
+def test_rename_refuses_to_land_on_an_existing_file(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Overwriting the ADR already at that number would lose it silently."""
+    tree.init_repo()
+    tree.write("XXXX-my-decision.md", "# ADR-XXXX: Mine\n\nBody.\n")
+    landed = tree.write("2211-my-decision.md", "# ADR-2211: Landed\n\nKeep me.\n")
+    tree.commit_all()
+    monkeypatch.chdir(tree.root)
+    monkeypatch.setattr(sys, "argv", ["adr_rename.py"])
+    monkeypatch.setattr(adr_rename, "pull_request", lambda: ("2211", "HEAD~1"))
+
+    assert adr_rename.main() == 1
+    assert "Keep me." in landed.read_text()
+    assert "already exists" in capsys.readouterr().err
+
+
+def test_a_missing_gh_is_reported_not_raised(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """gh is the only way to the number, but it is not a dependency of the
+    lightest contribution there is."""
+
+    def no_gh(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("gh")
+
+    monkeypatch.chdir(tree.root)
+    monkeypatch.setattr(adr_rename.subprocess, "run", no_gh)
+    assert adr_rename.pull_request() is None
+    assert "gh" in capsys.readouterr().err
 
 
 def test_claimant_reports_an_adr_still_holding_the_number(
@@ -732,5 +914,10 @@ def test_index_skips_a_malformed_filename(
 
 
 def test_environment_is_restored_between_tests() -> None:
-    """monkeypatch.chdir must not leak into the rest of the suite."""
-    assert Path.cwd() == Path(os.getcwd())
+    """monkeypatch.chdir must not leak into the rest of the suite.
+
+    Against `os.getcwd()` this would pass however far the suite had wandered,
+    since both sides move together. The directory pytest started in is the only
+    fixed point that can detect a leak at all.
+    """
+    assert Path.cwd() == STARTING_DIR

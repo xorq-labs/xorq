@@ -71,8 +71,12 @@ HEADING_RE = re.compile(rf"^#\s+ADR-(?P<num>\d{{4,}}|{PLACEHOLDER})\s*:", re.MUL
 # "ADR-2026-08-08" from reading as a reference to ADR-2026 (prose about
 # date-based numbering hits this). Slugs are letter-initial and cannot match a
 # date, so they need no such guard.
+#
+# The leading `\b` supplies the boundary on the other side: without it, the tail
+# of a longer word reads as a citation, so `BADR-0011` would be reported as a
+# reference to an ADR nobody mentioned.
 REFERENCE_RE = re.compile(
-    r"ADR-(?:(?P<num>\d{4,})(?!-\d)|(?P<short>\d{1,3})(?!\d)|(?P<slug>[a-z][a-z0-9-]*))"
+    r"\bADR-(?:(?P<num>\d{4,})(?!-\d)|(?P<short>\d{1,3})(?!\d)|(?P<slug>[a-z][a-z0-9-]*))"
 )
 MD_LINK_RE = re.compile(r"\[[^\]]*\]\((?P<target>[^)#\s]+\.md)[^)]*\)")
 
@@ -298,12 +302,21 @@ def added_adrs(base: str) -> list[Path] | None:
     None means the base ref could not be resolved -- an unfetched sha, a
     shallow clone, or a branch this clone does not have. The message is written
     here; the caller turns it into an exit code.
+
+    `--no-renames` is what makes `--diff-filter=A` mean "this branch is
+    responsible for this file". Rename detection is on by default, and every
+    path this tooling produces is a rename: the documented flow commits
+    `XXXX-<slug>.md`, opens the pull request, then renames it, and renumbering a
+    collision moves one number to another. Git pairs those as `R`, so without
+    this the added-ADR checks would find nothing to check on exactly the
+    branches they exist for.
     """
     result = subprocess.run(
         [
             "git",
             "diff",
             "--name-only",
+            "--no-renames",
             "--diff-filter=A",
             f"{base}...HEAD",
             "--",
@@ -421,6 +434,13 @@ def main() -> int:
         help="github adds ::error/::warning inline annotations for CI",
     )
     args = parser.parse_args()
+
+    # `--pr` is only read by the added-ADR checks, and those need a base to know
+    # which ADRs are new. Accepting it alone would silently skip the check the
+    # caller asked for, which in CI reads exactly like a pull request that
+    # passed.
+    if args.pr is not None and not args.base:
+        parser.error("--pr needs --base: the new-ADR checks diff against a base ref")
 
     if not ADR_DIR.is_dir():
         sys.stderr.write(f"{ADR_DIR} not found; run from the repository root\n")
