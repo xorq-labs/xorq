@@ -78,7 +78,10 @@ HEADING_RE = re.compile(rf"^#\s+ADR-(?P<num>\d{{4,}}|{PLACEHOLDER})\s*:", re.MUL
 REFERENCE_RE = re.compile(
     r"\bADR-(?:(?P<num>\d{4,})(?!-\d)|(?P<short>\d{1,3})(?!\d)|(?P<slug>[a-z][a-z0-9-]*))"
 )
-MD_LINK_RE = re.compile(r"\[[^\]]*\]\((?P<target>[^)#\s]+\.md)[^)]*\)")
+# The `\s*` before the target is what adr_rename.py's link rewrite already
+# tolerates and preserves. Without it the two disagree about what a link is,
+# and `[x]( 0099-nope.md)` is a dead link this never reports.
+MD_LINK_RE = re.compile(r"\[[^\]]*\]\(\s*(?P<target>[^)#\s]+\.md)[^)]*\)")
 
 # Regions that display an ADR reference rather than make one. A document about
 # the numbering scheme necessarily prints numbers that do not resolve, and CI
@@ -146,11 +149,6 @@ def parse_name(name: str) -> tuple[int | None, str, str]:
     raw = match.group("num")
     number = None if raw == PLACEHOLDER else int(raw)
     return (number, match.group("slug"), raw)
-
-
-def parse_number(name: str) -> int | None:
-    """Return the numeric prefix of an ADR filename, or None if it is XXXX."""
-    return parse_name(name)[0]
 
 
 def strip_shown_code(text: str) -> str:

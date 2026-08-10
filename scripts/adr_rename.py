@@ -4,7 +4,9 @@
     python3 scripts/adr_rename.py <slug>     # pick one of several
 
 Renames ``docs/adr/XXXX-<slug>.md`` to ``docs/adr/<pr>-<slug>.md``, fixes the
-heading, repoints citations at the new number, and re-runs the guard.
+heading, repoints citations at the new number, and re-runs the guard. Rerun it
+on an ADR already carrying its number to sweep citations again, which is how a
+run interrupted between the two steps is finished.
 
 Naming a numbered ADR renumbers it, which is how a collision gets resolved:
 two branches that each claimed 0017 cannot both keep it, and the one that has
@@ -384,48 +386,66 @@ def main() -> int:
     # The number in the source filename is the one being moved away from.
     previous, slug = match["num"], match["slug"]
 
-    if previous == number:
-        sys.stdout.write(f"{src} already carries number {number}\n")
-        return 0
-
-    dest = ADR_DIR / f"{number}-{slug}.md"
-    if dest.exists():
-        sys.stderr.write(f"{dest} already exists, so {src.name} cannot take it\n")
-        return 1
-
-    # Decided before the move, while `src` is still the file to exclude.
-    other = claimant(previous, src)
-
-    if not move(src, dest):
-        return 1
-
-    moved = dest.read_text(encoding="utf-8")
-    if previous == PLACEHOLDER:
-        # Every ADR-XXXX in this file, not only the heading: a draft may cite
-        # itself while it waits for a number. Confined to this file because the
-        # placeholder identifies nothing -- see the note in `sweep_references`.
-        moved = apply_rewrites(
-            moved,
-            [(re.compile(rf"\bADR-{PLACEHOLDER}\b"), f"ADR-{number}")],
-            protect_shown=True,
-        )
+    # The rename and the sweep are separate steps, and only the first leaves a
+    # trace in the filename. A run interrupted between them -- or one whose
+    # search failed -- lands here on the next attempt, with the right name and
+    # stale citations. So this is not "nothing to do": the sweep runs again,
+    # which is the only way to finish a rename that stopped half way. It is
+    # safe to repeat, because a citation already pointing at `number` no longer
+    # matches anything the sweep rewrites.
+    resuming = previous == number
+    if resuming:
+        sys.stdout.write(f"{src} already carries number {number}; sweeping again\n")
+        other = None
     else:
-        # Only the heading. Other citations of the old number are the sweep's
-        # business, which knows to leave them alone if they are ambiguous.
-        moved = moved.replace(f"# ADR-{previous}:", f"# ADR-{number}:", 1)
-    dest.write_text(moved, encoding="utf-8")
-    sys.stdout.write(f"renamed to {dest}\n")
+        dest = ADR_DIR / f"{number}-{slug}.md"
+        if dest.exists():
+            sys.stderr.write(f"{dest} already exists, so {src.name} cannot take it\n")
+            return 1
 
-    changed = sweep_references(slug, number, previous, include_previous=other is None)
+        # Decided before the move, while `src` is still the file to exclude.
+        other = claimant(previous, src)
+
+        if not move(src, dest):
+            return 1
+
+        moved = dest.read_text(encoding="utf-8")
+        if previous == PLACEHOLDER:
+            # Every ADR-XXXX in this file, not only the heading: a draft may
+            # cite itself while it waits for a number. Confined to this file
+            # because the placeholder identifies nothing -- see the note in
+            # `sweep_references`.
+            moved = apply_rewrites(
+                moved,
+                [(re.compile(rf"\bADR-{PLACEHOLDER}\b"), f"ADR-{number}")],
+                protect_shown=True,
+            )
+        else:
+            # Only the heading. Other citations of the old number are the
+            # sweep's business, which knows to leave them alone if they are
+            # ambiguous.
+            moved = moved.replace(f"# ADR-{previous}:", f"# ADR-{number}:", 1)
+        dest.write_text(moved, encoding="utf-8")
+        sys.stdout.write(f"renamed to {dest}\n")
+
+    # Resuming, `previous` is `number`, so there is no old number to move --
+    # only slug citations can still be stale.
+    changed = sweep_references(
+        slug, number, previous, include_previous=not resuming and other is None
+    )
     if changed is None:
-        # The rename stands -- it succeeded, and undoing it would be a worse
+        # Any rename stands -- it succeeded, and undoing it would be a worse
         # surprise than reporting this. What did not happen is the search, so
-        # say which citations are now the reader's problem.
+        # say which citations are now the reader's problem, and that rerunning
+        # is what retries it.
+        stale = f"ADR-{slug}"
+        if not resuming and previous != PLACEHOLDER:
+            stale += f" and ADR-{previous}"
         sys.stderr.write(
-            f"\nthe rename is done, but citations of ADR-{slug}"
-            + (f" and ADR-{previous}" if previous != PLACEHOLDER else "")
-            + " were never\nsearched for, so any that exist are stale. Fix the "
-            "problem above and\nrewrite them by hand.\n"
+            f"\nthe file is named correctly, but citations of {stale} were "
+            f"never\nsearched for, so any that exist are stale. Fix the problem "
+            f"above,\nthen rerun to sweep them:\n"
+            f"  python3 {sys.argv[0]} {slug}\n"
         )
         return 1
     sys.stdout.write(

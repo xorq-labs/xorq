@@ -260,6 +260,18 @@ def test_heading_mismatch_quotes_the_filename_as_written(tree: ADRTree) -> None:
     assert "the filename says 00011" in result.stderr
 
 
+def test_a_link_with_a_leading_space_is_still_checked(tree: ADRTree) -> None:
+    """The guard and the sweep have to agree on what a link is.
+
+    adr_rename.py's rewrite tolerates the leading space and puts it back, so a
+    link the sweep would repoint must be one the guard would report.
+    """
+    tree.write("0012-two.md", "# ADR-0012: Two\n\nSee [it]( 0099-nope.md).\n")
+    result = tree.check()
+    assert result.returncode == 1
+    assert "0099-nope.md, which does not exist" in result.stderr
+
+
 def test_adr_in_a_subdirectory_is_reported(tree: ADRTree) -> None:
     tree.write("sub/2211-hidden.md", "no heading\n\nSee ADR-8888.\n")
     result = tree.check()
@@ -638,6 +650,28 @@ def test_sweep_can_be_told_to_leave_the_previous_number(
     monkeypatch.chdir(tree.root)
     adr_rename.sweep_references("my-decision", "2211", "0017", include_previous=False)
     assert "See ADR-0017." in target.read_text()
+
+
+def test_rerunning_sweeps_again_rather_than_declaring_victory(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rename and the sweep are separate steps; only the first shows.
+
+    A run that stopped between them leaves the right filename and stale
+    citations, so a rerun that reported "already carries number" and stopped
+    would make the half-finished state unrecoverable by the tool that caused
+    it.
+    """
+    tree.init_repo()
+    tree.write("2211-my-decision.md", "# ADR-2211: Mine\n\nBody.\n")
+    missed = tree.write("0012-two.md", "# ADR-0012: Two\n\nSee ADR-my-decision.\n")
+    tree.commit_all()
+    monkeypatch.chdir(tree.root)
+    monkeypatch.setattr(sys, "argv", ["adr_rename.py", "my-decision"])
+    monkeypatch.setattr(adr_rename, "pull_request", lambda: ("2211", "HEAD~1"))
+
+    assert adr_rename.main() == 0
+    assert "See ADR-2211." in missed.read_text()
 
 
 def test_a_failed_search_is_not_reported_as_nothing_to_do(
