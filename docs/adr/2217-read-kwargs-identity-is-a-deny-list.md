@@ -1,4 +1,4 @@
-# ADR-XXXX: Read-kwargs identity is a deny-list — a read kwarg is identity-bearing unless declared transport
+# ADR-2217: Read-kwargs identity is a deny-list — a read kwarg is identity-bearing unless declared transport
 
 - **Status:** Proposed
 - **Date:** 2026-08-07
