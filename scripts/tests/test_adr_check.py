@@ -359,9 +359,9 @@ def fake_allowlist(monkeypatch: pytest.MonkeyPatch) -> dict[int, str]:
     """A synthetic LEGACY_IN_FLIGHT, so these tests outlive the real one.
 
     Reading the live mapping made each of these need an entry to exist. That
-    is policy data on someone else's branch: it shrank from four to one when
-    #2200 landed and is documented as shrinking to nothing, at which point
-    every test that read it fails for a reason unrelated to the code.
+    is policy data about other people's branches: it is documented as only
+    ever shrinking, and once it reaches nothing every test that read it fails
+    for a reason unrelated to the code under test.
     """
     fake = {18: "one-legacy-adr", 19: "another-legacy-adr"}
     monkeypatch.setattr(adr_check, "LEGACY_IN_FLIGHT", fake)
@@ -436,8 +436,7 @@ def test_a_spent_entry_is_reported_on_an_unrelated_pull_request(
     """The shape every pull request sees after the ADR lands.
 
     The push-to-main run reports it once; this is the nag that keeps arriving
-    until someone acts, and it arrives through the `--base` path rather than
-    the directory-only one.
+    until someone acts, with an `added` set that does not contain the file.
     """
     tree.write("0018-one-legacy-adr.md", "# ADR-0018: Legacy\n\nBody.\n")
     monkeypatch.chdir(tree.root)
@@ -471,41 +470,64 @@ def test_a_spent_entry_readmits_its_filename_once_the_adr_is_gone(
     assert problems.count == 0
 
 
-@pytest.mark.skipif(
-    not adr_check.LEGACY_IN_FLIGHT,
-    reason="nothing left to exempt, so the wiring cannot be exercised end to end",
-)
-def test_the_allowlist_check_is_wired_into_the_command(tree: ADRTree) -> None:
-    """The one test that reads the live mapping, and only to prove the wiring.
+def run_main(monkeypatch: pytest.MonkeyPatch, tree: ADRTree, *args: str) -> int:
+    """`adr_check.main` in process, so a synthetic allowlist applies to it.
 
-    Everything above calls `check_allowlist` directly, which would not notice
-    the call being dropped from `main` or moved inside `if args.base`. This
-    runs the command as CI does. It skips once the allowlist is empty, because
-    at that point there is no entry to make it speak.
+    `ADRTree.check` runs the guard as a subprocess, which no monkeypatch can
+    reach -- it would read the real LEGACY_IN_FLIGHT. Calling `main` keeps the
+    argument parsing and the order of the checks under test while letting the
+    allowlist be fixture data.
     """
-    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
-    tree.write(f"{number:04d}-{slug}.md", f"# ADR-{number:04d}: Legacy\n\nBody.\n")
-    result = tree.check()
-    assert "has done its job" in result.stderr
-    assert result.returncode == 0, result.stderr
+    monkeypatch.chdir(tree.root)
+    monkeypatch.setattr(sys, "argv", ["adr_check.py", *args])
+    return adr_check.main()
+
+
+def test_the_command_reports_a_spent_entry(
+    tree: ADRTree,
+    fake_allowlist: dict[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """That `check_allowlist` is called at all, on the push-to-main path.
+
+    The tests above call it directly and so would not notice it being dropped
+    from `main`, or moved inside `if args.base` where the push run never
+    reaches it.
+    """
+    tree.write("0018-one-legacy-adr.md", "# ADR-0018: Legacy\n\nBody.\n")
+    assert run_main(monkeypatch, tree) == 0
+    assert "has done its job" in capsys.readouterr().err
+
+
+def test_the_command_does_not_nag_the_pull_request_landing_the_adr(
+    tree: ADRTree,
+    fake_allowlist: dict[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """That `main` hands the added set on, which is a separate mistake.
+
+    `check_allowlist` knows to skip an entry this run is adding, but only if
+    it is told what this run added. Calling it directly with a hand-built list
+    cannot catch `main` passing None instead -- and the cost of that is the
+    landing pull request being nagged to delete the entry keeping it green.
+    """
+    tree.init_repo()
+    tree.write("0018-one-legacy-adr.md", "# ADR-0018: Legacy\n\nBody.\n")
+    tree.commit_all()
+    assert run_main(monkeypatch, tree, "--base", "HEAD~1", "--pr", "2211") == 0
+    assert "has done its job" not in capsys.readouterr().err
 
 
 def test_batch_of_unrelated_adrs_on_allowlisted_numbers_is_rejected(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    fake_allowlist: dict[int, str], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The batch exemption must not become a general two-ADR bypass.
 
-    The allowlist is synthetic here, and deliberately: this is a fact about
-    `check_added`, not about whichever entries happen to be in flight today.
-    Reading the live mapping made the test need two entries to exist, so
-    shrinking the list to one broke it -- and the list is documented as
-    shrinking to nothing.
+    Reading the live mapping made this test need two entries to exist, which
+    is what broke it when the list shrank to one.
     """
-    monkeypatch.setattr(
-        adr_check,
-        "LEGACY_IN_FLIGHT",
-        {18: "one-legacy-adr", 19: "another-legacy-adr"},
-    )
     problems = adr_check.Problems()
     adr_check.check_added(
         problems,
