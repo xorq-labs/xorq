@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786389094661,
+  "lastUpdate": 1786389216984,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -32274,6 +32274,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.15621742842944042",
             "extra": "mean: 1.737848167599998 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f883e4c648a87f1704727987dc991f3228018526",
+          "message": "feat(identity)!: fold the rule-set fingerprint into the build hash (#2200)\n\nSecond entry of the REST-backend landing stack, on top of #2199. The\nbackend\nthat consumes this identity work lands in the next entry.\n\n## ⚠️ This moves every build-directory name — the second and last such\nmove\n\n`get_expr_hash` now tokenizes `(rules, expr)` rather than `expr` alone,\nso the\nrule set in force becomes identity-bearing and every **build-directory\nname**\nmoves once. #2199 moved them for a different reason (opaque placeholder\nnames);\nthe double touch is deliberate, so that each entry is green at its own\nhead.\n\n**Cache keys do not move.** That separation is the point of the design,\nnot an\naccident of it: the fold is applied in `get_expr_hash` only, so snapshot\ncache\nkeys stay rule-set-neutral and existing caches remain valid. Existing\nbuilds\nstill load. Build-hash-keyed catalog entries and the `xorq:expr_hash`\nprovenance\nvalue do move.\n\n## What it does\n\n`dasher.rules_fingerprint` and `normalize_registry.rules_fingerprint`\ndigest the\n**declared** rule regime, and `get_expr_hash` folds that digest into the\nbuild\nhash. Four properties are load-bearing and each is pinned by a test:\n\n- **Fingerprints digest ordered `(rule-key, fn module.qualname)`\npairs**, not\njust the key set. In-place rule *replacement* — `Hasher.override` on an\nexisting key, which is the mutation extensions actually perform — is\ntherefore\n  identity-visible. Body edits under an unchanged name stay out of scope\n  (#2155).\n- **Both digests use `hashlib.sha256` directly, not `HASHER.tokenize`**,\nso one\n  table's fingerprint never depends on the other table's rules.\n- **The fold uses the declared regime**\n(`SnapshotStrategy.declared_hasher`:\nbase rules plus the strategy's static layer), excluding the\nper-expression\n  backend-FQN rules `_build_hasher` derives. Without that exclusion the\n  fingerprint would not be comparable across builds.\n- **Both fingerprints are recorded in provenance metadata** as\n`ProvenanceField`\nentries, so rule-regime drift is diagnosable rather than merely\ndetectable.\n\n## Goldens\n\nExactly two goldens pin a build-directory name; both were regenerated\nwith\n`--snapshot-update`, neither by hand:\n\n| golden | before | after |\n|---|---|---|\n| `test_artifact_store_expr_hash` | `809d47490383` | `4a0b7c606d49` |\n| `test_build_file_stability_and_relocatability` (`build_dir_name`) |\n`9bf634f73ecc` | `66f4dd5ecf3f` |\n\n**The derived name changes; the written bytes do not.** In the\nrelocatability\ngolden the per-file md5s (`expr.yaml`, `expr_metadata.json`,\n`profiles.yaml`)\nare untouched. `test_build_file_stability_local`,\n`test_build_file_stability_https`\nand `test_generated_name_sanitization_parquet` do not move at all — they\npin\nfile digests and a read name, not an expr hash.\n\n`test_artifact_store_expr_hash` moves *only* here: its fixture is a bare\n`ibis.table` with no `Read`, so it reaches `_stable_opaque_name` zero\ntimes and\n#2199 could not have touched it. The relocatability golden is the one\nplace the\ntwo entries overlap, and it is regenerated in both.\n\n**No hand-maintained hash literal moves.** This was verified rather than\nassumed, because the distinction is easy to get wrong: the five\nhand-written\nliterals in `test_cli.py` and the `--to-unbind-hash` values pin *expr*\nhashes\n(`compute_expr_hash(node, SnapshotStrategy())`), which the rules\nfingerprint\ndoes not feed. All five were recomputed against a fresh `pipeline_https`\nbuild\nand a fresh `penguins` template build at this head and every one is\nunchanged;\neach is unique in its build, so `find_by_expr_hash`'s multiple-match\nguard\ncannot fire. `test_hash_contract.py` and `test_content_hash.py` — ~56\nmore\nhand-maintained literals, and unlike the `test_cli.py` ones these are\n*not*\ndeselected by the core invocation — also pass unchanged.\n\n## ADRs\n\nADR-0020 (**Accepted**) records the decision this branch implements.\nADR-0021\nand ADR-0023 land **Proposed and deliberately unimplemented**:\n`IdentitySpec`,\n`EngineBuilder`, `DEFAULT_BUILDER` and the `xorq.identity_specs`\nentry-point\ngroup appear nowhere outside those two documents — no `pyproject`\ndeclares the\ngroup and no code loads it. Both Decision sections are written in the\nindicative\nfor readability, so each now opens by saying plainly that none of its\nmachinery\nexists, and each names its acceptance gate in the header rather than\nonly in a\nlater section.\n\nReviewers: **please do not read 0021/0023 as descriptions of the\nsystem**, and\nplease don't ask for their status to be flipped — landing them\nunimplemented, in\nthis shape, is the intent.\n\nCitations to ADRs that land in entries 4 and 5 use the **slug** form\n(`ADR-rest-config-contract-identity-folded-residence-either`), per\n#2210. They\nresolve as warnings rather than errors until those entries land, and\n`adr_rename.py` swaps the numbers back in afterwards. See the compliance\nsection\nat the bottom.\n\n## Verification\n\nCore suite, measured at `e572bd2a` (before `main` was merged in), run as\na bare\n`pytest` **from the repo root** — `pytest -m core\n--ignore=python/xorq/catalog\n-k 'not script_execution and not slow'`: **14 failed / 2715 passed / 39\nskipped /\n286 deselected / 16 xfailed / 12 xpassed**. The 14 are exactly the\nfailure set\npresent on `main` — 7× `expr/ml/tests/test_split_lib.py`, 2×\n`ibis_yaml/tests/test_sql.py`, 4× `tests/test_cli.py`\n(`test_build_command*`),\nand `test_profile.py::test_connection_with_env_vars_preserves_env_vars`\n(needs a\nlocal postgres). Nothing beyond.\n\n**The root matters and is easy to get wrong.** There is no `testpaths`\nin\n`pyproject.toml`, so a bare `pytest` also collects\n`python/xorq/vendor/ibis`,\n`python/xorq_datafusion` and friends. Narrowing it to `pytest\npython/xorq`\ncollects 2711 rather than 2795 and reports **2631 passed** — 84 fewer,\nall\ncollection, no regression. Same 14 failures either way.\n\nThe +9 against #2199's 2706 is accounted for exactly: this branch adds\none test\nfile, `test_rules_fingerprint.py`, with nine test functions, all\npassing.\n2706 + 9 = 2715, nothing unexplained.\n\n`fa16abcd..main` — everything picked up by the merge — contains **zero\nchanges\nunder `python/`**: only #2210 (docs, scripts, CI) and the 0.3.38 release\nbump. The\n14-failure set was re-confirmed at the merged head, and all 46 PR checks\npass on\n`1e8e3ca0`.\n\nAlso green at this head: the two regenerated goldens, and\n`test_content_hash.py` + `test_hash_contract.py` (59 passed).\n\n## Review hardening (2026-08-06)\n\nTwo follow-up commits, after review:\n\n- **The disclaimers on 0021/0023 stated a false reason.** \"This branch\nis\ndiscussion-stage (no PR)\" was written eighteen minutes before this PR\nopened.\nReplaced with the actual blocker, which differs per ADR: 0021 is unowned\nsequencing, 0023's gate is unmeetable at this head. Added\n`docs/adr/README.md`\n(adapted from entry 4) so the five unlanded numbers read as reserved\nrather\nthan free — the 0016/0017 collision is what that index exists to\nprevent.\n*(That README was removed again on 2026-08-10; #2210 supersedes it — see\nthe\n  compliance section below.)*\n- **The fingerprint construction was hardened.** A `functools.partial`\nor\ncallable-object normalizer raised `AttributeError` *inside*\n`get_expr_hash`,\nbreaking every build; lambdas share a `__qualname__` within a scope, so\nreplacing one was invisible to the fingerprint, silently defeating\namendment\n1's replacement-visibility. Both are now rejected where rules are\ndeclared.\nThe encoding is versioned (`FINGERPRINT_SCHEME_VERSION`), the two\ndigests\nshare one encoder instead of two hand-copied copies, and the registry\ndigests\nits declared table rather than a dict that silently collapses duplicate\nkeys.\n  New tests pin cache-key neutrality (promised in a docstring, asserted\n  nowhere), cross-table independence, and the rejections.\n- ADR-0020's negatives now record the **rename** half of\nnames-as-contract: a\npure rename moves every build hash though nothing behavioral changed.\nTracked\n  for revisit as #2204.\n- Three ADR citations pointed at things no reader can reach (an unpushed\nlocal\n  branch, an untracked note). Described rather than cited.\n- The three follow-ons this description calls \"tracked\" now are: #2201\n(seal),\n#2202 (ADR-0021 phases 1-2), #2203 (docs-lint — now mostly delivered by\n#2210;\n  see below).\n\n**The goldens moved once more**, from the scheme version entering the\ndigest.\nThe table above shows the final values; the regeneration was again by\n`--snapshot-update`, and per-file md5s are still untouched.\n\n## Known consequence, recorded rather than fixed\n\n`dasher.HASHER` is a module global that `rules_fingerprint()` reads at\ncall\ntime, so a plugin imported mid-process can move a build hash as a side\neffect of\nbeing imported. This fold arms that path. It is **latent** today — no\nin-tree\nbackend contributes hash rules, ADR-0023's entry-point group is loaded\nby no\ncode, and `Profile.save` has no caller inside xorq — but it is real and\nmeasured. Recorded in ADR-0023's rejected-alternatives; sealing the\nidentity\nspec at first tokenize is the fix, and it is a tracked follow-on rather\nthan\npart of this entry.\n\n## Compliance with #2210 (2026-08-10)\n\n**This branch lands after #2210**, which makes ADR numbers PR-derived,\nadds a\n`ci-adr` check, and replaces the checked-in index with an on-demand one.\nTwo\nthings here were incompatible; both are fixed.\n\n**Numbers 0020/0021/0023 are fine.** #2210's `LEGACY_IN_FLIGHT`\nallowlist in\n`scripts/adr_check.py` names all three, by number *and* slug, tagged `#\nPR #2200`\n— which also waives its one-ADR-per-PR rule for this batch. The slugs\nmatch this\nbranch exactly.\n\n**Six citations were hard errors.** Under #2210 an unresolved *numbered*\nreference is an error and an unresolved *slug* is a warning. The forward\nreferences to ADR-0018/0019/0022 failed `ci-adr` outright. They now use\nslugs\n(16 citation sites across the three ADRs — 8 + 3 + 5 — plus one bare\n`0018`\nreworded in prose):\n\n| was | now |\n|---|---|\n| `ADR-0018` |\n`ADR-rest-config-contract-identity-folded-residence-either` |\n| `ADR-0019` | `ADR-rest-resource-reads-are-lazy-datafusion-tables` |\n| `ADR-0022` |\n`ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire`\n|\n\nThose numbers were never safe to cite anyway: #2210's allowlist binds\n**18** to a\ndifferent ADR on a different branch, so entry 4's 0018 will be\nrenumbered. The\nslug is the stable identity; the number is an alias.\n\n**`docs/adr/README.md` is deleted.** #2210 adds its own at that path —\nan add/add\nconflict — and argues against a checked-in index: it is a second record\nof every\nnumber that every concurrent PR appends to, which is the coordination\nthe scheme\nremoves. Reserving rows for unwritten ADRs is explicitly forbidden by\n`adr_check.py`. Nothing unique is lost: #2210's README already carries\nthe\nidentity-thread reading order including 0020/0021/0023, and already\nstates that\n0021 and 0023 are unimplemented proposals.\n\nTwo prose fixes fell out: 0023 no longer writes \"the\nADR-lands-with-implementation convention\" (the citation regex read it as\na slug),\nand 0021 no longer cites the deleted README on why an unclaimed number\nis a\nhazard — a hazard the new scheme removes.\n\n**Verified by `ci-adr` itself.** #2210 merged as `5b5b0ab6`, and `main`\nis merged\ninto this branch, so the check now runs here for real: **`adr` and\n`adr-tests`\nboth pass**, with `adr_check.py --format github --base 5b5b0ab6 --pr\n2200` —\nmeaning the added-ADR and allowlist paths were exercised, not skipped.\nOutput is\nsix `##[warning]` annotations and zero errors; those are the forward\nreferences\nabove, and they resolve when entries 4 and 5 land.\n\n`main` was **merged, not rebased**, deliberately. This branch adds\n`docs/adr/README.md` in `aa004171` and deletes it in `598300a0`;\nreplaying that\nonto a `main` that now carries #2210's README hits an add/add conflict\nand then\nreplays the deletion against *#2210's* file. A rebase was tried and does\nconflict\nat that commit. The merge has no such hazard — the merge base has no\nREADME, this\nside has none, `main`'s side adds one.\n\n### On #2203\n\nNot closed by this PR — #2200 implements none of it. #2210 does,\nlargely:\n`adr_check.py` delivers check 1 (citation resolution), plus\nduplicate-number and\nduplicate-slug detection, which is what would have caught the 0016/0017\ncollision\nthe issue cites as prior art. Check 2 (index/header status match) is\nmoot — there\nis no index. Checks 3 (cited repo paths exist) and 4 (no bare short\nSHAs) remain\nundelivered. The issue's stated blocker — \"cannot land in the current\nstack\" — is\nalso dissolved: the slug form lets the check pass at every intermediate\nhead, and\nit already runs on this branch. **#2203 wants re-scoping to checks 3–4\nafter\n#2210 merges, not closing.**\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01G7ERqfC9ufdsooFvUJ4VRC\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>\nCo-authored-by: dlovell <dan@letsql.com>",
+          "timestamp": "2026-08-10T15:07:11-04:00",
+          "tree_id": "8981b6b50f0614d4ab3e70263bd04b2afc8c8f92",
+          "url": "https://github.com/xorq-labs/xorq/commit/f883e4c648a87f1704727987dc991f3228018526"
+        },
+        "date": 1786389212796,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.3206171069811665,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008466857838800664",
+            "extra": "mean: 136.6005058571318 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.037759837319375,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06948292143223268",
+            "extra": "mean: 490.7349637999914 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6795473950304196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2001063038786821",
+            "extra": "mean: 1.4715677041999924 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.9501274209594297,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012797553679525368",
+            "extra": "mean: 338.968409600011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.7209432043826944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027756403324963395",
+            "extra": "mean: 367.5196154000105 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.6670945255265535,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07075944287841394",
+            "extra": "mean: 374.9398420000034 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 138.8697804812495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017433967340729255",
+            "extra": "mean: 7.2009907161552835 msec\nrounds: 229"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.404062053164061,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011414321227261876",
+            "extra": "mean: 227.06310399998983 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 10.370856358746797,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08695201520620402",
+            "extra": "mean: 96.42405269229269 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.17008516138398,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02042314707624477",
+            "extra": "mean: 98.32759353845141 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.438799085273175,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024153835565458453",
+            "extra": "mean: 118.5002735454542 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.865716802207249,
+            "unit": "iter/sec",
+            "range": "stddev: 0.040984905628045375",
+            "extra": "mean: 170.48214800000292 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.066976336060121,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05067948227817162",
+            "extra": "mean: 245.8829157999844 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.286028007045136,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00841098899383326",
+            "extra": "mean: 233.31625419998545 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.035972117296692,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07030934159269503",
+            "extra": "mean: 491.16586200000256 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.113751229225831,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00883306429656873",
+            "extra": "mean: 321.15603539998574 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7743308103896507,
+            "unit": "iter/sec",
+            "range": "stddev: 0.052788840694788404",
+            "extra": "mean: 563.5927607999974 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.6551972685093168,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09696397618959465",
+            "extra": "mean: 604.157594399976 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.3053512683358235,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11398652544025693",
+            "extra": "mean: 766.0773190000327 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.3415772684069982,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11930416204537449",
+            "extra": "mean: 745.3912820000369 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.0659361837266539,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07690490676544573",
+            "extra": "mean: 938.1424660000448 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.0032653789955368,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16552991644466455",
+            "extra": "mean: 996.7452490000142 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.8468383678067307,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12467702491723147",
+            "extra": "mean: 1.18086288720001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.4922898570793838,
+            "unit": "iter/sec",
+            "range": "stddev: 0.31020419664537136",
+            "extra": "mean: 2.0313235904000067 sec\nrounds: 5"
           }
         ]
       }
