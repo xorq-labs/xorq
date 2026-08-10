@@ -354,19 +354,41 @@ def test_two_new_adrs_in_one_pull_request_is_rejected(tree: ADRTree) -> None:
     assert "ADR-<slug>" in result.stderr
 
 
-def test_allowlisted_legacy_adr_passes(tree: ADRTree) -> None:
-    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
-    tree.init_repo()
-    tree.write(f"{number:04d}-{slug}.md", f"# ADR-{number:04d}: Legacy\n\nBody.\n")
-    tree.commit_all()
-    result = tree.check("--base", "HEAD~1", "--pr", "2211")
-    assert result.returncode == 0, result.stderr
-    # The entry is in use, not spent: this run is the one adding the file.
-    assert "has done its job" not in result.stderr
+@pytest.fixture
+def fake_allowlist(monkeypatch: pytest.MonkeyPatch) -> dict[int, str]:
+    """A synthetic LEGACY_IN_FLIGHT, so these tests outlive the real one.
+
+    Reading the live mapping made each of these need an entry to exist. That
+    is policy data on someone else's branch: it shrank from four to one when
+    #2200 landed and is documented as shrinking to nothing, at which point
+    every test that read it fails for a reason unrelated to the code.
+    """
+    fake = {18: "one-legacy-adr", 19: "another-legacy-adr"}
+    monkeypatch.setattr(adr_check, "LEGACY_IN_FLIGHT", fake)
+    return fake
+
+
+def test_allowlisted_legacy_adr_passes(fake_allowlist: dict[int, str]) -> None:
+    problems = adr_check.Problems()
+    adr_check.check_added(problems, [Path("docs/adr/0018-one-legacy-adr.md")], 2211)
+    assert problems.count == 0
+
+
+def test_allowlisted_number_with_a_different_slug_is_rejected(
+    fake_allowlist: dict[int, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The allowlist exempts one file, not a number anyone may claim."""
+    problems = adr_check.Problems()
+    adr_check.check_added(problems, [Path("docs/adr/0018-brand-new.md")], 2211)
+    assert problems.count == 1
+    assert "still in flight" in capsys.readouterr().err
 
 
 def test_an_allowlist_entry_is_reported_once_its_adr_has_landed(
     tree: ADRTree,
+    fake_allowlist: dict[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The entry cannot be deleted by the pull request that lands the ADR.
 
@@ -376,44 +398,56 @@ def test_an_allowlist_entry_is_reported_once_its_adr_has_landed(
     reminding about is that the exemption outlives the file: see
     `test_a_spent_entry_readmits_its_filename_once_the_adr_is_gone`.
     """
-    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
-    tree.write(f"{number:04d}-{slug}.md", f"# ADR-{number:04d}: Legacy\n\nBody.\n")
-    result = tree.check()
-    assert "has done its job" in result.stderr
-    # A warning: the entry belongs to whoever landed the ADR, and someone
-    # else's pull request should not be blocked by it.
-    assert result.returncode == 0, result.stderr
+    tree.write("0018-one-legacy-adr.md", "# ADR-0018: Legacy\n\nBody.\n")
+    monkeypatch.chdir(tree.root)
+    problems = adr_check.Problems()
+    adr_check.check_allowlist(problems, None)
+    assert problems.warnings == 1
+    # A warning, not an error: the entry belongs to whoever landed the ADR,
+    # and someone else's pull request should not be blocked by it.
+    assert problems.count == 0
+    assert "has done its job" in capsys.readouterr().err
 
 
 def test_an_allowlist_entry_whose_adr_is_absent_is_not_reported(
-    tree: ADRTree,
+    tree: ADRTree, fake_allowlist: dict[int, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The ordinary state of an entry: its branch has not landed yet."""
-    assert "has done its job" not in tree.check().stderr
+    monkeypatch.chdir(tree.root)
+    problems = adr_check.Problems()
+    adr_check.check_allowlist(problems, None)
+    assert problems.warnings == 0
+
+
+def test_an_entry_this_run_is_using_is_not_reported(
+    tree: ADRTree, fake_allowlist: dict[int, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The landing pull request: in use, not spent."""
+    tree.write("0018-one-legacy-adr.md", "# ADR-0018: Legacy\n\nBody.\n")
+    monkeypatch.chdir(tree.root)
+    problems = adr_check.Problems()
+    adr_check.check_allowlist(problems, [Path("docs/adr/0018-one-legacy-adr.md")])
+    assert problems.warnings == 0
 
 
 def test_a_spent_entry_is_reported_on_an_unrelated_pull_request(
-    tree: ADRTree,
+    tree: ADRTree, fake_allowlist: dict[int, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The shape every pull request sees after the ADR lands.
 
     The push-to-main run reports it once; this is the nag that keeps arriving
-    until someone acts, and it runs through the `--base` path rather than the
-    directory-only one.
+    until someone acts, and it arrives through the `--base` path rather than
+    the directory-only one.
     """
-    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
-    tree.init_repo()
-    tree.write(f"{number:04d}-{slug}.md", f"# ADR-{number:04d}: Legacy\n\nBody.\n")
-    tree.commit_all()
-    tree.write("2222-unrelated.md", "# ADR-2222: Unrelated\n\nBody.\n")
-    tree.commit_all()
-    result = tree.check("--base", "HEAD~1", "--pr", "2222")
-    assert "has done its job" in result.stderr
-    assert result.returncode == 0, result.stderr
+    tree.write("0018-one-legacy-adr.md", "# ADR-0018: Legacy\n\nBody.\n")
+    monkeypatch.chdir(tree.root)
+    problems = adr_check.Problems()
+    adr_check.check_allowlist(problems, [Path("docs/adr/2222-unrelated.md")])
+    assert problems.warnings == 1
 
 
 def test_a_spent_entry_readmits_its_filename_once_the_adr_is_gone(
-    tree: ADRTree,
+    tree: ADRTree, fake_allowlist: dict[int, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Why a spent entry is worth deleting, and why the warning cannot wait.
 
@@ -423,35 +457,37 @@ def test_a_spent_entry_readmits_its_filename_once_the_adr_is_gone(
     silent, because it keys on the file being present. The warning exists to
     be acted on while the entry is still harmless.
     """
-    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
-    tree.init_repo()
+    monkeypatch.chdir(tree.root)
+    readmitted = Path("docs/adr/0018-one-legacy-adr.md")
+
     # The ADR landed and was later removed, so nothing warns any more.
-    assert "has done its job" not in tree.check().stderr
+    silent = adr_check.Problems()
+    adr_check.check_allowlist(silent, None)
+    assert silent.warnings == 0
 
-    tree.write(
-        f"{number:04d}-{slug}.md",
-        f"# ADR-{number:04d}: Nothing to do with the original\n\nAnything.\n",
-    )
-    tree.commit_all()
-    result = tree.check("--base", "HEAD~1", "--pr", "2222")
+    # And the entry lets that exact filename back in, carrying anything.
+    problems = adr_check.Problems()
+    adr_check.check_added(problems, [readmitted], 2222)
+    assert problems.count == 0
+
+
+@pytest.mark.skipif(
+    not adr_check.LEGACY_IN_FLIGHT,
+    reason="nothing left to exempt, so the wiring cannot be exercised end to end",
+)
+def test_the_allowlist_check_is_wired_into_the_command(tree: ADRTree) -> None:
+    """The one test that reads the live mapping, and only to prove the wiring.
+
+    Everything above calls `check_allowlist` directly, which would not notice
+    the call being dropped from `main` or moved inside `if args.base`. This
+    runs the command as CI does. It skips once the allowlist is empty, because
+    at that point there is no entry to make it speak.
+    """
+    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
+    tree.write(f"{number:04d}-{slug}.md", f"# ADR-{number:04d}: Legacy\n\nBody.\n")
+    result = tree.check()
+    assert "has done its job" in result.stderr
     assert result.returncode == 0, result.stderr
-    # Silent in the one state where the entry is doing harm: the file is being
-    # added, so there is nothing for check_allowlist to find.
-    assert "has done its job" not in result.stderr
-
-
-def test_allowlisted_number_with_a_different_slug_is_rejected(tree: ADRTree) -> None:
-    """The allowlist exempts one file, not a number anyone may claim."""
-    number = next(iter(adr_check.LEGACY_IN_FLIGHT))
-    tree.init_repo()
-    tree.write(
-        f"{number:04d}-brand-new-unrelated.md",
-        f"# ADR-{number:04d}: Unrelated\n\nBody.\n",
-    )
-    tree.commit_all()
-    result = tree.check("--base", "HEAD~1", "--pr", "2211")
-    assert result.returncode == 1
-    assert "still in flight" in result.stderr
 
 
 def test_batch_of_unrelated_adrs_on_allowlisted_numbers_is_rejected(
