@@ -15,15 +15,12 @@ permissions:
 
 
 jobs:
-  changes:
-    uses: ./.github/workflows/detect-changes.yml
-    permissions:
-      contents: read
-      pull-requests: read
-
+  # Deliberately not gated on detect-changes. Those exclusions exist to skip
+  # the test suite on a documentation-only pull request, and that reasoning
+  # does not carry over to the linters: a prose-only change is the one this job
+  # has the most to say about, and it was the one case that ran nothing at all.
+  # The job installs only the dev group, so running it everywhere is cheap.
   lint:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -31,10 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Prose is listed explicitly rather than scanning the tree, so a
+      # generated or vendored file cannot fail the build over wording nobody
+      # here chose. CHANGELOG.md is out for that reason: it is assembled from
+      # commit messages, so a typo in it is not fixable where it is reported.
       - name: Run codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          path: "python src scripts"
+          path: "python src scripts docs README.md CONTRIBUTING.md STYLEGUIDE.md"
           ignore_words_file: .codespell.ignore-words
 
       - uses: actions/setup-python@v6
