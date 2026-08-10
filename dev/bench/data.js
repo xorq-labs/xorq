@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786389216984,
+  "lastUpdate": 1786390767324,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -32466,6 +32466,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.31020419664537136",
             "extra": "mean: 2.0313235904000067 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "844540b0009407ba3426ff5998ac917f2ef46842",
+          "message": "chore(adr): drop the allowlist entries #2200 has landed (#2212)\n\nThe follow-up #2211's warnings asked for. ADRs 0020, 0021 and 0023 are\non `main` as of f883e4c6, so their `LEGACY_IN_FLIGHT` entries have done\ntheir job.\n\nThe guard asked for this directly — the `ci-adr` run on that merge:\n\n```\ndocs/adr/0020-engine-behavior-as-immutable-identity-folded-spec.md: warning:\nhas landed, so the LEGACY_IN_FLIGHT entry for 0020 in scripts/adr_check.py has\ndone its job and should be deleted…\n9 warning(s), which do not fail the run.\n```\n\nThree of those nine. The run stayed green, which is what a warning is\nfor. After this it reports 6 — five forward references to REST ADRs that\nland later in the stack, and one to `ADR-out-of-core-patches-…`. All\ncorrect, and they go quiet by themselves.\n\n`18: content-store-capability-and-binding` stays;\n`hosted-presigned-catalogs-fixes` has not landed.\n\n## The deletion broke a test, which was worth catching\n\n`test_batch_of_unrelated_adrs_on_allowlisted_numbers_is_rejected` read\n`list(LEGACY_IN_FLIGHT)[:2]`, so it needed **two** live entries to\nconstruct the batch it rejects. Shrinking to one broke it.\n\nPulling that thread: six tests built their fixtures from\n`LEGACY_IN_FLIGHT` itself. That is policy data about other people's\nbranches, and the mapping is documented as only ever shrinking. Emptied,\n**five of them fail** — for reasons unrelated to the code under test,\nlanding on whoever deletes the last entry.\n\nThey assert facts about `check_added` and `check_allowlist`, so they now\nuse a synthetic allowlist and call those functions directly.\n\n## What an independent review then found\n\nConverting CLI tests to direct calls can weaken coverage while the count\ngoes up, so this was reviewed for exactly that. It found real ground\nlost, by mutation testing:\n\n> replacing `check_allowlist(problems, added)` with\n`check_allowlist(problems, None)` in `main()` passed the whole suite,\nwhile failing two tests before the rewrite.\n\nReproduced and fixed in `8faa7d2b`. The consequence was not theoretical:\nwithout the added set, the pull request *landing* an allowlisted ADR\ngets told its entry \"has done its job and should be deleted\" — the one\nentry keeping that pull request green.\n\nTwo tests now run `main()` in process, which keeps argument parsing and\nthe order of the checks under test while leaving the allowlist as\nfixture data. Mutation results:\n\n| Change to `main()` | Before the fix | After |\n|---|---|---|\n| `check_allowlist(problems, None)` | 92 passed | **1 failed** |\n| delete the call | 92 passed | **1 failed** |\n| move it inside `if args.base:` | 92 passed | **1 failed** |\n\nThat also retired the `skipif` this PR originally carried: it existed\nbecause the end-to-end test read the live allowlist and had nothing to\nsay once it emptied. Running `main()` with a synthetic one has no such\nlimit.\n\n| Allowlist | Result |\n|---|---|\n| Real (1 entry) | 92 passed |\n| Emptied | 92 passed |\n\n## Review note\n\nCommits 2 and 3 are larger than commit 1 and can be dropped if you'd\nrather keep this PR to the three-line deletion — commit 1 is\nindependently green, since it carries its own test fix. Dropping them\nleaves the empty-allowlist failure for whoever removes entry 18.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-10T15:33:21-04:00",
+          "tree_id": "4ba601c154aac063e582a7fa8d50cef522eaab0a",
+          "url": "https://github.com/xorq-labs/xorq/commit/844540b0009407ba3426ff5998ac917f2ef46842"
+        },
+        "date": 1786390763480,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.200918067810754,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007190018336654326",
+            "extra": "mean: 121.93756744443994 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.531216522652344,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04428776417411389",
+            "extra": "mean: 395.0669533999985 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7407080654194753,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1915107284839819",
+            "extra": "mean: 1.350059553400007 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.357246925924071,
+            "unit": "iter/sec",
+            "range": "stddev: 0.062341585743862914",
+            "extra": "mean: 424.22369459999913 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5192639523748084,
+            "unit": "iter/sec",
+            "range": "stddev: 0.062135582702094745",
+            "extra": "mean: 396.94133639999905 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.742928201437326,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05457621897557983",
+            "extra": "mean: 364.5738883999911 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 104.25172568408723,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022430585950137992",
+            "extra": "mean: 9.592167356829068 msec\nrounds: 227"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.777733193138455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08035930759584546",
+            "extra": "mean: 264.70900640000536 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 14.440010941012739,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0046528629304368315",
+            "extra": "mean: 69.25202509090798 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 12.577949641763569,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009556967702856606",
+            "extra": "mean: 79.50421400000047 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.297593236211556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006590759088778178",
+            "extra": "mean: 97.11006999999701 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.185497488861494,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010079818929021057",
+            "extra": "mean: 139.1692087500047 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 5.017527033093784,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007546530502778607",
+            "extra": "mean: 199.30136766665404 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.705944852317871,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007378050137781604",
+            "extra": "mean: 212.4971778000031 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.29066685615434,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03907845723881377",
+            "extra": "mean: 436.5540965999912 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.4131998804582064,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015598590294282417",
+            "extra": "mean: 292.9802048000056 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7666377158674964,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09921184264819333",
+            "extra": "mean: 566.0470118000148 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8990530387974225,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10112136941478599",
+            "extra": "mean: 526.5782363999961 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4348550672295821,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11026902547490865",
+            "extra": "mean: 696.9345008000005 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5135650316019145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10987010671375706",
+            "extra": "mean: 660.6917965999969 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2873279342872221,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12435655084553464",
+            "extra": "mean: 776.8028435999781 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1659208967522328,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14014286623746708",
+            "extra": "mean: 857.6911201999906 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9804861847188495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19310070863897583",
+            "extra": "mean: 1.0199021828000014 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6141562339045368,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17957339914674703",
+            "extra": "mean: 1.6282501826000157 sec\nrounds: 5"
           }
         ]
       }
