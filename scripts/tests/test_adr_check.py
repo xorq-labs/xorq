@@ -423,6 +423,147 @@ def test_rename_end_to_end_leaves_a_clean_tree(
     assert "See ADR-2211 at [it](2211-my-decision.md)." in body
 
 
+# --- sweeping the number an ADR is moving away from ---------------------------
+#
+# A missed slug citation still resolves and a dead link is reported, but a
+# missed *number* resolves silently to whichever ADR later holds it -- and in
+# code, which the guard never reads, nothing reports it at all. That is the
+# failure these pin.
+
+
+def test_sweep_rewrites_the_previous_number(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree.init_repo()
+    target = tree.write("0012-two.md", "# ADR-0012: Two\n\nSee ADR-0017.\n")
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211", "0017")
+    assert "See ADR-2211." in target.read_text()
+
+
+def test_sweep_rewrites_the_short_form_of_the_previous_number(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ADR-17` is the typo the guard reports; renumbering should fix it too."""
+    tree.init_repo()
+    target = tree.write("0012-two.md", "# ADR-0012: Two\n\nSee ADR-17.\n")
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211", "0017")
+    assert "See ADR-2211." in target.read_text()
+
+
+def test_sweep_rewrites_a_placeholder_citation(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A draft citing itself as ADR-XXXX is invisible to the guard: the
+    reference pattern only reads digits or a lowercase slug."""
+    tree.init_repo()
+    target = tree.write("0012-two.md", "# ADR-0012: Two\n\nSee ADR-XXXX.\n")
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211")
+    assert "See ADR-2211." in target.read_text()
+
+
+def test_sweep_reaches_code_not_only_adrs(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The #2129 lesson: most citations of a number live in docstrings."""
+    tree.init_repo()
+    module = tree.root / "python" / "xorq" / "writes" / "publish.py"
+    module.parent.mkdir(parents=True)
+    module.write_text('"""Publish a changeset. See ADR-0017."""\n', encoding="utf-8")
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211", "0017")
+    assert "See ADR-2211." in module.read_text()
+
+
+def test_sweep_leaves_a_hyphenated_date_alone(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mirrors the guard's own guard: ADR-2026-08-10 is a date, not ADR-2026."""
+    tree.init_repo()
+    target = tree.write("0012-two.md", "# ADR-0012: Two\n\nOn ADR-2026-08-10.\n")
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211", "2026")
+    assert "On ADR-2026-08-10." in target.read_text()
+
+
+def test_sweep_leaves_a_neighbouring_number_alone(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree.init_repo()
+    target = tree.write(
+        "0012-two.md", "# ADR-0012: Two\n\nSee ADR-0017 and ADR-0170.\n"
+    )
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211", "0017")
+    assert "See ADR-2211 and ADR-0170." in target.read_text()
+
+
+def test_sweep_can_be_told_to_leave_the_previous_number(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree.init_repo()
+    target = tree.write("0012-two.md", "# ADR-0012: Two\n\nSee ADR-0017.\n")
+    monkeypatch.chdir(tree.root)
+    adr_rename.sweep_references("my-decision", "2211", "0017", include_previous=False)
+    assert "See ADR-0017." in target.read_text()
+
+
+def test_claimant_reports_an_adr_still_holding_the_number(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ambiguity case: citations of 0011 could mean either ADR, so the
+    rename must not guess which."""
+    tree.write("0011-mine.md", "# ADR-0011: Mine\n\nBody.\n")
+    # ADR_DIR is relative, so this must run from the throwaway root or it
+    # inspects the repository's own ADRs.
+    monkeypatch.chdir(tree.root)
+    moving = adr_rename.ADR_DIR / "0011-mine.md"
+    assert adr_rename.claimant("0011", moving) == adr_rename.ADR_DIR / BASE_ADR
+    assert adr_rename.claimant("0099", moving) is None
+    assert adr_rename.claimant("XXXX", moving) is None
+
+
+def test_pick_source_finds_a_numbered_adr_by_slug(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree.write("0017-my-decision.md", "# ADR-0017: Mine\n\nBody.\n")
+    monkeypatch.chdir(tree.root)
+    assert adr_rename.pick_source("my-decision") == Path("docs/adr/0017-my-decision.md")
+
+
+def test_a_bare_run_never_renumbers_a_landed_adr(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Renumbering is destructive enough to require naming the ADR: with no
+    argument and no placeholder, there is nothing to do."""
+    tree.write("0017-my-decision.md", "# ADR-0017: Mine\n\nBody.\n")
+    monkeypatch.chdir(tree.root)
+    assert adr_rename.pick_source(None) is None
+
+
+def test_renumber_end_to_end_moves_the_number_out_of_code(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The #2129 shape: an ADR holding a number that main has since used."""
+    tree.init_repo()
+    tree.write("0017-my-decision.md", "# ADR-0017: Mine\n\nBody.\n")
+    module = tree.root / "backend.py"
+    module.write_text('"""Mechanism (ADR-0017)."""\n', encoding="utf-8")
+    tree.commit_all()
+    monkeypatch.chdir(tree.root)
+    monkeypatch.setattr(sys, "argv", ["adr_rename.py", "my-decision"])
+    monkeypatch.setattr(adr_rename, "pull_request", lambda: ("2211", "HEAD~1"))
+
+    assert adr_rename.main() == 0
+
+    assert not (tree.adr_dir / "0017-my-decision.md").exists()
+    renamed = tree.adr_dir / "2211-my-decision.md"
+    assert renamed.read_text().startswith("# ADR-2211:")
+    assert "(ADR-2211)" in module.read_text()
+
+
 def test_environment_is_restored_between_tests() -> None:
     """monkeypatch.chdir must not leak into the rest of the suite."""
     assert Path.cwd() == Path(os.getcwd())
