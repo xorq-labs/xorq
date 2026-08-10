@@ -13,7 +13,7 @@ Start from [template.md](template.md).
 
 A new ADR takes the number of the pull request that adds it. GitHub allocates pull request numbers, so two branches can't claim the same ADR number and you never have to check which number is free.
 
-ADR-0002 through ADR-0017 predate this rule and keep their sequential numbers permanently. Around fifty comments across `python/xorq` cite them by number, so renumbering would either break those citations or require a risky sweep of them. Pull request numbers are already far above 1000, so the two ranges can't collide. A small allowlist in `scripts/adr_check.py` covers the legacy-numbered ADRs that were still in flight when this rule landed; it only shrinks.
+ADR-0002 through ADR-0017 predate this rule and keep their sequential numbers permanently. Around fifty comments across `python/xorq` cite them by number, so renumbering would either break those citations or require a risky sweep of them. Pull request numbers are already far above 1000, so the two ranges can't collide. A small allowlist in `scripts/adr_check.py` covers the legacy-numbered ADRs that were still in flight when this rule landed; it only shrinks. An entry can't be removed by the pull request that lands its ADR — CI reads the merged code, so the entry has to still be there for the file to be allowed — so the cleanup is a follow-up, and the guard warns on every run until it happens.
 
 Numbers are sparse and non-consecutive under this rule. That's the trade: the number tells you which pull request introduced the decision rather than how many decisions came before it. For chronology, use `git log docs/adr/`.
 
