@@ -14,3 +14,7 @@ class ProvenanceField(StrEnum):
     cache_strategy = f"{XORQ_METADATA_PREFIX}cache_strategy"
     cache_storage = f"{XORQ_METADATA_PREFIX}cache_storage"
     cache_ttl_seconds = f"{XORQ_METADATA_PREFIX}cache_ttl_seconds"
+    dasher_rules_fingerprint = f"{XORQ_METADATA_PREFIX}dasher_rules_fingerprint"
+    normalize_registry_fingerprint = (
+        f"{XORQ_METADATA_PREFIX}normalize_registry_fingerprint"
+    )
