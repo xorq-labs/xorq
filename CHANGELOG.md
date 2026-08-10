@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.38] - 2026-08-06
+### Details
+#### Added
+- Add `xorq catalog lineage` (--level, --node, --format) by @mesejo in [#2188](https://github.com/xorq-labs/xorq/pull/2188)
+
+#### Changed
+- Use commit.remote in git-cliff template by @mesejo in [#2186](https://github.com/xorq-labs/xorq/pull/2186)
+- Unify opaque descent via OPAQUE_EDGES table by @mesejo in [#2177](https://github.com/xorq-labs/xorq/pull/2177)
+- Pyarrow-version-stable canonical hashing of in-memory tables by @dlovell in [#2192](https://github.com/xorq-labs/xorq/pull/2192)
+- Compact, boundary-aware lineage in expr metadata (XOR-363) by @mesejo in [#2185](https://github.com/xorq-labs/xorq/pull/2185)
+- Fail loudly on unregistered Expr-bearing ops by @dlovell in [#2196](https://github.com/xorq-labs/xorq/pull/2196)
+- Path-less Reads take identity from their registered normalize_method by @dlovell in [#2199](https://github.com/xorq-labs/xorq/pull/2199)
+
 ## [0.3.37] - 2026-07-28
 ### Details
 #### Added

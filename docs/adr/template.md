@@ -1,9 +1,21 @@
-# ADR-NNNN: <title — the decision, not the problem>
+# ADR-XXXX: <title — the decision, not the problem>
 
 <!--
-Save this file as docs/adr/NNNN-<slug>.md (e.g. 0012-click-option-decorators.md),
-where NNNN is the next sequential number after the highest existing ADR in
-this directory.
+Don't copy this file by hand — run `python3 scripts/adr_new.py <slug>`,
+which saves it as
+docs/adr/XXXX-<slug>.md.
+
+XXXX is a placeholder, not a number to fill in yourself. An ADR takes the
+number of the pull request that adds it, so the number doesn't exist until the
+pull request does. Open the pull request, then run
+`python3 scripts/adr_rename.py` to rename
+the file and fix up this heading. CI fails while XXXX is still in a filename.
+See README.md for the full numbering rule.
+
+To cite an ADR that has no number yet -- one landing in a later pull request,
+say -- use its slug: ADR-catalog-single-git-remote rather than ADR-0011. Both
+forms resolve, and `scripts/adr_rename.py` swaps the named form for the number once
+one exists. This is why you never need to reserve a number in advance.
 
 The title should name the decision or design choice, not the bug or symptom.
 Good:  "Make git-annex optional via a CatalogBackend abstraction"
@@ -15,6 +27,7 @@ Delete all guidance comments (HTML comments like this one) before merging.
 - **Status:** Proposed | Accepted | Amended | Rejected | Deprecated | Superseded by ADR-NNNN
 - **Date:** YYYY-MM-DD <!-- when the decision was last updated -->
 - **Deciders:** <names>
+- **Related:** <!-- ADR-0011, or ADR-catalog-single-git-remote if it has no number yet -->
 
 <!--
 Status guide:

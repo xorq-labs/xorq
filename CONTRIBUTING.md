@@ -127,6 +127,24 @@ If the commit fixes a GitHub issue, add something like this to the bottom of the
 
     fixes #4242
 
+## Recording an architecture decision
+
+Choices where reasonable people could disagree, and where the reasoning outlives
+the diff, belong in an architecture decision record under `docs/adr/`. Start one
+with:
+
+```sh
+python3 scripts/adr_new.py my-decision
+```
+
+An ADR takes the number of the pull request that adds it, so it is written as
+`XXXX-my-decision.md` and numbered by `python3 scripts/adr_rename.py` once the
+pull request exists. Cite an ADR that has no number yet by its slug
+(`ADR-my-decision`); both forms keep resolving.
+
+See [docs/adr/README.md](docs/adr/README.md) for the full convention. The
+`ci-adr` check reports on it.
+
 ## Working with the documentation
 
 > [!TIP]
