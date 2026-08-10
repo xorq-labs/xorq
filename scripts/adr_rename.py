@@ -52,6 +52,13 @@ from adr_check import (
 )
 
 
+# Suffixes read as prose, where a citation inside backticks is being shown
+# rather than made. Quarto is here because docs/ is written in it: keying on
+# `.md` alone would protect the convention's own documentation and rewrite the
+# same span on the rendered-site pages that teach it.
+PROSE_SUFFIXES = frozenset({".md", ".qmd"})
+
+
 def unnumbered() -> list[Path]:
     return sorted(ADR_DIR.glob(f"{PLACEHOLDER}-*.md"))
 
@@ -218,10 +225,10 @@ def apply_rewrites(
 ) -> str:
     """Apply every rewrite, optionally leaving shown-code regions untouched.
 
-    `protect_shown` is on for Markdown and off for everything else. A backtick
-    in a Python docstring is not the same claim as one in prose, and a stale
-    number in code is precisely the failure this sweep exists to prevent -- so
-    code is rewritten throughout.
+    `protect_shown` is on for prose (see PROSE_SUFFIXES) and off for everything
+    else. A backtick in a Python docstring is not the same claim as one in
+    prose, and a stale number in code is precisely the failure this sweep
+    exists to prevent -- so code is rewritten throughout.
     """
 
     def rewrite(chunk: str) -> str:
@@ -248,8 +255,11 @@ def sweep_references(
     previous: str = PLACEHOLDER,
     *,
     include_previous: bool = True,
-) -> int:
+) -> int | None:
     """Point every citation of an ADR at its new number.
+
+    Returns the number of files rewritten, or None if the search itself failed
+    and nothing was read -- which is not the same answer as "nothing to do".
 
     Three forms move together: the prose citation ``ADR-<slug>``, the old
     ``ADR-<number>``, and any relative link to the old filename. The link is
@@ -297,13 +307,26 @@ def sweep_references(
         capture_output=True,
         text=True,
     )
+    # git grep exits 1 for "no matches" and 128 for a real failure: no
+    # repository to search, a pattern it cannot parse. Reading those alike
+    # would let the sweep report success having searched nothing, and a
+    # citation it never saw is exactly what this is here to catch.
+    if found.returncode > 1:
+        sys.stderr.write(
+            f"{found.stderr.strip() or 'git grep failed'}\n"
+            f"could not search for citations of ADR-{slug}; none were rewritten\n"
+        )
+        return None
+
     changed = 0
     for line in found.stdout.splitlines():
         if not line:
             continue
         path = Path(line)
         text = path.read_text(encoding="utf-8")
-        rewritten = apply_rewrites(text, rewrites, protect_shown=path.suffix == ".md")
+        rewritten = apply_rewrites(
+            text, rewrites, protect_shown=path.suffix in PROSE_SUFFIXES
+        )
         if rewritten != text:
             path.write_text(rewritten, encoding="utf-8")
             changed += 1
@@ -394,6 +417,17 @@ def main() -> int:
     sys.stdout.write(f"renamed to {dest}\n")
 
     changed = sweep_references(slug, number, previous, include_previous=other is None)
+    if changed is None:
+        # The rename stands -- it succeeded, and undoing it would be a worse
+        # surprise than reporting this. What did not happen is the search, so
+        # say which citations are now the reader's problem.
+        sys.stderr.write(
+            f"\nthe rename is done, but citations of ADR-{slug}"
+            + (f" and ADR-{previous}" if previous != PLACEHOLDER else "")
+            + " were never\nsearched for, so any that exist are stale. Fix the "
+            "problem above and\nrewrite them by hand.\n"
+        )
+        return 1
     sys.stdout.write(
         f"rewrote citations to ADR-{number} in {changed} file(s)\n"
         if changed

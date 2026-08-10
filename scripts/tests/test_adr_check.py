@@ -557,6 +557,12 @@ def test_rename_rewrites_the_placeholder_inside_the_file_it_numbers(
             id="markdown-fence",
         ),
         pytest.param(
+            "guide.qmd",
+            "# Guide\n\nCite it as `ADR-my-decision` before it lands.\n",
+            "`ADR-my-decision`",
+            id="quarto-inline-code",
+        ),
+        pytest.param(
             "notes.py",
             '"""Mechanism. See `ADR-my-decision`."""\n',
             "`ADR-2211`",
@@ -575,9 +581,10 @@ def test_sweep_honours_the_boundary_the_guard_reads_by(
 
     docs/adr/README.md and CONTRIBUTING.md both teach the named form using a
     real-looking slug; numbering the ADR one of them names must not edit the
-    page that explains the convention. A backtick in a docstring makes no such
-    claim, and a stale number in code is the failure the sweep exists for, so
-    code is rewritten throughout.
+    page that explains the convention. That has to hold for Quarto too, since
+    docs/ is written in it. A backtick in a docstring makes no such claim, and
+    a stale number in code is the failure the sweep exists for, so code is
+    rewritten throughout.
     """
     tree.init_repo()
     target = tree.adr_dir / name if name.endswith(".md") else tree.root / name
@@ -631,6 +638,28 @@ def test_sweep_can_be_told_to_leave_the_previous_number(
     monkeypatch.chdir(tree.root)
     adr_rename.sweep_references("my-decision", "2211", "0017", include_previous=False)
     assert "See ADR-0017." in target.read_text()
+
+
+def test_a_failed_search_is_not_reported_as_nothing_to_do(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """git grep exits 1 for "no matches" and 128 for "could not look".
+
+    Reading those alike is the worst failure this tool has: it renames the
+    file, announces that there was nothing to rewrite, and exits 0 with every
+    citation left pointing at a name that no longer exists.
+    """
+    # No init_repo, so `git grep` has no repository to search.
+    tree.write("XXXX-my-decision.md", "# ADR-XXXX: Mine\n\nBody.\n")
+    monkeypatch.chdir(tree.root)
+    assert adr_rename.sweep_references("my-decision", "2211") is None
+
+    monkeypatch.setattr(sys, "argv", ["adr_rename.py"])
+    monkeypatch.setattr(adr_rename, "pull_request", lambda: ("2211", "main"))
+    assert adr_rename.main() == 1
+    # The rename itself stands; undoing it would surprise more than it helps.
+    assert (tree.adr_dir / "2211-my-decision.md").exists()
+    assert "stale" in capsys.readouterr().err
 
 
 def test_sweep_keeps_a_link_title_and_its_spacing(
@@ -848,9 +877,10 @@ def test_adr_new_agrees_with_the_guard_on_the_shared_constants() -> None:
 # numerically -- the one thing `ls` cannot do once numbers reach five digits.
 
 
-def test_index_lists_title_and_status(
+def test_index_links_the_number_and_prints_the_title(
     tree: ADRTree, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Status is the next two tests; this one is the number and the heading."""
     monkeypatch.chdir(tree.root)
     table = adr_index.render(adr_index.entries())
     assert "[0011](0011-catalog-single-git-remote.md)" in table
