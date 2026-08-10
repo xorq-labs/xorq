@@ -32,15 +32,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-
-ADR_DIR = Path("docs/adr")
-PLACEHOLDER = "XXXX"
-
-# Mirrors FILENAME_RE in adr_check.py: a leading number or the placeholder,
-# then the slug. Used here to read a filename back apart.
-SOURCE_RE = re.compile(
-    rf"^(?P<previous>\d{{4,}}|{PLACEHOLDER})-(?P<slug>[a-z0-9]+(?:-[a-z0-9]+)*)\.md$"
-)
+# The guard owns the filename grammar; read it back apart with the same regex
+# rather than a copy, so the two cannot drift into disagreeing about what a
+# valid ADR filename is. A plain sibling import: python puts this script's
+# directory on sys.path, and pytest reaches it the same way (see
+# scripts/tests/test_adr_check.py).
+from adr_check import ADR_DIR, FILENAME_RE, PLACEHOLDER
 
 
 def unnumbered() -> list[Path]:
@@ -55,8 +52,8 @@ def numbered_with_slug(slug: str) -> list[Path]:
     """
     found = []
     for path in sorted(ADR_DIR.glob(f"*-{slug}.md")):
-        match = SOURCE_RE.match(path.name)
-        if match and match["slug"] == slug and match["previous"] != PLACEHOLDER:
+        match = FILENAME_RE.match(path.name)
+        if match and match["slug"] == slug and match["num"] != PLACEHOLDER:
             found.append(path)
     return found
 
@@ -72,9 +69,9 @@ def claimant(number: str, exclude: Path) -> Path | None:
     for path in sorted(ADR_DIR.rglob("*.md")):
         if path == exclude:
             continue
-        match = SOURCE_RE.match(path.name)
-        if match and match["previous"] != PLACEHOLDER:
-            if int(match["previous"]) == int(number):
+        match = FILENAME_RE.match(path.name)
+        if match and match["num"] != PLACEHOLDER:
+            if int(match["num"]) == int(number):
                 return path
     return None
 
@@ -239,11 +236,12 @@ def main() -> int:
         return 1
     number, base = found
 
-    match = SOURCE_RE.match(src.name)
+    match = FILENAME_RE.match(src.name)
     if match is None:
         sys.stderr.write(f"{src} is not a well-formed ADR filename\n")
         return 1
-    previous, slug = match["previous"], match["slug"]
+    # The number in the source filename is the one being moved away from.
+    previous, slug = match["num"], match["slug"]
 
     if previous == number:
         sys.stdout.write(f"{src} already carries number {number}\n")
