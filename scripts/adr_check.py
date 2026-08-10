@@ -55,9 +55,6 @@ PR_NUMBER_FLOOR = 1000
 # cited by slug until then.
 LEGACY_IN_FLIGHT = {
     18: "content-store-capability-and-binding",  # hosted-presigned-catalogs-fixes
-    20: "engine-behavior-as-immutable-identity-folded-spec",  # PR #2200
-    21: "engine-construction-is-two-level-identityspec-feeds-enginebuilder",  # PR #2200
-    23: "identity-spec-contributions-are-entry-points-composed-order-independently",  # PR #2200
 }
 
 # The slug must start with a letter, which is what keeps it lexically disjoint
