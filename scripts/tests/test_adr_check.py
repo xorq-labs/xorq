@@ -455,20 +455,29 @@ def test_allowlisted_number_with_a_different_slug_is_rejected(tree: ADRTree) -> 
 
 
 def test_batch_of_unrelated_adrs_on_allowlisted_numbers_is_rejected(
-    tree: ADRTree,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The batch exemption must not become a general two-ADR bypass."""
-    numbers = list(adr_check.LEGACY_IN_FLIGHT)[:2]
-    tree.init_repo()
-    for number in numbers:
-        tree.write(
-            f"{number:04d}-brand-new-{number}.md",
-            f"# ADR-{number:04d}: Unrelated\n\nBody.\n",
-        )
-    tree.commit_all()
-    result = tree.check("--base", "HEAD~1", "--pr", "2211")
-    assert result.returncode == 1
-    assert "only one ADR can be added" in result.stderr
+    """The batch exemption must not become a general two-ADR bypass.
+
+    The allowlist is synthetic here, and deliberately: this is a fact about
+    `check_added`, not about whichever entries happen to be in flight today.
+    Reading the live mapping made the test need two entries to exist, so
+    shrinking the list to one broke it -- and the list is documented as
+    shrinking to nothing.
+    """
+    monkeypatch.setattr(
+        adr_check,
+        "LEGACY_IN_FLIGHT",
+        {18: "one-legacy-adr", 19: "another-legacy-adr"},
+    )
+    problems = adr_check.Problems()
+    adr_check.check_added(
+        problems,
+        [Path("docs/adr/0018-brand-new.md"), Path("docs/adr/0019-brand-new.md")],
+        2211,
+    )
+    assert problems.count == 1
+    assert "only one ADR can be added" in capsys.readouterr().err
 
 
 def test_unresolvable_base_is_a_clean_usage_error(tree: ADRTree) -> None:
