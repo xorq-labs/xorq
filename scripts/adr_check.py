@@ -360,7 +360,10 @@ def check_added(problems: Problems, added: list[Path], pr: int | None) -> None:
             ADR_DIR,
             f"this pull request adds {len(added)} ADRs ({names}), but the number "
             "comes from the pull request, so only one ADR can be added per pull "
-            "request. Move the others to their own pull requests",
+            "request. Move the others to their own pull requests -- splitting "
+            "costs nothing, because an ADR is citable by slug from the moment it "
+            "is written: cite `ADR-<slug>` rather than waiting for a number or "
+            "reserving one",
         )
         return
 

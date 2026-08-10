@@ -291,6 +291,9 @@ def test_two_new_adrs_in_one_pull_request_is_rejected(tree: ADRTree) -> None:
     result = tree.check("--base", "HEAD~1", "--pr", "2211")
     assert result.returncode == 1
     assert "only one ADR can be added" in result.stderr
+    # Splitting is only cheap if the author knows the split ADRs can still cite
+    # each other; without that the rule reads as "reserve a number or wait".
+    assert "ADR-<slug>" in result.stderr
 
 
 def test_allowlisted_legacy_adr_passes(tree: ADRTree) -> None:

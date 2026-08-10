@@ -44,7 +44,7 @@ CI treats the two asymmetrically. A numbered reference that doesn't resolve is a
 
 The `ci-adr` check fails while a filename still contains `XXXX`, so an unnumbered ADR can't merge.
 
-Write one ADR per pull request. The number comes from the pull request, so a second ADR in the same pull request has no number to take. Open another pull request — an ADR reviews fine on its own.
+Write one ADR per pull request. The number comes from the pull request, so a second ADR in the same pull request has no number to take. Open another pull request — an ADR reviews fine on its own, and splitting a set of related decisions costs nothing, because each is citable as `ADR-<slug>` from the moment it is written. Cite the others by slug; don't wait for their numbers, and don't reserve any.
 
 The allowlist in `scripts/adr_check.py` is the one exception: a branch that predates this rule can land the legacy-numbered ADRs it already wrote, together, because their numbers were claimed before the rule existed. Each entry names one file, by number *and* slug, and is deleted when its branch merges.
 
