@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import pathlib
 import sys
-import types
 
 import pytest
 
 import xorq.api as xo
 import xorq.common.exceptions as com
-import xorq.vendor.ibis.backends.profiles as profiles_mod
 from xorq.common.utils.env_utils import EnvConfigable
 from xorq.expr.relations import Read
 from xorq.ibis_yaml.compiler import (
@@ -64,47 +62,18 @@ def test_secret_keys_survive_an_unimported_backend(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
     """A profile hand-authored in a process that never imported the backend is
-    still fully checked -- by both tiers, for different reasons.
+    still checked -- by the mirror, which is the only tier that can answer.
 
-    The dynamic tier answers because resolution imports the backend rather than
-    inspecting `sys.modules` alone; an earlier draft skipped it here, and a
-    credential the config named but the mirror did not saved as plaintext. The
-    mirror answers without importing anything, and is what remains if the
-    backend's extra is not installed at all.
+    Resolution inspects `sys.modules` and never imports, so the config-derived
+    tier is silent here. That is deliberate (importing to read a hook would run
+    a plugin's module body), and it is exactly why the mirror entry is
+    load-bearing rather than redundant: without it this case would check
+    `("password",)` alone, which matches none of github's fields, and a raw
+    token would save with no error.
     """
     monkeypatch.delitem(sys.modules, "xorq.backends.github", raising=False)
-    assert "token" in get_dynamic_secret_keys("github")  # imported to answer
-    assert "token" in get_secret_keys("github")  # and mirrored besides
-
-    monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
-    profile = Profile(con_name="github", kwargs_tuple=(("token", "raw-token"),))
-    with pytest.raises(ValueError, match="exposed secret keys: 'token'"):
-        profile.save(alias="bad")
-
-
-def test_mirror_answers_when_the_backend_cannot_be_imported(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
-) -> None:
-    """With the extra absent the dynamic tier cannot answer at all. It degrades
-    with a warning, and the static mirror is the only thing still checking."""
-    monkeypatch.delitem(sys.modules, "xorq.backends.github", raising=False)
-    real = profiles_mod._load_entry_points()
-
-    def unimportable():
-        def load():
-            raise ImportError("No module named 'github_extra'")
-
-        return tuple(
-            types.SimpleNamespace(name=ep.name, module=ep.module, load=load)
-            if ep.name == "github"
-            else ep
-            for ep in real
-        )
-
-    monkeypatch.setattr(profiles_mod, "_load_entry_points", unimportable)
-    with pytest.warns(RuntimeWarning, match="could not import the backend"):
-        assert get_dynamic_secret_keys("github") is None
-    assert "token" in get_secret_keys("github")  # the mirror still answers
+    assert get_dynamic_secret_keys("github") is None  # silent, by design
+    assert "token" in get_secret_keys("github")  # the mirror answers
 
     monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
     profile = Profile(con_name="github", kwargs_tuple=(("token", "raw-token"),))
