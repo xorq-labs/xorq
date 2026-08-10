@@ -14,8 +14,8 @@
 > read it as the design, not as the code.
 >
 > Drafted ahead of implementation, like ADR-0021, and landing unimplemented in
-> the same PR (#2200) — the same departure from the
-> ADR-lands-with-implementation convention, for a sharper reason: this ADR's
+> the same PR (#2200) — the same departure from the convention that an ADR
+> lands with its implementation, for a sharper reason: this ADR's
 > gate cannot be met at this head at all. It has nothing to extend until
 > ADR-0021 phase 1 makes `DEFAULT_BUILDER` a value, and its prototype
 > re-expresses a REST plugin that reaches `main` in a later stack entry. What
@@ -47,7 +47,8 @@ modules imported first. Yet plugins have no other move: they are loaded by
 entry point, hold no builder, and cannot be constructor arguments to a
 default that exists before they load.
 
-Left unresolved, every plugin re-derives the shim pattern (ADR-0022's
+Left unresolved, every plugin re-derives the shim pattern
+(ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire's
 composition rule bounds the damage but does not remove the ambient
 mutation), and `DEFAULT_BUILDER`'s fingerprint means "whatever happened to
 be imported" — the exact fact ADR-0020 set out to make identity-visible.
@@ -83,7 +84,9 @@ rest = "xorq_rest_plugin.identity:CONTRIBUTION"
 
 A contribution carries: dasher rules to add (`(fqn, normalizer)` pairs),
 `normalize_registry` entries to add (`(key, fn)` pairs), and nothing else.
-Both are by-name surfaces (ADR-0018/0020 discipline); a contribution cannot
+Both are by-name surfaces
+(ADR-rest-config-contract-identity-folded-residence-either/0020 discipline);
+a contribution cannot
 carry per-engine material (compilers, paginators, auth — those are
 `build()` inputs per ADR-0021 phase 3).
 
@@ -105,7 +108,9 @@ would reintroduce order-dependence through the back door (sorted order
 would silently pick a winner); explicit conflict forces the two plugins to
 coordinate names — the append-only discipline both tables already state.
 A contribution may not override a *base* rule either: overriding core
-normalization from a plugin is ADR-0022 shim territory (a stop-gap with a
+normalization from a plugin is
+ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire
+shim territory (a stop-gap with a
 deletion path), never a durable registration.
 
 ### The transitional duck-typed protocols this is meant to dissolve
@@ -149,8 +154,9 @@ per-read contribution keyed by name) rather than a method core hopes to find,
 and the profile hash becomes something the source *states* instead of
 something core extracts. Streaming, being transport, should end up as a
 declared capability on the backend rather than a second `getattr` protocol.
-Until then they stay as they are — pinned by ADR-0022's stop-gap discipline,
-named here for deletion.
+Until then they stay as they are — pinned by
+ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire's
+stop-gap discipline, named here for deletion.
 
 ### Constructed builders are unaffected
 
@@ -187,7 +193,8 @@ Rejected because:
 
 Rejected because:
 - A durable extension that changes core normalization changes what every
-  existing build's hash *means*. That power stays confined to ADR-0022
+  existing build's hash *means*. That power stays confined to
+  ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire
   stop-gaps, which are pinned, loud, and named for deletion.
 
 ## Consequences
@@ -225,8 +232,10 @@ Rejected because:
 
 - ADR-0021 (the builder this extends; its 2026-07-30 amendment names this
   ADR as the owner of the extension gap), ADR-0020 + amendment
-  (fingerprint visibility of contributed and replaced rules), ADR-0022
-  (the stop-gap composition rule contributions graduate from), ADR-0018
+  (fingerprint visibility of contributed and replaced rules),
+  ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire
+  (the stop-gap composition rule contributions graduate from),
+  ADR-rest-config-contract-identity-folded-residence-either
   (by-name registries; append-only hazard)
 - The out-of-tree REST plugin prototype patches the dasher rule table and the
   `normalize_registry` at import; those are the two mutations a single

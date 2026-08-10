@@ -9,10 +9,12 @@
 xorq's behavior is governed by several rule tables: the dasher normalize/
 tokenize rules (`dasher._EXTRA_RULES` → `HASHER`), the by-name
 `normalize_method` registry (`ibis_yaml/normalize_registry.py`), the REST
-paginator/auth registries (ADR-0018), and per-backend compilers. Reviewing
-the REST streaming work surfaced a recurring shape: some of these are clean,
-composable extension points and some accrete shims, and the difference is
-learnable (see the shim-vs-core-enabler analysis behind ADR-0019).
+paginator/auth registries
+(ADR-rest-config-contract-identity-folded-residence-either), and per-backend
+compilers. Reviewing the REST streaming work surfaced a recurring shape: some
+of these are clean, composable extension points and some accrete shims, and
+the difference is learnable (see the shim-vs-core-enabler analysis behind
+ADR-rest-resource-reads-are-lazy-datafusion-tables).
 
 Two of these tables — `_EXTRA_RULES` and `_NORMALIZE_RULES` — are *literally
 the same type* (`tuple[tuple[str, object], ...]`) with the *same* append-only
@@ -156,7 +158,8 @@ Deferred because:
 
 - **One-time build-hash migration**: existing build artifacts get new hashes
   once, as their now-folded rule set becomes identity-bearing. A graduation
-  cost, exactly ADR-0018's framing; catalog artifacts rebuild. Two goldens pin
+  cost, exactly ADR-rest-config-contract-identity-folded-residence-either's
+  framing; catalog artifacts rebuild. Two goldens pin
   a build-hash literal and were regenerated once with the fold
   (`test_artifact_store_expr_hash`, and `build_dir_name` in
   `test_build_file_stability_and_relocatability/expected.json` — where the
@@ -190,7 +193,9 @@ Deferred because:
 
 ## References
 
-- ADR-0015 (build vs cache hash), ADR-0017, ADR-0018, ADR-0019
+- ADR-0015 (build vs cache hash), ADR-0017,
+  ADR-rest-config-contract-identity-folded-residence-either,
+  ADR-rest-resource-reads-are-lazy-datafusion-tables
 - `xorq_dasher.Hasher` (`core.py:84`) — the frozen composable registry
 - `test_dasher.py:1101` — the hand-maintained FQN-drift check this promotes
 - The implementation (this branch): `dasher.rules_fingerprint`
