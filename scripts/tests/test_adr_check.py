@@ -361,6 +361,34 @@ def test_allowlisted_legacy_adr_passes(tree: ADRTree) -> None:
     tree.commit_all()
     result = tree.check("--base", "HEAD~1", "--pr", "2211")
     assert result.returncode == 0, result.stderr
+    # The entry is in use, not spent: this run is the one adding the file.
+    assert "has done its job" not in result.stderr
+
+
+def test_an_allowlist_entry_is_reported_once_its_adr_has_landed(
+    tree: ADRTree,
+) -> None:
+    """The entry cannot be deleted by the pull request that lands the ADR.
+
+    CI reads the merged code, so removing it there rejects the very file it
+    was protecting -- the cleanup is always a follow-up, and a follow-up
+    nobody is reminded of is one that does not happen. A spent entry is a
+    standing licence to claim that number.
+    """
+    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
+    tree.write(f"{number:04d}-{slug}.md", f"# ADR-{number:04d}: Legacy\n\nBody.\n")
+    result = tree.check()
+    assert "has done its job" in result.stderr
+    # A warning: the entry belongs to whoever landed the ADR, and someone
+    # else's pull request should not be blocked by it.
+    assert result.returncode == 0, result.stderr
+
+
+def test_an_allowlist_entry_whose_adr_is_absent_is_not_reported(
+    tree: ADRTree,
+) -> None:
+    """The ordinary state of an entry: its branch has not landed yet."""
+    assert "has done its job" not in tree.check().stderr
 
 
 def test_allowlisted_number_with_a_different_slug_is_rejected(tree: ADRTree) -> None:

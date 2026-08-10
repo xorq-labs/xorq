@@ -40,15 +40,20 @@ PR_NUMBER_FLOOR = 1000
 # Legacy-numbered ADRs still in flight on branches that were opened before the
 # PR-number scheme landed, as {number: slug}. Each entry exempts exactly one
 # file -- the number alone is not enough, or the entry becomes a general licence
-# to add any ADR at that number. Delete an entry once its branch merges. This
-# mapping must only ever shrink.
+# to add any ADR at that number.
+#
+# This mapping must only ever shrink, and `check_allowlist` is what makes that
+# more than a wish: once an entry's ADR is in the tree, the entry has done its
+# job and is reported until someone deletes it. The deletion is always a
+# follow-up, never part of the pull request that lands the ADR -- CI reads the
+# merged code, so an entry removed there would reject the file it was
+# protecting.
 #
 # Numbers are NOT held here for ADRs that do not exist yet. Reserving a number
 # ahead of the file is the coordination this scheme exists to remove; an ADR
 # still being written takes the number of the pull request that adds it, and is
 # cited by slug until then.
 LEGACY_IN_FLIGHT = {
-    1: "git-annex-over-git-lfs",  # origin/perf/catalog/use-git-annex
     18: "content-store-capability-and-binding",  # hosted-presigned-catalogs-fixes
     20: "engine-behavior-as-immutable-identity-folded-spec",  # PR #2200
     21: "engine-construction-is-two-level-identityspec-feeds-enginebuilder",  # PR #2200
@@ -117,8 +122,9 @@ class Problems:
     def warn(self, path: Path | str, message: str) -> None:
         """Report without failing the run.
 
-        Used for named references that do not resolve, which are legitimate
-        while the ADR they name is still on an unlanded branch.
+        For things that are legitimate now and wrong later: a named reference
+        whose ADR is still on an unlanded branch, or an allowlist entry whose
+        ADR has landed and which someone else has to delete.
         """
         self.warnings += 1
         self._emit("warning", path, message)
@@ -368,6 +374,39 @@ def is_allowlisted(path: Path) -> bool:
     return number is not None and LEGACY_IN_FLIGHT.get(number) == slug
 
 
+def check_allowlist(problems: Problems, added: list[Path] | None) -> None:
+    """Report allowlist entries that have done their job.
+
+    An entry exists to let one legacy-numbered ADR land from a branch that
+    predates this scheme. Once that file is in the tree and this run is not the
+    one adding it, the exemption is spent -- and a spent entry is a standing
+    licence for anyone to claim that number, which is the thing the scheme
+    exists to prevent.
+
+    It cannot be deleted by the pull request that lands the ADR: CI reads the
+    merged code, so the entry has to still be there for `check_added` to allow
+    the file, and removing it in the same pull request rejects the very ADR it
+    was protecting. The cleanup is therefore always a follow-up -- and the
+    comment on LEGACY_IN_FLIGHT saying the list "must only ever shrink" names
+    no one and nothing enforced it. This is that enforcement.
+
+    A warning rather than an error, because the entry belongs to whoever landed
+    the ADR and an unrelated pull request should not be blocked by it. It
+    reappears on every run until someone deletes it.
+    """
+    being_added = {path.name for path in added or ()}
+    for number, slug in sorted(LEGACY_IN_FLIGHT.items()):
+        path = ADR_DIR / f"{number:04d}-{slug}.md"
+        if path.name in being_added or not path.exists():
+            continue
+        problems.warn(
+            path,
+            f"has landed, so the LEGACY_IN_FLIGHT entry for {number:04d} in "
+            "scripts/adr_check.py has done its job and should be deleted. "
+            "Until it is, anyone can add an ADR at that number",
+        )
+
+
 def check_added(problems: Problems, added: list[Path], pr: int | None) -> None:
     # A batch of allowlisted legacy ADRs is exempt from one-per-pull-request:
     # those branches predate the scheme and their files were already written
@@ -453,16 +492,21 @@ def main() -> int:
 
     problems = Problems(github=args.format == "github")
     check_directory(problems)
+    added = None
     if args.base:
         added = added_adrs(args.base)
         if added is None:
             return 2
         check_added(problems, added, args.pr)
+    # Last, and with `added` in hand: an allowlist entry is only spent if this
+    # run is not the one using it.
+    check_allowlist(problems, added)
 
     if problems.warnings:
         sys.stderr.write(
-            f"\n{problems.warnings} unresolved named reference(s). Not a "
-            "failure: an ADR named by slug may still be on an unlanded branch.\n"
+            f"\n{problems.warnings} warning(s), which do not fail the run. A "
+            "named reference resolves once its ADR lands; a spent allowlist "
+            "entry needs deleting.\n"
         )
     if problems.count:
         sys.stderr.write(
