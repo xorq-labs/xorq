@@ -1,0 +1,75 @@
+name: ci-adr
+
+# Deliberately no `paths:` filter. A path-filtered workflow reports no status
+# at all on pull requests that miss the filter, so it can never be a required
+# check. scripts/adr_check.py is a sub-second no-op when nothing changed, so
+# running it everywhere costs less than the branch-protection workaround.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A superseded run tells you nothing; cancel it rather than pay for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  adr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The new-ADR checks diff against the merge base with the target
+          # branch, which the default shallow clone does not contain.
+          fetch-depth: 0
+
+      # Stdlib only, so no setup-python and no uv sync: the runner's python3
+      # is enough. Event fields arrive as environment variables rather than
+      # inline `${{ }}` interpolation, so nothing from the event is ever pasted
+      # into the shell -- a habit worth keeping even where, as here, the two
+      # values are a sha and an integer.
+      # The two steps are alternatives, named apart so the log says which one
+      # ran: only the first checks that a new ADR carries its pull request
+      # number, because only it has a pull request to compare against.
+      - name: Check ADR numbering, references, and the ADR this pull request adds
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 scripts/adr_check.py --format github \
+            --base "$BASE_SHA" --pr "$PR_NUMBER"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
+      - name: Check ADR numbering and references across the directory
+        if: github.event_name != 'pull_request'
+        run: python3 scripts/adr_check.py --format github
+
+  # The guard's own tests run on every pull request too, for the reason
+  # scripts/README.md gives for testing any guard at all. Separate
+  # job because the install-free property above is per-job: this one needs
+  # pytest, the one above must keep proving it needs nothing.
+  adr-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Default shallow clone is enough: the tests build throwaway git
+      # repositories under tmp_path rather than reading this one's history.
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      # --no-project because the tests import scripts/adr_*.py by path, not
+      # through xorq, so pytest alone is the whole dependency set. Nothing to
+      # sync means nothing to keep in step with the lockfile.
+      - name: Test the ADR guard
+        run: uv run --isolated --no-project --with pytest -- pytest scripts/tests -q
