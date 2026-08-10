@@ -1,4 +1,4 @@
-# ADR-0022: Out-of-core patches compose — delegate, conjoin, or fork behind a source tripwire
+# ADR-XXXX: Out-of-core patches compose — delegate, conjoin, or fork behind a source tripwire
 
 - **Status:** Accepted
 - **Date:** 2026-07-29
@@ -210,7 +210,8 @@ made against.
   conjunctive-secret and tripwire-drift cases. The shape-4 preflight collision
   check arrived in the follow-up *fix(plugins): close the review findings on
   the rest-plugin shim*.
-- ADR-0020 (body-blind fingerprint; names are the contract), ADR-0018
+- ADR-0020 (body-blind fingerprint; names are the contract),
+  ADR-rest-config-contract-identity-folded-residence-either
   (by-name registries)
 - The shim-signals-missing-primitive line this ADR is the stop-gap counterpart
   to has no ADR home; it is stated in the Context above. It is worked out at
