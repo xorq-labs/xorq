@@ -1,4 +1,4 @@
-# ADR-0017: API-backed relations are path-less Read ops; their identity is the registered source-identity normalizer
+# ADR-XXXX: API-backed relations are path-less Read ops; their identity is the registered source-identity normalizer
 
 - **Status:** Accepted
 - **Date:** 2026-07-24
@@ -6,11 +6,11 @@
 
 ## Context
 
-Phase 1 of API-as-Backend (ADR-0016, `plans/udxf-source-api-backend.md`)
-exposed Mixpanel resources as `flight_udxf` relations: a cloudpickled
-exchanger carrying an HTTP client whose fields are env var references. It
-worked and satisfied the credential invariant, but running it end to end
-surfaced three costs:
+Phase 1 of API-as-Backend (ADR-build-artifacts-are-credential-free,
+`plans/udxf-source-api-backend.md`) exposed Mixpanel resources as `flight_udxf`
+relations: a cloudpickled exchanger carrying an HTTP client whose fields are
+env var references. It worked and satisfied the credential invariant, but
+running it end to end surfaced three costs:
 
 1. **Opacity.** The client rides inside base64-encoded pickle bytes in
    `expr.yaml`. The credential invariant could only be enforced *before*
@@ -36,7 +36,8 @@ ingestion — `method_name` + `read_kwargs` + a by-name-registered
 ## Decision drivers
 
 - Build artifacts must be auditable, not just constructed carefully
-  (ADR-0016's invariant, enforced *and* greppable).
+  (ADR-build-artifacts-are-credential-free's invariant, enforced *and*
+  greppable).
 - The data source's profile must rehydrate from `profiles.yaml` like any SQL
   backend's.
 - Expression identity must be declarative — stable across sessions, fetch-code
@@ -80,13 +81,14 @@ existing build or cache hash changes.
 
 ### Execution: `fetch_*` methods on a served backend
 
-`Read.make_dt` calls `getattr(source, method_name)(**kwargs)` at the
-execution boundary. The mixpanel backend now subclasses the pandas backend:
-`fetch_events`/`fetch_engage` perform the HTTP calls (credentials resolved
-from env at that moment), land the DataFrame in `self.dictionary`, and return
-a served table. `read_events`/`read_engage` construct the deferred `Read`
-(and still reject raw secrets at construction, per ADR-0016 — a profile with
-raw values would otherwise be serialized plaintext into `profiles.yaml`).
+`Read.make_dt` calls `getattr(source, method_name)(**kwargs)` at the execution
+boundary. The mixpanel backend now subclasses the pandas backend:
+`fetch_events`/`fetch_engage` perform the HTTP calls (credentials resolved from
+env at that moment), land the DataFrame in `self.dictionary`, and return a
+served table. `read_events`/`read_engage` construct the deferred `Read` (and
+still reject raw secrets at construction, per
+ADR-build-artifacts-are-credential-free — a profile with raw values would
+otherwise be serialized plaintext into `profiles.yaml`).
 
 ## Alternatives considered
 
@@ -142,8 +144,8 @@ Rejected because:
 ## References
 
 - ADR-0002 (sequential id normalization), ADR-0006 (read-kwargs hash-path
-  split), ADR-0015 (hash participation rule), ADR-0016 (credential-free
-  build artifacts)
+  split), ADR-0015 (hash participation rule),
+  ADR-build-artifacts-are-credential-free (credential-free build artifacts)
 - plans/udxf-source-api-backend.md — Phase 2
 - commit 4c14f644 — Phase 1 (cloudpickled-udxf implementation this
   supersedes in core)
