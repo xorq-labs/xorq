@@ -34,7 +34,7 @@ jobs:
       - name: Run codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          path: "python src"
+          path: "python src scripts"
           ignore_words_file: .codespell.ignore-words
 
       - uses: actions/setup-python@v6
@@ -51,7 +51,7 @@ jobs:
 
       # Update output format to enable automatic inline annotations.
       - name: Run Ruff
-        run: uv run --no-sync ruff check --output-format=github python examples docs
+        run: uv run --no-sync ruff check --output-format=github python examples docs scripts
 
       - name: Verify no uncommitted changes
         run: |
