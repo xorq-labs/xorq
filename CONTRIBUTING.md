@@ -143,7 +143,8 @@ pull request exists. Cite an ADR that has no number yet by its slug
 (`ADR-my-decision`); both forms keep resolving.
 
 See [docs/adr/README.md](docs/adr/README.md) for the full convention. The
-`ci-adr` check reports on it.
+`ci-adr` workflow enforces it: its `adr` and `adr-tests` jobs are required
+status checks on `main`.
 
 ## Working with the documentation
 
