@@ -1,4 +1,4 @@
-# ADR-XXXX: API-backed relations are path-less Read ops; their identity is the registered source-identity normalizer
+# ADR-2214: API-backed relations are path-less Read ops; their identity is the registered source-identity normalizer
 
 - **Status:** Accepted
 - **Date:** 2026-07-24
