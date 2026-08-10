@@ -147,7 +147,7 @@ Rejected: this is the current de facto process, and all three incidents above ha
 - One extra step: authors run `python3 scripts/adr_rename.py` after opening the pull request. CI fails until they do, which is the intent, but it does mean a red check on the first push of any pull request carrying an ADR.
 - Closing a pull request and opening a replacement strands the number and requires a second rename. The check catches it.
 - One ADR per pull request. A change that warrants two decision records needs two pull requests. The allowlist relaxes this for legacy branches that predate the rule, keyed to a specific file rather than to a number.
-- `ci-adr` must be added to branch protection as a required check. That is repository configuration, not something this pull request can carry.
+- The guard reports but does not block until the **`adr` job** is a required status check on `main`. The context to require is the job name, `adr` — not the workflow name, `ci-adr`, which matches nothing and would silently never block. That is repository configuration, not something this pull request can carry, and `main` requires no status checks at all today, so the first entry is also a decision about whether failing CI blocks a merge here.
 
 ## References
 
