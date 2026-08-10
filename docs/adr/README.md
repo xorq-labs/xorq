@@ -81,11 +81,35 @@ When the decision still holds but the implementation details changed, set the st
 
 ## Why there is no index file
 
-An index listing every ADR would be a second place that records each number, and every concurrent pull request would append to the same line range and conflict — reintroducing exactly the coordination this scheme removes. Use `ls docs/adr/`, `git log docs/adr/`, or grep. Status and supersession live in each ADR's own header, which is the only place they can't go stale.
+An index listing every ADR would be a second place that records each number, and every concurrent pull request would append to the same line range and conflict — reintroducing exactly the coordination this scheme removes. Status and supersession live in each ADR's own header, which is the only place they can't go stale.
+
+Generating the list rather than writing it does not change that. It cures staleness, not conflicts: a checked-in generated table occupies the same lines and conflicts exactly as often, and a CI check demanding it be current would *force* that conflict on every concurrent pull request. So the list is printed on demand and never stored:
+
+```bash
+python3 scripts/adr_index.py
+```
+
+Nothing depends on its output, which is what makes it safe to have. `git log docs/adr/` and grep remain the other ways in.
+
+That tool also sorts properly, which `ls` will stop doing once pull request numbers reach five digits — `10000-x.md` sorts before `2129-x.md`. Numbers aren't zero-padded, because an ADR's number is its pull request's number written the way the forge writes it, so ordering is the reader's problem to solve rather than the filename's.
 
 An index has one other use worth naming: when numbers are the only way to cite an ADR, reserving a row is the only way to point at one that hasn't landed. Named references cover that directly, and say more while doing it — a reservation records that a number is taken, a named reference records which decision you meant.
 
-A curated reading order is a different thing from an index and is genuinely useful. If one is added, it should say plainly that it is a reading guide and not the source of truth for numbers.
+## Suggested reading order: the identity and caching thread
+
+A reading guide, not the source of truth for anything. Numbers and statuses live in the ADRs themselves; this section only claims that these decisions are one argument and that this is the order in which it makes sense.
+
+Most of these ADRs are one argument about content-addressed identity — what a hash is allowed to depend on. ADRs still on unlanded branches are cited by slug, so they resolve when they land and this section never has to be revisited for a number.
+
+**The grain.** [0015](0015-build-hash-cache-hash-split.md) first: the build hash answers "was this pipeline built?", the cache hash answers "is this result reusable?", and the two are allowed to move independently. Almost everything later is stated in its vocabulary. [0010](0010-split-normalize-op-data-from-structure.md) and [0006](0006-read-kwargs-hash-path-read-path-split.md) are the same move applied inside normalization and inside read kwargs: separate what identifies data from what merely locates or carries it. [0002](0002-normalize-sequential-ids-in-build.md) and [0007](0007-datafusion-plan-path-canonicalization.md) are two early instances of the same discipline.
+
+**What a hash may depend on.** [0017](0017-canonical-hash-forms-not-serializer-bytes.md) draws the outer line: identity comes from xorq-owned canonical forms, never from bytes a dependency's serializer happened to emit. [0016](0016-table-driven-opaque-descent-with-registration-tripwires.md) is how descent into unknown objects stays honest without a hand-maintained list.
+
+**Sources with no path.** ADR-api-relations-are-pathless-read-ops: an API-backed relation has no file path to hash, so its identity is a registered normalizer. ADR-build-artifacts-are-credential-free is the constraint that shapes it — artifacts carry env-var *references*, never credential values, so identity must be built from things that are safe to write down.
+
+**REST as the worked example.** ADR-rest-config-contract-identity-folded-residence-either turns an API into a declarative config behind one backend, with identity folded from the config itself; ADR-rest-resource-reads-are-lazy-datafusion-tables replaces the eager pandas substrate under it with lazy DataFusion tables, and leans on [0013](0013-batchcorder-stream-cache-for-remote-table-fan-out.md)'s StreamCache to make a one-shot reader survive a multi-scan plan.
+
+**Turning the machinery itself into identity.** ADR-engine-behavior-as-immutable-identity-folded-spec closes the loop: the *rule set* that computes hashes is itself identity-bearing, so its fingerprint folds into the build hash. From there the thread becomes design work — ADR-engine-construction-is-two-level-identityspec-feeds-enginebuilder makes engine construction two-level so identity rules cannot vary per engine, and ADR-identity-spec-contributions-are-entry-points-composed-order-independently gives plugins an order-independent way to extend them. Read both as proposals; neither is implemented, and each says so in its own opening. ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire is the stop-gap discipline that bounds patches which cannot yet be expressed that way.
 
 ## Why these files aren't on the docs site
 

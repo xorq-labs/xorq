@@ -31,6 +31,7 @@ SCRIPTS = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import adr_check  # noqa: E402  (path set above)
+import adr_index  # noqa: E402
 import adr_new  # noqa: E402
 import adr_rename  # noqa: E402
 
@@ -656,6 +657,78 @@ def test_adr_new_agrees_with_the_guard_on_the_shared_constants() -> None:
     broken one, which leaves these two declarations to keep in step by hand."""
     assert adr_new.ADR_DIR == adr_check.ADR_DIR
     assert adr_new.PLACEHOLDER == adr_check.PLACEHOLDER
+
+
+# --- the generated index in adr_index.py -------------------------------------
+#
+# The index is printed, never stored, so nothing here guards a committed file.
+# What is worth pinning is that it reads the ADRs correctly and orders them
+# numerically -- the one thing `ls` cannot do once numbers reach five digits.
+
+
+def test_index_lists_title_and_status(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tree.root)
+    table = adr_index.render(adr_index.entries())
+    assert "[0011](0011-catalog-single-git-remote.md)" in table
+    assert "Catalog supports a single git remote" in table
+
+
+def test_index_shows_status_as_text_not_a_link(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A table of relative links reads worse than the sentence it came from."""
+    tree.write(
+        "0012-two.md",
+        "# ADR-0012: Two\n\n- **Status:** Superseded by [ADR-0011](0011-catalog-single-git-remote.md)\n",
+    )
+    monkeypatch.chdir(tree.root)
+    table = adr_index.render(adr_index.entries())
+    assert "| Superseded by ADR-0011 |" in table
+
+
+def test_index_sorts_numerically_not_lexically(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reason this tool exists: `10000-x.md` sorts before `2129-x.md`.
+
+    Numbers are not zero-padded, so ordering cannot come from the filename.
+    """
+    tree.write("2129-mid.md", "# ADR-2129: Mid\n\n- **Status:** Accepted\n")
+    tree.write("10000-late.md", "# ADR-10000: Late\n\n- **Status:** Accepted\n")
+    monkeypatch.chdir(tree.root)
+    numbers = [row[0] for row in adr_index.entries()]
+    assert numbers == [11, 2129, 10000]
+
+
+def test_index_puts_an_unnumbered_adr_last(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It has no place in a numeric sequence; first would imply it precedes 0002."""
+    tree.write("XXXX-pending.md", "# ADR-XXXX: Pending\n\n- **Status:** Proposed\n")
+    monkeypatch.chdir(tree.root)
+    rows = adr_index.entries()
+    assert rows[-1][0] is None
+    assert "[XXXX](XXXX-pending.md)" in adr_index.render(rows)
+
+
+def test_index_tolerates_a_missing_status(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree.write("0012-two.md", "# ADR-0012: Two\n\nNo status line.\n")
+    monkeypatch.chdir(tree.root)
+    assert "| — |" in adr_index.render(adr_index.entries())
+
+
+def test_index_skips_a_malformed_filename(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """adr_check.py reports the name precisely; the index just stays runnable."""
+    tree.write("not-an-adr.md", "# Nope\n")
+    monkeypatch.chdir(tree.root)
+    slugs = [row[2] for row in adr_index.entries()]
+    assert slugs == ["catalog-single-git-remote"]
 
 
 def test_environment_is_restored_between_tests() -> None:
