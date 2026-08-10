@@ -1,17 +1,19 @@
-"""Tests for the ADR numbering guard.
+"""Tests for the ADR tooling: the numbering guard and the scripts around it.
 
 `scripts/adr_check.py` is what makes the numbering scheme in `docs/adr/README.md`
 enforceable rather than advisory, so its own behaviour is worth pinning: a check
 that silently stops firing looks exactly like a repository with no problems.
 
-Each test builds a throwaway `docs/adr/` and runs the guard against it, so
+Each test builds a throwaway `docs/adr/` and runs the tooling against it, so
 nothing here depends on which ADRs happen to exist in the repository today.
+`docs/adr/template.md` is the one deliberate exception, read by
+`test_a_freshly_scaffolded_adr_satisfies_the_guard`.
 
     uv run --no-sync pytest scripts/tests
 
-The guard itself stays stdlib-only and `ci-adr.yml` runs it with the runner's
-bare `python3`; these tests are not part of that workflow, which is what keeps
-it free of an install step.
+The guard itself stays stdlib-only and the `adr` job in `ci-adr.yml` runs it
+with the runner's bare `python3`. These tests need pytest, so they run as that
+workflow's second job, which is what keeps the first free of an install step.
 """
 
 from __future__ import annotations
@@ -29,11 +31,13 @@ SCRIPTS = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import adr_check  # noqa: E402  (path set above)
+import adr_new  # noqa: E402
 import adr_rename  # noqa: E402
 
 
 BASE_ADR = "0011-catalog-single-git-remote.md"
 BASE_TEXT = "# ADR-0011: Catalog supports a single git remote\n\nBody.\n"
+REAL_TEMPLATE = REPO_ROOT / "docs" / "adr" / "template.md"
 
 
 class ADRTree:
@@ -562,6 +566,96 @@ def test_renumber_end_to_end_moves_the_number_out_of_code(
     renamed = tree.adr_dir / "2211-my-decision.md"
     assert renamed.read_text().startswith("# ADR-2211:")
     assert "(ADR-2211)" in module.read_text()
+
+
+# --- scaffolding in adr_new.py -----------------------------------------------
+
+
+@pytest.fixture
+def scaffoldable(tree: ADRTree, monkeypatch: pytest.MonkeyPatch) -> ADRTree:
+    """A tree with the real template in place, ready for `adr_new.main`."""
+    tree.write("template.md", REAL_TEMPLATE.read_text(encoding="utf-8"))
+    monkeypatch.chdir(tree.root)
+    return tree
+
+
+def scaffold(monkeypatch: pytest.MonkeyPatch, *argv: str) -> int:
+    monkeypatch.setattr(sys, "argv", ["adr_new.py", *argv])
+    return adr_new.main()
+
+
+def test_scaffold_writes_the_placeholder_filename(
+    scaffoldable: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert scaffold(monkeypatch, "my-decision") == 0
+    written = scaffoldable.adr_dir / "XXXX-my-decision.md"
+    assert written.read_text(encoding="utf-8").startswith("# ADR-XXXX:")
+
+
+@pytest.mark.parametrize(
+    "slug",
+    [
+        pytest.param("My-Decision", id="uppercase"),
+        pytest.param("my_decision", id="underscore"),
+        pytest.param("my--decision", id="doubled-hyphen"),
+        pytest.param("-my-decision", id="leading-hyphen"),
+        pytest.param("my-decision-", id="trailing-hyphen"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_scaffold_rejects_a_slug_the_guard_would_reject(
+    scaffoldable: ADRTree, monkeypatch: pytest.MonkeyPatch, slug: str
+) -> None:
+    """Anything FILENAME_RE would not match must fail here, not in CI."""
+    assert scaffold(monkeypatch, slug) == 1
+    assert list(scaffoldable.adr_dir.glob("XXXX-*.md")) == []
+
+
+def test_scaffold_refuses_to_overwrite(
+    scaffoldable: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    existing = scaffoldable.write("XXXX-my-decision.md", "# ADR-XXXX: Mine\n\nDraft.\n")
+    assert scaffold(monkeypatch, "my-decision") == 1
+    assert "Draft." in existing.read_text(encoding="utf-8")
+
+
+def test_scaffold_without_a_slug_is_a_usage_error(
+    scaffoldable: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert scaffold(monkeypatch) == 2
+    assert scaffold(monkeypatch, "one", "two") == 2
+
+
+def test_scaffold_outside_the_repository_root_says_so(
+    tree: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No template means the caller is in the wrong directory, not that the
+    slug was bad -- exit 2, not 1."""
+    monkeypatch.chdir(tree.root)
+    assert scaffold(monkeypatch, "my-decision") == 2
+
+
+def test_a_freshly_scaffolded_adr_satisfies_the_guard(
+    scaffoldable: ADRTree, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The template is exempt from the reference checks; a copy of it is not.
+
+    So a citation in the template that stops resolving would send every new ADR
+    into CI already failing, and nothing else would report it. The placeholder
+    itself is expected to fail until `adr_rename.py` runs.
+    """
+    assert scaffold(monkeypatch, "my-decision") == 0
+    result = scaffoldable.check()
+    assert "which does not exist" not in result.stderr
+    assert "is not in this directory" not in result.stderr
+    assert "placeholder" in result.stderr
+
+
+def test_adr_new_agrees_with_the_guard_on_the_shared_constants() -> None:
+    """adr_new stays import-free of the guard so scaffolding works even with a
+    broken one, which leaves these two declarations to keep in step by hand."""
+    assert adr_new.ADR_DIR == adr_check.ADR_DIR
+    assert adr_new.PLACEHOLDER == adr_check.PLACEHOLDER
 
 
 def test_environment_is_restored_between_tests() -> None:
