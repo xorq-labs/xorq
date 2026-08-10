@@ -1,4 +1,4 @@
-# ADR-0016: Build artifacts are credential-free; Profiles are the sole credential carrier
+# ADR-XXXX: Build artifacts are credential-free; Profiles are the sole credential carrier
 
 - **Status:** Accepted
 - **Date:** 2026-07-23
