@@ -45,3 +45,26 @@ jobs:
       - name: Check ADR numbering and references
         if: github.event_name != 'pull_request'
         run: python3 scripts/adr_check.py --format github
+
+  # A guard that silently stops firing looks exactly like a repository with no
+  # problems, so the guard's own tests run on every pull request too. Separate
+  # job because the install-free property above is per-job: this one needs
+  # pytest, the one above must keep proving it needs nothing.
+  adr-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Default shallow clone is enough: the tests build throwaway git
+      # repositories under tmp_path rather than reading this one's history.
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      # --no-project because the tests import scripts/adr_*.py by path, not
+      # through xorq, so pytest alone is the whole dependency set. Nothing to
+      # sync means nothing to keep in step with the lockfile.
+      - name: Test the ADR guard
+        run: uv run --isolated --no-project --with pytest -- pytest scripts/tests -q
