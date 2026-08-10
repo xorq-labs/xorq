@@ -1,7 +1,7 @@
 """A REST API as a xorq backend, driven by a declarative config.
 
-Two ways to use it (ADR-0018 — "identity: always folded; residence:
-per-API packaging choice"):
+Two ways to use it (ADR-rest-config-contract-identity-folded-residence-either —
+"identity: always folded; residence: per-API packaging choice"):
 
 - **curated** (config in code): subclass with a class-level ``config`` and
   its own entry point; the profile stays credentials-shaped.
@@ -10,9 +10,9 @@ per-API packaging choice"):
   saved profile carries the whole API definition. Config-expressible APIs
   only: ``fetch_override`` cannot ride in a profile.
 
-In both modes resources are path-less ``Read`` ops (ADR-0017) whose
-identity folds the per-resource config content hash
-(``normalize_read_source_identity``).
+In both modes resources are path-less ``Read`` ops
+(ADR-api-relations-are-pathless-read-ops) whose identity folds the per-resource
+config content hash (``normalize_read_source_identity``).
 """
 
 from __future__ import annotations

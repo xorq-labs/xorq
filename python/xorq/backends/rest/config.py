@@ -1,27 +1,29 @@
 """The declarative REST contract: what a REST API *is*, engine-independent.
 
-The config is the stable contract (ADR-0018): extraction engines
-(``engines.Engine`` — ``NativeEngine`` today, dlt later) are swappable
-behind it. Three deliberate omissions vs dlt's RESTAPIConfig:
+The config is the stable contract
+(ADR-rest-config-contract-identity-folded-residence-either): extraction engines
+(``engines.Engine`` — ``NativeEngine`` today, dlt later) are swappable behind
+it. Three deliberate omissions vs dlt's RESTAPIConfig:
 
 1. no incremental/cursor block — incrementality is a param in ``read_kwargs``
    (``ParamSpec(kind="range")``), never backend state;
 2. auth names profile *fields*, never values — resolution happens at
-   execution via the profile/env machinery (ADR-0016);
+   execution via the profile/env machinery
+   (ADR-build-artifacts-are-credential-free);
 3. ``fetch_override`` — config-first, code-fallback; bespoke resources
    (NDJSON export, nonstandard pagination) supply a callable. Overrides are
    code-path-only: they cannot ride in a self-service profile.
 
-Identity: both config classes carry a ``content_hash`` DERIVED from their
-attrs declaration (``identity_field_names``) rather than a hand-written
-tuple — a field is identity-bearing by default and opting out takes an
-explicit ``non_identity_field(...)`` declaration. ``ResourceConfig`` covers the
+Identity: both config classes carry a ``content_hash`` DERIVED from their attrs
+declaration (``identity_field_names``) rather than a hand-written tuple — a
+field is identity-bearing by default and opting out takes an explicit
+``non_identity_field(...)`` declaration. ``ResourceConfig`` covers the
 resource's declarative fields (``fetch_override`` excluded — code is
-refactorable, per ADR-0025's line); ``RestBackendConfig`` covers the
-API-wide contract, the resolved ``base_urls`` and the auth shape. The
-backend folds both into ``normalize_read_source_identity``, so editing a
-resource's path/params, or repointing a base URL, changes build and cache
-hashes (ADR-0015).
+refactorable, per ADR-api-relations-are-pathless-read-ops's line);
+``RestBackendConfig`` covers the API-wide contract, the resolved ``base_urls``
+and the auth shape. The backend folds both into
+``normalize_read_source_identity``, so editing a resource's path/params, or
+repointing a base URL, changes build and cache hashes (ADR-0015).
 
 Sibling independence — editing one resource not invalidating the others —
 is **mode-dependent**, and the unconditional claim this docstring used to
@@ -38,11 +40,12 @@ make was true of curated backends only:
   the profile and once through its own hash.
 
 The failure direction is safe (spurious invalidation, never stale data served
-as current) and ADR-0018 records the trade as deliberate. Making the property
-uniform would mean ``dissoc``-ing ``config`` from the profile's contribution
-to read identity, which is itself an identity change — every build directory
-and cache entry for every self-service rest read moves — so it needs its own
-adjudicated baseline and is deliberately not done here.
+as current) and ADR-rest-config-contract-identity-folded-residence-either
+records the trade as deliberate. Making the property uniform would mean
+``dissoc``-ing ``config`` from the profile's contribution to read identity,
+which is itself an identity change — every build directory and cache entry for
+every self-service rest read moves — so it needs its own adjudicated baseline
+and is deliberately not done here.
 """
 
 from __future__ import annotations
@@ -290,15 +293,15 @@ class ResourceConfig:
     """One API resource exposed as a relation.
 
     ``caller_scoped=True`` declares that what the endpoint returns depends on
-    *who is asking* — ``/user/repos``, an org-scoped listing, a "my
-    workspaces" endpoint. Identity deliberately carries env-var *references*,
-    never credential values (ADR-0024), so two users with the same reference
-    names and different credentials otherwise produce the same read identity
-    and can serve each other's data out of a shared cache. Marking the
-    resource makes the config **fail assembly** unless a required
-    ``ParamSpec(kind="scope")`` is declared, turning that silent leak into a
-    config-time error; the scope value is identity-only and never hits the
-    wire, so declaring one changes no request.
+    *who is asking* — ``/user/repos``, an org-scoped listing, a "my workspaces"
+    endpoint. Identity deliberately carries env-var *references*, never
+    credential values (ADR-build-artifacts-are-credential-free), so two users
+    with the same reference names and different credentials otherwise produce
+    the same read identity and can serve each other's data out of a shared
+    cache. Marking the resource makes the config **fail assembly** unless a
+    required ``ParamSpec(kind="scope")`` is declared, turning that silent leak
+    into a config-time error; the scope value is identity-only and never hits
+    the wire, so declaring one changes no request.
     """
 
     name = field(validator=instance_of(str))
@@ -324,7 +327,8 @@ class ResourceConfig:
     # "whose data is this?" — see the class docstring and __attrs_post_init__
     caller_scoped = field(validator=instance_of(bool), default=False)
     # the one identity opt-out on this class: fetch_override is code, and
-    # refactoring code must not invalidate builds/caches (ADR-0025's line)
+    # refactoring code must not invalidate builds/caches
+    # (ADR-api-relations-are-pathless-read-ops's line)
     fetch_override = non_identity_field(
         validator=optional(is_callable()),
         default=None,
@@ -368,9 +372,9 @@ class ResourceConfig:
                 'required ParamSpec(kind="scope") naming a non-secret '
                 "discriminator (an account, org, or workspace). Identity "
                 "carries env-var references, never credential values "
-                "(ADR-0024), so without one two callers with the same "
-                "reference names and different credentials share a read "
-                "identity -- and a cache entry"
+                "(ADR-build-artifacts-are-credential-free), so without one "
+                "two callers with the same reference names and different "
+                "credentials share a read identity -- and a cache entry"
             )
 
     @property
@@ -401,8 +405,8 @@ class ResourceConfig:
         """Identity over declarative fields only, DERIVED from the attrs
         declaration (``identity_field_names``): every field but
         ``fetch_override``, which is code and stays out (refactoring it must
-        not invalidate builds/caches, the same line ADR-0025 draws for fetch
-        code).
+        not invalidate builds/caches, the same line
+        ADR-api-relations-are-pathless-read-ops draws for fetch code).
 
         Note what this hash does *not* cover: the resolved base URL. It folds
         ``base_url_key``, the name of a route; the URL that name resolves to
@@ -442,8 +446,9 @@ class RestBackendConfig:
     auth = field(validator=instance_of(AuthConfig))
     # excluded from *this* class's content_hash, not from identity: each
     # resource contributes its own `ResourceConfig.content_hash` per read, so
-    # editing one resource does not invalidate its siblings (ADR-0018). Folding
-    # the whole tuple here would undo that.
+    # editing one resource does not invalidate its siblings
+    # (ADR-rest-config-contract-identity-folded-residence-either). Folding the
+    # whole tuple here would undo that.
     #
     # This delivers sibling independence in CURATED mode only. In self-service
     # mode the config rides in the profile, whose hash every read folds, so

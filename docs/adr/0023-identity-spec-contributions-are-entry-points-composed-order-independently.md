@@ -182,6 +182,17 @@ Rejected because:
   a plugin backend is touched, so two expressions in one session could hash
   under different regimes. Eager totality keeps one regime per process.
 
+Note that until this ADR is implemented, nothing *prevents* lazy composition: a
+plugin can rebind `dasher.HASHER` in its own module body, and
+`rules_fingerprint()` reads that global at call time. The trigger is any path
+that imports a plugin backend, so the hazard is latent rather than live (no
+in-tree backend rebinds `HASHER`, and the entry-point group here is loaded by no
+code) — but it is real, and sealing the spec at first tokenize is what closes
+it. Secret-key resolution is deliberately *not* such a path:
+ADR-build-artifacts-are-credential-free inspects only already-imported backends
+precisely so that saving a profile cannot run a plugin's module body, which
+would otherwise move the build-hash fingerprint as a side effect.
+
 ### Last-wins conflict resolution in sorted order
 
 Rejected because:

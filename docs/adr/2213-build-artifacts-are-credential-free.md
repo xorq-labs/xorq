@@ -224,11 +224,11 @@ hash moves — the reference name is unchanged, and values are invisible to
 identity by design — so the new tenant's runs hit the old tenant's cache
 entries. No second user is required, and nothing about the pipeline changed.
 
-ADR-0025's negative acknowledges only the *conservative* inverse of this
-(different reference names resolving to the same account hash differently, a
-spurious miss). This is the non-conservative direction, and it belongs here
-rather than there because it follows from this ADR's decision, not from
-path-less read identity.
+ADR-api-relations-are-pathless-read-ops's negative acknowledges only the
+*conservative* inverse of this (different reference names resolving to the same
+account hash differently, a spurious miss). This is the non-conservative
+direction, and it belongs here rather than there because it follows from this
+ADR's decision, not from path-less read identity.
 
 Note what does *not* close it: the decision drivers above require that
 "credential rotation must not invalidate build or cache identity", and that

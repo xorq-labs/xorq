@@ -1,8 +1,9 @@
 """The GitHub REST API as a xorq backend: the contract's N=2 validation.
 
-Deliberately boring — header-link pagination, bearer auth, zero override
-code. If this backend needs anything beyond config, the RestBackend
-contract is wrong (ADR-0018's contract-validation obligation).
+Deliberately boring — header-link pagination, bearer auth, zero override code.
+If this backend needs anything beyond config, the RestBackend contract is wrong
+(ADR-rest-config-contract-identity-folded-residence-either's
+contract-validation obligation).
 """
 
 from __future__ import annotations

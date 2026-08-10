@@ -1,4 +1,4 @@
-# ADR-0018: REST APIs are declarative configs behind one backend; identity is always folded, config residence is a per-API packaging choice
+# ADR-XXXX: REST APIs are declarative configs behind one backend; identity is always folded, config residence is a per-API packaging choice
 
 - **Status:** Accepted
 - **Date:** 2026-07-24
@@ -6,13 +6,14 @@
 
 ## Context
 
-Phases 1–2 (ADR-0016, ADR-0017) made one API (Mixpanel) a profile-carrying
-backend whose resources are path-less `Read` ops. The Phase 3 target is a
-broad catalog (tens of APIs). Writing a hand-rolled backend per API does not
-scale; adopting dlt wholesale conflicts with xorq's determinism (schema
-evolution, stateful cursors — see plans/udxf-source-api-backend.md, Phase 3
-"superseded framing"). The mixpanel backend already contained the answer
-inlined: resource schemas, a readers dict, URL maps (the config) and a
+Phases 1–2 (ADR-build-artifacts-are-credential-free,
+ADR-api-relations-are-pathless-read-ops) made one API (Mixpanel) a
+profile-carrying backend whose resources are path-less `Read` ops. The Phase 3
+target is a broad catalog (tens of APIs). Writing a hand-rolled backend per API
+does not scale; adopting dlt wholesale conflicts with xorq's determinism
+(schema evolution, stateful cursors — see plans/udxf-source-api-backend.md,
+Phase 3 "superseded framing"). The mixpanel backend already contained the
+answer inlined: resource schemas, a readers dict, URL maps (the config) and a
 generic `_deferred_read` (the machinery).
 
 Two questions had to be settled before generalizing (plan open question 4):
@@ -23,7 +24,8 @@ live in code or in the profile?
 
 - ADR-0015: anything that changes what data comes back must change the build
   hash. Editing a resource's `path` is a query change, not a refactor.
-- ADR-0016: credentials resolve at execution; nothing serialized carries
+- ADR-build-artifacts-are-credential-free: credentials resolve at execution;
+nothing serialized carries
   values. Any config mechanism must preserve this across N APIs.
 - Broad catalog: adding a clean API must cost a config, not an engine; users
   must be able to define APIs without waiting for a release.
@@ -66,11 +68,11 @@ the hand-rolled conformance baseline).
 attrs declaration (`identity_field_names`) rather than hand-listed:
 
 - the **per-resource** `ResourceConfig.content_hash` (declarative fields only;
-  `fetch_override` excluded — code stays refactorable per ADR-0025's line).
-  Editing a resource's path/params/paginator changes build and cache hashes;
-  editing a sibling resource does not (verified for config-in-code;
-  config-in-profile deliberately trades this away since the profile covers the
-  whole config).
+  `fetch_override` excluded — code stays refactorable per
+  ADR-api-relations-are-pathless-read-ops's line). Editing a resource's
+  path/params/paginator changes build and cache hashes; editing a sibling
+  resource does not (verified for config-in-code; config-in-profile
+  deliberately trades this away since the profile covers the whole config).
 - the **API-wide** `RestBackendConfig.content_hash` — the resolved `base_urls`
   and the whole auth shape.
 
@@ -182,8 +184,8 @@ Rejected because:
 - Self-service profiles are only as portable as their configs: a schema
   typo is a profile edit (new identity), not a code fix.
 - `PandasBackend` memory semantics now apply to every config'd API; large
-  reads want `.cache()` to parquet or param-partitioned reads (ADR-0017's
-  trade-off, at catalog scale).
+  reads want `.cache()` to parquet or param-partitioned reads
+  (ADR-api-relations-are-pathless-read-ops's trade-off, at catalog scale).
 - Paginator names and `ResourceConfig` field names are identity-bearing
   and therefore effectively append-only; backend-registered paginator and
   auth-kind names share that property and should be namespaced
@@ -194,15 +196,16 @@ Rejected because:
   alternative default — new fields excluded until someone remembers — fails as
   a stale cache hit on data, while this fails as a one-time recompute.
 - Override-only resources have near-empty declarative identity: with
-  `fetch_override` excluded from `content_hash` (code stays refactorable),
-  a resource that is 100% override code — mixpanel's, deliberately — is
-  identified by schema and params alone, so changing what the override
-  fetches keeps cache hits. Accepted: the same line ADR-0017 draws, at its
-  sharpest.
+  `fetch_override` excluded from `content_hash` (code stays refactorable), a
+  resource that is 100% override code — mixpanel's, deliberately — is
+  identified by schema and params alone, so changing what the override fetches
+  keeps cache hits. Accepted: the same line
+  ADR-api-relations-are-pathless-read-ops draws, at its sharpest.
 
 ## References
 
-- ADR-0015, ADR-0016, ADR-0017
+- ADR-0015, ADR-build-artifacts-are-credential-free,
+ADR-api-relations-are-pathless-read-ops
 - plans/udxf-source-api-backend.md — Phase 3 and open question 4's
   resolution ("identity: always folded; residence: either")
 - dlt `rest_api` / `RESTAPIConfig` (https://dlthub.com/docs) — the shape the
@@ -279,12 +282,12 @@ The mechanism is a required `override_version` field on `ResourceConfig`:
 identity-bearing by the derived-membership rule above, and rejected at config
 assembly when `fetch_override` is set without it. Its contract is that the
 author bumps it when the override's *meaning* changes and leaves it alone
-across refactors — the ADR-0025 refactorability line kept intact, with a name
-to hold accountable instead of an invisible exclusion. A useful side effect:
-today an override resource and a config-driven resource with identical
-declarative fields hash identically, because the opt-out erases even the
-*presence* of an override; a non-`None` `override_version` makes
-override-ness itself identity-visible.
+across refactors — the ADR-api-relations-are-pathless-read-ops refactorability
+line kept intact, with a name to hold accountable instead of an invisible
+exclusion. A useful side effect: today an override resource and a config-driven
+resource with identical declarative fields hash identically, because the
+opt-out erases even the *presence* of an override; a non-`None`
+`override_version` makes override-ness itself identity-visible.
 
 Rejected strengthener, recorded so it is not re-proposed: folding
 `fetch_override`'s `module.qualname` into `content_hash`. It would make

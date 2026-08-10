@@ -1,4 +1,5 @@
-"""Extraction engines behind the REST contract (ADR-0018).
+"""Extraction engines behind the REST contract
+(ADR-rest-config-contract-identity-folded-residence-either).
 
 The config (``config.py``) is the stable contract; an :class:`Engine` is a
 swappable executor of that contract. ``NativeEngine`` (paginator-driven,
@@ -279,8 +280,9 @@ class NativeEngine:
         url = config.base_url(
             resource_config.base_url_key
         ) + resource_config.path.format(**params)
-        # scope params are identity-only discriminators (ADR-0024): they must
-        # not reach the wire, where a server would ignore them at best
+        # scope params are identity-only discriminators
+        # (ADR-build-artifacts-are-credential-free): they must not reach the
+        # wire, where a server would ignore them at best
         on_the_wire_excluded = set(resource_config.path_placeholders) | set(
             resource_config.scope_params
         )
