@@ -1,4 +1,5 @@
-# ADR-XXXX: REST APIs are declarative configs behind one backend; identity is always folded, config residence is a per-API packaging choice
+# ADR-2215: REST APIs are declarative configs behind one backend; identity is
+# always folded, config residence is a per-API packaging choice
 
 - **Status:** Accepted
 - **Date:** 2026-07-24

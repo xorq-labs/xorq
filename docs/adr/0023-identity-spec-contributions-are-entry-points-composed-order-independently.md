@@ -83,12 +83,10 @@ rest = "xorq_rest_plugin.identity:CONTRIBUTION"
 ```
 
 A contribution carries: dasher rules to add (`(fqn, normalizer)` pairs),
-`normalize_registry` entries to add (`(key, fn)` pairs), and nothing else.
-Both are by-name surfaces
-(ADR-rest-config-contract-identity-folded-residence-either/0020 discipline);
-a contribution cannot
-carry per-engine material (compilers, paginators, auth — those are
-`build()` inputs per ADR-0021 phase 3).
+`normalize_registry` entries to add (`(key, fn)` pairs), and nothing else. Both
+are by-name surfaces (ADR-2215/0020 discipline); a contribution cannot carry
+per-engine material (compilers, paginators, auth — those are `build()` inputs
+per ADR-0021 phase 3).
 
 ### Composition is eager, total, and sorted
 
@@ -242,11 +240,10 @@ Rejected because:
 ## References
 
 - ADR-0021 (the builder this extends; its 2026-07-30 amendment names this
-  ADR as the owner of the extension gap), ADR-0020 + amendment
-  (fingerprint visibility of contributed and replaced rules),
+  ADR as the owner of the extension gap), ADR-0020 + amendment (fingerprint
+  visibility of contributed and replaced rules),
   ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire
-  (the stop-gap composition rule contributions graduate from),
-  ADR-rest-config-contract-identity-folded-residence-either
+  (the stop-gap composition rule contributions graduate from), ADR-2215
   (by-name registries; append-only hazard)
 - The out-of-tree REST plugin prototype patches the dasher rule table and the
   `normalize_registry` at import; those are the two mutations a single

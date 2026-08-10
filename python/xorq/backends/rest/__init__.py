@@ -1,7 +1,7 @@
 """A REST API as a xorq backend, driven by a declarative config.
 
-Two ways to use it (ADR-rest-config-contract-identity-folded-residence-either —
-"identity: always folded; residence: per-API packaging choice"):
+Two ways to use it (ADR-2215 — "identity: always folded; residence: per-API
+packaging choice"):
 
 - **curated** (config in code): subclass with a class-level ``config`` and
   its own entry point; the profile stays credentials-shaped.

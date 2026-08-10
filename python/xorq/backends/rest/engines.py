@@ -1,5 +1,5 @@
 """Extraction engines behind the REST contract
-(ADR-rest-config-contract-identity-folded-residence-either).
+(ADR-2215).
 
 The config (``config.py``) is the stable contract; an :class:`Engine` is a
 swappable executor of that contract. ``NativeEngine`` (paginator-driven,

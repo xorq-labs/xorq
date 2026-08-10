@@ -1,7 +1,6 @@
 """The declarative REST contract: what a REST API *is*, engine-independent.
 
-The config is the stable contract
-(ADR-rest-config-contract-identity-folded-residence-either): extraction engines
+The config is the stable contract (ADR-2215): extraction engines
 (``engines.Engine`` — ``NativeEngine`` today, dlt later) are swappable behind
 it. Three deliberate omissions vs dlt's RESTAPIConfig:
 
@@ -40,12 +39,11 @@ make was true of curated backends only:
   the profile and once through its own hash.
 
 The failure direction is safe (spurious invalidation, never stale data served
-as current) and ADR-rest-config-contract-identity-folded-residence-either
-records the trade as deliberate. Making the property uniform would mean
-``dissoc``-ing ``config`` from the profile's contribution to read identity,
-which is itself an identity change — every build directory and cache entry for
-every self-service rest read moves — so it needs its own adjudicated baseline
-and is deliberately not done here.
+as current) and ADR-2215 records the trade as deliberate. Making the property
+uniform would mean ``dissoc``-ing ``config`` from the profile's contribution to
+read identity, which is itself an identity change — every build directory and
+cache entry for every self-service rest read moves — so it needs its own
+adjudicated baseline and is deliberately not done here.
 """
 
 from __future__ import annotations
@@ -446,9 +444,8 @@ class RestBackendConfig:
     auth = field(validator=instance_of(AuthConfig))
     # excluded from *this* class's content_hash, not from identity: each
     # resource contributes its own `ResourceConfig.content_hash` per read, so
-    # editing one resource does not invalidate its siblings
-    # (ADR-rest-config-contract-identity-folded-residence-either). Folding the
-    # whole tuple here would undo that.
+    # editing one resource does not invalidate its siblings (ADR-2215). Folding
+    # the whole tuple here would undo that.
     #
     # This delivers sibling independence in CURATED mode only. In self-service
     # mode the config rides in the profile, whose hash every read folds, so
