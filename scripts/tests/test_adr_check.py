@@ -58,6 +58,13 @@ class ADRTree:
         path.write_text(text, encoding="utf-8")
         return path
 
+    def write_source(self, relative: str, text: str = "pass\n") -> Path:
+        """A file outside docs/adr, for a path citation to resolve to."""
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
     def check(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(SCRIPTS / "adr_check.py"), *args],
@@ -182,6 +189,249 @@ def test_a_live_reference_outside_a_fence_still_fails(tree: ADRTree) -> None:
     assert result.returncode == 1
     assert "ADR-8888" in result.stderr
     assert "ADR-9999" not in result.stderr
+
+
+# --- cited repo paths --------------------------------------------------------
+#
+# Paths resolve against `git ls-files`, so every test here needs a repository
+# and a citation only resolves if its file is in the index.
+
+
+@pytest.fixture
+def repo(tree: ADRTree) -> ADRTree:
+    """A tree that is a git repository with one tracked source file.
+
+    The base ADR is committed too, so it counts as landed: an unresolved
+    citation in it warns, where the same citation in an ADR the run is told is
+    new is an error.
+    """
+    tree.write_source("python/xorq/expr/api.py")
+    tree.init_repo()
+    return tree
+
+
+def test_a_cited_path_that_resolves_passes(repo: ADRTree) -> None:
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `python/xorq/expr/api.py`.\n")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "warning" not in result.stderr
+
+
+def test_a_path_written_short_resolves(repo: ADRTree) -> None:
+    """ADRs abbreviate paths for readability -- 24 of the 119 citations in
+    docs/adr do -- so a suffix of a tracked path counts as resolved."""
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `expr/api.py`.\n")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "warning" not in result.stderr
+
+
+def test_an_ambiguous_short_path_resolves(repo: ADRTree) -> None:
+    """`expr/api.py` names both the real module and the vendored one.
+
+    The citation names something real, and picking between two real files is
+    guesswork the guard has no business doing.
+    """
+    repo.write_source("python/xorq/vendor/ibis/expr/api.py")
+    repo.commit_all()
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `expr/api.py`.\n")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "warning" not in result.stderr
+
+
+def test_a_line_number_is_consumed_and_ignored(repo: ADRTree) -> None:
+    """Line numbers drift on every edit above the line they name, so the guard
+    reads the `:NNN` only to keep it out of the filename."""
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `python/xorq/expr/api.py:84`.\n")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "warning" not in result.stderr
+
+
+def test_a_missing_path_in_a_landed_adr_warns_and_says_not_to_fix_it(
+    repo: ADRTree,
+) -> None:
+    """The design tension, and the case that must never fail the run.
+
+    ADR-0006 and ADR-0007 cite a file that #1951 deleted. Those citations were
+    accurate when the decisions were taken, so the ADRs are doing their job as a
+    record; erroring on them would pressure people to rewrite landed ADRs.
+    """
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `python/xorq/expr/gone.py`.\n")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "warning" in result.stderr
+    assert "python/xorq/expr/gone.py" in result.stderr
+    assert "leave the ADR alone" in result.stderr
+
+
+def test_a_missing_path_in_a_new_adr_is_an_error(repo: ADRTree) -> None:
+    """In an ADR being added there is no history to protect: the path is wrong."""
+    repo.write("2211-new.md", "# ADR-2211: New\n\nSee `python/xorq/expr/gone.py`.\n")
+    repo.commit_all()
+    result = repo.check("--base", "HEAD~1", "--pr", "2211")
+    assert result.returncode == 1
+    assert "python/xorq/expr/gone.py" in result.stderr
+    assert "leave the ADR alone" not in result.stderr
+
+
+def test_renumbering_a_landed_adr_does_not_make_its_citations_new(
+    repo: ADRTree,
+) -> None:
+    """Why the citation checks want rename detection and the number check does not.
+
+    A renumber moves the file and touches one heading line. Read as an addition,
+    every aged citation in the ADR becomes a blocking error, and the only way to
+    get the branch green is to edit a landed ADR -- exactly what the warning
+    tier exists to prevent.
+    """
+    repo.write(
+        "0016-old-thing.md", "# ADR-0016: Old\n\nSee `python/xorq/expr/gone.py`.\n"
+    )
+    repo.commit_all()
+    repo.git("mv", "docs/adr/0016-old-thing.md", "docs/adr/2211-old-thing.md")
+    repo.write(
+        "2211-old-thing.md", "# ADR-2211: Old\n\nSee `python/xorq/expr/gone.py`.\n"
+    )
+    repo.commit_all()
+    result = repo.check("--base", "HEAD~1", "--pr", "2211")
+    assert result.returncode == 0, result.stderr
+    assert "leave the ADR alone" in result.stderr
+
+
+def test_a_path_in_a_fence_is_not_checked(repo: ADRTree) -> None:
+    """The escape hatch, and the only one: a new ADR naming a path it does not
+    create yet shows it rather than citing it."""
+    repo.write("2211-new.md", "# ADR-2211: New\n\n```\npython/xorq/expr/gone.py\n```\n")
+    repo.commit_all()
+    result = repo.check("--base", "HEAD~1", "--pr", "2211")
+    assert result.returncode == 0, result.stderr
+    assert "gone.py" not in result.stderr
+
+
+def test_a_path_in_inline_code_is_still_checked(repo: ADRTree) -> None:
+    """Where the path check parts company with the reference check.
+
+    `` `ADR-9999` `` displays a reference; `` `python/xorq/expr/gone.py` `` is
+    just how a path is written. Stripping inline spans would leave the check
+    with almost nothing to look at.
+    """
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nIn `python/xorq/expr/gone.py`.\n")
+    result = repo.check()
+    assert "gone.py" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("Wrap it in try/except here.\n", id="alternation"),
+        pytest.param("The read-path/hash-path split.\n", id="hyphenated-alternation"),
+        pytest.param("Per-token I/O is the cost.\n", id="initialism"),
+        pytest.param("Written to build/cache as needed.\n", id="directory-alternation"),
+        pytest.param("Under `python/xorq/nowhere/`.\n", id="cited-directory"),
+        pytest.param(
+            "At `metadata/<name>.zip.metadata.yaml`.\n", id="angle-placeholder"
+        ),
+        pytest.param(
+            "At `{name}/{remote_uuid}/nope.parquet`.\n", id="brace-placeholder"
+        ),
+        pytest.param("Reads `s3://bucket/nope.parquet` directly.\n", id="uri"),
+        pytest.param("See <https://example.com/nope/missing.py>.\n", id="url"),
+    ],
+)
+def test_what_is_not_a_path_citation(repo: ADRTree, body: str) -> None:
+    """False positives are the failure mode that gets a lint disabled.
+
+    Requiring an extension is what separates a path from prose, and it is why a
+    cited *directory* is not checked at all: `build/cache` and
+    `python/xorq/writes/` are the same shape and only one is a path.
+    """
+    repo.write("0012-two.md", f"# ADR-0012: Two\n\n{body}")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "warning" not in result.stderr
+
+
+def test_a_file_on_disk_but_not_in_the_index_does_not_resolve(repo: ADRTree) -> None:
+    """ "A repo path" means tracked, not present.
+
+    Otherwise a one-off script in one person's working tree makes their run pass
+    where CI's fails -- and `.git/annex/objects` or `docs/_site` would count as
+    repository files.
+    """
+    repo.write_source("scripts/local-only.py")  # written, never added
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `scripts/local-only.py`.\n")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "scripts/local-only.py" in result.stderr
+
+
+def test_paths_are_not_checked_outside_a_repository(tree: ADRTree) -> None:
+    """No index means the check could not run, not that the ADR is wrong."""
+    tree.write("0012-two.md", "# ADR-0012: Two\n\nSee `python/xorq/expr/gone.py`.\n")
+    result = tree.check()
+    assert result.returncode == 0
+    assert "were not checked" in result.stderr
+    assert "gone.py" not in result.stderr
+
+
+# --- bare short commit SHAs --------------------------------------------------
+
+
+def test_a_bare_short_sha_in_a_landed_adr_warns(repo: ADRTree) -> None:
+    """ADR-0007's `ce8004bc` is the real instance: cited as being on `main`,
+    unreachable in a full clone today."""
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nA prior attempt (`ce8004bc`).\n")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "ce8004bc" in result.stderr
+    assert "leave the ADR alone" in result.stderr
+
+
+def test_a_bare_short_sha_in_a_new_adr_is_an_error(repo: ADRTree) -> None:
+    repo.write("2211-new.md", "# ADR-2211: New\n\nA prior attempt (`ce8004bc`).\n")
+    repo.commit_all()
+    result = repo.check("--base", "HEAD~1", "--pr", "2211")
+    assert result.returncode == 1
+    assert "ce8004bc" in result.stderr
+
+
+def test_a_linked_sha_is_not_bare(repo: ADRTree) -> None:
+    """The recommended fix must not be the thing that always trips the check."""
+    repo.write(
+        "0012-two.md",
+        "# ADR-0012: Two\n\nSee [ce8004bc](https://github.com/x/y/commit/ce8004bc).\n",
+    )
+    result = repo.check()
+    assert result.returncode == 0
+    assert "ce8004bc" not in result.stderr
+
+
+def test_a_sha_in_a_fence_is_not_checked(repo: ADRTree) -> None:
+    repo.write("0012-two.md", "# ADR-0012: Two\n\n```\ncommit ce8004bc\n```\n")
+    assert "ce8004bc" not in repo.check().stderr
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        pytest.param("38317617c8a70d3a", id="sixteen-char-content-hash"),
+        pytest.param("a" * 40, id="full-sha"),
+        pytest.param("0" * 64, id="sha256"),
+        pytest.param("20260427", id="date-like"),
+        pytest.param("defaced", id="hex-lettered-word"),
+        pytest.param("effaced", id="another-hex-lettered-word"),
+    ],
+)
+def test_what_is_not_a_commit_citation(repo: ADRTree, token: str) -> None:
+    """This repository's ADRs are largely about hashing, so a check that fires
+    on a content hash gets disabled. Requiring both a digit and an a-f letter
+    inside seven to twelve characters is what draws the line."""
+    repo.write("0012-two.md", f"# ADR-0012: Two\n\nThe value `{token}` here.\n")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "warning" not in result.stderr
 
 
 # --- collisions --------------------------------------------------------------

@@ -100,6 +100,52 @@ CODE_FENCE_RE = re.compile(
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 URL_RE = re.compile(r"<?https?://[^\s>)]+>?")
 
+# `[ce8004bc](https://github.com/xorq-labs/xorq/commit/ce8004bc)` is the form
+# the commit check asks for, so the whole link -- text as well as target --
+# comes out before it scans. Stripping only the URL would leave the SHA behind
+# as link text and make the recommended form the one thing that always fails.
+MD_LINK_ANY_RE = re.compile(r"\[[^\]]*\]\([^)]*\)")
+
+# A cited repo path: slash-joined segments whose last one carries a file
+# extension. The extension is what separates a path from prose. Without it,
+# `read-path/hash-path`, `try/except`, `I/O`, `NaN/NaT` and `build/cache` all
+# read as paths -- 75 of the 127 distinct slash-joined tokens in docs/adr are
+# not paths at all, mostly that kind of alternation, and a lint that fires on
+# English gets disabled. The cost is that a cited *directory* is not checked at
+# all: `python/xorq/writes/` and `commit/publish` are the same shape and only
+# one of them is a path.
+#
+# Placeholders fall out of the character class rather than needing a rule:
+# `metadata/<name>.zip.metadata.yaml`, `inmemory/<uuid>.parquet` and
+# `{name}/{remote_uuid}/` all contain characters no path of ours does.
+#
+# The `:NNN` suffix is matched so it is consumed rather than read as part of the
+# filename, and then ignored. Line numbers drift on every edit above the line
+# they name, so enforcing them would make every ADR churn for no gain.
+#
+# The lookbehind stops the scan from starting part-way along a longer path,
+# which is what keeps `s3://bucket/foo.parquet` from being read as a citation of
+# `bucket/foo.parquet`.
+PATH_CITATION_RE = re.compile(
+    r"(?<![\w./-])(?P<path>[\w.-]+(?:/[\w.-]+)*/[\w.-]+\.[A-Za-z]\w*)(?::\d+)?"
+)
+
+# A bare short commit: seven to twelve hex characters, neither linked nor
+# fenced. Both a digit and an a-f letter are required, which is what keeps
+# dates and counts (`20260427`) and hex-lettered words (`defaced`, `effaced`)
+# out of it. That costs the ~4% of short SHAs that happen to be all digits or
+# all letters: a check that fires on prose gets disabled, one that misses a
+# commit in twenty does not.
+#
+# Twelve is the ceiling because this repository's own content hashes are sixteen
+# hex characters and its ADRs are largely about hashing -- `38317617c8a70d3a` is
+# a build hash, not a commit. A full forty-character SHA is left alone for a
+# different reason: it is unambiguous and greppable, and abbreviation is the
+# part that rots.
+BARE_SHA_RE = re.compile(
+    r"(?<![\w/-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])(?P<sha>[0-9a-f]{7,12})(?![\w-])"
+)
+
 
 class Problems:
     """Collects annotated failures so one run reports every problem."""
@@ -166,8 +212,92 @@ def strip_shown_code(text: str) -> str:
     return text
 
 
-def check_directory(problems: Problems) -> None:
-    """Validate every ADR on disk."""
+def strip_transcripts(text: str) -> str:
+    """Drop fenced blocks and URLs, keeping inline code spans.
+
+    This is where the path and commit checks part company with
+    `strip_shown_code`, and the asymmetry is deliberate. For an ADR reference a
+    backtick means "displayed, not cited" -- `` `ADR-9999` `` in a document
+    about numbering names no ADR. For a path or a commit a backtick is simply
+    how you write one, and the measurement is unambiguous: strip inline spans
+    and *nothing* is left to check, because all 106 path citations in docs/adr
+    are inside backticks, and so is its one bare SHA.
+
+    Fences and URLs still come out. A fence is a transcript -- a shell session,
+    a tree diagram, CI output -- and it is the escape hatch for showing a path
+    that is not meant to resolve. A URL's own path components belong to another
+    site, not to this repository.
+    """
+    for pattern in (CODE_FENCE_RE, URL_RE):
+        text = pattern.sub(" ", text)
+    return text
+
+
+class TrackedPaths:
+    """Every path git tracks, indexed by suffix, built once and only if needed.
+
+    Resolution is by suffix because ADRs cite paths abbreviated for
+    readability: `dasher/_opaque.py` for
+    `python/xorq/common/utils/dasher/_opaque.py`. Twenty-five of the 106 path
+    citations in docs/adr are that form, so a check wanting full paths would
+    either ignore a quarter of them or demand a sweep of landed ADRs to
+    lengthen them.
+
+    An ambiguous suffix counts as resolved: `expr/api.py` names both the real
+    module and the vendored ibis one. The citation names something real, and
+    picking between two real files is guesswork this check has no business
+    doing.
+
+    The index is what git tracks rather than what is on disk, because "a repo
+    path" is the question being asked. `.git/annex/objects` in ADR-0003 is a
+    runtime location that was never a file here, `docs/_site` is build output,
+    and a one-off script sitting untracked in one person's working tree should
+    not make their run pass where CI's fails.
+
+    Built on first use, so a directory that cites no paths never shells out to
+    git and the guard keeps working outside a repository.
+    """
+
+    def __init__(self) -> None:
+        self._suffixes: frozenset[str] | None = None
+        # Read by `check_directory` to report once, rather than once per ADR.
+        self.unavailable = False
+
+    def load(self) -> bool:
+        """Read the index, or report False having recorded why."""
+        if self._suffixes is not None:
+            return True
+        if self.unavailable:
+            return False
+        result = subprocess.run(
+            ["git", "ls-files", "-z"], capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            self.unavailable = True
+            return False
+        suffixes: set[str] = set()
+        for tracked in result.stdout.split("\0"):
+            parts = tracked.split("/")
+            # Only suffixes that keep a slash. A citation has to contain one --
+            # a bare `core.py` would match anything of that name, which makes it
+            # both unresolvable and indistinguishable from an illustrative one.
+            for start in range(len(parts) - 1):
+                suffixes.add("/".join(parts[start:]))
+        self._suffixes = frozenset(suffixes)
+        return True
+
+    def contains(self, citation: str) -> bool:
+        return citation in (self._suffixes or frozenset())
+
+
+def check_directory(problems: Problems, added: list[Path] | None = None) -> None:
+    """Validate every ADR on disk.
+
+    `added` names the ADRs this pull request adds, when a base ref was given. It
+    is what the path and commit citation checks read to tell a citation that was
+    wrong when it was written from one that has merely aged; without it every
+    such citation is a warning, which is what a plain local run sees.
+    """
     by_number: dict[int, Path] = {}
     by_slug: dict[str, Path] = {}
     checkable: list[tuple[Path, int | None, str]] = []
@@ -228,10 +358,25 @@ def check_directory(problems: Problems) -> None:
         checkable.append((path, number, raw))
 
     # Second pass: both indexes must be complete before references resolve.
+    new_names = {path.name for path in added or ()}
+    tracked = TrackedPaths()
     for path, number, raw in checkable:
         text = path.read_text(encoding="utf-8")
+        is_new = path.name in new_names
         check_heading(problems, path, number, raw, text)
         check_references(problems, path, text, by_number, by_slug)
+        check_paths(problems, path, text, tracked, is_new)
+        check_shas(problems, path, text, is_new)
+
+    # Once, rather than once per ADR, and a warning rather than an error: an
+    # unreadable index means the path check could not run, not that anything is
+    # wrong with the ADRs.
+    if tracked.unavailable:
+        problems.warn(
+            ADR_DIR,
+            "cited repo paths were not checked: `git ls-files` failed, so there "
+            "is nothing to resolve them against. Run from inside a checkout",
+        )
 
 
 def check_heading(
@@ -303,7 +448,111 @@ def check_references(
             problems.add(path, f"links to {target}, which does not exist")
 
 
-def added_adrs(base: str) -> list[Path] | None:
+# Appended to every path and commit report on an ADR that is already in the
+# tree, and the only place this guard tells anyone *not* to fix something. Kept
+# to two sentences because it is repeated per finding and `--format github`
+# shows it as an inline annotation, where the full argument does not fit; the
+# reasoning lives in docs/adr/README.md and in `check_paths`.
+AGED_CITATION = (
+    "If that was accurate when this ADR landed, leave the ADR alone: it records "
+    "what was true when the decision was made, and editing a landed ADR to "
+    "match today's tree destroys that record. Fix it only if it was never right"
+)
+
+
+def check_paths(
+    problems: Problems,
+    path: Path,
+    text: str,
+    tracked: TrackedPaths,
+    is_new: bool,
+) -> None:
+    """Resolve every repo path an ADR cites.
+
+    An unresolved path is an error in an ADR this pull request adds and a
+    warning in one that has already landed. The asymmetry is the whole design,
+    because the two cases are opposites rather than degrees of the same thing.
+
+    In a new ADR the path is simply wrong: nothing has had time to move, and a
+    reader cannot open what the author just cited. In a landed ADR an
+    unresolved path is usually the document doing its job -- ADR-0006 and
+    ADR-0007 cite `dask_normalize_expr.py`, which was accurate until #1951
+    replaced dask tokenization, and the ADRs are a record of a decision taken
+    when that file existed. Failing on it would pressure people to edit landed
+    ADRs, which is exactly what docs/adr/README.md tells them not to do.
+
+    This is also the answer to the "marked historical block" that #2203 asked
+    for. A marker would put the burden on authors to remember it and would let a
+    genuinely wrong path be waved through; the pull request diff already knows
+    which citations are new, so git supplies the distinction for free and there
+    is no new syntax for anyone to learn. The cost is
+    that a path added to a landed ADR by an amendment only warns -- scoping to
+    the added *lines* rather than the added *files* would close that, at the
+    price of parsing diff hunks.
+
+    Nothing is reported for a path this run cannot resolve, only for one it can
+    prove absent, which is why `load` failing is silent here.
+    """
+    citations = {
+        match.group("path")
+        for match in PATH_CITATION_RE.finditer(strip_transcripts(text))
+        # Relative to the document rather than the repository root, and this
+        # check anchors at the root. Same-directory ADR links are already
+        # covered by `check_references`.
+        if ".." not in match.group("path")
+    }
+    if not citations or not tracked.load():
+        return
+
+    for citation in sorted(citations):
+        if tracked.contains(citation):
+            continue
+        message = (
+            f"cites `{citation}`, which is not a path git tracks in this repository. "
+        )
+        if is_new:
+            problems.add(
+                path,
+                message + "An ADR's citations have to resolve when it lands: "
+                "check the spelling, or put the path in a fenced block if it "
+                "names something this pull request does not create",
+            )
+        else:
+            problems.warn(path, message + AGED_CITATION)
+
+
+def check_shas(problems: Problems, path: Path, text: str, is_new: bool) -> None:
+    """Report commits cited as a bare short SHA.
+
+    A short SHA reads as authoritative and resolves for whoever wrote it, then
+    resolves for nobody once the branch it was on is squash-merged or deleted --
+    ADR-0007 cites `ce8004bc` as being "on `main`", and it is unreachable in a
+    full clone today. Abbreviations also grow ambiguous as a repository does, so
+    one that resolves now is not durable either.
+
+    Same error-versus-warning split as `check_paths`, for the same reason: in a
+    new ADR the citation is unusable on arrival, and in a landed one it is
+    history that must not be edited to suit today's object store.
+    """
+    prose = MD_LINK_ANY_RE.sub(" ", strip_transcripts(text))
+    for sha in sorted({match.group("sha") for match in BARE_SHA_RE.finditer(prose)}):
+        message = (
+            f"cites the bare short commit `{sha}`. A short SHA is unreachable "
+            "once the branch it was on is gone, and abbreviations grow "
+            "ambiguous as the repository grows. "
+        )
+        if is_new:
+            problems.add(
+                path,
+                message + "Cite the pull request that carried the change, or "
+                "link the commit -- a linked SHA is not bare, and a fenced "
+                "block is not scanned",
+            )
+        else:
+            problems.warn(path, message + AGED_CITATION)
+
+
+def added_adrs(base: str, pair_renames: bool = False) -> list[Path] | None:
     """ADR files this branch adds relative to the merge base with `base`.
 
     None means the base ref could not be resolved -- an unfetched sha, a
@@ -318,13 +567,20 @@ def added_adrs(base: str) -> list[Path] | None:
     landed, where git sees one file move and `--diff-filter=A` would report no
     new ADR at all. Without this flag the branch resolving a collision is the
     one branch the number check never runs on.
+
+    `pair_renames` asks for the opposite, and exactly one caller wants it: the
+    path and commit citation checks, which report an error only for an ADR whose
+    text is new. A renumbered ADR's citations are as historical after the
+    renumber as before it, so reading the move as an addition would fail the
+    branch on prose nobody touched -- and the only way to make it pass would be
+    to edit a landed ADR, which is what that asymmetry exists to prevent.
     """
     result = subprocess.run(
         [
             "git",
             "diff",
             "--name-only",
-            "--no-renames",
+            *(() if pair_renames else ("--no-renames",)),
             "--diff-filter=A",
             f"{base}...HEAD",
             "--",
@@ -497,12 +753,23 @@ def main() -> int:
         return 2
 
     problems = Problems(github=args.format == "github")
-    check_directory(problems)
+    # The diff comes first because the directory pass reads it: a path or commit
+    # citation is an error in an ADR this pull request adds and a warning in one
+    # that has landed, and only the diff can tell those apart. Two diffs, not
+    # one, because the numbering checks and the citation checks want opposite
+    # answers about a renumbered ADR -- see `added_adrs`.
     added = None
+    written = None
     if args.base:
+        # Sequenced, not batched, so an unresolvable base is reported once.
         added = added_adrs(args.base)
         if added is None:
             return 2
+        written = added_adrs(args.base, pair_renames=True)
+        if written is None:
+            return 2
+    check_directory(problems, written)
+    if added is not None:
         check_added(problems, added, args.pr)
     # Last, and with `added` in hand: an allowlist entry is only spent if this
     # run is not the one using it.
@@ -512,7 +779,8 @@ def main() -> int:
         sys.stderr.write(
             f"\n{problems.warnings} warning(s), which do not fail the run. A "
             "named reference resolves once its ADR lands; a spent allowlist "
-            "entry needs deleting.\n"
+            "entry needs deleting; a path or commit cited by a landed ADR may "
+            "have aged, and an ADR that has aged is not one to rewrite.\n"
         )
     if problems.count:
         sys.stderr.write(
