@@ -1,4 +1,4 @@
-# ADR-0019: REST resource reads register as lazy DataFusion tables on an owned connection
+# ADR-XXXX: REST resource reads register as lazy DataFusion tables on an owned connection
 
 - **Status:** Accepted
 - **Date:** 2026-07-25 (accepted 2026-08-05)
@@ -6,12 +6,13 @@
 
 ## Context
 
-ADR-0018 established `RestBackend(PandasBackend)`: a resource read is a
-path-less `Read` op whose `make_dt` boundary runs `fetch_resource`, which
-paginates the API into a pandas frame and stashes it in `self.dictionary`.
-That ADR accepted, as an explicit negative consequence, that "`PandasBackend`
-memory semantics now apply to every config'd API; large reads want `.cache()`
-to parquet or param-partitioned reads ... at catalog scale."
+ADR-rest-config-contract-identity-folded-residence-either established
+`RestBackend(PandasBackend)`: a resource read is a path-less `Read` op whose
+`make_dt` boundary runs `fetch_resource`, which paginates the API into a pandas
+frame and stashes it in `self.dictionary`. That ADR accepted, as an explicit
+negative consequence, that "`PandasBackend` memory semantics now apply to every
+config'd API; large reads want `.cache()` to parquet or param-partitioned reads
+... at catalog scale."
 
 The streaming-bare-reads change was the first time that negative bit.
 `con.read(...).into_backend(other)` should stream page-wise — the consumer half
@@ -33,17 +34,20 @@ only because the read was eager and had to be sidestepped from above.
 
 The root cause is the execution substrate, not the seam. `RestBackend`
 inherited its `PandasBackend` base from the Phase 1/2 mixpanel backend it
-generalized; ADR-0018's decision drivers were all about the *config/identity*
-layer, never execution. Reasonable people could pick pandas (simple, JSON maps
-naturally to frames) or a lazy engine (streaming, bounded memory) — so the
-substrate choice deserved its own decision.
+generalized; ADR-rest-config-contract-identity-folded-residence-either's
+decision drivers were all about the *config/identity* layer, never execution.
+Reasonable people could pick pandas (simple, JSON maps naturally to frames) or
+a lazy engine (streaming, bounded memory) — so the substrate choice deserved
+its own decision.
 
 ## Decision drivers
 
-- Retire ADR-0018's `PandasBackend`-memory negative: a large resource read
+- Retire ADR-rest-config-contract-identity-folded-residence-either's
+`PandasBackend`-memory negative: a large resource read
   must not require holding the whole result in memory.
 - One code path, not a fast path plus a fallback with divergent predicates.
-- Preserve ADR-0018 identity exactly: streaming is transport, never identity;
+- Preserve ADR-rest-config-contract-identity-folded-residence-either identity
+exactly: streaming is transport, never identity;
   `Read` hashes (this backend's profile + folded per-resource config hash)
   unchanged.
 - Do not inherit a Backend contract the rest backend spends effort
@@ -129,19 +133,21 @@ resolved deliberately rather than ignored. Measured on a 430 MB stream:
 | disk-backed `StreamCache`, 32 MiB hot layer | 164 MB | safe |
 
 Memory-only replay would make the central claim of this ADR false — RAM would
-still grow with the result, which is exactly ADR-0018's negative. So the cache
-is disk-backed with a bounded hot layer (`spill_memory_capacity`, 128 MiB) and
-`write_policy="on_eviction"`, which means a result smaller than the hot layer
-never touches disk at all — the overwhelmingly common case, including every
-test — while a larger one spills and keeps RAM bounded. `spill_disk_capacity`
-(64 GiB) is a diagnosable ceiling rather than an invitation to fill the volume;
-exceeding it raises. Both are class attributes, so an API whose reads are
-known-small or known-enormous can retune them without touching the read path.
-The spill directory is per-connection, created on first use and removed by a
-`weakref.finalize` when the backend is collected. The *bound*, though, is
-per-read: each `fetch_resource` call builds its own cache with its own hot
-layer, so a session's RAM ceiling is (number of distinct reads) x 128 MiB
-rather than 128 MiB. See the retention-lifetime negative below.
+still grow with the result, which is exactly
+ADR-rest-config-contract-identity-folded-residence-either's negative. So the
+cache is disk-backed with a bounded hot layer (`spill_memory_capacity`, 128
+MiB) and `write_policy="on_eviction"`, which means a result smaller than the
+hot layer never touches disk at all — the overwhelmingly common case, including
+every test — while a larger one spills and keeps RAM bounded.
+`spill_disk_capacity` (64 GiB) is a diagnosable ceiling rather than an
+invitation to fill the volume; exceeding it raises. Both are class attributes,
+so an API whose reads are known-small or known-enormous can retune them without
+touching the read path. The spill directory is per-connection, created on first
+use and removed by a `weakref.finalize` when the backend is collected. The
+*bound*, though, is per-read: each `fetch_resource` call builds its own cache
+with its own hot layer, so a session's RAM ceiling is (number of distinct
+reads) x 128 MiB rather than 128 MiB. See the retention-lifetime negative
+below.
 
 What is honestly *not* recovered: a bare reader streams in constant memory, and
 a replay cache does not. Disk footprint is O(result). The trade is bounded RAM
@@ -189,10 +195,11 @@ DataFusion's execution.
 
 The `Read` op still has `method_name="fetch_resource"`, `source=<rest con>`,
 and `read_identity_parts` still folds the api-wide and per-resource content
-hashes (ADR-0018). `make_dt` now returns a table whose `op().source` is the
-owned `self._df` rather than the rest con — a deliberate substrate swap at the
-boundary — but nothing serialized changes: the owned connection is a private
-implementation detail, never captured in a profile or build artifact.
+hashes (ADR-rest-config-contract-identity-folded-residence-either). `make_dt`
+now returns a table whose `op().source` is the owned `self._df` rather than the
+rest con — a deliberate substrate swap at the boundary — but nothing serialized
+changes: the owned connection is a private implementation detail, never
+captured in a profile or build artifact.
 
 This is *checked*, not asserted. A differential observation harness
 (`test_differential_substrate.py`) records `tokenize`, `get_expr_hash` and the
@@ -229,8 +236,9 @@ the deferred-reads pass ever gains access to the compiled plan.
 ### Memory-only replay cache
 
 Rejected on measurement (table above): 561 MB peak for a 430 MB result. It is
-replay-safe but leaves ADR-0018's memory negative in place, which is the
-negative this ADR exists to retire.
+replay-safe but leaves
+ADR-rest-config-contract-identity-folded-residence-either's memory negative in
+place, which is the negative this ADR exists to retire.
 
 ### Subclass the DataFusion `Backend` instead of composing
 
@@ -250,7 +258,8 @@ wrapper (engine-agnostic) and is out of scope for the substrate decision.
 
 ### Positive
 
-- ADR-0018's `PandasBackend`-memory negative is retired: reads stream
+- ADR-rest-config-contract-identity-folded-residence-either's
+`PandasBackend`-memory negative is retired: reads stream
   page-wise and RAM is bounded by the hot layer rather than by the result.
 - One execution path. The api-level interceptor, the `read_to_pyarrow_batches`
   seam and the `to_pyarrow_batches` override are gone, so the guard drift and
@@ -324,7 +333,9 @@ wrapper (engine-agnostic) and is out of scope for the substrate decision.
 
 ## References
 
-- ADR-0018 (base class + memory negative this supersedes), ADR-0017, ADR-0016,
+- ADR-rest-config-contract-identity-folded-residence-either (base class +
+memory negative this supersedes), ADR-api-relations-are-pathless-read-ops,
+ADR-build-artifacts-are-credential-free,
   ADR-0015, ADR-0014, ADR-0013
 - `python/xorq/backends/rest/tests/test_differential_substrate.py` — the
   differential harness and its committed baseline; the identity, row-content

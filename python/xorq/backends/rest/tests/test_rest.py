@@ -913,10 +913,11 @@ def test_chunk_size_is_inert_batches_follow_http_pages() -> None:
     the value is accepted and dropped. The parameter never reaches this backend
     -- the transform pipeline resolves the `Read` onto the owned DataFusion
     connection, whose `to_pyarrow_batches` takes `chunk_size` and ignores it --
-    so the honest fix is an engine-agnostic rebatch wrapper, which ADR-0019
-    defers because its blast radius is every DataFusion-backed read. Until then
-    `RestBackend.read` documents the limitation and this keeps the
-    documentation true: a rebatch wrapper fails here and must retire the words.
+    so the honest fix is an engine-agnostic rebatch wrapper, which
+    ADR-rest-resource-reads-are-lazy-datafusion-tables defers because its blast
+    radius is every DataFusion-backed read. Until then `RestBackend.read`
+    documents the limitation and this keeps the documentation true: a rebatch
+    wrapper fails here and must retire the words.
     """
     for kwargs in ({}, {"chunk_size": 1}, {"chunk_size": 2}, {"chunk_size": 1_000_000}):
         con, session = connect_paged_backend(first=4, second=3)

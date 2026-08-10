@@ -60,7 +60,8 @@ class Engine(Protocol):
 
     - ``fetch`` returns the whole result as one frame.
     - ``fetch_batches`` returns an iterator of schema-conformed chunks, and is
-      the method the ``make_dt`` boundary uses (ADR-0019): it is what lets a
+      the method the ``make_dt`` boundary uses
+      (ADR-rest-resource-reads-are-lazy-datafusion-tables): it is what lets a
       resource read register as a lazy table rather than materialize. It is
       part of the protocol -- not an off-protocol extra on one implementation
       -- precisely because the read path depends on it. Chunking is transport,
@@ -291,14 +292,14 @@ class NativeEngine:
     # One session per `fetch_batches` call, NOT one per engine. A
     # `requests.Session` is documented non-thread-safe -- its connection pool
     # and cookie jar are shared mutable state -- and since resource reads
-    # became lazy readers (ADR-0019) the substrate polls one scan per read on
-    # its own thread, so a two-read expression paginates two resources
-    # CONCURRENTLY through whatever session they share. That is now the default
-    # execution path, not an opt-in drain, and an engine-lifetime session put
-    # every such expression on the racy side of it. Keep-alive is preserved
-    # where it actually pays -- across the pages of one pagination, which is
-    # where the round trips are -- and what is given up is reuse *between*
-    # reads: one extra handshake per resource read.
+    # became lazy readers (ADR-rest-resource-reads-are-lazy-datafusion-tables)
+    # the substrate polls one scan per read on its own thread, so a two-read
+    # expression paginates two resources CONCURRENTLY through whatever session
+    # they share. That is now the default execution path, not an opt-in drain,
+    # and an engine-lifetime session put every such expression on the racy side
+    # of it. Keep-alive is preserved where it actually pays -- across the pages
+    # of one pagination, which is where the round trips are -- and what is
+    # given up is reuse *between* reads: one extra handshake per resource read.
     session_factory = field(default=requests.Session, eq=False)
     # An explicit shared session, and the injection point the tests use (a fake
     # must observe every request). Setting it reintroduces engine-lifetime
@@ -332,8 +333,9 @@ class NativeEngine:
     ) -> Iterator[pd.DataFrame]:
         """Page-wise fetch: one schema-conformed frame per HTTP page.
 
-        The intermediary between pagination and materialization, and the
-        method the ``make_dt`` boundary pulls (ADR-0019): a resource read
+        The intermediary between pagination and materialization, and the method
+        the ``make_dt`` boundary pulls
+        (ADR-rest-resource-reads-are-lazy-datafusion-tables): a resource read
         registers as a lazy DataFusion table over this iterator, so no page is
         requested until the engine consumes the reader, and ``fetch`` is now
         just the concatenating convenience over it.
@@ -476,9 +478,10 @@ class FetchOverrideEngine:
         An override owns its own transport, so it has no page boundary to
         expose; one chunk is the honest answer. Implementing it is what lets
         the ``make_dt`` boundary treat override resources uniformly instead of
-        branching to a materializing path (ADR-0019) -- and because this is a
-        generator, the override callable is not invoked until the reader is
-        pulled, so an override read is as lazy at construction as a paginated
-        one.
+        branching to a materializing path
+        (ADR-rest-resource-reads-are-lazy-datafusion-tables) -- and because
+        this is a generator, the override callable is not invoked until the
+        reader is pulled, so an override read is as lazy at construction as a
+        paginated one.
         """
         yield resource_config.fetch_override(self.backend, **params)
