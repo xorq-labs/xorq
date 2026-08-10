@@ -379,9 +379,16 @@ def check_allowlist(problems: Problems, added: list[Path] | None) -> None:
 
     An entry exists to let one legacy-numbered ADR land from a branch that
     predates this scheme. Once that file is in the tree and this run is not the
-    one adding it, the exemption is spent -- and a spent entry is a standing
-    licence for anyone to claim that number, which is the thing the scheme
-    exists to prevent.
+    one adding it, the exemption is spent.
+
+    A spent entry is not a licence to claim that number: while the ADR is
+    present, anything else at that number fails on the duplicate check, and
+    `is_allowlisted` matches the slug too, so the exemption only ever covered
+    one filename. The risk is that it outlives the file. Delete or renumber
+    that ADR and the entry silently readmits its exact filename carrying any
+    content at all -- and this check cannot warn about that, because it keys
+    on the file being present. Which is the argument for clearing entries
+    while they are still merely redundant.
 
     It cannot be deleted by the pull request that lands the ADR: CI reads the
     merged code, so the entry has to still be there for `check_added` to allow
@@ -402,8 +409,10 @@ def check_allowlist(problems: Problems, added: list[Path] | None) -> None:
         problems.warn(
             path,
             f"has landed, so the LEGACY_IN_FLIGHT entry for {number:04d} in "
-            "scripts/adr_check.py has done its job and should be deleted. "
-            "Until it is, anyone can add an ADR at that number",
+            "scripts/adr_check.py has done its job and should be deleted. It "
+            "now exempts a file that is already here, and if this ADR is ever "
+            "deleted or renumbered it would let that exact filename back in "
+            "unchecked, carrying anything",
         )
 
 

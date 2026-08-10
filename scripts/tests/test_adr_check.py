@@ -372,8 +372,9 @@ def test_an_allowlist_entry_is_reported_once_its_adr_has_landed(
 
     CI reads the merged code, so removing it there rejects the very file it
     was protecting -- the cleanup is always a follow-up, and a follow-up
-    nobody is reminded of is one that does not happen. A spent entry is a
-    standing licence to claim that number.
+    nobody is reminded of is one that does not happen. What makes it worth
+    reminding about is that the exemption outlives the file: see
+    `test_a_spent_entry_readmits_its_filename_once_the_adr_is_gone`.
     """
     number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
     tree.write(f"{number:04d}-{slug}.md", f"# ADR-{number:04d}: Legacy\n\nBody.\n")
@@ -389,6 +390,54 @@ def test_an_allowlist_entry_whose_adr_is_absent_is_not_reported(
 ) -> None:
     """The ordinary state of an entry: its branch has not landed yet."""
     assert "has done its job" not in tree.check().stderr
+
+
+def test_a_spent_entry_is_reported_on_an_unrelated_pull_request(
+    tree: ADRTree,
+) -> None:
+    """The shape every pull request sees after the ADR lands.
+
+    The push-to-main run reports it once; this is the nag that keeps arriving
+    until someone acts, and it runs through the `--base` path rather than the
+    directory-only one.
+    """
+    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
+    tree.init_repo()
+    tree.write(f"{number:04d}-{slug}.md", f"# ADR-{number:04d}: Legacy\n\nBody.\n")
+    tree.commit_all()
+    tree.write("2222-unrelated.md", "# ADR-2222: Unrelated\n\nBody.\n")
+    tree.commit_all()
+    result = tree.check("--base", "HEAD~1", "--pr", "2222")
+    assert "has done its job" in result.stderr
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_spent_entry_readmits_its_filename_once_the_adr_is_gone(
+    tree: ADRTree,
+) -> None:
+    """Why a spent entry is worth deleting, and why the warning cannot wait.
+
+    While the ADR is present the entry is merely redundant: anything else at
+    that number fails the duplicate check. Delete the ADR and the entry
+    readmits its exact filename carrying anything -- and by then this check is
+    silent, because it keys on the file being present. The warning exists to
+    be acted on while the entry is still harmless.
+    """
+    number, slug = next(iter(adr_check.LEGACY_IN_FLIGHT.items()))
+    tree.init_repo()
+    # The ADR landed and was later removed, so nothing warns any more.
+    assert "has done its job" not in tree.check().stderr
+
+    tree.write(
+        f"{number:04d}-{slug}.md",
+        f"# ADR-{number:04d}: Nothing to do with the original\n\nAnything.\n",
+    )
+    tree.commit_all()
+    result = tree.check("--base", "HEAD~1", "--pr", "2222")
+    assert result.returncode == 0, result.stderr
+    # Silent in the one state where the entry is doing harm: the file is being
+    # added, so there is nothing for check_allowlist to find.
+    assert "has done its job" not in result.stderr
 
 
 def test_allowlisted_number_with_a_different_slug_is_rejected(tree: ADRTree) -> None:
