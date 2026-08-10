@@ -56,7 +56,7 @@ def wrapped_do_connect(self, create_object_udfs: bool = None, **kwargs: Any) -> 
 
 class Backend(IbisSnowflakeBackend):
     def publish_strategy(self):
-        """Incremental WAP publish mechanism for this backend (ADR-0017)."""
+        """Incremental WAP publish mechanism for this backend (ADR-2129)."""
         return PublishStrategy.NATIVE_MERGE
 
     _top_level_methods = (

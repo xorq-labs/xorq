@@ -1,4 +1,4 @@
-"""Incremental WAP publish over Snowflake (NATIVE_MERGE strategy). ADR-0017.
+"""Incremental WAP publish over Snowflake (NATIVE_MERGE strategy). ADR-2129.
 
 Snowflake routes to the native ``MERGE INTO`` path (verified to render via
 sqlglot). These round-trips require live Snowflake credentials, so they are

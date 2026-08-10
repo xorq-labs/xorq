@@ -11,7 +11,7 @@ class WriteMode(StrEnum):
 class PublishMode(StrEnum):
     """How a staged changeset combines into ``final`` — the one knob a caller sets.
 
-    See ADR-0017.
+    See ADR-2129.
     """
 
     APPEND = "append"  # add all staging rows; no key; duplicates allowed
@@ -29,7 +29,7 @@ class StagingStrategy(StrEnum):
     ``BRANCH`` stages on a branch *of the final table itself* and publishes by
     fast-forwarding main — metadata-only, all-or-nothing snapshot promotion, so
     it is ``APPEND``-only (no keyed merge is meaningful) and requires a backend
-    whose type declares ``publish_branch`` (pyiceberg). See ADR-0017.
+    whose type declares ``publish_branch`` (pyiceberg). See ADR-2129.
     """
 
     TABLE = "table"
@@ -40,7 +40,7 @@ class PublishStrategy(StrEnum):
     """Mechanism for a publish, auto-resolved from backend capability.
 
     Internal plumbing — callers pick a :class:`PublishMode`, not a strategy.
-    See ADR-0017.
+    See ADR-2129.
     """
 
     APPEND = "append"  # add rows: concat / add_files / INSERT…SELECT

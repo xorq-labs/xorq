@@ -1,4 +1,4 @@
-"""Publish — reconcile a staged changeset into a target. See ADR-0017.
+"""Publish — reconcile a staged changeset into a target. See ADR-2129.
 
 The reconciliation layer, with no knowledge of WAP/tee/audit. ``resolve_strategy``
 routes on the backend type (matching the con's own MRO, importing nothing) to one
@@ -164,7 +164,7 @@ def _q(name: str) -> str:
     exists only on sqlglot >= 26 and ``Update``'s FROM kwarg is keyed ``"from"``
     (silently dropped as ``from_``) before 28, while co-installation with
     ibis 9.5 (CI compat matrix) caps sqlglot < 25.21. Strings + ``parse_one``
-    render identically across 24.0–28.6 (verified). See ADR-0017 Alternatives.
+    render identically across 24.0–28.6 (verified). See ADR-2129 Alternatives.
     """
     return '"' + name.replace('"', '""') + '"'
 
@@ -402,7 +402,7 @@ def publish(con, staging, final, *, key=(), mode) -> None:
     same reconciliation. ``final`` is created if absent; ``staging`` is consumed.
 
     For ``UPSERT``/``MERGE`` the caller owns the changeset contract — in
-    particular **unique keys per changeset** (ADR-0017): the mechanisms diverge
+    particular **unique keys per changeset** (ADR-2129): the mechanisms diverge
     on duplicate keys, and unlike the WAP builders this path has no audit to
     enforce it.
     """

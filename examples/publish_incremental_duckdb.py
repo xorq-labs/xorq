@@ -7,7 +7,7 @@ an external load); reach for the WAP builders (``wap_incremental_duckdb.py``) wh
 you want the write + audit + publish pipeline instead.
 
 The mechanism is the backend's own capability: duckdb declares ``NATIVE_MERGE``, so
-publish is a single ``MERGE INTO`` (ADR-0017). ``publish`` creates ``final`` if
+publish is a single ``MERGE INTO`` (ADR-2129). ``publish`` creates ``final`` if
 absent and consumes ``staging``.
 
 ``PublishMode``: ``UPSERT`` (insert-or-update by key) and ``MERGE`` (upsert +

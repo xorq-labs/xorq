@@ -6,7 +6,7 @@ rather than appending. Like every WAP flow it is a **deferred expression**:
 builds a lazy expr; nothing is written until ``.execute()``. The audit aggregate
 is a pipeline breaker, so staging fully commits before the publish decision runs.
 The mechanism is the backend's own capability — duckdb declares ``NATIVE_MERGE``,
-so publish is a single ``MERGE INTO`` (ADR-0017).
+so publish is a single ``MERGE INTO`` (ADR-2129).
 
 ``PublishMode``: ``UPSERT`` (insert-or-update by key) and ``MERGE`` (upsert +
 delete via an ``_op`` column — ``'D'`` deletes, anything else upserts).

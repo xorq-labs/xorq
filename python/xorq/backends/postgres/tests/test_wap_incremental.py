@@ -1,4 +1,4 @@
-"""Incremental WAP publish over postgres (NATIVE_MERGE on pg 15+). ADR-0017 / XOR-445.
+"""Incremental WAP publish over postgres (NATIVE_MERGE on pg 15+). ADR-2129 / XOR-445.
 
 postgres 15+ routes to native ``MERGE INTO``; older servers fall back to
 ``STATEMENT_DML`` (UPDATE+INSERT+DELETE in one transaction). Gated behind

@@ -101,7 +101,7 @@ def _default_audit(key, mode) -> Callable[[pd.DataFrame], bool]:
     contract cannot check on ``mode``/``key``/``columns`` alone. The mechanisms
     diverge on duplicates — native ``MERGE`` and iceberg ``upsert`` raise,
     ``REWRITE``/``STATEMENT_DML`` silently resolve differently — so the gate fails
-    the publish before any tier runs (ADR-0017, open question 5). ``APPEND`` has no
+    the publish before any tier runs (ADR-2129, open question 5). ``APPEND`` has no
     key, so it keeps the always-True pass-through.
     """
     from xorq.writes.enums import PublishMode  # noqa: PLC0415

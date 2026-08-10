@@ -1,4 +1,4 @@
-"""Round-trip tests for the Phase 2 publish mechanisms (ADR-0017 / XOR-444).
+"""Round-trip tests for the Phase 2 publish mechanisms (ADR-2129 / XOR-444).
 
 The two architectural extremes:
   * NATIVE_MERGE (duckdb)  — one ``MERGE INTO`` statement
@@ -523,7 +523,7 @@ def test_publish_parquet_standalone(tmp_path) -> None:
     assert not staging.exists()  # consumed
 
 
-# --- default no-duplicate-keys audit gate (ADR-0017 open Q5) -----------------
+# --- default no-duplicate-keys audit gate (ADR-2129 open Q5) -----------------
 
 
 def test_backend_wap_default_audit_rejects_duplicate_keys(ddb) -> None:

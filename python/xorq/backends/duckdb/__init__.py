@@ -18,7 +18,7 @@ __all__ = [
 
 class Backend(IbisDuckDBBackend):
     def publish_strategy(self):
-        """Incremental WAP publish mechanism for this backend (ADR-0017)."""
+        """Incremental WAP publish mechanism for this backend (ADR-2129)."""
         return PublishStrategy.NATIVE_MERGE
 
     def execute(

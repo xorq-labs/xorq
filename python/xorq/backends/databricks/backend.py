@@ -125,7 +125,7 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
     compiler = sc.databricks.compiler
 
     def publish_strategy(self):
-        """Incremental WAP publish mechanism (ADR-0017): Delta MERGE INTO."""
+        """Incremental WAP publish mechanism (ADR-2129): Delta MERGE INTO."""
         return PublishStrategy.NATIVE_MERGE
 
     @property

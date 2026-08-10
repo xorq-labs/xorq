@@ -1,6 +1,6 @@
 """Routing + changeset validation for incremental WAP publish.
 
-ADR-0017 / XOR-444, Phase 1. The per-strategy publish functions are covered in
+ADR-2129 / XOR-444, Phase 1. The per-strategy publish functions are covered in
 later phases; here we pin the ``PublishMode`` -> ``PublishStrategy`` routing and
 the build-time ``_validate`` contract. Backend-routing cases skip when the
 backend (or its driver) is not installed.

@@ -1,4 +1,4 @@
-# ADR-0017: Incremental WAP publish — one `PublishMode`, capability-routed `PublishStrategy`
+# ADR-2129: Incremental WAP publish — one `PublishMode`, capability-routed `PublishStrategy`
 
 <!-- 0015 landed; 0016 is still in flight on a remote branch (#2103) — 0017 stands. -->
 

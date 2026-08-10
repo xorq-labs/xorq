@@ -1,4 +1,4 @@
-"""Incremental WAP publish over gizmosql (NATIVE_MERGE, duckdb dialect). ADR-0017 / XOR-445.
+"""Incremental WAP publish over gizmosql (NATIVE_MERGE, duckdb dialect). ADR-2129 / XOR-445.
 
 gizmosql is a DuckDB-backed Flight SQL server, so it routes to ``NATIVE_MERGE`` and
 renders the duckdb dialect (which supports ``MERGE INTO``). Gated behind

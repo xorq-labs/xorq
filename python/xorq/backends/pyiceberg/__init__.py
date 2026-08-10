@@ -57,7 +57,7 @@ class Backend(SQLBackend):
     compiler = postgres_compiler
 
     def publish_strategy(self):
-        """Incremental WAP publish mechanism (ADR-0017): Transaction upsert + delete."""
+        """Incremental WAP publish mechanism (ADR-2129): Transaction upsert + delete."""
         return PublishStrategy.UPSERT_DELETE
 
     @property

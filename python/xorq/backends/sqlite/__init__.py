@@ -28,7 +28,7 @@ __all__ = [
 
 class Backend(IbisSQLiteBackend):
     def publish_strategy(self):
-        """Incremental WAP publish mechanism (ADR-0017): UPDATE+INSERT+DELETE in a txn.
+        """Incremental WAP publish mechanism (ADR-2129): UPDATE+INSERT+DELETE in a txn.
 
         The DML tier's ``UPDATE ... FROM`` needs SQLite >= 3.33 (the DML runs on
         the stdlib driver via ``con.begin()``, so ``sqlite3.sqlite_version_info``

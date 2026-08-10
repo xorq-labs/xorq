@@ -1,4 +1,4 @@
-"""Incremental WAP publish over databricks (NATIVE_MERGE / Delta). ADR-0017 / XOR-445.
+"""Incremental WAP publish over databricks (NATIVE_MERGE / Delta). ADR-2129 / XOR-445.
 
 Delta supports ``MERGE INTO``; sqlglot renders the databricks dialect (backticks).
 Gated behind ``@pytest.mark.databricks`` and run against a live workspace via the
