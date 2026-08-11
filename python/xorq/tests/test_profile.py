@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import importlib.util
 import os
 import pathlib
 import sys
@@ -691,25 +693,65 @@ def test_declared_secret_keys_are_mirrored(con_name: str) -> None:
     assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
 
 
+def _source_declares(module_name: str, name: str) -> bool | None:
+    """Whether a module's source defines or assigns `name`, without importing it:
+    find_spec locates the file but doesn't execute it. None when there is no
+    source to read."""
+    try:
+        spec = importlib.util.find_spec(module_name)
+    except (ImportError, ValueError):
+        return None
+    if spec is None or spec.origin is None or not spec.origin.endswith(".py"):
+        return None
+    tree = ast.parse(pathlib.Path(spec.origin).read_text())
+    return any(
+        getattr(node, "name", None) == name
+        or (isinstance(node, ast.Name) and node.id == name)
+        for node in ast.walk(tree)
+    )
+
+
+def test_source_declares_finds_names_without_importing() -> None:
+    """The fallback the guardrail test leans on for an unimportable backend: names
+    are found in the source, and a name that isn't there reads as absent rather
+    than as "can't tell"."""
+    module_name = "xorq.vendor.ibis.backends.profiles"
+    assert _source_declares(module_name, "get_secret_keys") is True
+    assert _source_declares(module_name, "con_name_to_secret_keys") is True
+    assert _source_declares(module_name, "_get_secret_keys") is False
+    assert _source_declares("xorq_no_such_module", "_secret_keys") is None
+
+
 @pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
 def test_dynamic_hook_backends_also_mirror_static_keys(con_name: str) -> None:
     """A backend declaring the dynamic hook must also declare static
     _secret_keys: the dynamic tier is skipped for a backend that isn't imported,
     so a backend relying on it alone gets only ("password",) checked when a
-    profile is hand-authored in a fresh process."""
-    entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
-    try:
-        module = entry_point.load()
-    except ImportError as e:
-        pytest.skip(f"{con_name} backend not importable: {e}")
-    backend = getattr(module, "Backend", None)
-    if getattr(backend, "_get_secret_keys", None) is None:
-        pytest.skip(f"{con_name} declares no _get_secret_keys hook")
-    assert getattr(backend, "_secret_keys", None), (
+    profile is hand-authored in a fresh process.
+
+    A backend whose extras aren't installed is checked against its module source
+    rather than skipped -- skipping there would leave the guardrail unenforced
+    for exactly the backends CI can't import."""
+    hint = (
         f"{con_name} declares a dynamic _get_secret_keys hook but no static "
         "_secret_keys; mirror the keys the hook always names, since the hook is "
         "skipped whenever the backend isn't already imported"
     )
+    entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
+    try:
+        module = entry_point.load()
+    except ImportError:
+        declares_hook = _source_declares(entry_point.module, "_get_secret_keys")
+        if declares_hook is None:
+            pytest.skip(f"{con_name} is neither importable nor locatable")
+        if not declares_hook:
+            pytest.skip(f"{con_name} declares no _get_secret_keys hook (by source)")
+        assert _source_declares(entry_point.module, "_secret_keys"), hint
+        return
+    backend = getattr(module, "Backend", None)
+    if getattr(backend, "_get_secret_keys", None) is None:
+        pytest.skip(f"{con_name} declares no _get_secret_keys hook")
+    assert getattr(backend, "_secret_keys", None), hint
 
 
 def _install_fake_backend(
@@ -1034,6 +1076,138 @@ def test_hook_error_warning_redacts_kwarg_values(
     # the useful part survives: which backend, and what went wrong
     assert con_name in message
     assert "ValueError" in message
+
+
+def test_hook_error_warning_redacts_nested_kwarg_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook keys off a nested config -- that is the whole reason the hook
+    exists -- so the value it quotes back when parsing fails was never a
+    top-level kwarg value. Redaction walks into the kwargs for that reason."""
+    plaintext = "nested-hunter2-super-secret"
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            raise ValueError(f"bad token: {kwargs['config']['token']}")
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning) as records:
+        assert (
+            get_dynamic_secret_keys(con_name, {"config": {"token": plaintext}}) is None
+        )
+    message = str(records[0].message)
+    assert plaintext not in message
+    assert "hunter2" not in message
+    assert "***" in message
+    assert "ValueError" in message
+
+
+def test_hook_error_warning_redacts_a_truncated_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """int() quotes only the leading ~200 characters of its input, so replacing
+    the whole value leaves that prefix in the message."""
+    plaintext = "hunter2-" + "x" * 400
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return (int(kwargs["password"]),)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning) as records:
+        assert get_dynamic_secret_keys(con_name, {"password": plaintext}) is None
+    message = str(records[0].message)
+    assert "hunter2" not in message
+    assert "xxxx" not in message
+
+
+def test_hook_error_warning_redacts_an_escaped_echo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A value holding a newline or a quote is echoed in its repr-escaped form,
+    which the raw value never matches."""
+    plaintext = "hunter2\nsuper-secret"
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            raise ValueError(f"bad token: {kwargs['password']!r}")
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning) as records:
+        assert get_dynamic_secret_keys(con_name, {"password": plaintext}) is None
+    message = str(records[0].message)
+    assert "hunter2" not in message
+    assert "super-secret" not in message
+
+
+def test_bare_string_warning_carries_no_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bare-str report names the type, not the value: a hook returning a
+    credential instead of its name would otherwise put it in the warning. The
+    hook here returns a value it *derived* from a kwarg rather than the kwarg
+    itself, which redaction cannot match -- so the only way the message stays
+    clean is by not carrying the value."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return kwargs["password"].upper()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning, match="not a bare str") as records:
+        assert get_dynamic_secret_keys(con_name, {"password": "hunter2-secret"}) is None
+    message = str(records[0].message)
+    assert "HUNTER2" not in message
+
+
+def test_non_str_names_warning_redacts_non_str_kwarg_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bytes credential returned as a name lands in the non-str warning
+    verbatim, so redaction covers non-str kwarg values too."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key", kwargs["private_key"])
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning) as records:
+        assert get_dynamic_secret_keys(
+            con_name, {"private_key": b"bytes-hunter2-secret"}
+        ) == ("api_key",)
+    message = str(records[0].message)
+    assert "hunter2" not in message
+
+
+def test_hook_mutating_a_nested_kwarg_does_not_reach_disk(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The copy handed to the hook is deep, not shallow: `Profile.kwargs_dict`
+    shares nested objects with the `kwargs_tuple` that gets saved, so a hook
+    writing into a nested config would otherwise put tampered content on disk
+    under a check that passed."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            kwargs["config"]["injected"] = "tampered"
+            return ()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    config = {"token": "${TOKEN}"}
+    check_for_exposed_secrets(con_name, {"config": config})
+    assert config == {"token": "${TOKEN}"}, "a nested kwarg value was mutated"
+    Profile(con_name=con_name, kwargs_tuple=(("config", config),)).save(
+        profile_dir=tmp_path
+    )
+    (saved,) = tmp_path.iterdir()
+    assert "tampered" not in saved.read_text()
 
 
 def test_get_secret_keys_unions_default_mirror_and_hook(

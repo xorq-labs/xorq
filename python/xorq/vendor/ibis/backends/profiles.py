@@ -1,7 +1,9 @@
+import copy
 import itertools
 import json
 import sys
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 
@@ -477,21 +479,100 @@ con_name_to_secret_keys = MappingProxyType(
 default_secret_keys = ("password",)
 
 
+# Values shorter than this are never masked: masking those mangles the message
+# without hiding anything, and it is also the shortest run of a value that gets
+# masked when the value appears truncated.
+_min_redacted_length = 4
+
+
+def _redaction_texts(value, depth=4):
+    """Every text form of ``value``, and of anything nested in it, that could
+    carry a secret into a warning.
+
+    Nested, because the kwarg a hook keys off of is typically a config mapping
+    holding the credentials, so a hook failing mid-parse quotes back something
+    that was never a top-level value. Both the plain and the ``repr``-escaped
+    form of a str, since an exception echoing a value that contains a newline or
+    a quote quotes the escaped one, which the plain form doesn't match. A
+    container too deep to walk falls through to its own ``str``, which contains
+    the nested values as one string.
+    """
+    if isinstance(value, str):
+        texts = (value, repr(value)[1:-1])
+    elif isinstance(value, bytes):
+        texts = (repr(value)[2:-1], value.decode("latin-1"))
+    elif depth and isinstance(value, Mapping):
+        return tuple(
+            itertools.chain.from_iterable(
+                _redaction_texts(v, depth - 1) for v in value.values()
+            )
+        )
+    elif depth and isinstance(value, (list, tuple, set, frozenset)):
+        return tuple(
+            itertools.chain.from_iterable(_redaction_texts(v, depth - 1) for v in value)
+        )
+    else:
+        texts = (str(value),)
+    return tuple(text for text in texts if len(text) >= _min_redacted_length)
+
+
+def _mask(text: str, secret: str) -> str:
+    """Replace every occurrence of ``secret``, or of a long enough prefix of it,
+    with ``***``.
+
+    Prefixes, because an exception truncates what it echoes -- ``int()`` on a
+    long credential quotes only its first ~50 characters -- and replacing the
+    whole value leaves that behind.
+    """
+    seed = secret[:_min_redacted_length]
+    parts = []
+    while (start := text.find(seed)) != -1:
+        stop = start + _min_redacted_length
+        while (
+            stop - start < len(secret)
+            and text[start : stop + 1] == secret[: stop - start + 1]
+        ):
+            stop += 1
+        parts.append(text[:start] + "***")
+        text = text[stop:]
+    return "".join(parts) + text
+
+
 def _redact_kwarg_values(text: str, kwargs: dict) -> str:
-    """Mask any kwarg value appearing in ``text``.
+    """Mask any kwarg value, including one nested inside a kwarg, appearing in
+    ``text``.
 
     A hook that fails parsing a credential tends to quote it back, and the
-    warnings below reach stderr and CI logs. Values under 4 characters are left
-    alone: masking those mangles the message without hiding anything. Longest
-    first, so masking one can't strand a prefix of another.
+    warnings below reach stderr and CI logs. Longest first, so masking one value
+    can't strand a prefix of another.
     """
-    for value in sorted(
-        (v for v in kwargs.values() if isinstance(v, str) and len(v) >= 4),
-        key=len,
-        reverse=True,
-    ):
-        text = text.replace(value, "***")
+    secrets = set(
+        itertools.chain.from_iterable(_redaction_texts(v) for v in kwargs.values())
+    )
+    for secret in sorted(secrets, key=len, reverse=True):
+        text = _mask(text, secret)
     return text
+
+
+def _copy_kwargs(kwargs: dict) -> dict:
+    """Deep-copy what the hook is handed.
+
+    The caller scans this dict after the hook returns, and `Profile.kwargs_dict`
+    shares nested objects with the `kwargs_tuple` that gets saved: a hook doing
+    `kwargs.pop(...)` while consuming a config would delete entries from the
+    scan, and one writing into a nested config would put tampered content on
+    disk under a check that passed. A value that can't be deep-copied is handed
+    over as it is -- a hook seeing the original is better than a copy failure
+    aborting the check.
+    """
+
+    def copied(value):
+        try:
+            return copy.deepcopy(value)
+        except Exception:
+            return value
+
+    return {key: copied(value) for key, value in kwargs.items()}
 
 
 def get_dynamic_secret_keys(
@@ -509,9 +590,10 @@ def get_dynamic_secret_keys(
     **Return top-level kwarg names only**, and treat ``kwargs`` as read-only.
     Names are matched against the top level, so for ``{"config": {"token": ...}}``
     returning ``"token"`` matches nothing -- a hook that gets this wrong is a
-    silent no-op. The dict passed in is a (shallow) copy, since the caller scans
-    it after this returns; its values are as authored, i.e. plaintext for the
-    profile this check exists to reject, so don't log or forward them.
+    silent no-op. The dict passed in is a deep copy, since the caller scans it
+    after this returns and shares its nested values with the profile it saves;
+    its values are as authored, i.e. plaintext for the profile this check exists
+    to reject, so don't log or forward them.
 
     Returns None when the backend has no entry point, isn't imported, declares no
     hook, or the hook raises or returns something that isn't a sequence of names
@@ -532,14 +614,16 @@ def get_dynamic_secret_keys(
         return None
     kwargs = {} if kwargs is None else kwargs
     try:
-        # a copy: the caller scans this dict after we return, so a hook popping
-        # from it would delete entries from the scan
-        keys = getter(dict(kwargs))
+        keys = getter(_copy_kwargs(kwargs))
         if isinstance(keys, (str, bytes)):
-            # tuple("api_key") would check 'a', 'p', 'i', ... and not api_key
+            # tuple("api_key") would check 'a', 'p', 'i', ... and not api_key.
+            # The value itself is left out of the message: a hook returning a
+            # credential rather than its name would put it in the warning, and
+            # `repr` escaping it defeats the redaction below. The type is what a
+            # hook author needs.
             raise TypeError(
                 "must return a sequence of names or None, not a bare "
-                f"{type(keys).__name__} ({keys!r})"
+                f"{type(keys).__name__}"
             )
         # inside the try, so a non-iterable return warns instead of raising
         keys = tuple(keys) if keys is not None else None
