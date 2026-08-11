@@ -11,6 +11,7 @@ import xorq.api as xo
 import xorq.common.exceptions as com
 from xorq.backends.mixpanel.client import (
     MixpanelClient,
+    max_retry_after_seconds,
     retry_after_seconds,
 )
 from xorq.backends.mixpanel.tests.conftest import (
@@ -134,6 +135,10 @@ def test_retry_after_seconds() -> None:
     # the RFC-permitted HTTP-date form falls back to exponential backoff
     assert retry_after_seconds("Wed, 21 Oct 2026 07:28:00 GMT", 8) == 8
     assert retry_after_seconds(None, 8) == 8
+    # clamped both ways: a hostile header can't sleep the process for years,
+    # and a negative value would make time.sleep raise
+    assert retry_after_seconds("999999999", 8) == max_retry_after_seconds
+    assert retry_after_seconds("-5", 8) == 0
 
 
 def _paged_responses(monkeypatch: pytest.MonkeyPatch, pages: list[dict]) -> list[dict]:
@@ -152,8 +157,9 @@ def test_engage_termination_falls_back_to_requested_page_size(
     con: BaseBackend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A server that doesn't echo page_size must not truncate a fetch whose
-    requested size exceeds the 1_000 default: a full page (by the requested
-    size) keeps paginating, and the next request carries session_id/page."""
+    requested size is below the 1_000 default (the API clamps requests up to
+    100, so real pages can be that small): a full page by the requested size
+    keeps paginating, and the next request carries session_id/page."""
     full_page = [{"$distinct_id": str(i), "$properties": {}} for i in range(2)]
     calls = _paged_responses(
         monkeypatch,

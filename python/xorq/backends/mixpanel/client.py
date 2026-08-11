@@ -64,13 +64,16 @@ engage_dtypes = {
     "properties": "string",
 }
 default_timeout_seconds = 600
+max_retry_after_seconds = 300
 
 
 def retry_after_seconds(value: str | None, default: int) -> int:
     # Retry-After is either delta-seconds or an HTTP-date; back off
-    # exponentially on the date form rather than crash the retry loop
+    # exponentially on the date form rather than crash the retry loop.
+    # Clamped: a hostile or broken header must not sleep the process for
+    # years (and time.sleep raises on a negative value)
     try:
-        return int(value)
+        return max(0, min(int(value), max_retry_after_seconds))
     except (TypeError, ValueError):
         return default
 
@@ -159,6 +162,10 @@ class MixpanelClient:
                     retry_after_seconds(resp.headers.get("Retry-After"), 2**tries)
                 )
                 continue
+            if not resp.ok:
+                # a streamed error body is unread; release the connection
+                # now rather than at GC
+                resp.close()
             resp.raise_for_status()
             return resp
         raise requests.exceptions.RetryError(f"exceeded {max_tries} tries for {url}")
@@ -188,8 +195,9 @@ class MixpanelClient:
 
         `page_size` bounds each response page (the API clamps to >= 100);
         termination uses the page size the server echoes back, falling back
-        to the requested size so a non-echoing server can't truncate a
-        larger-than-default fetch after one page.
+        to the requested size so that against a non-echoing server a full
+        page of a smaller-than-1_000 request can't read as a partial page
+        and truncate the fetch after page one.
         """
         url = f"{query_api_urls[self._region]}/2.0/engage"
         params = {
@@ -202,7 +210,9 @@ class MixpanelClient:
             data = self.get_with_backoff(url, params=params).json()
             results = data.get("results", ())
             rows.extend(map(profile_to_row, results))
-            if len(results) < data.get("page_size", page_size or 1_000):
+            if len(results) < data.get(
+                "page_size", 1_000 if page_size is None else page_size
+            ):
                 break
             if missing := tuple(k for k in ("session_id", "page") if k not in data):
                 raise ValueError(
