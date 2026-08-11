@@ -12,11 +12,13 @@
 </div>
 
 ---
-Xorq is an executable memory system for tabular data work. Xorq gives agents a
-catalog of executable pipelines instead of markdown notes. It turns ephemeral
-agent work such as pandas scripts, sklearn pipelines, ad-hoc tables into
-durable, composable, executable artifacts that any future agent or human can
-discover, reproduce and reuse.
+Xorq is an executable, composable catalog for tabular data work. It gives
+agents runnable, content-addressed pipelines instead of markdown notes: memory
+you can execute, not prose you have to reread. Entries compose, so new
+pipelines build on cataloged ones instead of starting from scratch. It turns
+ephemeral agent work such as pandas scripts, sklearn pipelines, ad-hoc tables
+into durable artifacts that any future agent or human can discover, reproduce
+and reuse.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ![xorq catalog TUI](docs/images/catalog-tui.png)
@@ -95,11 +97,11 @@ moves data between them.
 
 # Comparison
 
-A Xorq memory is a computation you reason about by its invariants (schema,
+A Xorq catalog entry is a computation you reason about by its invariants (schema,
 lineage, content hash, deterministic execution), the way you reason about a
 matrix by its properties rather than its entries.
 
-| Approach | Memory item | Answer produced by | Provenance & reproducibility |
+| Approach | Unit of reuse | Answer produced by | Provenance & reproducibility |
 |----------|-------------|---------------------|-------------------------------|
 | Agent memory (Mem0, etc) | Markdown snippets | LLM reading the prompt | None |
 | MCP / open context servers | Tool bindings | Tool at runtime; LLM consumes as text | Per-tool |
@@ -317,9 +319,9 @@ expression:
 <details>
 <summary><b>The Tools</b> — catalog, run, serve</summary>
 
-The entry is the unit of executable memory that includes the manifest plus
-environment to run it. The tools — catalog, run, serve — are how agents and
-humans compose with it.
+The entry is the unit of the catalog: the manifest plus the environment to run
+it. The tools — catalog, run, serve — are how agents and humans compose with
+it.
 
 ### Catalog
 
