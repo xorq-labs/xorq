@@ -68,6 +68,10 @@ jobs:
               - --extra sqlite
               - --extra ibis
               - --extra datafusion  # core tests parametrize over the datafusion backend
+              # the secret-key mirror tests in test_profile.py load every installed
+              # entry point; without these extras they skip for the REST family
+              - --extra mixpanel
+              - --extra github
           - name: sqlite
             services: false
             extras:
@@ -83,6 +87,18 @@ jobs:
             extras:
               - --extra trino
               - --extra duckdb
+          - name: rest
+            services: false
+            extras:
+              - --extra rest
+          - name: mixpanel
+            services: false
+            extras:
+              - --extra mixpanel
+          - name: github
+            services: false
+            extras:
+              - --extra github
     steps:
       - uses: actions/checkout@v6
 
