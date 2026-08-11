@@ -674,19 +674,31 @@ def test_secret_key_mirror_matches_backend_declaration(con_name: str) -> None:
 
 @pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
 def test_declared_secret_keys_are_mirrored(con_name: str) -> None:
-    """Inverse of test_secret_key_mirror_matches_backend_declaration: every
-    installed backend that declares _secret_keys must also appear (and match)
+    """Inverse of test_secret_key_mirror_matches_backend_declaration: an
+    in-tree backend that declares _secret_keys must also appear (and match)
     in the con_name_to_secret_keys mirror. Without this a backend could declare
     keys yet be absent from the mirror, so check_for_exposed_secrets would
-    silently fall back to just ("password",) for it."""
+    silently fall back to just ("password",) for it.
+
+    An out-of-tree backend can never be mirrored; its declaration is made
+    live by the _get_secret_keys hook instead, so for a plugin the drift to
+    catch is a declaration with no hook -- dead documentation."""
     entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
     try:
         module = entry_point.load()
     except ImportError as e:
         pytest.skip(f"{con_name} backend not importable: {e}")
-    declared = getattr(getattr(module, "Backend", None), "_secret_keys", None)
+    backend = getattr(module, "Backend", None)
+    declared = getattr(backend, "_secret_keys", None)
     if declared is None:
         pytest.skip(f"{con_name} declares no _secret_keys")
+    if not entry_point.module.startswith("xorq.backends."):
+        assert callable(getattr(backend, "_get_secret_keys", None)), (
+            f"{con_name} is out-of-tree and declares _secret_keys but no "
+            "_get_secret_keys hook; nothing reads the declaration, so the "
+            "keys are never checked -- declare the hook to make them live"
+        )
+        return
     assert con_name in con_name_to_secret_keys, (
         f"{con_name} declares _secret_keys but is missing from the "
         "con_name_to_secret_keys mirror; add it so the mirror stays a complete "
