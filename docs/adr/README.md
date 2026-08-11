@@ -36,6 +36,25 @@ The sweep leaves code spans and fences alone in prose — `.md` and `.qmd` — o
 
 CI treats the two asymmetrically. A numbered reference that doesn't resolve is an **error** — the forge allocated that number, so a missing one is a mistake. A named reference that doesn't resolve is a **warning**, because the ADR it names may still be on a branch that hasn't landed.
 
+## Citing code and commits
+
+An ADR cites code by path, usually with a line number: `python/xorq/expr/api.py:84`. CI checks that the path resolves and ignores the line number, which drifts on every edit above it.
+
+A path resolves if it is a path git tracks, or the tail of one — `expr/api.py` is accepted for `python/xorq/expr/api.py`, so an abbreviated citation is fine. Two rules make the check quiet enough to keep: the last segment needs a file extension, and a citation with no slash in it isn't checked at all. So a cited *directory* is never checked (`build/cache` and `python/xorq/writes/` are the same shape, and only one is a path), and neither is a bare `core.py` (it would match anything of that name). A fenced block is not scanned, which is how you show a path that isn't meant to resolve — a module a proposal ADR would create, say.
+
+Cite a commit by the pull request that carried it, or as a Markdown link. A bare short SHA is reported: it resolves for whoever wrote it and for nobody else once the branch it was on is squash-merged or deleted. ADR-0007 cites `ce8004bc` as being "on `main`", and it is unreachable in a full clone today.
+
+**A path that has since moved is not a defect, and you must not fix it by editing the ADR.** An ADR records what was true when the decision was made. So the check is asymmetric, the same way the two citation forms are:
+
+| Where the citation is | Unresolved path, or a bare SHA |
+|-----------------------|--------------------------------|
+| An ADR this pull request adds | **Error** — nothing has had time to move, so it's wrong |
+| An ADR already in the tree | **Warning** — probably the record doing its job |
+
+This is why the check needs no "historical block" marker: the pull request diff already knows which prose is new, so nothing has to be marked and nothing can be waved through. Renumbering a landed ADR doesn't count as adding it. The gap is an amendment to a landed ADR, whose new citations only warn.
+
+Every warning that exists today is in the second row: five across four ADRs, four paths and one SHA. Leave them.
+
 ## Writing one
 
 1. `python3 scripts/adr_new.py my-decision` copies the template to `docs/adr/XXXX-my-decision.md`.
@@ -62,6 +81,7 @@ The allowlist in `scripts/adr_check.py` is the one exception: a branch that pred
 - the `# ADR-NNNN:` heading agrees with the filename
 - every `ADR-NNNN` mention and every same-directory Markdown link resolves to a real ADR
 - every `ADR-<slug>` mention resolves, or is reported as a warning if it doesn't
+- every cited repo path is one git tracks, and no commit is cited by a bare short SHA — an error in an ADR the pull request adds, a warning in one already landed
 
 Unnumbered ADRs are checked too — a file still carrying `XXXX` has its heading and its references validated like any other.
 
