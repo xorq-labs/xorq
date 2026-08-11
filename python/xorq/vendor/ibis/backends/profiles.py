@@ -477,39 +477,40 @@ con_name_to_secret_keys = MappingProxyType(
 default_secret_keys = ("password",)
 
 
-# Declarative secret-key sources by connection name, mirrored from each
-# backend's `Backend._secret_key_sources` declaration exactly as
-# `con_name_to_secret_keys` mirrors `_secret_keys`. Each source is a tuple of
-# steps naming where in the kwargs the secret kwarg *names* live; because the
-# declaration is data, mirroring it means resolution never needs the backend
-# imported. Empty until the first declaring backend lands.
+# Declarative secret-key sources by connection name, mirrored from each backend's
+# `Backend._secret_key_sources` exactly as `con_name_to_secret_keys` mirrors
+# `_secret_keys`. Mirroring data means resolution never needs the backend imported.
 con_name_to_secret_key_sources = MappingProxyType({})
 
 
 def _resolve_source(source: tuple[str, ...], kwargs: dict) -> tuple[str, ...] | None:
-    """The names ``source`` points at inside ``kwargs``, or None when it
-    doesn't resolve.
-
-    Every rule is a type check or a dict lookup, so no backend-authored code
-    runs: a step resolves only against a plain ``dict``, read through the
-    unbound ``dict.get`` so a subclass's ``get``/``__getitem__``/``__missing__``
-    overrides are bypassed. Anything else at an intermediate step -- an attrs
-    instance, a ``Mapping`` that isn't a ``dict``, ``None`` -- is unresolved
-    rather than reached into; profiles carry configs as plain dicts. A source
-    resolves iff every step lands and the final value is a ``list``/``tuple``:
-    its ``str`` members are the names (a non-``str`` member can never match a
-    kwarg, so it is dropped rather than costing the well-formed names beside
-    it). ``None`` is unresolved -- ``secret_fields: null`` falls through --
-    while ``[]`` resolves to ``()``: "none of the fields are secret".
+    """The names ``source`` points at inside ``kwargs``, or None when it doesn't
+    resolve. Resolution runs no code belonging to the values it walks: a step reads
+    a plain ``dict`` through the unbound ``dict.get``, the leaf must be exactly a
+    ``list``/``tuple`` (a subclass can forge ``__iter__``), and anything else is
+    unresolved rather than reached into -- ``secret_fields: null`` falls through,
+    while ``[]`` resolves to ``()``. A non-``str`` name is dropped.
     """
     value = kwargs
     for step in source:
         if not isinstance(value, dict):
             return None
         value = dict.get(value, step)
-    if isinstance(value, (list, tuple)):
+    if type(value) in (list, tuple):
         return tuple(name for name in value if isinstance(name, str))
     return None
+
+
+def _well_formed_sources(sources) -> tuple[tuple[str, ...], ...]:
+    """The sources shaped like sources: a non-empty tuple of ``str`` steps. A
+    malformed one contributes nothing; shape is pinned by the mirror tests."""
+    return tuple(
+        source
+        for source in sources
+        if isinstance(source, tuple)
+        and source
+        and all(isinstance(step, str) for step in source)
+    )
 
 
 def _imported_backend(con_name: str) -> type | None:
@@ -526,53 +527,42 @@ def _imported_backend(con_name: str) -> type | None:
 
 
 def _secret_key_sources_for(con_name: str) -> tuple[tuple[str, ...], ...]:
-    """Every declared secret-key source for ``con_name``: the mirror entry,
-    topped up from ``_secret_key_sources`` on an already-imported backend.
-
-    The mirror covers in-tree backends with no import at all; the class read
-    covers out-of-tree backends, which cannot add entries to the mirror.
-    ``inspect.getattr_static`` reads the class dict without firing descriptors,
-    so a ``_secret_key_sources`` declared as a ``property`` contributes nothing
-    instead of executing -- it returns the descriptor object, which the tuple
-    check discards.
-    """
-    sources = con_name_to_secret_key_sources.get(con_name, ())
+    """Every declared source for ``con_name``: the mirror entry, topped up from
+    ``_secret_key_sources`` on an already-imported backend, which is how an
+    out-of-tree backend -- unable to add a mirror entry -- keeps the tier.
+    ``getattr_static`` cannot fire a descriptor, so a ``property`` declaration
+    contributes nothing instead of executing."""
+    sources = tuple(con_name_to_secret_key_sources.get(con_name, ()))
     if (backend := _imported_backend(con_name)) is not None:
         declared = inspect.getattr_static(backend, "_secret_key_sources", ())
         if isinstance(declared, tuple):
             sources += declared
-    return tuple(dict.fromkeys(sources))
+    return tuple(dict.fromkeys(_well_formed_sources(sources)))
 
 
 def get_declared_secret_keys(
     con_name: str, kwargs: dict | None = None
 ) -> tuple[str, ...]:
-    """The first resolving declared source's names, or ``()`` -- the third
-    tier of ``get_secret_keys``, which unions it with the default and the
-    mirror so a declaration can only widen what is checked.
-
-    A backend whose secret kwarg names depend on the kwargs themselves -- an
-    auth kwarg named by a config passed as another kwarg, say -- declares
-    *where the names live*, as static class data::
+    """The first resolving declared source's names, or ``()`` -- tier 3 of
+    ``get_secret_keys``. A backend whose secret kwarg names depend on the kwargs
+    themselves declares *where the names live*, as static class data::
 
         _secret_key_sources = (
             ("config", "auth", "secret_fields"),
             ("config", "auth", "fields"),
         )
 
-    Sources are ordered fallback: the first that resolves wins. A source may
-    read from anywhere in the kwargs, but the names it yields are matched
-    against the **top level**, so for ``{"config": {"token": ...}}`` a source
+    The first source that resolves wins, and the names it yields are matched against
+    the **top level** of the kwargs, so for ``{"config": {"token": ...}}`` a source
     yielding ``"token"`` matches nothing.
     """
+    kwargs = kwargs if kwargs is not None else {}
     for source in _secret_key_sources_for(con_name):
         try:
-            names = _resolve_source(source, kwargs or {})
+            names = _resolve_source(source, kwargs)
         except Exception as e:
-            # a hostile object inside kwargs (e.g. a lying __class__ passing
-            # the isinstance check), not a declaration bug: fail closed and
-            # loudly. Only our own declared source is interpolated, so there
-            # is nothing here to redact.
+            # a hostile object in kwargs, not a declaration bug: fail closed. Only
+            # our own source is interpolated, so no kwarg value can leak here.
             raise ValueError(
                 f"{con_name}: could not resolve secret-key source {source}: "
                 f"{type(e).__name__}"
@@ -589,10 +579,9 @@ def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...
     2. the static ``con_name_to_secret_keys`` mirror entry, if any,
     3. the backend's declared ``_secret_key_sources``, resolved against kwargs.
 
-    Unioning is what keeps this monotone: an empty, narrower, or unresolved
-    tier 3 leaves tiers 1 and 2 intact, so a declaration can only widen what
-    is checked. Ordering is deterministic (first occurrence wins, tiers in the
-    order above) so error messages are reproducible.
+    Unioning is what keeps this monotone: an empty, narrower, or unresolved tier 3
+    leaves tiers 1 and 2 intact, so a declaration can only widen what is checked.
+    Ordering is deterministic -- first occurrence wins, tiers in the order above.
     """
     return tuple(
         dict.fromkeys(

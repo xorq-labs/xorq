@@ -751,19 +751,25 @@ def test_declared_secret_key_sources_are_mirrored(con_name: str) -> None:
 
 def _source_declares(module_name: str, name: str) -> bool | None:
     """Whether a module's source defines or assigns `name`, without importing it:
-    find_spec locates the file but doesn't execute it. None when there is no
-    source to read."""
+    find_spec locates the file but doesn't execute it. A package is searched
+    whole, since a Backend is commonly re-exported from a submodule. None when
+    there is no source to read."""
     try:
         spec = importlib.util.find_spec(module_name)
     except (ImportError, ValueError):
         return None
-    if spec is None or spec.origin is None or not spec.origin.endswith(".py"):
+    if spec is None:
         return None
-    tree = ast.parse(pathlib.Path(spec.origin).read_text())
+    paths = [pathlib.Path(spec.origin)] if str(spec.origin).endswith(".py") else []
+    for location in spec.submodule_search_locations or ():
+        paths.extend(sorted(pathlib.Path(location).rglob("*.py")))
+    if not paths:
+        return None
     return any(
         getattr(node, "name", None) == name
         or (isinstance(node, ast.Name) and node.id == name)
-        for node in ast.walk(tree)
+        for path in paths
+        for node in ast.walk(ast.parse(path.read_text()))
     )
 
 
@@ -776,6 +782,28 @@ def test_source_declares_finds_names_without_importing() -> None:
     assert _source_declares(module_name, "con_name_to_secret_key_sources") is True
     assert _source_declares(module_name, "_get_secret_keys") is False
     assert _source_declares("xorq_no_such_module", "_secret_keys") is None
+
+
+def test_source_declares_searches_a_package_for_a_re_exported_name(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A backend package whose Backend is re-exported from a submodule is still
+    searched: reading only the entry-point module's own source would report the
+    declaration as absent and skip the guardrail for exactly the backends CI
+    cannot import."""
+    package = tmp_path / "xorq_reexporting_backend"
+    package.mkdir()
+    (package / "__init__.py").write_text("from .backend import Backend\n")
+    (package / "backend.py").write_text(
+        "class Backend:\n"
+        "    _secret_keys = ('token',)\n"
+        "    _secret_key_sources = (('config', 'auth', 'fields'),)\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    assert _source_declares(package.name, "_secret_key_sources") is True
+    assert _source_declares(package.name, "_secret_keys") is True
+    assert _source_declares(package.name, "_no_such_declaration") is False
 
 
 @pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
@@ -1066,10 +1094,9 @@ def test_a_property_declaration_contributes_nothing(
 def test_a_non_tuple_class_declaration_contributes_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A malformed class declaration -- a list here -- fails the tuple check
-    and contributes nothing: declaration shape is an authoring-time concern
-    (test_mirrored_secret_key_sources_are_tuples_of_str), never a runtime
-    guard."""
+    """A malformed class declaration -- a list here -- fails the tuple check and
+    contributes nothing: declaration shape is an authoring-time concern, pinned by
+    the mirror tests, never a runtime guard."""
 
     class Backend:
         _secret_key_sources = [("config", "auth", "fields")]
@@ -1078,6 +1105,99 @@ def test_a_non_tuple_class_declaration_contributes_nothing(
     kwargs = {"config": {"auth": {"fields": ["api_key"]}}}
     assert get_declared_secret_keys(con_name, kwargs) == ()
     assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+
+
+@pytest.mark.parametrize(
+    "declared",
+    (
+        pytest.param((42,), id="source_is_not_a_tuple"),
+        pytest.param((["config", "auth"],), id="source_is_a_list"),
+        pytest.param(((),), id="source_is_empty"),
+        pytest.param((("config", 3),), id="step_is_not_str"),
+        pytest.param(("config", "auth", "fields"), id="steps_not_nested_in_a_source"),
+    ),
+)
+def test_malformed_sources_contribute_nothing(
+    monkeypatch: pytest.MonkeyPatch, declared: tuple
+) -> None:
+    """A declaration whose *elements* are malformed contributes nothing, like a
+    malformed declaration as a whole -- it does not raise, and it does not block
+    every save for that backend. The last case is the likely authoring slip: a
+    flat tuple of steps, which without the shape check walks single-character
+    keys."""
+
+    class Backend:
+        _secret_key_sources = declared
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    kwargs = {"config": {"auth": {"fields": ["api_key"]}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+    check_for_exposed_secrets(con_name, {**kwargs, "api_key": "plaintext"})
+
+
+@pytest.mark.parametrize(
+    "base",
+    (pytest.param(list, id="list_subclass"), pytest.param(tuple, id="tuple_subclass")),
+)
+def test_a_leaf_that_subclasses_list_is_not_iterated(
+    monkeypatch: pytest.MonkeyPatch, base: type
+) -> None:
+    """The leaf read runs no code belonging to the leaf either: a list/tuple
+    subclass forging __iter__ is unresolved rather than believed, with no call
+    made. Iterating it would let hostile data both invent names and -- by
+    resolving -- cut off the fallback to the next source."""
+
+    class Forging(base):
+        def __init__(self, *args) -> None:
+            super().__init__()
+            self.iterated = False
+
+        def __iter__(self) -> collections.abc.Iterator:
+            self.iterated = True
+            return iter(["forged"])
+
+    leaf = Forging(["true_key"])
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = {"config": {"auth": {"fields": leaf}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert not leaf.iterated
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+
+
+def test_a_leaf_subclass_falls_through_to_the_next_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unresolved means unresolved: a subclass leaf on the first source hands the
+    fallback to the second rather than resolving to a forged answer."""
+
+    class Forging(list):
+        def __iter__(self) -> collections.abc.Iterator:
+            return iter([])
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    auth = {"secret_fields": Forging(["ignored"]), "fields": ["api_key"]}
+    kwargs = {"config": {"auth": auth}}
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+
+
+def test_a_kwargs_subclass_lying_about_len_still_resolves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Normalizing absent kwargs tests for None, not truthiness: a dict subclass
+    whose __len__ reports empty would otherwise disable the whole tier, silently
+    and without the fail-closed error, despite every lookup on it reading the true
+    data."""
+
+    class LenLying(dict):
+        def __len__(self) -> int:
+            return 0
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = LenLying(config={"auth": {"fields": ["api_key"]}})
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, LenLying(**kwargs, api_key="plaintext"))
 
 
 def test_mirrored_sources_resolve_without_import(
@@ -1210,17 +1330,12 @@ def test_get_secret_keys_unions_default_mirror_and_declared(
     keys = profiles_mod.get_secret_keys(
         "postgres", {"secret_kwarg_names": ["token", "sslcert"]}
     )
-    assert keys == (
-        "password",
-        "sslcert",
-        "sslkey",
-        "sslrootcert",
-        "sslcrl",
-        "options",
-        "passfile",
-        "token",
-    )
-    # no duplicates even though the source repeated a mirrored key
+    mirror = con_name_to_secret_keys["postgres"]
+    assert set(keys) == {*profiles_mod.default_secret_keys, *mirror, "token"}
+    assert keys[0] == "password"  # tier 1, unconditionally
+    assert tuple(key for key in keys if key in mirror) == mirror  # tier 2, in order
+    assert keys[-1] == "token"  # tier 3, after the tiers it can only widen
+    # first occurrence wins, so the source repeating "sslcert" adds no duplicate
     assert len(keys) == len(set(keys))
 
 

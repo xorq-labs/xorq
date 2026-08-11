@@ -22,10 +22,10 @@ def _load_entry_points() -> tuple[importlib_metadata.EntryPoint, ...]:
 def _find_entry_point(name: str) -> importlib_metadata.EntryPoint | None:
     """Look up a `xorq.backends` entry point, refreshing the cache once on a miss.
 
-    Resolve through here rather than scanning `_load_entry_points()`: a direct
-    scan sees the cache as it was, so it rejects a backend installed into a live
-    process (pip install in a Jupyter kernel) until that process restarts. Only a
-    miss pays the rescan.
+    Resolve through here rather than scanning `_load_entry_points()` directly: a
+    direct scan sees the cache as it was, so it rejects a backend installed into a
+    live process (pip install in a Jupyter kernel) until restart. Only a miss pays
+    the rescan.
     """
     if entry_point := next(
         (ep for ep in _load_entry_points() if ep.name == name), None
