@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786469017501,
+  "lastUpdate": 1786469550180,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -33426,6 +33426,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.24338489052649945",
             "extra": "mean: 1.7348570541999835 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5114b54aa252575fbf67156afb4b90cbd844d1b",
+          "message": "feat(adr): decide the citation tier per line, not per file (#2222)\n\nLands on top of #2221, which delivered checks 3 and 4 of #2203. **Check 2 of #2203 stays open**, so this does not close the issue either.\n\nThis PR previously carried an independent implementation of the same two checks. That was the wrong shape: #2221 and it were not additive but *contradictory* — the same input had to exit 0 and 1 — so it has been rewritten as the delta.\n\n## What this adds\n\n#2221 names one gap it deliberately left open:\n\n> **Known gap:** an amendment that adds a bad path to a landed ADR only warns. Closing it means scoping to added *lines* rather than added *files*, i.e. parsing diff hunks. I left it, and said so in `check_paths`.\n\nThis closes it, and the reason it's worth closing is that `docs/adr/README.md` makes the amendment the *sanctioned* way to update a landed ADR:\n\n> When the decision still holds but the implementation details changed, set the status to `Amended` and append a dated `## Amendment` section rather than rewriting the original text.\n\nSo an amendment is precisely where a new citation arrives after the fact. Keyed to the file, every one of them is history by default and only warns — the one route by which a fresh, wrong citation can enter the tree unchecked.\n\nBoth halves of the line scope are load-bearing:\n\n| | Tier |\n|---|---|\n| Citation on a line this pull request adds | **error** — including an amendment to a landed ADR |\n| Citation on a line already in the tree | **warning** — even in a file this pull request modifies |\n\nThe second row is what keeps it honest. If touching a file re-opened everything in it, the cheapest way to keep a pull request green would be to stop amending ADRs — or to edit the history, which is the outcome the whole design exists to prevent.\n\n## What it deletes\n\n**`pair_renames` goes away.** #2221 needed it because the numbering check wants a renumber read as an addition and the citation checks want the opposite, which took two `added_adrs` diffs and a flag. With line scope, rename detection left on means a renumbered ADR contributes only the heading line `adr_rename.py` rewrote — its aged citations aren't on an added line and stay in the warning tier for free.\n\nThat's not a claim on trust: #2221's own `test_renumbering_a_landed_adr_does_not_make_its_citations_new` still passes, and it **fails** if `--no-renames` is added back to `added_lines`. The two diffs now disagree on purpose rather than by omission, and each says so.\n\n## The rebase, and the one bug it created\n\nThis branch was rebased onto `49fbc8f6`, the review fixes on #2221. That needed reconciling rather than replaying, because the two changes meet in the same six lines of `check_paths`.\n\n`49fbc8f6` made the path check substitute a Markdown link's *target* for the whole link, so that a dependency path used as link text stops being an error while a relative target stays a citation. This PR makes a citation's line number decide its severity. Either half of a link may span lines — so the substitution has to carry line breaks the way `_blank` carries a fence's, or a citation after a wrapped link lands in the **wrong tier**, not merely at a wrong line. That is the exact defect `_blank` exists to prevent, arriving by a second route.\n\n`_link_target` pads the target to the link's own line count. Pinned by `test_a_multi_line_link_does_not_shift_the_reported_line`, and confirmed to fail without the padding — the citation reports at line 5 instead of 6.\n\nTwo smaller items from the same review, applied here rather than left to rot:\n\n- The amendment argument now lives in `added_lines` alone. It had been restated in `check_paths`, `main()`, the README and the test section — the duplication `49fbc8f6` had just finished removing elsewhere.\n- `citations` no longer claims `dasher/_opaque.py` appears in ADR-0015 \"five times\". It appears eight. Per the convention `CONTRIBUTING.md` now records: state the ratio at the rule it justifies, or compute it — don't write down an integer nothing checks.\n\n## Also\n\nReports name the line they read (`docs/adr/0007-…md:16:`), and the GitHub annotation lands on the citation rather than the top of a four-hundred-line ADR. A warning never fails the run, so the annotation is the only place a reviewer sees one — putting it 380 lines away made it close to useless.\n\n## What it does not change\n\nEverything from #2221 that was already right, and that's most of it: `PATH_CITATION_RE`, `BARE_SHA_RE` (including the digit-*and*-letter rule that keeps `20260427` and `defaced` out), `TrackedPaths` suffix resolution, `strip_transcripts` keeping inline code spans, `AGED_CITATION`, and the error/warning asymmetry itself. This is a change of *scope*, not of extraction or of policy.\n\nThe two stripping helpers are the exception, and only in how they substitute: `strip_transcripts` and the link strip now preserve line breaks, because severity depends on them. What they remove is unchanged.\n\n## Also landed here: the diff `added_lines` reads\n\nReview found three ways the parse behind the tier could go wrong, all of\nwhich go wrong identically -- no lines, which is what a branch that added\nnothing yields, so every citation quietly warns and the run passes. That is\nthe failure `added_lines`' own docstring refuses, arriving through the argv\nrather than through the ref.\n\n- `--output-indicator-new=>` so `+++` at the start of a line can only be a\n  file header. Left as `+`, an ADR line beginning with `++` is emitted as\n  `+++ ...`, is read as a header, and points every later hunk in that file at\n  a path nothing looks up -- a citation two hunks on drops to a warning.\n- `--no-ext-diff` because a configured `diff.external` prints nothing here and\n  exits 0.\n- `--relative` because `adr_files` yields paths relative to the run. A\n  checkout rooted above the project reports `sub/docs/adr/...`, no key\n  matches, and the whole branch warns.\n\nNone of the three changes what CI sees today. Each is here because what it\nprevents is silent. One test per flag, and each flag's removal fails only its\nown test.\n\nThe `returncode != 0` branch now says outright that it is untestable: `main`\nresolves the same base through `added_adrs` first and exits on that message,\nso nothing reaches this one. It stays because \"the diff failed\" and \"nothing\nwas added\" are otherwise the same empty dict.\n\n## Verification\n\n```\n$ python3 scripts/adr_check.py                  # exit 0\n11 warning(s) — 6 pre-existing slugs + 5 citations\n$ uv run --isolated --no-project --with pytest -- pytest scripts/tests -q\n141 passed\n```\n\nDay-one output is **unchanged from #2221** — the same four aged paths and one bare SHA, now with accurate line numbers:\n\n```\n0006-…:5   cites `python/xorq/common/utils/dask_normalize/dask_normalize_expr.py`\n0007-…:5   cites `python/xorq/common/utils/dask_normalize/dask_normalize_expr.py`\n0007-…:16  cites the bare short commit `ce8004bc`\n0009-…:16  cites `dev/init-catalog-submodule.sh`\n0010-…:281 cites `scripts/2026-04-27-pierre-sync.py`\n```\n\nAll of #2221's tests pass unmodified. Each new decision was mutation-tested — reverted in the source, suite confirmed to fail:\n\n| Mutation | Killed by |\n|---|---|\n| file-level tier instead of line | `test_the_prose_an_amendment_did_not_touch_stays_a_warning`, and #2221's renumber test |\n| fence stripping loses line breaks | `test_a_fence_does_not_shift_the_reported_line` |\n| link substitution loses line breaks | `test_a_multi_line_link_does_not_shift_the_reported_line` |\n| first occurrence decides the tier | `test_a_citation_repeated_on_a_new_line_is_an_error` |\n| `added_lines` made rename-blind | #2221's `test_renumbering_a_landed_adr_does_not_make_its_citations_new` |\n\nNo ADR is edited.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T13:26:58-04:00",
+          "tree_id": "7d6e17b9cc98d8a19cfc6a6e23d4f486a3d3cba4",
+          "url": "https://github.com/xorq-labs/xorq/commit/e5114b54aa252575fbf67156afb4b90cbd844d1b"
+        },
+        "date": 1786469547320,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.341205367618134,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013277683286537877",
+            "extra": "mean: 96.70052614285599 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.4107618451947386,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04868505696729412",
+            "extra": "mean: 293.18962899999974 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 1.159738207108148,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15153503520662018",
+            "extra": "mean: 862.2635642000091 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 5.005467046189711,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006222981277781808",
+            "extra": "mean: 199.7815570000057 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.779074109063746,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014376717071297417",
+            "extra": "mean: 209.2455520000101 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.979571629931804,
+            "unit": "iter/sec",
+            "range": "stddev: 0.047783731780510784",
+            "extra": "mean: 251.2833272000023 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 289.39649181295783,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0033895001416593636",
+            "extra": "mean: 3.4554669054050526 msec\nrounds: 370"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.907664534518975,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06970140398372063",
+            "extra": "mean: 169.27162911111773 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 20.758725777172774,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012455772669524065",
+            "extra": "mean: 48.17251360869388 msec\nrounds: 23"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 20.785632731203957,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002446636666021188",
+            "extra": "mean: 48.110154400004035 msec\nrounds: 20"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 14.52904119125355,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00215797181366721",
+            "extra": "mean: 68.82766638461992 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 9.96842524864226,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0030632054916905076",
+            "extra": "mean: 100.31674763636354 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 7.021405665613214,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016063832361470878",
+            "extra": "mean: 142.42162433334707 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 6.914134021247482,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011848371179188431",
+            "extra": "mean: 144.6312722499954 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 3.8077899204161474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.035218089534279816",
+            "extra": "mean: 262.6195302000042 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 4.738012297046593,
+            "unit": "iter/sec",
+            "range": "stddev: 0.033563589984847236",
+            "extra": "mean: 211.05897099999993 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 2.6258281129261873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.061960618849507425",
+            "extra": "mean: 380.83223920000364 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 3.1303983582732546,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015360229630842756",
+            "extra": "mean: 319.44816140000967 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 2.437659619536294,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05802839927052654",
+            "extra": "mean: 410.22954640001217 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 2.4585196112666763,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06235240390126632",
+            "extra": "mean: 406.74884000001157 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 2.0491273218158947,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0587264607911419",
+            "extra": "mean: 488.0126234000045 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.831378303358187,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10321248153569014",
+            "extra": "mean: 546.036828199999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.4062760085034973,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10729510417829673",
+            "extra": "mean: 711.09795939999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.9229871077978671,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13281996207805097",
+            "extra": "mean: 1.0834387517999857 sec\nrounds: 5"
           }
         ]
       }
