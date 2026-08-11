@@ -479,79 +479,103 @@ con_name_to_secret_keys = MappingProxyType(
 default_secret_keys = ("password",)
 
 
-# Values shorter than this are never masked: masking those mangles the message
-# without hiding anything, and it is also the shortest run of a value that gets
-# masked when the value appears truncated.
+# Runs shorter than this are never masked: masking those mangles the message
+# without hiding anything.
 _min_redacted_length = 4
 
 
-def _redaction_texts(value, depth=4):
+def _redaction_texts(value, seen=None):
     """Every text form of ``value``, and of anything nested in it, that could
     carry a secret into a warning.
 
-    Nested, because the kwarg a hook keys off of is typically a config mapping
-    holding the credentials, so a hook failing mid-parse quotes back something
-    that was never a top-level value. Both the plain and the ``repr``-escaped
-    form of a str, since an exception echoing a value that contains a newline or
-    a quote quotes the escaped one, which the plain form doesn't match. A
-    container too deep to walk falls through to its own ``str``, which contains
-    the nested values as one string.
+    Nested at any depth, because the kwarg a hook keys off of is typically a
+    config mapping holding the credentials, so a hook failing mid-parse quotes
+    back something that was never a top-level value. Both the plain and the
+    ``repr``-escaped form of a str, since an exception echoing a value that
+    contains a newline or a quote quotes the escaped one, which the plain form
+    doesn't match. Containers are tracked by identity, so a cycle terminates.
+
+    Mapping *keys* are deliberately not collected: unlike values they name things
+    and appear in messages legitimately, so masking them would blank out the
+    diagnostic without hiding a credential anyone would store as a key.
     """
     if isinstance(value, str):
         texts = (value, repr(value)[1:-1])
     elif isinstance(value, bytes):
         texts = (repr(value)[2:-1], value.decode("latin-1"))
-    elif depth and isinstance(value, Mapping):
+    elif isinstance(value, (Mapping, list, tuple, set, frozenset)):
+        seen = set() if seen is None else seen
+        if id(value) in seen:
+            return ()
+        seen.add(id(value))
+        nested = value.values() if isinstance(value, Mapping) else value
         return tuple(
-            itertools.chain.from_iterable(
-                _redaction_texts(v, depth - 1) for v in value.values()
-            )
-        )
-    elif depth and isinstance(value, (list, tuple, set, frozenset)):
-        return tuple(
-            itertools.chain.from_iterable(_redaction_texts(v, depth - 1) for v in value)
+            itertools.chain.from_iterable(_redaction_texts(v, seen) for v in nested)
         )
     else:
-        texts = (str(value),)
+        try:
+            texts = (str(value),)
+        except Exception:
+            # guarded separately from the whole detail, so one value whose str()
+            # raises costs its own masking and not the rest of the message
+            return ()
     return tuple(text for text in texts if len(text) >= _min_redacted_length)
 
 
-def _mask(text: str, secret: str) -> str:
-    """Replace every occurrence of ``secret``, or of a long enough prefix of it,
-    with ``***``.
-
-    Prefixes, because an exception truncates what it echoes -- ``int()`` on a
-    long credential quotes only its first ~50 characters -- and replacing the
-    whole value leaves that behind.
-    """
-    seed = secret[:_min_redacted_length]
-    parts = []
-    while (start := text.find(seed)) != -1:
-        stop = start + _min_redacted_length
-        while (
-            stop - start < len(secret)
-            and text[start : stop + 1] == secret[: stop - start + 1]
-        ):
-            stop += 1
-        parts.append(text[:start] + "***")
-        text = text[stop:]
-    return "".join(parts) + text
+def _secret_run_end(text: str, start: int, secrets: tuple[str, ...]) -> int | None:
+    """The end of the longest run of ``text`` starting at ``start`` that some
+    secret contains, or None when no run there is long enough to mask."""
+    stop = start + _min_redacted_length
+    if stop > len(text) or not any(text[start:stop] in s for s in secrets):
+        return None
+    while stop < len(text) and any(text[start : stop + 1] in s for s in secrets):
+        stop += 1
+    return stop
 
 
 def _redact_kwarg_values(text: str, kwargs: dict) -> str:
-    """Mask any kwarg value, including one nested inside a kwarg, appearing in
-    ``text``.
+    """Mask every run of ``text`` long enough to be part of a kwarg value, or of
+    a value nested inside one.
 
-    A hook that fails parsing a credential tends to quote it back, and the
-    warnings below reach stderr and CI logs. Longest first, so masking one value
-    can't strand a prefix of another.
+    A hook that fails while parsing a credential tends to quote it back, and
+    these warnings reach stderr and CI logs. Matching *substrings* rather than
+    whole values, because an exception rarely echoes a value intact: it truncates
+    what it echoes (``int()`` quotes ~200 characters of its input), quotes a
+    tail, or escapes it. Substrings also mean masking one value cannot strand
+    part of another that shares a prefix with it -- a real case, since
+    credentials in a family (``sk_live_...``) share one.
     """
-    secrets = set(
-        itertools.chain.from_iterable(_redaction_texts(v) for v in kwargs.values())
+    secrets = tuple(
+        set(itertools.chain.from_iterable(_redaction_texts(v) for v in kwargs.values()))
     )
-    for secret in sorted(secrets, key=len, reverse=True):
-        text = _mask(text, secret)
-    return text
+    if not secrets:
+        return text
+    parts = []
+    kept = index = 0
+    while index < len(text):
+        if (stop := _secret_run_end(text, index, secrets)) is None:
+            index += 1
+            continue
+        parts.append(text[kept:index] + "***")
+        # from `stop`, not `stop + 1`: a second run can start where one ended
+        kept = index = stop
+    return "".join(parts) + text[kept:]
+
+
+def _describe(render, value, kwargs: dict) -> str:
+    """Render ``value`` into warning detail with the kwarg values masked, falling
+    back to a placeholder when any part of that raises.
+
+    All of it is arbitrary code: ``str()`` on the exception a hook raised,
+    ``repr()`` of the names it returned, and the ``str()`` calls masking makes on
+    the kwarg values. One that raises would escape ``get_dynamic_secret_keys``
+    from inside the reporting and abort a save with nothing wrong with it, so the
+    detail is dropped rather than the warning.
+    """
+    try:
+        return _redact_kwarg_values(render(value), kwargs)
+    except Exception:
+        return "<unprintable>"
 
 
 def _copy_kwargs(kwargs: dict) -> dict:
@@ -618,9 +642,9 @@ def get_dynamic_secret_keys(
         if isinstance(keys, (str, bytes)):
             # tuple("api_key") would check 'a', 'p', 'i', ... and not api_key.
             # The value itself is left out of the message: a hook returning a
-            # credential rather than its name would put it in the warning, and
-            # `repr` escaping it defeats the redaction below. The type is what a
-            # hook author needs.
+            # credential rather than its name would put it in the warning, and a
+            # value the hook derived from a kwarg is one redaction cannot match.
+            # The type is what a hook author needs.
             raise TypeError(
                 "must return a sequence of names or None, not a bare "
                 f"{type(keys).__name__}"
@@ -632,8 +656,8 @@ def get_dynamic_secret_keys(
         # would otherwise contribute nothing forever
         warnings.warn(
             f"{con_name}: _get_secret_keys hook raised {type(e).__name__}: "
-            f"{_redact_kwarg_values(str(e), kwargs)}; ignoring its keys and "
-            "checking only the default and static keys",
+            f"{_describe(str, e, kwargs)}; ignoring its keys and checking only "
+            "the default and static keys",
             RuntimeWarning,
         )
         return None
@@ -644,8 +668,8 @@ def get_dynamic_secret_keys(
         # are unambiguous
         warnings.warn(
             f"{con_name}: _get_secret_keys returned non-str names "
-            f"{_redact_kwarg_values(repr(not_str), kwargs)}; ignoring them (a "
-            "name that isn't a str cannot match a kwarg) and checking the rest",
+            f"{_describe(repr, not_str, kwargs)}; ignoring them (a name that "
+            "isn't a str cannot match a kwarg) and checking the rest",
             RuntimeWarning,
         )
         keys = tuple(key for key in keys if isinstance(key, str))

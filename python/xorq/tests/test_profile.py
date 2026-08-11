@@ -10,6 +10,7 @@ import types
 import pytest
 
 import xorq.api as xo
+from xorq.common.exceptions import XorqError
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.loader import _load_entry_points
 from xorq.tests.util import installed_mid_process
@@ -1182,6 +1183,146 @@ def test_non_str_names_warning_redacts_non_str_kwarg_values(
         ) == ("api_key",)
     message = str(records[0].message)
     assert "hunter2" not in message
+
+
+def _cyclic(mapping: dict) -> dict:
+    """A mapping that contains itself, so walking it has to terminate."""
+    mapping["self"] = mapping
+    return mapping
+
+
+@pytest.mark.parametrize(
+    ("text", "kwargs"),
+    (
+        pytest.param(
+            "bad token: sk_live_BBBBcccc",
+            {"token": "sk_live_AAAAzzzzzz", "backup": "sk_live_BBBBcccc"},
+            id="shares_a_prefix_with_another_value",
+        ),
+        pytest.param(
+            "bad tail: yyyyyyyyyyyyyyyyyyyy",
+            {"token": "hunter2-" + "y" * 20},
+            id="echoed_from_the_tail",
+        ),
+        pytest.param(
+            "bad: deep-hunter2-secret",
+            {"config": {"a": {"b": {"c": {"d": {"token": "deep-hunter2-secret"}}}}}},
+            id="nested_deeper_than_a_few_levels",
+        ),
+        pytest.param(
+            "bad: cycle-hunter2-secret",
+            {"config": _cyclic({"token": "cycle-hunter2-secret"})},
+            id="reachable_through_a_cycle",
+        ),
+    ),
+)
+def test_redaction_masks_partial_and_deep_echoes(text: str, kwargs: dict) -> None:
+    """Masking whole values only is not enough, because an exception rarely
+    echoes a value intact.
+
+    Each case leaked against a whole-value replace: one value consuming the
+    shared prefix of another stranded that one's remainder, a value quoted from
+    its tail was never matched, and a value nested past a fixed depth was never
+    collected. A cyclic kwarg has to terminate rather than covered."""
+    redacted = profiles_mod._redact_kwarg_values(text, kwargs)
+    assert "hunter2" not in redacted
+    assert "BBBBcccc" not in redacted
+    assert "yyyy" not in redacted
+    assert "***" in redacted
+
+
+def test_redaction_leaves_unrelated_text_alone() -> None:
+    """Redaction must not swallow the diagnostic: nothing that isn't part of a
+    value is masked, and a value too short to hide is left alone."""
+    text = "invalid literal for int() with base 10"
+    assert profiles_mod._redact_kwarg_values(
+        text, {"port": 5432, "sslmode": "req"}
+    ) == (text)
+
+
+class _Unprintable:
+    """A value, name, or exception whose own str()/repr() raises -- all three run
+    while a warning about a misbehaving hook is being built."""
+
+    def __str__(self) -> str:
+        raise RuntimeError("str bomb")
+
+    __repr__ = __str__
+
+
+class _UnprintableError(XorqError):
+    __str__ = _Unprintable.__str__
+
+
+def test_hook_whose_exception_is_unprintable_does_not_break_a_save(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """`str(e)` runs inside the except handler, so it is not covered by the guard
+    around the hook: an exception whose str() raises escaped from the reporting
+    and aborted a save with nothing wrong with it."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            raise _UnprintableError()
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning, match="_UnprintableError: <unprintable>"):
+        assert get_dynamic_secret_keys(con_name, {}) is None
+    # the tier degrades, so the other two still enforce, and a clean profile saves
+    with pytest.warns(RuntimeWarning):
+        assert profiles_mod.get_secret_keys(con_name, {}) == ("password",)
+    with pytest.warns(RuntimeWarning):
+        with pytest.raises(ValueError, match="password"):
+            check_for_exposed_secrets(con_name, {"password": "plaintext"})
+    with pytest.warns(RuntimeWarning):
+        Profile(con_name=con_name, kwargs_tuple=(("host", "localhost"),)).save(
+            profile_dir=tmp_path
+        )
+    assert tuple(tmp_path.iterdir())
+
+
+def test_hook_returning_an_unprintable_name_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same for `repr()` of the returned names, which is built after the guard
+    has been left. The well-formed name alongside it still gets checked."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            return ("api_key", _Unprintable())
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning, match="non-str names <unprintable>"):
+        assert get_dynamic_secret_keys(con_name, {}) == ("api_key",)
+
+
+def test_unprintable_kwarg_value_keeps_the_rest_of_the_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Redaction calls str() on the kwarg values, so a value whose str() raises
+    is a third way into the same crash. It costs only its own masking: the
+    exception the hook raised is still reported, and the other value is still
+    masked."""
+
+    class Backend:
+        @classmethod
+        def _get_secret_keys(cls, kwargs):
+            raise RuntimeError(f"cannot parse {kwargs['token']}")
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    with pytest.warns(RuntimeWarning) as records:
+        assert (
+            get_dynamic_secret_keys(
+                con_name, {"weird": _Unprintable(), "token": "hunter2-secret"}
+            )
+            is None
+        )
+    message = str(records[0].message)
+    assert "hunter2" not in message
+    assert "cannot parse ***" in message
 
 
 def test_hook_mutating_a_nested_kwarg_does_not_reach_disk(
