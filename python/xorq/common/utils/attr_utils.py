@@ -31,7 +31,10 @@ def secret_field(**kwargs: Any) -> Any:
     are disjoint paths over overlapping fields, so a credential added to one
     and forgotten in the other is exactly the drift a cross-check catches.
     """
-    metadata = {SECRET_METADATA_KEY: True, **kwargs.pop("metadata", {})}
+    # the marker last, so caller metadata can't unmark the field: a
+    # secret_field that secret_field_names doesn't report would silently
+    # break the cross-check
+    metadata = {**kwargs.pop("metadata", {}), SECRET_METADATA_KEY: True}
     return field(repr=False, metadata=metadata, **kwargs)
 
 
