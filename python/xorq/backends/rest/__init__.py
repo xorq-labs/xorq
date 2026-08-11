@@ -55,15 +55,25 @@ class RestBackend(PandasBackend):
     name = "rest"
     config: RestBackendConfig | None = None
     # The static floor, mirrored in `con_name_to_secret_keys["rest"]`. The
-    # authoritative answer is config-derived (`_get_secret_keys` below), but
-    # that tier needs this module importable; where the rest extra is absent it
-    # cannot answer at all, and a process validating a saved self-service
-    # profile would otherwise check `("password",)` alone. Self-service field
-    # names are
-    # config-defined, so no static tuple can be complete -- this is the
-    # conventional set, and the tiers are unioned, so it can only widen the
-    # check. Curated subclasses override it from their own config.
+    # authoritative answer is config-derived (`_secret_key_sources` below), but
+    # a source resolves only when the kwargs actually carry a config, and a
+    # process validating a hand-authored profile without one would otherwise
+    # check `("password",)` alone. Self-service field names are config-defined,
+    # so no static tuple can be complete -- this is the conventional set, and
+    # the tiers are unioned, so it can only widen the check. Curated subclasses
+    # override it from their own config.
     _secret_keys = ("token", "secret", "api_key", "access_token")
+    # Where the config-defined credential kwarg names live, as data the
+    # profile machinery resolves itself (`get_declared_secret_keys`): explicit
+    # `secret_fields` wins, else every declared field is secret -- the same
+    # rule as `AuthConfig.effective_secret_fields`, kept in that shape so the
+    # two cannot diverge. Inherited by every curated subclass, whose
+    # `do_connect` accepts the same `config=` override; mirrored per con_name
+    # in `con_name_to_secret_key_sources`.
+    _secret_key_sources = (
+        ("config", "auth", "secret_fields"),
+        ("config", "auth", "fields"),
+    )
     # engine extension registries: subclasses extend by merging over these
     # (e.g. `paginators = {**RestBackend.paginators, "acme.cursor": Cls}`);
     # `make_engine` threads them into the default engine
@@ -100,18 +110,6 @@ class RestBackend(PandasBackend):
         # BasePandasBackend brings an Options class, but the vendored config
         # declares per-backend options entries and has none for rest backends
         pass
-
-    @classmethod
-    def _get_secret_keys(cls, kwargs: dict | None = None) -> tuple[str, ...]:
-        """Secret keys for `check_for_exposed_secrets`: from the config in
-        the kwargs being checked (self-service), else the class config
-        (curated), else nothing."""
-        config = RestBackendConfig.maybe_from_dict(
-            (kwargs or {}).get("config") or cls.config
-        )
-        if config is None:
-            return ()
-        return config.auth.effective_secret_fields
 
     @property
     def version(self) -> str:

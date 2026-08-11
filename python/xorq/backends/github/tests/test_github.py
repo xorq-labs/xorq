@@ -15,7 +15,7 @@ from xorq.ibis_yaml.compiler import (
 )
 from xorq.vendor.ibis.backends.profiles import (
     Profile,
-    get_dynamic_secret_keys,
+    get_declared_secret_keys,
     get_secret_keys,
 )
 
@@ -62,23 +62,47 @@ def test_secret_keys_survive_an_unimported_backend(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
     """A profile hand-authored in a process that never imported the backend is
-    still checked -- by the mirror, which is the only tier that can answer.
+    still checked -- by the static mirror, since a profile with no config
+    kwarg gives the declared sources nothing to resolve against.
 
-    Resolution inspects `sys.modules` and never imports, so the config-derived
-    tier is silent here. That is deliberate (importing to read a hook would run
-    a plugin's module body), and it is exactly why the mirror entry is
-    load-bearing rather than redundant: without it this case would check
-    `("password",)` alone, which matches none of github's fields, and a raw
-    token would save with no error.
+    The sources themselves are mirrored too (`con_name_to_secret_key_sources`),
+    so a config-carrying profile is covered without the import either; this
+    test pins the no-config case, where the static mirror entry is the only
+    tier that can answer -- without it this case would check `("password",)`
+    alone, which matches none of github's fields, and a raw token would save
+    with no error.
     """
     monkeypatch.delitem(sys.modules, "xorq.backends.github", raising=False)
-    assert get_dynamic_secret_keys("github") is None  # silent, by design
+    assert get_declared_secret_keys("github") == ()  # no config: nothing to read
     assert "token" in get_secret_keys("github")  # the mirror answers
 
     monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
     profile = Profile(con_name="github", kwargs_tuple=(("token", "raw-token"),))
     with pytest.raises(ValueError, match="exposed secret keys: 'token'"):
         profile.save(alias="bad")
+
+
+def test_a_config_override_names_its_own_secret_kwargs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Curated does not mean static-keys-only: `do_connect` accepts a
+    `config=` override on any subclass, and a profile carrying one names its
+    own credential kwargs. github's declared sources (inherited from
+    RestBackend, mirrored per con_name) read them; a static-only split would
+    check `('token',)` and let the renamed credential save."""
+    config = {
+        "base_urls": {"default": "https://api.github.com"},
+        "auth": {"kind": "bearer", "fields": ["gh_pat"]},
+    }
+    assert get_declared_secret_keys("github", {"config": config}) == ("gh_pat",)
+    monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
+    profile = Profile(
+        con_name="github",
+        kwargs_tuple=(("config", config), ("gh_pat", "raw-pat-value")),
+    )
+    with pytest.raises(ValueError, match="exposed secret keys: 'gh_pat'"):
+        profile.save(alias="bad")
+    assert not tuple(tmp_path.iterdir())
 
 
 @pytest.mark.skipif(not have_token, reason="GITHUB_TOKEN not in env")

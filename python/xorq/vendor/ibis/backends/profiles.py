@@ -493,7 +493,23 @@ default_secret_keys = ("password",)
 # Declarative secret-key sources by connection name, mirrored from each backend's
 # `Backend._secret_key_sources` exactly as `con_name_to_secret_keys` mirrors
 # `_secret_keys`. Mirroring data means resolution never needs the backend imported.
-con_name_to_secret_key_sources = MappingProxyType({})
+con_name_to_secret_key_sources = MappingProxyType(
+    {
+        # the whole RestBackend family shares one declaration (inherited from
+        # RestBackend): explicit `secret_fields` wins, else every declared
+        # field is secret. Curated backends (github) need it too --
+        # `do_connect` accepts a `config=` override on any subclass, and a
+        # profile carrying one names its own credential kwargs.
+        "github": (
+            ("config", "auth", "secret_fields"),
+            ("config", "auth", "fields"),
+        ),
+        "rest": (
+            ("config", "auth", "secret_fields"),
+            ("config", "auth", "fields"),
+        ),
+    }
+)
 
 
 def _resolve_source(source: tuple[str, ...], kwargs: dict) -> tuple[str, ...] | None:

@@ -48,7 +48,7 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.profiles import (
     Profile,
     check_for_exposed_secrets,
-    get_dynamic_secret_keys,
+    get_declared_secret_keys,
 )
 
 
@@ -770,6 +770,64 @@ def test_bearer_token_field_defaults_to_single_field() -> None:
         AuthConfig(kind="bearer", fields=("a", "b"))
 
 
+@pytest.mark.parametrize(
+    "value",
+    (
+        pytest.param("token", id="bare_str"),
+        pytest.param({"token": 1}, id="mapping"),
+        pytest.param({"token"}, id="set"),
+        pytest.param(iter(("token",)), id="generator"),
+    ),
+)
+@pytest.mark.parametrize(
+    "name",
+    (
+        pytest.param("fields", id="fields"),
+        pytest.param("secret_fields", id="secret_fields"),
+        pytest.param("optional_fields", id="optional_fields"),
+    ),
+)
+def test_name_fields_reject_lookalike_iterables(name: str, value: object) -> None:
+    """A bare str, a mapping, a set, or a generator only *looks* like a tuple
+    of names: `tuple()` coerces each into something the author did not write
+    -- five one-character fields, a dict's keys, an unordered set -- and every
+    coerced form passes the per-element str validator. Rejecting all but
+    list/tuple also keeps the constructor in agreement with the secret-key
+    resolver's leaf rule: a config that constructs is one the resolver can
+    read, so the two can't diverge on what the secret fields are."""
+    kwargs = {"fields": ("token",), name: value}
+    with pytest.raises(TypeError, match="expected a list or tuple of names"):
+        AuthConfig(kind="bearer", **kwargs)
+
+
+def test_coerced_mapping_leaf_cannot_reach_a_connection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The data path's fail-open, closed at the constructor: `fields:
+    {"acme_token": 1}` used to *parse* (tuple(dict) keeps the keys) and
+    connect, while the resolver saw a dict leaf, reported nothing, and the raw
+    value reached profiles.yaml. Now the config cannot construct at all, and
+    the unresolved leaf leaves the static floor enforcing -- nothing is
+    written either way."""
+    config = {
+        "base_urls": {"default": "https://api.example.com"},
+        "auth": {"kind": "bearer", "fields": {"acme_token": 1}},
+    }
+    with pytest.raises(TypeError, match="expected a list or tuple of names"):
+        xo.load_backend("rest").connect(acme_token="raw-secret", config=config)
+    # the resolver reports the source unresolved rather than guessing at the
+    # dict's keys, so a hand-built profile still gets tiers 1+2
+    assert get_declared_secret_keys("rest", {"config": config}) == ()
+    monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
+    profile = Profile(
+        con_name="rest",
+        kwargs_tuple=(("config", config), ("token", "raw-secret")),
+    )
+    with pytest.raises(ValueError, match="exposed secret keys: 'token'"):
+        profile.save(alias="bad")
+    assert not tuple(tmp_path.iterdir())
+
+
 class CuratedBackend(RestBackend):
     # reuses the registered "rest" entry-point name so Profile validation
     # passes; config-in-code like a curated subclass
@@ -888,11 +946,37 @@ def test_self_service_profile_roundtrip(
     assert loaded.get_schema("things") == things_schema
 
 
-def test_dynamic_secret_keys() -> None:
-    assert get_dynamic_secret_keys("rest", {"config": config_dict}) == ("token",)
+def test_declared_secret_keys() -> None:
+    assert get_declared_secret_keys("rest", {"config": config_dict}) == ("token",)
     check_for_exposed_secrets("rest", {"config": config_dict, "token": "${T}"})
     with pytest.raises(ValueError, match="exposed secret keys: 'token'"):
         check_for_exposed_secrets("rest", {"config": config_dict, "token": "raw"})
+
+
+def test_renamed_fields_block_a_save_even_when_the_config_cannot_parse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The callable tier's fail-open, closed by construction: this config
+    raises inside AuthConfig (basic without role fields), so a rule that
+    parses it and reads a property contributes nothing and a raw credential
+    saved. The resolver reads the plain dict without constructing anything,
+    so the renamed fields are enforced anyway."""
+    config = {
+        "base_urls": {"default": "https://api.example.com"},
+        "auth": {"kind": "basic", "fields": ["acme_user", "acme_pw"]},
+    }
+    assert get_declared_secret_keys("rest", {"config": config}) == (
+        "acme_user",
+        "acme_pw",
+    )
+    monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
+    profile = Profile(
+        con_name="rest",
+        kwargs_tuple=(("config", config), ("acme_pw", "hunter2-plaintext")),
+    )
+    with pytest.raises(ValueError, match="exposed secret keys: 'acme_pw'"):
+        profile.save(alias="bad")
+    assert not tuple(tmp_path.iterdir())
 
 
 def test_self_service_raw_secret_rejected_at_read(

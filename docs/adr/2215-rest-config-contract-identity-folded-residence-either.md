@@ -105,31 +105,45 @@ stale cache hit; deriving makes the worst case a spurious miss.
   `fetch_override` cannot ride this path (callables don't ride in yaml) —
   config-expressible APIs only.
 
-### Dynamic secret keys
+### Declared secret-key sources
 
 The `rest` backend's secret keys live inside the `config` kwarg being
 checked, so a static `_secret_keys` cannot express them in full: the backend
-declares the classmethod `_get_secret_keys(kwargs)`, which reads
-`config.auth.secret_fields`. `check_for_exposed_secrets` **unions** that hook
-with the unconditional `("password",)` and the static
+declares *where the names live*, as static class data —
+`_secret_key_sources = (("config", "auth", "secret_fields"),
+("config", "auth", "fields"))` — and the profile machinery resolves the
+first source that lands as a pure dict walk. `check_for_exposed_secrets`
+**unions** that tier with the unconditional `("password",)` and the static
 `con_name_to_secret_keys` mirror, so every tier can only widen the check.
+Every REST-family backend declares the same two sources (curated subclasses
+inherit them): `do_connect` accepts a `config=` override on any subclass, so
+a profile-carried config names its own credential kwargs whichever backend
+receives it. `AuthConfig`'s name-bearing fields reject anything that is not
+a list/tuple (`_name_tuple`), so the constructor and the resolver's leaf
+rule accept the same shape — a config that constructs is one the resolver
+can read.
 
-Resolution reads `sys.modules` first and otherwise imports the backend. An
-earlier draft inspected `sys.modules` alone, to keep a heavy backend out of
-`Profile.save`; that made the check's answer depend on the importing history
-of the process, so a hand-authored profile naming an auth field outside the
-mirror was rejected in one process and saved its credential in the clear in
-another. The import is confined to that cold path — anything holding a live
-connection is already in `sys.modules` and pays nothing.
+An earlier design made this a classmethod, `_get_secret_keys(kwargs)`, that
+the check called. That put plugin-authored code inside a security check,
+handed it the exact data the check protects, and ran it where an exception
+is unacceptable and a warning is an exfiltration channel — most of the added
+machinery guarded the contract rather than implementing the feature, and a
+config the constructor rejects made the whole tier vanish exactly when it
+was needed (`plans/declarative-secret-key-sources.md` records the audit).
+The data form deletes those code paths instead of guarding them: resolution
+runs no backend code and never imports — the sources are mirrored in
+`con_name_to_secret_key_sources`, so the answer does not depend on the
+process's import history — and it reads a malformed config's readable parts
+instead of dropping the tier.
 
-The mirror still matters, for a different case: a backend whose extra is not
-installed cannot be imported at all, the hook cannot answer, and the union
-falls back to `("password",)` — a key that matches none of these backends'
-fields. So all three REST-family names carry mirror entries: `github` and
-`mixpanel` mirror their configs' `secret_fields` exactly, and `rest`, whose
-field names are config-defined and therefore not statically knowable, carries
-a deliberate **floor** of the conventional credential kwarg names that the
-hook widens per config.
+The static mirror still matters, for a different case: a profile carrying no
+config kwarg gives the sources nothing to resolve against, and the union
+would fall back to `("password",)` — a key that matches none of these
+backends' fields. So all three REST-family names carry static mirror
+entries: `github` and `mixpanel` mirror their configs' `secret_fields`
+exactly, and `rest`, whose field names are config-defined and therefore not
+statically knowable, carries a deliberate **floor** of the conventional
+credential kwarg names that the declared sources widen per config.
 
 ## Alternatives considered
 

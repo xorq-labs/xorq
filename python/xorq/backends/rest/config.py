@@ -166,6 +166,24 @@ def _freeze_kv_pairs(value: object) -> tuple:
     return tuple(sorted((k, v) for k, v in pairs))
 
 
+def _name_tuple(value: object) -> tuple:
+    """A tuple of names, rejecting anything that only *looks* iterable.
+
+    ``tuple("token")`` is five one-character names and ``tuple({"token": ...})``
+    is a mapping's keys -- both construct silently and both mean something the
+    author did not write (and both pass a per-element ``str`` validator).
+    Accepting exactly list/tuple also makes this agree with the secret-key
+    resolver's leaf rule, so a config that constructs is a config the resolver
+    can read. A ``set`` is rejected too, deliberately: order in ``fields`` is
+    meaningful (``resolved_token_field`` falls back to ``fields[0]``), so an
+    unordered container is a silent-nondeterminism hazard."""
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(
+            f"expected a list or tuple of names, got {type(value).__name__}"
+        )
+    return tuple(value)
+
+
 @frozen
 class ParamSpec:
     """A read-time parameter: appears in ``read_kwargs`` (identity-bearing),
@@ -197,8 +215,8 @@ class AuthConfig:
 
     ``fields`` are the ``do_connect`` kwargs the auth scheme consumes;
     ``secret_fields`` (default: all fields) are the subset enforced as
-    env-var references by ``check_for_exposed_secrets`` via
-    ``Backend._get_secret_keys``.
+    env-var references by ``check_for_exposed_secrets``, which resolves the
+    same two paths declared in ``Backend._secret_key_sources``.
 
     Which field fills which credential *role* is named explicitly, never
     inferred from declaration order (an order-based mapping silently swaps
@@ -224,17 +242,17 @@ class AuthConfig:
     kind = field(validator=instance_of(str))
     fields = field(
         validator=deep_iterable(instance_of(str), instance_of(tuple)),
-        converter=tuple,
+        converter=_name_tuple,
         default=(),
     )
     secret_fields = field(
         validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
-        converter=lambda v: tuple(v) if v is not None else None,
+        converter=lambda v: _name_tuple(v) if v is not None else None,
         default=None,
     )
     optional_fields = field(
         validator=deep_iterable(instance_of(str), instance_of(tuple)),
-        converter=tuple,
+        converter=_name_tuple,
         default=(),
     )
     username_field = field(validator=optional(instance_of(str)), default=None)
