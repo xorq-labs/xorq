@@ -384,6 +384,99 @@ def test_a_citation_repeated_on_a_new_line_is_an_error(repo: ADRTree) -> None:
     assert result.stderr.count("python/xorq/expr/gone.py") == 1  # once, not per line
 
 
+# --- the diff `added_lines` reads has to be the diff git meant --------------
+#
+# The tier is only as good as the parse behind it, and every way that parse can
+# go wrong goes wrong the same way: it yields no lines, which is what a branch
+# that added nothing yields, so every citation quietly warns and the run passes.
+# One test per flag that prevents it.
+
+
+def test_a_plus_prefixed_line_does_not_capture_the_hunks_after_it(
+    repo: ADRTree,
+) -> None:
+    """Content must not be able to impersonate a file header.
+
+    Under `-U0` an added line is written with a leading `+`, so an ADR line
+    beginning with `++` arrives as `+++ ...` -- the shape of the `+++ b/path`
+    header. Read as one, it points the rest of the file's hunks at a path
+    nothing will ever look up, and the citation two hunks later drops to a
+    warning. `--output-indicator-new` is what makes the shape unreachable.
+    """
+    base = "# ADR-0016: Landed\n\nalpha\n\nbeta\n"
+    repo.write("0016-landed.md", base)
+    repo.commit_all()
+    repo.write(
+        "0016-landed.md",
+        "# ADR-0016: Landed\n\nalpha\n++ a line that starts with two pluses\n"
+        "\nbeta\n\n## Amendment\n\nNow in `python/xorq/expr/also-gone.py`.\n",
+    )
+    repo.commit_all()
+
+    result = repo.check("--base", "HEAD~1")
+    assert result.returncode == 1, result.stderr
+    assert "python/xorq/expr/also-gone.py" in result.stderr
+    assert "have to resolve when it lands" in result.stderr
+
+
+def test_the_tier_holds_when_the_checkout_root_is_above_the_project(
+    tmp_path: Path,
+) -> None:
+    """`adr_files` yields paths relative to the run, so the diff must too.
+
+    A project vendored into a larger repository -- a submodule, a monorepo
+    directory -- puts the git root above `docs/adr`. git then names the file
+    `sub/docs/adr/...` while the directory pass holds `docs/adr/...`, no key
+    matches, and every citation in the branch warns. `--relative` is what keeps
+    the two halves speaking the same paths.
+    """
+    outer = tmp_path / "outer"
+    project = outer / "project"
+    project.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "."], cwd=outer, check=True)
+    subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=outer, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=outer, check=True)
+
+    repo = ADRTree(project)
+    repo.write("0016-landed.md", LANDED)
+    subprocess.run(["git", "add", "-A"], cwd=outer, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=outer, check=True)
+    repo.write(
+        "0016-landed.md",
+        LANDED + "\n## Amendment\n\nNow in `python/xorq/expr/also-gone.py`.\n",
+    )
+    subprocess.run(["git", "add", "-A"], cwd=outer, check=True)
+    subprocess.run(["git", "commit", "-qm", "amend"], cwd=outer, check=True)
+
+    result = repo.check("--base", "HEAD~1")
+    assert result.returncode == 1, result.stderr
+    assert "python/xorq/expr/also-gone.py" in result.stderr
+    assert "have to resolve when it lands" in result.stderr
+
+
+def test_an_external_diff_driver_does_not_silently_empty_the_diff(
+    repo: ADRTree,
+) -> None:
+    """A configured `diff.external` prints nothing here and still exits 0.
+
+    That is the failure this whole section is about in its purest form: a git
+    that reports success and no lines, which the tier reads as "this branch
+    added nothing" and waves through. `--no-ext-diff` is one word.
+    """
+    repo.write("0016-landed.md", LANDED)
+    repo.commit_all()
+    repo.write(
+        "0016-landed.md",
+        LANDED + "\n## Amendment\n\nNow in `python/xorq/expr/also-gone.py`.\n",
+    )
+    repo.commit_all()
+    repo.git("config", "diff.external", "true")
+
+    result = repo.check("--base", "HEAD~1")
+    assert result.returncode == 1, result.stderr
+    assert "python/xorq/expr/also-gone.py" in result.stderr
+
+
 def test_a_report_names_the_line_it_read(repo: ADRTree) -> None:
     repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `python/xorq/expr/gone.py`.\n")
     result = repo.check()

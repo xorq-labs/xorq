@@ -628,13 +628,48 @@ def added_lines(base: str) -> dict[Path, set[int]] | None:
 
     None means the diff failed. The caller turns that into an exit code rather
     than skipping: a citation check that quietly did not run reads exactly like
-    a pull request that passed it.
+    a pull request that passed it. Every flag below serves that same sentence,
+    because the other way this check goes quiet is to parse output it does not
+    recognise and find nothing -- which is indistinguishable from a branch that
+    added no ADR lines, and lands every citation in the warning tier:
+
+    - `--output-indicator-new` renames the marker on added lines, so `+++` at
+      the start of a line can only ever be a file header. Left as `+`, an ADR
+      line beginning with `++` is emitted as `+++ ...`, is read as a header, and
+      sends every later hunk in that file to a path that does not exist.
+    - `--no-ext-diff` because a configured `diff.external` prints nothing here
+      and still exits 0.
+    - `--relative` makes the reported paths relative to the current directory,
+      which is what `adr_files` yields. Without it a checkout whose root is
+      above the project directory reports `sub/docs/adr/...` and no key matches.
+
+    None of the three affects the default configuration this repository's CI
+    runs under. They are here because the failure they prevent is silent, and a
+    silent one costs more than the flag.
     """
     result = subprocess.run(
-        ["git", "diff", "-U0", "--no-color", f"{base}...HEAD", "--", str(ADR_DIR)],
+        [
+            "git",
+            "diff",
+            "-U0",
+            "--no-color",
+            "--no-ext-diff",
+            "--relative",
+            "--output-indicator-new=>",
+            f"{base}...HEAD",
+            "--",
+            str(ADR_DIR),
+        ],
         capture_output=True,
         text=True,
     )
+    # No test covers this branch and none can, which is worth saying rather than
+    # leaving a reader to assume the coverage is there. `main` resolves the same
+    # base through `added_adrs` first and exits 2 on its message, so by the time
+    # this runs the ref is known good and only something outside the ref -- a
+    # git that died mid-run -- reaches here. Kept because "the diff failed" and
+    # "nothing was added" are the same empty dict otherwise, and the wording is
+    # distinct from `added_adrs`' so a report says which call it came from.
     if result.returncode != 0:
         detail = result.stderr.strip().splitlines()
         sys.stderr.write(
