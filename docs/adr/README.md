@@ -53,7 +53,7 @@ Cite a commit by the pull request that carried it, or as a Markdown link. A bare
 
 This is why the check needs no "historical block" marker: the pull request diff already knows which prose is new, so nothing has to be marked and nothing can be waved through. Renumbering a landed ADR doesn't count as adding it. The gap is an amendment to a landed ADR, whose new citations only warn.
 
-Every warning that exists today is in the second row: five across four ADRs, four paths and one SHA, out of 106 path citations in the directory. Leave them.
+Every warning that exists today is in the second row: five across four ADRs, four paths and one SHA. Leave them.
 
 ## Writing one
 

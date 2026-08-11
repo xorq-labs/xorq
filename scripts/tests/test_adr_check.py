@@ -218,8 +218,8 @@ def test_a_cited_path_that_resolves_passes(repo: ADRTree) -> None:
 
 
 def test_a_path_written_short_resolves(repo: ADRTree) -> None:
-    """ADRs abbreviate paths for readability -- 24 of the 119 citations in
-    docs/adr do -- so a suffix of a tracked path counts as resolved."""
+    """ADRs abbreviate paths for readability, so a suffix of a tracked path
+    counts as resolved."""
     repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `expr/api.py`.\n")
     result = repo.check()
     assert result.returncode == 0
@@ -348,6 +348,56 @@ def test_what_is_not_a_path_citation(repo: ADRTree, body: str) -> None:
     `python/xorq/writes/` are the same shape and only one is a path.
     """
     repo.write("0012-two.md", f"# ADR-0012: Two\n\n{body}")
+    result = repo.check()
+    assert result.returncode == 0
+    assert "warning" not in result.stderr
+
+
+def test_a_relative_link_target_is_checked(repo: ADRTree) -> None:
+    """A link target that names a file in this repository is a citation."""
+    repo.write(
+        "0012-two.md", "# ADR-0012: Two\n\nSee [the api](python/xorq/expr/gone.py).\n"
+    )
+    result = repo.check()
+    assert "python/xorq/expr/gone.py" in result.stderr
+
+
+def test_a_path_used_as_link_text_is_not_checked(repo: ADRTree) -> None:
+    """The other half of a link is prose, and may name an upstream file.
+
+    Citing a dependency's source the natural way -- path as the text, upstream
+    repository as the target -- must not be an error, not least because the
+    advice the error gives (put it in a fence) cannot apply to link text.
+    """
+    repo.write(
+        "0012-two.md",
+        "# ADR-0012: Two\n\nSee "
+        "[ibis/expr/types/core.py](https://github.com/ibis-project/ibis/blob/main/x).\n",
+    )
+    result = repo.check()
+    assert result.returncode == 0
+    assert "core.py" not in result.stderr
+
+
+def test_a_path_run_together_with_an_ellipsis_is_still_reported(repo: ADRTree) -> None:
+    """Dots are excluded by segment, not as a substring.
+
+    A missing space after an ellipsis used to make the whole citation vanish,
+    which is the failure mode a guard can least afford: the report quoting the
+    stray dots is what tells the author what to fix.
+    """
+    repo.write(
+        "0012-two.md", "# ADR-0012: Two\n\nand so on ...python/xorq/expr/gone.py\n"
+    )
+    result = repo.check()
+    assert "gone.py" in result.stderr
+
+
+def test_a_document_relative_citation_is_not_checked(repo: ADRTree) -> None:
+    """`../` is relative to the ADR; this check anchors at the repository root."""
+    repo.write(
+        "0012-two.md", "# ADR-0012: Two\n\nSee `../../python/xorq/expr/gone.py`.\n"
+    )
     result = repo.check()
     assert result.returncode == 0
     assert "warning" not in result.stderr

@@ -109,6 +109,18 @@ scope. Ruff enforces this split via `PLC0415` (import-outside-top-level): every
 deliberate lazy import must carry a `# noqa: PLC0415` comment, which makes each
 one an explicit, reviewable decision rather than an accident.
 
+## Commenting
+
+**Justify a rule with a ratio, not a count.** A comment that explains a threshold
+by what was measured is worth more than one that just states it — without the
+evidence the next reader takes the rule for a preference and relaxes it. But
+exact numbers rot, and duplicated exact numbers rot faster: `adr_check.py`
+shipped with "24 of the 119" in a test docstring beside "25 of the 106" in the
+module it tested. State the ratio at the rule it justifies, once. Never in a test
+docstring, where the assertion is already the specification and a count is a
+claim nothing checks. If a number has to be exact, compute it rather than write
+it down.
+
 ## Writing the commit
 
 xorq follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
