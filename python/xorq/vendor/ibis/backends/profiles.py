@@ -1,9 +1,7 @@
-import copy
+import inspect
 import itertools
 import json
 import sys
-import warnings
-from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 
@@ -474,206 +472,114 @@ con_name_to_secret_keys = MappingProxyType(
 )
 
 
-# Checked for every backend, on top of the mirror and the hook: a backend cannot
-# declare that a kwarg literally named `password` is not a secret.
+# Checked for every backend, on top of the mirror and the declared sources: a
+# backend cannot declare that a kwarg literally named `password` is not a secret.
 default_secret_keys = ("password",)
 
 
-# Runs shorter than this are never masked: masking those mangles the message
-# without hiding anything.
-_min_redacted_length = 4
+# Declarative secret-key sources by connection name, mirrored from each
+# backend's `Backend._secret_key_sources` declaration exactly as
+# `con_name_to_secret_keys` mirrors `_secret_keys`. Each source is a tuple of
+# steps naming where in the kwargs the secret kwarg *names* live; because the
+# declaration is data, mirroring it means resolution never needs the backend
+# imported. Empty until the first declaring backend lands.
+con_name_to_secret_key_sources = MappingProxyType({})
 
 
-def _redaction_texts(value, seen=None):
-    """Every text form of ``value``, and of anything nested in it, that could
-    carry a secret into a warning.
+def _resolve_source(source: tuple[str, ...], kwargs: dict) -> tuple[str, ...] | None:
+    """The names ``source`` points at inside ``kwargs``, or None when it
+    doesn't resolve.
 
-    Nested at any depth, because the kwarg a hook keys off of is typically a
-    config mapping holding the credentials, so a hook failing mid-parse quotes
-    back something that was never a top-level value. Both the plain and the
-    ``repr``-escaped form of a str, since an exception echoing a value that
-    contains a newline or a quote quotes the escaped one, which the plain form
-    doesn't match. Containers are tracked by identity, so a cycle terminates.
-
-    Mapping *keys* are deliberately not collected: unlike values they name things
-    and appear in messages legitimately, so masking them would blank out the
-    diagnostic without hiding a credential anyone would store as a key.
+    Every rule is a type check or a dict lookup, so no backend-authored code
+    runs: a step resolves only against a plain ``dict``, read through the
+    unbound ``dict.get`` so a subclass's ``get``/``__getitem__``/``__missing__``
+    overrides are bypassed. Anything else at an intermediate step -- an attrs
+    instance, a ``Mapping`` that isn't a ``dict``, ``None`` -- is unresolved
+    rather than reached into; profiles carry configs as plain dicts. A source
+    resolves iff every step lands and the final value is a ``list``/``tuple``:
+    its ``str`` members are the names (a non-``str`` member can never match a
+    kwarg, so it is dropped rather than costing the well-formed names beside
+    it). ``None`` is unresolved -- ``secret_fields: null`` falls through --
+    while ``[]`` resolves to ``()``: "none of the fields are secret".
     """
-    if isinstance(value, str):
-        texts = (value, repr(value)[1:-1])
-    elif isinstance(value, bytes):
-        texts = (repr(value)[2:-1], value.decode("latin-1"))
-    elif isinstance(value, (Mapping, list, tuple, set, frozenset)):
-        seen = set() if seen is None else seen
-        if id(value) in seen:
-            return ()
-        seen.add(id(value))
-        nested = value.values() if isinstance(value, Mapping) else value
-        return tuple(
-            itertools.chain.from_iterable(_redaction_texts(v, seen) for v in nested)
-        )
-    else:
-        try:
-            texts = (str(value),)
-        except Exception:
-            # guarded separately from the whole detail, so one value whose str()
-            # raises costs its own masking and not the rest of the message
-            return ()
-    return tuple(text for text in texts if len(text) >= _min_redacted_length)
+    value = kwargs
+    for step in source:
+        if not isinstance(value, dict):
+            return None
+        value = dict.get(value, step)
+    if isinstance(value, (list, tuple)):
+        return tuple(name for name in value if isinstance(name, str))
+    return None
 
 
-def _secret_run_end(text: str, start: int, secrets: tuple[str, ...]) -> int | None:
-    """The end of the longest run of ``text`` starting at ``start`` that some
-    secret contains, or None when no run there is long enough to mask."""
-    stop = start + _min_redacted_length
-    if stop > len(text) or not any(text[start:stop] in s for s in secrets):
-        return None
-    while stop < len(text) and any(text[start : stop + 1] in s for s in secrets):
-        stop += 1
-    return stop
-
-
-def _redact_kwarg_values(text: str, kwargs: dict) -> str:
-    """Mask every run of ``text`` long enough to be part of a kwarg value, or of
-    a value nested inside one.
-
-    A hook that fails while parsing a credential tends to quote it back, and
-    these warnings reach stderr and CI logs. Matching *substrings* rather than
-    whole values, because an exception rarely echoes a value intact: it truncates
-    what it echoes (``int()`` quotes ~200 characters of its input), quotes a
-    tail, or escapes it. Substrings also mean masking one value cannot strand
-    part of another that shares a prefix with it -- a real case, since
-    credentials in a family (``sk_live_...``) share one.
-    """
-    secrets = tuple(
-        set(itertools.chain.from_iterable(_redaction_texts(v) for v in kwargs.values()))
-    )
-    if not secrets:
-        return text
-    parts = []
-    kept = index = 0
-    while index < len(text):
-        if (stop := _secret_run_end(text, index, secrets)) is None:
-            index += 1
-            continue
-        parts.append(text[kept:index] + "***")
-        # from `stop`, not `stop + 1`: a second run can start where one ended
-        kept = index = stop
-    return "".join(parts) + text[kept:]
-
-
-def _describe(render, value, kwargs: dict) -> str:
-    """Render ``value`` into warning detail with the kwarg values masked, falling
-    back to a placeholder when any part of that raises.
-
-    All of it is arbitrary code: ``str()`` on the exception a hook raised,
-    ``repr()`` of the names it returned, and the ``str()`` calls masking makes on
-    the kwarg values. One that raises would escape ``get_dynamic_secret_keys``
-    from inside the reporting and abort a save with nothing wrong with it, so the
-    detail is dropped rather than the warning.
-    """
-    try:
-        return _redact_kwarg_values(render(value), kwargs)
-    except Exception:
-        return "<unprintable>"
-
-
-def _copy_kwargs(kwargs: dict) -> dict:
-    """Deep-copy what the hook is handed.
-
-    The caller scans this dict after the hook returns, and `Profile.kwargs_dict`
-    shares nested objects with the `kwargs_tuple` that gets saved: a hook doing
-    `kwargs.pop(...)` while consuming a config would delete entries from the
-    scan, and one writing into a nested config would put tampered content on
-    disk under a check that passed. A value that can't be deep-copied is handed
-    over as it is -- a hook seeing the original is better than a copy failure
-    aborting the check.
-    """
-
-    def copied(value):
-        try:
-            return copy.deepcopy(value)
-        except Exception:
-            return value
-
-    return {key: copied(value) for key, value in kwargs.items()}
-
-
-def get_dynamic_secret_keys(
-    con_name: str, kwargs: dict | None = None
-) -> tuple[str, ...] | None:
-    """Return secret keys from a backend's dynamic ``_get_secret_keys(kwargs)``
-    hook, or None.
-
-    A backend declares this classmethod when which kwargs are secret depends on
-    the kwargs themselves -- an auth kwarg named differently per configured mode,
-    say -- and so can't be captured in the static ``con_name_to_secret_keys``
-    mirror. ``get_secret_keys`` unions the result with the other tiers, so a hook
-    can only ADD keys.
-
-    **Return top-level kwarg names only**, and treat ``kwargs`` as read-only.
-    Names are matched against the top level, so for ``{"config": {"token": ...}}``
-    returning ``"token"`` matches nothing -- a hook that gets this wrong is a
-    silent no-op. The dict passed in is a deep copy, since the caller scans it
-    after this returns and shares its nested values with the profile it saves;
-    its values are as authored, i.e. plaintext for the profile this check exists
-    to reject, so don't log or forward them.
-
-    Returns None when the backend has no entry point, isn't imported, declares no
-    hook, or the hook raises or returns something that isn't a sequence of names
-    (those last two warn). Only an already-imported backend is inspected, since
-    validating a profile must not import a heavy backend just to read its rule --
-    so this tier is best-effort, and any key that must *always* be caught belongs
-    in ``con_name_to_secret_keys`` too (enforced by
-    test_dynamic_hook_backends_also_mirror_static_keys).
-    """
+def _imported_backend(con_name: str) -> type | None:
+    """The already-imported Backend class for ``con_name``, or None -- never
+    importing, since validating a profile must not import a heavy backend."""
     entry_point = _find_entry_point(con_name)
     if entry_point is None:
         return None
     module = sys.modules.get(entry_point.module)
     if module is None:
         return None
-    getter = getattr(getattr(module, "Backend", None), "_get_secret_keys", None)
-    if not callable(getter):
-        return None
-    kwargs = {} if kwargs is None else kwargs
-    try:
-        keys = getter(_copy_kwargs(kwargs))
-        if isinstance(keys, (str, bytes)):
-            # tuple("api_key") would check 'a', 'p', 'i', ... and not api_key.
-            # The value itself is left out of the message: a hook returning a
-            # credential rather than its name would put it in the warning, and a
-            # value the hook derived from a kwarg is one redaction cannot match.
-            # The type is what a hook author needs.
-            raise TypeError(
-                "must return a sequence of names or None, not a bare "
-                f"{type(keys).__name__}"
-            )
-        # inside the try, so a non-iterable return warns instead of raising
-        keys = tuple(keys) if keys is not None else None
-    except Exception as e:
-        # degrade to the other tiers, but not silently: an always-broken hook
-        # would otherwise contribute nothing forever
-        warnings.warn(
-            f"{con_name}: _get_secret_keys hook raised {type(e).__name__}: "
-            f"{_describe(str, e, kwargs)}; ignoring its keys and checking only "
-            "the default and static keys",
-            RuntimeWarning,
+    backend = inspect.getattr_static(module, "Backend", None)
+    return backend if isinstance(backend, type) else None
+
+
+def _secret_key_sources_for(con_name: str) -> tuple[tuple[str, ...], ...]:
+    """Every declared secret-key source for ``con_name``: the mirror entry,
+    topped up from ``_secret_key_sources`` on an already-imported backend.
+
+    The mirror covers in-tree backends with no import at all; the class read
+    covers out-of-tree backends, which cannot add entries to the mirror.
+    ``inspect.getattr_static`` reads the class dict without firing descriptors,
+    so a ``_secret_key_sources`` declared as a ``property`` contributes nothing
+    instead of executing -- it returns the descriptor object, which the tuple
+    check discards.
+    """
+    sources = con_name_to_secret_key_sources.get(con_name, ())
+    if (backend := _imported_backend(con_name)) is not None:
+        declared = inspect.getattr_static(backend, "_secret_key_sources", ())
+        if isinstance(declared, tuple):
+            sources += declared
+    return tuple(dict.fromkeys(sources))
+
+
+def get_declared_secret_keys(
+    con_name: str, kwargs: dict | None = None
+) -> tuple[str, ...]:
+    """The first resolving declared source's names, or ``()`` -- the third
+    tier of ``get_secret_keys``, which unions it with the default and the
+    mirror so a declaration can only widen what is checked.
+
+    A backend whose secret kwarg names depend on the kwargs themselves -- an
+    auth kwarg named by a config passed as another kwarg, say -- declares
+    *where the names live*, as static class data::
+
+        _secret_key_sources = (
+            ("config", "auth", "secret_fields"),
+            ("config", "auth", "fields"),
         )
-        return None
-    if keys is None:
-        return None
-    if not_str := tuple(key for key in keys if not isinstance(key, str)):
-        # a non-str name can't match a kwarg; keep the well-formed ones, which
-        # are unambiguous
-        warnings.warn(
-            f"{con_name}: _get_secret_keys returned non-str names "
-            f"{_describe(repr, not_str, kwargs)}; ignoring them (a name that "
-            "isn't a str cannot match a kwarg) and checking the rest",
-            RuntimeWarning,
-        )
-        keys = tuple(key for key in keys if isinstance(key, str))
-    return keys
+
+    Sources are ordered fallback: the first that resolves wins. A source may
+    read from anywhere in the kwargs, but the names it yields are matched
+    against the **top level**, so for ``{"config": {"token": ...}}`` a source
+    yielding ``"token"`` matches nothing.
+    """
+    for source in _secret_key_sources_for(con_name):
+        try:
+            names = _resolve_source(source, kwargs or {})
+        except Exception as e:
+            # a hostile object inside kwargs (e.g. a lying __class__ passing
+            # the isinstance check), not a declaration bug: fail closed and
+            # loudly. Only our own declared source is interpolated, so there
+            # is nothing here to redact.
+            raise ValueError(
+                f"{con_name}: could not resolve secret-key source {source}: "
+                f"{type(e).__name__}"
+            ) from e
+        if names is not None:
+            return names
+    return ()
 
 
 def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...]:
@@ -681,19 +587,19 @@ def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...
 
     1. the unconditional ``default_secret_keys`` (``("password",)``),
     2. the static ``con_name_to_secret_keys`` mirror entry, if any,
-    3. the backend's dynamic ``_get_secret_keys(kwargs)`` hook, if resolvable.
+    3. the backend's declared ``_secret_key_sources``, resolved against kwargs.
 
-    Unioning is what keeps this monotone: an empty, narrower, raising, or
-    unresolvable tier 3 leaves tiers 1 and 2 intact, so a hook can only widen
-    what is checked. Ordering is deterministic (first occurrence wins, tiers in
-    the order above) so error messages are reproducible.
+    Unioning is what keeps this monotone: an empty, narrower, or unresolved
+    tier 3 leaves tiers 1 and 2 intact, so a declaration can only widen what
+    is checked. Ordering is deterministic (first occurrence wins, tiers in the
+    order above) so error messages are reproducible.
     """
     return tuple(
         dict.fromkeys(
             (
                 *default_secret_keys,
                 *con_name_to_secret_keys.get(con_name, ()),
-                *(get_dynamic_secret_keys(con_name, kwargs) or ()),
+                *get_declared_secret_keys(con_name, kwargs),
             )
         )
     )
@@ -703,7 +609,7 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
     """Check if profile contains exposed secret keys.
 
     The keys come from `get_secret_keys`, which unions the unconditional
-    default, the static mirror, and the backend's dynamic hook.
+    default, the static mirror, and the backend's declared secret-key sources.
 
     Raises
     ------
