@@ -161,11 +161,11 @@ class Problems:
         # ci-lint passes `ruff --output-format=github`.
         self.github = github
 
-    def add(self, path: Path | str, message: str) -> None:
+    def add(self, path: Path | str, message: str, line: int | None = None) -> None:
         self.count += 1
-        self._emit("error", path, message)
+        self._emit("error", path, message, line)
 
-    def warn(self, path: Path | str, message: str) -> None:
+    def warn(self, path: Path | str, message: str, line: int | None = None) -> None:
         """Report without failing the run.
 
         For things that are legitimate now and wrong later: a named reference
@@ -173,13 +173,21 @@ class Problems:
         ADR has landed and which someone else has to delete.
         """
         self.warnings += 1
-        self._emit("warning", path, message)
+        self._emit("warning", path, message, line)
 
-    def _emit(self, level: str, path: Path | str, message: str) -> None:
+    def _emit(
+        self, level: str, path: Path | str, message: str, line: int | None = None
+    ) -> None:
+        # The citation checks know which line they read, and the severity now
+        # turns on that line, so it is worth showing. `line=` puts the GitHub
+        # annotation on the citation rather than at the top of a four-hundred
+        # line ADR, and `path:line:` is what an editor jumps to locally.
+        where = f"{path}" if line is None else f"{path}:{line}"
         if self.github:
-            sys.stdout.write(f"::{level} file={path}::{message}\n")
+            anchor = f"file={path}" if line is None else f"file={path},line={line}"
+            sys.stdout.write(f"::{level} {anchor}::{message}\n")
         prefix = "" if level == "error" else f"{level}: "
-        sys.stderr.write(f"{path}: {prefix}{message}\n")
+        sys.stderr.write(f"{where}: {prefix}{message}\n")
 
 
 def adr_files() -> list[Path]:
@@ -215,6 +223,25 @@ def strip_shown_code(text: str) -> str:
     return text
 
 
+def _blank(match: re.Match[str]) -> str:
+    """Whitespace carrying the same line breaks as the region it replaces."""
+    return " " + "\n" * match.group(0).count("\n")
+
+
+def _link_target(match: re.Match[str]) -> str:
+    """A Markdown link reduced to its target, padded to its own line count.
+
+    `check_paths` keeps the target and drops the text. Both halves may span
+    lines, and severity turns on a citation's line number, so the breaks the
+    text half occupied are carried over the same way `_blank` carries a fence's.
+    They go after the target, which keeps the citation on the line the link
+    opened.
+    """
+    target = match.group("target")
+    lost = match.group(0).count("\n") - target.count("\n")
+    return f" {target} " + "\n" * lost
+
+
 def strip_transcripts(text: str) -> str:
     """Drop fenced blocks and URLs, keeping inline code spans.
 
@@ -226,9 +253,14 @@ def strip_transcripts(text: str) -> str:
 
     A fence still comes out, and is the escape hatch for showing a path that is
     not meant to resolve. A URL's path components belong to another site.
+
+    Every region is replaced by whitespace carrying the same line breaks, so a
+    citation's line number survives stripping. Severity turns on that number, so
+    a fence collapsed to a single space would move every citation after it into
+    the wrong tier -- not merely mislabel it.
     """
     for pattern in (CODE_FENCE_RE, URL_RE):
-        text = pattern.sub(" ", text)
+        text = pattern.sub(_blank, text)
     return text
 
 
@@ -285,13 +317,16 @@ class TrackedPaths:
         return self._suffixes is not None and citation in self._suffixes
 
 
-def check_directory(problems: Problems, added: list[Path] | None = None) -> None:
+def check_directory(
+    problems: Problems, new_lines: dict[Path, set[int]] | None = None
+) -> None:
     """Validate every ADR on disk.
 
-    `added` names the ADRs this pull request adds, when a base ref was given. It
-    is what the path and commit citation checks read to tell a citation that was
-    wrong when it was written from one that has merely aged; without it every
-    such citation is a warning, which is what a plain local run sees.
+    `new_lines` maps each ADR to the lines this pull request adds to it, when a
+    base ref was given. It is what the path and commit citation checks read to
+    tell a citation that was wrong when it was written from one that has merely
+    aged; without it no line is new, so every such citation is a warning -- which
+    is what a plain local run and the push-to-main run both see.
     """
     by_number: dict[int, Path] = {}
     by_slug: dict[str, Path] = {}
@@ -353,15 +388,14 @@ def check_directory(problems: Problems, added: list[Path] | None = None) -> None
         checkable.append((path, number, raw))
 
     # Second pass: both indexes must be complete before references resolve.
-    new_names = {path.name for path in added or ()}
     tracked = TrackedPaths()
     for path, number, raw in checkable:
         text = path.read_text(encoding="utf-8")
-        is_new = path.name in new_names
+        new = (new_lines or {}).get(path, set())
         check_heading(problems, path, number, raw, text)
         check_references(problems, path, text, by_number, by_slug)
-        check_paths(problems, path, text, tracked, is_new)
-        check_shas(problems, path, text, is_new)
+        check_paths(problems, path, text, tracked, new)
+        check_shas(problems, path, text, new)
 
     # Once, rather than once per ADR, and a warning rather than an error: an
     # unreadable index means the path check could not run, not that anything is
@@ -454,20 +488,46 @@ AGED_CITATION = (
 )
 
 
+def citations(
+    pattern: re.Pattern[str], group: str, text: str, new: set[int]
+) -> list[tuple[str, int, bool]]:
+    """Every distinct citation in `text`, with a line number and its tier.
+
+    One report per distinct citation, not per occurrence: an ADR that turns on a
+    single module names it repeatedly, and a message per mention would be noise.
+    The line reported is the first occurrence that decides the tier, so an error
+    points at prose this pull request actually wrote.
+
+    A citation counts as new if *any* occurrence of it sits on an added line.
+    Repeating a path in an amendment is a fresh claim that it resolves today,
+    which is checkable today, so it earns the error tier even where the same
+    path also appears in prose nobody touched.
+    """
+    first: dict[str, tuple[int, bool]] = {}
+    for match in pattern.finditer(text):
+        cited = match.group(group)
+        line = text.count("\n", 0, match.start()) + 1
+        is_new = line in new
+        seen = first.get(cited)
+        if seen is None or (is_new and not seen[1]):
+            first[cited] = (line, is_new)
+    return sorted((cited, line, is_new) for cited, (line, is_new) in first.items())
+
+
 def check_paths(
     problems: Problems,
     path: Path,
     text: str,
     tracked: TrackedPaths,
-    is_new: bool,
+    new: set[int],
 ) -> None:
     """Resolve every repo path an ADR cites.
 
-    An unresolved path is an error in an ADR this pull request adds and a
-    warning in one that has already landed. The asymmetry is the whole design,
+    An unresolved path is an error on a line this pull request added and a
+    warning on one that has already landed. The asymmetry is the whole design,
     because the two cases are opposites rather than degrees of the same thing:
-    in a new ADR the path is simply wrong, nothing having had time to move,
-    while in a landed one it is usually the document doing its job. ADR-0006 and
+    in new prose the path is simply wrong, nothing having had time to move,
+    while in landed prose it is usually the document doing its job. ADR-0006 and
     ADR-0007 cite `dask_normalize_expr.py`, accurate until #1951 replaced dask
     tokenization; failing on that would pressure people to edit landed ADRs,
     which docs/adr/README.md tells them not to do.
@@ -475,29 +535,29 @@ def check_paths(
     This is also the answer to the "marked historical block" that #2203 asked
     for. A marker would put the burden on authors to remember it and would let a
     genuinely wrong path be waved through; the pull request diff already knows
-    which citations are new. The cost is that a path added to a landed ADR by an
-    amendment only warns -- scoping to the added *lines* rather than the added
-    *files* would close that, at the price of parsing diff hunks.
+    which citations are new. The scope is the added *lines* rather than the
+    added files, which is what holds an amendment to a landed ADR to the same
+    standard as a new one -- see `added_lines`.
 
     Nothing is reported for a path this run cannot resolve, only for one it can
     prove absent, which is why `load` failing is silent here.
     """
-    prose = MD_LINK_ANY_RE.sub(r" \g<target> ", strip_transcripts(text))
-    citations = {
-        match.group("path")
-        for match in PATH_CITATION_RE.finditer(prose)
+    prose = MD_LINK_ANY_RE.sub(_link_target, strip_transcripts(text))
+    found = [
         # A `..` *segment* is relative to the document rather than the repository
         # root, and this check anchors at the root; same-directory ADR links are
         # already covered by `check_references`. Tested for by segment rather
         # than as a substring so that a citation merely containing dots is
         # reported instead of silently skipped: `...path/to/x.py` is a missing
         # space, and a report quoting the dots is what shows the author that.
-        if ".." not in match.group("path").split("/")
-    }
-    if not citations or not tracked.load():
+        entry
+        for entry in citations(PATH_CITATION_RE, "path", prose, new)
+        if ".." not in entry[0].split("/")
+    ]
+    if not found or not tracked.load():
         return
 
-    for citation in sorted(citations):
+    for citation, line, is_new in found:
         if tracked.contains(citation):
             continue
         message = (
@@ -509,12 +569,13 @@ def check_paths(
                 message + "An ADR's citations have to resolve when it lands: "
                 "check the spelling, or put the path in a fenced block if it "
                 "names something this pull request does not create",
+                line,
             )
         else:
-            problems.warn(path, message + AGED_CITATION)
+            problems.warn(path, message + AGED_CITATION, line)
 
 
-def check_shas(problems: Problems, path: Path, text: str, is_new: bool) -> None:
+def check_shas(problems: Problems, path: Path, text: str, new: set[int]) -> None:
     """Report commits cited as a bare short SHA.
 
     A short SHA reads as authoritative and resolves for whoever wrote it, then
@@ -523,10 +584,11 @@ def check_shas(problems: Problems, path: Path, text: str, is_new: bool) -> None:
     full clone today. Abbreviations also grow ambiguous as a repository does, so
     one that resolves now is not durable either.
 
-    Same error-versus-warning split as `check_paths`, for the same reason.
+    Same error-versus-warning split as `check_paths`, on the same added lines
+    and for the same reason.
     """
-    prose = MD_LINK_ANY_RE.sub(" ", strip_transcripts(text))
-    for sha in sorted({match.group("sha") for match in BARE_SHA_RE.finditer(prose)}):
+    prose = MD_LINK_ANY_RE.sub(_blank, strip_transcripts(text))
+    for sha, line, is_new in citations(BARE_SHA_RE, "sha", prose, new):
         message = (
             f"cites the bare short commit `{sha}`. A short SHA is unreachable "
             "once the branch it was on is gone, and abbreviations grow "
@@ -538,12 +600,105 @@ def check_shas(problems: Problems, path: Path, text: str, is_new: bool) -> None:
                 message + "Cite the pull request that carried the change, or "
                 "link the commit -- a linked SHA is not bare, and a fenced "
                 "block is not scanned",
+                line,
             )
         else:
-            problems.warn(path, message + AGED_CITATION)
+            problems.warn(path, message + AGED_CITATION, line)
 
 
-def added_adrs(base: str, pair_renames: bool = False) -> list[Path] | None:
+def added_lines(base: str) -> dict[Path, set[int]] | None:
+    """Line numbers this branch adds to each ADR, relative to the merge base.
+
+    What the citation checks read to tell prose written now from prose that has
+    merely aged. Lines rather than files, which is finer than it sounds: the way
+    docs/adr/README.md says to update a landed ADR is to append a dated
+    `## Amendment`, so an amendment is precisely where a new citation arrives
+    after the fact. Keyed to the file, every one of them would be historical by
+    default and only warn.
+
+    Scoping to lines also retires the rename question the numbering check has to
+    answer. Rename detection is left on here, so a renumbered ADR contributes
+    only the heading line `adr_rename.py` rewrote; its aged citations are not on
+    an added line and stay in the warning tier without anyone asking for that.
+    `added_adrs` still passes `--no-renames` for the opposite reason, and the
+    two now disagree on purpose rather than by omission.
+
+    `-U0` asks for no context, so every line the hunk headers name is one this
+    branch wrote -- cheaper and less fragile than counting `+` lines.
+
+    None means the diff failed. The caller turns that into an exit code rather
+    than skipping: a citation check that quietly did not run reads exactly like
+    a pull request that passed it. Every flag below serves that same sentence,
+    because the other way this check goes quiet is to parse output it does not
+    recognise and find nothing -- which is indistinguishable from a branch that
+    added no ADR lines, and lands every citation in the warning tier:
+
+    - `--output-indicator-new` renames the marker on added lines, so `+++` at
+      the start of a line can only ever be a file header. Left as `+`, an ADR
+      line beginning with `++` is emitted as `+++ ...`, is read as a header, and
+      sends every later hunk in that file to a path that does not exist.
+    - `--no-ext-diff` because a configured `diff.external` prints nothing here
+      and still exits 0.
+    - `--relative` makes the reported paths relative to the current directory,
+      which is what `adr_files` yields. Without it a checkout whose root is
+      above the project directory reports `sub/docs/adr/...` and no key matches.
+
+    None of the three affects the default configuration this repository's CI
+    runs under. They are here because the failure they prevent is silent, and a
+    silent one costs more than the flag.
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "diff",
+            "-U0",
+            "--no-color",
+            "--no-ext-diff",
+            "--relative",
+            "--output-indicator-new=>",
+            f"{base}...HEAD",
+            "--",
+            str(ADR_DIR),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    # No test covers this branch and none can, which is worth saying rather than
+    # leaving a reader to assume the coverage is there. `main` resolves the same
+    # base through `added_adrs` first and exits 2 on its message, so by the time
+    # this runs the ref is known good and only something outside the ref -- a
+    # git that died mid-run -- reaches here. Kept because "the diff failed" and
+    # "nothing was added" are the same empty dict otherwise, and the wording is
+    # distinct from `added_adrs`' so a report says which call it came from.
+    if result.returncode != 0:
+        detail = result.stderr.strip().splitlines()
+        sys.stderr.write(
+            f"cannot diff added lines against {base!r}: "
+            f"{detail[-1] if detail else 'git diff failed'}. "
+            "Pass a ref this clone has, and check that the checkout is not "
+            "shallow (ci-adr.yml sets fetch-depth: 0 for this reason)\n"
+        )
+        return None
+
+    hunk = re.compile(r"^@@ -\S+ \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
+    lines: dict[Path, set[int]] = {}
+    current: set[int] | None = None
+    for line in result.stdout.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:].strip()
+            if target == "/dev/null":
+                # A deletion: nothing was added, and no file left to read.
+                current = None
+            else:
+                current = lines.setdefault(Path(target.removeprefix("b/")), set())
+        elif (match := hunk.match(line)) is not None and current is not None:
+            start = int(match.group("start"))
+            count = 1 if match.group("count") is None else int(match.group("count"))
+            current.update(range(start, start + count))
+    return lines
+
+
+def added_adrs(base: str) -> list[Path] | None:
     """ADR files this branch adds relative to the merge base with `base`.
 
     None means the base ref could not be resolved -- an unfetched sha, a
@@ -559,18 +714,15 @@ def added_adrs(base: str, pair_renames: bool = False) -> list[Path] | None:
     new ADR at all. Without this flag the branch resolving a collision is the
     one branch the number check never runs on.
 
-    `pair_renames` asks for the opposite, and exactly one caller wants it: the
-    citation checks in `check_paths` and `check_shas`, which error only on an ADR
-    whose text is new. A renumbered ADR's citations are as historical after the
-    renumber as before, so reading the move as an addition would fail the branch
-    on prose nobody touched.
+    The citation checks want the opposite answer about a renumber and get it
+    from `added_lines` instead, which leaves rename detection on.
     """
     result = subprocess.run(
         [
             "git",
             "diff",
             "--name-only",
-            *(() if pair_renames else ("--no-renames",)),
+            "--no-renames",
             "--diff-filter=A",
             f"{base}...HEAD",
             "--",
@@ -745,19 +897,20 @@ def main() -> int:
     problems = Problems(github=args.format == "github")
     # The diff comes first because the directory pass reads it: only the diff can
     # tell a citation that was wrong when written from one that has aged. Two
-    # diffs, not one, because the numbering checks and the citation checks want
-    # opposite answers about a renumbered ADR -- see `added_adrs`.
+    # diffs, not one, because the numbering checks want whole added *files* with
+    # rename detection off, while the citation checks want added *lines* with it
+    # on -- see `added_lines`.
     added = None
-    written = None
+    new_lines = None
     if args.base:
         # Sequenced, not batched, so an unresolvable base is reported once.
         added = added_adrs(args.base)
         if added is None:
             return 2
-        written = added_adrs(args.base, pair_renames=True)
-        if written is None:
+        new_lines = added_lines(args.base)
+        if new_lines is None:
             return 2
-    check_directory(problems, written)
+    check_directory(problems, new_lines)
     if added is not None:
         check_added(problems, added, args.pr)
     # Last, and with `added` in hand: an allowlist entry is only spent if this
