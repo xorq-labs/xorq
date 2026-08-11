@@ -165,9 +165,6 @@ databricks = [
 annex = [
     "git-annex>=10.20250220",
 ]
-mixpanel = [
-    "requests>=2.32.3",
-]
 
 [dependency-groups]
 dev = [
@@ -226,7 +223,6 @@ sqlite = "xorq.backends.sqlite"
 gizmosql = "xorq.backends.gizmosql"
 databricks = "xorq.backends.databricks"
 bigquery = "xorq.backends.bigquery"
-mixpanel = "xorq.backends.mixpanel"
 
 [project.scripts]
 xorq = "xorq.cli:main"
@@ -329,7 +325,6 @@ markers = [
     "xorq_datafusion: xorq DataFusion backend tests",
     "uv_export: tests that call uv export against the project lockfile",
     "bigquery: BigQuery tests",
-    "mixpanel: Mixpanel API backend tests",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

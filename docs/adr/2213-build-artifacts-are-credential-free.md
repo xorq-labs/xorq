@@ -86,20 +86,24 @@ cannot drift.
 Connections are made with `secret="${MIXPANEL_SERVICE_ACCOUNT_SECRET}"`-style
 references. The profile keeps the reference; `do_connect` receives the
 substituted value; anything intended for serialization is built **from the
-profile**, never from the live connection's resolved state (see
-`xorq.backends.mixpanel.Backend._expr_client` / `MixpanelClient`, whose fields
-hold references and resolve per request via `maybe_substitute_env_var`).
+profile**, never from the live connection's resolved state. The supported
+surface for that is `BaseBackend.expr_safe_profile_kwargs()`: it returns the
+profile's kwargs (references preserved) after rejecting raw secrets, so a
+backend -- in-tree or plugin -- never reaches into the profile internals to
+build a capture-safe client (see `xorq.tests.fixture_backend`, whose client
+fields hold references and resolve per request via
+`maybe_substitute_env_var`).
 
 ### Enforcement at every serialization doorway
 
 - `Profile.save` rejects raw secret values (existing behavior, now driven by
   declared keys).
 - Expression construction that captures a credential-bearing callable rejects
-  raw secret values too: `Backend._expr_client` calls
-  `check_for_exposed_secrets` before the client is closed over, because a
-  cloudpickled closure inside `expr.yaml` is just as distributed as
-  `profiles.yaml` — base64-encoded pickle bytes are not greppable, so this
-  leak class must be prevented, not audited.
+  raw secret values too: `expr_safe_profile_kwargs` runs
+  `check_for_exposed_secrets` before handing out the kwargs a client is built
+  from and closed over, because a cloudpickled closure inside `expr.yaml` is
+  just as distributed as `profiles.yaml` — base64-encoded pickle bytes are not
+  greppable, so this leak class must be prevented, not audited.
 - Prevention is nonetheless pinned by a test that *audits*: it builds an
   expression with fake credentials, decodes every base64 payload in the
   artifact, and asserts the resolved values are absent and the env-var
@@ -153,8 +157,14 @@ Rejected because:
   which cannot be mirrored, opts in with the `_get_secret_keys(kwargs)` hook.
   Declaring `_secret_keys` alone changes nothing at runtime -- it is the
   documentation half of the pair.
-- The mixpanel backend ships as the reference implementation: profile-carried
-  auth, env-ref-only expressions, verified empty leak-grep of built artifacts.
+- The plugin contract is pinned in-tree by `xorq.tests.fixture_backend`, an
+  API-shaped backend installed as an entry point mid-test: profile-carried
+  auth, hook-declared secret keys with no mirror entry, env-ref-only
+  expressions, verified empty leak-grep of built artifacts. The reference
+  *integration* is out-of-tree: `xorq-labs/xorq-mixpanel` consumes exactly
+  that contract, which keeps vendor connectors -- an unbounded population
+  whose churn follows vendor APIs, not xorq releases -- out of `backends/`
+  and off the static mirror the alternatives section below rejects.
 
 ### Negative
 
@@ -182,3 +192,6 @@ Rejected because:
   data vs structure), ADR-0015 (every op modifies the build hash)
 - plans/udxf-source-api-backend.md (API-as-Backend design and phasing)
 - xorq-labs/xorq-template-mixpanel-fetcher (Phase 0: fetcher-in-userland)
+- xorq-labs/xorq-mixpanel (the out-of-tree reference integration)
+- xorq.tests.fixture_backend / tests/test_build_artifacts_credential_free.py
+  (the in-tree pin of the plugin contract)

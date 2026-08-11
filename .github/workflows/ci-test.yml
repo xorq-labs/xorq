@@ -78,10 +78,6 @@ jobs:
             extras:
               - --extra gizmosql
               - --extra duckdb
-          - name: mixpanel
-            services: false
-            extras:
-              - --extra mixpanel
           - name: trino
             services: trino
             extras:

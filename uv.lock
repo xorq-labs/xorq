@@ -6238,9 +6238,6 @@ gizmosql = [
 ibis = [
     { name = "ibis-framework" },
 ]
-mixpanel = [
-    { name = "requests" },
-]
 postgres = [
     { name = "adbc-driver-postgresql" },
     { name = "psycopg", extra = ["binary"] },
@@ -6358,7 +6355,6 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "pytz", specifier = ">=2022.7" },
     { name = "requests", marker = "extra == 'examples'", specifier = ">=2.32.3" },
-    { name = "requests", marker = "extra == 'mixpanel'", specifier = ">=2.32.3" },
     { name = "rich", specifier = ">=13.9.4" },
     { name = "scikit-learn", marker = "python_full_version >= '3.13' and extra == 'examples'", specifier = ">=1.5.2,<2.0.0" },
     { name = "scikit-learn", marker = "python_full_version < '3.13' and extra == 'examples'", specifier = ">=1.5.0,<2.0.0" },
@@ -6378,7 +6374,7 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
-provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "examples", "postgres", "sqlite", "gizmosql", "ibis", "geospatial", "trino", "bigquery", "bsl", "databricks", "annex", "mixpanel"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "examples", "postgres", "sqlite", "gizmosql", "ibis", "geospatial", "trino", "bigquery", "bsl", "databricks", "annex"]
 
 [package.metadata.requires-dev]
 dev = [
