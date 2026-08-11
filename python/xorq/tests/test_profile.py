@@ -1179,6 +1179,78 @@ def test_a_forged_empty_leaf_cannot_suppress_the_true_names(
     assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
 
 
+def test_a_forged_str_name_cannot_escape_the_match(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A name is a value out of the kwargs too, so it comes back as an exact str
+    copy. A str subclass returned as-is would carry its own __eq__ into the
+    membership test that matches it against a kwarg -- the source resolves, the
+    key is named, and the literal saves anyway."""
+
+    class Ghost(str):
+        def __eq__(self, other: object) -> bool:
+            return False
+
+        def __hash__(self) -> int:
+            return str.__hash__(self)
+
+        def __str__(self) -> str:
+            return "not_a_kwarg"
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    config = {"auth": {"fields": [Ghost("api_key")]}}
+    names = get_declared_secret_keys(con_name, {"config": config})
+    assert names == ("api_key",)
+    assert all(type(name) is str for name in names)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {"config": config, "api_key": "plaintext"})
+    profile = Profile(
+        con_name=con_name,
+        kwargs_tuple=(("config", config), ("api_key", "plaintext")),
+    )
+    with pytest.raises(ValueError, match="api_key"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+
+
+def test_a_name_whose_hash_raises_cannot_escape_the_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nor can a name reach the dedupe in get_secret_keys, which hashes it outside
+    the fail-closed guard: an exact str copy has nothing left to raise."""
+
+    class HashBomb(str):
+        def __hash__(self) -> int:
+            raise RuntimeError("boom")
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    config = {"auth": {"fields": [HashBomb("api_key")]}}
+    assert profiles_mod.get_secret_keys(con_name, {"config": config}) == (
+        "password",
+        "api_key",
+    )
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {"config": config, "api_key": "plaintext"})
+
+
+def test_forged_items_cannot_hide_a_kwarg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The enforcement loop reads the kwargs the way the resolver does: a subclass
+    hiding an entry from items() cannot hide it from the check that the resolver
+    just named it in."""
+
+    class Hiding(dict):
+        def items(self) -> list:
+            return [(k, v) for k, v in dict.items(self) if k != "api_key"]
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = Hiding(config={"auth": {"fields": ["api_key"]}}, api_key="plaintext")
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, kwargs)
+
+
 def test_a_kwargs_subclass_lying_about_len_still_resolves(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

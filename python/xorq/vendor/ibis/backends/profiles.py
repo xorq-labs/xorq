@@ -485,12 +485,16 @@ con_name_to_secret_key_sources = MappingProxyType({})
 
 def _resolve_source(source: tuple[str, ...], kwargs: dict) -> tuple[str, ...] | None:
     """The names ``source`` points at inside ``kwargs``, or None when it doesn't
-    resolve. Resolution runs no code belonging to the values it walks: every read
-    is through an unbound builtin, so a subclass's ``get``/``__getitem__``/
-    ``__missing__``/``__iter__`` is bypassed and the true underlying data is read.
-    Anything that isn't a ``dict`` at a step, or a ``list``/``tuple`` at the leaf,
-    is unresolved rather than reached into -- ``secret_fields: null`` falls
-    through, while ``[]`` resolves to ``()``. A non-``str`` name is dropped.
+    resolve. Every read is through an unbound builtin, so a subclass's
+    ``get``/``__getitem__``/``__missing__``/``__iter__``/``__str__`` is bypassed
+    and the true underlying data is read; the names come back as exact ``str``
+    copies, since a ``str`` subclass reaching the caller could forge the ``__eq__``
+    that matches it against a kwarg or the ``__hash__`` that dedupes it. (Dict
+    probing can still run a *stored* key's ``__eq__`` on a hash collision; one
+    that raises is caught below, and one that lies can only redirect among values
+    already in the kwargs.) Anything that isn't a ``dict`` at a step, or a
+    ``list``/``tuple`` at the leaf, is unresolved rather than reached into --
+    ``secret_fields: null`` falls through, while ``[]`` resolves to ``()``.
     """
     value = kwargs
     for step in source:
@@ -499,7 +503,7 @@ def _resolve_source(source: tuple[str, ...], kwargs: dict) -> tuple[str, ...] | 
         value = dict.get(value, step)
     if isinstance(value, (list, tuple)):
         names = (tuple if isinstance(value, tuple) else list).__iter__(value)
-        return tuple(name for name in names if isinstance(name, str))
+        return tuple(str.__str__(name) for name in names if isinstance(name, str))
     return None
 
 
@@ -612,7 +616,9 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
 
     exposed_secrets = tuple(
         key
-        for key, value in kwargs.items()
+        # unbound, like the reads in _resolve_source: a subclass's items() could
+        # otherwise hide the very kwarg the resolver just named
+        for key, value in dict.items(kwargs)
         if key in relevant_keys
         and not (
             isinstance(value, str) and compiled_env_var_substitution_re.match(value)
