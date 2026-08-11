@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING
+import inspect
+from typing import TYPE_CHECKING, Any
 
 import xorq.common.exceptions as com
 from xorq import __version__
@@ -121,7 +122,7 @@ class Backend(BaseBackend, NoUrl):
             ) from None
 
     def table(
-        self, name: str, /, *, database: str | None = None, **params: str
+        self, name: str, /, *, database: str | None = None, **params: Any
     ) -> ir.Table:
         readers = {
             "events": self.read_events,
@@ -134,6 +135,10 @@ class Backend(BaseBackend, NoUrl):
                 f"mixpanel backend has no resource {name!r}; "
                 f"available: {sorted(readers)}"
             ) from None
+        try:
+            inspect.signature(reader).bind(**params)
+        except TypeError as e:
+            raise com.XorqError(f"mixpanel resource {name!r}: {e}") from None
         return reader(**params)
 
     def read_events(self, from_date: str, to_date: str) -> ir.Table:

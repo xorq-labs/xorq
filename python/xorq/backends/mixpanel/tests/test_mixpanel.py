@@ -3,12 +3,16 @@ from __future__ import annotations
 import base64
 import pathlib
 import re
+import types
 
 import pytest
 
 import xorq.api as xo
 import xorq.common.exceptions as com
-from xorq.backends.mixpanel.client import MixpanelClient
+from xorq.backends.mixpanel.client import (
+    MixpanelClient,
+    retry_after_seconds,
+)
 from xorq.backends.mixpanel.tests.conftest import (
     env_ref_kwargs,
     fake_env,
@@ -114,6 +118,66 @@ def test_expr_construction_rejects_raw_secret(
     )
     with pytest.raises(ValueError, match="exposed secret keys"):
         con.read_events("2026-07-01", "2026-07-07")
+
+
+def test_table_rejects_bad_params(con: BaseBackend) -> None:
+    """Parameter errors surface as XorqError at the doorway, like unknown
+    resources do, rather than a bare TypeError from inside the reader."""
+    with pytest.raises(com.XorqError, match="from_date"):
+        con.table("events")
+    with pytest.raises(com.XorqError, match="nope"):
+        con.table("engage", nope="x")
+
+
+def test_retry_after_seconds() -> None:
+    assert retry_after_seconds("120", 8) == 120
+    # the RFC-permitted HTTP-date form falls back to exponential backoff
+    assert retry_after_seconds("Wed, 21 Oct 2026 07:28:00 GMT", 8) == 8
+    assert retry_after_seconds(None, 8) == 8
+
+
+def _paged_responses(monkeypatch: pytest.MonkeyPatch, pages: list[dict]) -> list[dict]:
+    """Patch get_with_backoff to serve `pages` in order, recording params."""
+    calls: list[dict] = []
+
+    def fake_get_with_backoff(self, url, params, **kwargs):
+        calls.append(dict(params))
+        return types.SimpleNamespace(json=lambda: pages[len(calls) - 1])
+
+    monkeypatch.setattr(MixpanelClient, "get_with_backoff", fake_get_with_backoff)
+    return calls
+
+
+def test_engage_termination_falls_back_to_requested_page_size(
+    con: BaseBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A server that doesn't echo page_size must not truncate a fetch whose
+    requested size exceeds the 1_000 default: a full page (by the requested
+    size) keeps paginating, and the next request carries session_id/page."""
+    full_page = [{"$distinct_id": str(i), "$properties": {}} for i in range(2)]
+    calls = _paged_responses(
+        monkeypatch,
+        [
+            {"results": full_page, "session_id": "s-1", "page": 0},
+            {"results": [], "session_id": "s-1", "page": 1},
+        ],
+    )
+    df = con._client.engage(page_size=2)
+    assert len(calls) == 2
+    assert calls[1]["session_id"] == "s-1"
+    assert calls[1]["page"] == 1
+    assert len(df) == 2
+
+
+def test_engage_full_page_without_session_id_raises(
+    con: BaseBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A full page that omits the pagination keys is an error, not a silent
+    truncation and not a bare KeyError."""
+    full_page = [{"$distinct_id": str(i), "$properties": {}} for i in range(2)]
+    _paged_responses(monkeypatch, [{"results": full_page, "page_size": 2}])
+    with pytest.raises(ValueError, match="session_id, page"):
+        con._client.engage(page_size=2)
 
 
 def test_read_only(con: BaseBackend) -> None:

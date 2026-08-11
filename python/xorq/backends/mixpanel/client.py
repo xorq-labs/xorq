@@ -63,6 +63,16 @@ engage_dtypes = {
     "distinct_id": "string",
     "properties": "string",
 }
+default_timeout_seconds = 600
+
+
+def retry_after_seconds(value: str | None, default: int) -> int:
+    # Retry-After is either delta-seconds or an HTTP-date; back off
+    # exponentially on the date form rather than crash the retry loop
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def event_to_row(event: dict) -> dict:
@@ -120,7 +130,7 @@ class MixpanelClient:
 
     @property
     def _project_id(self) -> str:
-        return str(maybe_substitute_env_var(str(self.project_id)))
+        return maybe_substitute_env_var(str(self.project_id))
 
     @property
     def _region(self) -> str:
@@ -132,12 +142,22 @@ class MixpanelClient:
         return region
 
     def get_with_backoff(
-        self, url: str, params: dict, max_tries: int = 5
+        self,
+        url: str,
+        params: dict,
+        max_tries: int = 5,
+        stream: bool = False,
+        timeout: float = default_timeout_seconds,
     ) -> requests.Response:
         for tries in range(1, max_tries + 1):
-            resp = requests.get(url, params=params, auth=self._auth, timeout=600)
+            resp = requests.get(
+                url, params=params, auth=self._auth, timeout=timeout, stream=stream
+            )
             if resp.status_code == 429 and tries != max_tries:
-                time.sleep(int(resp.headers.get("Retry-After", 2**tries)))
+                resp.close()
+                time.sleep(
+                    retry_after_seconds(resp.headers.get("Retry-After"), 2**tries)
+                )
                 continue
             resp.raise_for_status()
             return resp
@@ -145,6 +165,8 @@ class MixpanelClient:
 
     def export(self, from_date: str, to_date: str) -> pd.DataFrame:
         """One raw-event export call for the (inclusive, UTC) date range."""
+        # stream + iter_lines: an export over a wide date range is unbounded
+        # JSONL (GBs), so the whole body must never be buffered as text
         resp = self.get_with_backoff(
             f"{data_api_urls[self._region]}/export",
             params={
@@ -152,10 +174,9 @@ class MixpanelClient:
                 "from_date": from_date,
                 "to_date": to_date,
             },
+            stream=True,
         )
-        gen = (
-            event_to_row(json.loads(line)) for line in resp.text.splitlines() if line
-        )
+        gen = (event_to_row(json.loads(line)) for line in resp.iter_lines() if line)
         return (
             pd.DataFrame(gen)
             .reindex(columns=tuple(export_schema_out))
@@ -166,7 +187,9 @@ class MixpanelClient:
         """All user profiles matching `where`, paginated to exhaustion.
 
         `page_size` bounds each response page (the API clamps to >= 100);
-        termination uses the page size the server echoes back.
+        termination uses the page size the server echoes back, falling back
+        to the requested size so a non-echoing server can't truncate a
+        larger-than-default fetch after one page.
         """
         url = f"{query_api_urls[self._region]}/2.0/engage"
         params = {
@@ -179,8 +202,13 @@ class MixpanelClient:
             data = self.get_with_backoff(url, params=params).json()
             results = data.get("results", ())
             rows.extend(map(profile_to_row, results))
-            if len(results) < data.get("page_size", 1_000):
+            if len(results) < data.get("page_size", page_size or 1_000):
                 break
+            if missing := tuple(k for k in ("session_id", "page") if k not in data):
+                raise ValueError(
+                    f"engage returned a full page without {', '.join(missing)}; "
+                    "cannot request the next page"
+                )
             params = {
                 **params,
                 "session_id": data["session_id"],
