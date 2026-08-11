@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.3.39] - 2026-08-11
+### Details
+#### Changed
+- Number ADRs by the pull request that adds them by @dlovell in [#2210](https://github.com/xorq-labs/xorq/pull/2210)
+- **Breaking:** Fold the rule-set fingerprint into the build hash (every build-directory name moves; cache keys are unaffected) by @dlovell in [#2200](https://github.com/xorq-labs/xorq/pull/2200)
+- Drop the allowlist entries #2200 has landed by @dlovell in [#2212](https://github.com/xorq-labs/xorq/pull/2212)
+- Accept ADR-2210, and say what enforces it now by @dlovell in [#2218](https://github.com/xorq-labs/xorq/pull/2218)
+- Update readme to consistently use the language around catalog by @hussainsultan in [#2209](https://github.com/xorq-labs/xorq/pull/2209)
+- Cache the quartodoc reference instead of rebuilding it every run by @dlovell in [#2220](https://github.com/xorq-labs/xorq/pull/2220)
+
+#### Fixed
+- Report an allowlist entry that has done its job by @dlovell in [#2211](https://github.com/xorq-labs/xorq/pull/2211)
+
 ## [0.3.38] - 2026-08-06
 ### Details
 #### Added
