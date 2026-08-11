@@ -1140,43 +1140,41 @@ def test_malformed_sources_contribute_nothing(
     "base",
     (pytest.param(list, id="list_subclass"), pytest.param(tuple, id="tuple_subclass")),
 )
-def test_a_leaf_that_subclasses_list_is_not_iterated(
+def test_a_leaf_subclass_has_its_true_names_read(
     monkeypatch: pytest.MonkeyPatch, base: type
 ) -> None:
-    """The leaf read runs no code belonging to the leaf either: a list/tuple
-    subclass forging __iter__ is unresolved rather than believed, with no call
-    made. Iterating it would let hostile data both invent names and -- by
-    resolving -- cut off the fallback to the next source."""
+    """The leaf is read the way the steps are, through an unbound builtin, so a
+    list/tuple subclass forging __iter__ has the override bypassed and its true
+    data read. Neither believing the forgery (which invents names) nor rejecting
+    the subclass (which drops a benign one's real names, and with them the check
+    on the credential they name) is safe."""
 
     class Forging(base):
-        def __init__(self, *args) -> None:
-            super().__init__()
-            self.iterated = False
-
         def __iter__(self) -> collections.abc.Iterator:
-            self.iterated = True
             return iter(["forged"])
 
     leaf = Forging(["true_key"])
+    assert tuple(leaf) == ("forged",), "the forgery is live"
     con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
     kwargs = {"config": {"auth": {"fields": leaf}}}
-    assert get_declared_secret_keys(con_name, kwargs) == ()
-    assert not leaf.iterated
-    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+    assert get_declared_secret_keys(con_name, kwargs) == ("true_key",)
+    with pytest.raises(ValueError, match="true_key"):
+        check_for_exposed_secrets(con_name, {**kwargs, "true_key": "plaintext"})
 
 
-def test_a_leaf_subclass_falls_through_to_the_next_source(
+def test_a_forged_empty_leaf_cannot_suppress_the_true_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Unresolved means unresolved: a subclass leaf on the first source hands the
-    fallback to the second rather than resolving to a forged answer."""
+    """Nor can a forgery narrow the check by resolving to less: a subclass whose
+    __iter__ reports nothing still resolves to the names it really holds, rather
+    than to an empty set that would win the fallback."""
 
     class Forging(list):
         def __iter__(self) -> collections.abc.Iterator:
             return iter([])
 
     con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
-    auth = {"secret_fields": Forging(["ignored"]), "fields": ["api_key"]}
+    auth = {"secret_fields": Forging(["api_key"]), "fields": ["other"]}
     kwargs = {"config": {"auth": auth}}
     assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
 

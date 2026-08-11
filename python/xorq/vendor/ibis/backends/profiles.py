@@ -485,19 +485,21 @@ con_name_to_secret_key_sources = MappingProxyType({})
 
 def _resolve_source(source: tuple[str, ...], kwargs: dict) -> tuple[str, ...] | None:
     """The names ``source`` points at inside ``kwargs``, or None when it doesn't
-    resolve. Resolution runs no code belonging to the values it walks: a step reads
-    a plain ``dict`` through the unbound ``dict.get``, the leaf must be exactly a
-    ``list``/``tuple`` (a subclass can forge ``__iter__``), and anything else is
-    unresolved rather than reached into -- ``secret_fields: null`` falls through,
-    while ``[]`` resolves to ``()``. A non-``str`` name is dropped.
+    resolve. Resolution runs no code belonging to the values it walks: every read
+    is through an unbound builtin, so a subclass's ``get``/``__getitem__``/
+    ``__missing__``/``__iter__`` is bypassed and the true underlying data is read.
+    Anything that isn't a ``dict`` at a step, or a ``list``/``tuple`` at the leaf,
+    is unresolved rather than reached into -- ``secret_fields: null`` falls
+    through, while ``[]`` resolves to ``()``. A non-``str`` name is dropped.
     """
     value = kwargs
     for step in source:
         if not isinstance(value, dict):
             return None
         value = dict.get(value, step)
-    if type(value) in (list, tuple):
-        return tuple(name for name in value if isinstance(name, str))
+    if isinstance(value, (list, tuple)):
+        names = (tuple if isinstance(value, tuple) else list).__iter__(value)
+        return tuple(name for name in names if isinstance(name, str))
     return None
 
 
