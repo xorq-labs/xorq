@@ -109,6 +109,48 @@ scope. Ruff enforces this split via `PLC0415` (import-outside-top-level): every
 deliberate lazy import must carry a `# noqa: PLC0415` comment, which makes each
 one an explicit, reviewable decision rather than an accident.
 
+## Removing or changing behavior
+
+Three conventions, distilled from a review retrospective (ADR-0016 records the
+case study):
+
+- **Blast-radius grep before removals.** Before deleting any code path —
+  including provably dead ones — grep the whole repo (tests, docs, `.github/`
+  included) for the removed *symbols* and their *error-message strings*. Dead
+  code can still have live tests: guards get monkeypatched into firing, and
+  error messages get asserted with `pytest.raises(match=...)` from other
+  modules' test files. `.claude/skills/blast-radius/SKILL.md` spells out the
+  steps as a manual checklist (agents run it as the `/blast-radius` skill).
+- **Invariants need an enforcement tier.** Every "must / cannot / never"
+  sentence in a docstring or comment should be (1) impossible by construction
+  (derive it, type it), (2) validated at import time (validators,
+  `__attrs_post_init__`), or (3) pinned by a test co-located with the module
+  that owns it. A prose-only invariant is a review finding, not documentation.
+- **Contract tests live with the contract owner.** A test that pins module A's
+  behavior belongs in A's test module, not in whichever test file first
+  observed the behavior. Monkeypatching another module's globals in a test is
+  a smell: it couples the test to internals invisible to that module's
+  editors, and it can silently stop testing anything when those internals are
+  restructured.
+
+## Review policy: shared-infrastructure changes (trial)
+
+Changes to shared traversal, hashing, or serialization infrastructure (e.g.
+`common/utils/graph_utils.py`, `common/utils/dasher/`, `ibis_yaml/`) get at
+least two sequential *independent* reviews — each a cold read with no context
+from the previous round. Sequential rounds find different classes of issue;
+stop when the findings-per-round curve converges (declining count and
+severity).
+
+When review rounds produce findings, run a structural retrospective before
+merge: group all findings (including declined ones and operational hiccups)
+by generating cause, and convert causes into mechanisms, not just fixes.
+Agents run this as the `/review-retro` skill;
+`.claude/skills/review-retro/SKILL.md` doubles as the manual checklist.
+
+This is a trial norm adopted from the #2177/#2196 retrospectives (ADR-0016
+records the case study); revisit after a few uses.
+
 ## Writing the commit
 
 xorq follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
