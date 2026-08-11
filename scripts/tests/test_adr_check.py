@@ -173,6 +173,12 @@ def test_short_form_citation_is_reported(tree: ADRTree) -> None:
         pytest.param("Write `ADR-9999` here.\n", id="inline-code"),
         pytest.param("<https://example.com/ADR-9999>\n", id="autolink"),
         pytest.param("```\n[x](0099-nope.md)\n```\n", id="dead-link-in-fence"),
+        pytest.param(
+            "- item:\n\n  ```\n  ADR-9999\n  ```\n", id="fence-indented-in-a-list"
+        ),
+        pytest.param(
+            "````\n```\nADR-9999\n```\n````\n", id="fence-shown-inside-a-longer-fence"
+        ),
     ],
 )
 def test_shown_reference_is_not_checked(tree: ADRTree, body: str) -> None:
@@ -304,6 +310,38 @@ def test_a_path_in_a_fence_is_not_checked(repo: ADRTree) -> None:
     """The escape hatch, and the only one: a new ADR naming a path it does not
     create yet shows it rather than citing it."""
     repo.write("2211-new.md", "# ADR-2211: New\n\n```\npython/xorq/expr/gone.py\n```\n")
+    repo.commit_all()
+    result = repo.check("--base", "HEAD~1", "--pr", "2211")
+    assert result.returncode == 0, result.stderr
+    assert "gone.py" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            "- the module:\n\n  ```\n  python/xorq/expr/gone.py\n  ```\n",
+            id="fence-indented-in-a-list",
+        ),
+        pytest.param(
+            "````\n```\npython/xorq/expr/gone.py\n```\n````\n",
+            id="fence-shown-inside-a-longer-fence",
+        ),
+    ],
+)
+def test_every_fence_markdown_accepts_is_an_escape_hatch(
+    repo: ADRTree, body: str
+) -> None:
+    """The advice the error gives has to work on the fence the author writes.
+
+    `check_paths` tells an author to fence a path that is not meant to resolve.
+    A fence Markdown renders and this guard does not read is then a blocking
+    error on the guard's own instruction, with nothing left to try -- worse than
+    having no check. Both forms below are ones an ADR reaches for: a fence under
+    a list item is indented, and a fence *showing* a fenced block opens wider
+    than the one it contains.
+    """
+    repo.write("2211-new.md", f"# ADR-2211: New\n\n{body}")
     repo.commit_all()
     result = repo.check("--base", "HEAD~1", "--pr", "2211")
     assert result.returncode == 0, result.stderr

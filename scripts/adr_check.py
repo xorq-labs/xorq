@@ -94,8 +94,18 @@ MD_LINK_RE = re.compile(r"\[[^\]]*\]\(\s*(?P<target>[^)#\s]+\.md)[^)]*\)")
 # the numbering scheme necessarily prints numbers that do not resolve, and CI
 # output pasted into an ADR would otherwise fail the very check that produced
 # it. Stripped before references and links are collected.
+#
+# The run length is captured rather than fixed at three, and a leading indent is
+# allowed, because this fence is also the escape hatch `check_paths` and
+# `check_shas` point people at: their message tells an author to fence a path
+# that is not meant to resolve. A fence form Markdown accepts and this pattern
+# does not is then a blocking error on advice the guard itself gave, which is
+# worse than the check not existing. The two forms that reach here are a fence
+# nested in a list item, which is indented, and a fence *showing* a fenced block,
+# which opens with four backticks -- `(?P=fence)` is what stops the inner three
+# from closing it early.
 CODE_FENCE_RE = re.compile(
-    r"^(?P<fence>```|~~~).*?^(?P=fence)", re.MULTILINE | re.DOTALL
+    r"^[ \t]*(?P<fence>`{3,}|~{3,}).*?^[ \t]*(?P=fence)", re.MULTILINE | re.DOTALL
 )
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 URL_RE = re.compile(r"<?https?://[^\s>)]+>?")
