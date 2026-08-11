@@ -26,6 +26,8 @@
 #   python3     frontmatter parsing     pip install python-frontmatter
 #
 # CI: set CI=true; errors are emitted as GitHub Actions ::error annotations.
+#     SKIP_VALE=1 / SKIP_LYCHEE=1 skip checks a dedicated action already runs;
+#     SKIP_QUARTODOC=1 skips the rebuild when reference/ was restored from cache.
 
 set -uo pipefail
 
@@ -71,7 +73,7 @@ require_tool() {
 [[ "${SKIP_VALE:-}"   == "1" ]] || require_tool vale   "snap install vale --classic  (Linux)  |  brew install vale  (macOS)"
 [[ "${SKIP_LYCHEE:-}" == "1" ]] || require_tool lychee "https://github.com/lycheeverse/lychee/releases"
 require_tool quarto     "https://quarto.org/docs/get-started/"
-require_tool quartodoc  "pip install quartodoc"
+[[ "${SKIP_QUARTODOC:-}" == "1" ]] || require_tool quartodoc  "pip install quartodoc"
 require_tool pymarkdown "pip install pymarkdownlnt"
 python3 -c "import frontmatter" 2>/dev/null || {
     printf 'ERROR: python-frontmatter not installed.\n  Install: pip install python-frontmatter\n'
@@ -114,8 +116,19 @@ fi
 # the `quartodoc:` block of _quarto.yml). Rebuild before rendering so the API
 # reference reflects the current code and stale pages from renamed/removed
 # symbols don't linger.
+#
+# SKIP_QUARTODOC=1 means reference/ came from a cache whose key already answered
+# "is it still valid" (.github/workflows/ci-docs-lint.yml). The emptiness check
+# is the guard: a restore that produced nothing fails here, loudly.
 section "Quartodoc build — API reference"
-if quartodoc build 2>&1; then
+if [[ "${SKIP_QUARTODOC:-}" == "1" ]]; then
+    if [[ -d "reference" && -n "$(ls -A reference 2>/dev/null)" ]]; then
+        pass "quartodoc build: skipped (reference/ restored from cache)"
+    else
+        fail "quartodoc build: SKIP_QUARTODOC=1 but reference/ is missing or empty"
+        in_ci && printf '::error file=_quarto.yml,line=1::SKIP_QUARTODOC=1 with no reference/ to skip for\n'
+    fi
+elif quartodoc build 2>&1; then
     pass "quartodoc build"
 else
     fail "quartodoc build: failed"
