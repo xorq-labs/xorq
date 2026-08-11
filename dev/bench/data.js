@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786453985250,
+  "lastUpdate": 1786469017501,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -33234,6 +33234,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.20643587818799736",
             "extra": "mean: 1.6469934824000005 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97d0d39100815c07fd239fa769479ca7538c1308",
+          "message": "feat(adr): check cited repo paths and reject bare short SHAs (#2221)\n\nDelivers checks 3 and 4 of #2203. **Check 2 stays open**, so this does not close the issue — deliberately: it was declined by design, and is worth revisiting on its own merits rather than being treated as covered. Read [dlovell's comment](https://github.com/xorq-labs/xorq/issues/2203#issuecomment-5243710874) before the issue body — the body predates ADR-2210 and is partly stale: check 1 is done, check 2 was declined by design, and the \"why it cannot land in the current stack\" section is resolved.\n\n## The measurement came first\n\n`docs/adr` cites **106 paths** (52 distinct). Before any code, I extracted them and looked at what didn't resolve, because the issue's own design note names the failure mode — \"false positives are the failure mode that gets a lint disabled\" — and a naive extractor earns them by the dozen:\n\n| Slash-joined tokens in docs/adr | 204 occurrences, 127 distinct |\n|---|---|\n| …that aren't paths at all | **75 distinct** — `try/except`, `I/O`, `NaN/NaT`, `read-path/hash-path`, `build/cache`, `yes/no` |\n| Path citations after filtering | 106 occurrences, 52 distinct |\n| Resolve exactly | 76 |\n| Resolve only as a suffix of a tracked path | 25 — `expr/api.py`, `dasher/_opaque.py` |\n| **Unresolved** | **5** |\n\nThe five, in three kinds, only one of which is a defect:\n\n- **Never a repo file.** `scripts/2026-04-27-pierre-sync.py` (no git history at all — someone's local one-off).\n- **Never a repo file, runtime path.** `.git/annex/objects` in ADR-0003. Excluded by construction, not by a special case — it has no file extension, so it is not extracted.\n- **Genuinely moved.** `python/xorq/common/utils/dask_normalize/dask_normalize_expr.py` in ADR-0006 and ADR-0007, deleted by #1951; `dev/init-catalog-submodule.sh`.\n\n`vendor/ibis/expr/types/core.py`, which looks like a dependency path, turned out to be a suffix of the vendored `python/xorq/vendor/ibis/expr/types/core.py` — so it resolves, and \"paths in dependencies\" isn't a category here after all.\n\n## The design tension, and what I did about it\n\n**The third kind is not a bug — it is the opposite of one.** An ADR records what was true when the decision was made. A check that errors on a path that has since moved pressures people to edit landed ADRs, which `docs/adr/README.md` tells them not to do. The issue's phrase \"or is inside a marked historical block\" gestures at this, but nobody has marked any blocks, so a literal reading of check 3 fails on day one with no vocabulary for which failures are legitimate.\n\nSo the check is asymmetric, the same way the two ADR citation forms already are:\n\n| Where the citation is | Unresolved path, or a bare short SHA |\n|---|---|\n| An ADR this pull request **adds** | **Error** — nothing has had time to move, so it's wrong |\n| An ADR **already in the tree** | **Warning** — probably the record doing its job |\n\n**This replaces the \"marked historical block\" rather than implementing it.** The pull request diff already knows which prose is new, so git supplies the distinction for free: nothing for authors to remember, and no marker that can wave a genuinely wrong path through. The warning text is the only place this guard tells anyone *not* to fix something.\n\nTwo consequences worth reviewing:\n\n- `added_adrs` grew a `pair_renames` flag, and `main` now runs two diffs. The numbering check must be rename-*blind* (that's what makes a renumber count as a new ADR), and the citation check must be rename-*aware* — otherwise renumbering ADR-0006 turns its aged citation into a blocking error, and the only way to get green is the edit this whole design exists to prevent. Pinned by `test_renumbering_a_landed_adr_does_not_make_its_citations_new`.\n- **Known gap:** an amendment that adds a bad path to a landed ADR only warns. Closing it means scoping to added *lines* rather than added *files*, i.e. parsing diff hunks. I left it, and said so in `check_paths`.\n\n## Extraction choices, each one measured\n\n- **A file extension is required.** It's what separates a path from prose; it's why 75 distinct tokens are rejected. Cost, stated in the code: a cited *directory* is never checked, because `build/cache` and `python/xorq/writes/` are the same shape.\n- **Suffix resolution.** A quarter of citations are abbreviated. An ambiguous suffix counts as resolved — `expr/api.py` names two real files, and choosing between them is guesswork.\n- **`git ls-files`, not the filesystem.** \"A repo path\" means tracked. Otherwise `.git/`, `docs/_site`, and untracked local scripts count as repo files, and a run passes for whoever has the file and fails in CI. Loaded lazily, so a directory citing no paths never shells out and the guard still runs outside a checkout (where it warns once that paths went unchecked, rather than reporting every path as missing).\n- **Inline code spans are kept, not stripped** — the one place these checks diverge from `strip_shown_code`. For a reference a backtick means \"displayed, not cited\"; for a path it's just how you write one. The measurement is unambiguous: strip inline spans and there is *nothing* left to check, because all 106 path citations are inside backticks, and so is the one bare SHA. Fences and URLs still come out, and a fence is the escape hatch for showing a path that isn't meant to resolve.\n- **Line numbers are matched and ignored**, per the issue's design note.\n\nFor check 4, the whole directory contains exactly one bare short SHA: ADR-0007's `ce8004bc`, cited as being \"on `main`\" — and `git cat-file` can't find it in a full clone today. Exactly the rot the issue described. The window is 7–12 hex chars requiring both a digit and an `a-f` letter: this repo's own content hashes are 16 hex chars and its ADRs are largely about hashing, so `38317617c8a70d3a` must not read as a commit, and `20260427` and `defaced` must not either. Markdown links are stripped whole, so the recommended fix isn't the one thing that always trips the check.\n\n## Verification\n\nLocal and complete — no \"can't verify this\" caveat applies.\n\n```\n$ python3 scripts/adr_check.py\n```\n\n| | Before | After |\n|---|---|---|\n| Errors | 0 | **0** |\n| Warnings | 6 (unresolved slugs) | **11** — the same 6, plus 4 paths and 1 SHA |\n| Exit code | 0 | **0** |\n\n```\n$ uv run --isolated --no-project --with pytest -- pytest scripts/tests -q\n122 passed\n```\n\n92 → 122 tests, +30. I mutation-tested the two parametrized false-positive guards (relaxing the extension requirement and the 12-char SHA ceiling) and confirmed 6 of them fail, so they aren't passing vacuously.\n\n**No ADR was edited to make this pass.** The five warnings are meant to stay.",
+          "timestamp": "2026-08-11T13:16:59-04:00",
+          "tree_id": "abfc432cb4d0f0b6b257167e28cf371d88d4f890",
+          "url": "https://github.com/xorq-labs/xorq/commit/97d0d39100815c07fd239fa769479ca7538c1308"
+        },
+        "date": 1786469013554,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.104832319512063,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0023155730413126734",
+            "extra": "mean: 123.38318185714213 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.294423878901159,
+            "unit": "iter/sec",
+            "range": "stddev: 0.060344006923917726",
+            "extra": "mean: 435.83925760000284 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7450860445809476,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12507752245860693",
+            "extra": "mean: 1.342126868799994 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.4478505092993394,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07630102631672643",
+            "extra": "mean: 408.5216790000118 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3436327172950984,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03618761514275585",
+            "extra": "mean: 426.6880183999774 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.5283336420141787,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07462020438479658",
+            "extra": "mean: 395.5174204000059 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 120.75860741293678,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009403535267954797",
+            "extra": "mean: 8.280983206277607 msec\nrounds: 223"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 2.779576168191305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1643917475724004",
+            "extra": "mean: 359.7670793999896 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 8.170658636258844,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03065749934771744",
+            "extra": "mean: 122.38915423076307 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 12.092508778621303,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009214806182816022",
+            "extra": "mean: 82.69582584615766 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.345744980277999,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006663090933113314",
+            "extra": "mean: 96.65809488889307 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.096422894452361,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00977127195519838",
+            "extra": "mean: 140.91606642858778 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.928791551042786,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015191619501042626",
+            "extra": "mean: 202.8894891666558 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.687209718172407,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012952786002717362",
+            "extra": "mean: 213.34654520001095 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.2093765163420565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.057408777679931494",
+            "extra": "mean: 452.61637959999916 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.3526303337203522,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0041091965776698085",
+            "extra": "mean: 298.2732662000103 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.8378318778583662,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09726689294221566",
+            "extra": "mean: 544.1194115999906 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.9540139733141757,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05680569913085419",
+            "extra": "mean: 511.76706699999386 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4365942727613032,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14707753251978017",
+            "extra": "mean: 696.0907605999864 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5402112933688406,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08969454469403686",
+            "extra": "mean: 649.2615683999702 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2416160083900176,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11626195289576598",
+            "extra": "mean: 805.4019867999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.0630311423409355,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13459963886378248",
+            "extra": "mean: 940.7062128000007 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9904760664874603,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14428540928629335",
+            "extra": "mean: 1.0096155109999927 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5764163667427589,
+            "unit": "iter/sec",
+            "range": "stddev: 0.24338489052649945",
+            "extra": "mean: 1.7348570541999835 sec\nrounds: 5"
           }
         ]
       }
