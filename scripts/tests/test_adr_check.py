@@ -306,6 +306,123 @@ def test_renumbering_a_landed_adr_does_not_make_its_citations_new(
     assert "leave the ADR alone" in result.stderr
 
 
+# --- the tier is decided per line, not per file -------------------------------
+#
+# Both halves of the line scope, in order: what it buys is the amendment case
+# (`added_lines` says why), and what it must not cost is the prose around the
+# amendment.
+
+
+LANDED = "# ADR-0016: Landed\n\nSee `python/xorq/expr/gone.py`, aged.\n"
+
+
+def test_a_path_an_amendment_adds_is_an_error(repo: ADRTree) -> None:
+    """The gap the file-level tier left open.
+
+    The citation is arriving now, in a pull request under review, so it is
+    checkable now -- and the ADR around it is untouched history either way.
+    """
+    repo.write("0016-landed.md", LANDED)
+    repo.commit_all()
+    repo.write(
+        "0016-landed.md",
+        LANDED + "\n## Amendment\n\nNow in `python/xorq/expr/also-gone.py`.\n",
+    )
+    repo.commit_all()
+
+    result = repo.check("--base", "HEAD~1")
+    assert result.returncode == 1
+    assert "python/xorq/expr/also-gone.py" in result.stderr
+    assert "have to resolve when it lands" in result.stderr
+
+
+def test_a_sha_an_amendment_adds_is_an_error(repo: ADRTree) -> None:
+    repo.write("0016-landed.md", LANDED)
+    repo.commit_all()
+    repo.write("0016-landed.md", LANDED + "\n## Amendment\n\nSince `ce8004bc`.\n")
+    repo.commit_all()
+
+    result = repo.check("--base", "HEAD~1")
+    assert result.returncode == 1
+    assert "ce8004bc" in result.stderr
+
+
+def test_the_prose_an_amendment_did_not_touch_stays_a_warning(repo: ADRTree) -> None:
+    """The other half, and the one that keeps the tier honest.
+
+    Touching a file must not re-open everything in it. If appending a paragraph
+    turned the ADR's original citations into errors, the cheapest way to keep a
+    pull request green would be to stop amending ADRs -- or to edit the history,
+    which is the outcome this whole design exists to prevent.
+    """
+    repo.write("0016-landed.md", LANDED)
+    repo.commit_all()
+    repo.write("0016-landed.md", LANDED + "\n## Amendment\n\nStill true.\n")
+    repo.commit_all()
+
+    result = repo.check("--base", "HEAD~1")
+    assert result.returncode == 0, result.stderr
+    assert "leave the ADR alone" in result.stderr
+
+
+def test_a_citation_repeated_on_a_new_line_is_an_error(repo: ADRTree) -> None:
+    """Restating a path in an amendment is a fresh claim that it resolves today.
+
+    The same path also appears in prose nobody touched, so a first-occurrence
+    rule would file this under history and only warn.
+    """
+    repo.write("0016-landed.md", LANDED)
+    repo.commit_all()
+    repo.write(
+        "0016-landed.md",
+        LANDED + "\n## Amendment\n\nStill `python/xorq/expr/gone.py`.\n",
+    )
+    repo.commit_all()
+
+    result = repo.check("--base", "HEAD~1")
+    assert result.returncode == 1
+    assert result.stderr.count("python/xorq/expr/gone.py") == 1  # once, not per line
+
+
+def test_a_report_names_the_line_it_read(repo: ADRTree) -> None:
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `python/xorq/expr/gone.py`.\n")
+    result = repo.check()
+    assert "docs/adr/0012-two.md:3:" in result.stderr
+
+
+def test_a_fence_does_not_shift_the_reported_line(repo: ADRTree) -> None:
+    """Stripping has to preserve line breaks, or a citation after a fenced block
+    lands in the wrong tier -- not merely carry a wrong line number."""
+    body = ["```", "shown output", "more shown output", "```", ""]
+    repo.write(
+        "0012-two.md",
+        "# ADR-0012: Two\n\n" + "\n".join(body) + "\nSee `python/xorq/expr/gone.py`.\n",
+    )
+    result = repo.check()
+    assert f"docs/adr/0012-two.md:{3 + len(body)}:" in result.stderr
+
+
+def test_a_multi_line_link_does_not_shift_the_reported_line(repo: ADRTree) -> None:
+    """The path check keeps a link's target and drops its text, and either half
+    may span lines -- so that substitution carries line breaks too, or a citation
+    after a wrapped link lands in the wrong tier the way a fence would."""
+    body = ["See [a long piece of", "link text](https://example.com/x), then.", ""]
+    repo.write(
+        "0012-two.md",
+        "# ADR-0012: Two\n\n" + "\n".join(body) + "\n`python/xorq/expr/gone.py`.\n",
+    )
+    result = repo.check()
+    assert f"docs/adr/0012-two.md:{3 + len(body)}:" in result.stderr
+
+
+def test_github_format_annotates_the_citation_line(repo: ADRTree) -> None:
+    """A warning never fails the run, so the annotation is the only place a
+    reviewer sees it -- and the top of a four-hundred-line ADR is not where."""
+    repo.write("0012-two.md", "# ADR-0012: Two\n\nSee `python/xorq/expr/gone.py`.\n")
+    result = repo.check("--format", "github")
+    assert "::warning file=docs/adr/0012-two.md,line=3::" in result.stdout
+
+
 def test_a_path_in_a_fence_is_not_checked(repo: ADRTree) -> None:
     """The escape hatch, and the only one: a new ADR naming a path it does not
     create yet shows it rather than citing it."""

@@ -48,10 +48,12 @@ Cite a commit by the pull request that carried it, or as a Markdown link. A bare
 
 | Where the citation is | Unresolved path, or a bare SHA |
 |-----------------------|--------------------------------|
-| An ADR this pull request adds | **Error** — nothing has had time to move, so it's wrong |
-| An ADR already in the tree | **Warning** — probably the record doing its job |
+| On a line this pull request adds | **Error** — nothing has had time to move, so it's wrong |
+| On a line already in the tree | **Warning** — probably the record doing its job |
 
-This is why the check needs no "historical block" marker: the pull request diff already knows which prose is new, so nothing has to be marked and nothing can be waved through. Renumbering a landed ADR doesn't count as adding it. The gap is an amendment to a landed ADR, whose new citations only warn.
+This is why the check needs no "historical block" marker: the pull request diff already knows which prose is new, so nothing has to be marked and nothing can be waved through.
+
+The scope is the line, not the file, and both halves of that matter. An `## Amendment` you append today is where a new citation actually arrives after the fact, so it's held to the same standard as a new ADR — keyed to the file it would count as history and only warn. And touching a file doesn't re-open the rest of it: the prose around your amendment stays a warning, or the cheapest way to keep a pull request green would be to stop amending ADRs. Renumbering a landed ADR rewrites one heading line, so its citations stay where they were.
 
 Every warning that exists today is in the second row: five across four ADRs, four paths and one SHA. Leave them.
 
@@ -81,7 +83,7 @@ The allowlist in `scripts/adr_check.py` is the one exception: a branch that pred
 - the `# ADR-NNNN:` heading agrees with the filename
 - every `ADR-NNNN` mention and every same-directory Markdown link resolves to a real ADR
 - every `ADR-<slug>` mention resolves, or is reported as a warning if it doesn't
-- every cited repo path is one git tracks, and no commit is cited by a bare short SHA — an error in an ADR the pull request adds, a warning in one already landed
+- every cited repo path is one git tracks, and no commit is cited by a bare short SHA — an error on a line the pull request adds, a warning on a line already in the tree
 
 Unnumbered ADRs are checked too — a file still carrying `XXXX` has its heading and its references validated like any other.
 
