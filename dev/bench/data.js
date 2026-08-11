@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786453781672,
+  "lastUpdate": 1786453985250,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -33042,6 +33042,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.14900897008650507",
             "extra": "mean: 1.6483695594000096 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ab85895560e5f9665705986284cc02b91de976cf",
+          "message": "perf(ci): cache the quartodoc reference instead of rebuilding it every run (#2220)\n\nCloses #2219.\n\nCaches the quartodoc-generated API reference, keyed on what the build\nactually reads. A docs-only PR hits and skips ~7 minutes; a PR that\ntouches the package or its dependencies misses and regenerates.\n\n## The open question in the issue, settled: the output is deterministic\n\nThree local `quartodoc build` runs against an unchanged tree — the third\nfrom a deleted `reference/`, which is the cold shape CI always builds\nin:\n\n| Run | Wall | Result |\n|---|---|---|\n| 1 | 5m35s | baseline |\n| 2 | 5m52s | byte-identical to 1 |\n| 3 (cold, `rm -rf reference objects.json` first) | 5m59s |\nbyte-identical to 1 |\n\n`diff -r` clean across 56 pages + `reference/_sidebar.yml` +\n`objects.json`; sha256 over the sorted file list is\n`d257b68fcd2d6e78b8086f96adc8734595a485743011343ecf4d4f84cded67c5` for\nall three. No timestamps, no ordering instability. A hit is therefore\nworth trusting, which is what makes the skip sound rather than merely\nfast.\n\n(Incidental finding: quartodoc leaves a page's mtime alone when the\ncontent it computes matches what's on disk. That is why run 3 mattered —\nruns 1 and 2 alone would have proven only that quartodoc declined to\nrewrite, not that it recomputed the same bytes.)\n\n## The key\n\n```\npython/xorq/**      the reflected source, vendored ibis included\nuv.lock             third-party packages whose docstrings get inherited into\n                    the reference, plus the pinned quartodoc/griffe doing the work\ndocs/_quarto.yml    the `quartodoc:` block — package, sections, options\ndocs/_renderer.py   the custom renderer that formats every page\n```\n\nThe issue's point 1 is why `uv.lock` is in there: a key over first-party\nsource alone would serve a stale reference on a dependency bump and\npass, and a lint job that passes against the wrong artifact is worse\nthan a slow one.\n\n`docs/_quarto.yml` and `docs/_renderer.py` are the same argument pointed\nat `docs/**` — both are inputs to the build and both are reachable by a\n\"docs-only\" change. Hashing all of `_quarto.yml` means a nav-only edit\nalso busts the key; that costs one needless rebuild, which is the\ndirection to err in.\n\nNo `restore-keys`. A near-miss restore would seed `reference/` with\npages for symbols the current code has renamed or removed, and then the\nrebuild-on-miss wouldn't clear them.\n\nThe step sits immediately after `checkout` so `hashFiles` sees a clean\ntree — `uv sync` and the pytest step both drop `__pycache__/` under\n`python/xorq`, which would otherwise perturb the key on every run. The\n`!python/xorq/**/__pycache__/**` pattern guards that if the steps are\never reordered.\n\n## On a hit\n\nThe workflow sets `SKIP_QUARTODOC=1`, following the existing\n`SKIP_VALE`/`SKIP_LYCHEE` convention in `docs/lint.sh`. The skip branch\nasserts `reference/` is non-empty before taking credit for it: a restore\nthat silently produced nothing fails the job instead of rendering a site\nwith no reference in it. Exercised locally in all four states — hit with\n`reference/` present (skips, passes), hit with it missing, hit with it\nempty (both fail, with the `::error` annotation), and the miss value `0`\n(runs the build). Also `bash -n`, and `actionlint` on the workflow via\nthe repo's pre-commit hook.\n\n## How this PR gets exercised, and what it showed\n\nWorth checking before assuming there'd be no evidence here: the issue\nquotes `paths: ['docs/**']`, and on that basis a YAML-only change to\nthis workflow would report no status at all. That is true of the `push`\ntrigger, whose filter is `docs/**` alone — but not of this PR. The\n`pull_request` trigger already lists\n`.github/workflows/ci-docs-lint.yml` in its paths, so the workflow runs\non changes to itself; and this PR also touches `docs/lint.sh`, which\nmatches `docs/**`. Both triggers fire.\n\nSo both paths did get a real run, on this PR:\n\n| | Run | Cache | `quartodoc build` | Job |\n|---|---|---|---|---|\n| Miss |\n[31434407429](https://github.com/xorq-labs/xorq/actions/runs/31434407429),\nfirst attempt | `Cache not found for input keys:\nquartodoc-Linux-py3.12-3eb8192…` | ran, 6m01s | **8m11s**, saved 86,849\nB |\n| Hit | same run, re-run against the cache the first attempt wrote |\n`Cache restored from key: …-3eb8192…` | `✓ quartodoc build: skipped\n(reference/ restored from cache)` | **1m37s** |\n| Hit, cross-run |\n[31490561751](https://github.com/xorq-labs/xorq/actions/runs/31490561751)\n— separate run, next day, comment-only push | `Cache restored from key:\n…-3eb8192…` | same skip line | **2m22s** |\n\nThe third row is the one that counts: a distinct run reading a cache an\nearlier run wrote, which is the shape production has. Its key hashed to\n`3eb8192…` again despite the intervening push — the comment-only change\nis correctly not a key input, and the after-`checkout` placement keeps\n`__pycache__` out of the hash.\n\nNone of the hits are merely green. `quarto render --no-execute` passed\non all of them with 58 `reference/*.qmd` in its render list, so the\nrestored reference really was present and really was rendered.\n\n**That is ~6 minutes off the job, but it is still not the acceptance\ntest.** Every cache above is scoped to `refs/pull/2220/merge`, which\n`main` cannot read. Acceptance is two consecutive `ci-docs-lint` runs\nafter merge:\n\n1. **A miss that regenerates.** `main` starts cold whatever happened on\nthis branch, so the merge commit's own run should take the usual ~9\nminutes and populate the cache on `main`.\n2. **A hit that skips.** The next docs change whose key inputs are\nunchanged should log the skip line, come in near 2 minutes, and still\nproduce a correct reference — worth spot-checking `_site/reference/` on\nthat run rather than only the green check.\n\n`actions/cache` skips its save when the job fails, so a failing run\ncan't poison the key.\n\n## Not done\n\nNo path filter gating the generation, per the issue's reasoning: a\ncontent-keyed cache already encodes \"regenerate when the package\nchanged\", and a second independent opinion about staleness can only\ndisagree with the first. The remaining `quarto render --no-execute`\n(~1m37s) is untouched.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01DEjMgAU9PnavZKknAN3G6k\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-11T09:07:04-04:00",
+          "tree_id": "d147bb2822a55f144623c2f5f5428821485a6a91",
+          "url": "https://github.com/xorq-labs/xorq/commit/ab85895560e5f9665705986284cc02b91de976cf"
+        },
+        "date": 1786453981669,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.307830880074583,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01024898267736356",
+            "extra": "mean: 120.36836262500117 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.4433380045655597,
+            "unit": "iter/sec",
+            "range": "stddev: 0.061195110846248194",
+            "extra": "mean: 409.27616160000184 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7372882478347386,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14672766039566282",
+            "extra": "mean: 1.3563216325999918 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.533817510521349,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07775714487723318",
+            "extra": "mean: 394.6614133999901 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.407251146940164,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05156648086327685",
+            "extra": "mean: 415.41157900001053 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.8656235192982824,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03451205613052876",
+            "extra": "mean: 348.96419340000193 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 105.76530781579964,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01831852862042602",
+            "extra": "mean: 9.45489613419927 msec\nrounds: 231"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.425182212364829,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00780589982479173",
+            "extra": "mean: 225.97939519999954 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 14.014766052813604,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004296482268117927",
+            "extra": "mean: 71.35331380000025 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 11.785925470557299,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018065744052896626",
+            "extra": "mean: 84.84696449999822 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.610781998108122,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004842737096378897",
+            "extra": "mean: 94.24376074998975 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.2140322666534455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004412707591636325",
+            "extra": "mean: 138.61873124999136 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.793089664589576,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017540546914040757",
+            "extra": "mean: 208.63369350000008 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.651918950386482,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006430719653582095",
+            "extra": "mean: 214.96505220000017 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.233415863305452,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05581457999631811",
+            "extra": "mean: 447.7446482000005 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.3999667151420923,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011182446403562401",
+            "extra": "mean: 294.1205263999791 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.8639383536925074,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07659602906197033",
+            "extra": "mean: 536.4984297999854 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.9591475043758602,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09526526775321628",
+            "extra": "mean: 510.4260898000007 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5255011701306285,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10506171458890062",
+            "extra": "mean: 655.5222766000043 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.543453237197769,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11909552213384897",
+            "extra": "mean: 647.8978279999978 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2625544586673663,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12332749344309042",
+            "extra": "mean: 792.0450425999888 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1508669839830532,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15286542812475493",
+            "extra": "mean: 868.9101468000104 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0112367728172158,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12966769111363372",
+            "extra": "mean: 988.8880892000088 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6071669443055713,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20643587818799736",
+            "extra": "mean: 1.6469934824000005 sec\nrounds: 5"
           }
         ]
       }
