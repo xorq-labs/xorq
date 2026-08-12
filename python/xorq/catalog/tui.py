@@ -660,8 +660,16 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
 
 
 def _dag_label(name: str) -> str:
-    """Truncate a trailing content hash, keeping any descriptive prefix."""
-    return re.sub(r"[a-f0-9]{20,}$", lambda m: m.group(0)[:12], name)
+    """Truncate a trailing content hash, keeping the descriptive prefix.
+
+    Generated names end in an underscore-separated 32-hex dasher token; bare
+    20+ hex names are legacy content hashes. Anything else is user-chosen and
+    kept whole — a greedy hex match would eat a prefix that happens to end in
+    hex characters and collapse sibling labels to the same string.
+    """
+    if re.fullmatch(r"[a-f0-9]{20,}", name):
+        return name[:12]
+    return re.sub(r"(?<=_)[a-f0-9]{32}$", lambda m: m.group(0)[:12], name)
 
 
 def _render_sql_dag(sqls: tuple[tuple[str, str, str, tuple[str, ...]], ...]) -> str:

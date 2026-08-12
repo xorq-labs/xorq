@@ -62,6 +62,7 @@ from xorq.catalog.tui import (
     RemoveAliasScreen,
     RevisionRowData,
     _build_git_log_rows,
+    _dag_label,
     _entry_info,
     _find_project_path,
     _format_cached,
@@ -2330,6 +2331,18 @@ def test_render_sql_dag_ignores_self_and_unknown_relations() -> None:
     result = _render_sql_dag(sqls)
     r1_pos = result.index(f"-- [ibis_xorq-read_parquet_{'a1' * 6}]")
     assert r1_pos < result.index("-- [main]")
+
+
+def test_dag_label_keeps_hex_ending_user_prefixes_apart() -> None:
+    """The hash match must not eat a user-chosen prefix that happens to end in
+    hex characters; a greedy [a-f0-9]{20,}$ collapsed these two names to the
+    same label. Names with a hash-like suffix that is not the generated
+    32-hex shape stay whole rather than being silently truncated."""
+    a = f"read_deadbeefdeadbeef{'1' * 32}"
+    b = f"read_deadbeefdeadbeef{'2' * 32}"
+    assert _dag_label(a) != _dag_label(b)
+    sha_named = f"events_{'0123456789abcdef' * 2}01234567"  # 40-hex git SHA
+    assert _dag_label(sha_named) == sha_named
 
 
 def test_render_sql_dag_labels_distinguish_sibling_reads() -> None:
