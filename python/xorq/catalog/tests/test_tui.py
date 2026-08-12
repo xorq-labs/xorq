@@ -2322,15 +2322,23 @@ def test_render_sql_dag_deps_order_before_main() -> None:
 
 def test_render_sql_dag_ignores_self_and_unknown_relations() -> None:
     """Relations also list plain source tables (not queries) and, for reads,
-    the read's own name; neither may become an edge."""
+    the read's own name; neither may become an edge. The unknown ref sits on
+    a mid-chain query that something depends on: if the not-a-query guard is
+    dropped, that query is stuck at nonzero in-degree and the cycle fallback
+    emits main first, so this ordering assertion actually fails (a two-node
+    fixture passes with or without the guard)."""
     r1 = f"ibis_xorq-read_parquet_{'a1' * 16}"
+    rt = f"ibis_rbr-placeholder_{'b2' * 16}"
     sqls = (
-        ("main", "duckdb", "SELECT * FROM ...", (r1, "batting", "main")),
+        ("main", "duckdb", "SELECT * FROM ...", (rt,)),
+        (rt, "duckdb", f'SELECT * FROM "{r1}"', (r1, "batting")),
         (r1, "duckdb", f'SELECT * FROM "{r1}"', (r1,)),
     )
     result = _render_sql_dag(sqls)
-    r1_pos = result.index(f"-- [ibis_xorq-read_parquet_{'a1' * 6}]")
-    assert r1_pos < result.index("-- [main]")
+    positions = tuple(
+        result.index(f"-- [{_dag_label(name)}]") for name in (r1, rt, "main")
+    )
+    assert positions == tuple(sorted(positions))
 
 
 def test_dag_label_keeps_hex_ending_user_prefixes_apart() -> None:
