@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 import yaml12
+from click.testing import CliRunner
 from git import Repo as GitRepo
 
 from xorq.catalog.catalog import (
@@ -631,6 +632,29 @@ def test_show_json_default_str(runner, catalog_path, tmpdir):
     data = json.loads(result.output)
     assert data["custom_ts"] == "2026-01-01T00:00:00"
     assert data["custom_path"] == "/tmp/test"
+
+
+def test_show_json_normalizes_expr_metadata(
+    runner: CliRunner, catalog_path: str, tmp_path: Path
+) -> None:
+    """show --json presents expr_metadata in the same normalized shape as
+    schema --json regardless of the sidecar's vintage (custom sidecar keys
+    still pass through; --raw stays verbatim)."""
+    archive = make_build_zip(tmp_path, "show-json-norm")
+    runner.invoke(cli, ["--path", catalog_path, "add", str(archive)])
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    entry = catalog.get_catalog_entry(archive.stem)
+    sidecar = yaml12.parse_yaml(entry.metadata_path.read_text())
+    sidecar["expr_metadata"]["sql_queries"] = [["main", "duckdb", "SELECT 1", ["r1"]]]
+    entry.metadata_path.write_text(yaml12.format_yaml(sidecar))
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", archive.stem, "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["expr_metadata"]["sql_queries"] == [["main", "duckdb", "SELECT 1"]]
+    assert data["expr_metadata"]["sql_relations"] == {"main": ["r1"]}
 
 
 def test_show_renders_builders(runner, catalog_path, tmpdir):
