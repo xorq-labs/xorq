@@ -1116,6 +1116,21 @@ def test_extract_sql_queries_records_relations(parquet_dir: pathlib.Path) -> Non
     assert all(by_name[name] == (name,) for name in read_names)
 
 
+def test_extract_sql_queries_unbound_records_relations(
+    parquet_dir: pathlib.Path,
+) -> None:
+    """The UnboundExpr branch records source relations like every other kind,
+    so consumers can tell "no sources" from "not recorded"."""
+    con = xo.connect()
+    batting = deferred_read_parquet(parquet_dir / "batting.parquet", con=con)
+    t = xo.table({"playerID": "string"}, name="unbound_t")
+    expr = batting.join(t, predicates=["playerID"])
+
+    ((name, _, _, relations),) = _extract_sql_queries(expr, ExprKind.UnboundExpr)
+    assert name == "main"
+    assert any(r.startswith("ibis_xorq-read_parquet") for r in relations)
+
+
 def test_sql_query_deps_rules() -> None:
     """Edges come only from references to other recorded queries: a query's
     own name (deferred reads list themselves), plain source tables, and the

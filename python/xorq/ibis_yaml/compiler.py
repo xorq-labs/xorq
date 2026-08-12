@@ -86,7 +86,7 @@ from xorq.ibis_yaml.enums import (
     RegistryEnum,
     WritePhase,
 )
-from xorq.ibis_yaml.sql import generate_sql_plans
+from xorq.ibis_yaml.sql import find_relations, generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
@@ -508,7 +508,11 @@ def _extract_sql_queries(
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
-            return (("main", "xorq_datafusion", sql, ()),) if sql else ()
+            return (
+                (("main", "xorq_datafusion", sql, tuple(find_relations(clean))),)
+                if sql
+                else ()
+            )
         case _:
             sql_plans, deferred_reads = generate_sql_plans(clean)
             return tuple(
