@@ -78,6 +78,9 @@ class _ServiceState:
     max_batch_size: int | None = None
     expire_next_upload_batch: bool = False
     expire_next_download_batch: bool = False
+    upload_request_headers: dict[str, str] | None = None
+    completion_response_overrides: dict[str, Any] = field(default_factory=dict)
+    redirect_upload: bool = False
     next_upload_id: int = 1
 
     def upload_id(self, sha256: str, size: int) -> str:
@@ -178,7 +181,11 @@ class _HostedBlobHandler(BaseHTTPRequestHandler):
                         "status": "upload_required",
                         "request": {
                             "url": f"{self.state.service_url}objects/{sha256}?signed=put",
-                            "headers": _upload_headers(sha256, size),
+                            "headers": (
+                                self.state.upload_request_headers
+                                if self.state.upload_request_headers is not None
+                                else _upload_headers(sha256, size)
+                            ),
                             "expires_at": expires_at,
                         },
                     }
@@ -201,15 +208,14 @@ class _HostedBlobHandler(BaseHTTPRequestHandler):
                 return
             self.state.completed.append(upload_id)
             self.state.already_verified.add(sha256)
-            self._send_json(
-                200,
-                {
-                    "upload_id": upload_id,
-                    "sha256": sha256,
-                    "size": size,
-                    "status": "verified",
-                },
-            )
+            response = {
+                "upload_id": upload_id,
+                "sha256": sha256,
+                "size": size,
+                "status": "verified",
+            }
+            response.update(self.state.completion_response_overrides)
+            self._send_json(200, response)
             return
 
         if self.path == f"{prefix}downloads:batch":
@@ -249,6 +255,11 @@ class _HostedBlobHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:  # noqa: N802
         parsed = urlsplit(self.path)
+        if parsed.path == "/redirect-target":
+            self._body()
+            self.state.redirect_was_followed = True
+            self._send_bytes(200, b"redirect must not be followed")
+            return
         if not parsed.path.startswith("/objects/"):
             self._body()
             self._send_json(404, {"error": "not_found"})
@@ -257,6 +268,12 @@ class _HostedBlobHandler(BaseHTTPRequestHandler):
         content = self._body()
         headers = {name.lower(): value for name, value in self.headers.items()}
         self.state.object_requests.append(("PUT", sha256, headers))
+        if self.state.redirect_upload:
+            self.send_response(302)
+            self.send_header("location", f"{self.state.service_url}redirect-target")
+            self.send_header("content-length", "0")
+            self.end_headers()
+            return
         expected_headers = _upload_headers(sha256, len(content))
         if any(headers.get(name) != value for name, value in expected_headers.items()):
             self._send_json(400, {"error": "signed_headers_changed"})
@@ -466,6 +483,100 @@ def test_upload_remints_an_expired_signed_request(
     assert hosted_blob_service.state.objects[sha256] == content
 
 
+@pytest.mark.parametrize(
+    ("header", "value", "match"),
+    (
+        ("content-length", None, "invalid content-length"),
+        ("x-amz-checksum-sha256", "wrong", "invalid SHA-256 header"),
+    ),
+)
+def test_upload_rejects_missing_or_wrong_integrity_headers_before_transfer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+    header: str,
+    value: str | None,
+    match: str,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "write-token")
+    content = b"upload header validation"
+    sha256 = _digest(content)
+    headers = _upload_headers(sha256, len(content))
+    if value is None:
+        headers.pop(header)
+    else:
+        headers[header] = value
+    hosted_blob_service.state.upload_request_headers = headers
+    source = tmp_path / "source.zip"
+    source.write_bytes(content)
+
+    with pytest.raises(ContentStoreError, match=match):
+        _store(hosted_blob_service).ensure_present(
+            compute_content_key(CATALOG_ID, sha256), source, sha256=sha256
+        )
+
+    assert hosted_blob_service.state.object_requests == []
+    assert hosted_blob_service.state.completed == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    (
+        ("sha256", "0" * 64, "completed a different object"),
+        (
+            "upload_id",
+            "00000000-0000-4000-8000-999999999999",
+            "completed a different upload",
+        ),
+        ("status", "pending", "did not verify the upload"),
+    ),
+)
+def test_upload_rejects_mismatched_completion_responses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+    field: str,
+    value: str,
+    match: str,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "write-token")
+    hosted_blob_service.state.completion_response_overrides[field] = value
+    content = b"completion response validation"
+    sha256 = _digest(content)
+    source = tmp_path / "source.zip"
+    source.write_bytes(content)
+
+    with pytest.raises(ContentStoreError, match=match):
+        _store(hosted_blob_service).ensure_present(
+            compute_content_key(CATALOG_ID, sha256), source, sha256=sha256
+        )
+
+    assert len(hosted_blob_service.state.object_requests) == 1
+    assert len(hosted_blob_service.state.completed) == 1
+
+
+def test_signed_upload_redirect_is_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "write-token")
+    hosted_blob_service.state.redirect_upload = True
+    content = b"upload must stay on its signed URL"
+    sha256 = _digest(content)
+    source = tmp_path / "source.zip"
+    source.write_bytes(content)
+
+    with pytest.raises(ContentStoreError):
+        _store(hosted_blob_service).ensure_present(
+            compute_content_key(CATALOG_ID, sha256), source, sha256=sha256
+        )
+
+    assert not hosted_blob_service.state.redirect_was_followed
+    assert sha256 not in hosted_blob_service.state.objects
+    assert hosted_blob_service.state.completed == []
+
+
 def test_get_many_uses_one_mint_and_correlates_reordered_downloads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -596,6 +707,34 @@ def test_download_integrity_failure_preserves_destination(
     assert sorted(tmp_path.iterdir()) == [destination]
 
 
+@pytest.mark.parametrize("size_delta", (-1, 1), ids=("truncated", "oversized"))
+def test_download_size_failure_preserves_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+    size_delta: int,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    expected = b"content with an exact expected length"
+    sha256 = _digest(expected)
+    hosted_blob_service.state.objects[sha256] = (
+        expected[:-1] if size_delta < 0 else expected + b"!"
+    )
+    destination = tmp_path / "existing.zip"
+    destination.write_bytes(b"original")
+
+    with pytest.raises(ContentIntegrityError, match="Size mismatch after download"):
+        _store(hosted_blob_service).get(
+            compute_content_key(CATALOG_ID, sha256),
+            destination,
+            sha256=sha256,
+            size=len(expected),
+        )
+
+    assert destination.read_bytes() == b"original"
+    assert sorted(tmp_path.iterdir()) == [destination]
+
+
 def test_token_is_resolved_at_request_time(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -689,6 +828,42 @@ def test_public_download_retries_anonymously_after_a_rejected_scoped_token(
     ] == [f"Bearer {token}", None]
 
 
+@pytest.mark.parametrize(
+    ("status", "error_code"),
+    ((401, "invalid_token"), (403, "unauthorized"), (429, "rate_limited")),
+)
+def test_public_download_does_not_retry_other_auth_failures_anonymously(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+    status: int,
+    error_code: str,
+) -> None:
+    token = "scoped-token"
+    _set_token(monkeypatch, hosted_blob_service, token)
+    hosted_blob_service.state.rejected_authorizations[f"Bearer {token}"] = (
+        status,
+        error_code,
+    )
+    content = b"must not trigger an anonymous retry"
+    sha256 = _digest(content)
+    hosted_blob_service.state.objects[sha256] = content
+
+    with pytest.raises(ContentStoreError):
+        _store(hosted_blob_service).get(
+            compute_content_key(CATALOG_ID, sha256),
+            tmp_path / "download.zip",
+            sha256=sha256,
+            size=len(content),
+        )
+
+    assert [
+        authorization
+        for _, authorization, _ in hosted_blob_service.state.control_requests
+    ] == [f"Bearer {token}"]
+    assert hosted_blob_service.state.object_requests == []
+
+
 def test_upload_requires_an_explicit_token_service_scope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -770,6 +945,38 @@ def test_presigned_object_url_requires_https_away_from_loopback() -> None:
     url, headers, _expiry = PresignedContentStore._presigned_request(request)
     assert url == request["url"]
     assert headers == {}
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    (
+        ("url", "https://user:secret@objects.example/a", "invalid presigned URL"),
+        ("url", "https://objects.example/a#fragment", "invalid presigned URL"),
+        ("url", "https://objects.example:bad/a", "invalid presigned URL"),
+        ("headers", {"bad header": "value"}, "invalid signed headers"),
+        ("headers", {"x-signed": "value\r\ninjected: yes"}, "invalid signed headers"),
+        ("expires_at", "tomorrow", "invalid presigned expiry"),
+        (
+            "expires_at",
+            "2099-01-01T00:00:00",
+            "timezone-naive presigned expiry",
+        ),
+    ),
+)
+def test_presigned_request_rejects_unsafe_transport_metadata(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    request = {
+        "url": "https://objects.example/archive.zip?signed=get",
+        "headers": {"x-signed": "value"},
+        "expires_at": "2099-01-01T00:00:00Z",
+    }
+    request[field] = value
+
+    with pytest.raises(ContentStoreError, match=match):
+        PresignedContentStore._presigned_request(request)
 
 
 def test_loopback_control_and_object_requests_bypass_environment_proxy(
@@ -1069,3 +1276,59 @@ def test_pointer_backend_batches_two_presigned_cache_misses(
         for method, sha256, _ in hosted_blob_service.state.object_requests
         if method == "GET"
     } == {sha256 for _, _, sha256 in prepared}
+
+
+def test_pointer_backend_combines_cache_hits_with_duplicate_download_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    backend = _backend(tmp_path, hosted_blob_service)
+    cached, missing = b"cached archive", b"downloaded archive"
+    cached_sha, missing_sha = _digest(cached), _digest(missing)
+    cached_key = compute_content_key(CATALOG_ID, cached_sha)
+    missing_key = compute_content_key(CATALOG_ID, missing_sha)
+    cached_source = tmp_path / "cached-source.zip"
+    cached_source.write_bytes(cached)
+    backend.cache.put(cached_key, cached_source)
+    hosted_blob_service.state.objects[missing_sha] = missing
+
+    entries = Path(backend.repo.working_dir) / "entries"
+    cached_target = entries / "cached.zip"
+    missing_targets = (entries / "missing-a.zip", entries / "missing-b.zip")
+    write_pointer(backend._pointer_path(cached_target), cached_sha, len(cached))
+    for target in missing_targets:
+        write_pointer(backend._pointer_path(target), missing_sha, len(missing))
+
+    backend.fetch_content(cached_target, *missing_targets)
+
+    assert cached_target.read_bytes() == cached
+    assert [target.read_bytes() for target in missing_targets] == [missing, missing]
+    assert backend.cache.contains(missing_key)
+    assert [
+        sha256
+        for method, sha256, _ in hosted_blob_service.state.object_requests
+        if method == "GET"
+    ] == [missing_sha]
+
+
+def test_pointer_backend_batch_failure_leaves_targets_and_cache_untouched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "read-token")
+    backend = _backend(tmp_path, hosted_blob_service)
+    prepared = _prepare_downloads(
+        backend,
+        hosted_blob_service,
+        (b"valid archive", b"corrupt archive"),
+    )
+    hosted_blob_service.state.corrupt_downloads.add(prepared[-1][2])
+
+    with pytest.raises(ContentIntegrityError, match="SHA256 mismatch"):
+        backend.fetch_content(*(target for target, _, _ in prepared))
+
+    assert all(not target.exists() for target, _, _ in prepared)
+    assert all(not backend.cache.contains(key) for _, key, _ in prepared)
