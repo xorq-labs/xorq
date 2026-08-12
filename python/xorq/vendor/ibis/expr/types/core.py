@@ -864,11 +864,20 @@ def _normalize_sql_queries(value):
 
     Entries from before relations were recorded have no relations element;
     normalizing in the field converter keeps every construction path (from_dict,
-    evolve, direct construction) producing the shape consumers unpack.
+    evolve, direct construction) producing the shape consumers unpack. Malformed
+    entries degrade instead of failing the whole metadata parse: entries too
+    short to name a query are dropped, and a relations value that is not a
+    list reads as no relations.
     """
     return tuple(
-        (name, engine, sql, tuple(rest[0]) if rest else ())
-        for name, engine, sql, *rest in value
+        (
+            q[0],
+            q[1],
+            q[2],
+            tuple(q[3]) if len(q) > 3 and isinstance(q[3], (tuple, list)) else (),
+        )
+        for q in value
+        if len(q) >= 3
     )
 
 
@@ -914,7 +923,8 @@ class ExprMetadata:
         """
         relations = data.get("sql_relations") or {}
         return tuple(
-            (q[0], q[1], q[2], tuple(q[3] if len(q) > 3 else relations.get(q[0]) or ()))
+            # the field converter normalizes shapes; only the join happens here
+            (*q, relations.get(q[0])) if len(q) == 3 else tuple(q)
             for q in data.get("sql_queries") or ()
         )
 

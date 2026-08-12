@@ -1158,6 +1158,32 @@ def test_expr_metadata_normalizes_legacy_sql_queries_on_construction() -> None:
     assert evolved.to_dict()["sql_queries"] == [["main", "duckdb", "SELECT 1"]]
 
 
+def test_expr_metadata_sql_queries_degrades_on_malformed_entries() -> None:
+    """A malformed sidecar (hand edit, merge-conflict damage, foreign writer)
+    degrades to fewer/relation-less queries instead of making the whole
+    catalog entry unreadable: entries too short to name a query are dropped,
+    and null or scalar relations read as no relations (never per-character
+    tuples)."""
+    meta = ExprMetadata.from_dict(
+        {
+            "kind": "expr",
+            "schema_out": {"a": "int64"},
+            "sql_queries": [
+                ["truncated"],
+                ["q1", "duckdb", "SELECT 1", None],
+                ["q2", "duckdb", "SELECT 2", "batting"],
+                ["q3", "duckdb", "SELECT 3"],
+            ],
+            "sql_relations": {"q3": None},
+        }
+    )
+    assert meta.sql_queries == (
+        ("q1", "duckdb", "SELECT 1", ()),
+        ("q2", "duckdb", "SELECT 2", ()),
+        ("q3", "duckdb", "SELECT 3", ()),
+    )
+
+
 def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
     t = xo.memtable({"a": [1, 2], "b": [3, 4]})
     build_path = build_expr(t, builds_dir=builds_dir)
