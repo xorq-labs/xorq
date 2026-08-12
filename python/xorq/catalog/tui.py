@@ -52,7 +52,9 @@ from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import CatalogPushError
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
+from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.config import options
+from xorq.ibis_yaml.config import config as build_config
 from xorq.ibis_yaml.enums import ExprKind
 
 
@@ -660,16 +662,23 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
 
 
 def _dag_label(name: str) -> str:
-    """Truncate a trailing content hash, keeping the descriptive prefix.
+    """Truncate a trailing generated token, keeping the descriptive prefix.
 
-    Generated names end in an underscore-separated 32-hex dasher token; bare
-    20+ hex names are legacy content hashes. Anything else is user-chosen and
-    kept whole — a greedy hex match would eat a prefix that happens to end in
-    hex characters and collapse sibling labels to the same string.
+    Recognizes the shapes the build pipeline produces: a whole-name legacy hex
+    hash, a raw gen_name uid (ibis_<ns>_<26 chars>, kept by reads that skip
+    hex sanitization, e.g. pinned leaves — get_uid_prefix is the canonical
+    recognizer), or an underscore-separated 32-hex dasher token. Anything else
+    is user-chosen and kept whole — a greedy hex match would eat a prefix that
+    happens to end in hex characters and collapse sibling labels to the same
+    string. Tokens truncate to config.hash_length, the width .sql artifact
+    names already use.
     """
+    n = build_config.hash_length
     if re.fullmatch(r"[a-f0-9]{20,}", name):
-        return name[:12]
-    return re.sub(r"(?<=_)[a-f0-9]{32}$", lambda m: m.group(0)[:12], name)
+        return name[:n]
+    if prefix := get_uid_prefix(name):
+        return f"{prefix}{name[len(prefix) :][:n]}"
+    return re.sub(r"(?<=_)[a-f0-9]{32}$", lambda m: m.group(0)[:n], name)
 
 
 def _render_sql_dag(sqls: tuple[tuple[str, str, str, tuple[str, ...]], ...]) -> str:

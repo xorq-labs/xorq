@@ -2345,6 +2345,17 @@ def test_dag_label_keeps_hex_ending_user_prefixes_apart() -> None:
     assert _dag_label(sha_named) == sha_named
 
 
+def test_dag_label_truncates_unsanitized_gen_name_uids() -> None:
+    """Reads that skip hex sanitization (e.g. pinned leaves) keep their raw
+    26-char base32 gen_name uid, which never matches the hex-token pattern;
+    the label truncates it too, so pinned and unpinned siblings render at
+    the same width."""
+    uid = "mfqz3kwbygvhnwuqioxbhmvdgu"
+    assert _dag_label(f"ibis_xorq-read_parquet_{uid}") == (
+        f"ibis_xorq-read_parquet_{uid[:12]}"
+    )
+
+
 def test_render_sql_dag_labels_distinguish_sibling_reads() -> None:
     """Truncating only the trailing hash keeps sibling reads apart; a flat
     name[:12] collapsed them all to `ibis_xorq-re`."""
