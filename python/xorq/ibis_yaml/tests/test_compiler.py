@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 import pytest
 import toolz
 import yaml12
+from attr import evolve
 from toolz import identity
 
 import xorq.api as xo
@@ -1144,6 +1145,17 @@ def test_expr_metadata_serializes_relations_out_of_band() -> None:
     assert data["sql_queries"] == [["main", "duckdb", "SELECT 1"]]
     assert data["sql_relations"] == {"main": ["r1"]}
     assert ExprMetadata.from_dict(data).sql_queries == meta.sql_queries
+
+
+def test_expr_metadata_normalizes_legacy_sql_queries_on_construction() -> None:
+    """3-element entries are padded by the field converter at every
+    construction boundary, so evolve/direct construction cannot smuggle in
+    tuples that crash consumers (to_dict, the TUI match arms) far from the
+    construction site."""
+    meta = ExprMetadata.from_dict({"kind": "expr", "schema_out": {"a": "int64"}})
+    evolved = evolve(meta, sql_queries=(("main", "duckdb", "SELECT 1"),))
+    assert evolved.sql_queries == (("main", "duckdb", "SELECT 1", ()),)
+    assert evolved.to_dict()["sql_queries"] == [["main", "duckdb", "SELECT 1"]]
 
 
 def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):

@@ -859,6 +859,19 @@ def _parse_lineage(raw):
             )
 
 
+def _normalize_sql_queries(value):
+    """Pad entries to (name, engine, sql, relations).
+
+    Entries from before relations were recorded have no relations element;
+    normalizing in the field converter keeps every construction path (from_dict,
+    evolve, direct construction) producing the shape consumers unpack.
+    """
+    return tuple(
+        (name, engine, sql, tuple(rest[0]) if rest else ())
+        for name, engine, sql, *rest in value
+    )
+
+
 @frozen
 class ExprMetadata:
     kind: ExprKind = field(validator=instance_of(ExprKind))
@@ -876,7 +889,7 @@ class ExprMetadata:
     )
     params: tuple = field(factory=tuple)
     sql_queries: tuple[tuple[str, str, str, tuple[str, ...]], ...] = field(
-        factory=tuple
+        factory=tuple, converter=_normalize_sql_queries
     )
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
     builders: tuple[dict, ...] = field(
