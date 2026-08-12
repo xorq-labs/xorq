@@ -2316,8 +2316,8 @@ def test_render_sql_dag_deps_order_before_main() -> None:
     )
     result = _render_sql_dag(sqls)
     main_pos = result.index("-- [main]")
-    assert result.index(f"-- [ibis_xorq-read_parquet_{'a1' * 6}]") < main_pos
-    assert result.index(f"-- [ibis_xorq-read_parquet_{'b2' * 6}]") < main_pos
+    assert result.index(f"-- [{_dag_label(r1)}]") < main_pos
+    assert result.index(f"-- [{_dag_label(r2)}]") < main_pos
 
 
 def test_render_sql_dag_ignores_self_and_unknown_relations() -> None:
@@ -2398,7 +2398,7 @@ def test_render_sql_dag_relation_named_main_is_not_an_edge() -> None:
         (r1, "duckdb", "SELECT * FROM main.t", (r1, "main")),
     )
     result = _render_sql_dag(sqls)
-    r1_pos = result.index(f"-- [ibis_xorq-read_parquet_{'a1' * 6}]")
+    r1_pos = result.index(f"-- [{_dag_label(r1)}]")
     assert r1_pos < result.index("-- [main]")
 
 
