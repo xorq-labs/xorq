@@ -859,6 +859,10 @@ def _parse_lineage(raw):
             )
 
 
+# one (name, engine, sql, relations) entry per query in the expression plan
+SqlQueries = tuple[tuple[str, str, str, tuple[str, ...]], ...]
+
+
 def _normalize_sql_queries(value):
     """Pad entries to (name, engine, sql, relations).
 
@@ -897,9 +901,7 @@ class ExprMetadata:
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
     params: tuple = field(factory=tuple)
-    sql_queries: tuple[tuple[str, str, str, tuple[str, ...]], ...] = field(
-        factory=tuple, converter=_normalize_sql_queries
-    )
+    sql_queries: SqlQueries = field(factory=tuple, converter=_normalize_sql_queries)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
     builders: tuple[dict, ...] = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))

@@ -91,7 +91,7 @@ from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
-from xorq.vendor.ibis.expr.types.core import ExprMetadata
+from xorq.vendor.ibis.expr.types.core import ExprMetadata, SqlQueries
 
 
 @functools.cache
@@ -486,9 +486,7 @@ def make_read_op(parquet_path, read_kwargs, con=None):
     return op
 
 
-def _extract_sql_queries(
-    expr: ir.Expr, kind: ExprKind
-) -> tuple[tuple[str, str, str, tuple[str, ...]], ...]:
+def _extract_sql_queries(expr: ir.Expr, kind: ExprKind) -> SqlQueries:
     """Extract (name, engine, sql, relations) tuples from an expression for caching."""
     from xorq.expr.api import _remove_tag_nodes, bind_params  # noqa: PLC0415
     from xorq.expr.api import to_sql as xorq_to_sql  # noqa: PLC0415

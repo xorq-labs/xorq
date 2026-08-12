@@ -57,6 +57,7 @@ from xorq.config import options
 from xorq.ibis_yaml.config import config as build_config
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.ibis_yaml.sql import sql_query_deps
+from xorq.vendor.ibis.expr.types.core import SqlQueries
 
 
 if TYPE_CHECKING:
@@ -361,7 +362,7 @@ class CatalogRowData:
         return _format_cached(self.cached)
 
     @cached_property
-    def sqls(self) -> tuple[tuple[str, str, str, tuple[str, ...]], ...]:
+    def sqls(self) -> SqlQueries:
         """((name, engine, sql, relations), ...) for all queries in the expression plan."""
         return self.entry.metadata.sql_queries
 
@@ -682,7 +683,7 @@ def _dag_label(name: str) -> str:
     return re.sub(r"(?<=_)[a-f0-9]{32}$", lambda m: m.group(0)[:n], name)
 
 
-def _render_sql_dag(sqls: tuple[tuple[str, str, str, tuple[str, ...]], ...]) -> str:
+def _render_sql_dag(sqls: SqlQueries) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
     name_to_sql = {name: (engine, sql) for name, engine, sql, _ in sqls}
     deps = sql_query_deps(sqls)
@@ -1441,7 +1442,7 @@ class CatalogScreen(Screen):
     def _load_sql_preview(
         self,
         entry_hash: str,
-        raw: str | tuple[tuple[str, str, str, tuple[str, ...]], ...],
+        raw: str | SqlQueries,
     ) -> None:
         try:
             if not isinstance(raw, str):

@@ -9,6 +9,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import Read, RemoteTable
+from xorq.vendor.ibis.expr.types.core import SqlQueries
 
 
 class QueryInfo(TypedDict):
@@ -112,9 +113,7 @@ def get_read_options(read_instance) -> Dict[str, Any]:
     }
 
 
-def sql_query_deps(
-    sql_queries: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...],
-) -> Dict[str, frozenset]:
+def sql_query_deps(sql_queries: SqlQueries) -> Dict[str, frozenset]:
     """name → the query names it depends on, from recorded relations.
 
     Relations list every relation a query references: plain source tables
