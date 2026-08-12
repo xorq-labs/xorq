@@ -714,18 +714,11 @@ def _render_sql_dag(sqls: SqlQueries) -> str:
     # append any remaining (cycle fallback)
     order.extend(n for n in name_to_sql if n not in order)
 
-    parts = tuple(
-        segment
-        for i, name in enumerate(order)
+    return "\n\n  ↓\n\n".join(
+        f"-- [{_dag_label(name)}] ({engine})\n{sql}"
+        for name in order
         for engine, sql in (name_to_sql[name],)
-        for label in (_dag_label(name),)
-        for segment in (
-            (f"-- [{label}] ({engine})\n{sql}", "  ↓")
-            if i < len(order) - 1
-            else (f"-- [{label}] ({engine})\n{sql}",)
-        )
     )
-    return "\n\n".join(parts)
 
 
 def _revision_pair(i, rev_entry, commit):
