@@ -15,6 +15,10 @@ class QueryInfo(TypedDict):
     engine: str
     profile_name: str
     sql: str
+    # every query's referenced relation names; _extract_sql_queries records
+    # them into expr_metadata and the TUI SQL DAG orders queries from them
+    relations: List[str]
+    options: Dict[str, Any]
 
 
 class SQLPlans(TypedDict):
