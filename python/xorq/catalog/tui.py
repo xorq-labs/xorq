@@ -686,6 +686,18 @@ def _render_sql_dag(sqls: tuple[tuple[str, str, str, tuple[str, ...]], ...]) -> 
     """Render multiple SQL queries as a topologically-sorted DAG."""
     name_to_sql = {name: (engine, sql) for name, engine, sql, _ in sqls}
     deps = sql_query_deps(sqls)
+    if not any(relations for *_, relations in sqls):
+        # entries recorded before relations existed: fall back to scanning the
+        # SQL for quoted legacy hex names (user-named into_backend sub-queries),
+        # the one dependency shape the pre-relations renderer could order.
+        deps = {
+            name: frozenset(
+                ref
+                for ref in re.findall(r'FROM "([a-f0-9]{20,})"', sql)
+                if ref != name and ref in name_to_sql
+            )
+            for name, (_, sql) in name_to_sql.items()
+        }
     # topological sort (Kahn's algorithm) — leaves first, main last
     in_degree = {n: len(d) for n, d in deps.items()}
     queue = [n for n, d in in_degree.items() if d == 0]

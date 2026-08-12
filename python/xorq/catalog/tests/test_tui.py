@@ -2367,6 +2367,19 @@ def test_render_sql_dag_labels_distinguish_sibling_reads() -> None:
     assert len(set(labels)) == 2
 
 
+def test_render_sql_dag_legacy_entries_fall_back_to_sql_scan() -> None:
+    """Entries recorded before relations existed parse with all relations
+    empty; the renderer then falls back to the old quoted-hex SQL scan so a
+    user-named into_backend sub-query still orders above main."""
+    dep_hash = "ab" * 10
+    sqls = (
+        ("main", "duckdb", f'SELECT x FROM "{dep_hash}"', ()),
+        (dep_hash, "duckdb", "SELECT 1 AS x", ()),
+    )
+    result = _render_sql_dag(sqls)
+    assert result.index(dep_hash[:12]) < result.index("-- [main]")
+
+
 def test_render_sql_dag_relation_named_main_is_not_an_edge() -> None:
     """A source table literally named "main" (e.g. duckdb's default schema)
     must not read as a dependency on the main query: the resulting cycle
