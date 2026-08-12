@@ -875,7 +875,9 @@ class ExprMetadata:
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
     params: tuple = field(factory=tuple)
-    sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
+    sql_queries: tuple[tuple[str, str, str, tuple[str, ...]], ...] = field(
+        factory=tuple
+    )
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
     builders: tuple[dict, ...] = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))
@@ -905,7 +907,11 @@ class ExprMetadata:
             projected_cache_key=cls._parse_cache_key(data.get("cache_keys")),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
-            sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
+            sql_queries=tuple(
+                # entries written before relations were recorded have 3 elements
+                (q[0], q[1], q[2], tuple(q[3]) if len(q) > 3 else ())
+                for q in data.get("sql_queries", ())
+            ),
             lineage=_parse_lineage(data.get("lineage")),
             builders=tuple(data.get("builders", ())),
         )
@@ -986,7 +992,12 @@ class ExprMetadata:
                 ),
                 (
                     "sql_queries",
-                    [list(q) for q in self.sql_queries] if self.sql_queries else None,
+                    [
+                        [name, engine, sql, list(relations)]
+                        for name, engine, sql, relations in self.sql_queries
+                    ]
+                    if self.sql_queries
+                    else None,
                 ),
                 (
                     "lineage",

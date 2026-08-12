@@ -358,8 +358,8 @@ class CatalogRowData:
         return _format_cached(self.cached)
 
     @cached_property
-    def sqls(self) -> tuple[tuple[str, str, str], ...]:
-        """((name, engine, sql), ...) for all queries in the expression plan."""
+    def sqls(self) -> tuple[tuple[str, str, str, tuple[str, ...]], ...]:
+        """((name, engine, sql, relations), ...) for all queries in the expression plan."""
         return self.entry.metadata.sql_queries
 
     @cached_property
@@ -659,17 +659,24 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     )
 
 
-def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
+def _dag_label(name: str) -> str:
+    """Truncate a trailing content hash, keeping any descriptive prefix."""
+    return re.sub(r"[a-f0-9]{20,}$", lambda m: m.group(0)[:12], name)
+
+
+def _render_sql_dag(sqls: tuple[tuple[str, str, str, tuple[str, ...]], ...]) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
-    name_to_sql = {name: (engine, sql) for name, engine, sql in sqls}
-    # build dependency graph: name → set of names it depends on
+    name_to_sql = {name: (engine, sql) for name, engine, sql, _ in sqls}
+    # build dependency graph: name → set of names it depends on, from the
+    # relations recorded in the build metadata. Relations also list source
+    # tables that aren't queries here, so keep only known query names. "main"
+    # is the root and is never a dependency; a source table that happens to
+    # be named "main" (e.g. duckdb's default schema) must not create a cycle.
     deps = {
         name: frozenset(
-            ref
-            for ref in re.findall(r'FROM "([a-f0-9]{20,})"', sql)
-            if ref in name_to_sql
+            ref for ref in relations if ref not in (name, "main") and ref in name_to_sql
         )
-        for name, (_, sql) in name_to_sql.items()
+        for name, _, _, relations in sqls
     }
     # topological sort (Kahn's algorithm) — leaves first, main last
     in_degree = {n: len(d) for n, d in deps.items()}
@@ -690,7 +697,7 @@ def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
         segment
         for i, name in enumerate(order)
         for engine, sql in (name_to_sql[name],)
-        for label in (("main" if name == "main" else name[:12]),)
+        for label in (_dag_label(name),)
         for segment in (
             (f"-- [{label}] ({engine})\n{sql}", "  ↓")
             if i < len(order) - 1
@@ -1414,7 +1421,7 @@ class CatalogScreen(Screen):
     def _load_sql_preview(
         self,
         entry_hash: str,
-        raw: str | tuple[tuple[str, str, str], ...],
+        raw: str | tuple[tuple[str, str, str, tuple[str, ...]], ...],
     ) -> None:
         try:
             if not isinstance(raw, str):
@@ -1617,13 +1624,13 @@ class CatalogScreen(Screen):
                 self._current_sql_hash = None
                 sql_preview.update("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
-            case ((_, engine, sql),):
+            case ((_, engine, sql, _),):
                 sql_panel.border_subtitle = engine
                 self._current_sql_hash = row_data.row_key
                 sql_preview.update(Text("Rendering SQL Query…", style="dim"))
                 self._load_sql_preview(row_data.row_key, sql)
             case sqls:
-                engines = sorted({engine for _, engine, _ in sqls})
+                engines = sorted({engine for _, engine, _, _ in sqls})
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries · {', '.join(engines)}"
                 )
