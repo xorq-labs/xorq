@@ -112,6 +112,28 @@ def get_read_options(read_instance) -> Dict[str, Any]:
     }
 
 
+def sql_query_deps(
+    sql_queries: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...],
+) -> Dict[str, frozenset]:
+    """name → the query names it depends on, from recorded relations.
+
+    Relations list every relation a query references: plain source tables
+    (not queries here), the query's own name (deferred reads), and possibly
+    "main" (a source table named like duckdb's default schema). Only
+    references to other recorded queries are edges; "main" is the root plan
+    key and never a dependency, so a source table named "main" cannot
+    introduce a cycle. These rules live here, next to the producer of
+    relations, so consumers do not each rediscover them.
+    """
+    names = {q[0] for q in sql_queries}
+    return {
+        name: frozenset(
+            ref for ref in relations if ref not in (name, "main") and ref in names
+        )
+        for name, _, _, relations in sql_queries
+    }
+
+
 def generate_sql_plans(expr: ir.Expr) -> Tuple[SQLPlans, DeferredReadsPlan]:
     remote_tables, deferred_reads = find_tables(expr)
     backend = expr._find_backend()

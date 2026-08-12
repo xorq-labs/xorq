@@ -56,6 +56,7 @@ from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.config import options
 from xorq.ibis_yaml.config import config as build_config
 from xorq.ibis_yaml.enums import ExprKind
+from xorq.ibis_yaml.sql import sql_query_deps
 
 
 if TYPE_CHECKING:
@@ -684,17 +685,7 @@ def _dag_label(name: str) -> str:
 def _render_sql_dag(sqls: tuple[tuple[str, str, str, tuple[str, ...]], ...]) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
     name_to_sql = {name: (engine, sql) for name, engine, sql, _ in sqls}
-    # build dependency graph: name → set of names it depends on, from the
-    # relations recorded in the build metadata. Relations also list source
-    # tables that aren't queries here, so keep only known query names. "main"
-    # is the root and is never a dependency; a source table that happens to
-    # be named "main" (e.g. duckdb's default schema) must not create a cycle.
-    deps = {
-        name: frozenset(
-            ref for ref in relations if ref not in (name, "main") and ref in name_to_sql
-        )
-        for name, _, _, relations in sqls
-    }
+    deps = sql_query_deps(sqls)
     # topological sort (Kahn's algorithm) — leaves first, main last
     in_degree = {n: len(d) for n, d in deps.items()}
     queue = [n for n, d in in_degree.items() if d == 0]
