@@ -890,6 +890,21 @@ class ExprMetadata:
 
         return CacheKey(**raw) if raw else None
 
+    @staticmethod
+    def _parse_sql_queries(data):
+        """Join the 3-element sql_queries entries with the sql_relations map.
+
+        Entries stay [name, engine, sql] on disk so readers that predate
+        relations keep parsing them; each query's relations live under the
+        parallel "sql_relations" key. Entries briefly written with inline
+        relations carry them as a 4th element.
+        """
+        relations = data.get("sql_relations") or {}
+        return tuple(
+            (q[0], q[1], q[2], tuple(q[3] if len(q) > 3 else relations.get(q[0]) or ()))
+            for q in data.get("sql_queries") or ()
+        )
+
     @classmethod
     def from_dict(cls, data):
         schema_in_raw = data.get("schema_in")
@@ -907,11 +922,7 @@ class ExprMetadata:
             projected_cache_key=cls._parse_cache_key(data.get("cache_keys")),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
-            sql_queries=tuple(
-                # entries written before relations were recorded have 3 elements
-                (q[0], q[1], q[2], tuple(q[3]) if len(q) > 3 else ())
-                for q in data.get("sql_queries", ())
-            ),
+            sql_queries=cls._parse_sql_queries(data),
             lineage=_parse_lineage(data.get("lineage")),
             builders=tuple(data.get("builders", ())),
         )
@@ -990,14 +1001,19 @@ class ExprMetadata:
                     "composed_from",
                     list(self.composed_from) if self.composed_from else None,
                 ),
+                # sql_queries entries stay [name, engine, sql] so readers that
+                # predate relations keep parsing them; relations go in the
+                # parallel sql_relations map those readers ignore.
                 (
                     "sql_queries",
-                    [
-                        [name, engine, sql, list(relations)]
-                        for name, engine, sql, relations in self.sql_queries
-                    ]
+                    [list(q[:3]) for q in self.sql_queries]
                     if self.sql_queries
                     else None,
+                ),
+                (
+                    "sql_relations",
+                    {q[0]: list(q[3]) for q in self.sql_queries if len(q) > 3 and q[3]}
+                    or None,
                 ),
                 (
                     "lineage",

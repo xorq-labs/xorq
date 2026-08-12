@@ -1129,6 +1129,23 @@ def test_expr_metadata_sql_queries_tolerates_pre_relations_entries() -> None:
     assert ExprMetadata.from_dict(meta.to_dict()).sql_queries == meta.sql_queries
 
 
+def test_expr_metadata_serializes_relations_out_of_band() -> None:
+    """sql_queries entries stay [name, engine, sql] on disk, the shape readers
+    that predate relations unpack; relations round-trip through the parallel
+    sql_relations key those readers ignore."""
+    meta = ExprMetadata.from_dict(
+        {
+            "kind": "expr",
+            "schema_out": {"a": "int64"},
+            "sql_queries": [["main", "duckdb", "SELECT 1", ["r1"]]],
+        }
+    )
+    data = meta.to_dict()
+    assert data["sql_queries"] == [["main", "duckdb", "SELECT 1"]]
+    assert data["sql_relations"] == {"main": ["r1"]}
+    assert ExprMetadata.from_dict(data).sql_queries == meta.sql_queries
+
+
 def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
     t = xo.memtable({"a": [1, 2], "b": [3, 4]})
     build_path = build_expr(t, builds_dir=builds_dir)
