@@ -286,6 +286,19 @@ def require_env(name: str) -> str:
     return value
 
 
+def require_credentials() -> None:
+    """Check every credential up front, in the caller's thread.
+
+    Worth doing even though each fetcher checks its own: a fetcher that raises
+    inside its exchanger only gets a traceback printed (see above), and the
+    exchange then ends with zero rows -- which the ParquetCache stores as though
+    it were the answer. Checking here stops the run instead of leaving a cache
+    full of nothing behind.
+    """
+    for name in CREDENTIAL_SIGNUPS:
+        require_env(name)
+
+
 def get_json(url: str, **kwargs: Any) -> Any:
     resp = requests.get(url, timeout=300, **kwargs)
     resp.raise_for_status()
@@ -674,6 +687,7 @@ def parse_args(override: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    require_credentials()
     built = build_expr(args.state)
     click.echo(built.schema())
     click.echo(xo.execute(built.limit(args.limit)).to_string())
