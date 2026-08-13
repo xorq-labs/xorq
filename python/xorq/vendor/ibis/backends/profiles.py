@@ -617,7 +617,10 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
     exposed_secrets = tuple(
         key
         # unbound, like the reads in _resolve_source: a subclass's items() could
-        # otherwise hide the very kwarg the resolver just named
+        # otherwise hide the very kwarg the resolver just named. A str-subclass
+        # *key* forging __eq__ can still evade the membership test below --
+        # accepted: a hostile caller could as easily rename the kwarg, and the
+        # serialized profile carries the key's own str value either way.
         for key, value in dict.items(kwargs)
         if key in relevant_keys
         and not (

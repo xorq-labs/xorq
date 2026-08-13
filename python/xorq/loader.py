@@ -25,7 +25,10 @@ def _find_entry_point(name: str) -> importlib_metadata.EntryPoint | None:
     Resolve through here rather than scanning `_load_entry_points()` directly: a
     direct scan sees the cache as it was, so it rejects a backend installed into a
     live process (pip install in a Jupyter kernel) until restart. Only a miss pays
-    the rescan.
+    the rescan -- but *every* miss pays it (no negative caching), and
+    `invalidate_caches` is a process-global side effect that taxes unrelated later
+    imports. Accepted for now; a sys.path + directory-mtime fingerprint could skip
+    both when the environment demonstrably hasn't changed.
     """
     if entry_point := next(
         (ep for ep in _load_entry_points() if ep.name == name), None
