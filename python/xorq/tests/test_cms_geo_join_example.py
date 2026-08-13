@@ -8,6 +8,7 @@ rollup -- is the code the real run uses.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import pathlib
 from types import ModuleType
@@ -16,6 +17,7 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+from xorq.common.exceptions import XorqError
 
 
 EXAMPLE = pathlib.Path(__file__).parents[3] / "examples" / "cms_geo_join.py"
@@ -314,6 +316,65 @@ def test_only_nucc_is_read_from_a_url(module: ModuleType) -> None:
         op = sources[name].op()
         assert type(op).__name__ == "RemoteTable", name
         assert "FlightUDXF" in repr(op.remote_expr), name
+
+
+def test_nothing_raises_systemexit(module: ModuleType) -> None:
+    """A ``SystemExit`` from a fetcher wedges the run, uninterruptibly.
+
+    The fetchers execute on a Flight server thread, and ``make_udxf`` wraps the
+    exchange in ``excepts_print_exc(..., Exception)``. ``SystemExit`` is not an
+    ``Exception``, so it escapes that wrapper, the client never queues its
+    end-of-stream sentinel, and the consumer blocks in ``queue.get()`` forever
+    while the main thread sits in DataFusion ignoring Ctrl-C.
+    """
+    raised = {
+        node.exc.func.id
+        for node in ast.walk(ast.parse(EXAMPLE.read_text()))
+        if isinstance(node, ast.Raise)
+        and isinstance(node.exc, ast.Call)
+        and isinstance(node.exc.func, ast.Name)
+    }
+    assert "SystemExit" not in raised
+    assert raised == {"XorqError"}
+
+
+def test_credentials_come_from_the_environment(module: ModuleType) -> None:
+    """No env-file parsing: ``env_config`` declares them, so the env supplies them."""
+    assert set(module.CREDENTIAL_SIGNUPS) <= set(module.env_config.varnames)
+    assert not hasattr(module, "secret_env")
+    assert not hasattr(module, "ENVRCS_DIR")
+
+
+def test_require_env_raises_a_catchable_error(
+    module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(module, "env_config", module.env_config.clone(HUD_TOKEN=""))
+    with pytest.raises(XorqError, match="HUD_TOKEN is not set") as excinfo:
+        module.require_env("HUD_TOKEN")
+    assert module.CREDENTIAL_SIGNUPS["HUD_TOKEN"] in str(excinfo.value)
+
+
+def test_require_credentials_checks_every_credential_up_front(
+    module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Up front and in this thread: a fetcher that raises mid-exchange yields
+    zero rows, and the ParquetCache stores those as the answer."""
+    monkeypatch.setattr(
+        module, "env_config", module.env_config.clone(HUD_TOKEN="", CENSUS_API_KEY="k")
+    )
+    with pytest.raises(XorqError, match="HUD_TOKEN"):
+        module.require_credentials()
+
+    monkeypatch.setattr(
+        module, "env_config", module.env_config.clone(HUD_TOKEN="t", CENSUS_API_KEY="")
+    )
+    with pytest.raises(XorqError, match="CENSUS_API_KEY"):
+        module.require_credentials()
+
+    monkeypatch.setattr(
+        module, "env_config", module.env_config.clone(HUD_TOKEN="t", CENSUS_API_KEY="k")
+    )
+    assert module.require_credentials() is None
 
 
 def test_caches_sit_on_the_raw_sources(module: ModuleType, raw: dict) -> None:
