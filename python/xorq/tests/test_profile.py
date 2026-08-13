@@ -1427,6 +1427,192 @@ def test_declared_sources_cannot_shrink_mirrored_keys(
         check_for_exposed_secrets("postgres", {"sslcert": "/path/to/cert"})
 
 
+class _StaticKeysBackend:
+    _secret_keys = ("secret",)
+
+
+def test_an_imported_backends_static_keys_top_up_the_mirror(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Tier 2 is the mirror topped up from an already-imported backend's static
+    _secret_keys, exactly as tier 3 tops up the declared sources: an out-of-tree
+    backend cannot add a mirror entry, and a fixed kwarg name like "secret"
+    lives in no kwargs data for a source to point at, so without the top-up its
+    static declaration was dead documentation -- enforced as a convention by
+    test_declaring_backends_also_mirror_static_keys, read by nothing."""
+    con_name = _install_fake_backend(monkeypatch, _StaticKeysBackend)
+    assert profiles_mod.get_secret_keys(con_name) == ("password", "secret")
+    with pytest.raises(ValueError, match="'secret'"):
+        check_for_exposed_secrets(con_name, {"secret": "plaintext"})
+    # an env-var reference is accepted
+    check_for_exposed_secrets(con_name, {"secret": "${SECRET}"})
+    # and through Profile.save(): the save aborts and writes nothing
+    profile = Profile(con_name=con_name, kwargs_tuple=(("secret", "plaintext"),))
+    with pytest.raises(ValueError, match="'secret'"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+
+
+def test_unimported_backend_contributes_no_static_class_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The static-keys class read stays best-effort exactly as the sources read
+    is: an out-of-tree backend that isn't imported (and, being out-of-tree, has
+    no mirror entry) contributes nothing, and the unconditional default still
+    applies."""
+    con_name = _install_fake_backend(monkeypatch, _StaticKeysBackend, imported=False)
+    assert profiles_mod.get_secret_keys(con_name) == ("password",)
+    check_for_exposed_secrets(con_name, {"secret": "plaintext"})
+    with pytest.raises(ValueError, match="'password'"):
+        check_for_exposed_secrets(con_name, {"password": "plaintext"})
+
+
+def test_a_property_static_keys_declaration_contributes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_secret_keys declared as a property never executes: getattr_static reads
+    the class dict without firing descriptors and returns the descriptor object,
+    which fails the tuple check -- the same no-execution rule as the sources
+    read, on the same metaclass layout where a plain getattr would run it."""
+    executed = []
+
+    class Meta(type):
+        @property
+        def _secret_keys(cls) -> tuple:
+            executed.append(True)
+            return ("secret",)
+
+    class Backend(metaclass=Meta):
+        pass
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert profiles_mod.get_secret_keys(con_name) == ("password",)
+    assert not executed
+
+
+def test_a_non_tuple_static_keys_declaration_contributes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed class declaration -- a list here -- fails the tuple check
+    and contributes nothing: declaration shape is an authoring-time concern,
+    never a runtime guard, and tiers 1 and 3 keep enforcing."""
+
+    class Backend:
+        _secret_keys = ["secret"]
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert profiles_mod.get_secret_keys(con_name) == ("password",)
+
+
+def test_a_mixed_static_keys_declaration_keeps_the_str_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-str members are dropped while the well-formed names beside them are
+    kept and enforced -- the same rule as a resolved leaf's, because checking
+    the good names is strictly safer than dropping the declaration."""
+
+    class Backend:
+        _secret_keys = ("secret", 3, None)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert profiles_mod.get_secret_keys(con_name) == ("password", "secret")
+    with pytest.raises(ValueError, match="'secret'"):
+        check_for_exposed_secrets(con_name, {"secret": "plaintext"})
+
+
+def test_a_static_keys_tuple_subclass_has_its_true_names_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The class declaration is plugin-authored data, so it is read the way the
+    resolver reads a leaf: a tuple subclass forging __iter__ has the override
+    bypassed and its true names read and enforced."""
+
+    class Forging(tuple):
+        def __iter__(self) -> collections.abc.Iterator:
+            return iter(("forged",))
+
+    declared = Forging(("secret",))
+    assert tuple(declared) == ("forged",), "the forgery is live"
+
+    class Backend:
+        _secret_keys = declared
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert profiles_mod.get_secret_keys(con_name) == ("password", "secret")
+    with pytest.raises(ValueError, match="'secret'"):
+        check_for_exposed_secrets(con_name, {"secret": "plaintext"})
+
+
+def test_a_forged_str_static_key_cannot_escape_the_match(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A static key comes back as an exact str copy, like a name out of a
+    resolved leaf: returned as-is, a str subclass would carry its own __eq__
+    into the membership test that matches it against a kwarg -- the key is
+    named in no error and the literal saves anyway."""
+
+    class Ghost(str):
+        def __eq__(self, other: object) -> bool:
+            return False
+
+        def __hash__(self) -> int:
+            return str.__hash__(self)
+
+    class Backend:
+        _secret_keys = (Ghost("secret"),)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    keys = profiles_mod.get_secret_keys(con_name)
+    assert keys == ("password", "secret")
+    assert all(type(key) is str for key in keys)
+    with pytest.raises(ValueError, match="'secret'"):
+        check_for_exposed_secrets(con_name, {"secret": "plaintext"})
+    profile = Profile(con_name=con_name, kwargs_tuple=(("secret", "plaintext"),))
+    with pytest.raises(ValueError, match="'secret'"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+
+
+def test_a_static_key_whose_hash_raises_cannot_escape_the_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nor can a static key reach the dedupe in get_secret_keys, which hashes
+    it outside any guard: an exact str copy has nothing left to raise."""
+
+    class HashBomb(str):
+        def __hash__(self) -> int:
+            raise RuntimeError("boom")
+
+    class Backend:
+        _secret_keys = (HashBomb("secret"),)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    assert profiles_mod.get_secret_keys(con_name) == ("password", "secret")
+    with pytest.raises(ValueError, match="'secret'"):
+        check_for_exposed_secrets(con_name, {"secret": "plaintext"})
+
+
+def test_static_class_keys_top_up_the_mirror_and_cannot_shrink_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mirror and class keys are unioned, mirror first: a class declaration on
+    a mirrored backend can only widen the checked set, never narrow it."""
+
+    class Backend:
+        _secret_keys = ("extra_secret",)
+
+    _install_fake_backend(monkeypatch, Backend, con_name="postgres")
+    keys = profiles_mod.get_secret_keys("postgres")
+    mirror = con_name_to_secret_keys["postgres"]
+    assert set(mirror) <= set(keys)
+    assert "extra_secret" in keys
+    assert tuple(key for key in keys if key in mirror) == mirror
+    with pytest.raises(ValueError, match="'sslcert'"):
+        check_for_exposed_secrets("postgres", {"sslcert": "/path/to/cert"})
+    with pytest.raises(ValueError, match="'extra_secret'"):
+        check_for_exposed_secrets("postgres", {"extra_secret": "plaintext"})
+
+
 def test_validate_con_name_sees_a_backend_installed_mid_process(
     tmp_path: pathlib.Path,
 ) -> None:
