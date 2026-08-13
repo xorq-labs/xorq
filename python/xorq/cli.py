@@ -3,8 +3,10 @@ from __future__ import annotations
 import collections.abc
 import contextlib
 import datetime
+import errno
 import os
 import pdb
+import signal
 import sys
 import traceback
 from functools import partial, wraps
@@ -32,6 +34,23 @@ from xorq.init_templates import InitTemplates
 
 if TYPE_CHECKING:
     from xorq.api import Expr
+
+
+# what a process killed by SIGPIPE reports, so `xorq run ... | head` behaves
+# like any other unix producer in a pipeline
+EPIPE_EXIT_CODE = 128 + getattr(signal, "SIGPIPE", 13)
+
+
+def _silence_stdout() -> None:
+    """Redirect fd 1 to devnull, discarding whatever is still buffered."""
+    try:
+        fd = sys.stdout.fileno()
+    except (AttributeError, OSError, ValueError):
+        return
+    with contextlib.suppress(OSError):
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, fd)
+        os.close(devnull)
 
 
 @contextlib.contextmanager
@@ -798,6 +817,12 @@ class PdbGroup(click.Group):
         except (click.ClickException, click.exceptions.Exit, SystemExit):
             raise
         except Exception as e:
+            if isinstance(e, OSError) and e.errno == errno.EPIPE:
+                # a downstream consumer (`| head`, `| less`, ...) closed the
+                # pipe: not our failure, and there is nowhere left to print a
+                # traceback to, so exit the way SIGPIPE-killed producers do
+                _silence_stdout()
+                sys.exit(EPIPE_EXIT_CODE)
             if ctx.params.get("use_pdb"):
                 traceback.print_exception(e)
                 pdb.post_mortem(e.__traceback__)
