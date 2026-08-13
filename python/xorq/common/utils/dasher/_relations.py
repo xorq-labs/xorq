@@ -299,6 +299,48 @@ def _databasetable_dispatcher(dt: ops.DatabaseTable) -> tuple:
     return result
 
 
+def normalize_flight_expr(dt):
+    """Identity of a ``FlightExpr``, deliberately excluding ``dt.name``.
+
+    FlightExpr/FlightUDXF carry input_expr / make_connection that the plain
+    datafusion path would silently flatten away. Inlines the dasher 0.1.0 logic
+    but uses ``_rename_unbound_xorq`` (whose op.replace callback signs
+    ``(node, _kwargs)`` correctly — dasher 0.1.0's ``_rename_unbound`` uses
+    ``**kwargs`` and crashes recreating ops with required positional fields like
+    ``Field``).
+
+    ``dt.name`` is omitted because it defaults to ``gen_name()`` — a fresh uuid4
+    per process — so folding it in makes the token non-reproducible. Shared with
+    ``SnapshotStrategy.normalize_databasetable`` so the two dispatch tables
+    cannot drift on this invariant again (see gh-2229).
+    """
+    return (
+        "xorq.FlightExpr",
+        dt.input_expr,
+        _rename_unbound_xorq(dt.unbound_expr.op()).to_expr(),
+        dt.make_connection,
+    )
+
+
+def normalize_flight_udxf(dt):
+    """Identity of a ``FlightUDXF``, deliberately excluding ``dt.name``.
+
+    ``type(dt.udxf).__qualname__`` distinguishes UDXF classes even when
+    ``exchange_f`` is absent or shared — bare ``getattr(..., None)`` would
+    otherwise collapse two distinct UDXFs (both missing ``exchange_f``) onto the
+    same token.
+
+    See :func:`normalize_flight_expr` for why ``dt.name`` is excluded.
+    """
+    return (
+        "xorq.FlightUDXF",
+        dt.input_expr,
+        type(dt.udxf).__qualname__,
+        getattr(dt.udxf, "exchange_f", _MISSING),
+        dt.make_connection,
+    )
+
+
 def _dispatch_databasetable(dt):
     from xorq.expr.relations import (  # noqa: PLC0415
         CachedNode,
@@ -316,30 +358,9 @@ def _dispatch_databasetable(dt):
         case RemoteTable():
             return normalize_remote_table(dt)
         case FlightExpr():
-            # FlightExpr/FlightUDXF carry input_expr / make_connection that the
-            # plain datafusion path would silently flatten away. Inline the
-            # dasher 0.1.0 logic but use ``_rename_unbound_xorq`` (whose
-            # op.replace callback signs ``(node, _kwargs)`` correctly — dasher
-            # 0.1.0's ``_rename_unbound`` uses ``**kwargs`` and crashes
-            # recreating ops with required positional fields like ``Field``).
-            return (
-                "xorq.FlightExpr",
-                dt.input_expr,
-                _rename_unbound_xorq(dt.unbound_expr.op()).to_expr(),
-                dt.make_connection,
-            )
+            return normalize_flight_expr(dt)
         case FlightUDXF():
-            # ``type(dt.udxf).__qualname__`` distinguishes UDXF classes even
-            # when ``exchange_f`` is absent or shared — bare
-            # ``getattr(..., None)`` would otherwise collapse two distinct
-            # UDXFs (both missing ``exchange_f``) onto the same token.
-            return (
-                "xorq.FlightUDXF",
-                dt.input_expr,
-                type(dt.udxf).__qualname__,
-                getattr(dt.udxf, "exchange_f", _MISSING),
-                dt.make_connection,
-            )
+            return normalize_flight_udxf(dt)
     # For datafusion-backed file tables, dasher's normalize_datafusion_
     # databasetable stops at ep_str — which captures the path but no stat —
     # so file edits don't invalidate the cache key. _normalize_datafusion_

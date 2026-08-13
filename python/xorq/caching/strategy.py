@@ -192,11 +192,28 @@ class SnapshotStrategy(CacheStrategy):
             normalize_remote_table,
         )
 
-        from xorq.expr.relations import CachedNode, Read, RemoteTable  # noqa: PLC0415
+        from xorq.common.utils.dasher._relations import (  # noqa: PLC0415
+            normalize_flight_expr,
+            normalize_flight_udxf,
+        )
+        from xorq.expr.relations import (  # noqa: PLC0415
+            CachedNode,
+            DatabaseTableView,
+            FlightExpr,
+            FlightUDXF,
+            Read,
+            RemoteTable,
+        )
 
-        # DatabaseTable subclasses (Read, CachedNode, RemoteTable) need
-        # concrete-type dispatch here — dasher's MRO lookup would otherwise
-        # pick this broader DatabaseTable rule over them.
+        # Every DatabaseTableView subclass needs concrete-type dispatch here —
+        # dasher's MRO lookup would otherwise pick this broader DatabaseTable
+        # rule over them. The `case _` fallback below folds `name` in, which is
+        # right for a real backend table (there `name` *is* the identity) and
+        # wrong for these views, whose `name` defaults to a per-process
+        # `gen_name()` uuid4. Missing FlightExpr/FlightUDXF here is what made
+        # `xorq build` non-reproducible and every SnapshotStrategy cache key
+        # churn per process (gh-2229); the DatabaseTableView guard makes the
+        # next such omission fail loudly instead of silently leaking a uuid4.
         memo = _snapshot_dt_normalize_memo.get()
         if memo is not None and dt in memo:
             return memo[dt]
@@ -207,6 +224,16 @@ class SnapshotStrategy(CacheStrategy):
                 result = normalize_cached_node(dt)
             case RemoteTable():
                 result = normalize_remote_table(dt)
+            case FlightExpr():
+                result = normalize_flight_expr(dt)
+            case FlightUDXF():
+                result = normalize_flight_udxf(dt)
+            case DatabaseTableView():
+                raise NotImplementedError(
+                    f"{type(dt).__name__} is a DatabaseTableView with no "
+                    "snapshot normalizer; add one rather than letting the "
+                    "fallback fold its generated name into the key"
+                )
             case _:
                 keys = ("name", "schema", "source", "namespace")
                 result = tuple((k, getattr(dt, k)) for k in keys)
