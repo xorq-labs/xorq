@@ -201,8 +201,6 @@ Rejected because:
 
 - ADR-0006 (read-kwargs hash-path/read-path split), ADR-0010 (normalize op
   data vs structure), ADR-0015 (every op modifies the build hash)
-- the udxf-source API-as-Backend design plan (an untracked working document
-  outside this repository)
 - xorq-labs/xorq-template-mixpanel-fetcher (Phase 0: fetcher-in-userland)
 - xorq-labs/xorq-mixpanel (the out-of-tree reference integration)
 - xorq.tests.fixture_backend / tests/test_build_artifacts_credential_free.py
