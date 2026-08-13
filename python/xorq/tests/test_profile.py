@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+import ast
+import collections.abc
+import importlib.util
 import os
 import pathlib
+import sys
+import types
 
 import pytest
 
 import xorq.api as xo
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.loader import _load_entry_points
+from xorq.tests.util import installed_mid_process
 from xorq.vendor.ibis.backends import BaseBackend
+from xorq.vendor.ibis.backends import profiles as profiles_mod
 from xorq.vendor.ibis.backends.profiles import (
     Profile,
     Profiles,
+    check_for_exposed_secrets,
+    con_name_to_secret_key_sources,
     con_name_to_secret_keys,
+    get_declared_secret_keys,
 )
 
 
@@ -683,3 +693,749 @@ def test_declared_secret_keys_are_mirrored(con_name: str) -> None:
         "reflection of all declaring backends"
     )
     assert tuple(declared) == tuple(con_name_to_secret_keys[con_name])
+
+
+def test_mirrored_secret_key_sources_are_tuples_of_str() -> None:
+    """Declaration validity for the mirror itself: every entry is a tuple of
+    sources, each source a non-empty tuple of str steps. A malformed
+    declaration is an authoring-time bug this test catches; resolution never
+    guards for it at runtime."""
+    for con_name, sources in con_name_to_secret_key_sources.items():
+        assert isinstance(sources, tuple), con_name
+        for source in sources:
+            assert isinstance(source, tuple) and source, (con_name, source)
+            assert all(isinstance(step, str) for step in source), (con_name, source)
+
+
+@pytest.mark.parametrize("con_name", sorted(con_name_to_secret_key_sources))
+def test_secret_key_sources_mirror_matches_backend_declaration(con_name: str) -> None:
+    """con_name_to_secret_key_sources must not drift from the sources each
+    backend's Backend class declares in _secret_key_sources, exactly as the
+    static-keys mirror is pinned to _secret_keys."""
+    entry_point = next((ep for ep in _load_entry_points() if ep.name == con_name), None)
+    assert entry_point is not None, f"no entry point for {con_name!r}"
+    try:
+        module = entry_point.load()
+    except ImportError as e:
+        pytest.skip(f"{con_name} backend not importable: {e}")
+    declared = getattr(module.Backend, "_secret_key_sources", None)
+    assert declared is not None, (
+        f"{con_name} is in con_name_to_secret_key_sources but its Backend "
+        "declares no _secret_key_sources; declare them so the mirror stays honest"
+    )
+    assert tuple(declared) == tuple(con_name_to_secret_key_sources[con_name])
+
+
+@pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
+def test_declared_secret_key_sources_are_mirrored(con_name: str) -> None:
+    """Inverse of test_secret_key_sources_mirror_matches_backend_declaration:
+    every installed backend declaring _secret_key_sources must also appear (and
+    match) in the mirror. The mirror is what lets the sources resolve with the
+    backend unimported; an unmirrored declaration would silently degrade to the
+    import-dependent class read."""
+    entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
+    try:
+        module = entry_point.load()
+    except ImportError as e:
+        pytest.skip(f"{con_name} backend not importable: {e}")
+    declared = getattr(getattr(module, "Backend", None), "_secret_key_sources", None)
+    if declared is None:
+        pytest.skip(f"{con_name} declares no _secret_key_sources")
+    assert con_name in con_name_to_secret_key_sources, (
+        f"{con_name} declares _secret_key_sources but is missing from the "
+        "con_name_to_secret_key_sources mirror; add it so its sources resolve "
+        "without the backend imported"
+    )
+    assert tuple(declared) == tuple(con_name_to_secret_key_sources[con_name])
+
+
+def _source_declares(module_name: str, name: str) -> bool | None:
+    """Whether a module's source defines or assigns `name`, without importing it:
+    find_spec locates the file but doesn't execute it. A package is searched
+    whole, since a Backend is commonly re-exported from a submodule. None when
+    there is no source to read."""
+    try:
+        spec = importlib.util.find_spec(module_name)
+    except (ImportError, ValueError):
+        return None
+    if spec is None:
+        return None
+    paths = [pathlib.Path(spec.origin)] if str(spec.origin).endswith(".py") else []
+    for location in spec.submodule_search_locations or ():
+        paths.extend(sorted(pathlib.Path(location).rglob("*.py")))
+    if not paths:
+        return None
+    return any(
+        getattr(node, "name", None) == name
+        or (isinstance(node, ast.Name) and node.id == name)
+        for path in paths
+        for node in ast.walk(ast.parse(path.read_text()))
+    )
+
+
+def test_source_declares_finds_names_without_importing() -> None:
+    """The fallback the guardrail test leans on for an unimportable backend: names
+    are found in the source, and a name that isn't there reads as absent rather
+    than as "can't tell"."""
+    module_name = "xorq.vendor.ibis.backends.profiles"
+    assert _source_declares(module_name, "get_secret_keys") is True
+    assert _source_declares(module_name, "con_name_to_secret_key_sources") is True
+    assert _source_declares(module_name, "_get_secret_keys") is False
+    assert _source_declares("xorq_no_such_module", "_secret_keys") is None
+
+
+def test_source_declares_searches_a_package_for_a_re_exported_name(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A backend package whose Backend is re-exported from a submodule is still
+    searched: reading only the entry-point module's own source would report the
+    declaration as absent and skip the guardrail for exactly the backends CI
+    cannot import."""
+    package = tmp_path / "xorq_reexporting_backend"
+    package.mkdir()
+    (package / "__init__.py").write_text("from .backend import Backend\n")
+    (package / "backend.py").write_text(
+        "class Backend:\n"
+        "    _secret_keys = ('token',)\n"
+        "    _secret_key_sources = (('config', 'auth', 'fields'),)\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    assert _source_declares(package.name, "_secret_key_sources") is True
+    assert _source_declares(package.name, "_secret_keys") is True
+    assert _source_declares(package.name, "_no_such_declaration") is False
+
+
+@pytest.mark.parametrize("con_name", sorted(ep.name for ep in _load_entry_points()))
+def test_declaring_backends_also_mirror_static_keys(con_name: str) -> None:
+    """A backend declaring _secret_key_sources must also declare static
+    _secret_keys: a source only resolves when the kwargs actually carry what it
+    points at, so the always-present names belong in the static mirror, which
+    is checked with no kwargs at all.
+
+    A backend whose extras aren't installed is checked against its module source
+    rather than skipped -- skipping there would leave the guardrail unenforced
+    for exactly the backends CI can't import."""
+    hint = (
+        f"{con_name} declares _secret_key_sources but no static _secret_keys; "
+        "mirror the always-present names, since a source contributes only when "
+        "the kwargs carry what it points at"
+    )
+    entry_point = next(ep for ep in _load_entry_points() if ep.name == con_name)
+    try:
+        module = entry_point.load()
+    except ImportError:
+        declares_sources = _source_declares(entry_point.module, "_secret_key_sources")
+        if declares_sources is None:
+            pytest.skip(f"{con_name} is neither importable nor locatable")
+        if not declares_sources:
+            pytest.skip(f"{con_name} declares no _secret_key_sources (by source)")
+        assert _source_declares(entry_point.module, "_secret_keys"), hint
+        return
+    backend = getattr(module, "Backend", None)
+    if getattr(backend, "_secret_key_sources", None) is None:
+        pytest.skip(f"{con_name} declares no _secret_key_sources")
+    assert getattr(backend, "_secret_keys", None), hint
+
+
+def _install_fake_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    backend_cls: type,
+    con_name: str = "fakedb",
+    module_name: str = "xorq_fake_backend_mod",
+    imported: bool = True,
+) -> str:
+    """Register a throwaway backend so the declared-sources tier finds
+    backend_cls through the import-dependent class read: patch the entry-point
+    lookup, and mark the module as imported, which that read requires. Pass
+    imported=False for the not-imported case."""
+    module = types.ModuleType(module_name)
+    module.Backend = backend_cls
+    entry_point = types.SimpleNamespace(
+        name=con_name, module=module_name, load=lambda: module
+    )
+    monkeypatch.setattr(profiles_mod, "_load_entry_points", lambda: (entry_point,))
+    monkeypatch.setattr(
+        profiles_mod,
+        "_find_entry_point",
+        lambda name: entry_point if name == con_name else None,
+    )
+    if imported:
+        monkeypatch.setitem(sys.modules, module_name, module)
+    return con_name
+
+
+_REST_STYLE_SOURCES = (
+    ("config", "auth", "secret_fields"),
+    ("config", "auth", "fields"),
+)
+
+
+class _DeclaringBackend:
+    _secret_key_sources = _REST_STYLE_SOURCES
+
+
+def test_get_declared_secret_keys_first_resolving_source_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sources are ordered fallback: when the first resolves, the second is
+    never consulted -- an explicit secret_fields narrows what fields would
+    have said."""
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = {
+        "config": {
+            "auth": {"fields": ["user", "api_key"], "secret_fields": ["api_key"]}
+        }
+    }
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+
+
+@pytest.mark.parametrize(
+    "auth",
+    (
+        pytest.param({"fields": ["api_key"]}, id="secret_fields_absent"),
+        pytest.param(
+            {"fields": ["api_key"], "secret_fields": None}, id="secret_fields_null"
+        ),
+    ),
+)
+def test_get_declared_secret_keys_falls_back_in_order(
+    monkeypatch: pytest.MonkeyPatch, auth: dict
+) -> None:
+    """The second source is used exactly when the first doesn't resolve: an
+    absent secret_fields falls through, and so does an explicit null -- None
+    is unresolved, not "no names"."""
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    assert get_declared_secret_keys(con_name, {"config": {"auth": auth}}) == (
+        "api_key",
+    )
+
+
+def test_empty_secret_fields_resolves_and_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """secret_fields: [] resolves to () and wins -- "none of the fields are
+    secret" is genuinely different from the key being absent
+    (presence-and-not-None, never truthiness) -- and the unconditional default
+    still applies: () is not an opt-out."""
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = {"config": {"auth": {"fields": ["api_key"], "secret_fields": []}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, {**kwargs, "password": "plaintext"})
+
+
+class _AttrsLike:
+    """A config carried as an object rather than a plain dict -- e.g. a
+    RestBackendConfig instance handed to connect() -- is never reached into;
+    profiles carry configs as plain dicts."""
+
+    auth = {"fields": ["never_reached"]}
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        pytest.param({}, id="no_config_at_all"),
+        pytest.param({"config": None}, id="config_is_none"),
+        pytest.param({"config": {"other": 1}}, id="missing_step"),
+        pytest.param({"config": {"auth": "basic"}}, id="non_dict_intermediate"),
+        pytest.param({"config": {"auth": ["fields"]}}, id="list_intermediate"),
+        pytest.param({"config": _AttrsLike()}, id="attrs_instance_intermediate"),
+        pytest.param({"config": {"auth": {"fields": "token"}}}, id="bare_str_leaf"),
+        pytest.param({"config": {"auth": {"fields": {"token": 1}}}}, id="dict_leaf"),
+        pytest.param({"config": {"auth": {"fields": 42}}}, id="non_sequence_leaf"),
+    ),
+)
+def test_unresolved_sources_contribute_nothing(
+    monkeypatch: pytest.MonkeyPatch, kwargs: dict
+) -> None:
+    """Every shape a source cannot read -- a missing step, a non-dict
+    intermediate, a leaf that isn't a list/tuple -- is unresolved: the tier
+    contributes nothing, silently, and tiers 1+2 still enforce. The bare-str
+    leaf in particular stops being a hazard rather than being guarded: a str
+    is not a list/tuple, so `fields: "token"` can never be iterated into
+    ('t', 'o', 'k', ...)."""
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, {**kwargs, "password": "plaintext"})
+
+
+def test_mixed_leaf_keeps_the_str_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A list mixing str and non-str names keeps the str ones: the leaf is
+    user config data, not the declaration, so a declaration test can't catch
+    it, and checking "api_key" is strictly safer than dropping the source. A
+    non-str name can never match a kwarg, so dropping it needs no warning."""
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = {"config": {"auth": {"fields": ["api_key", 3, None]}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {**kwargs, "api_key": "plaintext"})
+    check_for_exposed_secrets(con_name, {**kwargs, "api_key": "${API_KEY}"})
+
+
+def test_dict_subclass_overrides_are_bypassed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No backend-authored code runs during resolution: a dict subclass
+    forging results from get/__getitem__/__missing__ has those overrides
+    bypassed -- the unbound dict.get reads the true underlying data. Applies
+    to kwargs itself and to every nested step."""
+
+    class Forging(dict):
+        def get(self, key: str, default: object = None) -> object:
+            return {"auth": {"fields": ["forged"]}}
+
+        def __getitem__(self, key: str) -> object:
+            return {"auth": {"fields": ["forged"]}}
+
+        def __missing__(self, key: str) -> object:
+            return {"auth": {"fields": ["forged"]}}
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = Forging(config=Forging(auth=Forging(fields=["true_key"])))
+    assert get_declared_secret_keys(con_name, kwargs) == ("true_key",)
+
+
+def test_a_mapping_that_is_not_a_dict_is_not_reached_into(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An intermediate value that isn't a plain dict is unresolved with no
+    call made: resolution never invokes a Mapping's own lookup methods."""
+
+    class RecordingMapping(collections.abc.Mapping):
+        def __init__(self, data: dict) -> None:
+            self.data = data
+            self.lookups: list[str] = []
+
+        def __getitem__(self, key: str) -> object:
+            self.lookups.append(key)
+            return self.data[key]
+
+        def __iter__(self) -> collections.abc.Iterator:
+            return iter(self.data)
+
+        def __len__(self) -> int:
+            return len(self.data)
+
+    config = RecordingMapping({"auth": {"fields": ["api_key"]}})
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = {"config": config}
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert config.lookups == []
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+
+
+def test_a_lying_class_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """An object whose __class__ lies passes the isinstance check and makes
+    the unbound dict.get raise TypeError; the guard converts that into a
+    ValueError naming the con_name and source -- fail closed, with no kwarg
+    value in the message, since only our own declared source is interpolated.
+    (This needs an adversarial object already inside the caller's kwargs, the
+    same trust domain as the credentials themselves.)"""
+
+    class Liar:
+        @property
+        def __class__(self) -> type:
+            return dict
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = {"config": Liar(), "token": "hunter2-secret"}
+    with pytest.raises(
+        ValueError, match="could not resolve secret-key source"
+    ) as excinfo:
+        check_for_exposed_secrets(con_name, kwargs)
+    message = str(excinfo.value)
+    assert con_name in message
+    assert "TypeError" in message
+    assert "hunter2" not in message
+    # and through Profile.save(): the save aborts and writes nothing
+    profile = Profile(con_name=con_name, kwargs_tuple=(("config", Liar()),))
+    with pytest.raises(ValueError, match="could not resolve secret-key source"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+
+
+def test_a_property_declaration_contributes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_secret_key_sources declared as a property never executes:
+    inspect.getattr_static reads the class dict without firing descriptors and
+    returns the descriptor object, which fails the tuple check. The property
+    lives on the metaclass, where a plain getattr on the class *would* run it
+    -- and would get back a well-formed tuple, so only the no-execution rule
+    keeps it out."""
+    executed = []
+
+    class Meta(type):
+        @property
+        def _secret_key_sources(cls) -> tuple:
+            executed.append(True)
+            return _REST_STYLE_SOURCES
+
+    class Backend(metaclass=Meta):
+        pass
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    kwargs = {"config": {"auth": {"fields": ["api_key"]}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert not executed
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+
+
+def test_a_non_tuple_class_declaration_contributes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed class declaration -- a list here -- fails the tuple check and
+    contributes nothing: declaration shape is an authoring-time concern, pinned by
+    the mirror tests, never a runtime guard."""
+
+    class Backend:
+        _secret_key_sources = [("config", "auth", "fields")]
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    kwargs = {"config": {"auth": {"fields": ["api_key"]}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+
+
+@pytest.mark.parametrize(
+    "declared",
+    (
+        pytest.param((42,), id="source_is_not_a_tuple"),
+        pytest.param((["config", "auth"],), id="source_is_a_list"),
+        pytest.param(((),), id="source_is_empty"),
+        pytest.param((("config", 3),), id="step_is_not_str"),
+        pytest.param(("config", "auth", "fields"), id="steps_not_nested_in_a_source"),
+    ),
+)
+def test_malformed_sources_contribute_nothing(
+    monkeypatch: pytest.MonkeyPatch, declared: tuple
+) -> None:
+    """A declaration whose *elements* are malformed contributes nothing, like a
+    malformed declaration as a whole -- it does not raise, and it does not block
+    every save for that backend. The last case is the likely authoring slip: a
+    flat tuple of steps, which without the shape check walks single-character
+    keys."""
+
+    class Backend:
+        _secret_key_sources = declared
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    kwargs = {"config": {"auth": {"fields": ["api_key"]}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+    check_for_exposed_secrets(con_name, {**kwargs, "api_key": "plaintext"})
+
+
+@pytest.mark.parametrize(
+    "base",
+    (pytest.param(list, id="list_subclass"), pytest.param(tuple, id="tuple_subclass")),
+)
+def test_a_leaf_subclass_has_its_true_names_read(
+    monkeypatch: pytest.MonkeyPatch, base: type
+) -> None:
+    """The leaf is read the way the steps are, through an unbound builtin, so a
+    list/tuple subclass forging __iter__ has the override bypassed and its true
+    data read. Neither believing the forgery (which invents names) nor rejecting
+    the subclass (which drops a benign one's real names, and with them the check
+    on the credential they name) is safe."""
+
+    class Forging(base):
+        def __iter__(self) -> collections.abc.Iterator:
+            return iter(["forged"])
+
+    leaf = Forging(["true_key"])
+    assert tuple(leaf) == ("forged",), "the forgery is live"
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = {"config": {"auth": {"fields": leaf}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ("true_key",)
+    with pytest.raises(ValueError, match="true_key"):
+        check_for_exposed_secrets(con_name, {**kwargs, "true_key": "plaintext"})
+
+
+def test_a_forged_empty_leaf_cannot_suppress_the_true_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nor can a forgery narrow the check by resolving to less: a subclass whose
+    __iter__ reports nothing still resolves to the names it really holds, rather
+    than to an empty set that would win the fallback."""
+
+    class Forging(list):
+        def __iter__(self) -> collections.abc.Iterator:
+            return iter([])
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    auth = {"secret_fields": Forging(["api_key"]), "fields": ["other"]}
+    kwargs = {"config": {"auth": auth}}
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+
+
+def test_a_forged_str_name_cannot_escape_the_match(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A name is a value out of the kwargs too, so it comes back as an exact str
+    copy. A str subclass returned as-is would carry its own __eq__ into the
+    membership test that matches it against a kwarg -- the source resolves, the
+    key is named, and the literal saves anyway."""
+
+    class Ghost(str):
+        def __eq__(self, other: object) -> bool:
+            return False
+
+        def __hash__(self) -> int:
+            return str.__hash__(self)
+
+        def __str__(self) -> str:
+            return "not_a_kwarg"
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    config = {"auth": {"fields": [Ghost("api_key")]}}
+    names = get_declared_secret_keys(con_name, {"config": config})
+    assert names == ("api_key",)
+    assert all(type(name) is str for name in names)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {"config": config, "api_key": "plaintext"})
+    profile = Profile(
+        con_name=con_name,
+        kwargs_tuple=(("config", config), ("api_key", "plaintext")),
+    )
+    with pytest.raises(ValueError, match="api_key"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+
+
+def test_a_name_whose_hash_raises_cannot_escape_the_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nor can a name reach the dedupe in get_secret_keys, which hashes it outside
+    the fail-closed guard: an exact str copy has nothing left to raise."""
+
+    class HashBomb(str):
+        def __hash__(self) -> int:
+            raise RuntimeError("boom")
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    config = {"auth": {"fields": [HashBomb("api_key")]}}
+    assert profiles_mod.get_secret_keys(con_name, {"config": config}) == (
+        "password",
+        "api_key",
+    )
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {"config": config, "api_key": "plaintext"})
+
+
+def test_forged_items_cannot_hide_a_kwarg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The enforcement loop reads the kwargs the way the resolver does: a subclass
+    hiding an entry from items() cannot hide it from the check that the resolver
+    just named it in."""
+
+    class Hiding(dict):
+        def items(self) -> list:
+            return [(k, v) for k, v in dict.items(self) if k != "api_key"]
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = Hiding(config={"auth": {"fields": ["api_key"]}}, api_key="plaintext")
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, kwargs)
+
+
+def test_a_kwargs_subclass_lying_about_len_still_resolves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Normalizing absent kwargs tests for None, not truthiness: a dict subclass
+    whose __len__ reports empty would otherwise disable the whole tier, silently
+    and without the fail-closed error, despite every lookup on it reading the true
+    data."""
+
+    class LenLying(dict):
+        def __len__(self) -> int:
+            return 0
+
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    kwargs = LenLying(config={"auth": {"fields": ["api_key"]}})
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, LenLying(**kwargs, api_key="plaintext"))
+
+
+def test_mirrored_sources_resolve_without_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mirror is what makes this tier no longer best-effort: a mirrored
+    backend's sources resolve with the backend never imported, where the old
+    callable tier silently contributed nothing."""
+
+    class Backend:
+        _secret_key_sources = _REST_STYLE_SOURCES
+
+    con_name = _install_fake_backend(monkeypatch, Backend, imported=False)
+    monkeypatch.setattr(
+        profiles_mod,
+        "con_name_to_secret_key_sources",
+        {con_name: _REST_STYLE_SOURCES},
+    )
+    kwargs = {"config": {"auth": {"fields": ["api_key"]}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ("api_key",)
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {**kwargs, "api_key": "plaintext"})
+
+
+def test_unimported_backend_contributes_no_class_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The class read stays best-effort exactly as the callable tier was: an
+    out-of-tree backend that isn't imported (and, being out-of-tree, has no
+    mirror entry) contributes nothing, and the unconditional default still
+    applies."""
+
+    class Backend:
+        _secret_key_sources = _REST_STYLE_SOURCES
+
+    con_name = _install_fake_backend(monkeypatch, Backend, imported=False)
+    kwargs = {"config": {"auth": {"fields": ["api_key"]}}}
+    assert get_declared_secret_keys(con_name, kwargs) == ()
+    assert profiles_mod.get_secret_keys(con_name, kwargs) == ("password",)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets(con_name, {"password": "plaintext"})
+
+
+def test_class_and_mirror_sources_are_unioned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Out-of-tree backends cannot add mirror entries, so an imported
+    backend's class declaration tops up the mirror's: mirror sources first,
+    class sources after."""
+
+    class Backend:
+        _secret_key_sources = (("extra_names",),)
+
+    con_name = _install_fake_backend(monkeypatch, Backend)
+    monkeypatch.setattr(
+        profiles_mod,
+        "con_name_to_secret_key_sources",
+        {con_name: (("config", "auth", "fields"),)},
+    )
+    # the mirror's source is consulted first when both could resolve
+    kwargs = {
+        "config": {"auth": {"fields": ["from_mirror"]}},
+        "extra_names": ["from_class"],
+    }
+    assert get_declared_secret_keys(con_name, kwargs) == ("from_mirror",)
+    # the class-declared source is a top-up: used when the mirror's doesn't resolve
+    assert get_declared_secret_keys(con_name, {"extra_names": ["from_class"]}) == (
+        "from_class",
+    )
+
+
+def test_get_declared_secret_keys_handles_missing_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No kwargs at all is just the unresolved case: no error, nothing
+    contributed."""
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    assert get_declared_secret_keys(con_name) == ()
+    assert profiles_mod.get_secret_keys(con_name) == ("password",)
+
+
+def test_check_for_exposed_secrets_uses_declared_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end: a key surfaced only by a declared source is enforced by
+    check_for_exposed_secrets, on top of the default/static keys, and an
+    env-var reference is accepted."""
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    config = {"auth": {"fields": ["api_key"]}}
+    with pytest.raises(ValueError, match="api_key"):
+        check_for_exposed_secrets(con_name, {"config": config, "api_key": "plaintext"})
+    check_for_exposed_secrets(con_name, {"config": config, "api_key": "${API_KEY}"})
+
+
+def test_save_is_blocked_by_a_declared_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The declared tier is enforced through Profile.save(), not just the
+    module-level helper: the save aborts and writes nothing."""
+    con_name = _install_fake_backend(monkeypatch, _DeclaringBackend)
+    config = {"auth": {"fields": ["api_key"]}}
+    profile = Profile(
+        con_name=con_name,
+        kwargs_tuple=(("config", config), ("api_key", "plaintext")),
+    )
+    with pytest.raises(ValueError, match="api_key"):
+        profile.save(profile_dir=tmp_path)
+    assert not tuple(tmp_path.iterdir())
+    # the same profile with an env-var reference saves
+    Profile(
+        con_name=con_name,
+        kwargs_tuple=(("config", config), ("api_key", "${API_KEY}")),
+    ).save(profile_dir=tmp_path)
+    assert tuple(tmp_path.iterdir())
+
+
+def test_get_secret_keys_unions_default_mirror_and_declared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The three tiers are unioned, not chained: a backend that is both
+    mirrored and declares sources is checked for the default, the mirrored,
+    and the declared keys together. Ordering is deterministic (default,
+    mirror, declared) and duplicates collapse."""
+
+    class Backend:
+        _secret_key_sources = (("secret_kwarg_names",),)
+
+    _install_fake_backend(monkeypatch, Backend, con_name="postgres")
+    keys = profiles_mod.get_secret_keys(
+        "postgres", {"secret_kwarg_names": ["token", "sslcert"]}
+    )
+    mirror = con_name_to_secret_keys["postgres"]
+    assert set(keys) == {*profiles_mod.default_secret_keys, *mirror, "token"}
+    assert keys[0] == "password"  # tier 1, unconditionally
+    assert tuple(key for key in keys if key in mirror) == mirror  # tier 2, in order
+    assert keys[-1] == "token"  # tier 3, after the tiers it can only widen
+    # first occurrence wins, so the source repeating "sslcert" adds no duplicate
+    assert len(keys) == len(set(keys))
+
+
+def test_declared_sources_cannot_shrink_mirrored_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Monotonicity: a source resolving to a subset of a mirrored backend's
+    keys -- or to () -- can only widen the checked set, never narrow it."""
+
+    class Backend:
+        _secret_key_sources = (("secret_kwarg_names",),)
+
+    _install_fake_backend(monkeypatch, Backend, con_name="postgres")
+    keys = profiles_mod.get_secret_keys("postgres", {"secret_kwarg_names": []})
+    assert set(con_name_to_secret_keys["postgres"]) <= set(keys)
+    with pytest.raises(ValueError, match="password"):
+        check_for_exposed_secrets("postgres", {"password": "plaintext"})
+    with pytest.raises(ValueError, match="sslcert"):
+        check_for_exposed_secrets("postgres", {"sslcert": "/path/to/cert"})
+
+
+def test_validate_con_name_sees_a_backend_installed_mid_process(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A backend installed into a live process is usable without a restart: a
+    direct scan of the cached entry points would reject it as "Unknown backend",
+    listing a stale set as the installed ones, until the process restarted."""
+    with installed_mid_process(tmp_path, "xorqfakeprofilebackend") as con_name:
+        profile = Profile(con_name=con_name, kwargs_tuple=())
+        assert profile.con_name == con_name
+        # a name that really doesn't exist still raises, against the fresh list
+        with pytest.raises(ValueError, match="Unknown backend 'xorqnosuchbackend'"):
+            Profile(con_name="xorqnosuchbackend", kwargs_tuple=())

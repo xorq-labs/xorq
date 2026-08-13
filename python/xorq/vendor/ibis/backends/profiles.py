@@ -1,5 +1,7 @@
+import inspect
 import itertools
 import json
+import sys
 from pathlib import Path
 from types import MappingProxyType
 
@@ -14,7 +16,7 @@ from attr.validators import (
 from xorq.backends._lazy import LazyBackend
 from xorq.common.utils.env_utils import compiled_env_var_substitution_re
 from xorq.common.utils.inspect_utils import get_arguments
-from xorq.loader import _load_entry_points, load_backend
+from xorq.loader import _find_entry_point, _load_entry_points, load_backend
 from xorq.vendor.ibis.config import options
 
 
@@ -181,9 +183,10 @@ class Profile:
 
     @con_name.validator
     def validate_con_name(self, attr, value):
-        entry_points = _load_entry_points()
-        if not any(ep.name == value for ep in entry_points):
-            installed = sorted(ep.name for ep in entry_points)
+        # _find_entry_point, not a direct scan of the cache: see its docstring.
+        # On a miss it has refreshed, so the names below are the fresh ones.
+        if _find_entry_point(value) is None:
+            installed = sorted(ep.name for ep in _load_entry_points())
             raise ValueError(
                 f"Unknown backend {value!r}; installed backends: {installed}"
             )
@@ -469,11 +472,139 @@ con_name_to_secret_keys = MappingProxyType(
 )
 
 
+# Checked for every backend, on top of the mirror and the declared sources: a
+# backend cannot declare that a kwarg literally named `password` is not a secret.
+default_secret_keys = ("password",)
+
+
+# Declarative secret-key sources by connection name, mirrored from each backend's
+# `Backend._secret_key_sources` exactly as `con_name_to_secret_keys` mirrors
+# `_secret_keys`. Mirroring data means resolution never needs the backend imported.
+con_name_to_secret_key_sources = MappingProxyType({})
+
+
+def _resolve_source(source: tuple[str, ...], kwargs: dict) -> tuple[str, ...] | None:
+    """The names ``source`` points at inside ``kwargs``, or None when it doesn't
+    resolve. Every read is through an unbound builtin, so a subclass's
+    ``get``/``__getitem__``/``__missing__``/``__iter__``/``__str__`` is bypassed
+    and the true underlying data is read; the names come back as exact ``str``
+    copies, since a ``str`` subclass reaching the caller could forge the ``__eq__``
+    that matches it against a kwarg or the ``__hash__`` that dedupes it. (Dict
+    probing can still run a *stored* key's ``__eq__`` on a hash collision; one
+    that raises is caught below, and one that lies can only redirect among values
+    already in the kwargs.) Anything that isn't a ``dict`` at a step, or a
+    ``list``/``tuple`` at the leaf, is unresolved rather than reached into --
+    ``secret_fields: null`` falls through, while ``[]`` resolves to ``()``.
+    """
+    value = kwargs
+    for step in source:
+        if not isinstance(value, dict):
+            return None
+        value = dict.get(value, step)
+    if isinstance(value, (list, tuple)):
+        names = (tuple if isinstance(value, tuple) else list).__iter__(value)
+        return tuple(str.__str__(name) for name in names if isinstance(name, str))
+    return None
+
+
+def _well_formed_sources(sources) -> tuple[tuple[str, ...], ...]:
+    """The sources shaped like sources: a non-empty tuple of ``str`` steps. A
+    malformed one contributes nothing; shape is pinned by the mirror tests."""
+    return tuple(
+        source
+        for source in sources
+        if isinstance(source, tuple)
+        and source
+        and all(isinstance(step, str) for step in source)
+    )
+
+
+def _imported_backend(con_name: str) -> type | None:
+    """The already-imported Backend class for ``con_name``, or None -- never
+    importing, since validating a profile must not import a heavy backend."""
+    entry_point = _find_entry_point(con_name)
+    if entry_point is None:
+        return None
+    module = sys.modules.get(entry_point.module)
+    if module is None:
+        return None
+    backend = inspect.getattr_static(module, "Backend", None)
+    return backend if isinstance(backend, type) else None
+
+
+def _secret_key_sources_for(con_name: str) -> tuple[tuple[str, ...], ...]:
+    """Every declared source for ``con_name``: the mirror entry, topped up from
+    ``_secret_key_sources`` on an already-imported backend, which is how an
+    out-of-tree backend -- unable to add a mirror entry -- keeps the tier.
+    ``getattr_static`` cannot fire a descriptor, so a ``property`` declaration
+    contributes nothing instead of executing."""
+    sources = tuple(con_name_to_secret_key_sources.get(con_name, ()))
+    if (backend := _imported_backend(con_name)) is not None:
+        declared = inspect.getattr_static(backend, "_secret_key_sources", ())
+        if isinstance(declared, tuple):
+            sources += declared
+    return tuple(dict.fromkeys(_well_formed_sources(sources)))
+
+
+def get_declared_secret_keys(
+    con_name: str, kwargs: dict | None = None
+) -> tuple[str, ...]:
+    """The first resolving declared source's names, or ``()`` -- tier 3 of
+    ``get_secret_keys``. A backend whose secret kwarg names depend on the kwargs
+    themselves declares *where the names live*, as static class data::
+
+        _secret_key_sources = (
+            ("config", "auth", "secret_fields"),
+            ("config", "auth", "fields"),
+        )
+
+    The first source that resolves wins, and the names it yields are matched against
+    the **top level** of the kwargs, so for ``{"config": {"token": ...}}`` a source
+    yielding ``"token"`` matches nothing.
+    """
+    kwargs = kwargs if kwargs is not None else {}
+    for source in _secret_key_sources_for(con_name):
+        try:
+            names = _resolve_source(source, kwargs)
+        except Exception as e:
+            # a hostile object in kwargs, not a declaration bug: fail closed. Only
+            # our own source is interpolated, so no kwarg value can leak here.
+            raise ValueError(
+                f"{con_name}: could not resolve secret-key source {source}: "
+                f"{type(e).__name__}"
+            ) from e
+        if names is not None:
+            return names
+    return ()
+
+
+def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...]:
+    """Return every secret key to check for ``con_name``: the *union* of
+
+    1. the unconditional ``default_secret_keys`` (``("password",)``),
+    2. the static ``con_name_to_secret_keys`` mirror entry, if any,
+    3. the backend's declared ``_secret_key_sources``, resolved against kwargs.
+
+    Unioning is what keeps this monotone: an empty, narrower, or unresolved tier 3
+    leaves tiers 1 and 2 intact, so a declaration can only widen what is checked.
+    Ordering is deterministic -- first occurrence wins, tiers in the order above.
+    """
+    return tuple(
+        dict.fromkeys(
+            (
+                *default_secret_keys,
+                *con_name_to_secret_keys.get(con_name, ()),
+                *get_declared_secret_keys(con_name, kwargs),
+            )
+        )
+    )
+
+
 def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
     """Check if profile contains exposed secret keys.
 
-    Secret keys come from the static `con_name_to_secret_keys` mirror,
-    defaulting to `("password",)` for backends not listed.
+    The keys come from `get_secret_keys`, which unions the unconditional
+    default, the static mirror, and the backend's declared secret-key sources.
 
     Raises
     ------
@@ -481,14 +612,16 @@ def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
         If profile contains exposed secret keys not using environment variables
     """
 
-    relevant_keys = con_name_to_secret_keys.get(
-        con_name,
-        ("password",),  # default to just password
-    )
+    relevant_keys = get_secret_keys(con_name, kwargs)
 
     exposed_secrets = tuple(
         key
-        for key, value in kwargs.items()
+        # unbound, like the reads in _resolve_source: a subclass's items() could
+        # otherwise hide the very kwarg the resolver just named. A str-subclass
+        # *key* forging __eq__ can still evade the membership test below --
+        # accepted: a hostile caller could as easily rename the kwarg, and the
+        # serialized profile carries the key's own str value either way.
+        for key, value in dict.items(kwargs)
         if key in relevant_keys
         and not (
             isinstance(value, str) and compiled_env_var_substitution_re.match(value)
