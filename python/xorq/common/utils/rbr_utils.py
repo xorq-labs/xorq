@@ -19,10 +19,7 @@ from xorq.common.utils.otel_utils import (
 def reraise(exc: BaseException) -> NoReturn:
     """``excepts_print_exc`` handler that propagates instead of swallowing.
 
-    The default handler returns ``None``, which turns a failure into a
-    successful-looking empty result. Pass this one wherever the caller has to
-    learn that the call failed -- e.g. a Flight exchange, where swallowing
-    leaves the client reading an empty stream and caching the nothing it got.
+    The default returns ``None``, turning a failure into an empty result.
     """
     raise exc
 

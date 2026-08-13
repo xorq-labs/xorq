@@ -259,10 +259,8 @@ def test_bare_flight_udxf_binds_params_through_to_rbr() -> None:
 def execute_with_deadline(expr: xo.Table, seconds: int = 90) -> pd.DataFrame:
     """``xo.execute`` on a daemon thread, so a deadlock fails instead of hanging.
 
-    The bug these tests cover is a hang, and a hang inside pytest is a 300s
-    faulthandler dump rather than a failure. A daemon thread is abandonable: if
-    it is still running at the deadline the test fails immediately, and the
-    interpreter can still exit.
+    A hang inside pytest is a 300s faulthandler dump rather than a failure, and
+    a daemon thread is abandonable, so the interpreter can still exit.
     """
     box = {}
 
@@ -285,9 +283,8 @@ def execute_with_deadline(expr: xo.Table, seconds: int = 90) -> pd.DataFrame:
 def make_failing_udxf(exc_type: type[BaseException], message: str) -> xo.Table:
     """A UDXF whose ``process_df`` raises ``exc_type(message)``.
 
-    The exception is built inside the fetcher rather than closed over: an
-    exception *instance* in the closure is not hashable by dasher, so the
-    expression would fail to build and never reach the exchange at all.
+    Built inside the fetcher, not closed over: an exception *instance* in the
+    closure is not hashable by dasher, so the expression would fail to build.
     """
     schema = xo.schema({"unit": "int64"})
 
@@ -306,9 +303,8 @@ def make_failing_udxf(exc_type: type[BaseException], message: str) -> xo.Table:
     ("exc_type", "message"),
     (
         param(ValueError, "plain exception", id="exception"),
-        # SystemExit is not an Exception: it used to escape the exchange's
-        # excepts wrapper entirely, leaving the client's reader in queue.get()
-        # forever with no error and no end-of-stream
+        # not an Exception, so it used to escape the excepts wrapper and leave
+        # the client's reader in queue.get() forever
         param(SystemExit, "missing credential", id="systemexit"),
     ),
 )
@@ -317,11 +313,9 @@ def test_udxf_failure_raises_instead_of_hanging(
 ) -> None:
     """A failed exchange must surface as an error to whoever pulls the batches.
 
-    The failure reaches the client as an error status, i.e. as an exception out
-    of the reader -- never as an end-of-stream. Both halves matter: the client
-    has to forward that exception to the consumer (or it deadlocks), and the
-    server has to re-raise rather than swallow (or the consumer sees a clean,
-    empty, cacheable stream).
+    Both halves matter: the client forwards the exception to the consumer (or
+    it deadlocks), and the server re-raises rather than swallows (or the
+    consumer sees a clean, empty, cacheable stream).
     """
     expr = make_failing_udxf(exc_type, message)
     with pytest.raises(Exception, match=message):

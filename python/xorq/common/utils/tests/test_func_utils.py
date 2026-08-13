@@ -5,12 +5,9 @@ import pytest
 from xorq.common.utils.func_utils import log_excepts, maybe_log_excepts
 
 
-# `log_excepts` decorates the four Flight RPC handlers in flight/server.py, but
-# only when `options.debug` is set -- which CI never sets. So nothing else in
-# the suite covers it, and the swallow it used to do was invisible until it hit
-# someone: under XORQ_DEBUG=1 alone, a failed exchange was caught at the RPC
-# boundary and returned None, i.e. a clean, empty, cacheable stream, undoing
-# the propagation the exchangers had just been fixed to guarantee. These tests
+# `log_excepts` decorates the four Flight RPC handlers only when `options.debug`
+# is set, which CI never sets -- so nothing else covers it, and its swallow
+# silently undid the exchangers' propagation under XORQ_DEBUG=1 alone. These
 # pin the decorator to "adds logging, changes nothing else".
 
 
@@ -55,11 +52,10 @@ def test_log_excepts_does_not_catch_a_narrower_exception_arg() -> None:
 def test_maybe_log_excepts_propagates_whether_or_not_debug_is_on(
     debug: bool,
 ) -> None:
-    """The point of the whole thing: debug mode must not change semantics.
+    """Debug mode must not change semantics.
 
-    With debug off `maybe_log_excepts` hands back the undecorated function, so
-    these two paths agreeing is what keeps a failure from depending on an env
-    var to reach the caller.
+    With debug off the function comes back undecorated, so these two agreeing
+    is what keeps a failure from depending on an env var to reach the caller.
     """
     with pytest.raises(ValueError, match="boom"):
         maybe_log_excepts(boom, debug=debug)()

@@ -59,11 +59,10 @@ def replace_one_unbound(unbound_expr, table):
     return replace_unbound(unbound_expr, dt, target=unbound)
 
 
-# print the traceback where it happened -- on the server side, with the
-# fetcher's own frames -- and then let it out: the exchange must end in an error
-# status, not in a clean empty stream that the client would cache as the answer.
-# `BaseException`, because a `SystemExit` raised by the exchanged function is
-# exactly the case that used to escape and leave the client's reader hanging.
+# print the traceback server-side, with the fetcher's frames, then let it out:
+# the exchange must end in an error status, not a clean empty stream the client
+# would cache. `BaseException` because `SystemExit` is the case that used to
+# escape and hang the client's reader.
 @excepts_print_exc(exc=BaseException, handler=reraise)
 def streaming_exchange(
     f, context, reader, writer, options=None, out_schema=None, **kwargs
@@ -418,8 +417,8 @@ def make_udxf(
         )
 
     if do_wraps:
-        # no excepts wrapper here: `streaming_exchange` already prints and
-        # re-raises, and wrapping it again only doubles the traceback
+        # no wrapper: `streaming_exchange` already prints and re-raises, and
+        # wrapping twice only doubles the traceback
         exchange_f = functools.partial(
             streaming_exchange,
             functools.partial(process_batch, process_df),

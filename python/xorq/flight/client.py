@@ -225,15 +225,10 @@ class FlightClient:
             return i
 
         def do_writes_reads(command, reader, queue):
-            # The consumer blocks on `queue` until it sees the sentinel, so every
-            # exit path from here must put one -- including a failure to open the
-            # exchange at all, which is why `do_exchange` is inside the `try`. A
-            # server-side failure arrives as an exception out of `do_reads` (or
-            # out of closing the writer), not as an end-of-stream: without the
-            # sentinel the reader would block in `queue.get()` forever -- and
-            # since the caller of `do_exchange_batches` consumes `rbr` and drops
-            # `fut`, the exception would go unseen. Hand it to the queue instead,
-            # for `queue_to_gen` to raise in the consumer's thread.
+            # The consumer blocks until it sees the sentinel, so every exit path
+            # must put one -- including a failure to open the exchange, which is
+            # why `do_exchange` is inside the `try`. Callers drop `fut`, so an
+            # exception left there goes unseen; it goes on the queue instead.
             try:
                 descriptor = pa.flight.FlightDescriptor.for_command(command)
                 writer, _reader = self._client.do_exchange(descriptor, self._options)
@@ -255,8 +250,7 @@ class FlightClient:
         def queue_to_rbr(schema, queue):
             def queue_to_gen(queue):
                 while (value := queue.get()) is not None:
-                    # the exchange failed: re-raise in the thread that is pulling
-                    # batches, where the caller can actually see it
+                    # re-raise where the caller can see it: the pulling thread
                     if isinstance(value, BaseException):
                         raise value
                     yield value
