@@ -133,8 +133,15 @@ def normalize_read_source_identity(read: Read) -> tuple[tuple[str, object], ...]
     )
     # a source may contribute identity of its own (RestBackend folds the
     # per-resource config content hash so editing a resource's declarative
-    # config changes identity, ADR-0015, without invalidating siblings);
-    # delegation keeps backend-specific knowledge out of this normalizer
+    # config changes identity, ADR-0015); delegation keeps backend-specific
+    # knowledge out of this normalizer.
+    #
+    # Note the interaction with the profile hash above: when a source's config
+    # lives IN its profile (a self-service rest connection), that config is
+    # already folded there, so editing any part of it moves every read on that
+    # connection and the touched part is counted twice. Sibling independence is
+    # therefore a curated-mode property; the direction is safe (spurious
+    # invalidation) and the fix would be an identity change of its own.
     read_identity_parts = getattr(read.source, "read_identity_parts", None)
     if read_identity_parts is not None:
         parts += tuple(read_identity_parts(read))

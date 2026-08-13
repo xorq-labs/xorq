@@ -89,10 +89,10 @@ invisible. `IdentitySpec` composes the existing primitives — the
 `xorq_dasher.Hasher` value and the by-name `normalize_method` registry — it
 does not rehome them (0020 deferred that deliberately).
 
-This is ADR-rest-config-contract-identity-folded-residence-either's move
-applied one level up: that ADR made an API a declarative config passed to a
-shared backend class; 0021 makes an engine a declarative config passed to a
-shared builder, itself constructed from the declarative cross-engine spec.
+This is ADR-2215's move applied one level up: that ADR made an API a
+declarative config passed to a shared backend class; 0021 makes an engine a
+declarative config passed to a shared builder, itself constructed from the
+declarative cross-engine spec.
 
 ### The builder owns the fingerprints and the ambient hasher
 
@@ -141,11 +141,10 @@ production code that never mentions builders behaves exactly as today.
    `into_backend`/cache-key/tee assembly assert agreement. Gate: an audit
    that every composition point is covered.
 3. **Per-engine spec threading** — compilers, paginators, auth appliers
-   become `build()` inputs; includes namespacing the base paginator/auth
-   names (the ADR-rest-config-contract-identity-folded-residence-either
-   append-only hazard) before the catalog grows. This
-   phase touches vendored-ibis backend construction — a high-conflict
-   surface — and should wait until in-flight backend work settles.
+   become `build()` inputs; includes namespacing the base paginator/auth names
+   (the ADR-2215 append-only hazard) before the catalog grows. This phase
+   touches vendored-ibis backend construction — a high-conflict surface — and
+   should wait until in-flight backend work settles.
 
 ## Alternatives considered
 
@@ -214,9 +213,8 @@ Rejected because:
 
 - ADR-0020 (the fingerprint fold and partition this builds on; its
   "Per-engine rule swapping is not yet wired" negative is what phases 1–3
-  retire), ADR-rest-config-contract-identity-folded-residence-either
-  (declarative config precedent; paginator/auth
-  namespacing hazard), ADR-0015 (build vs cache hash grain)
+  retire), ADR-2215 (declarative config precedent; paginator/auth namespacing
+  hazard), ADR-0015 (build vs cache hash grain)
 - `xorq_dasher.Hasher` (`core.py:84`); `dasher/__init__.py`
   (`_current_hasher`, `snapshot_hasher`); `caching/strategy.py`
   (`SnapshotStrategy.normalization_context`); `provenance_utils.py`

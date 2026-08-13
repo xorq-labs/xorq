@@ -83,12 +83,10 @@ rest = "xorq_rest_plugin.identity:CONTRIBUTION"
 ```
 
 A contribution carries: dasher rules to add (`(fqn, normalizer)` pairs),
-`normalize_registry` entries to add (`(key, fn)` pairs), and nothing else.
-Both are by-name surfaces
-(ADR-rest-config-contract-identity-folded-residence-either/0020 discipline);
-a contribution cannot
-carry per-engine material (compilers, paginators, auth — those are
-`build()` inputs per ADR-0021 phase 3).
+`normalize_registry` entries to add (`(key, fn)` pairs), and nothing else. Both
+are by-name surfaces (ADR-2215/0020 discipline); a contribution cannot carry
+per-engine material (compilers, paginators, auth — those are `build()` inputs
+per ADR-0021 phase 3).
 
 ### Composition is eager, total, and sorted
 
@@ -182,6 +180,17 @@ Rejected because:
   a plugin backend is touched, so two expressions in one session could hash
   under different regimes. Eager totality keeps one regime per process.
 
+Note that until this ADR is implemented, nothing *prevents* lazy composition: a
+plugin can rebind `dasher.HASHER` in its own module body, and
+`rules_fingerprint()` reads that global at call time. The trigger is any path
+that imports a plugin backend, so the hazard is latent rather than live (no
+in-tree backend rebinds `HASHER`, and the entry-point group here is loaded by no
+code) — but it is real, and sealing the spec at first tokenize is what closes
+it. Secret-key resolution is deliberately *not* such a path:
+ADR-build-artifacts-are-credential-free inspects only already-imported backends
+precisely so that saving a profile cannot run a plugin's module body, which
+would otherwise move the build-hash fingerprint as a side effect.
+
 ### Last-wins conflict resolution in sorted order
 
 Rejected because:
@@ -231,11 +240,10 @@ Rejected because:
 ## References
 
 - ADR-0021 (the builder this extends; its 2026-07-30 amendment names this
-  ADR as the owner of the extension gap), ADR-0020 + amendment
-  (fingerprint visibility of contributed and replaced rules),
+  ADR as the owner of the extension gap), ADR-0020 + amendment (fingerprint
+  visibility of contributed and replaced rules),
   ADR-out-of-core-patches-compose-delegate-conjoin-or-fork-behind-a-tripwire
-  (the stop-gap composition rule contributions graduate from),
-  ADR-rest-config-contract-identity-folded-residence-either
+  (the stop-gap composition rule contributions graduate from), ADR-2215
   (by-name registries; append-only hazard)
 - The out-of-tree REST plugin prototype patches the dasher rule table and the
   `normalize_registry` at import; those are the two mutations a single
