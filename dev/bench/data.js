@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786623813702,
+  "lastUpdate": 1786651413794,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -34194,6 +34194,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.09423228436467926",
             "extra": "mean: 1.572991651799987 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd2faa9db27ef605ca34e5c6f51460579f0690ec",
+          "message": "fix(flight): surface exchange failures instead of hanging or returning empty (#2231)\n\n## Summary\n\nA failure inside a Flight exchange did not reach the caller. Which of\nthe two bad outcomes you got depended only on what the fetcher raised:\n\n- an ordinary `Exception` was swallowed by `excepts_print_exc`'s default\nhandler (`return_none`), so the exchange ended in a clean, empty stream\n— indistinguishable from a legitimately empty result, and cacheable as\nthe answer;\n- a `BaseException` — the `SystemExit` a credential check raises —\nescaped that wrapper instead and killed the handler. The client's\n`do_reads` then never queued its end-of-stream sentinel, so the consumer\nblocked in `queue.get()` forever, uninterruptibly.\n\nBoth halves are fixed, because either alone leaves a hole.\n\n**Server side.** `streaming_exchange` and `streaming_expr_exchange` now\nwrap with `excepts_print_exc(exc=BaseException, handler=reraise)`: the\ntraceback still prints where it happened, with the fetcher's own frames,\nand then propagates so the exchange ends in an error status rather than\na clean EOS. `reraise` is a new `excepts_print_exc` handler in\n`rbr_utils` — the printing is what you want, the swallowing is not. The\nnow-redundant wrapper in `make_udxf` is dropped, since double-wrapping\nonly doubles the traceback.\n\n**Client side.** `do_writes_reads` now owns stream termination: the\nsentinel moves out of `do_reads` and every exit path puts something on\nthe queue — `None` on success, the exception itself on failure.\n`queue_to_gen` re-raises that exception in the thread pulling batches.\nThis matters because the caller of `do_exchange_batches` consumes `rbr`\nand drops the future, so an exception left in the future is never seen\nby anyone.\n\n## Testing\n\n`python -m pytest python/xorq/flight/tests/test_flight_exchange.py` — 13\npassed.\n\nNew tests:\n\n- `test_udxf_failure_raises_instead_of_hanging[exception]` /\n`[systemexit]` — a failed UDXF surfaces as an error to whoever pulls the\nbatches. The `SystemExit` case is the one that used to deadlock.\n- `test_failed_udxf_writes_no_cache` — the swallowed-failure path used\nto write a zero-row parquet and store it as the answer; now it raises\nand writes nothing.\n\nThe tests run `xo.execute` on a daemon thread with a deadline\n(`execute_with_deadline`), because the bug under test is a hang: inside\npytest that is a 300s faulthandler dump rather than a failure, and a\ndaemon thread is abandonable so the deadline fails fast and the\ninterpreter can still exit.\n\nAll three were verified red against `main` (source files reverted, new\ntests kept):\n\n- `[exception]` — `Failed: DID NOT RAISE <class 'Exception'>`; the\ntraceback prints server-side but the stream ends clean.\n- `[systemexit]` — `AssertionError: exchange did not finish within 90s:\ndeadlocked`.\n- `test_failed_udxf_writes_no_cache` — same `DID NOT RAISE`; the\nzero-row result is written to the cache.\n\n\nTwo commits were added after review (`ff69955f`, `efd9f3a5`):\n`do_writes_reads` now builds the descriptor and opens the exchange\n*inside* its `try`, so a failure to open the exchange at all also queues\na terminator; and `log_excepts` (`func_utils.py`) re-raises after\nlogging, because it decorates the four Flight RPC handlers under\n`options.debug` and its swallow re-hid exchange failures under\n`XORQ_DEBUG=1` alone. `test_func_utils.py` pins that, since no CI job\nsets the flag.\n\nFlight suite: 84 passed with and without `XORQ_DEBUG=1`; 90 passed\nincluding the new `test_func_utils.py`.\n\n## Relation to #2227\n\nPartially addresses #2227 — deliberately not a closing reference, since\nthat issue catalogues more than this PR fixes.\n\nFixed here, of #2227's root-cause list:\n\n- the swallow at `streaming_exchange` and `streaming_expr_exchange` (2\nof the 4 `excepts_print_exc` sites)\n- the client-side missing sentinel, i.e. the indefinite hang and the\nun-deliverable Ctrl-C\n- the `options.debug` swallow at the RPC boundary (`log_excepts`), which\n#2227 names only in its test list\n\nOf #2227's minimum test set:\n\n- **1** (`SystemExit` → caller raises within timeout) — covered,\n`[systemexit]`\n- **2** (`Exception` → caller raises) — covered, `[exception]`\n- **3** (same with `options.debug=True`) — covered at the decorator\nlevel by `test_func_utils.py` (`maybe_log_excepts(..., debug=True)`),\nand the flight suite passes under `XORQ_DEBUG=1`; there is **no**\nend-to-end flight test that forces `options.debug` on\n- **4** (input reader raises → caller raises, original exception\npreserved) — behavior verified manually during review, **not** pinned by\na test\n- **5** (exchanger returns full output without draining a large input) —\nnot addressed\n- **6** (metadata-only chunk mid-stream) — not addressed\n\nLeft open by this PR, all still live in #2227:\n`streaming_split_exchange` (both wraps) and its partial-failure policy,\n`_do_action`'s `None` → `TypeError`, the bare `assert` at\n`client.py:248`, `instrument_reader`'s `StopIteration`/PEP-479 path, the\nmetadata-only-chunk truncation, thread-pool starvation, and the\n`queue.get(timeout=…)` watchdog.\n\n---------\n\nCo-authored-by: dlovell <dan@xorq.dev>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-13T15:57:41-04:00",
+          "tree_id": "c3acdae34d1f9e6014f00f50ba1e0a25d2046e7e",
+          "url": "https://github.com/xorq-labs/xorq/commit/bd2faa9db27ef605ca34e5c6f51460579f0690ec"
+        },
+        "date": 1786651410492,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.151102773970205,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0054236091980339185",
+            "extra": "mean: 122.68278633332999 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5752641989165226,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058148547715902464",
+            "extra": "mean: 388.30967340000484 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7456467695041611,
+            "unit": "iter/sec",
+            "range": "stddev: 0.21395473310072083",
+            "extra": "mean: 1.3411175920000005 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.6066357276904495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.060280765610457365",
+            "extra": "mean: 383.6362670000028 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.3206731694366662,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03899903657638454",
+            "extra": "mean: 430.9094504000086 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.39692042972871,
+            "unit": "iter/sec",
+            "range": "stddev: 0.059899428320508735",
+            "extra": "mean: 417.20200120000754 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 143.1095301288741,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007702061631350685",
+            "extra": "mean: 6.987654834024487 msec\nrounds: 241"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.056296115630627,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021040137135093135",
+            "extra": "mean: 327.1934270000088 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 10.809213350974852,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02287867516249028",
+            "extra": "mean: 92.51367028571167 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 11.628436036780887,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008205578369128198",
+            "extra": "mean: 85.99608724999541 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.454871062432954,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004283992220108293",
+            "extra": "mean: 95.64919490908478 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.049136351225142,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010660441564470694",
+            "extra": "mean: 141.8613501249979 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.899032550907152,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02752471444762908",
+            "extra": "mean: 204.12193420001472 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.580515963316104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008428250440312842",
+            "extra": "mean: 218.3160168000029 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.3029199889199137,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07064083917899439",
+            "extra": "mean: 434.23132579999333 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.359287836138564,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014581130765064735",
+            "extra": "mean: 297.6821424000036 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.6961148397945933,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1014319740175646",
+            "extra": "mean: 589.5827195999914 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.5928913322352376,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10102533727409974",
+            "extra": "mean: 627.7892156000007 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5624460287197883,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09163859922879027",
+            "extra": "mean: 640.0221074000001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5574515606757786,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1272588625117075",
+            "extra": "mean: 642.0745435999947 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.3238282563373889,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12990137174688704",
+            "extra": "mean: 755.3849944000149 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1227585300073246,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13024473159336983",
+            "extra": "mean: 890.6634625999914 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0086040218772203,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19741292624704787",
+            "extra": "mean: 991.4693758000226 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5646717925242568,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2234020558160944",
+            "extra": "mean: 1.7709402403999888 sec\nrounds: 5"
           }
         ]
       }
