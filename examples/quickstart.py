@@ -67,8 +67,13 @@ def transform_predict(df):
 
 # For Flight server
 def sentiment_analysis(df: pd.DataFrame):
+    # one score per title, like `transform_predict` above. `predict` returns an
+    # array, and `float()` on an array is a TypeError on numpy >= 2 for *any*
+    # size, so the scalar form failed on every batch -- invisibly, until the
+    # exchange stopped swallowing. It also emitted a single row per batch no
+    # matter how many titles came in.
     scores = predict_sentiment(df["title"])
-    return pd.DataFrame({"sentiment_score": [float(scores)]})
+    return pd.DataFrame({"sentiment_score": pd.Series(scores, dtype="float64")})
 
 
 def test_flight_service(do_sentiment, schema_in):
@@ -78,6 +83,10 @@ def test_flight_service(do_sentiment, schema_in):
     (_, rbr) = do_sentiment(test_data)
     res = rbr.read_pandas()
     print("Flight service test result:\n", res)
+    # nothing here asserted anything, so a service returning zero rows -- which
+    # is what the swallowed TypeError produced -- still counted as a pass
+    assert len(res) == 1, f"expected one score per title, got {len(res)} rows"
+    assert res["sentiment_score"].notna().all()
 
 
 # connect to xorq's embedded engine
