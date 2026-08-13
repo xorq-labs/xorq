@@ -12,9 +12,8 @@ ADR-api-relations-are-pathless-read-ops) made one API (Mixpanel) a
 profile-carrying backend whose resources are path-less `Read` ops. The Phase 3
 target is a broad catalog (tens of APIs). Writing a hand-rolled backend per API
 does not scale; adopting dlt wholesale conflicts with xorq's determinism
-(schema evolution, stateful cursors — see the udxf-source API-as-Backend
-design plan's Phase 3 "superseded framing", an untracked working document
-outside this repository). The mixpanel backend already contained the
+(schema evolution, stateful cursors: dlt treats both as sources of runtime
+adaptation, which moves data identity out of the expression). The mixpanel backend already contained the
 answer inlined: resource schemas, a readers dict, URL maps (the config) and a
 generic `_deferred_read` (the machinery).
 
@@ -131,8 +130,11 @@ handed it the exact data the check protects, and ran it where an exception
 is unacceptable and a warning is an exfiltration channel — most of the added
 machinery guarded the contract rather than implementing the feature, and a
 config the constructor rejects made the whole tier vanish exactly when it
-was needed (the declarative-secret-key-sources design plan, an untracked working
-document outside this repository, records the audit).
+was needed. An audit of that branch attributed roughly 60% of its added
+production lines -- kwargs deep-copies, return-shape guards, and a bespoke
+substring-redaction engine for the warnings, three complete designs in three
+consecutive commits -- to defending the contract rather than implementing the
+feature.
 The data form deletes those code paths instead of guarding them: resolution
 runs no backend code and never imports — the sources are mirrored in
 `con_name_to_secret_key_sources`, so the answer does not depend on the
@@ -224,9 +226,6 @@ Rejected because:
 
 - ADR-0015, ADR-build-artifacts-are-credential-free,
 ADR-api-relations-are-pathless-read-ops
-- the udxf-source API-as-Backend design plan (untracked, outside this
-  repository) — Phase 3 and open question 4's resolution ("identity: always
-  folded; residence: either")
 - dlt `rest_api` / `RESTAPIConfig` (https://dlthub.com/docs) — the shape the
   omissions are defined against
 
