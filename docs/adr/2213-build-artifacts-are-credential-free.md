@@ -61,9 +61,11 @@ Three mechanisms implement this:
 (`get_secret_keys`), not a fallback chain:
 
 1. `default_secret_keys` — `("password",)`, unconditional;
-2. the static `con_name_to_secret_keys` mirror, keyed by connection name;
-3. the backend's `_get_secret_keys(kwargs)` hook, when the backend is
-   already imported.
+2. the static keys: the `con_name_to_secret_keys` mirror, keyed by connection
+   name, topped up from an already-imported backend's `_secret_keys`;
+3. the backend's declared `_secret_key_sources` — static class data naming
+   *where in the connection kwargs* the secret-key names live — resolved
+   against the kwargs by a pure data walk.
 
 Unioning is what makes the gate monotone: an empty, narrower, raising or
 unresolvable tier leaves the others intact, so a tier can only ever *widen*
@@ -71,15 +73,23 @@ what is checked. A precedence chain cannot promise that -- the tier that
 answers first decides, and the one that knows least can silence the rest. That
 is fail-open in a security gate, and it is why this is a union.
 
-Tier 2 is the import-free floor, and the only tier that answers in a process
-which never imported the backend -- validating a saved profile, a CLI audit.
-Tier 3 is the widening step, and the only tier available to an out-of-tree
-backend, which can never appear in the in-tree mirror.
+Tier 2's mirror is the import-free floor, and the only input that answers in a
+process which never imported the backend -- validating a saved profile, a CLI
+audit. The class reads are the widening step for an out-of-tree backend, which
+can never appear in the in-tree mirrors: its static `_secret_keys` covers the
+fixed names, its `_secret_key_sources` covers names stored in the kwargs data.
 
-A `Backend._secret_keys` class attribute is a **documentation** mirror, not a
-runtime input: nothing reads it to decide what to check. Tests pin it against
-tier 2 in both directions, so the declaration beside the backend and the mirror
-cannot drift.
+No backend-authored code executes inside the gate. Every declaration is
+static class data, read with `inspect.getattr_static` (a descriptor cannot
+fire) and resolved by type checks and unbound-builtin reads; the names come
+back as exact `str` copies. A callable hook was tried and replaced (#2184):
+plugin code running inside a security check, handed the exact data the check
+protects, needed more lines of defensive guards than feature, with one leak
+shape unclosable by construction.
+
+For an in-tree backend, `Backend._secret_keys` is pinned against the tier-2
+mirror by tests in both directions, so the declaration beside the backend and
+the mirror cannot drift.
 
 ### Env var references are the wire format for secrets
 
@@ -154,12 +164,12 @@ Rejected because:
   hygiene review; credential rotation never invalidates hashes.
 - An in-tree backend opts in with a mirror entry plus the matching
   `_secret_keys` declaration the drift tests require; an out-of-tree backend,
-  which cannot be mirrored, opts in with the `_get_secret_keys(kwargs)` hook.
-  Declaring `_secret_keys` alone changes nothing at runtime -- it is the
-  documentation half of the pair.
+  which cannot be mirrored, opts in by declaring static `_secret_keys` for its
+  fixed names (read from the imported class) and `_secret_key_sources` when
+  the names live in the kwargs data.
 - The plugin contract is pinned in-tree by `xorq.tests.fixture_backend`, an
   API-shaped backend installed as an entry point mid-test: profile-carried
-  auth, hook-declared secret keys with no mirror entry, env-ref-only
+  auth, class-declared static secret keys with no mirror entry, env-ref-only
   expressions, verified empty leak-grep of built artifacts. The reference
   *integration* is out-of-tree: `xorq-labs/xorq-mixpanel` consumes exactly
   that contract, which keeps vendor connectors -- an unbounded population
@@ -172,13 +182,14 @@ Rejected because:
   executing machine; a missing var fails at execution (KeyError), not at load.
 - Raw-credential connections cannot build serializable expressions (by
   design); users must move credentials into env vars to build.
-- Tier 3 inspects only an already-imported backend, so a process that never
-  imported it is checked by tiers 1 and 2 alone. For an in-tree backend the
-  mirror covers that; an out-of-tree backend has no mirror, so its hook is
-  silent until something imports it. Resolution deliberately does not import
-  the backend itself: importing to read a hook runs the plugin's module body,
-  and a plugin that mutates identity registries at import would move build
-  hashes as a side effect of saving a profile.
+- The class reads inspect only an already-imported backend, so a process that
+  never imported it is checked by the default and the mirrors alone. For an
+  in-tree backend the mirrors cover that; an out-of-tree backend has no mirror
+  entry, so its declarations are silent until something imports it. Resolution
+  deliberately does not import the backend itself: importing to read a
+  declaration runs the plugin's module body, and a plugin that mutates
+  identity registries at import would move build hashes as a side effect of
+  saving a profile.
 - A raw value that begins with `$` reads as an env-var reference
   (`compiled_env_var_substitution_re`) and passes this gate, then fails at
   execution when no such variable exists -- after the value is at rest in
@@ -190,7 +201,8 @@ Rejected because:
 
 - ADR-0006 (read-kwargs hash-path/read-path split), ADR-0010 (normalize op
   data vs structure), ADR-0015 (every op modifies the build hash)
-- plans/udxf-source-api-backend.md (API-as-Backend design and phasing)
+- the udxf-source API-as-Backend design plan (an untracked working document
+  outside this repository)
 - xorq-labs/xorq-template-mixpanel-fetcher (Phase 0: fetcher-in-userland)
 - xorq-labs/xorq-mixpanel (the out-of-tree reference integration)
 - xorq.tests.fixture_backend / tests/test_build_artifacts_credential_free.py

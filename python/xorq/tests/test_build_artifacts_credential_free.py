@@ -1,8 +1,9 @@
 """ADR-2213's invariant, pinned against the plugin contract itself.
 
 These tests run the `fixture_backend` module through the full out-of-tree
-path -- entry-point discovery mid-process, tier-3 secret keys with no mirror
-entry, expression capture via `expr_safe_profile_kwargs` -- so the guarantee
+path -- entry-point discovery mid-process, statically declared secret keys
+read from the imported class with no mirror entry, expression capture via
+`expr_safe_profile_kwargs` -- so the guarantee
 a real REST plugin (e.g. xorq-mixpanel) depends on is enforced here, in the
 tree that provides it, with no vendor integration shipped to do so.
 """
@@ -61,10 +62,12 @@ def con(
         yield xo.load_backend("fakeapi").connect(**env_ref_kwargs)
 
 
-def test_secret_keys_come_from_the_hook_alone(con: BaseBackend) -> None:
+def test_secret_keys_come_from_the_class_declaration_alone(
+    con: BaseBackend,
+) -> None:
     """The out-of-tree tier is sufficient: no mirror entry exists for the
     fixture backend -- an out-of-tree backend can never have one -- and the
-    dynamic hook still widens the checked keys past the default."""
+    static class read still widens the checked keys past the default."""
     assert "fakeapi" not in con_name_to_secret_keys
     assert get_secret_keys("fakeapi", {}) == ("password", "secret")
 

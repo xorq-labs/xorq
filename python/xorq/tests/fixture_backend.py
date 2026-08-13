@@ -5,9 +5,10 @@ backend relies on, so core can pin that contract without shipping any vendor
 integration:
 
 - credentials arrive as env var references and live in the Profile;
-- `_get_secret_keys` (tier 3) is the only secret-key declaration -- there is
-  deliberately no `con_name_to_secret_keys` mirror entry, because an
-  out-of-tree backend can never have one;
+- static `_secret_keys` is the only secret-key declaration, made live by the
+  tier-2 class read on the imported backend -- there is deliberately no
+  `con_name_to_secret_keys` mirror entry, because an out-of-tree backend can
+  never have one;
 - deferred reads capture a client built from `expr_safe_profile_kwargs()`,
   never from the resolved state `do_connect` received.
 
@@ -80,10 +81,6 @@ class Backend(BaseBackend, NoUrl):
     name = "fakeapi"
     dialect = None
     _secret_keys = ("secret",)
-
-    @classmethod
-    def _get_secret_keys(cls, kwargs: dict) -> tuple[str, ...]:
-        return cls._secret_keys
 
     @property
     def version(self) -> str:
