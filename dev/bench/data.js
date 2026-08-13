@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786471750151,
+  "lastUpdate": 1786622134899,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -33810,6 +33810,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.15309209982023783",
             "extra": "mean: 1.266001376600002 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0901a4c8a4dd75ff10e82d54203f19c7852d724",
+          "message": "feat(profiles): declarative secret keys via Backend._secret_key_sources (#2184)\n\n## Summary\n\nAdds a declarative secret-key tier for connection profiles. A backend\nwhose secret keys depend on the connection kwargs — e.g. the credential\nkwarg names are named by a config passed as another kwarg — declares\n**where the names live**, as static class data:\n\n```python\nclass Backend(...):\n    _secret_key_sources = (\n        (\"config\", \"auth\", \"secret_fields\"),\n        (\"config\", \"auth\", \"fields\"),\n    )\n```\n\nA tuple of **sources**, each source a tuple of dict-lookup **steps**;\nordered fallback, first source that resolves wins. Tuples of steps\nrather than dotted strings — no parser, and a kwarg name containing a\ndot stays unambiguous.\n\n`check_for_exposed_secrets` checks the **union of three tiers**, via\n`get_secret_keys(con_name, kwargs)`:\n\n1. the unconditional `default_secret_keys` (`(\"password\",)`),\n2. the static `con_name_to_secret_keys` mirror entry (from #2183), if\nany,\n3. the backend's declared `_secret_key_sources`, resolved against the\nkwargs.\n\nAn earlier iteration of this branch implemented tier 3 as a callable\nhook (`Backend._get_secret_keys(kwargs)`). That contract put\nplugin-authored code inside a security check, handed it the exact data\nthe check protects, and ran it where an exception is unacceptable and a\nwarning is an exfiltration channel — and ~60% of the production lines\nended up defending the contract (kwargs deep-copies, return-shape\nguards, a bespoke substring-redaction engine for the warnings) rather\nthan implementing the feature, with one leak shape unclosable by\nconstruction. The declarative design deletes that entire surface.\n\nDesign choices:\n\n- **No backend-authored code executes during resolution.** Every\nresolution rule is a type check or a dict lookup: a step resolves only\nagainst a plain `dict`, read through the **unbound** `dict.get`, so a\n`dict` subclass overriding `get`/`__getitem__`/`__missing__` has those\noverrides bypassed and the true underlying data is read. Anything else\nat an intermediate step — an attrs instance, a `Mapping` that isn't a\n`dict`, `None`, a list — makes the source unresolved: no attribute\naccess, no method calls. The leaf is read the same way: a `list`/`tuple`\nsubclass can override `__iter__`, so the names are read through the\nunbound `list.__iter__`/`tuple.__iter__`, which bypasses the override.\nRejecting subclasses outright instead was tried and reverted — it fails\n*open*, since a benign `list` subclass carrying real field names would\nsilently drop the tier and let the credential those names cover be\nwritten (verified against the REST port, which does block it). The\n**names** are values out of the kwargs too, so they come back as exact\n`str` copies via the unbound `str.__str__`: a `str` subclass handed\nonward carries its own `__eq__` into the membership test that matches it\nagainst a kwarg — the source resolves, the key is named in the error\npath, and the literal saves anyway — and its own `__hash__` into the\ndedupe in `get_secret_keys`, which runs outside the fail-closed guard.\nThe enforcement loop reads `dict.items(kwargs)` unbound for the same\nreason, so a subclass cannot hide from the check the very kwarg the\nresolver just named. The declaration itself is read with\n`inspect.getattr_static`, which cannot fire a descriptor, so\n`_secret_key_sources` declared as a `property` contributes nothing\ninstead of executing. Normalizing an absent `kwargs` tests for `None`\nrather than truthiness, so a subclass whose `__len__` reports empty\ncannot silently disable the tier either.\n- **Monotone.** The union means each tier can only *widen* the checked\nkey set. A source that doesn't resolve, a malformed declaration, or an\nunimported backend all leave tiers 1 and 2 intact — no key checked\nbefore this PR can be dropped. A source resolves iff every step lands\nand the leaf is a `list`/`tuple`: `secret_fields: []` resolves to `()`\nand wins the fallback (\"none of the fields are secret\" is different from\nthe key being absent), but `()` cannot opt out of the default `password`\ncheck. `None` is unresolved, so `secret_fields: null` falls through to\nthe next source. Ordering is deterministic (first occurrence wins, tiers\nin the order above) so error messages are reproducible.\n- **The hazards the callable needed guards for stop existing.** A bare\n`str` leaf (`fields: \"token\"`) is not a `list`/`tuple`, so it is\nunresolved rather than iterated into `('t', 'o', 'k', ...)`. The\nresolver only reads, so there is no mutation vector to defend the\ncaller's kwargs against and no deep copy. Nothing plugin-authored can\nraise mid-check and nothing plugin-controlled reaches a warning, so the\nredaction engine and the guarded reporting are deleted outright, not\nrelocated. A non-`str` name in a leaf can never match a kwarg, so it is\ndropped silently while the well-formed names beside it are kept — the\nleaf is user config data, which a declaration test can't cover, and\nchecking the good names is strictly safer than dropping the source.\n- **One runtime failure remains, and it fails closed.** An adversarial\nobject already inside the caller's kwargs (the same trust domain as the\ncredentials themselves) whose `__class__` lies passes the `isinstance`\ncheck and makes the unbound `dict.get` raise `TypeError`; the guard\nconverts that into a `ValueError` naming the con_name and the source —\nthe save aborts, and the message interpolates only our own declared\nsource, so there is no kwarg value in it to redact.\n- **Mirrored, so tier 3 no longer depends on import history.** Because\nthe declaration is data, it is mirrored into\n`con_name_to_secret_key_sources` beside `con_name_to_secret_keys`,\nenforced by the same bidirectional mirror tests — resolution for a\nmirrored backend never needs the backend imported. **Out-of-tree**\nbackends, which cannot add mirror entries (the mirror is a\n`MappingProxyType` in vendored source), keep the tier via a\n`getattr_static` read of an already-imported backend's class —\nbest-effort exactly as the callable tier was, and the compensating\nconvention is enforced: a backend declaring `_secret_key_sources` must\nalso declare static `_secret_keys` for its always-present names\n(`test_declaring_backends_also_mirror_static_keys`).\n- **Top-level names only.** A source may read from anywhere in the\nkwargs, but the names it yields are matched against the top level, so\nfor `{\"config\": {\"token\": ...}}` a source yielding `\"token\"` matches\nnothing. The docstring states this explicitly.\n- **A malformed declaration contributes nothing, and cannot break the\ncheck.** Declaration shape is pinned by tests\n(`test_mirrored_secret_key_sources_are_tuples_of_str` and the mirror\ntests), but shape is checked at runtime too — per source, not just on\nthe outer tuple — because an out-of-tree backend has no in-repo test to\ncatch it: `_well_formed_sources` keeps only a non-empty tuple of `str`\nsteps. Without it a source that isn't a tuple aborted every save for\nthat backend, a source that is a *list* escaped as a bare `TypeError`\nfrom the dedupe (outside the fail-closed guard), and the likely\nauthoring slip — a flat tuple of steps rather than a tuple of sources —\nwalked single-character keys. There is still deliberately no *warning*\nfor an unresolvable source: the declaration is static, so a test catches\nit once, and a warning would re-open a reporting path.\n- **The entry-point cache refreshes on a miss, and every lookup goes\nthrough that path.** `_load_entry_points` is cached (returning a tuple)\nsince resolution consults it per check, and scanning the installed\ndistributions costs ~15ms while `validate_con_name` runs per `Profile`\nconstruction. But a cache held for the life of the process hides a\nbackend installed into a live one (pip install in a Jupyter kernel), so\nresolution goes through `_find_entry_point`, which refreshes once on a\nmiss: a name that resolves never pays for it, a name that doesn't pays a\nrescan instead of being wrong. `load_backend`, `validate_con_name`, and\nthe declared-sources lookup all resolve through it.\n\n## Testing\n\n`python -m pytest python/xorq/tests/test_profile.py\npython/xorq/tests/test_loader.py` — the 3 failures in test_profile.py\nare pre-existing and need a live postgres on localhost:5432; they\nreproduce on `main`.\n\nDeclaration validity (static data, no fakes, no imports of heavy\nbackends):\n\n- `test_mirrored_secret_key_sources_are_tuples_of_str` — every mirror\nentry is a tuple of tuples of `str`.\n- `test_secret_key_sources_mirror_matches_backend_declaration` /\n`test_declared_secret_key_sources_are_mirrored` — the mirror matches\neach installed backend's `_secret_key_sources`, both directions,\nparameterized like the existing `_secret_keys` mirror tests.\n- `test_declaring_backends_also_mirror_static_keys` — a backend\ndeclaring sources must also declare static `_secret_keys`; checked\nagainst source (`find_spec` + `ast`, no import) when the extras aren't\ninstalled, searching the whole package so a re-exported `Backend` is\nstill found.\n\nResolution:\n\n- `test_get_declared_secret_keys_first_resolving_source_wins` /\n`_falls_back_in_order` — ordered fallback; absent and explicit `null`\nboth fall through.\n- `test_empty_secret_fields_resolves_and_wins` — `[]` resolves to `()`\nand wins, and the default `password` check still applies.\n- `test_unresolved_sources_contribute_nothing` — missing step, non-dict\nintermediate (including an attrs-like instance), and non-list leaf\n(including the bare `str` and the dict) all leave tiers 1+2 enforcing.\n- `test_mixed_leaf_keeps_the_str_names` — `[\"api_key\", 3, None]` keeps\n`api_key`.\n- `test_dict_subclass_overrides_are_bypassed` — a subclass forging\nresults from `get`/`__getitem__`/`__missing__`, as kwargs itself and at\nevery nested step, has the true data read.\n- `test_a_mapping_that_is_not_a_dict_is_not_reached_into` — unresolved\nwith zero lookup calls made.\n- `test_a_lying_class_fails_closed` — the `TypeError` becomes a\n`ValueError` naming the con_name and source, the save writes nothing,\nand the message carries no kwarg value.\n- `test_a_property_declaration_contributes_nothing` — the property lives\non a metaclass, where a plain `getattr` *would* run it and would get\nback a well-formed tuple; only the `getattr_static` read keeps it out.\n- `test_a_non_tuple_class_declaration_contributes_nothing` — a\nlist-shaped declaration fails the tuple check.\n- `test_a_leaf_subclass_has_its_true_names_read` — a `list` and a\n`tuple` subclass forging `__iter__` have the true names read, and the\ncredential they name is enforced;\n`test_a_forged_empty_leaf_cannot_suppress_the_true_names` — a forgery\ncannot narrow the check by resolving to less, either.\n- `test_malformed_sources_contribute_nothing` — a source that isn't a\ntuple, is a list, is empty, has a non-`str` step, or is a flat tuple of\nsteps: each contributes nothing, without raising and without blocking an\notherwise-clean save.\n- `test_a_kwargs_subclass_lying_about_len_still_resolves` — a `__len__`\nthat reports empty does not disable the tier.\n- `test_a_forged_str_name_cannot_escape_the_match` — a `str` subclass\nname whose `__eq__` never matches is materialized, so the key is\nenforced and `Profile.save()` writes nothing;\n`test_a_name_whose_hash_raises_cannot_escape_the_guard` — nor does a\nname reach the dedupe with a `__hash__` left to raise outside the guard.\n- `test_forged_items_cannot_hide_a_kwarg` — a kwargs subclass hiding an\nentry from `items()` cannot hide it from the check.\n- `test_source_declares_searches_a_package_for_a_re_exported_name` — the\nno-import source read follows a `Backend` re-exported from a submodule,\nwhich is the common package layout; reading only the entry-point\nmodule's own source skipped the guardrail for exactly the backends CI\ncannot import.\n\nThat the union cannot be weakened:\n\n- `test_get_secret_keys_unions_default_mirror_and_declared` — all three\ntiers together, deduped, deterministic order.\n- `test_declared_sources_cannot_shrink_mirrored_keys` — a source\nresolving to a subset or to `()` leaves the mirror enforced.\n- `test_mirrored_sources_resolve_without_import` — the capability the\nmirror adds: a mirrored backend's sources resolve with the backend never\nimported, where the callable tier silently contributed nothing.\n- `test_unimported_backend_contributes_no_class_sources` — the class\nread alone stays best-effort, and the default still applies.\n\nEnforcement end-to-end:\n`test_check_for_exposed_secrets_uses_declared_keys` (a key surfaced only\nby a declared source is enforced; an env-var reference is accepted) and\n`test_save_is_blocked_by_a_declared_key` (`Profile.save()` aborts and\nwrites nothing).\n\nEach of these was additionally verified to go **red** against a\ndeliberately weakened resolver (subclass `.get`, subclass `__iter__` at\nthe leaf, rejecting subclass leaves outright, handing back the leaf's\n`str` subclass rather than a copy, bound `kwargs.items()`, plain\n`getattr`, `tuple(value)` leaf coercion, no per-source shape check,\n`kwargs or {}`, no fail-closed guard, declared-tier-replaces-union, and\na single-module source read), so none of them passes vacuously.\n\nThe loader change: `python/xorq/tests/test_loader.py` covers the tuple\nreturn and cache reuse, and that every declared entry point exposes a\n`Backend`. The stale-cache setup — warm the cache, then write a\ndistribution onto `sys.path` — is a shared `installed_mid_process`\ncontext manager in `tests/util.py`, used by\n`test_find_entry_point_refreshes_a_stale_cache` and by\n`test_validate_con_name_sees_a_backend_installed_mid_process`.\n\n## Verified against the real consumer\n\n`RestBackend` on `land/4c-rest-declarative-contract` is the motivating\ncase, and its rule is expressible as exactly the two sources above:\n`AuthConfig.effective_secret_fields` is a pure default-fill\n(`secret_fields if secret_fields is not None else fields`), and\nenumerating the constructible auth shapes against the real `AuthConfig`\nshows the data path agrees with the property on every one of them. The\ntwo divergences are both on coerced-malformed input, and both are fixed\non the 4c port by tightening the\n`fields`/`secret_fields`/`optional_fields` converters to reject\nnon-list/tuple values (a config that constructs is a config the resolver\ncan read). Porting the REST family — declaring the sources, tightening\nthe converters, and adding the `rest`/`mixpanel`/`github` entries to the\nCI backend matrix so the mirror tests stop skipping — lands on that\nbranch, not here.\n\n## Follow-ups considered and deferred\n\n- **Extracting the secret policy out of vendored ibis.**\n`xorq/vendor/ibis/backends/profiles.py` is vendored in name only and now\nholds both mirrors, the default, and the three-tier resolution, plus two\nunderscore-private imports from `xorq.loader`. A\n`xorq/backends/secrets.py` owning that policy is the right home, but\ndoing it here would also relocate `con_name_to_secret_keys` from #2183;\nbetter as a focused follow-up.\n- **A deps-free metadata entry-point group would delete the mirror\noutright.** ADR-0023 already owns this shape of problem\n(`xorq.identity_specs`, Proposed, not implemented); if that group is\nbuilt, secret metadata should ride it rather than invent a parallel\nmechanism.\n- **Expressiveness.** A rule that isn't \"read names from a path\" can't\nbe stated — e.g. \"if `mode == 'oauth'` then these names\". No present\nconsumer needs more (every REST-family auth kind sources its names from\n`fields`/`secret_fields`); the smallest extension if one appears is a\ndiscriminator mapping, still pure data. List indexing and wildcards are\ndeliberate v1 non-goals.\n- **Making the entry-point miss path free.** A miss costs ~20ms\n(measured), the same as *every* call cost before the cache — not a\nregression, but there is no negative caching, so a caller that\nrepeatedly names a backend that doesn't exist pays it every time, plus\nan `importlib.invalidate_caches()` that taxes unrelated later imports. A\n`sys.path` + directory-mtime fingerprint would let a miss skip both when\nthe environment demonstrably hasn't changed.\n\n## Relationship to #2183\n\nFollow-on to #2183 (static backend-declared secret keys), which has\nsince merged; this branch is rebased on it and the tiers are unioned\nrather than the declared sources overriding the mirror.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-13T07:49:56-04:00",
+          "tree_id": "0f02931006a2ba0d61619ab3a9d709bd1ea7ec73",
+          "url": "https://github.com/xorq-labs/xorq/commit/d0901a4c8a4dd75ff10e82d54203f19c7852d724"
+        },
+        "date": 1786622131461,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.597302578487622,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024900421030066098",
+            "extra": "mean: 151.57710111110922 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.031578308732894,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0139836559766975",
+            "extra": "mean: 329.86118060000535 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8185956239552475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14174341477696198",
+            "extra": "mean: 1.221604380399998 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.8086813428265183,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058123018645477885",
+            "extra": "mean: 356.03896560000976 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.0114381135056774,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0366760882734152",
+            "extra": "mean: 332.0672590000129 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.1684917715802903,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012202494523366442",
+            "extra": "mean: 315.60757359999343 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 155.6364787352836,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007108381058089321",
+            "extra": "mean: 6.425228893162403 msec\nrounds: 234"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.7731758962409168,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09153594270260913",
+            "extra": "mean: 265.02872579999917 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 15.4388450295467,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003980182509812741",
+            "extra": "mean: 64.77168454545729 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.869609487186768,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009170591499487573",
+            "extra": "mean: 101.32113142857894 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.988563021242304,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012530146059111777",
+            "extra": "mean: 125.17895863635431 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.595576298531061,
+            "unit": "iter/sec",
+            "range": "stddev: 0.026538875844911995",
+            "extra": "mean: 178.7126019999974 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.544672538142142,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05001008294837826",
+            "extra": "mean: 220.03785566667014 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.637704530224824,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00655531736467934",
+            "extra": "mean: 215.62391340000318 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.4128817428710767,
+            "unit": "iter/sec",
+            "range": "stddev: 0.052351688480709896",
+            "extra": "mean: 414.4421926000007 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.3408569476338923,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016800880123220636",
+            "extra": "mean: 299.32439959999897 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.823786613546222,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09767076330216651",
+            "extra": "mean: 548.3097598000086 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8871125092481125,
+            "unit": "iter/sec",
+            "range": "stddev: 0.102819708466769",
+            "extra": "mean: 529.9101113999996 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6141250981990658,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08105417677002119",
+            "extra": "mean: 619.5306677999952 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5875575207254644,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10342009767840414",
+            "extra": "mean: 629.8984363999807 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.3089536088248996,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09317337974837178",
+            "extra": "mean: 763.9690155999801 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1806298101032486,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08874196103990452",
+            "extra": "mean: 847.0055485999865 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9952019106539264,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13128392006321019",
+            "extra": "mean: 1.0048212219999868 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6266121597485673,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11513514273102196",
+            "extra": "mean: 1.5958834893999778 sec\nrounds: 5"
           }
         ]
       }
