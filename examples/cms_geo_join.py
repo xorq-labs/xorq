@@ -454,11 +454,20 @@ def no_params(df: pd.DataFrame, fetch: Any, schema: ibis.Schema) -> pd.DataFrame
     return conform(fetch(), schema)
 
 
+# Both names matter, and for different reasons. `name` is the RemoteTable that
+# `into_backend` puts in front of the fetcher; the build serializes it under a
+# content-derived name, so its spelling never reaches the hash. `inner_name` is
+# the FlightUDXF node itself, and *that* one is written to expr.yaml verbatim --
+# left unset it defaults to `gen_name()`, a fresh uuid4 per process, so two
+# builds of an unchanged expression land in different `builds/` directories and
+# every cache key downstream of the fetcher moves with it. Keep these lowercase
+# for the same reason the memtables below are.
 nppes_fetcher = xo.expr.relations.flight_udxf(
     process_df=by_state(fetch=fetch_nppes, schema=nppes_schema_out),
     maybe_schema_in=state_schema_in,
     maybe_schema_out=nppes_schema_out,
     name="NppesFetcher",
+    inner_name="cms_geo_nppes_udxf",
 )
 
 medicare_fetcher = xo.expr.relations.flight_udxf(
@@ -466,6 +475,7 @@ medicare_fetcher = xo.expr.relations.flight_udxf(
     maybe_schema_in=state_schema_in,
     maybe_schema_out=medicare_schema_out,
     name="MedicareFetcher",
+    inner_name="cms_geo_medicare_udxf",
 )
 
 hud_fetcher = xo.expr.relations.flight_udxf(
@@ -473,6 +483,7 @@ hud_fetcher = xo.expr.relations.flight_udxf(
     maybe_schema_in=state_schema_in,
     maybe_schema_out=hud_schema_out,
     name="HudCrosswalkFetcher",
+    inner_name="cms_geo_hud_udxf",
 )
 
 acs_fetcher = xo.expr.relations.flight_udxf(
@@ -480,6 +491,7 @@ acs_fetcher = xo.expr.relations.flight_udxf(
     maybe_schema_in=state_schema_in,
     maybe_schema_out=acs_schema_out,
     name="AcsFetcher",
+    inner_name="cms_geo_acs_udxf",
 )
 
 places_fetcher = xo.expr.relations.flight_udxf(
@@ -487,6 +499,7 @@ places_fetcher = xo.expr.relations.flight_udxf(
     maybe_schema_in=empty_schema_in,
     maybe_schema_out=places_schema_out,
     name="PlacesFetcher",
+    inner_name="cms_geo_places_udxf",
 )
 
 
