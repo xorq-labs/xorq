@@ -1979,7 +1979,7 @@ def test_pipeline_score_methods_score_regressor(regression_data):
     assert isinstance(result, (float, np.floating))
 
 
-def test_metric_computation_module_is_a_str():
+def test_metric_computation_module_is_a_str() -> None:
     """MetricComputation must not shadow __module__ with a property.
 
     ``type.__module__`` returns ``cls.__dict__["__module__"]`` verbatim, so a
@@ -1990,8 +1990,8 @@ def test_metric_computation_module_is_a_str():
     assert isinstance(MetricComputation.__module__, str)
 
 
-def test_metric_computation_cloudpickle_round_trip():
-    """A MetricComputation survives cloudpickle (#2227)."""
+def test_metric_computation_cloudpickle_round_trip() -> None:
+    """A MetricComputation survives cloudpickle (#2233)."""
     mc = MetricComputation(target="y", pred="yhat", metric_fn=r2_score)
 
     restored = cloudpickle.loads(cloudpickle.dumps(mc))
@@ -2000,11 +2000,12 @@ def test_metric_computation_cloudpickle_round_trip():
     assert restored.__name__ == "r2_score"
 
 
-def test_metric_computation_survives_build_serde():
-    """The build/load path (serialize_callable -> deserialize_callable) round-trips.
+def test_metric_computation_survives_build_serde() -> None:
+    """serialize_callable -> deserialize_callable round-trips a bare instance.
 
-    Exercises the exact frames a catalog load hits; a regression here makes
-    every build embedding a metric unloadable rather than merely unpicklable.
+    The pickle layer only; see
+    ``test_build_pipeline.test_deferred_metric_build_load_roundtrip`` for the
+    end-to-end build artifact that #2233 actually broke.
     """
     mc = MetricComputation(target="y", pred="yhat", metric_fn=r2_score)
 
