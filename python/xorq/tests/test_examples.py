@@ -17,6 +17,8 @@ GCS_SCRIPTS = ("gcstorage_example",)
 S3_SCRIPTS = ("s3_content_store_catalog",)
 NON_TESTABLE = (
     "mcp_flight_server.py",
+    # needs HUD_TOKEN + CENSUS_API_KEY and a ~1 GB NPPES download
+    "cms_geo_join.py",
     "duckdb_flight_example.py",
     "complex_cached_expr.py",
     "xorq_build_and_run.py",
