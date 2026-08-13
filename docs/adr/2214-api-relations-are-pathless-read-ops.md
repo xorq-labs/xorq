@@ -6,10 +6,9 @@
 
 ## Context
 
-Phase 1 of API-as-Backend (ADR-build-artifacts-are-credential-free,
-`plans/udxf-source-api-backend.md`) exposed Mixpanel resources as `flight_udxf`
-relations: a cloudpickled exchanger carrying an HTTP client whose fields are
-env var references. It worked and satisfied the credential invariant, but
+Phase 1 of API-as-Backend (ADR-build-artifacts-are-credential-free, #2213)
+exposed Mixpanel resources as `flight_udxf` relations: a cloudpickled
+exchanger carrying an HTTP client whose fields are env var references. It worked and satisfied the credential invariant, but
 running it end to end surfaced three costs:
 
 1. **Opacity.** The client rides inside base64-encoded pickle bytes in
@@ -82,7 +81,10 @@ existing build or cache hash changes.
 ### Execution: `fetch_*` methods on a served backend
 
 `Read.make_dt` calls `getattr(source, method_name)(**kwargs)` at the execution
-boundary. The mixpanel backend now subclasses the pandas backend:
+boundary. The mixpanel connector — since extracted to the out-of-tree
+`xorq-labs/xorq-mixpanel` plugin, per ADR-build-artifacts-are-credential-free;
+the mechanism here is core and vendor-independent — subclasses the pandas
+backend:
 `fetch_events`/`fetch_engage` perform the HTTP calls (credentials resolved from
 env at that moment), land the DataFrame in `self.dictionary`, and return a
 served table. `read_events`/`read_engage` construct the deferred `Read` (and
@@ -123,8 +125,8 @@ Rejected because:
   pickle — and the mixpanel profile lands in `profiles.yaml` with env refs,
   rehydrating via `hydrate_cons` like any SQL backend.
 - Build hashes are reproducible across sessions (verified: two separate
-  processes produced identical build hash `d25dcc5e30a0`) and stable under
-  fetch-code refactors.
+  processes produced an identical build hash) and stable under fetch-code
+  refactors.
 - Snapshot caching works with declarative identity (no stat calls).
 
 ### Negative
@@ -146,6 +148,5 @@ Rejected because:
 - ADR-0002 (sequential id normalization), ADR-0006 (read-kwargs hash-path
   split), ADR-0015 (hash participation rule),
   ADR-build-artifacts-are-credential-free (credential-free build artifacts)
-- plans/udxf-source-api-backend.md — Phase 2
-- commit 4c14f644 — Phase 1 (cloudpickled-udxf implementation this
-  supersedes in core)
+- #2213 — Phase 1 (the cloudpickled-udxf mixpanel connector this supersedes
+  in core, since extracted to the `xorq-labs/xorq-mixpanel` plugin)
