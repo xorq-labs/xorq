@@ -33,7 +33,13 @@ def log_excepts(f, exception=Exception):
             logger.info(f"{f.__name__} :: exiting  :: {i}")
             return value
         except exception:
+            # log where it happened, then propagate. Swallowing here made debug
+            # mode *lose* errors that plain mode surfaces: `maybe_log_excepts`
+            # leaves `f` undecorated when debug is off, so returning None turned
+            # a failed Flight RPC into a clean, empty, cacheable stream under
+            # XORQ_DEBUG=1 alone. This decorator adds logging, not semantics.
             logger.exception("exception!")
+            raise
 
     return wrapper
 
