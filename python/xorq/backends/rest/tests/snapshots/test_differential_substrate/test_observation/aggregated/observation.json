@@ -1,0 +1,151 @@
+{
+  "batches": {
+    "chunk_size_2": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        3
+      ],
+      "first_batch_arrow_schema": {
+        "flag": "bool",
+        "max_qty": "int64",
+        "n": "int64",
+        "total_score": "double"
+      },
+      "http_after_full_drain": 4,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
+    },
+    "chunk_size_7": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        3
+      ],
+      "first_batch_arrow_schema": {
+        "flag": "bool",
+        "max_qty": "int64",
+        "n": "int64",
+        "total_score": "double"
+      },
+      "http_after_full_drain": 4,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
+    },
+    "no_chunk_size": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        3
+      ],
+      "first_batch_arrow_schema": {
+        "flag": "bool",
+        "max_qty": "int64",
+        "n": "int64",
+        "total_score": "double"
+      },
+      "http_after_full_drain": 4,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
+    }
+  },
+  "case": "aggregated",
+  "identity": {
+    "build_dir_name": "c05da8a5a9b4",
+    "build_dir_name_length": 12,
+    "expr_hash": "c05da8a5a9b4",
+    "http_during_identity": 0,
+    "read_method_names": [
+      "fetch_resource"
+    ],
+    "read_source_backend_names": [
+      "rest"
+    ],
+    "tokenize": "6be59e7f89721b9360437cefa86e3314"
+  },
+  "lifecycle": {
+    "http_after_make_dt": 0,
+    "http_after_read_construction": 0,
+    "make_dt": [
+      {
+        "name_equals_read_name": true,
+        "op_type": "DatabaseTable",
+        "schema": {
+          "flag": "boolean",
+          "id": "int64",
+          "name": "string",
+          "qty": "int64",
+          "score": "float64"
+        },
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
+      }
+    ],
+    "read_ops_in_expression": 1,
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
+  },
+  "materialized": {
+    "column_order": [
+      "flag",
+      "n",
+      "total_score",
+      "max_qty"
+    ],
+    "content_canonical_sorted": [
+      "{\"flag\": false, \"max_qty\": 444, \"n\": 68, \"total_score\": 1079.5}",
+      "{\"flag\": null, \"max_qty\": 396, \"n\": 14, \"total_score\": 231.0}",
+      "{\"flag\": true, \"max_qty\": 447, \"n\": 68, \"total_score\": 1079.0}"
+    ],
+    "http_after_execute": 4,
+    "null_counts": {
+      "flag": 1,
+      "max_qty": 0,
+      "n": 0,
+      "total_score": 0
+    },
+    "null_representation": {
+      "flag": {
+        "repr": "None",
+        "type": "NoneType"
+      },
+      "max_qty": null,
+      "n": null,
+      "total_score": null
+    },
+    "ordering": {
+      "first_row_as_returned": "{\"flag\": null, \"max_qty\": 396, \"n\": 14, \"total_score\": 231.0}",
+      "first_row_sorted": "{\"flag\": false, \"max_qty\": 444, \"n\": 68, \"total_score\": 1079.5}",
+      "last_row_as_returned": "{\"flag\": false, \"max_qty\": 444, \"n\": 68, \"total_score\": 1079.5}",
+      "last_row_sorted": "{\"flag\": true, \"max_qty\": 447, \"n\": 68, \"total_score\": 1079.0}",
+      "returned_in_sorted_order": false
+    },
+    "pandas_dtypes": {
+      "flag": "object",
+      "max_qty": "int64",
+      "n": "int64",
+      "total_score": "float64"
+    },
+    "row_count": 3
+  },
+  "schema": {
+    "arrow": {
+      "flag": "bool",
+      "max_qty": "int64",
+      "n": "int64",
+      "total_score": "double"
+    },
+    "ibis": {
+      "flag": "boolean",
+      "max_qty": "int64",
+      "n": "int64",
+      "total_score": "float64"
+    }
+  },
+  "what": "group_by('flag') with count, sum and max aggregates"
+}

@@ -12,8 +12,7 @@ tokenize rules (`dasher._EXTRA_RULES` → `HASHER`), the by-name
 paginator/auth registries (ADR-2215), and per-backend compilers. Reviewing the
 REST streaming work surfaced a recurring shape: some of these are clean,
 composable extension points and some accrete shims, and the difference is
-learnable (see the shim-vs-core-enabler analysis behind
-ADR-rest-resource-reads-are-lazy-datafusion-tables).
+learnable (see the shim-vs-core-enabler analysis behind ADR-2216).
 
 Two of these tables — `_EXTRA_RULES` and `_NORMALIZE_RULES` — are *literally
 the same type* (`tuple[tuple[str, object], ...]`) with the *same* append-only
@@ -75,7 +74,7 @@ The fingerprint is sensitive to rules **added, removed, or reordered** and
 deliberately **insensitive to a rule's implementation body** under an
 unchanged name — names are the contract, not pickled callables (#2155).
 Implementation-body changes remain out of identity scope, the same line
-ADR-0017 draws for `fetch_override`.
+ADR-api-relations-are-pathless-read-ops draws for `fetch_override`.
 
 This is what landed on this branch, not a sketch: `dasher.rules_fingerprint`
 (`python/xorq/common/utils/dasher/__init__.py:250`),
@@ -191,8 +190,8 @@ Deferred because:
 
 ## References
 
-- ADR-0015 (build vs cache hash), ADR-0017,
-  ADR-2215, ADR-rest-resource-reads-are-lazy-datafusion-tables
+- ADR-0015 (build vs cache hash), ADR-2214, ADR-2215,
+  ADR-2216
 - `xorq_dasher.Hasher` (`core.py:84`) — the frozen composable registry
 - `test_dasher.py:1101` — the hand-maintained FQN-drift check this promotes
 - The implementation (this branch): `dasher.rules_fingerprint`

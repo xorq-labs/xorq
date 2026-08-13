@@ -1,0 +1,192 @@
+{
+  "batches": {
+    "chunk_size_2": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        50
+      ],
+      "first_batch_arrow_schema": {
+        "id": "int64",
+        "qty": "int64",
+        "score": "double"
+      },
+      "http_after_full_drain": 4,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 50,
+      "total_rows": 50
+    },
+    "chunk_size_7": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        50
+      ],
+      "first_batch_arrow_schema": {
+        "id": "int64",
+        "qty": "int64",
+        "score": "double"
+      },
+      "http_after_full_drain": 4,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 50,
+      "total_rows": 50
+    },
+    "no_chunk_size": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        50
+      ],
+      "first_batch_arrow_schema": {
+        "id": "int64",
+        "qty": "int64",
+        "score": "double"
+      },
+      "http_after_full_drain": 4,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 50,
+      "total_rows": 50
+    }
+  },
+  "case": "filtered_projected",
+  "identity": {
+    "build_dir_name": "3cb7a3efb06a",
+    "build_dir_name_length": 12,
+    "expr_hash": "3cb7a3efb06a",
+    "http_during_identity": 0,
+    "read_method_names": [
+      "fetch_resource"
+    ],
+    "read_source_backend_names": [
+      "rest"
+    ],
+    "tokenize": "8b208a38a678a849dc44fb5bdc371d15"
+  },
+  "lifecycle": {
+    "http_after_make_dt": 0,
+    "http_after_read_construction": 0,
+    "make_dt": [
+      {
+        "name_equals_read_name": true,
+        "op_type": "DatabaseTable",
+        "schema": {
+          "flag": "boolean",
+          "id": "int64",
+          "name": "string",
+          "qty": "int64",
+          "score": "float64"
+        },
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
+      }
+    ],
+    "read_ops_in_expression": 1,
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
+  },
+  "materialized": {
+    "column_order": [
+      "id",
+      "qty",
+      "score"
+    ],
+    "content_canonical_sorted": [
+      "{\"id\": 100, \"qty\": 300.0, \"score\": 25.0}",
+      "{\"id\": 101, \"qty\": 303.0, \"score\": 25.25}",
+      "{\"id\": 102, \"qty\": 306.0, \"score\": 25.5}",
+      "{\"id\": 103, \"qty\": 309.0, \"score\": 25.75}",
+      "{\"id\": 104, \"qty\": null, \"score\": 26.0}",
+      "{\"id\": 105, \"qty\": 315.0, \"score\": null}",
+      "{\"id\": 106, \"qty\": 318.0, \"score\": 26.5}",
+      "{\"id\": 107, \"qty\": 321.0, \"score\": 26.75}",
+      "{\"id\": 108, \"qty\": 324.0, \"score\": 27.0}",
+      "{\"id\": 109, \"qty\": 327.0, \"score\": 27.25}",
+      "{\"id\": 110, \"qty\": 330.0, \"score\": 27.5}",
+      "{\"id\": 111, \"qty\": 333.0, \"score\": 27.75}",
+      "{\"id\": 112, \"qty\": 336.0, \"score\": null}",
+      "{\"id\": 113, \"qty\": 339.0, \"score\": 28.25}",
+      "{\"id\": 114, \"qty\": 342.0, \"score\": 28.5}",
+      "{\"id\": 115, \"qty\": 345.0, \"score\": 28.75}",
+      "{\"id\": 116, \"qty\": 348.0, \"score\": 29.0}",
+      "{\"id\": 117, \"qty\": null, \"score\": 29.25}",
+      "{\"id\": 118, \"qty\": 354.0, \"score\": 29.5}",
+      "{\"id\": 119, \"qty\": 357.0, \"score\": null}",
+      "{\"id\": 120, \"qty\": 360.0, \"score\": 30.0}",
+      "{\"id\": 121, \"qty\": 363.0, \"score\": 30.25}",
+      "{\"id\": 122, \"qty\": 366.0, \"score\": 30.5}",
+      "{\"id\": 123, \"qty\": 369.0, \"score\": 30.75}",
+      "{\"id\": 124, \"qty\": 372.0, \"score\": 31.0}",
+      "{\"id\": 125, \"qty\": 375.0, \"score\": 31.25}",
+      "{\"id\": 126, \"qty\": 378.0, \"score\": null}",
+      "{\"id\": 127, \"qty\": 381.0, \"score\": 31.75}",
+      "{\"id\": 128, \"qty\": 384.0, \"score\": 32.0}",
+      "{\"id\": 129, \"qty\": 387.0, \"score\": 32.25}",
+      "{\"id\": 130, \"qty\": null, \"score\": 32.5}",
+      "{\"id\": 131, \"qty\": 393.0, \"score\": 32.75}",
+      "{\"id\": 132, \"qty\": 396.0, \"score\": 33.0}",
+      "{\"id\": 133, \"qty\": 399.0, \"score\": null}",
+      "{\"id\": 134, \"qty\": 402.0, \"score\": 33.5}",
+      "{\"id\": 135, \"qty\": 405.0, \"score\": 33.75}",
+      "{\"id\": 136, \"qty\": 408.0, \"score\": 34.0}",
+      "{\"id\": 137, \"qty\": 411.0, \"score\": 34.25}",
+      "{\"id\": 138, \"qty\": 414.0, \"score\": 34.5}",
+      "{\"id\": 139, \"qty\": 417.0, \"score\": 34.75}",
+      "{\"id\": 140, \"qty\": 420.0, \"score\": null}",
+      "{\"id\": 141, \"qty\": 423.0, \"score\": 35.25}",
+      "{\"id\": 142, \"qty\": 426.0, \"score\": 35.5}",
+      "{\"id\": 143, \"qty\": null, \"score\": 35.75}",
+      "{\"id\": 144, \"qty\": 432.0, \"score\": 36.0}",
+      "{\"id\": 145, \"qty\": 435.0, \"score\": 36.25}",
+      "{\"id\": 146, \"qty\": 438.0, \"score\": 36.5}",
+      "{\"id\": 147, \"qty\": 441.0, \"score\": null}",
+      "{\"id\": 148, \"qty\": 444.0, \"score\": 37.0}",
+      "{\"id\": 149, \"qty\": 447.0, \"score\": 37.25}"
+    ],
+    "http_after_execute": 4,
+    "null_counts": {
+      "id": 0,
+      "qty": 4,
+      "score": 7
+    },
+    "null_representation": {
+      "id": null,
+      "qty": {
+        "repr": "np.float64(nan)",
+        "type": "float64"
+      },
+      "score": {
+        "repr": "np.float64(nan)",
+        "type": "float64"
+      }
+    },
+    "ordering": {
+      "first_row_as_returned": "{\"id\": 100, \"qty\": 300.0, \"score\": 25.0}",
+      "first_row_sorted": "{\"id\": 100, \"qty\": 300.0, \"score\": 25.0}",
+      "last_row_as_returned": "{\"id\": 149, \"qty\": 447.0, \"score\": 37.25}",
+      "last_row_sorted": "{\"id\": 149, \"qty\": 447.0, \"score\": 37.25}",
+      "returned_in_sorted_order": true
+    },
+    "pandas_dtypes": {
+      "id": "int64",
+      "qty": "float64",
+      "score": "float64"
+    },
+    "row_count": 50
+  },
+  "schema": {
+    "arrow": {
+      "id": "int64",
+      "qty": "int64",
+      "score": "double"
+    },
+    "ibis": {
+      "id": "int64",
+      "qty": "int64",
+      "score": "float64"
+    }
+  },
+  "what": "bare read, filtered on id and projected to three columns"
+}

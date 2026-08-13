@@ -24,7 +24,7 @@ from datetime import (
     timezone,
 )
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Callable, Mapping, Protocol
+from typing import TYPE_CHECKING, Callable, Iterator, Mapping, Protocol
 
 import pandas as pd
 import requests
@@ -53,10 +53,21 @@ if TYPE_CHECKING:
 class Engine(Protocol):
     """Structural contract for an extraction engine.
 
-    ``fetch`` executes one resource read: given the API config, the resource
+    Both methods execute one resource read: given the API config, the resource
     config, the read-time params, and the (already env-resolved) credentials,
-    return a DataFrame conforming to the resource's schema. Engines must be
+    produce DataFrames conforming to the resource's schema. Engines must be
     interchangeable: same config, any engine, same rows.
+
+    - ``fetch`` returns the whole result as one frame.
+    - ``fetch_batches`` returns an iterator of schema-conformed chunks, and is
+      the method the ``make_dt`` boundary uses (ADR-2216): it is what lets a
+      resource read register as a lazy table rather than materialize. It is
+      part of the protocol -- not an off-protocol extra on one implementation
+      -- precisely because the read path depends on it. Chunking is transport,
+      never identity, so an engine may choose any chunk boundary (the native
+      engine uses one frame per HTTP page); it must yield at least one
+      (possibly empty) schema-conformed frame so an empty result still carries
+      the declared dtypes.
     """
 
     def fetch(
@@ -66,6 +77,14 @@ class Engine(Protocol):
         params: dict,
         credentials: Mapping,
     ) -> pd.DataFrame: ...
+
+    def fetch_batches(
+        self,
+        config: RestBackendConfig,
+        resource_config: ResourceConfig,
+        params: dict,
+        credentials: Mapping,
+    ) -> Iterator[pd.DataFrame]: ...
 
 
 # -- auth appliers -----------------------------------------------------------
@@ -188,6 +207,17 @@ def _envelope_keys(data: object) -> object:
     return f"<{type(data).__name__}>"
 
 
+def frame_from_records(records: tuple, resource_config: ResourceConfig) -> pd.DataFrame:
+    """One page of records as a schema-conformed frame: conforming per page
+    (not once at the end) is what makes pages independently consumable."""
+    warn_on_absent_columns(records, resource_config)
+    return (
+        pd.DataFrame([record_to_row(record, resource_config) for record in records])
+        .reindex(columns=tuple(resource_config.schema))
+        .astype(resource_config.dtypes)
+    )
+
+
 def warn_on_absent_columns(records: tuple, resource_config: ResourceConfig) -> None:
     """Warn when a declared column is absent from EVERY record on a page.
 
@@ -256,8 +286,24 @@ class NativeEngine:
 
     paginators = field(default=PAGINATORS)
     auth_appliers = field(default=AUTH_APPLIERS)
-    # reused across pages for connection keep-alive; carries no identity
-    session = field(factory=requests.Session, eq=False)
+    # Transport, so neither of these carries identity (`eq=False`).
+    #
+    # One session per `fetch_batches` call, NOT one per engine. A
+    # `requests.Session` is documented non-thread-safe -- its connection pool
+    # and cookie jar are shared mutable state -- and since resource reads
+    # became lazy readers (ADR-2216) the substrate polls one scan per read on
+    # its own thread, so a two-read expression paginates two resources
+    # CONCURRENTLY through whatever session they share. That is now the default
+    # execution path, not an opt-in drain, and an engine-lifetime session put
+    # every such expression on the racy side of it. Keep-alive is preserved
+    # where it actually pays -- across the pages of one pagination, which is
+    # where the round trips are -- and what is given up is reuse *between*
+    # reads: one extra handshake per resource read.
+    session_factory = field(default=requests.Session, eq=False)
+    # An explicit shared session, and the injection point the tests use (a fake
+    # must observe every request). Setting it reintroduces engine-lifetime
+    # sharing, so set it only for a fake or a provably single-threaded caller.
+    session = field(default=None, eq=False)
     max_tries = field(validator=instance_of(int), default=5)
     timeout = field(validator=instance_of(int), default=600)
     # unconditional page bound, across every paginator: a server that ignores
@@ -272,6 +318,36 @@ class NativeEngine:
         params: dict,
         credentials: Mapping,
     ) -> pd.DataFrame:
+        return pd.concat(
+            self.fetch_batches(config, resource_config, params, credentials),
+            ignore_index=True,
+        )
+
+    def fetch_batches(
+        self,
+        config: RestBackendConfig,
+        resource_config: ResourceConfig,
+        params: dict,
+        credentials: Mapping,
+    ) -> Iterator[pd.DataFrame]:
+        """Page-wise fetch: one schema-conformed frame per HTTP page.
+
+        The intermediary between pagination and materialization, and the method
+        the ``make_dt`` boundary pulls (ADR-2216): a resource read registers as
+        a lazy DataFusion table over this iterator, so no page is requested
+        until the engine consumes the reader, and ``fetch`` is now just the
+        concatenating convenience over it.
+
+        Lazy by construction — this is a generator, so nothing is requested
+        until the first ``next``.
+
+        Always yields at least one (possibly empty) frame, so ``pd.concat``
+        needs no empty-input guard and dtypes hold for empty results.
+
+        Owns its HTTP session for the duration of the pagination (see the
+        ``session_factory`` field): two of these can be drained concurrently,
+        which is what the substrate does with a two-read expression.
+        """
         paginator = make_paginator(
             resource_config.paginator,
             resource_config.paginator_kwargs,
@@ -290,31 +366,43 @@ class NativeEngine:
         request_kwargs = dict(self._auth_kwargs(config.auth, credentials))
         query = {**query, **request_kwargs.pop("params", {})}
         query = paginator.initial_params(query)
-        rows: list[dict] = []
-        for page in itertools.count(1):
-            resp = self._get_with_backoff(url, query, request_kwargs)
-            records = extract_records(resp, resource_config)
-            warn_on_absent_columns(records, resource_config)
-            rows.extend(record_to_row(record, resource_config) for record in records)
-            nxt = paginator.next(resp, records, url, query)
-            if nxt is None:
-                break
-            if page >= self.max_pages:
-                raise com.XorqError(
-                    f"resource {resource_config.name!r}: pagination did not "
-                    f"terminate within max_pages={self.max_pages} (last request "
-                    f"{url} with {query}). A server that ignores the pagination "
-                    "param -- or re-serves its last page for an out-of-range "
-                    "page number -- looks like this; check the paginator config, "
-                    "or raise the engine's max_pages if the resource really is "
-                    "this large."
-                )
-            url, query = nxt
-        return (
-            pd.DataFrame(rows)
-            .reindex(columns=tuple(resource_config.schema))
-            .astype(resource_config.dtypes)
-        )
+        session, owned = self._session()
+        try:
+            for page in itertools.count(1):
+                resp = self._get_with_backoff(session, url, query, request_kwargs)
+                records = extract_records(resp, resource_config)
+                yield frame_from_records(records, resource_config)
+                nxt = paginator.next(resp, records, url, query)
+                if nxt is None:
+                    return
+                if page >= self.max_pages:
+                    raise com.XorqError(
+                        f"resource {resource_config.name!r}: pagination did not "
+                        f"terminate within max_pages={self.max_pages} (last request "
+                        f"{url} with {query}). A server that ignores the pagination "
+                        "param -- or re-serves its last page for an out-of-range "
+                        "page number -- looks like this; check the paginator config, "
+                        "or raise the engine's max_pages if the resource really is "
+                        "this large."
+                    )
+                url, query = nxt
+        finally:
+            # an abandoned generator (`.limit(1)`, a plan that stops early)
+            # runs this through GeneratorExit, so a session this call created
+            # never outlives the pagination that owns it. A caller-supplied
+            # session is the caller's to close.
+            if owned:
+                session.close()
+
+    def _session(self) -> tuple[object, bool]:
+        """The session for one ``fetch_batches`` call, and whether we own it.
+
+        A fresh one per call by default (see the ``session_factory`` field);
+        the explicitly injected ``session`` is shared, and not ours to close.
+        """
+        if self.session is not None:
+            return self.session, False
+        return self.session_factory(), True
 
     def _auth_kwargs(self, auth: AuthConfig, credentials: Mapping) -> dict:
         try:
@@ -327,9 +415,12 @@ class NativeEngine:
         return applier(auth, credentials)
 
     def _get_with_backoff(
-        self, url: str, params: dict, request_kwargs: dict
+        self, session: object, url: str, params: dict, request_kwargs: dict
     ) -> requests.Response:
-        """GET with rate-limit backoff.
+        """GET with rate-limit backoff on the calling fetch's session.
+
+        The session is a parameter, not ``self.session``: it belongs to the
+        ``fetch_batches`` call, so two concurrent paginations never share one.
 
         The exhausted-budget path is reachable and says what happened: the
         previous shape called ``raise_for_status()`` on the final attempt, so
@@ -339,7 +430,7 @@ class NativeEngine:
         but is a behavior change of its own.
         """
         for tries in range(1, self.max_tries + 1):
-            resp = self.session.get(
+            resp = session.get(
                 url, params=params, timeout=self.timeout, **request_kwargs
             )
             if not _is_rate_limited(resp):
@@ -372,3 +463,22 @@ class FetchOverrideEngine:
         credentials: Mapping,
     ) -> pd.DataFrame:
         return resource_config.fetch_override(self.backend, **params)
+
+    def fetch_batches(
+        self,
+        config: RestBackendConfig,
+        resource_config: ResourceConfig,
+        params: dict,
+        credentials: Mapping,
+    ) -> Iterator[pd.DataFrame]:
+        """The override's single frame as one chunk.
+
+        An override owns its own transport, so it has no page boundary to
+        expose; one chunk is the honest answer. Implementing it is what lets
+        the ``make_dt`` boundary treat override resources uniformly instead of
+        branching to a materializing path (ADR-2216) -- and because this is a
+        generator, the override callable is not invoked until the reader is
+        pulled, so an override read is as lazy at construction as a paginated
+        one.
+        """
+        yield resource_config.fetch_override(self.backend, **params)

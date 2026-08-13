@@ -1,0 +1,133 @@
+{
+  "batches": {
+    "chunk_size_2": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        3
+      ],
+      "first_batch_arrow_schema": {
+        "distinct_id": "string",
+        "properties": "string"
+      },
+      "http_after_full_drain": 0,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
+    },
+    "chunk_size_7": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        3
+      ],
+      "first_batch_arrow_schema": {
+        "distinct_id": "string",
+        "properties": "string"
+      },
+      "http_after_full_drain": 0,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
+    },
+    "no_chunk_size": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        3
+      ],
+      "first_batch_arrow_schema": {
+        "distinct_id": "string",
+        "properties": "string"
+      },
+      "http_after_full_drain": 0,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 3,
+      "total_rows": 3
+    }
+  },
+  "case": "override_resource",
+  "identity": {
+    "build_dir_name": "f22e60681695",
+    "build_dir_name_length": 12,
+    "expr_hash": "f22e60681695",
+    "http_during_identity": 0,
+    "read_method_names": [
+      "fetch_resource"
+    ],
+    "read_source_backend_names": [
+      "fakeoverride"
+    ],
+    "tokenize": "df6723b8cf4a2d3825158fdea86fd77a"
+  },
+  "lifecycle": {
+    "http_after_make_dt": 0,
+    "http_after_read_construction": 0,
+    "make_dt": [
+      {
+        "name_equals_read_name": true,
+        "op_type": "DatabaseTable",
+        "schema": {
+          "distinct_id": "string",
+          "properties": "string"
+        },
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
+      }
+    ],
+    "read_ops_in_expression": 1,
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
+  },
+  "materialized": {
+    "column_order": [
+      "distinct_id",
+      "properties"
+    ],
+    "content_canonical_sorted": [
+      "{\"distinct_id\": \"a\", \"properties\": \"{\\\"x\\\": 1}\"}",
+      "{\"distinct_id\": \"c\", \"properties\": null}",
+      "{\"distinct_id\": null, \"properties\": \"{}\"}"
+    ],
+    "http_after_execute": 0,
+    "null_counts": {
+      "distinct_id": 1,
+      "properties": 1
+    },
+    "null_representation": {
+      "distinct_id": {
+        "repr": "None",
+        "type": "NoneType"
+      },
+      "properties": {
+        "repr": "None",
+        "type": "NoneType"
+      }
+    },
+    "ordering": {
+      "first_row_as_returned": "{\"distinct_id\": \"a\", \"properties\": \"{\\\"x\\\": 1}\"}",
+      "first_row_sorted": "{\"distinct_id\": \"a\", \"properties\": \"{\\\"x\\\": 1}\"}",
+      "last_row_as_returned": "{\"distinct_id\": \"c\", \"properties\": null}",
+      "last_row_sorted": "{\"distinct_id\": null, \"properties\": \"{}\"}",
+      "returned_in_sorted_order": false
+    },
+    "pandas_dtypes": {
+      "distinct_id": "object",
+      "properties": "object"
+    },
+    "row_count": 3
+  },
+  "schema": {
+    "arrow": {
+      "distinct_id": "string",
+      "properties": "string"
+    },
+    "ibis": {
+      "distinct_id": "string",
+      "properties": "string"
+    }
+  },
+  "what": "a fetch_override resource -- ADR-2216 claims the override case 'folds in uniformly'"
+}

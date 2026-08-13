@@ -1,0 +1,167 @@
+{
+  "batches": {
+    "chunk_size_2": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        1
+      ],
+      "first_batch_arrow_schema": {
+        "flag": "bool",
+        "id": "int64",
+        "name": "string",
+        "qty": "int64",
+        "score": "double"
+      },
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 1,
+      "total_rows": 1
+    },
+    "chunk_size_7": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        1
+      ],
+      "first_batch_arrow_schema": {
+        "flag": "bool",
+        "id": "int64",
+        "name": "string",
+        "qty": "int64",
+        "score": "double"
+      },
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 1,
+      "total_rows": 1
+    },
+    "no_chunk_size": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        1
+      ],
+      "first_batch_arrow_schema": {
+        "flag": "bool",
+        "id": "int64",
+        "name": "string",
+        "qty": "int64",
+        "score": "double"
+      },
+      "http_after_full_drain": 2,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 1,
+      "total_rows": 1
+    }
+  },
+  "case": "limit_one",
+  "identity": {
+    "build_dir_name": "507a6515d49b",
+    "build_dir_name_length": 12,
+    "expr_hash": "507a6515d49b",
+    "http_during_identity": 0,
+    "read_method_names": [
+      "fetch_resource"
+    ],
+    "read_source_backend_names": [
+      "rest"
+    ],
+    "tokenize": "626699e51c1fd73cbd33593763e2e6b7"
+  },
+  "lifecycle": {
+    "http_after_make_dt": 0,
+    "http_after_read_construction": 0,
+    "make_dt": [
+      {
+        "name_equals_read_name": true,
+        "op_type": "DatabaseTable",
+        "schema": {
+          "flag": "boolean",
+          "id": "int64",
+          "name": "string",
+          "qty": "int64",
+          "score": "float64"
+        },
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
+      }
+    ],
+    "read_ops_in_expression": 1,
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
+  },
+  "materialized": {
+    "column_order": [
+      "id",
+      "qty",
+      "name",
+      "score",
+      "flag"
+    ],
+    "content_canonical_sorted": [
+      "{\"flag\": null, \"id\": 0, \"name\": null, \"qty\": null, \"score\": null}"
+    ],
+    "http_after_execute": 2,
+    "null_counts": {
+      "flag": 1,
+      "id": 0,
+      "name": 1,
+      "qty": 1,
+      "score": 1
+    },
+    "null_representation": {
+      "flag": {
+        "repr": "None",
+        "type": "NoneType"
+      },
+      "id": null,
+      "name": {
+        "repr": "None",
+        "type": "NoneType"
+      },
+      "qty": {
+        "repr": "np.float64(nan)",
+        "type": "float64"
+      },
+      "score": {
+        "repr": "np.float64(nan)",
+        "type": "float64"
+      }
+    },
+    "ordering": {
+      "first_row_as_returned": "{\"flag\": null, \"id\": 0, \"name\": null, \"qty\": null, \"score\": null}",
+      "first_row_sorted": "{\"flag\": null, \"id\": 0, \"name\": null, \"qty\": null, \"score\": null}",
+      "last_row_as_returned": "{\"flag\": null, \"id\": 0, \"name\": null, \"qty\": null, \"score\": null}",
+      "last_row_sorted": "{\"flag\": null, \"id\": 0, \"name\": null, \"qty\": null, \"score\": null}",
+      "returned_in_sorted_order": true
+    },
+    "pandas_dtypes": {
+      "flag": "object",
+      "id": "int64",
+      "name": "object",
+      "qty": "float64",
+      "score": "float64"
+    },
+    "row_count": 1
+  },
+  "schema": {
+    "arrow": {
+      "flag": "bool",
+      "id": "int64",
+      "name": "string",
+      "qty": "int64",
+      "score": "double"
+    },
+    "ibis": {
+      "flag": "boolean",
+      "id": "int64",
+      "name": "string",
+      "qty": "int64",
+      "score": "float64"
+    }
+  },
+  "what": "bare read .limit(1) -- the limit stops the pagination early"
+}

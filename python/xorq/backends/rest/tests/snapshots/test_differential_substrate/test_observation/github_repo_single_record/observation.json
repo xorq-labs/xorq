@@ -1,0 +1,158 @@
+{
+  "batches": {
+    "chunk_size_2": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        1
+      ],
+      "first_batch_arrow_schema": {
+        "default_branch": "string",
+        "full_name": "string",
+        "open_issues_count": "int64",
+        "properties": "string",
+        "stargazers_count": "int64"
+      },
+      "http_after_full_drain": 1,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 1,
+      "total_rows": 1
+    },
+    "chunk_size_7": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        1
+      ],
+      "first_batch_arrow_schema": {
+        "default_branch": "string",
+        "full_name": "string",
+        "open_issues_count": "int64",
+        "properties": "string",
+        "stargazers_count": "int64"
+      },
+      "http_after_full_drain": 1,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 1,
+      "total_rows": 1
+    },
+    "no_chunk_size": {
+      "batch_count": 1,
+      "batch_row_counts": [
+        1
+      ],
+      "first_batch_arrow_schema": {
+        "default_branch": "string",
+        "full_name": "string",
+        "open_issues_count": "int64",
+        "properties": "string",
+        "stargazers_count": "int64"
+      },
+      "http_after_full_drain": 1,
+      "http_after_reader_construction": 0,
+      "materialized_before_first_pull": false,
+      "peak_batch_rows": 1,
+      "total_rows": 1
+    }
+  },
+  "case": "github_repo_single_record",
+  "identity": {
+    "build_dir_name": "9e6625ec8256",
+    "build_dir_name_length": 12,
+    "expr_hash": "9e6625ec8256",
+    "http_during_identity": 0,
+    "read_method_names": [
+      "fetch_resource"
+    ],
+    "read_source_backend_names": [
+      "github"
+    ],
+    "tokenize": "bee063f451ca2a2845c93dffa523d1b0"
+  },
+  "lifecycle": {
+    "http_after_make_dt": 0,
+    "http_after_read_construction": 0,
+    "make_dt": [
+      {
+        "name_equals_read_name": true,
+        "op_type": "DatabaseTable",
+        "schema": {
+          "default_branch": "string",
+          "full_name": "string",
+          "open_issues_count": "int64",
+          "properties": "string",
+          "stargazers_count": "int64"
+        },
+        "source_backend_name": "xorq_datafusion",
+        "source_is_read_source": false
+      }
+    ],
+    "read_ops_in_expression": 1,
+    "read_to_pyarrow_batches_seam": "absent",
+    "request_log_after_make_dt": [],
+    "tables_registered_on_source_dictionary": 0,
+    "to_pyarrow_batches_defined_by": "BasePandasBackend.to_pyarrow_batches"
+  },
+  "materialized": {
+    "column_order": [
+      "full_name",
+      "default_branch",
+      "stargazers_count",
+      "open_issues_count",
+      "properties"
+    ],
+    "content_canonical_sorted": [
+      "{\"default_branch\": \"main\", \"full_name\": \"xorq-labs/xorq\", \"open_issues_count\": null, \"properties\": \"{\\\"extra\\\": {\\\"nested\\\": true}}\", \"stargazers_count\": 7}"
+    ],
+    "http_after_execute": 1,
+    "null_counts": {
+      "default_branch": 0,
+      "full_name": 0,
+      "open_issues_count": 1,
+      "properties": 0,
+      "stargazers_count": 0
+    },
+    "null_representation": {
+      "default_branch": null,
+      "full_name": null,
+      "open_issues_count": {
+        "repr": "np.float64(nan)",
+        "type": "float64"
+      },
+      "properties": null,
+      "stargazers_count": null
+    },
+    "ordering": {
+      "first_row_as_returned": "{\"default_branch\": \"main\", \"full_name\": \"xorq-labs/xorq\", \"open_issues_count\": null, \"properties\": \"{\\\"extra\\\": {\\\"nested\\\": true}}\", \"stargazers_count\": 7}",
+      "first_row_sorted": "{\"default_branch\": \"main\", \"full_name\": \"xorq-labs/xorq\", \"open_issues_count\": null, \"properties\": \"{\\\"extra\\\": {\\\"nested\\\": true}}\", \"stargazers_count\": 7}",
+      "last_row_as_returned": "{\"default_branch\": \"main\", \"full_name\": \"xorq-labs/xorq\", \"open_issues_count\": null, \"properties\": \"{\\\"extra\\\": {\\\"nested\\\": true}}\", \"stargazers_count\": 7}",
+      "last_row_sorted": "{\"default_branch\": \"main\", \"full_name\": \"xorq-labs/xorq\", \"open_issues_count\": null, \"properties\": \"{\\\"extra\\\": {\\\"nested\\\": true}}\", \"stargazers_count\": 7}",
+      "returned_in_sorted_order": true
+    },
+    "pandas_dtypes": {
+      "default_branch": "object",
+      "full_name": "object",
+      "open_issues_count": "float64",
+      "properties": "object",
+      "stargazers_count": "int64"
+    },
+    "row_count": 1
+  },
+  "schema": {
+    "arrow": {
+      "default_branch": "string",
+      "full_name": "string",
+      "open_issues_count": "int64",
+      "properties": "string",
+      "stargazers_count": "int64"
+    },
+    "ibis": {
+      "default_branch": "string",
+      "full_name": "string",
+      "open_issues_count": "int64",
+      "properties": "string",
+      "stargazers_count": "int64"
+    }
+  },
+  "what": "curated backend, single-record (dict) response, nullable int"
+}

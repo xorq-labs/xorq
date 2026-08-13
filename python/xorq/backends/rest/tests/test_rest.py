@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import concurrent.futures
 import email.utils
 import json
 import pathlib
+import threading
 import warnings
 from datetime import (
     datetime,
@@ -12,6 +14,7 @@ from datetime import (
 
 import attr
 import pandas as pd
+import pyarrow as pa
 import pytest
 import requests
 
@@ -30,9 +33,9 @@ from xorq.backends.rest.config import (
 from xorq.backends.rest.engines import (
     MAX_RETRY_WAIT,
     NativeEngine,
+    frame_from_records,
     record_to_row,
     retry_after_seconds,
-    warn_on_absent_columns,
 )
 from xorq.backends.rest.paginators import (
     HeaderLinkPaginator,
@@ -634,6 +637,168 @@ def test_exhausted_rate_limit_retries_raise_a_diagnosable_error(
     assert len(session.calls) == 3
 
 
+def make_page_number_config() -> RestBackendConfig:
+    return RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="rows",
+                schema=things_schema,
+                path="/rows",
+                paginator="page_number",
+                params=(ParamSpec("bucket", required=True),),
+            ),
+        ),
+    )
+
+
+def test_concurrent_fetches_do_not_share_a_session() -> None:
+    """A `requests.Session` is not thread-safe (connection pool and cookie jar
+    are shared mutable state), and since resource reads became lazy readers the
+    substrate polls one scan per read on its own thread -- so a two-read
+    expression paginates two resources concurrently. An engine-lifetime session
+    put every such expression on the racy side of that; a session per
+    `fetch_batches` call takes it off.
+
+    Two threads drive `fetch_batches` with each thread's first request held at
+    a barrier, so the paginations genuinely overlap, and the ledger records
+    which session OBJECT served each request. A shared session shows one
+    session serving both interleaved paginations; per-fetch sessions show two,
+    each serving its own pages 1..3 in order. The barrier is thread-keyed, not
+    session-keyed, so a regression fails on the assertion rather than by
+    timing out.
+    """
+    config = make_page_number_config()
+    resource = config.get_resource("rows")
+    page_count = 2
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    gated: set = set()
+    served: list = []  # (session object, page) -- the objects keep ids distinct
+
+    class ThreadSession:
+        def get(
+            self, url: str, params: dict | None = None, **kwargs: object
+        ) -> FakeResponse:
+            page = int(dict(params or {}).get("page", 1))
+            with lock:
+                served.append((self, page))
+                gate = threading.current_thread() not in gated
+                gated.add(threading.current_thread())
+            if gate:
+                # both paginations are now in flight
+                barrier.wait(timeout=30)
+            records = [{"id": page, "name": str(page)}] if page <= page_count else []
+            return FakeResponse(records)
+
+        def close(self) -> None:
+            pass
+
+    engine = NativeEngine(session_factory=ThreadSession)
+
+    def drain(bucket: str) -> int:
+        frames = engine.fetch_batches(config, resource, {"bucket": bucket}, {})
+        return sum(len(frame) for frame in frames)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(drain, bucket) for bucket in ("a", "b")]
+        totals = [future.result(timeout=60) for future in futures]
+
+    assert totals == [page_count, page_count]  # both paginations completed
+    by_session: dict = {}
+    for session, page in served:
+        by_session.setdefault(id(session), []).append(page)
+    # one session per fetch_batches call, and each saw only its own pages
+    assert len(by_session) == 2
+    assert sorted(by_session.values()) == [[1, 2, 3], [1, 2, 3]]
+
+
+def test_injected_session_is_shared_and_not_closed() -> None:
+    """The explicit `session` override stays engine-lifetime: it is how a fake
+    observes every request across fetches, and closing it would break the
+    second fetch. Ownership therefore follows construction -- we close only a
+    session we created."""
+
+    class ClosableSession(FakeSession):
+        def __init__(self, responses: list) -> None:
+            super().__init__(responses)
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    config = make_config()
+    resource = config.get_resource("other")
+    session = ClosableSession(
+        (FakeResponse([{"id": 1, "name": "a"}]), FakeResponse([{"id": 2, "name": "b"}]))
+    )
+    engine = NativeEngine(session=session)
+    for _ in range(2):
+        engine.fetch(config, resource, {}, {})
+    assert len(session.calls) == 2
+    assert not session.closed
+
+
+def test_abandoned_fetch_closes_the_session_it_created() -> None:
+    """A read that stops early (`.limit(1)`, a plan that stops pulling) abandons
+    the generator, so the close has to ride on GeneratorExit rather than on
+    reaching the end of the pagination."""
+    closed = []
+
+    class ClosingSession:
+        def get(
+            self, url: str, params: dict | None = None, **kwargs: object
+        ) -> FakeResponse:
+            return FakeResponse([{"id": 1, "name": "a"}])
+
+        def close(self) -> None:
+            closed.append(self)
+
+    config = make_page_number_config()
+    engine = NativeEngine(session_factory=ClosingSession)
+    frames = engine.fetch_batches(
+        config, config.get_resource("rows"), {"bucket": "a"}, {}
+    )
+    next(frames)  # one page pulled, many more available
+    assert not closed
+    frames.close()
+    assert len(closed) == 1
+
+
+def test_fetch_batches_yields_one_conformed_frame_per_page() -> None:
+    pages = (
+        FakeResponse(
+            [{"id": 1, "name": "a"}],
+            links={"next": {"url": "https://api.example.com/paged?page=2"}},
+        ),
+        FakeResponse([{"id": 2, "name": "b"}]),
+    )
+    config = RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="paged",
+                schema=things_schema,
+                path="/paged",
+                paginator="header_link",
+                residual_column="properties",
+            ),
+        ),
+    )
+    resource = config.get_resource("paged")
+    batches = tuple(
+        NativeEngine(session=FakeSession(pages)).fetch_batches(config, resource, {}, {})
+    )
+    assert len(batches) == 2  # one frame per HTTP page
+    assert all(tuple(b.columns) == tuple(things_schema) for b in batches)
+    assert all(str(b.id.dtype) == "Int64" for b in batches)  # conformed per page
+    df = NativeEngine(session=FakeSession(pages)).fetch(config, resource, {}, {})
+    assert df.id.tolist() == [1, 2]
+    assert df.index.tolist() == [0, 1]
+
+
 def make_enveloped_config(record_path: str = "items") -> RestBackendConfig:
     return RestBackendConfig(
         base_urls={"default": "https://api.example.com"},
@@ -682,6 +847,98 @@ def test_present_but_empty_record_path_is_an_empty_page() -> None:
     assert str(df.id.dtype) == "Int64"
 
 
+def test_fetch_empty_result_keeps_declared_dtypes() -> None:
+    config = make_config()
+    df = NativeEngine(session=FakeSession((FakeResponse([]),))).fetch(
+        config, config.get_resource("other"), {}, {}
+    )
+    assert df.empty
+    assert str(df.id.dtype) == "Int64"  # not the all-float64 empty-frame trap
+
+
+def make_paged_pages(first: int = 1, second: int = 1) -> tuple:
+    """Two link-paginated pages carrying `first`/`second` records (ids are
+    globally sequential, so page size is the only thing that varies)."""
+    return (
+        FakeResponse(
+            [{"id": i, "name": f"n{i}"} for i in range(1, first + 1)],
+            links={"next": {"url": "https://api.example.com/paged?page=2"}},
+        ),
+        FakeResponse(
+            [{"id": i, "name": f"n{i}"} for i in range(first + 1, first + second + 1)]
+        ),
+    )
+
+
+class PagedBackend(RestBackend):
+    config = RestBackendConfig(
+        base_urls={"default": "https://api.example.com"},
+        auth=AuthConfig(kind="none"),
+        resources=(
+            ResourceConfig(
+                name="paged",
+                schema=things_schema,
+                path="/paged",
+                paginator="header_link",
+                residual_column="properties",
+            ),
+        ),
+    )
+
+
+def connect_paged_backend(
+    first: int = 1, second: int = 1
+) -> tuple[PagedBackend, FakeSession]:
+    con = PagedBackend().connect()
+    session = FakeSession(make_paged_pages(first, second))
+    con._engine = NativeEngine(session=session)
+    return con, session
+
+
+def test_to_pyarrow_batches_streams_bare_reads() -> None:
+    con, session = connect_paged_backend()
+    rbr = con.read("paged").to_pyarrow_batches()
+    batches = list(rbr)
+    assert len(batches) == 2  # one RecordBatch per HTTP page
+    assert len(session.calls) == 2
+    assert not con.dictionary  # the paginator fed the reader directly
+    assert [b["id"].to_pylist() for b in batches] == [[1], [2]]
+
+
+def test_chunk_size_is_inert_batches_follow_http_pages() -> None:
+    """`chunk_size` cannot bound a resource read's batches; HTTP pages do.
+
+    This pins a limitation, not an endorsement: `to_pyarrow_batches`'s core
+    docstring promises a maximum row count per batch, and for a resource read
+    the value is accepted and dropped. The parameter never reaches this backend
+    -- the transform pipeline resolves the `Read` onto the owned DataFusion
+    connection, whose `to_pyarrow_batches` takes `chunk_size` and ignores it --
+    so the honest fix is an engine-agnostic rebatch wrapper, which ADR-2216
+    defers because its blast radius is every DataFusion-backed read. Until then
+    `RestBackend.read` documents the limitation and this keeps the
+    documentation true: a rebatch wrapper fails here and must retire the words.
+    """
+    for kwargs in ({}, {"chunk_size": 1}, {"chunk_size": 2}, {"chunk_size": 1_000_000}):
+        con, session = connect_paged_backend(first=4, second=3)
+        reader = con.read("paged").to_pyarrow_batches(**kwargs)
+        assert [batch.num_rows for batch in reader] == [4, 3]
+        assert len(session.calls) == 2
+    # page shape is the lever that does work: one page of 7 is one batch of 7,
+    # chunk_size=2 notwithstanding
+    con, session = connect_paged_backend(first=7, second=0)
+    reader = con.read("paged").to_pyarrow_batches(chunk_size=2)
+    assert [batch.num_rows for batch in reader] == [7]
+
+
+def test_into_backend_consumes_the_page_stream() -> None:
+    con, session = connect_paged_backend()
+    target = xo.connect()
+    df = con.read("paged").into_backend(target).execute()
+    assert df.id.tolist() == [1, 2]
+    assert len(session.calls) == 2
+    assert not con.dictionary  # streamed, never materialized on the rest side
+
+
 def test_make_paginator_unknown() -> None:
     with pytest.raises(ValueError, match="unknown paginator"):
         make_paginator("nope")
@@ -695,25 +952,20 @@ def test_absent_column_warns_but_a_sparse_one_stays_quiet() -> None:
     resource = ResourceConfig(name="things", schema=things_schema)
     vanished = ({"id": 1, "properties": "{}"}, {"id": 2, "properties": "{}"})
     with pytest.warns(UserWarning, match=r"'name'.* none of the 2 records"):
-        warn_on_absent_columns(vanished, resource)
-    # still a truthful answer, just now announced: shaping fills the absent
-    # field with NULL exactly as the fetch loop does
-    frame = pd.DataFrame(
-        [record_to_row(record, resource) for record in vanished]
-    ).reindex(columns=tuple(resource.schema))
-    assert frame.name.isna().all()
+        frame = frame_from_records(vanished, resource)
+    assert frame.name.isna().all()  # still a truthful answer, just now announced
     sparse = ({"id": 1, "name": "a", "properties": "{}"}, {"id": 2, "properties": "{}"})
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        warn_on_absent_columns(sparse, resource)
+        frame_from_records(sparse, resource)
     # an empty page has no columns to speak about
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        warn_on_absent_columns((), resource)
+        frame_from_records((), resource)
     # a declared residual_column is not an API field, so it is never reported
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        warn_on_absent_columns(
+        frame_from_records(
             ({"id": 1, "name": "a"},),
             ResourceConfig(
                 name="things", schema=things_schema, residual_column="properties"
@@ -847,6 +1099,36 @@ def test_curated_sibling_independence() -> None:
     )
     # ...but not the sibling's (config-in-code: profile excludes the config)
     assert tokenize(con.read("other")) == tokenize(edited.read("other"))
+
+
+def test_pandas_substrate_is_unreachable(tmp_path: pathlib.Path) -> None:
+    """The inherited `BasePandasBackend` registration methods write
+    `self.dictionary` and then execute through `PandasExecutor`, so leaving
+    them reachable made one connection serve TWO execution engines: a
+    `read_parquet` table joined against a resource read would carry pandas
+    nulls on one side and Arrow nulls on the other. They are refused for the
+    same reason the mutation methods are.
+    """
+    con = CuratedBackend().connect()
+    path = tmp_path / "t.parquet"
+    pd.DataFrame({"a": [1, 2, 3]}).to_parquet(path)
+    for call in (
+        lambda: con.read_parquet(path),
+        lambda: con.read_csv(path),
+        lambda: con.read_record_batches(pa.table({"a": [1]}), table_name="t"),
+        lambda: con.from_dataframe(pd.DataFrame({"a": [1]})),
+    ):
+        with pytest.raises(com.XorqError, match="does not support"):
+            call()
+    # ... and none of them left anything behind on the pandas table store
+    assert not con.dictionary
+    # the mutation refusals are unchanged
+    for mutate in (
+        lambda: con.create_table("t", pd.DataFrame({"a": [1]})),
+        lambda: con.drop_table("t"),
+    ):
+        with pytest.raises(com.XorqError, match="read-only"):
+            mutate()
 
 
 class AcmePaginator(SinglePagePaginator):

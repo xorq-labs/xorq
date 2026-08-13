@@ -220,7 +220,7 @@ Rejected because:
   (`SnapshotStrategy.normalization_context`); `provenance_utils.py`
   (`get_expr_hash` fold, which calls it)
 - The shim-vs-core-enabler extension-point audit behind
-  ADR-rest-resource-reads-are-lazy-datafusion-tables/0020
+  ADR-2216/0020
 
 ## Amendment (2026-07-30)
 
