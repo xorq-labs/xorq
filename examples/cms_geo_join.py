@@ -28,8 +28,8 @@ Only NUCC is read straight from its URL. The rest are dynamic endpoints that
 answer a HEAD with ``Content-Length: 0``, which the engine's HTTP object store
 reads as an empty file *without erroring* -- so they must be fetched, not read.
 
-Credentials, both free, from the environment or the gitignored
-``.envrcs/.env.secrets.*`` fragments direnv normally exports:
+Credentials, both free, come from the environment like every other setting here
+-- ``env_config`` declares them, so nothing else has to go looking:
 
 * ``HUD_TOKEN``       -- https://www.huduser.gov/hudapi/public/register
 * ``CENSUS_API_KEY``  -- https://api.census.gov/data/key_signup.html
@@ -50,7 +50,6 @@ cold cache. The archive and the caches live under
 from __future__ import annotations
 
 import argparse
-import functools
 import io
 import sys
 import zipfile
@@ -65,7 +64,7 @@ import xorq.api as xo
 from xorq.api import _
 from xorq.caching import ParquetCache
 from xorq.common.exceptions import XorqError
-from xorq.common.utils.env_utils import EnvConfigable, parse_env_file
+from xorq.common.utils.env_utils import EnvConfigable
 from xorq.common.utils.toolz_utils import curry
 from xorq.vendor import ibis
 
@@ -89,10 +88,6 @@ ARCHIVE_DIR = Path(
 # absolute one to keep the caches beside the NPPES archive they derive from.
 CACHE_DIR = ARCHIVE_DIR / "cache"
 
-# direnv exports the credentials in an interactive shell; read the fragments
-# directly so this also works from a bare shell, cron, or `xorq build`.
-ENVRCS_DIR = Path(__file__).parents[1] / ".envrcs"
-
 NUCC_CSV_URL = "https://www.nucc.org/images/stories/CSV/nucc_taxonomy_250.csv"
 NPPES_ZIP_URL = (
     "https://download.cms.gov/nppes/NPPES_Data_Dissemination_August_2026_V2.zip"
@@ -106,6 +101,12 @@ HUD_API = "https://www.huduser.gov/hudapi/public/usps"
 
 # HUD crosswalk type 2 == ZIP -> county.
 HUD_ZIP_COUNTY = 2
+
+# the credentials the fetchers need, and where a reader gets one, free
+CREDENTIAL_SIGNUPS = {
+    "HUD_TOKEN": "https://www.huduser.gov/hudapi/public/register",
+    "CENSUS_API_KEY": "https://api.census.gov/data/key_signup.html",
+}
 
 PLACES_MEASURES = ("CHD", "DIABETES", "OBESITY", "ACCESS2", "CHECKUP")
 
@@ -263,16 +264,6 @@ places_schema_out = xo.schema(
 # ---------------------------------------------------------------------------
 
 
-@functools.cache
-def secret_env() -> dict[str, str]:
-    """Merge the gitignored ``.envrcs/.env.secrets.*`` fragments."""
-    return {
-        name: value
-        for path in sorted(ENVRCS_DIR.glob(".env.secrets.*"))
-        for name, value in parse_env_file(path).items()
-    }
-
-
 # Everything raised below must be an `Exception` -- never a `SystemExit`. The
 # fetchers run inside a `flight_udxf` exchanger, on a Flight server thread
 # rather than the caller's. `make_udxf` wraps the exchange in
@@ -285,13 +276,12 @@ def secret_env() -> dict[str, str]:
 # cannot even take a KeyboardInterrupt.
 
 
-def require_env(name: str, signup: str) -> str:
-    """Look up a credential: real environment first, then the envrcs fragments."""
-    value = env_config.get(name) or secret_env().get(name)
+def require_env(name: str) -> str:
+    """Look up a credential in the environment, via ``env_config``."""
+    value = env_config.get(name)
     if not value:
         raise XorqError(
-            f"{name} is not set and no .envrcs/.env.secrets.* fragment defines it "
-            f"-- register (free) at {signup}"
+            f"{name} is not set -- register (free) at {CREDENTIAL_SIGNUPS[name]}"
         )
     return value
 
@@ -396,7 +386,7 @@ def fetch_medicare(state: str) -> pd.DataFrame:
 
 def fetch_hud(state: str) -> pd.DataFrame:
     """ZIP -> county crosswalk with allocation ratios, via the HUD USPS API."""
-    token = require_env("HUD_TOKEN", "https://www.huduser.gov/hudapi/public/register")
+    token = require_env("HUD_TOKEN")
     response = requests.get(
         HUD_API,
         params={"type": HUD_ZIP_COUNTY, "query": state},
@@ -413,7 +403,7 @@ def fetch_hud(state: str) -> pd.DataFrame:
 
 
 def fetch_acs(state: str) -> pd.DataFrame:
-    key = require_env("CENSUS_API_KEY", "https://api.census.gov/data/key_signup.html")
+    key = require_env("CENSUS_API_KEY")
     response = requests.get(
         CENSUS_API,
         params={
