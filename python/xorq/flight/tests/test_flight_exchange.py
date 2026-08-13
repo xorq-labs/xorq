@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import operator
+import threading
 from pathlib import Path
 
 import cloudpickle
@@ -6,8 +9,10 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 import toolz
+from pytest import param
 
 import xorq.api as xo
+from xorq.caching import ParquetCache
 from xorq.expr.relations import (
     FlightExpr,
     FlightUDXF,
@@ -249,3 +254,85 @@ def test_bare_flight_udxf_binds_params_through_to_rbr() -> None:
 
     reader = xo.to_pyarrow_batches(fu, params={"cutoff": 1})
     assert reader.read_all().num_rows == 2
+
+
+def execute_with_deadline(expr: xo.Table, seconds: int = 90) -> pd.DataFrame:
+    """``xo.execute`` on a daemon thread, so a deadlock fails instead of hanging.
+
+    The bug these tests cover is a hang, and a hang inside pytest is a 300s
+    faulthandler dump rather than a failure. A daemon thread is abandonable: if
+    it is still running at the deadline the test fails immediately, and the
+    interpreter can still exit.
+    """
+    box = {}
+
+    def run() -> None:
+        try:
+            box["value"] = xo.execute(expr)
+        except BaseException as e:  # noqa: BLE001
+            box["error"] = e
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        raise AssertionError(f"exchange did not finish within {seconds}s: deadlocked")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+def make_failing_udxf(exc_type: type[BaseException], message: str) -> xo.Table:
+    """A UDXF whose ``process_df`` raises ``exc_type(message)``.
+
+    The exception is built inside the fetcher rather than closed over: an
+    exception *instance* in the closure is not hashable by dasher, so the
+    expression would fail to build and never reach the exchange at all.
+    """
+    schema = xo.schema({"unit": "int64"})
+
+    def boom(df: pd.DataFrame) -> pd.DataFrame:
+        raise exc_type(message)
+
+    return xo.expr.relations.flight_udxf(
+        process_df=boom,
+        maybe_schema_in=schema,
+        maybe_schema_out=schema,
+        name="Boom",
+    )(xo.memtable([{"unit": 1}], name="unit_tbl"))
+
+
+@pytest.mark.parametrize(
+    ("exc_type", "message"),
+    (
+        param(ValueError, "plain exception", id="exception"),
+        # SystemExit is not an Exception: it used to escape the exchange's
+        # excepts wrapper entirely, leaving the client's reader in queue.get()
+        # forever with no error and no end-of-stream
+        param(SystemExit, "missing credential", id="systemexit"),
+    ),
+)
+def test_udxf_failure_raises_instead_of_hanging(
+    exc_type: type[BaseException], message: str
+) -> None:
+    """A failed exchange must surface as an error to whoever pulls the batches.
+
+    The failure reaches the client as an error status, i.e. as an exception out
+    of the reader -- never as an end-of-stream. Both halves matter: the client
+    has to forward that exception to the consumer (or it deadlocks), and the
+    server has to re-raise rather than swallow (or the consumer sees a clean,
+    empty, cacheable stream).
+    """
+    expr = make_failing_udxf(exc_type, message)
+    with pytest.raises(Exception, match=message):
+        execute_with_deadline(expr)
+
+
+def test_failed_udxf_writes_no_cache(tmp_path: Path) -> None:
+    """A swallowed failure used to be cached: zero rows, stored as the answer."""
+    expr = make_failing_udxf(ValueError, "plain exception").cache(
+        ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    )
+    with pytest.raises(Exception, match="plain exception"):
+        execute_with_deadline(expr)
+    assert not tuple(tmp_path.glob("*.parquet"))

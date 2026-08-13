@@ -24,6 +24,7 @@ from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     excepts_print_exc,
     make_filtered_reader,
+    reraise,
 )
 from xorq.vendor import ibis
 
@@ -58,7 +59,12 @@ def replace_one_unbound(unbound_expr, table):
     return replace_unbound(unbound_expr, dt, target=unbound)
 
 
-@excepts_print_exc
+# print the traceback where it happened -- on the server side, with the
+# fetcher's own frames -- and then let it out: the exchange must end in an error
+# status, not in a clean empty stream that the client would cache as the answer.
+# `BaseException`, because a `SystemExit` raised by the exchanged function is
+# exactly the case that used to escape and leave the client's reader hanging.
+@excepts_print_exc(exc=BaseException, handler=reraise)
 def streaming_exchange(
     f, context, reader, writer, options=None, out_schema=None, **kwargs
 ):
@@ -98,7 +104,7 @@ def find_unbound_next_con(unbound_expr):
             raise ValueError("unexpected match case in find_unbound_next_con")
 
 
-@excepts_print_exc
+@excepts_print_exc(exc=BaseException, handler=reraise)
 def streaming_expr_exchange(
     unbound_expr, make_connection, context, reader, writer, options=None, **kwargs
 ):
@@ -412,13 +418,12 @@ def make_udxf(
         )
 
     if do_wraps:
-        exchange_f = excepts_print_exc(
-            functools.partial(
-                streaming_exchange,
-                functools.partial(process_batch, process_df),
-                out_schema=out_schema.to_pyarrow() if out_schema else None,
-            ),
-            Exception,
+        # no excepts wrapper here: `streaming_exchange` already prints and
+        # re-raises, and wrapping it again only doubles the traceback
+        exchange_f = functools.partial(
+            streaming_exchange,
+            functools.partial(process_batch, process_df),
+            out_schema=out_schema.to_pyarrow() if out_schema else None,
         )
     else:
         exchange_f = process_df

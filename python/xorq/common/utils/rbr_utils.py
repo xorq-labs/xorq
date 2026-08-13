@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import itertools
 import traceback
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import NoReturn
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -15,8 +16,23 @@ from xorq.common.utils.otel_utils import (
 )
 
 
+def reraise(exc: BaseException) -> NoReturn:
+    """``excepts_print_exc`` handler that propagates instead of swallowing.
+
+    The default handler returns ``None``, which turns a failure into a
+    successful-looking empty result. Pass this one wherever the caller has to
+    learn that the call failed -- e.g. a Flight exchange, where swallowing
+    leaves the client reading an empty stream and caching the nothing it got.
+    """
+    raise exc
+
+
 @toolz.curry
-def excepts_print_exc(func, exc=Exception, handler=toolz.functoolz.return_none):
+def excepts_print_exc(
+    func: Callable,
+    exc: type[BaseException] = Exception,
+    handler: Callable = toolz.functoolz.return_none,
+) -> Callable:
     _handler = toolz.compose(handler, toolz.curried.do(traceback.print_exception))
     return toolz.excepts(exc, func, _handler)
 

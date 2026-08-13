@@ -222,23 +222,42 @@ class FlightClient:
             i = -1
             for i, batch in enumerate(_reader, 1):  # noqa: B007
                 queue.put(batch.data)
-            queue.put(None)
             return i
 
         def do_writes_reads(command, reader, queue):
             descriptor = pa.flight.FlightDescriptor.for_command(command)
             writer, _reader = self._client.do_exchange(descriptor, self._options)
-            # `with writer` must happen inside a future
-            # # so its context remains alive during enclosed writes and reads
-            with writer:
-                do_writes_fut = executor.submit(do_writes, writer, reader)
-                do_reads_fut = executor.submit(do_reads, _reader, queue)
-                (n_writes, n_reads) = (do_writes_fut.result(), do_reads_fut.result())
+            # The consumer blocks on `queue` until it sees the sentinel, so every
+            # exit path from here must put one. A server-side failure arrives as
+            # an exception out of `do_reads` (or out of closing the writer), not
+            # as an end-of-stream: without the sentinel the reader would block in
+            # `queue.get()` forever -- and since the caller of `do_exchange_batches`
+            # consumes `rbr` and drops `fut`, the exception would go unseen. Hand
+            # it to the queue instead, for `queue_to_gen` to raise in the
+            # consumer's thread.
+            try:
+                # `with writer` must happen inside a future
+                # # so its context remains alive during enclosed writes and reads
+                with writer:
+                    do_writes_fut = executor.submit(do_writes, writer, reader)
+                    do_reads_fut = executor.submit(do_reads, _reader, queue)
+                    (n_writes, n_reads) = (
+                        do_writes_fut.result(),
+                        do_reads_fut.result(),
+                    )
+            except BaseException as e:
+                queue.put(e)
+                raise
+            queue.put(None)
             return {"n_writes": n_writes, "n_reads": n_reads}
 
         def queue_to_rbr(schema, queue):
             def queue_to_gen(queue):
                 while (value := queue.get()) is not None:
+                    # the exchange failed: re-raise in the thread that is pulling
+                    # batches, where the caller can actually see it
+                    if isinstance(value, BaseException):
+                        raise value
                     yield value
 
             return pa.RecordBatchReader.from_batches(schema, queue_to_gen(queue))
