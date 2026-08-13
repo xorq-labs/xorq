@@ -532,6 +532,28 @@ def _imported_backend(con_name: str) -> type | None:
     return backend if isinstance(backend, type) else None
 
 
+def _static_secret_keys_for(con_name: str) -> tuple[str, ...]:
+    """Every static secret key for ``con_name``: the mirror entry, topped up
+    from ``_secret_keys`` on an already-imported backend, exactly as
+    ``_secret_key_sources_for`` tops up the declared sources -- how an
+    out-of-tree backend, unable to add a mirror entry, keeps the tier. The
+    class is plugin-authored data, so it is read like the resolver reads a
+    leaf: unbound ``tuple.__iter__``, and the names come back as exact ``str``
+    copies, since a ``str`` subclass reaching the caller could forge the
+    ``__eq__`` that matches it against a kwarg or the ``__hash__`` that
+    dedupes it in ``get_secret_keys``."""
+    keys = tuple(con_name_to_secret_keys.get(con_name, ()))
+    if (backend := _imported_backend(con_name)) is not None:
+        declared = inspect.getattr_static(backend, "_secret_keys", ())
+        if isinstance(declared, tuple):
+            keys += tuple(
+                str.__str__(name)
+                for name in tuple.__iter__(declared)
+                if isinstance(name, str)
+            )
+    return keys
+
+
 def _secret_key_sources_for(con_name: str) -> tuple[tuple[str, ...], ...]:
     """Every declared source for ``con_name``: the mirror entry, topped up from
     ``_secret_key_sources`` on an already-imported backend, which is how an
@@ -582,7 +604,8 @@ def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...
     """Return every secret key to check for ``con_name``: the *union* of
 
     1. the unconditional ``default_secret_keys`` (``("password",)``),
-    2. the static ``con_name_to_secret_keys`` mirror entry, if any,
+    2. the static keys: the ``con_name_to_secret_keys`` mirror entry, topped up
+       from ``_secret_keys`` on an already-imported backend,
     3. the backend's declared ``_secret_key_sources``, resolved against kwargs.
 
     Unioning is what keeps this monotone: an empty, narrower, or unresolved tier 3
@@ -593,7 +616,7 @@ def get_secret_keys(con_name: str, kwargs: dict | None = None) -> tuple[str, ...
         dict.fromkeys(
             (
                 *default_secret_keys,
-                *con_name_to_secret_keys.get(con_name, ()),
+                *_static_secret_keys_for(con_name),
                 *get_declared_secret_keys(con_name, kwargs),
             )
         )
