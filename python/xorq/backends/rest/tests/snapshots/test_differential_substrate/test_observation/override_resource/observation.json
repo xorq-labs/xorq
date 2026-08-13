@@ -46,19 +46,19 @@
       "total_rows": 3
     }
   },
-  "case": "mixpanel_override_resource",
+  "case": "override_resource",
   "identity": {
-    "build_dir_name": "35e7459e5070",
+    "build_dir_name": "f22e60681695",
     "build_dir_name_length": 12,
-    "expr_hash": "35e7459e5070",
+    "expr_hash": "f22e60681695",
     "http_during_identity": 0,
     "read_method_names": [
       "fetch_resource"
     ],
     "read_source_backend_names": [
-      "mixpanel"
+      "fakeoverride"
     ],
-    "tokenize": "e4634496e158c2f3f1e1581eb247575f"
+    "tokenize": "df6723b8cf4a2d3825158fdea86fd77a"
   },
   "lifecycle": {
     "http_after_make_dt": 0,

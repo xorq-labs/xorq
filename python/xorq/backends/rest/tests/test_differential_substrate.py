@@ -3,7 +3,7 @@
 WHY THIS EXISTS
 ---------------
 It gated the substrate swap; it now pins the result. `RestBackend` (and its
-`github`/`mixpanel` subclasses) USED TO execute on `PandasBackend`: the
+curated subclasses, `github` in-tree) USED TO execute on `PandasBackend`: the
 `make_dt` boundary (`fetch_resource`) paginated an API into a pandas frame and
 stashed it in `self.dictionary`. ADR-2216 (Accepted) replaced that substrate
 with an owned xorq-DataFusion connection into which resource reads register as
@@ -131,6 +131,7 @@ from __future__ import annotations
 import json
 import math
 import tracemalloc
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Callable
 
 import attr
@@ -138,7 +139,13 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
-from xorq.backends.mixpanel.client import MixpanelClient
+from xorq.backends.rest import RestBackend
+from xorq.backends.rest.config import (
+    AuthConfig,
+    ParamSpec,
+    ResourceConfig,
+    RestBackendConfig,
+)
 from xorq.backends.rest.engines import NativeEngine
 from xorq.backends.rest.tests.test_rest import (
     FakeResponse,
@@ -148,6 +155,7 @@ from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.relations import Read
 from xorq.ibis_yaml.compiler import ArtifactStore
+from xorq.tests.util import installed_mid_process
 
 
 if TYPE_CHECKING:
@@ -198,9 +206,8 @@ REST_CONFIG_DICT = {
 
 HARNESS_ENV = {
     "XORQ_HARNESS_TOKEN": "fake-harness-token",
-    "MIXPANEL_SERVICE_ACCOUNT_USERNAME": "fake-user.abc123",
-    "MIXPANEL_SERVICE_ACCOUNT_SECRET": "fake-secret-value",
-    "MIXPANEL_PROJECT_ID": "1234567",
+    "XORQ_HARNESS_OVERRIDE_USERNAME": "fake-user.abc123",
+    "XORQ_HARNESS_OVERRIDE_SECRET": "fake-secret-value",
 }
 
 
@@ -300,12 +307,55 @@ def github_repo_pages() -> tuple:
     ) * 4
 
 
-MIXPANEL_ENGAGE_FRAME = pd.DataFrame(
+OVERRIDE_ENGAGE_FRAME = pd.DataFrame(
     {
         "distinct_id": pd.array(["a", None, "c"], dtype="object"),
         "properties": pd.array(['{"x": 1}', "{}", None], dtype="object"),
     }
 )
+
+
+def fetch_engage_df(
+    backend: Backend, where: str = "", page_size: int | None = None
+) -> pd.DataFrame:
+    return OVERRIDE_ENGAGE_FRAME.copy()
+
+
+OVERRIDE_CONFIG = RestBackendConfig(
+    # the generic engine is unused (the resource is an override); base_urls
+    # documents the API home, mirroring the all-override curated shape the
+    # out-of-tree mixpanel plugin ships
+    base_urls={"default": "https://override.example.com"},
+    auth=AuthConfig(
+        kind="basic",
+        fields=("username", "secret"),
+        secret_fields=("secret",),
+        username_field="username",
+        password_field="secret",
+    ),
+    resources=(
+        ResourceConfig(
+            name="engage",
+            schema=xo.schema({"distinct_id": "string", "properties": "string"}),
+            params=(
+                ParamSpec("where"),
+                ParamSpec("page_size"),
+            ),
+            fetch_override=fetch_engage_df,
+        ),
+    ),
+)
+
+
+class Backend(RestBackend):
+    """The harness's all-override curated subclass: the `fetch_override`
+    escape hatch observed without a vendor connector in the tree. Installed
+    as an entry point mid-test (`installed_mid_process`), like any
+    out-of-tree plugin."""
+
+    name = "fakeoverride"
+    config = OVERRIDE_CONFIG
+    _secret_keys = OVERRIDE_CONFIG.auth.effective_secret_fields
 
 
 # -- connections -------------------------------------------------------------
@@ -337,15 +387,14 @@ def connect_github(pages: Callable[[], tuple]) -> tuple[BaseBackend, FakeSession
     return con, session
 
 
-def connect_mixpanel() -> tuple[BaseBackend, FakeSession]:
-    """Mixpanel's resources are `fetch_override`s, so no session is involved at
-    all -- the override reaches `MixpanelClient`, which the fixture replaces.
-    An empty FakeSession is still returned so the ledger reads zero, which is
-    itself the observation: an override resource makes no engine requests."""
-    con = xo.load_backend("mixpanel").connect(
-        username="${MIXPANEL_SERVICE_ACCOUNT_USERNAME}",
-        secret="${MIXPANEL_SERVICE_ACCOUNT_SECRET}",
-        project_id="${MIXPANEL_PROJECT_ID}",
+def connect_override() -> tuple[BaseBackend, FakeSession]:
+    """An override resource involves no session at all -- the override returns
+    the frame directly. An empty FakeSession is still returned so the ledger
+    reads zero, which is itself the observation: an override resource makes no
+    engine requests."""
+    con = xo.load_backend("fakeoverride").connect(
+        username="${XORQ_HARNESS_OVERRIDE_USERNAME}",
+        secret="${XORQ_HARNESS_OVERRIDE_SECRET}",
     )
     session = FakeSession(())
     con._engine = NativeEngine(session=session)
@@ -456,10 +505,10 @@ CASES = (
         ),
     ),
     Case(
-        name="mixpanel_override_resource",
+        name="override_resource",
         what="a fetch_override resource -- ADR-2216 claims the override "
         "case 'folds in uniformly'",
-        connect=connect_mixpanel,
+        connect=connect_override,
         build=lambda con: con.read("engage", where="", table_name="engage_read"),
     ),
 )
@@ -831,23 +880,18 @@ def format_divergences(name: str, expected: dict, actual: dict) -> str | None:
 
 
 @pytest.fixture
-def harness_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def harness_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[None]:
     """Env-var references only -- raw secret values are rejected at expression
-    construction -- and a MixpanelClient whose override returns a fixed frame,
-    so the override case runs without a network call."""
+    construction -- and the harness's own override backend installed as an
+    entry point, so the override case connects the way an out-of-tree plugin
+    would and runs without a network call."""
     for name, value in HARNESS_ENV.items():
         monkeypatch.setenv(name, value)
-
-    def fake_engage(
-        self: MixpanelClient, where: str = "", page_size: int | None = None
-    ) -> pd.DataFrame:
-        return MIXPANEL_ENGAGE_FRAME.copy()
-
-    def fake_export(self: MixpanelClient, from_date: str, to_date: str) -> pd.DataFrame:
-        return MIXPANEL_ENGAGE_FRAME.copy()
-
-    monkeypatch.setattr(MixpanelClient, "engage", fake_engage)
-    monkeypatch.setattr(MixpanelClient, "export", fake_export)
+    root = tmp_path_factory.mktemp("fakeoverride-dist")
+    with installed_mid_process(root, "fakeoverride", module=__name__):
+        yield
 
 
 @pytest.mark.snapshot_check
