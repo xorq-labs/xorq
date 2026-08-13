@@ -341,14 +341,31 @@ class MetricComputation:
         return dict(self.metric_kwargs_tuple)
 
     @property
-    def __name__(self):
-        """Return the name of the metric function for UDF registration."""
-        return self.metric_fn.__name__
+    def __name__(self) -> str:
+        """Name the metric function, for naming the generated UDF node type.
 
-    @property
-    def __module__(self):
-        """Return the module of the metric function for UDF registration."""
-        return self.metric_fn.__module__
+        Required, not cosmetic: ``agg.pandas_df`` reads ``fn.__name__``
+        unconditionally to name the node class it builds
+        (``xorq/expr/udf.py``, ``_make_udf_name(fn.__name__)``). Deleting this
+        property raises ``AttributeError`` there -- the ``name=`` argument
+        ``on_expr`` passes covers only the UDF name, not the class name.
+
+        Deliberately no matching ``__module__`` property: ``type.__module__``
+        reads ``cls.__dict__["__module__"]`` raw, so a property there leaks out
+        at the class level as a non-str. cloudpickle's module/qualname lookup
+        then fails, it falls back to pickling the class *by value*, and
+        reconstruction dies on ``setattr(cls, "__name__", <property>)`` --
+        making every build embedding a MetricComputation unloadable (#2233).
+
+        ``__name__`` is safe only *given by-reference pickling*, which keeping
+        ``__module__`` a str preserves: ``type.__name__`` is a data descriptor
+        on the metaclass, so class-level access returns the real str and
+        cloudpickle's lookup succeeds. Force by-value anyway --
+        ``cloudpickle.register_pickle_by_value(xorq.expr.ml.metrics)``, a
+        module that is not importable on the loading side -- and the identical
+        TypeError returns. Do not add a dunder property here.
+        """
+        return self.metric_fn.__name__
 
     @staticmethod
     def _normalize_columns(value, name):
