@@ -341,14 +341,19 @@ class MetricComputation:
         return dict(self.metric_kwargs_tuple)
 
     @property
-    def __name__(self):
-        """Return the name of the metric function for UDF registration."""
-        return self.metric_fn.__name__
+    def __name__(self) -> str:
+        """Return the name of the metric function for UDF registration.
 
-    @property
-    def __module__(self):
-        """Return the module of the metric function for UDF registration."""
-        return self.metric_fn.__module__
+        Deliberately no matching ``__module__`` property: ``type.__module__``
+        reads ``cls.__dict__["__module__"]`` raw, so a property there leaks out
+        at the class level as a non-str. cloudpickle's module/qualname lookup
+        then fails, it falls back to pickling the class *by value*, and
+        reconstruction dies on ``setattr(cls, "__name__", <property>)`` --
+        making every build embedding a MetricComputation unloadable (#2227).
+        ``__name__`` is safe because ``type.__name__`` is a data descriptor on
+        the metaclass and shadows the class dict entry.
+        """
+        return self.metric_fn.__name__
 
     @staticmethod
     def _normalize_columns(value, name):

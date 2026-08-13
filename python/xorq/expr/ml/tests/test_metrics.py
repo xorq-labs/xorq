@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock
 
+import cloudpickle
 import numpy as np
 import pandas as pd
 import pytest
@@ -10,12 +11,14 @@ import xorq.expr.datatypes as dt
 from xorq.expr import api
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.metrics import (
+    MetricComputation,
     Scorer,
     _default_scorer_for_model,
     deferred_auc_from_curve,
     deferred_sklearn_metric,
 )
 from xorq.expr.ml.pipeline_lib import Pipeline
+from xorq.ibis_yaml.common import deserialize_callable, serialize_callable
 
 
 # Skip all tests in this module if sklearn is not installed
@@ -1974,3 +1977,37 @@ def test_pipeline_score_methods_score_regressor(regression_data):
     y_test = test_df["target"].values
     result = fitted.score(X_test, y_test)
     assert isinstance(result, (float, np.floating))
+
+
+def test_metric_computation_module_is_a_str():
+    """MetricComputation must not shadow __module__ with a property.
+
+    ``type.__module__`` returns ``cls.__dict__["__module__"]`` verbatim, so a
+    property defined there surfaces as a non-str at the class level and breaks
+    cloudpickle's by-reference lookup. This is the cheap invariant guarding
+    the round-trip tests below.
+    """
+    assert isinstance(MetricComputation.__module__, str)
+
+
+def test_metric_computation_cloudpickle_round_trip():
+    """A MetricComputation survives cloudpickle (#2227)."""
+    mc = MetricComputation(target="y", pred="yhat", metric_fn=r2_score)
+
+    restored = cloudpickle.loads(cloudpickle.dumps(mc))
+
+    assert restored == mc
+    assert restored.__name__ == "r2_score"
+
+
+def test_metric_computation_survives_build_serde():
+    """The build/load path (serialize_callable -> deserialize_callable) round-trips.
+
+    Exercises the exact frames a catalog load hits; a regression here makes
+    every build embedding a metric unloadable rather than merely unpicklable.
+    """
+    mc = MetricComputation(target="y", pred="yhat", metric_fn=r2_score)
+
+    restored = deserialize_callable(serialize_callable(mc))
+
+    assert restored == mc
