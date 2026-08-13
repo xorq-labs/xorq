@@ -64,6 +64,7 @@ import requests
 import xorq.api as xo
 from xorq.api import _
 from xorq.caching import ParquetCache
+from xorq.common.exceptions import XorqError
 from xorq.common.utils.env_utils import EnvConfigable, parse_env_file
 from xorq.common.utils.toolz_utils import curry
 from xorq.vendor import ibis
@@ -272,11 +273,23 @@ def secret_env() -> dict[str, str]:
     }
 
 
+# Everything raised below must be an `Exception` -- never a `SystemExit`. The
+# fetchers run inside a `flight_udxf` exchanger, on a Flight server thread
+# rather than the caller's. `make_udxf` wraps the exchange in
+# `excepts_print_exc(..., Exception)` (python/xorq/flight/exchanger.py), so an
+# `Exception` gets its traceback printed and ends the exchange. A `SystemExit`
+# is not an `Exception`, so it escapes that wrapper and kills the handler
+# outright -- and because the client only queues its end-of-stream sentinel
+# after a clean read (python/xorq/flight/client.py), the consumer then blocks in
+# `queue.get()` forever, with the main thread parked in DataFusion where it
+# cannot even take a KeyboardInterrupt.
+
+
 def require_env(name: str, signup: str) -> str:
     """Look up a credential: real environment first, then the envrcs fragments."""
     value = env_config.get(name) or secret_env().get(name)
     if not value:
-        raise SystemExit(
+        raise XorqError(
             f"{name} is not set and no .envrcs/.env.secrets.* fragment defines it "
             f"-- register (free) at {signup}"
         )
@@ -297,7 +310,7 @@ def conform(frame: pd.DataFrame, schema: ibis.Schema) -> pd.DataFrame:
     """
     missing = set(schema.names) - set(frame.columns)
     if missing:
-        raise SystemExit(f"fetcher output missing columns: {sorted(missing)}")
+        raise XorqError(f"fetcher output missing columns: {sorted(missing)}")
     frame = frame[list(schema.names)].copy()
     for name, dtype in schema.items():
         if dtype.is_floating():
@@ -333,7 +346,7 @@ def fetch_nppes(state: str) -> pd.DataFrame:
         written = partial.stat().st_size
         if expected and written != expected:
             partial.unlink()
-            raise SystemExit(
+            raise XorqError(
                 f"NPPES download truncated: got {written:,} of {expected:,} bytes"
             )
         partial.rename(archive)
@@ -391,11 +404,11 @@ def fetch_hud(state: str) -> pd.DataFrame:
         timeout=300,
     )
     if response.status_code == 401:
-        raise SystemExit("HUD_TOKEN was rejected (401 Unauthenticated)")
+        raise XorqError("HUD_TOKEN was rejected (401 Unauthenticated)")
     response.raise_for_status()
     results = response.json().get("data", {}).get("results")
     if not results:
-        raise SystemExit(f"unexpected HUD response shape: {response.text[:400]}")
+        raise XorqError(f"unexpected HUD response shape: {response.text[:400]}")
     return pd.DataFrame(results).rename(columns={"geoid": "county_fips"})
 
 
@@ -413,7 +426,7 @@ def fetch_acs(state: str) -> pd.DataFrame:
     )
     response.raise_for_status()
     if not response.text.lstrip().startswith("["):
-        raise SystemExit(
+        raise XorqError(
             "Census returned HTML instead of JSON (usually a bad or missing "
             f"CENSUS_API_KEY): {response.text[:200]!r}"
         )
