@@ -12,8 +12,9 @@ ADR-api-relations-are-pathless-read-ops) made one API (Mixpanel) a
 profile-carrying backend whose resources are path-less `Read` ops. The Phase 3
 target is a broad catalog (tens of APIs). Writing a hand-rolled backend per API
 does not scale; adopting dlt wholesale conflicts with xorq's determinism
-(schema evolution, stateful cursors — see plans/udxf-source-api-backend.md,
-Phase 3 "superseded framing"). The mixpanel backend already contained the
+(schema evolution, stateful cursors — see the udxf-source API-as-Backend
+design plan's Phase 3 "superseded framing", an untracked working document
+outside this repository). The mixpanel backend already contained the
 answer inlined: resource schemas, a readers dict, URL maps (the config) and a
 generic `_deferred_read` (the machinery).
 
@@ -60,8 +61,9 @@ no incremental/cursor state (ranges are explicit `ParamSpec(kind="range")`
 params in `read_kwargs`; chunking = constructing multiple reads); auth names
 profile *fields*, never values; `fetch_override` as the code-fallback for
 bespoke resources (Mixpanel's NDJSON export and session_id engage — the
-all-override backend proving the escape hatch, with `mixpanel/client.py` as
-the hand-rolled conformance baseline).
+all-override backend proving the escape hatch, with the hand-rolled mixpanel
+client — now in the out-of-tree `xorq-labs/xorq-mixpanel` plugin — as the
+conformance baseline).
 
 ### Identity: always folded
 
@@ -129,7 +131,8 @@ handed it the exact data the check protects, and ran it where an exception
 is unacceptable and a warning is an exfiltration channel — most of the added
 machinery guarded the contract rather than implementing the feature, and a
 config the constructor rejects made the whole tier vanish exactly when it
-was needed (`plans/declarative-secret-key-sources.md` records the audit).
+was needed (the declarative-secret-key-sources design plan, an untracked working
+document outside this repository, records the audit).
 The data form deletes those code paths instead of guarding them: resolution
 runs no backend code and never imports — the sources are mirrored in
 `con_name_to_secret_key_sources`, so the answer does not depend on the
@@ -221,8 +224,9 @@ Rejected because:
 
 - ADR-0015, ADR-build-artifacts-are-credential-free,
 ADR-api-relations-are-pathless-read-ops
-- plans/udxf-source-api-backend.md — Phase 3 and open question 4's
-  resolution ("identity: always folded; residence: either")
+- the udxf-source API-as-Backend design plan (untracked, outside this
+  repository) — Phase 3 and open question 4's resolution ("identity: always
+  folded; residence: either")
 - dlt `rest_api` / `RESTAPIConfig` (https://dlthub.com/docs) — the shape the
   omissions are defined against
 
@@ -288,7 +292,8 @@ keeps cache hits*. Under the conservative/non-conservative split that is a
 non-conservative acceptance — a stale hit on data, which is the failure
 direction every other decision in this ADR is arranged to avoid. It is also
 sharper in practice than the text admits: mixpanel's real regional data and
-query URLs live in `mixpanel/client.py`, not in the folded `base_urls`, so this
+query URLs live in its hand-rolled client (now in the out-of-tree
+`xorq-labs/xorq-mixpanel` plugin), not in the folded `base_urls`, so this
 ADR's own rule — *the resolved endpoint is identity-bearing, not just the name
 of the route to it* — is de facto void for that backend.
 
