@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786622134899,
+  "lastUpdate": 1786623813702,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -34002,6 +34002,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.11513514273102196",
             "extra": "mean: 1.5958834893999778 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1d34c9734aea0dc57b60375ee24b11b371fb9f8",
+          "message": "feat(profiles): top up tier 2 from an imported backend's static _secret_keys (#2226)\n\n## Summary\n\nFollow-up to #2184, closing the one asymmetry between its two class\nreads. `get_secret_keys` tier 2 read only the `con_name_to_secret_keys`\nmirror — deliberately, so validation never imports a backend. But an\n**out-of-tree** backend cannot add a mirror entry (the mirror is a\n`MappingProxyType` in vendored source), and a fixed kwarg name like\n`secret` is stored in no kwargs data for a `_secret_key_sources` source\nto point at. So a plugin's static `_secret_keys` was dead documentation:\n`test_declaring_backends_also_mirror_static_keys` *requires* declaring\nit, and nothing read it.\n\nTier 2 is now the mirror **topped up** from an already-imported\nbackend's `_secret_keys`, symmetric with how `_secret_key_sources_for`\ntops up tier 3:\n\n- `inspect.getattr_static`, so a `property` declaration contributes\nnothing instead of executing, and a tuple check, so a malformed\n(list-shaped) declaration contributes nothing instead of breaking the\ncheck;\n- because a plugin class is plugin-authored data, it is read the way\n`_resolve_source` reads a leaf: the names come off the tuple through the\nunbound `tuple.__iter__` (a subclass's forged `__iter__` is bypassed and\nthe true names are read), non-`str` members are dropped while the names\nbeside them are kept, and each name is materialized as an exact `str`\ncopy via `str.__str__` — a `str` subclass handed onward would carry its\nown `__eq__` into the membership test that matches it against a kwarg,\nand its own `__hash__` into the dedupe in `get_secret_keys`, which runs\noutside the fail-closed guard.\n- Same import-gated best-effort semantics as the tier-3 class read: an\nunimported backend contributes nothing and tiers 1 and 3 keep enforcing.\nThe union is unchanged in shape, so no key checked before this PR can be\ndropped, and ordering stays deterministic (default, mirror, class\ntop-up, declared).\n\nThis unblocks the `land/4a` restack: the fixture backend's (and the\nxorq-mixpanel plugin's) static `secret` becomes enforceable by declaring\n`_secret_keys` alone, which is what the artifact-leak tests' enforcement\npath needs after the `_get_secret_keys` hook's deletion.\n\n## Testing\n\n`python -m pytest python/xorq/tests/test_profile.py\npython/xorq/tests/test_loader.py` — 106 passed; the 3 failures in\ntest_profile.py are pre-existing and need a live postgres on\nlocalhost:5432 (they reproduce on `main`).\n\nNew tests, mirroring the tier-3 top-up suite:\n\n- `test_an_imported_backends_static_keys_top_up_the_mirror` — the\nheadline: a backend with a static `secret` and no mirror entry has it\nenforced through `check_for_exposed_secrets` and `Profile.save()` (the\nsave aborts and writes nothing; an env-var reference is accepted).\n- `test_unimported_backend_contributes_no_static_class_keys` —\nbest-effort, exactly as tier 3: not imported means nothing contributed,\nand the default still applies.\n- `test_a_property_static_keys_declaration_contributes_nothing` — the\nproperty lives on a metaclass, where a plain `getattr` would run it and\nget back a well-formed tuple; only the `getattr_static` read keeps it\nout.\n- `test_a_non_tuple_static_keys_declaration_contributes_nothing` — a\nlist-shaped declaration fails the tuple check.\n- `test_a_mixed_static_keys_declaration_keeps_the_str_names` —\n`(\"secret\", 3, None)` keeps `secret`, enforced.\n- `test_a_static_keys_tuple_subclass_has_its_true_names_read` — a tuple\nsubclass forging `__iter__` has the true names read and enforced.\n- `test_a_forged_str_static_key_cannot_escape_the_match` — a `str`\nsubclass whose `__eq__` never matches is materialized, the key is\nenforced, and the save writes nothing.\n- `test_a_static_key_whose_hash_raises_cannot_escape_the_guard` — nor\ndoes a name reach the dedupe with a `__hash__` left to raise outside the\nguard.\n- `test_static_class_keys_top_up_the_mirror_and_cannot_shrink_it` —\nmonotonicity: mirror first, class keys can only widen.\n\nEach was verified to go **red** against a deliberately weakened\nimplementation (mirror-only tier 2 — the state on main before this PR;\nplain `getattr`; bound/uncopied/unfiltered name access), so none passes\nvacuously.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01HDir9n9kvdPCuLdwQ8FYDc\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-13T08:17:43-04:00",
+          "tree_id": "ec2f40796a7d633a9edd0a8a4eb1904d9950ae97",
+          "url": "https://github.com/xorq-labs/xorq/commit/f1d34c9734aea0dc57b60375ee24b11b371fb9f8"
+        },
+        "date": 1786623809862,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.4809752226869,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006256780152958217",
+            "extra": "mean: 105.47438175000323 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.944704840178226,
+            "unit": "iter/sec",
+            "range": "stddev: 0.053883812800990846",
+            "extra": "mean: 339.59260920000247 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8948089123604089,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15814205536057896",
+            "extra": "mean: 1.1175570405999964 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.568987243943467,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0352361001297005",
+            "extra": "mean: 280.19153100000267 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.971750527200216,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009114076205050226",
+            "extra": "mean: 251.77815000000126 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.0085649795439307,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04851543620643583",
+            "extra": "mean: 332.3843781999983 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 199.3393134732823,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013187345529057308",
+            "extra": "mean: 5.016571907347475 msec\nrounds: 313"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.8850881115061036,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07972986520261352",
+            "extra": "mean: 257.39441971428994 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 18.466064787580137,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008804585328596192",
+            "extra": "mean: 54.15338955555803 msec\nrounds: 18"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 13.75687813706068,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009666853924867942",
+            "extra": "mean: 72.69091068750733 msec\nrounds: 16"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.49271784355893,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014392220864756635",
+            "extra": "mean: 95.3041923846128 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.0692642449823575,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016727343144341232",
+            "extra": "mean: 141.4574367777782 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.268564656432647,
+            "unit": "iter/sec",
+            "range": "stddev: 0.039659576490204886",
+            "extra": "mean: 234.27078666666526 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.73566720741499,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0390853788953011",
+            "extra": "mean: 211.1634868333283 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 3.1349661023044755,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058430773534557584",
+            "extra": "mean: 318.9827153999886 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.00620072308667,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05637677323535469",
+            "extra": "mean: 332.64578520000896 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.9013291697500034,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08894896151207052",
+            "extra": "mean: 525.9478557999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.9220399773344032,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09926162665989335",
+            "extra": "mean: 520.2805414000068 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.7615327809231525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08778703427212974",
+            "extra": "mean: 567.6874202000022 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.750688538974714,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10477235916896634",
+            "extra": "mean: 571.2038307999933 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.360381115949965,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13273148248167196",
+            "extra": "mean: 735.0881221999998 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.2105968532158182,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09425035761631537",
+            "extra": "mean: 826.0388231999855 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.1179399216649064,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08180019472745481",
+            "extra": "mean: 894.5024509999939 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6357312823979021,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09423228436467926",
+            "extra": "mean: 1.572991651799987 sec\nrounds: 5"
           }
         ]
       }
