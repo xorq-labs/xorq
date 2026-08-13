@@ -33,7 +33,11 @@ def log_excepts(f, exception=Exception):
             logger.info(f"{f.__name__} :: exiting  :: {i}")
             return value
         except exception:
+            # adds logging, not semantics: `maybe_log_excepts` leaves `f`
+            # undecorated when debug is off, so swallowing here lost errors
+            # that plain mode surfaces
             logger.exception("exception!")
+            raise
 
     return wrapper
 

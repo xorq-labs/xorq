@@ -222,23 +222,37 @@ class FlightClient:
             i = -1
             for i, batch in enumerate(_reader, 1):  # noqa: B007
                 queue.put(batch.data)
-            queue.put(None)
             return i
 
         def do_writes_reads(command, reader, queue):
-            descriptor = pa.flight.FlightDescriptor.for_command(command)
-            writer, _reader = self._client.do_exchange(descriptor, self._options)
-            # `with writer` must happen inside a future
-            # # so its context remains alive during enclosed writes and reads
-            with writer:
-                do_writes_fut = executor.submit(do_writes, writer, reader)
-                do_reads_fut = executor.submit(do_reads, _reader, queue)
-                (n_writes, n_reads) = (do_writes_fut.result(), do_reads_fut.result())
+            # The consumer blocks until it sees the sentinel, so every exit path
+            # must put one -- including a failure to open the exchange, which is
+            # why `do_exchange` is inside the `try`. Callers drop `fut`, so an
+            # exception left there goes unseen; it goes on the queue instead.
+            try:
+                descriptor = pa.flight.FlightDescriptor.for_command(command)
+                writer, _reader = self._client.do_exchange(descriptor, self._options)
+                # `with writer` must happen inside a future
+                # # so its context remains alive during enclosed writes and reads
+                with writer:
+                    do_writes_fut = executor.submit(do_writes, writer, reader)
+                    do_reads_fut = executor.submit(do_reads, _reader, queue)
+                    (n_writes, n_reads) = (
+                        do_writes_fut.result(),
+                        do_reads_fut.result(),
+                    )
+            except BaseException as e:
+                queue.put(e)
+                raise
+            queue.put(None)
             return {"n_writes": n_writes, "n_reads": n_reads}
 
         def queue_to_rbr(schema, queue):
             def queue_to_gen(queue):
                 while (value := queue.get()) is not None:
+                    # re-raise where the caller can see it: the pulling thread
+                    if isinstance(value, BaseException):
+                        raise value
                     yield value
 
             return pa.RecordBatchReader.from_batches(schema, queue_to_gen(queue))
