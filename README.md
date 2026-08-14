@@ -105,17 +105,17 @@ computation, so an entry is something you run, not something you read about.
 | Dimension | Xorq | Atlan, Collibra, Unity Catalog |
 |-----------|------|--------------------------------|
 | Cataloged unit | Content-addressed expression plus pinned environment | Metadata record over an existing table |
-| Result of a lookup | Arrow stream from running the entry | A governed table you query with your own code |
+| Result of a lookup | Arrow stream from running the entry | A governed table you query with external code |
 | Lineage | Read off the manifest, exact by construction | Harvested from executed queries, best effort |
 | Operating model | Git repo of build artifacts on disk, no service to call | Hosted metastore and control plane |
 | Portability | Same expression runs on DataFusion, DuckDB, Snowflake, Databricks | Bound to the host platform |
-| Primary users | Agents and engineers composing new pipelines | Stewards, analysts, compliance teams |
+| Primary contributors | Agents and engineers composing new pipelines | Stewards, analysts, compliance teams |
 | Out of scope | Glossaries, ownership workflows, policy, access control | Packaging the pipeline and its environment |
 
 A governance catalog tells you what data exists, who owns it, and who may read
-it. Xorq tells an agent what to run to get the same answer twice. Read governed
-tables through the Databricks or Snowflake backend, and register entries as
-assets.
+it. Xorq tells an agent what to run to get the same answer twice and humans how
+it arrived at that answer. Read governed tables through the Databricks or
+Snowflake backend, and register entries as assets.
 
 
 # Benchmark
