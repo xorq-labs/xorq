@@ -17,6 +17,10 @@ a cache.
 
 from __future__ import annotations
 
+import ast
+import importlib
+import pathlib
+
 import pytest
 
 import xorq.api as xo
@@ -78,6 +82,43 @@ def test_xorq_own_backend_is_classified_by_name() -> None:
     branch of ``normalize_backend``.
     """
     assert xo.connect().name in NAME_ONLY_BACKEND_NAMES
+
+
+# Modules whose dispatch keys on backend names.  A raw literal in one of these
+# is invisible to every other test here: the registration sweep only proves the
+# *enum's* members are live, so a branch keyed on a respelled string drifts
+# exactly like gh-1842 did.  Extend this tuple when a new module starts
+# dispatching on backend names.
+BACKEND_NAME_DISPATCH_MODULES = (
+    "xorq.caching.strategy",
+    "xorq.common.utils.dasher._relations",
+)
+
+
+@pytest.mark.parametrize("module_name", BACKEND_NAME_DISPATCH_MODULES)
+def test_dispatch_modules_spell_no_backend_name_literals(module_name: str) -> None:
+    """Backend names in dispatch modules must come from ``BackendName``.
+
+    The enum cannot enforce its own use — ``dt.source.name == "snowflake"``
+    compiles fine and bypasses every guard above.  So walk the module's AST and
+    reject any string constant exactly equal to a backend name, wherever it
+    appears; comments never reach the AST, and prose only trips on an
+    exact-equality match, so mentioning a backend is fine.
+    """
+    module = importlib.import_module(module_name)
+    tree = ast.parse(pathlib.Path(module.__file__).read_text())
+    literals = sorted(
+        (node.lineno, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value in DISPATCHED_BACKEND_NAMES
+    )
+    assert not literals, (
+        f"{module_name} spells backend names as raw string literals "
+        f"(line, value): {literals}. Use the BackendName member instead, so a "
+        f"rename cannot leave a stale string behind (gh-1842)."
+    )
 
 
 def test_retired_backend_name_stays_retired() -> None:
