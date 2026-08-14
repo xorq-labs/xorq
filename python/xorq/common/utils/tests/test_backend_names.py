@@ -37,20 +37,14 @@ from xorq.common.enums import BackendName
 def test_backend_name_is_registered(name: BackendName) -> None:
     """Every ``BackendName`` member is a live backend.
 
-    This is the gh-1842 tripwire: a renamed backend leaves a member here that
-    matches nothing, and every branch it guards becomes dead code that fails
-    open.  Sweeping the enum itself means a newly added member is covered
-    automatically, with no aggregate tuple to forget to update.
+    The gh-1842 tripwire: a renamed backend leaves a member that matches
+    nothing, and every branch it guards becomes dead code that fails open.
     """
     assert name in _get_backend_names()
 
 
 def test_dispatch_sets_are_derived_from_the_enum() -> None:
-    """The dispatch sets compose from ``BackendName`` members, never literals.
-
-    Guards against someone re-typing a raw string into one set only — the
-    respelling that let gh-1842's stale name survive two renames.
-    """
+    """The dispatch sets compose from ``BackendName`` members, never literals."""
     assert DISPATCHED_BACKEND_NAMES == frozenset(BackendName)
     assert NAME_ONLY_BACKEND_NAMES <= DISPATCHED_BACKEND_NAMES
     assert set(DATAFUSION_BACKEND_NAMES) <= NAME_ONLY_BACKEND_NAMES
@@ -77,18 +71,14 @@ def test_backend_names_are_plain_strings() -> None:
 def test_xorq_own_backend_is_classified_by_name() -> None:
     """xorq's default connection must land in the name-only set.
 
-    The concrete regression from gh-1842: after the ``let`` -> ``xorq`` ->
-    ``xorq_datafusion`` renames, ``xo.connect()`` fell through to the remote
-    branch of ``normalize_backend``.
+    The concrete gh-1842 regression: ``xo.connect()`` fell through to the
+    remote branch of ``normalize_backend``.
     """
     assert xo.connect().name in NAME_ONLY_BACKEND_NAMES
 
 
-# Modules whose dispatch keys on backend names.  A raw literal in one of these
-# is invisible to every other test here: the registration sweep only proves the
-# *enum's* members are live, so a branch keyed on a respelled string drifts
-# exactly like gh-1842 did.  Extend this tuple when a new module starts
-# dispatching on backend names.
+# Modules whose dispatch keys on backend names; extend when a new module
+# starts dispatching on them.
 BACKEND_NAME_DISPATCH_MODULES = (
     "xorq.caching.strategy",
     "xorq.common.utils.dasher._relations",
@@ -99,11 +89,10 @@ BACKEND_NAME_DISPATCH_MODULES = (
 def test_dispatch_modules_spell_no_backend_name_literals(module_name: str) -> None:
     """Backend names in dispatch modules must come from ``BackendName``.
 
-    The enum cannot enforce its own use — ``dt.source.name == "snowflake"``
-    compiles fine and bypasses every guard above.  So walk the module's AST and
-    reject any string constant exactly equal to a backend name, wherever it
-    appears; comments never reach the AST, and prose only trips on an
-    exact-equality match, so mentioning a backend is fine.
+    The enum cannot enforce its own use — a respelled ``dt.source.name ==
+    "duckdb"`` compiles, compares equal, and is invisible to the tests above.
+    Exact equality keeps prose safe: comments never reach the AST, and a
+    docstring only trips if it *is* a backend name.
     """
     module = importlib.import_module(module_name)
     tree = ast.parse(pathlib.Path(module.__file__).read_text())

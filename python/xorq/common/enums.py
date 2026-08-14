@@ -7,13 +7,11 @@ XORQ_METADATA_PREFIX = "xorq:"
 
 
 class BackendName(StrEnum):
-    """Backend names that identity/normalization dispatch keys on.
+    """Canonical spellings of the backend names normalization dispatch keys on.
 
-    One canonical spelling per name, so a backend rename cannot leave a stale
-    string behind in one dispatch table while the others move (gh-1842 did
-    exactly that).  ``test_backend_names.py`` anchors every member to the live
-    ``xorq.backends`` entry-point group and holds the full story.  Derived
-    dispatch sets live in ``xorq.common.constants``.
+    ``test_backend_names.py`` anchors every member to the live ``xorq.backends``
+    entry-point group (gh-1842) and holds the full story; the derived dispatch
+    sets live in ``xorq.common.constants``.
     """
 
     PANDAS = "pandas"

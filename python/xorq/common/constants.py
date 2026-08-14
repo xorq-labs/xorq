@@ -12,9 +12,6 @@ READ_IDENTITY_KEYS = frozenset({"mode", "schema", "temporary", "relocatable"})
 READ_EXCLUDE_KEYS = frozenset({"hash_path", "read_path", "relocatable"})
 
 
-# Dispatch sets derived from the ``BackendName`` enum — composed from members,
-# never re-spelled as literals (gh-1842; see the enum's docstring).
-
 # The two datafusion-flavored backends share every dispatch special case.
 DATAFUSION_BACKEND_NAMES = (BackendName.DATAFUSION, BackendName.XORQ_DATAFUSION)
 
