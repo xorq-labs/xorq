@@ -67,7 +67,9 @@ from xorq.vendor.ibis.expr.types.core import Expr
 
 def _env_versions() -> str:
     mods = (pa, pd, np, xorq_dasher, xorq)
-    return ", ".join(f"{m.__name__}=={m.__version__}" for m in mods)
+    return ", ".join(
+        f"{m.__name__}=={getattr(m, '__version__', 'unknown')}" for m in mods
+    )
 
 
 def _contract_message(name: str, obj: object) -> str:
