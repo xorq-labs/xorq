@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from attr import field, frozen
 from attr.validators import instance_of
 
-from xorq.common.constants import READ_IDENTITY_KEYS
+from xorq.common.constants import NAME_ONLY_BACKEND_NAMES, READ_IDENTITY_KEYS
 
 
 if TYPE_CHECKING:
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from xorq.expr.relations import Read
     from xorq.vendor.ibis import Expr
+    from xorq.vendor.ibis.expr import operations as ops
 
 
 # Per-outer-call memo for ``SnapshotStrategy.normalize_databasetable``.
@@ -179,64 +180,41 @@ class SnapshotStrategy(CacheStrategy):
         from xorq.common.utils.dasher import HASHER  # noqa: PLC0415
 
         # In-memory backends identified by name alone; remote backends
-        # delegate to HASHER.normalize which raises if unregistered.
+        # delegate to HASHER.normalize which raises if unregistered. The name
+        # set is canonical (constants.NAME_ONLY_BACKEND_NAMES) rather than
+        # respelled here — this tuple is where gh-1842 kept the project's
+        # previous backend name `"let"` two renames after the fact.
         name = con.name
-        if name in ("pandas", "duckdb", "datafusion", "xorq_datafusion"):
+        if name in NAME_ONLY_BACKEND_NAMES:
             return (name, None)
         return HASHER.normalize(con)
 
     @staticmethod
-    def normalize_databasetable(dt):
-        from xorq_dasher.rules.expr import (  # noqa: PLC0415
-            normalize_cached_node,
-            normalize_remote_table,
-        )
-
-        from xorq.common.utils.dasher._relations import (  # noqa: PLC0415
-            normalize_flight_expr,
-            normalize_flight_udxf,
-        )
-        from xorq.expr.relations import (  # noqa: PLC0415
-            CachedNode,
-            DatabaseTableView,
-            FlightExpr,
-            FlightUDXF,
-            Read,
-            RemoteTable,
-        )
-
-        # Every DatabaseTableView subclass needs concrete-type dispatch here —
+    def normalize_databasetable(dt: ops.DatabaseTable) -> tuple:
+        # Every DatabaseTable subclass needs concrete-type dispatch here —
         # dasher's MRO lookup would otherwise pick this broader DatabaseTable
-        # rule over them. The `case _` fallback below folds `name` in, which is
-        # right for a real backend table (there `name` *is* the identity) and
-        # wrong for these views, whose `name` defaults to a per-process
-        # `gen_name()` uuid4. Missing FlightExpr/FlightUDXF here is what made
-        # `xorq build` non-reproducible and every SnapshotStrategy cache key
-        # churn per process (gh-2229); the DatabaseTableView guard makes the
-        # next such omission fail loudly instead of silently leaking a uuid4.
+        # rule over them — so the op->normalizer mapping is shared with the
+        # global dispatcher through ``view_rules`` rather than mirrored by hand.
+        # Mirroring is what drifted: this table used to omit
+        # FlightExpr/FlightUDXF, and the fallback below folded their per-process
+        # `gen_name()` uuid4 into the key, making `xorq build` non-reproducible
+        # and every SnapshotStrategy cache miss per run (gh-2229). The fallback
+        # deliberately keeps folding `name` in — for a genuine backend table
+        # `name` *is* the identity — and ``lookup_view_normalizer`` raises rather
+        # than let a DatabaseTableView reach it.
+        from xorq.common.utils.dasher._relations import (  # noqa: PLC0415
+            lookup_view_normalizer,
+        )
+
         memo = _snapshot_dt_normalize_memo.get()
         if memo is not None and dt in memo:
             return memo[dt]
-        match dt:
-            case Read():
-                result = snapshot_normalize_read(dt)
-            case CachedNode():
-                result = normalize_cached_node(dt)
-            case RemoteTable():
-                result = normalize_remote_table(dt)
-            case FlightExpr():
-                result = normalize_flight_expr(dt)
-            case FlightUDXF():
-                result = normalize_flight_udxf(dt)
-            case DatabaseTableView():
-                raise NotImplementedError(
-                    f"{type(dt).__name__} is a DatabaseTableView with no "
-                    "snapshot normalizer; add one rather than letting the "
-                    "fallback fold its generated name into the key"
-                )
-            case _:
-                keys = ("name", "schema", "source", "namespace")
-                result = tuple((k, getattr(dt, k)) for k in keys)
+        normalizer = lookup_view_normalizer(dt, snapshot=True)
+        if normalizer is not None:
+            result = normalizer(dt)
+        else:
+            keys = ("name", "schema", "source", "namespace")
+            result = tuple((k, getattr(dt, k)) for k in keys)
         if memo is not None:
             memo[dt] = result
         return result
