@@ -2,13 +2,9 @@
 
 ``view_rules`` is the single source of truth for how the two normalization
 regimes — the global hasher and ``SnapshotStrategy`` — identify
-``DatabaseTable`` subclasses.  It exists because those regimes used to be
-hand-mirrored ``match`` statements and drifted: the snapshot copy omitted
-``FlightExpr``/``FlightUDXF``, so their per-process ``gen_name()`` uuid4 reached
-the key and made ``xorq build`` non-reproducible while every
-``SnapshotStrategy`` cache missed on every run (gh-2229).  The same bug had
-already been fixed once in the dask era (gh-610) and came back with the dasher
-rewrite.
+``DatabaseTable`` subclasses; its docstring records why the tables must not be
+hand-mirrored (gh-610, gh-2229: drift leaked per-process ``gen_name()`` uuid4s
+into keys).
 
 Three layers here, deliberately overlapping:
 

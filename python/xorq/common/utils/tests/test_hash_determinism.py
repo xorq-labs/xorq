@@ -1,19 +1,14 @@
 """Cross-process determinism of build hashes and cache keys.
 
-Every test in this repo that guards hash stability runs inside one interpreter,
-so none of them can see a per-process value leaking into identity -- and that is
-the single most-repeated bug in this subsystem's history:
-
-* gh-610  -- FlightExpr/FlightUDXF names reached the cache key (dask era)
-* gh-1728 -- ``Profile.idx`` and UDF class-name counters reached build hashes
-* gh-1738 -- a process-global ScalarUDF counter reached the token via SQL
-* gh-2229 -- the same flight-name leak as gh-610, reintroduced by the dasher
-  rewrite, this time via ``SnapshotStrategy``'s copy of the dispatch table
-
-Each was found by hand, in production, by noticing that an unchanged script kept
-writing new ``builds/<hash>`` directories. This module automates that
-observation: build a corpus of expressions in two *fresh interpreters* with
-different ``PYTHONHASHSEED`` and assert the identities agree.
+Every other hash-stability test in this repo runs inside one interpreter, so
+none of them can see a per-process value leaking into identity -- the
+most-repeated bug in this subsystem's history (gh-610, gh-1728, gh-1738,
+gh-2229: generated names, counters, and process-global state reaching
+identity; see ``view_rules`` for the latest). Each was found by hand, in
+production, by noticing an unchanged script writing new ``builds/<hash>``
+directories. This module automates that observation: build a corpus of
+expressions in two *fresh interpreters* with different ``PYTHONHASHSEED`` and
+assert the identities agree.
 
 It is deliberately not marked ``slow`` -- CI lanes that filter ``not slow``
 are exactly the lanes that need this guard. Cost is two interpreter starts

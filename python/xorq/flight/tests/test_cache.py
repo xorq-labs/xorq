@@ -83,13 +83,11 @@ def test_flight_udxf_inner_name_doesnt_matter():
     assert expr0.ls.get_key() == expr1.ls.get_key()
 
 
-# The three tests above assert name-neutrality through `ls.get_key()`, which for
-# ParquetCache means ModificationTimeStrategy -> the global hasher. That path was
-# always correct. The build hash and every SnapshotStrategy-backed cache go
-# through SnapshotStrategy's own DatabaseTable override instead, which used to
-# miss FlightExpr/FlightUDXF and fold their generated names in -- so `xorq build`
-# named a fresh directory per process and snapshot caches never hit (gh-2229).
-# These cover the two paths the tests above do not.
+# The three tests above assert name-neutrality through `ls.get_key()` on a
+# ParquetCache -- the global-hasher path, which was always correct. The build
+# hash and SnapshotStrategy-backed caches dispatch separately and used to fold
+# Flight ops' generated names in (gh-2229; see view_rules). These cover the two
+# paths the tests above do not.
 
 
 def test_flight_udxf_inner_name_doesnt_matter_build_hash():

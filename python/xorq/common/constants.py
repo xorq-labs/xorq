@@ -12,12 +12,9 @@ READ_EXCLUDE_KEYS = frozenset({"hash_path", "read_path", "relocatable"})
 
 # Backend names that identity/normalization dispatch keys on, kept here as the
 # single source so a backend rename cannot leave a stale string behind in one
-# dispatch table while the others move.  That has already happened: gh-1842
-# shipped ``SnapshotStrategy.normalize_backend`` still holding the project's
-# previous name ``"let"`` two renames after the fact, and the flight-name leak
-# of gh-2229 is the same defect one axis over.  ``test_backend_names.py``
-# asserts every name below is a live entry point in the ``xorq.backends``
-# group, so the next rename fails in CI instead of silently under-keying.
+# dispatch table while the others move (gh-1842 did exactly that).
+# ``test_backend_names.py`` anchors every name below to the live
+# ``xorq.backends`` entry-point group and holds the full story.
 DATAFUSION_BACKEND_NAMES = ("datafusion", "xorq_datafusion")
 PANDAS_BACKEND_NAME = "pandas"
 DUCKDB_BACKEND_NAME = "duckdb"

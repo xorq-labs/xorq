@@ -700,22 +700,18 @@ def test_refuses_extension_types() -> None:
 # ---------------------------------------------------------------------------
 # Flight op identity
 #
-# gh-2229: FlightExpr/FlightUDXF fell through SnapshotStrategy's dispatch table
-# to a fallback that folded their per-process ``gen_name()`` uuid4 into the key,
-# so ``xorq build`` was not reproducible and every SnapshotStrategy cache missed
-# on every run. The op->normalizer wiring is now shared between both regimes
-# (``view_rules``) and covered by ``test_view_rules.py``. What that cannot catch
-# is a change to *what these normalizers fold in* -- ``rules_fingerprint``
-# digests rule *names* and is explicitly blind to a body edit under an unchanged
-# name, and since both regimes now share one callable, a single edit moves both
-# their hashes at once. These goldens are that tripwire.
+# The op->normalizer wiring is shared between both regimes (``view_rules``,
+# gh-2229 — see its docstring) and covered by ``test_view_rules.py``. What that
+# cannot catch is a change to *what these normalizers fold in* --
+# ``rules_fingerprint`` digests rule *names* and is blind to a body edit, and
+# since both regimes share one callable, a single edit moves both their hashes
+# at once. These goldens are that tripwire.
 #
 # The goldens pin the normalizer's own contribution -- tag, arity, field order,
 # and the string-valued fields -- with the recursive ``Expr`` element and the
-# callables replaced by type placeholders. That is deliberate: per this module's
-# docstring, generated-SQL surfaces (sqlglot-coupled) and function bytecode
-# (cloudpickle/Python-version-coupled) are over-discrimination surfaces, not
-# per-environment contracts, so pinning them here would be flaky by
+# callables replaced by type placeholders. Per this module's docstring,
+# generated-SQL and function-bytecode surfaces are over-discrimination
+# surfaces, not per-environment contracts, so pinning them would be flaky by
 # construction. Data identity for the input expression is covered by the
 # memtable/pyarrow goldens above.
 # ---------------------------------------------------------------------------
@@ -799,12 +795,10 @@ def test_flight_tokens_exclude_the_generated_name() -> None:
 
 
 def test_flight_udxf_qualname_is_the_class_not_the_metaclass() -> None:
-    """``dt.udxf`` is the exchanger class, so ``type(dt.udxf)`` is its metaclass.
+    """Pins the gotcha documented on :func:`normalize_flight_udxf`.
 
-    ``make_udxf`` returns ``type(name, (AbstractExchanger,), ...)``, so the
-    element must be ``dt.udxf.__qualname__``. Spelled
-    ``type(dt.udxf).__qualname__`` it evaluates to the constant ``"ABCMeta"``
-    for every UDXF in existence, contributing no discrimination at all.
+    ``make_udxf`` returns ``type(name, (AbstractExchanger,), ...)`` — the class
+    itself — so ``type(dt.udxf).__qualname__`` is the metaclass's ``"ABCMeta"``.
     """
     node = _flight_nodes()["flight_udxf"]
     (_, _, qualname, *_) = normalize_flight_udxf(node)
@@ -816,10 +810,8 @@ def test_flight_udxf_qualname_is_the_class_not_the_metaclass() -> None:
 def test_flight_udxf_discriminates_exchangers_without_exchange_f() -> None:
     """Two exchanger classes that inherit ``exchange_f`` must not collide.
 
-    This is the documented rationale for folding the qualname in at all, and it
-    is exactly what the metaclass spelling silently failed to deliver: both
-    classes yield ``"ABCMeta"`` and the same inherited ``exchange_f``, so their
-    tokens were identical.
+    This is why the qualname is folded in at all — and exactly what the
+    metaclass spelling silently failed to deliver.
     """
 
     class ExchangerA(AbstractExchanger):

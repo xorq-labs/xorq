@@ -85,13 +85,14 @@ def test_xorq_own_backend_is_classified_by_name() -> None:
     assert xo.connect().name in NAME_ONLY_BACKEND_NAMES
 
 
-def test_no_dispatched_name_is_stale_relative_to_upstream_dasher() -> None:
-    """The upstream per-backend dict is keyed on the same names.
+def test_retired_backend_name_stays_retired() -> None:
+    """No registered backend is named ``"xorq"`` again.
 
     ``_dispatch_databasetable`` falls through to
     ``xorq_dasher.rules.expr.normalize_databasetable`` for the backends it does
-    not intercept.  Upstream still carries a ``"xorq"`` key that no longer
-    matches any registered backend -- assert that dead key stays dead rather
-    than silently becoming live again under a future rename.
+    not intercept, and upstream's per-backend dict still carries a ``"xorq"``
+    key from before the ``xorq_datafusion`` rename.  If a backend named
+    ``"xorq"`` ever registers again, that stale upstream normalizer silently
+    becomes live for it -- fail here first.
     """
     assert "xorq" not in _get_backend_names()

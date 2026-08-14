@@ -181,9 +181,8 @@ class SnapshotStrategy(CacheStrategy):
 
         # In-memory backends identified by name alone; remote backends
         # delegate to HASHER.normalize which raises if unregistered. The name
-        # set is canonical (constants.NAME_ONLY_BACKEND_NAMES) rather than
-        # respelled here — this tuple is where gh-1842 kept the project's
-        # previous backend name `"let"` two renames after the fact.
+        # set is canonical (constants.NAME_ONLY_BACKEND_NAMES), never respelled
+        # here — see test_backend_names.py (gh-1842).
         name = con.name
         if name in NAME_ONLY_BACKEND_NAMES:
             return (name, None)
@@ -191,17 +190,12 @@ class SnapshotStrategy(CacheStrategy):
 
     @staticmethod
     def normalize_databasetable(dt: ops.DatabaseTable) -> tuple:
-        # Every DatabaseTable subclass needs concrete-type dispatch here —
-        # dasher's MRO lookup would otherwise pick this broader DatabaseTable
-        # rule over them — so the op->normalizer mapping is shared with the
-        # global dispatcher through ``view_rules`` rather than mirrored by hand.
-        # Mirroring is what drifted: this table used to omit
-        # FlightExpr/FlightUDXF, and the fallback below folded their per-process
-        # `gen_name()` uuid4 into the key, making `xorq build` non-reproducible
-        # and every SnapshotStrategy cache miss per run (gh-2229). The fallback
-        # deliberately keeps folding `name` in — for a genuine backend table
-        # `name` *is* the identity — and ``lookup_view_normalizer`` raises rather
-        # than let a DatabaseTableView reach it.
+        # Concrete-type dispatch is shared with the global dispatcher through
+        # ``view_rules`` — see its docstring for why the two tables must not be
+        # hand-mirrored (gh-2229). The fallback deliberately keeps folding
+        # `name` in — for a genuine backend table `name` *is* the identity —
+        # and ``lookup_view_normalizer`` raises rather than let a
+        # DatabaseTableView reach it.
         from xorq.common.utils.dasher._relations import (  # noqa: PLC0415
             lookup_view_normalizer,
         )

@@ -320,9 +320,8 @@ def normalize_flight_expr(dt: ops.DatabaseTable) -> tuple:
     ``Field``).
 
     ``dt.name`` is omitted because it defaults to ``gen_name()`` — a fresh uuid4
-    per process — so folding it in makes the token non-reproducible. Shared with
-    ``SnapshotStrategy.normalize_databasetable`` so the two dispatch tables
-    cannot drift on this invariant again (see gh-2229).
+    per process — so folding it in makes the token non-reproducible (gh-2229;
+    see :func:`view_rules`).
     """
     return (
         "xorq.FlightExpr",
@@ -335,22 +334,12 @@ def normalize_flight_expr(dt: ops.DatabaseTable) -> tuple:
 def normalize_flight_udxf(dt: ops.DatabaseTable) -> tuple:
     """Identity of a ``FlightUDXF``, deliberately excluding ``dt.name``.
 
-    ``dt.udxf.__qualname__`` distinguishes UDXF classes even when ``exchange_f``
-    is absent or shared — bare ``getattr(..., None)`` would otherwise collapse
-    two distinct UDXFs (both missing ``exchange_f``) onto the same token.
-
-    Note ``dt.udxf`` is the exchanger *class*, not an instance: ``make_udxf``
-    returns ``type(name, (AbstractExchanger,), ...)``.  So this must be
-    ``dt.udxf.__qualname__`` and not ``type(dt.udxf).__qualname__`` — the latter
-    reads the metaclass and evaluates to the constant ``"ABCMeta"`` for every
-    UDXF that has ever existed, which is exactly the discrimination this element
-    is here to provide.  Two hand-written ``AbstractExchanger`` subclasses that
-    inherit rather than override ``exchange_f`` tokenized identically under that
-    spelling; ``test_flight_udxf_qualname_is_the_class_not_the_metaclass`` pins
-    it.
-
-    The qualname is a deterministic ``name or process_df.__name__`` (never a
-    ``gen_name()``), so folding it in does not reintroduce the gh-2229 leak.
+    The qualname is what distinguishes two exchangers that inherit rather than
+    override ``exchange_f``, and it is deterministic (``name or
+    process_df.__name__``, never a ``gen_name()``). ``dt.udxf`` is already the
+    exchanger *class* — do not write ``type(dt.udxf).__qualname__``, which reads
+    the metaclass and yields ``"ABCMeta"`` for every UDXF
+    (``test_flight_udxf_qualname_is_the_class_not_the_metaclass`` pins this).
 
     See :func:`normalize_flight_expr` for why ``dt.name`` is excluded.
     """
@@ -420,17 +409,15 @@ def view_rules() -> tuple[ViewRule, ...]:
 def lookup_view_normalizer(dt: ops.DatabaseTable, *, snapshot: bool) -> Callable | None:
     """Return the normalizer for ``dt``, or ``None`` to use the caller's fallback.
 
-    Raises ``NotImplementedError`` for an unhandled ``DatabaseTableView``.  Both
-    dispatch tables route through here so the guard covers both: a fallback that
-    folds ``name`` in is right for a genuine backend table (there ``name`` *is*
-    the identity) and wrong for a view, whose ``name`` defaults to a per-process
-    ``gen_name()`` uuid4.
+    Raises ``NotImplementedError`` for an unhandled ``DatabaseTableView``: a
+    name-folding fallback is right for a genuine backend table (there ``name``
+    *is* the identity) and wrong for a view, whose ``name`` defaults to a
+    per-process ``gen_name()`` uuid4 (gh-2229; see :func:`view_rules`).  Both
+    dispatch tables route through here so the guard covers both.
 
-    This runtime guard is not made redundant by
-    ``test_view_rules.py``'s static exhaustiveness check.  That check reads
-    ``DatabaseTableView.__subclasses__()``, which only sees imported modules, and
-    xorq imports backends lazily — a view op defined in a lazily-imported backend
-    module would slip past it vacuously.
+    Not made redundant by ``test_view_rules.py``'s static exhaustiveness check:
+    that check reads ``DatabaseTableView.__subclasses__()``, which only sees
+    imported modules, and xorq imports backends lazily.
     """
     for rule in view_rules():
         if isinstance(dt, rule.op_type):
