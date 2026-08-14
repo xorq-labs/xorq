@@ -111,8 +111,11 @@ def instrument_reader(reader, prefix=""):
     logger = get_print_logger()
 
     def gen(reader):
+        # no `yield next(reader)` here: on an empty stream that raises
+        # StopIteration inside a generator, which PEP 479 turns into
+        # `RuntimeError: generator raised StopIteration` -- exactly when
+        # someone has turned instrumentation on to debug an empty result
         logger.info(f"{prefix:10s}first batch yielded")
-        yield next(reader)
         yield from reader
         logger.info(f"{prefix:10s}last batch yielded")
 
