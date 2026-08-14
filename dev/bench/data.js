@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786655789267,
+  "lastUpdate": 1786714621568,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -34578,6 +34578,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.1802827293487537",
             "extra": "mean: 1.3755039802000169 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0b92f31b9c71f8fcdd251c940a49b96ab1c50da1",
+          "message": "fix(caching): exclude FlightExpr/FlightUDXF names from the snapshot hash (#2230)\n\nFixes #2229.\n\n## The bug\n\n`SnapshotStrategy.normalize_databasetable`\n(`python/xorq/caching/strategy.py`) hand-mirrored dasher's concrete-type\ndispatch for `DatabaseTable` subclasses — necessary because dasher's MRO\nlookup would otherwise pick the broader `DatabaseTable` rule — and the\nmirror drifted: it handled `Read`, `CachedNode`, and `RemoteTable`, but\nlet `FlightExpr`/`FlightUDXF` fall through to a fallback that folds\n`name` into the key. Those `name`s default to `gen_name()`, a fresh\nuuid4 per process. Consequences:\n\n1. **`xorq build` was not reproducible** for any expression containing a\n`flight_udxf`/`flight_expr` with an unset inner name — a new\n`builds/<hash>` directory per invocation of an unchanged script.\n2. **Every `SnapshotStrategy`-backed cache missed on every run** —\n`ParquetSnapshotCache`, `ParquetTTLSnapshotCache`,\n`ParquetDummySnapshotCache`, `SourceSnapshotCache`. Results written,\nnever read back.\n\nThe global dispatcher (`_dispatch_databasetable`) had both Flight cases\nand deliberately omitted `name`, which is why\n`ModificationTimeStrategy`/`ParquetCache` were always correct — and why\nthe three pre-existing name-neutrality tests (all asserting through that\npath) passed while the bug was live. The same leak had been fixed once\nbefore in the dask era (gh-610) and returned with the dasher rewrite.\n\n## The fix\n\n**One rule table for both regimes.** `view_rules()` in\n`dasher/_relations.py` is now the single op→normalizer declaration; both\ndispatch tables (`_dispatch_databasetable` and\n`SnapshotStrategy.normalize_databasetable`) resolve through\n`lookup_view_normalizer`. A view op handled in one regime cannot\nsilently fall through the other. Exactly one op legitimately differs per\nregime — `Read` (stat-based globally, path-only under snapshot, gh-1861)\n— pinned by `test_only_read_diverges_between_regimes`.\n\n**Fail loudly, not open.** The `case _` fallback deliberately keeps\nfolding `name` in: for a genuine backend table, `name` *is* the\nidentity, so blanket-dropping it would under-key and risk wrong cache\nhits. Instead, any `DatabaseTableView` with no `view_rules` row now\nraises `NotImplementedError` in both regimes — a newly added view op\nfails in CI instead of leaking a uuid4 into a cache key.\n\n**Flight normalizers extracted and shared.** `normalize_flight_expr` /\n`normalize_flight_udxf` carry docstrings recording why `name` is\nexcluded.\n\n## Two adjacent defects fixed\n\n- **`normalize_flight_udxf` folded the metaclass name, not the class\nname.** `dt.udxf` is already the exchanger *class* (`make_udxf` returns\n`type(name, (AbstractExchanger,), ...)`), so the previous\n`type(dt.udxf).__qualname__` evaluated to the constant `\"ABCMeta\"` for\nevery UDXF ever constructed — two exchangers inheriting `exchange_f`\ncollided. Now `dt.udxf.__qualname__`, which is deterministic (`name or\nprocess_df.__name__`, never a `gen_name()`).\n- **`_env_versions` crashed on installs lacking `__version__`**\n(observed live: an `AttributeError` from `xorq_dasher` masked the\ngolden-diff message that exists precisely to be read in a divergent\nenvironment). Now `getattr(m, \"__version__\", \"unknown\")`.\n\n## The name axis: `BackendName`\n\nNormalization dispatches on two axes: op type (fixed above) and backend\n*name string*. The name axis had already failed the same way — gh-1842\nshipped `normalize_backend` still holding the project's previous backend\nname `\"let\"`, two renames after the fact. This PR is where canonical\nspellings first appear, so they land in their final shape:\n\n- **`BackendName(StrEnum)`** in `common/enums.py` (compat `StrEnum` for\nthe 3.10 floor); members are drop-in strings for `dt.source.name`\ncomparisons.\n- **Dispatch sets derive from members** in `common/constants.py`;\n`DISPATCHED_BACKEND_NAMES = frozenset(BackendName)`, so a new member\njoins the registration sweep automatically.\n- **An AST guard**\n(`test_dispatch_modules_spell_no_backend_name_literals`) rejects any\nstring constant equal to a backend name in the two dispatching modules —\nthe enum cannot enforce its own use, and a respelled literal compiles\nand compares fine.\n\n## Tests\n\n| File | Guards |\n|---|---|\n| `test_view_rules.py` (new, 13) | Rule-table exhaustiveness (static\nsubclass sweep + runtime guard in both regimes + per-op name-neutrality\nproperty under global hasher, `SnapshotStrategy`, and build hash).\nBuilder/rule coupling is fail-never-skip: a new row without a builder is\na failure. |\n| `test_backend_names.py` (new, 12) | Every `BackendName` member is a\nregistered backend (the gh-1842 tripwire); sets derive from the enum;\n`StrEnum` value semantics; the AST literal guard; the retired `\"xorq\"`\nname stays retired. |\n| `test_hash_determinism.py` (new, 19) | Cross-process determinism: a\ncorpus with every generated name left unset, built in two fresh\ninterpreters under different `PYTHONHASHSEED`, comparing\n`build_hash`/`snapshot_key`/`tokenized` per case. Catches the whole leak\nclass (uuid4s, counters, hash-randomized ordering) regardless of op or\nmechanism. Deliberately not marked `slow`: lanes filtering `not slow`\nare the ones that need it. |\n| `test_hash_contract.py` (extended, +5) | Golden flight token shapes\npin each normalizer's own contribution (tag, arity, field order, string\nfields; callables collapsed to type placeholders) — covers the\n`rules_fingerprint` blind spot (gh-2204): the fingerprint digests rule\n*names* and cannot see a body edit. Plus pins for the qualname fix. |\n| `flight/tests/test_cache.py` (extended, +4) | The gh-2229 regression\nthrough the two paths the pre-existing tests missed: `get_expr_hash` and\n`ParquetSnapshotCache`, plus the unhandled-view guard. All four fail on\npre-fix `main`. |\n\n## Hash invalidation\n\nThis PR moves the hash of any expression containing a Flight op, twice\nover (the `name` exclusion and the qualname fix) — a one-time\ninvalidation of build directories and `SnapshotStrategy` cache entries,\ninherent to the fix. #2231 (already on main) independently moved the\nsame hashes by reshaping `exchange_f`; the golden caught that reshape\nduring rebase exactly as predicted (`flight_udxf` golden `97220ca2…` →\n`1982bf85…`). Landing this in the same release as #2231 means users see\n**one** rebuild with one explanation.\n\nThe `BackendName` refactor is hash-neutral by construction — only plain\nstrings from `con.name`/`dt.source.name` reach tokens — verified by the\nunchanged goldens and the determinism harness.\n\n## Verification\n\n- Two `FlightUDXF`s differing only in inner name: `get_expr_hash` /\n`SnapshotStrategy` keys now equal (both differed on `main`);\n`ModificationTimeStrategy` unchanged-correct as control.\n- Three runs of one unchanged script in separate processes: one build\nhash (three distinct on `main`).\n- The five test files above: **106 passed**.\n- Full suites diffed against pristine `main` as control:\n`ibis_yaml/tests/`, `flight/tests/` + `caching/`, and the\ndasher/content-hash/ls-accessor tests — pre-existing failure sets\nidentical on both sides; no new failures.\n\n## Deliberately out of scope\n\n- **Convert-once dispatch gate** (#2246; `BackendName(dt.source.name)`\nat the top of `_dispatch_databasetable`): would make an unlisted name\nstructurally unreachable, but changes hot-path control flow and deserves\nits own before/after hash verification. The AST guard covers respelled\n*known* names meanwhile; a literal for a never-enumified backend remains\nthe documented residual.\n- **`_sanitize_generated_names` as a backstop**: cannot serve here for\nthe two reasons documented in #2229 (its `(InMemoryTable, Read)` walk\nnever visits Flight ops; `get_uid_prefix`'s 26-char pattern cannot match\nxorq's 14-char truncated uids). Left for that issue.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-08-14T09:31:09-04:00",
+          "tree_id": "8b2feb80c32370f6cc70a9fcb1e030378bc72b20",
+          "url": "https://github.com/xorq-labs/xorq/commit/0b92f31b9c71f8fcdd251c940a49b96ab1c50da1"
+        },
+        "date": 1786714617154,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 9.89814849737875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005806958971242997",
+            "extra": "mean: 101.02899549999904 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.8651729069760736,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03672943502477302",
+            "extra": "mean: 349.019075800004 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.894454265699371,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18127527493667084",
+            "extra": "mean: 1.1180001463999987 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.501084084778904,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03702574163433029",
+            "extra": "mean: 285.62581639999394 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.7116931148852625,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008627168167645314",
+            "extra": "mean: 269.4188256000018 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.0935856680912166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05726876265257323",
+            "extra": "mean: 323.24949340000444 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 183.5052528347511,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011121903102583635",
+            "extra": "mean: 5.449435286195939 msec\nrounds: 297"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.376532326998696,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06574416303950197",
+            "extra": "mean: 228.4914003333256 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 18.030553494118738,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0078201650308542",
+            "extra": "mean: 55.461414444441935 msec\nrounds: 18"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 12.871371872116319,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012545280133063002",
+            "extra": "mean: 77.69179617646923 msec\nrounds: 17"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.220829569023858,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009852512021330088",
+            "extra": "mean: 97.83941638462377 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.4240132103461525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013393201301886863",
+            "extra": "mean: 155.6659314444523 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.261474879622954,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05962194226396888",
+            "extra": "mean: 234.6605408333365 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.066528629656921,
+            "unit": "iter/sec",
+            "range": "stddev: 0.039297521642808225",
+            "extra": "mean: 197.37379833334026 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 3.396294485807166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022486966730080243",
+            "extra": "mean: 294.4385430000011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.191534092750174,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03449946652395162",
+            "extra": "mean: 313.328941799989 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 2.0335950810302865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05444790075963898",
+            "extra": "mean: 491.739977799989 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 2.2366613344093014,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06558590412512275",
+            "extra": "mean: 447.0949556000164 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.7223785089152293,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08944858876379651",
+            "extra": "mean: 580.5924742000002 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.811784180942349,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0780224575669278",
+            "extra": "mean: 551.9421190000003 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.499586570880514,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08146348218873109",
+            "extra": "mean: 666.8504635999966 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.3289674053605556,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11823329140324773",
+            "extra": "mean: 752.4639023999953 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.2340345892679039,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10517810049066321",
+            "extra": "mean: 810.3500571999803 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.7075247363712257,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14483686011554597",
+            "extra": "mean: 1.4133781458000043 sec\nrounds: 5"
           }
         ]
       }
