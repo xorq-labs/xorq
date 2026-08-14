@@ -372,7 +372,8 @@ def view_rules() -> tuple[ViewRule, ...]:
     non-reproducible and every ``SnapshotStrategy`` cache miss per process
     (gh-2229).  The identical bug had already been fixed once in the dask era
     (gh-610) and returned with the dasher rewrite, so the table is the fix:
-    adding a row serves both regimes at once.
+    adding a row serves both regimes at once (the ADR-0016 pattern —
+    table-driven dispatch with registration tripwires).
 
     Two columns because the regimes legitimately differ for exactly one op:
     ``Read`` takes stat-based identity globally and path-only identity under

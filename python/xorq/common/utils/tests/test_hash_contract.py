@@ -703,9 +703,9 @@ def test_refuses_extension_types() -> None:
 # The op->normalizer wiring is shared between both regimes (``view_rules``,
 # gh-2229 — see its docstring) and covered by ``test_view_rules.py``. What that
 # cannot catch is a change to *what these normalizers fold in* --
-# ``rules_fingerprint`` digests rule *names* and is blind to a body edit, and
-# since both regimes share one callable, a single edit moves both their hashes
-# at once. These goldens are that tripwire.
+# ``rules_fingerprint`` is body-blind by design (a known accepted trade,
+# gh-2204), and since both regimes share one callable, a single edit moves both
+# their hashes at once. These goldens are that tripwire.
 #
 # The goldens pin the normalizer's own contribution -- tag, arity, field order,
 # and the string-valued fields -- with the recursive ``Expr`` element and the
