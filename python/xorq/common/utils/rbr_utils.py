@@ -3,11 +3,18 @@ from __future__ import annotations
 import itertools
 import traceback
 from collections.abc import Callable, Iterable
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pyarrow as pa
 import pyarrow.compute as pc
 import toolz
+
+
+if TYPE_CHECKING:
+    # the ``pa.flight.*`` annotations need the submodule, which is never
+    # imported at runtime here (annotations stay strings under
+    # ``from __future__ import annotations``)
+    import pyarrow.flight  # noqa: F401
 
 from xorq.common.utils.otel_utils import (
     create_link,
@@ -139,9 +146,10 @@ def streaming_split_exchange(
     printed server-side and re-raised (the ``excepts_print_exc`` default), so
     the exchange ends in an error status rather than a clean stream that is
     silently missing splits. ``exc=BaseException`` for the same reason as the
-    exchanges in ``xorq.flight.exchanger``: ``SystemExit`` must be printed too. Skip-and-continue over bad splits would be a
-    feature, not a fix: the wire format currently has no way to tell the
-    client which splits were dropped.
+    exchanges in ``xorq.flight.exchanger``: ``SystemExit`` must be printed
+    too. Skip-and-continue over bad splits would be a feature, not a fix: the
+    wire format currently has no way to tell the client which splits were
+    dropped.
 
     Abort is not atomic: when split N fails, splits 1..N-1 are already on the
     wire and the client consumes them before its reader raises. A client that

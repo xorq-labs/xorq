@@ -5,10 +5,17 @@ from abc import (
     ABC,
     abstractmethod,
 )
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import pyarrow as pa
 import toolz
+
+
+if TYPE_CHECKING:
+    # the ``pa.flight.*`` annotations need the submodule, which this module
+    # never imports at runtime (annotations stay strings under
+    # ``from __future__ import annotations``)
+    import pyarrow.flight  # noqa: F401
 
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
