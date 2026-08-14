@@ -1,7 +1,7 @@
 import itertools
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from queue import Queue
 
 import pyarrow as pa
@@ -17,6 +17,18 @@ from xorq.vendor import ibis
 
 
 executor = ThreadPoolExecutor()
+
+
+class Sentinel:
+    """End-of-stream marker for the exchange queue.
+
+    A dedicated object, not ``None``: the queue carries record batches, and a
+    Flight chunk with only ``app_metadata`` has ``data is None``, so ``None``
+    is a value the producer can legitimately hold.
+    """
+
+
+SENTINEL = Sentinel()
 
 
 logger = logging.getLogger(__name__)
@@ -220,8 +232,12 @@ class FlightClient:
 
         def do_reads(_reader, queue):
             i = -1
-            for i, batch in enumerate(_reader, 1):  # noqa: B007
-                queue.put(batch.data)
+            for i, chunk in enumerate(_reader, 1):  # noqa: B007
+                # a metadata-only chunk carries `data is None`; forwarding it
+                # would put a value on the queue that the consumer cannot tell
+                # from the end-of-stream sentinel
+                if chunk.data is not None:
+                    queue.put(chunk.data)
             return i
 
         def do_writes_reads(command, reader, queue):
@@ -229,6 +245,15 @@ class FlightClient:
             # must put one -- including a failure to open the exchange, which is
             # why `do_exchange` is inside the `try`. Callers drop `fut`, so an
             # exception left there goes unseen; it goes on the queue instead.
+            #
+            # Which producer failed decides whether the stream failed. The reads
+            # are the stream: if they finished, the consumer holds every batch
+            # the server sent, and the result is complete whatever the write side
+            # did. A server that stops pulling input early (any `limit`) leaves
+            # the client writing into a half-closed stream, and that write-side
+            # error must not destroy a result that is already correct -- it goes
+            # to `fut` alone.
+            writes_exc = None
             try:
                 descriptor = pa.flight.FlightDescriptor.for_command(command)
                 writer, _reader = self._client.do_exchange(descriptor, self._options)
@@ -237,19 +262,27 @@ class FlightClient:
                 with writer:
                     do_writes_fut = executor.submit(do_writes, writer, reader)
                     do_reads_fut = executor.submit(do_reads, _reader, queue)
-                    (n_writes, n_reads) = (
-                        do_writes_fut.result(),
-                        do_reads_fut.result(),
-                    )
+                    # don't join the writes first: a read-side failure must not
+                    # wait on a write side that is still draining into a stream
+                    # nobody is consuming
+                    wait((do_writes_fut, do_reads_fut), return_when=FIRST_EXCEPTION)
+                    # blocking on the reads is bounded even when the writes have
+                    # already failed: a broken write side ends the exchange
+                    # server-side, which ends the read stream
+                    n_reads = do_reads_fut.result()
+                    writes_exc = do_writes_fut.exception()
+                    n_writes = None if writes_exc else do_writes_fut.result()
             except BaseException as e:
                 queue.put(e)
                 raise
-            queue.put(None)
+            queue.put(SENTINEL)
+            if writes_exc is not None:
+                raise writes_exc
             return {"n_writes": n_writes, "n_reads": n_reads}
 
         def queue_to_rbr(schema, queue):
             def queue_to_gen(queue):
-                while (value := queue.get()) is not None:
+                while (value := queue.get()) is not SENTINEL:
                     # re-raise where the caller can see it: the pulling thread
                     if isinstance(value, BaseException):
                         raise value
