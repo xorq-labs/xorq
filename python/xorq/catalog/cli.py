@@ -1659,6 +1659,7 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
             source=source_entry,
             transforms=transform_entries,
             code=code,
+            alias=catalog.maybe_alias(source_name),
         ).expr
 
     def _load(entry):
