@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786714621568,
+  "lastUpdate": 1786721175924,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -34770,6 +34770,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.14483686011554597",
             "extra": "mean: 1.4133781458000043 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "33711b2916b86a88cc0ddb385137e957491e580e",
+          "message": "fix(flight)!: failing splits abort the exchange — excepts_print_exc defaults to reraise (#2242)\n\n## Abort is now the policy\n\nConfirmed decision on #2227: a failing split in\n`streaming_split_exchange` **aborts the exchange**. `excepts_print_exc`\n(`python/xorq/common/utils/rbr_utils.py`) now defaults its handler to\n`reraise` instead of `toolz.functoolz.return_none`, so failures print\nthe traceback server-side (the #1277 feature, kept) and then propagate,\nending the exchange in an error status instead of a clean empty or\ntruncated stream the client would consume and cache.\n\n`streaming_split_exchange` is decorated\n`@excepts_print_exc(exc=BaseException)` — the same `SystemExit`\nrationale as the other two exchanges — and no longer wraps `f` a second\ntime, so each failure prints exactly once (pinned by test).\n\nSkip-and-continue over bad splits is not the fix: it would be a\nsubsequent feature with an open wire-format question (the client has no\nway to learn which splits were dropped). This is stated in the\n`streaming_split_exchange` docstring so the behavior reads as policy,\nnot accident.\n\nThe explicit `handler=reraise` at `streaming_exchange` /\n`streaming_expr_exchange` (added by #2231) is reduced to\n`@excepts_print_exc(exc=BaseException)` — byte-identical behavior via\nthe new default.\n\nThe `pa.flight.*` type annotations in `rbr_utils.py` / `exchanger.py`\nare backed by `TYPE_CHECKING` imports of `pyarrow.flight` — neither\nmodule imports the submodule at runtime, so without them runtime\nannotation introspection (`typing.get_type_hints`) raises in a fresh\nprocess.\n\nOperational note on the `BaseException` widening: benign\nclient-disconnect cancellations (`FlightCancelledError` on\n`write_batch`) now print full tracebacks server-side where\n`streaming_split_exchange` previously printed-and-swallowed them —\ndeliberate, consistent with the other two exchanges, but server logs are\nnoisier on disconnects.\n\n## Caveat: abort ≠ atomic\n\nWhen split N fails, splits 1..N-1 are already on the wire and the client\nconsumes them before `queue_to_gen` raises. A client that persists\nbatches incrementally can retain partial data — and a truncated stream\nis structurally valid (right columns, fewer rows), so this is\nundetectable by construction. Documented in the docstring and pinned by\ntests, including end-to-end through a real Flight exchange.\n\n## Also: dead-code removal in `FlightClient._do_action`\n\nThe `except pa.lib.ArrowIOError` in `_do_action` is deleted as **dead\ncode with no behavior change** (separate commit, honestly framed):\nerrors surface when the returned iterator is consumed, not inside the\n`try` — `_wait_on_healthcheck` catching `pa.ArrowIOError` around its own\n`do_action` call at the consumption site is the proof. That commit also\ncarries style-hook-mandated annotations (`_do_action` returns\n`Iterator[Any]`) and a stdlib-logging → `logging_utils.get_logger`\nmigration on touched code (same \"xorq\" logger tree, handlers, and\nlevel).\n\n## Hashes\n\nMoves **no** expression/build hashes: `make_udxf`'s `exchange_f` is a\nbare `functools.partial` since #2231, and the decorated module-level\nfunctions are not tokenized.\n\n## Tests\n\n`python/xorq/common/utils/tests/test_rbr_utils.py` — unit layer (4\ntests):\n- default handler prints the traceback then re-raises; swallowing is now\nexplicit opt-in\n- a failing split propagates instead of yielding an empty stream (fake\nwriter), and the traceback prints exactly once\n- non-atomicity pinned at the unit layer: splits before the failure are\nalready written\n\n`python/xorq/flight/tests/test_flight_exchange.py` — end-to-end:\n- a failing split surfaces as an error on the client's reader, and the\nsplit-0 batch is delivered first (non-atomicity pinned end-to-end)\n- lives in `flight/tests` so it joins the `\"flight\"` xdist group that\nconftest applies to everything under that directory, instead of running\nconcurrently with the flight suite on another worker\n- runs on a daemon thread with a hard 90s deadline (the\n`execute_with_deadline` pattern), so a regression fails instead of\nwedging CI\n\nThe ~20 lines of split helpers are duplicated across the two files\nrather than imported across test packages; docstrings in each\ncross-reference the other half.\n\nVerified the behavior tests fail on `main` and pass here. An independent\nfresh-context review re-verified every claim in this body, including the\ntwo least obvious: the dead-code claim (pyarrow 21's `do_action` is a\nCython generator function — confirmed against a dead endpoint that the\ncall returns without raising and the error surfaces only at `next()`)\nand the negative check (the e2e test run against `origin/main` fails\nwith a clean truncated stream, only split 0 delivered). Flight suite in\nthat environment: 85 passed, 0 failed (the 11 failures previously\nreported here were environment fixtures and don't reproduce there); the\ne2e test also passes under `pytest-xdist -n 2`. `test_examples.py -k\nflight_exchange_example` passes.\n\nRefs #2227\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01EPF2S91s6HzesgN6V8Zex6\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-14T11:20:01-04:00",
+          "tree_id": "3ce9f30ecb2a433acd860883152b0aed3a763e60",
+          "url": "https://github.com/xorq-labs/xorq/commit/33711b2916b86a88cc0ddb385137e957491e580e"
+        },
+        "date": 1786721171664,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 5.765521713020817,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017601440063350737",
+            "extra": "mean: 173.44484155555367 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.6963529096569965,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06375863123753266",
+            "extra": "mean: 370.87133379999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7667715774222573,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19334330611738998",
+            "extra": "mean: 1.3041693634000011 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.792278430252074,
+            "unit": "iter/sec",
+            "range": "stddev: 0.047035718976909766",
+            "extra": "mean: 358.1304748000093 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.968221742515493,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02298085443038598",
+            "extra": "mean: 336.9020534000015 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.1068862280294938,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013901224132540586",
+            "extra": "mean: 321.8656644000248 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 153.15609282940352,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008120338238971818",
+            "extra": "mean: 6.5292864392530126 msec\nrounds: 214"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.6367673651498524,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0744858217825061",
+            "extra": "mean: 274.9694713999929 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 13.527791967358393,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011767552806074338",
+            "extra": "mean: 73.92189371428312 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.887756469801882,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015309839010051826",
+            "extra": "mean: 101.13517692856736 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.927446681445465,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02810249817910589",
+            "extra": "mean: 126.14402091666457 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.110016094394116,
+            "unit": "iter/sec",
+            "range": "stddev: 0.037254686560288686",
+            "extra": "mean: 163.66568999998066 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.4772261738043255,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024892008177629675",
+            "extra": "mean: 223.35257616666127 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.589518521120771,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014905018410037702",
+            "extra": "mean: 217.88777959998242 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.1996268467672393,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06167341761339797",
+            "extra": "mean: 454.62256539998407 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.433660429617413,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006590054131155814",
+            "extra": "mean: 291.23438979999037 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7783622415078797,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07907105196283934",
+            "extra": "mean: 562.3151327999949 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.9228909528970746,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05593260239017086",
+            "extra": "mean: 520.0502912000161 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.408538478391729,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14376724547426453",
+            "extra": "mean: 709.9557558000129 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5223755780122148,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10621952343429915",
+            "extra": "mean: 656.8681306000144 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.185114273846258,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1122604728461881",
+            "extra": "mean: 843.8004858000113 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1067293798765703,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12881068644486562",
+            "extra": "mean: 903.5632541999803 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9996201173656523,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15406389727835756",
+            "extra": "mean: 1.0003800270000056 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5855220697128565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1709123395809833",
+            "extra": "mean: 1.7078775535999966 sec\nrounds: 5"
           }
         ]
       }
