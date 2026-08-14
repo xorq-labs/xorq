@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 import traceback
 from collections.abc import Callable, Iterable
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -17,10 +17,7 @@ from xorq.common.utils.otel_utils import (
 
 
 def reraise(exc: BaseException) -> NoReturn:
-    """``excepts_print_exc`` handler that propagates instead of swallowing.
-
-    The default returns ``None``, turning a failure into an empty result.
-    """
+    """``excepts_print_exc`` handler (the default) that propagates after printing."""
     raise exc
 
 
@@ -28,8 +25,15 @@ def reraise(exc: BaseException) -> NoReturn:
 def excepts_print_exc(
     func: Callable,
     exc: type[BaseException] = Exception,
-    handler: Callable = toolz.functoolz.return_none,
+    handler: Callable = reraise,
 ) -> Callable:
+    """Wrap ``func`` to print the traceback of ``exc``, then invoke ``handler``.
+
+    The default handler is :func:`reraise`: failures print server-side (the
+    behavior requested in #1277) and then propagate, so a failed exchange ends
+    in an error status instead of a clean empty or truncated stream. Pass
+    ``handler=toolz.functoolz.return_none`` to deliberately swallow.
+    """
     _handler = toolz.compose(handler, toolz.curried.do(traceback.print_exception))
     return toolz.excepts(exc, func, _handler)
 
@@ -121,8 +125,27 @@ def instrument_reader(reader, prefix=""):
 
 @excepts_print_exc
 def streaming_split_exchange(
-    split_key, f, context, reader, writer, options=None, **kwargs
-):
+    split_key: str,
+    f: Callable,
+    context: pa.flight.ServerCallContext,
+    reader: pa.flight.MetadataRecordBatchReader,
+    writer: pa.flight.MetadataRecordBatchWriter,
+    options: pa.ipc.IpcWriteOptions | None = None,
+    **kwargs: Any,
+) -> None:
+    """Run ``f`` on each ``split_key`` split of ``reader``, streaming to ``writer``.
+
+    Error policy: a failing split ABORTS the exchange. The exception is
+    printed server-side and re-raised (the ``excepts_print_exc`` default), so
+    the exchange ends in an error status rather than a clean stream that is
+    silently missing splits. Skip-and-continue over bad splits would be a
+    feature, not a fix: the wire format currently has no way to tell the
+    client which splits were dropped.
+
+    Abort is not atomic: when split N fails, splits 1..N-1 are already on the
+    wire and the client consumes them before its reader raises. A client that
+    persists batches incrementally can retain partial data.
+    """
     started = False
     g = excepts_print_exc(f)
     for split_reader in ReaderSplitter(

@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import functools
 from abc import (
     ABC,
     abstractmethod,
 )
-from typing import Callable
+from typing import Any, Callable
 
 import pyarrow as pa
 import toolz
@@ -24,7 +26,6 @@ from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     excepts_print_exc,
     make_filtered_reader,
-    reraise,
 )
 from xorq.vendor import ibis
 
@@ -59,14 +60,20 @@ def replace_one_unbound(unbound_expr, table):
     return replace_unbound(unbound_expr, dt, target=unbound)
 
 
-# print the traceback server-side, with the fetcher's frames, then let it out:
-# the exchange must end in an error status, not a clean empty stream the client
-# would cache. `BaseException` because `SystemExit` is the case that used to
-# escape and hang the client's reader.
-@excepts_print_exc(exc=BaseException, handler=reraise)
+# print the traceback server-side, with the fetcher's frames, then let it out
+# (the `excepts_print_exc` default): the exchange must end in an error status,
+# not a clean empty stream the client would cache. `BaseException` because
+# `SystemExit` is the case that used to escape and hang the client's reader.
+@excepts_print_exc(exc=BaseException)
 def streaming_exchange(
-    f, context, reader, writer, options=None, out_schema=None, **kwargs
-):
+    f: Callable,
+    context: pa.flight.ServerCallContext,
+    reader: pa.flight.MetadataRecordBatchReader,
+    writer: pa.flight.MetadataRecordBatchWriter,
+    options: pa.ipc.IpcWriteOptions | None = None,
+    out_schema: pa.Schema | None = None,
+    **kwargs: Any,
+) -> None:
     started = False
     for chunk in (chunk for chunk in reader if chunk.data):
         out = f(chunk.data, metadata=chunk.app_metadata)
@@ -103,10 +110,16 @@ def find_unbound_next_con(unbound_expr):
             raise ValueError("unexpected match case in find_unbound_next_con")
 
 
-@excepts_print_exc(exc=BaseException, handler=reraise)
+@excepts_print_exc(exc=BaseException)
 def streaming_expr_exchange(
-    unbound_expr, make_connection, context, reader, writer, options=None, **kwargs
-):
+    unbound_expr: ibis.Table,
+    make_connection: Callable,
+    context: pa.flight.ServerCallContext,
+    reader: pa.flight.MetadataRecordBatchReader,
+    writer: pa.flight.MetadataRecordBatchWriter,
+    options: pa.ipc.IpcWriteOptions | None = None,
+    **kwargs: Any,
+) -> None:
     filtered_reader = copy_rbr_batches(make_filtered_reader(reader))
     con = find_unbound_next_con(unbound_expr) or make_connection()
     bound_expr = replace_one_unbound(
