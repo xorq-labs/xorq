@@ -18,6 +18,7 @@ hang, and a hang inside pytest is a faulthandler dump rather than a failure.
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -38,6 +39,28 @@ SCHEMA = pa.schema([("a", pa.int64())])
 def make_batches(n_batches: int, n_rows: int = 100) -> pa.RecordBatchReader:
     batch = pa.RecordBatch.from_pydict({"a": list(range(n_rows))}, schema=SCHEMA)
     return pa.RecordBatchReader.from_batches(SCHEMA, (batch for _ in range(n_batches)))
+
+
+def batches_then_raise(settle: float = 2.0) -> pa.RecordBatchReader:
+    """One batch, a pause long enough for the server to answer and close, then a raise.
+
+    The pause is what makes the test deterministic. Provoking the write-side
+    error through gRPC flow control instead -- writing past the window until the
+    half-closed stream rejects a batch -- races the server's reply: whether the
+    already-sent output batch survives the torn-down call is up to the
+    transport, and it did not on CI. Failing the *client's* input reader after
+    the reads have demonstrably finished isolates the same rule with no
+    transport race: the write side fails, and the completed stream must survive
+    it.
+    """
+    batch = pa.RecordBatch.from_pydict({"a": list(range(100))}, schema=SCHEMA)
+
+    def gen():
+        yield batch
+        time.sleep(settle)
+        raise ValueError("write side died")
+
+    return pa.RecordBatchReader.from_batches(SCHEMA, gen())
 
 
 def drain_with_deadline(rbr: pa.RecordBatchReader, seconds: int = 60) -> pa.Table:
@@ -139,16 +162,17 @@ def test_write_side_failure_does_not_fail_a_completed_exchange() -> None:
     in full.
     """
     with serving(EarlyStopExchanger) as client:
-        # more than the gRPC flow-control window, so the client is still writing
-        # when the server stops reading
         (fut, rbr) = client.do_exchange_batches(
-            EarlyStopExchanger.command, make_batches(5_000)
+            EarlyStopExchanger.command, batches_then_raise()
         )
         table = drain_with_deadline(rbr)
+    # the server answered in full before the write side died, so the consumer
+    # gets the whole result
     assert table.num_rows == 100
-    # the write side's failure, if any, is the caller's to inspect -- never the
+    # and the write side's failure is the caller's to inspect -- never the
     # stream's
-    assert fut.done()
+    with pytest.raises(ValueError, match="write side died"):
+        fut.result()
 
 
 def test_metadata_only_chunk_does_not_truncate_the_stream() -> None:
