@@ -23,14 +23,11 @@ from xorq_dasher.rules.expr import (
 )
 
 from xorq.common.constants import (
-    BIGQUERY_BACKEND_NAME,
     DATAFUSION_BACKEND_NAMES,
-    DUCKDB_BACKEND_NAME,
-    PANDAS_BACKEND_NAME,
     READ_IDENTITY_KEYS,
     REMOTE_SCHEMES,
-    SQLITE_BACKEND_NAME,
 )
+from xorq.common.enums import BackendName
 from xorq.common.utils.dasher._canonical import (
     normalize_memory_databasetable_canonical,
 )
@@ -469,19 +466,19 @@ def _dispatch_databasetable(dt: ops.DatabaseTable) -> tuple:
     # databasetable_xorq stats the underlying files to restore mtime sensitivity.
     if dt.source.name in DATAFUSION_BACKEND_NAMES:
         return _normalize_datafusion_databasetable_xorq(dt)
-    if dt.source.name == DUCKDB_BACKEND_NAME:
+    if dt.source.name == BackendName.DUCKDB:
         return _normalize_duckdb_databasetable_xorq(dt)
     # xorq_dasher 0.1.0's bigquery normalizer unpacks its result frame by
     # column label and crashes on every table; use the fixed xorq version.
-    if dt.source.name == BIGQUERY_BACKEND_NAME:
+    if dt.source.name == BackendName.BIGQUERY:
         return _normalize_bigquery_databasetable_xorq(dt)
     # pandas-backend tables and in-memory sqlite are memory-resident:
     # xorq_dasher's dispatch hashes the IPC bytes of their
     # ``to_pyarrow_batches()`` stream, which is pyarrow-version-coupled
     # (issue #2191) — route them to the canonical form instead.
-    if dt.source.name == PANDAS_BACKEND_NAME:
+    if dt.source.name == BackendName.PANDAS:
         return normalize_memory_databasetable_canonical(dt)
-    if dt.source.name == SQLITE_BACKEND_NAME and dt.source.is_in_memory():
+    if dt.source.name == BackendName.SQLITE and dt.source.is_in_memory():
         return normalize_memory_databasetable_canonical(dt)
     # All remaining backends fall through to ``xorq_dasher``
     # ``normalize_databasetable`` (bigquery is handled above and never reaches

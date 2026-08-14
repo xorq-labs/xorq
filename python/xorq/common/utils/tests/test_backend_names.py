@@ -8,10 +8,11 @@ op-type axis failed in gh-2229: gh-1842 shipped
 backend name ``"let"``, two renames after the fact, silently classifying
 xorq's own backend as remote.
 
-So the names live in ``xorq.common.constants`` as one canonical set, and these
-tests anchor that set to the live ``xorq.backends`` entry-point group: a rename
-that lands without updating the constants fails here instead of quietly
-under-keying a cache.
+So the names live in the ``BackendName`` enum (``xorq.common.enums``) with the
+dispatch sets in ``xorq.common.constants`` derived from its members, and these
+tests anchor the enum to the live ``xorq.backends`` entry-point group: a rename
+that lands without updating the enum fails here instead of quietly under-keying
+a cache.
 """
 
 from __future__ import annotations
@@ -21,58 +22,52 @@ import pytest
 import xorq.api as xo
 from xorq.backends import _get_backend_names
 from xorq.common.constants import (
-    BIGQUERY_BACKEND_NAME,
     DATAFUSION_BACKEND_NAMES,
     DISPATCHED_BACKEND_NAMES,
-    DUCKDB_BACKEND_NAME,
     NAME_ONLY_BACKEND_NAMES,
-    PANDAS_BACKEND_NAME,
-    SQLITE_BACKEND_NAME,
 )
+from xorq.common.enums import BackendName
 
 
-@pytest.mark.parametrize("name", sorted(set(DISPATCHED_BACKEND_NAMES)))
-def test_dispatched_backend_name_is_registered(name: str) -> None:
-    """Every name the DT dispatch chain keys on is a live backend.
+@pytest.mark.parametrize("name", sorted(BackendName))
+def test_backend_name_is_registered(name: BackendName) -> None:
+    """Every ``BackendName`` member is a live backend.
 
-    This is the gh-1842 tripwire: a renamed backend leaves a string here that
-    matches nothing, and the branch it guards becomes dead code that fails open.
+    This is the gh-1842 tripwire: a renamed backend leaves a member here that
+    matches nothing, and every branch it guards becomes dead code that fails
+    open.  Sweeping the enum itself means a newly added member is covered
+    automatically, with no aggregate tuple to forget to update.
     """
     assert name in _get_backend_names()
 
 
-@pytest.mark.parametrize("name", sorted(set(NAME_ONLY_BACKEND_NAMES)))
-def test_name_only_backend_name_is_registered(name: str) -> None:
-    assert name in _get_backend_names()
+def test_dispatch_sets_are_derived_from_the_enum() -> None:
+    """The dispatch sets compose from ``BackendName`` members, never literals.
 
-
-def test_name_only_names_are_a_subset_of_dispatched() -> None:
-    """A backend identified by name alone must also be intercepted by the chain.
-
-    Both sets are derived from the same constants; this pins the containment so
-    a future edit to one cannot silently desynchronize them.
+    Guards against someone re-typing a raw string into one set only — the
+    respelling that let gh-1842's stale name survive two renames.
     """
-    assert set(NAME_ONLY_BACKEND_NAMES) <= set(DISPATCHED_BACKEND_NAMES)
-
-
-def test_constants_are_derived_not_respelled() -> None:
-    """The subsets compose from the same atoms (the REMOTE_SCHEMES pattern).
-
-    Guards against someone re-typing a literal into one tuple only.
-    """
-    assert set(DATAFUSION_BACKEND_NAMES) <= set(DISPATCHED_BACKEND_NAMES)
-    assert set(NAME_ONLY_BACKEND_NAMES) == {
-        PANDAS_BACKEND_NAME,
-        DUCKDB_BACKEND_NAME,
+    assert DISPATCHED_BACKEND_NAMES == frozenset(BackendName)
+    assert NAME_ONLY_BACKEND_NAMES <= DISPATCHED_BACKEND_NAMES
+    assert set(DATAFUSION_BACKEND_NAMES) <= NAME_ONLY_BACKEND_NAMES
+    assert NAME_ONLY_BACKEND_NAMES == {
+        BackendName.PANDAS,
+        BackendName.DUCKDB,
         *DATAFUSION_BACKEND_NAMES,
     }
-    assert set(DISPATCHED_BACKEND_NAMES) == {
-        *DATAFUSION_BACKEND_NAMES,
-        PANDAS_BACKEND_NAME,
-        DUCKDB_BACKEND_NAME,
-        SQLITE_BACKEND_NAME,
-        BIGQUERY_BACKEND_NAME,
-    }
+
+
+def test_backend_names_are_plain_strings() -> None:
+    """Members must be drop-in for the ``str`` names backends report.
+
+    ``dt.source.name`` comparisons and ``NAME_ONLY_BACKEND_NAMES`` membership
+    tests run against plain strings, and anything folded into a hash token must
+    stay a plain string — pin the value semantics ``StrEnum`` provides.
+    """
+    for member in BackendName:
+        assert isinstance(member, str)
+        assert str(member) == member.value
+        assert hash(member) == hash(member.value)
 
 
 def test_xorq_own_backend_is_classified_by_name() -> None:
