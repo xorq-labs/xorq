@@ -123,7 +123,7 @@ def instrument_reader(reader, prefix=""):
     return pa.RecordBatchReader.from_batches(reader.schema, gen(reader))
 
 
-@excepts_print_exc
+@excepts_print_exc(exc=BaseException)
 def streaming_split_exchange(
     split_key: str,
     f: Callable,
@@ -138,7 +138,8 @@ def streaming_split_exchange(
     Error policy: a failing split ABORTS the exchange. The exception is
     printed server-side and re-raised (the ``excepts_print_exc`` default), so
     the exchange ends in an error status rather than a clean stream that is
-    silently missing splits. Skip-and-continue over bad splits would be a
+    silently missing splits. ``exc=BaseException`` for the same reason as the
+    exchanges in ``xorq.flight.exchanger``: ``SystemExit`` must be printed too. Skip-and-continue over bad splits would be a
     feature, not a fix: the wire format currently has no way to tell the
     client which splits were dropped.
 
@@ -147,12 +148,11 @@ def streaming_split_exchange(
     persists batches incrementally can retain partial data.
     """
     started = False
-    g = excepts_print_exc(f)
     for split_reader in ReaderSplitter(
         make_filtered_reader(reader),
         split_key,
     ):
-        batch = g(split_reader)
+        batch = f(split_reader)
         if not started:
             writer.begin(batch.schema, options=options)
             started = True

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import itertools
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from typing import Any
@@ -180,7 +181,7 @@ class FlightClient:
         action_type: str,
         action_body: Any = None,
         options: pa.flight.FlightCallOptions | None = None,
-    ) -> map:
+    ) -> Iterator[Any]:
         if action_body is None:
             action_body = {}
 

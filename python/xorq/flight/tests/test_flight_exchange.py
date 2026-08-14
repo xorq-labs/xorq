@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import functools
 import operator
 import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import cloudpickle
 import pandas as pd
@@ -13,11 +16,15 @@ from pytest import param
 
 import xorq.api as xo
 from xorq.caching import ParquetCache
+from xorq.common.utils.rbr_utils import streaming_split_exchange
 from xorq.expr.relations import (
     FlightExpr,
     FlightUDXF,
 )
+from xorq.flight import FlightServer
+from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import (
+    AbstractExchanger,
     UnboundExprExchanger,
     make_udxf,
 )
@@ -330,3 +337,117 @@ def test_failed_udxf_writes_no_cache(tmp_path: Path) -> None:
     with pytest.raises(Exception, match="plain exception"):
         execute_with_deadline(expr)
     assert not tuple(tmp_path.glob("*.parquet"))
+
+
+# `make_batch`/`make_split_f` are shared with the unit-layer pins of the abort
+# policy in xorq.common.utils.tests.test_rbr_utils; duplicated rather than
+# imported across test packages.
+SPLIT_KEY = "split"
+
+
+def make_batch(split: int, n_rows: int) -> pa.RecordBatch:
+    return pa.RecordBatch.from_pydict(
+        {SPLIT_KEY: [split] * n_rows, "a": list(range(n_rows))}
+    )
+
+
+def make_split_f(fail_on: int) -> Callable:
+    """A per-split ``f`` that raises on the ``fail_on`` split."""
+
+    def f(split_reader: pa.RecordBatchReader) -> pa.RecordBatch:
+        table = split_reader.read_all()
+        (split,) = set(table[SPLIT_KEY].to_pylist())
+        if split == fail_on:
+            raise ValueError(f"boom on split {split}")
+        return pa.RecordBatch.from_pydict({SPLIT_KEY: [split], "n": [table.num_rows]})
+
+    return f
+
+
+class FailingSplitExchanger(AbstractExchanger):
+    """`streaming_split_exchange` exchanger whose ``f`` raises on split 1."""
+
+    @property
+    def exchange_f(self) -> Callable:
+        return functools.partial(streaming_split_exchange, SPLIT_KEY, make_split_f(1))
+
+    @property
+    def schema_in_required(self) -> None:
+        return None
+
+    @property
+    def schema_in_condition(self) -> Callable:
+        def condition(schema_in: Any) -> bool:
+            return any(name == SPLIT_KEY for name in schema_in)
+
+        return condition
+
+    @property
+    def calc_schema_out(self) -> Callable:
+        def f(schema_in: Any) -> Any:
+            return xo.schema({SPLIT_KEY: "int64", "n": "int64"})
+
+        return f
+
+    @property
+    def description(self) -> str:
+        return "raises on split 1"
+
+    @property
+    def command(self) -> str:
+        return "failing-split-exchange"
+
+    @property
+    def query_result(self) -> dict:
+        return {
+            "schema-in-required": self.schema_in_required,
+            "schema-in-condition": self.schema_in_condition,
+            "calc-schema-out": self.calc_schema_out,
+            "description": self.description,
+            "command": self.command,
+        }
+
+
+def test_streaming_split_exchange_flight_failure_aborts() -> None:
+    """End-to-end: a failing split surfaces as an error on the client's reader.
+
+    The unit-layer pins of the abort policy live in
+    ``xorq.common.utils.tests.test_rbr_utils``. Runs on a daemon thread with a
+    hard deadline (the ``execute_with_deadline`` scaffolding, hand-rolled here
+    because this drives ``do_exchange_batches`` directly rather than an expr)
+    so a regression to swallowing or deadlocking fails instead of wedging CI.
+    Also pins the non-atomicity caveat end-to-end: the split-0 batch is
+    delivered before the raise.
+    """
+    batches = (make_batch(0, 3), make_batch(1, 2), make_batch(2, 1))
+    rbr_in = pa.RecordBatchReader.from_batches(batches[0].schema, iter(batches))
+    exchanger = FailingSplitExchanger()
+    box: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            with FlightServer() as server:
+                client = server.client
+                client.do_action(
+                    AddExchangeAction.name, exchanger, options=client._options
+                )
+                (_, rbr_out) = client.do_exchange_batches(exchanger.command, rbr_in)
+                delivered: list[pa.RecordBatch] = []
+                try:
+                    for batch in rbr_out:
+                        delivered.append(batch)
+                except BaseException as e:  # noqa: BLE001
+                    box["error"] = e
+                finally:
+                    box["delivered"] = delivered
+        except BaseException as e:  # noqa: BLE001
+            box["setup_error"] = e
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(90)
+    assert not thread.is_alive(), "exchange did not finish within 90s: deadlocked"
+    assert "setup_error" not in box, box.get("setup_error")
+    assert "error" in box, "failing split produced a clean stream instead of an error"
+    assert "boom on split 1" in str(box["error"])
+    assert [batch[SPLIT_KEY].to_pylist() for batch in box["delivered"]] == [[0]]
