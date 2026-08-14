@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import itertools
-import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
+from typing import Any
 
 import pyarrow as pa
 from cloudpickle import dumps, loads
@@ -10,6 +12,7 @@ from pyarrow.flight import (
     FlightClient as _FlightClient,
 )
 
+from xorq.common.utils.logging_utils import get_logger
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
 )
@@ -19,7 +22,7 @@ from xorq.vendor import ibis
 executor = ThreadPoolExecutor()
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class FlightClient:
@@ -172,28 +175,29 @@ class FlightClient:
         writer.done_writing()
         writer.close()
 
-    def _do_action(self, action_type, action_body=None, options=None):
+    def _do_action(
+        self,
+        action_type: str,
+        action_body: Any = None,
+        options: pa.flight.FlightCallOptions | None = None,
+    ) -> map:
         if action_body is None:
             action_body = {}
 
-        try:
-            action = pa.flight.Action(
-                action_type,
-                dumps(action_body),
-            )
-            logger.info(f"Running action {action_type}")
-            return map(
-                loads,
-                (
-                    result.body.to_pybytes()
-                    for result in self._client.do_action(
-                        action, options=options or self._options
-                    )
-                ),
-            )
-
-        except pa.lib.ArrowIOError as e:
-            logger.debug(f"Error calling action: {e}")
+        action = pa.flight.Action(
+            action_type,
+            dumps(action_body),
+        )
+        logger.info(f"Running action {action_type}")
+        return map(
+            loads,
+            (
+                result.body.to_pybytes()
+                for result in self._client.do_action(
+                    action, options=options or self._options
+                )
+            ),
+        )
 
     def do_action_one(self, action_type, action_body=None, options=None):
         return next(
