@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+import toolz
 import xorq_dasher
 from xorq_dasher.rules.expr import (
     normalize_memory_databasetable as dasher_normalize_memory_databasetable,
@@ -51,13 +52,24 @@ from xorq.common.utils.dasher._canonical import (
     normalize_inmemorytable_canonical,
     normalize_pyarrow_table_canonical,
 )
-from xorq.common.utils.dasher._relations import _dispatch_databasetable
+from xorq.common.utils.dasher._opaque import _MISSING
+from xorq.common.utils.dasher._relations import (
+    _dispatch_databasetable,
+    normalize_flight_expr,
+    normalize_flight_udxf,
+)
+from xorq.common.utils.func_utils import return_constant
+from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.relations import FlightExpr, FlightUDXF
+from xorq.flight.exchanger import AbstractExchanger
 from xorq.vendor.ibis.expr.types.core import Expr
 
 
 def _env_versions() -> str:
     mods = (pa, pd, np, xorq_dasher, xorq)
-    return ", ".join(f"{m.__name__}=={m.__version__}" for m in mods)
+    return ", ".join(
+        f"{m.__name__}=={getattr(m, '__version__', 'unknown')}" for m in mods
+    )
 
 
 def _contract_message(name: str, obj: object) -> str:
@@ -683,3 +695,138 @@ def test_refuses_extension_types() -> None:
     nested = pa.struct([("x", period_type)])
     with pytest.raises(NotImplementedError, match="extension"):
         canonical_column_digest(pa.array([], type=nested))
+
+
+# ---------------------------------------------------------------------------
+# Flight op identity
+#
+# The op->normalizer wiring is shared between both regimes (``view_rules``,
+# gh-2229 — see its docstring) and covered by ``test_view_rules.py``. What that
+# cannot catch is a change to *what these normalizers fold in* --
+# ``rules_fingerprint`` is body-blind by design (a known accepted trade,
+# gh-2204), and since both regimes share one callable, a single edit moves both
+# their hashes at once. These goldens are that tripwire.
+#
+# The goldens pin the normalizer's own contribution -- tag, arity, field order,
+# and the string-valued fields -- with the recursive ``Expr`` element and the
+# callables replaced by type placeholders. Per this module's docstring,
+# generated-SQL and function-bytecode surfaces are over-discrimination
+# surfaces, not per-environment contracts, so pinning them would be flaky by
+# construction. Data identity for the input expression is covered by the
+# memtable/pyarrow goldens above.
+# ---------------------------------------------------------------------------
+
+GOLDEN_FLIGHT_TOKEN_SHAPES = {
+    "flight_expr": "fc01cbcb6c645d3d3d24587e68d32b88",
+    "flight_udxf": "1982bf850baa26017164227578e2f1ee",
+}
+
+
+def _flight_token_shape(token: tuple) -> tuple:
+    """Environment-independent projection of a flight token.
+
+    Strings (the tag and ``udxf.__qualname__``) survive verbatim; everything
+    else collapses to ``<TypeName>``. Adding, removing, reordering, or
+    retyping a folded field changes the result; a pyarrow or sqlglot upgrade
+    does not.
+    """
+    return tuple(
+        element if isinstance(element, str) else f"<{type(element).__name__}>"
+        for element in token
+    )
+
+
+def _echo_udxf() -> object:
+    return xo.expr.relations.flight_udxf(
+        process_df=toolz.identity,
+        maybe_schema_in=return_constant(True),
+        maybe_schema_out=toolz.identity,
+    )
+
+
+def _diamonds_table() -> Expr:
+    path = Path(xo.options.pins.get_path("diamonds"))
+    return xo.connect().read_parquet(path, "diamonds")
+
+
+def _flight_nodes() -> dict[str, object]:
+    t = _diamonds_table()
+    (udxf_node,) = walk_nodes(
+        FlightUDXF, t.pipe(_echo_udxf(), name="echo", inner_name="inner")
+    )
+    (expr_node,) = walk_nodes(
+        FlightExpr,
+        xo.expr.relations.flight_expr(
+            t, xo.table(t.schema(), name="unbound"), inner_name="inner"
+        ),
+    )
+    return {"flight_expr": expr_node, "flight_udxf": udxf_node}
+
+
+@pytest.mark.parametrize("name", sorted(GOLDEN_FLIGHT_TOKEN_SHAPES))
+def test_golden_flight_token_shape(name: str) -> None:
+    normalizer = {
+        "flight_expr": normalize_flight_expr,
+        "flight_udxf": normalize_flight_udxf,
+    }[name]
+    node = _flight_nodes()[name]
+    shape = _flight_token_shape(normalizer(node))
+    assert tokenize(shape) == GOLDEN_FLIGHT_TOKEN_SHAPES[name], _contract_message(
+        name, shape
+    )
+
+
+def test_flight_tokens_exclude_the_generated_name() -> None:
+    """The gh-2229 invariant, asserted on the token itself.
+
+    ``dt.name`` defaults to a fresh ``gen_name()`` uuid4 per process; if it ever
+    reappears in one of these tuples, every build directory and snapshot cache
+    key starts churning per run again.
+    """
+    for name, node in _flight_nodes().items():
+        normalizer = {
+            "flight_expr": normalize_flight_expr,
+            "flight_udxf": normalize_flight_udxf,
+        }[name]
+        token = normalizer(node)
+        assert node.name not in token, (
+            f"{name} token folds in the generated name {node.name!r} (gh-2229)"
+        )
+
+
+def test_flight_udxf_qualname_is_the_class_not_the_metaclass() -> None:
+    """Pins the gotcha documented on :func:`normalize_flight_udxf`.
+
+    ``make_udxf`` returns ``type(name, (AbstractExchanger,), ...)`` — the class
+    itself — so ``type(dt.udxf).__qualname__`` is the metaclass's ``"ABCMeta"``.
+    """
+    node = _flight_nodes()["flight_udxf"]
+    (_, _, qualname, *_) = normalize_flight_udxf(node)
+    assert qualname == node.udxf.__qualname__
+    assert qualname != "ABCMeta"
+    assert type(node.udxf).__qualname__ == "ABCMeta"
+
+
+def test_flight_udxf_discriminates_exchangers_without_exchange_f() -> None:
+    """Two exchanger classes that inherit ``exchange_f`` must not collide.
+
+    This is why the qualname is folded in at all — and exactly what the
+    metaclass spelling silently failed to deliver.
+    """
+
+    class ExchangerA(AbstractExchanger):
+        pass
+
+    class ExchangerB(AbstractExchanger):
+        pass
+
+    def token_of(cls: type) -> str:
+        return tokenize(
+            (
+                "xorq.FlightUDXF",
+                cls.__qualname__,
+                getattr(cls, "exchange_f", _MISSING),
+            )
+        )
+
+    assert token_of(ExchangerA) != token_of(ExchangerB)

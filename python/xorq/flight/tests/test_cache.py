@@ -1,13 +1,25 @@
 import pathlib
 
+import pytest
 import toolz
 
 import xorq.api as xo
 from xorq.caching import (
     ParquetCache,
+    ParquetSnapshotCache,
+)
+from xorq.caching.strategy import (
+    SnapshotStrategy,
 )
 from xorq.common.utils.func_utils import (
     return_constant,
+)
+from xorq.common.utils.provenance_utils import (
+    get_expr_hash,
+)
+from xorq.expr.relations import (
+    DatabaseTableView,
+    gen_name,
 )
 
 
@@ -69,6 +81,73 @@ def test_flight_udxf_inner_name_doesnt_matter():
         )
     )
     assert expr0.ls.get_key() == expr1.ls.get_key()
+
+
+# The three tests above assert name-neutrality through `ls.get_key()` on a
+# ParquetCache -- the global-hasher path, which was always correct. The build
+# hash and SnapshotStrategy-backed caches dispatch separately and used to fold
+# Flight ops' generated names in (gh-2229; see view_rules). These cover the two
+# paths the tests above do not.
+
+
+def test_flight_udxf_inner_name_doesnt_matter_build_hash():
+    name = "diamonds"
+    (con, other_con) = (xo.connect(), xo.connect())
+    path = pathlib.Path(xo.options.pins.get_path(name))
+    expr0, expr1 = (
+        c.read_parquet(path, name).pipe(echo_udxf, name="echo", inner_name=inner_name)
+        for (c, inner_name) in (
+            (con, "inner_name-a"),
+            (other_con, "inner_name-b"),
+        )
+    )
+    assert get_expr_hash(expr0) == get_expr_hash(expr1)
+
+
+def test_flight_udxf_inner_name_doesnt_matter_snapshot_key():
+    name = "diamonds"
+    (con, other_con) = (xo.connect(), xo.connect())
+    path = pathlib.Path(xo.options.pins.get_path(name))
+    expr0, expr1 = (
+        c.read_parquet(path, name)
+        .pipe(echo_udxf, name="echo", inner_name=inner_name)
+        .cache(ParquetSnapshotCache.from_kwargs(source=c))
+        for (c, inner_name) in (
+            (con, "inner_name-a"),
+            (other_con, "inner_name-b"),
+        )
+    )
+    assert expr0.ls.get_key() == expr1.ls.get_key()
+
+
+def test_flight_expr_inner_name_doesnt_matter_build_hash():
+    con = xo.connect()
+    name = "diamonds"
+    t = xo.examples.get_table_from_name(name, con)
+    expr0, expr1 = (
+        xo.expr.relations.flight_expr(
+            t,
+            xo.table(t.schema(), name="unbound"),
+            inner_name=inner_name,
+        )
+        for inner_name in ("inner_name-a", "inner_name-b")
+    )
+    assert get_expr_hash(expr0) == get_expr_hash(expr1)
+
+
+def test_snapshot_strategy_rejects_unnormalized_databasetableview():
+    """A new DatabaseTableView must fail loudly, not leak its generated name."""
+
+    class UnhandledView(DatabaseTableView):
+        pass
+
+    dt = UnhandledView(
+        name=gen_name(),
+        schema=xo.schema({"a": "int64"}),
+        source=xo.connect(),
+    )
+    with pytest.raises(NotImplementedError, match="UnhandledView"):
+        SnapshotStrategy.normalize_databasetable(dt)
 
 
 def test_flight_udxf_path_matters(tmp_path):

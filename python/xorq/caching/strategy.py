@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from attr import field, frozen
 from attr.validators import instance_of
 
-from xorq.common.constants import READ_IDENTITY_KEYS
+from xorq.common.constants import NAME_ONLY_BACKEND_NAMES, READ_IDENTITY_KEYS
 
 
 if TYPE_CHECKING:
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from xorq.expr.relations import Read
     from xorq.vendor.ibis import Expr
+    from xorq.vendor.ibis.expr import operations as ops
 
 
 # Per-outer-call memo for ``SnapshotStrategy.normalize_databasetable``.
@@ -179,37 +180,35 @@ class SnapshotStrategy(CacheStrategy):
         from xorq.common.utils.dasher import HASHER  # noqa: PLC0415
 
         # In-memory backends identified by name alone; remote backends
-        # delegate to HASHER.normalize which raises if unregistered.
+        # delegate to HASHER.normalize which raises if unregistered. The name
+        # set is canonical (constants.NAME_ONLY_BACKEND_NAMES), never respelled
+        # here — see test_backend_names.py (gh-1842).
         name = con.name
-        if name in ("pandas", "duckdb", "datafusion", "xorq_datafusion"):
+        if name in NAME_ONLY_BACKEND_NAMES:
             return (name, None)
         return HASHER.normalize(con)
 
     @staticmethod
-    def normalize_databasetable(dt):
-        from xorq_dasher.rules.expr import (  # noqa: PLC0415
-            normalize_cached_node,
-            normalize_remote_table,
+    def normalize_databasetable(dt: ops.DatabaseTable) -> tuple:
+        # Concrete-type dispatch is shared with the global dispatcher through
+        # ``view_rules`` — see its docstring for why the two tables must not be
+        # hand-mirrored (gh-2229). The fallback deliberately keeps folding
+        # `name` in — for a genuine backend table `name` *is* the identity —
+        # and ``lookup_view_normalizer`` raises rather than let a
+        # DatabaseTableView reach it.
+        from xorq.common.utils.dasher._relations import (  # noqa: PLC0415
+            lookup_view_normalizer,
         )
 
-        from xorq.expr.relations import CachedNode, Read, RemoteTable  # noqa: PLC0415
-
-        # DatabaseTable subclasses (Read, CachedNode, RemoteTable) need
-        # concrete-type dispatch here — dasher's MRO lookup would otherwise
-        # pick this broader DatabaseTable rule over them.
         memo = _snapshot_dt_normalize_memo.get()
         if memo is not None and dt in memo:
             return memo[dt]
-        match dt:
-            case Read():
-                result = snapshot_normalize_read(dt)
-            case CachedNode():
-                result = normalize_cached_node(dt)
-            case RemoteTable():
-                result = normalize_remote_table(dt)
-            case _:
-                keys = ("name", "schema", "source", "namespace")
-                result = tuple((k, getattr(dt, k)) for k in keys)
+        normalizer = lookup_view_normalizer(dt, snapshot=True)
+        if normalizer is not None:
+            result = normalizer(dt)
+        else:
+            keys = ("name", "schema", "source", "namespace")
+            result = tuple((k, getattr(dt, k)) for k in keys)
         if memo is not None:
             memo[dt] = result
         return result

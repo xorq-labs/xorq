@@ -10,9 +10,11 @@ ep_str-only DT rule loses.
 from __future__ import annotations
 
 import contextvars
+import functools
 import pathlib
 import re
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, NamedTuple
 
 from xorq_dasher.rules.expr import (
     normalize_cached_node,
@@ -20,7 +22,12 @@ from xorq_dasher.rules.expr import (
     normalize_remote_table,
 )
 
-from xorq.common.constants import READ_IDENTITY_KEYS, REMOTE_SCHEMES
+from xorq.common.constants import (
+    DATAFUSION_BACKEND_NAMES,
+    READ_IDENTITY_KEYS,
+    REMOTE_SCHEMES,
+)
+from xorq.common.enums import BackendName
 from xorq.common.utils.dasher._canonical import (
     normalize_memory_databasetable_canonical,
 )
@@ -299,7 +306,87 @@ def _databasetable_dispatcher(dt: ops.DatabaseTable) -> tuple:
     return result
 
 
-def _dispatch_databasetable(dt):
+def normalize_flight_expr(dt: ops.DatabaseTable) -> tuple:
+    """Identity of a ``FlightExpr``, deliberately excluding ``dt.name``.
+
+    A ``FlightExpr`` carries input_expr / make_connection that the plain
+    datafusion path would silently flatten away. Inlines the dasher 0.1.0 logic
+    but uses ``_rename_unbound_xorq`` (whose op.replace callback signs
+    ``(node, _kwargs)`` correctly — dasher 0.1.0's ``_rename_unbound`` uses
+    ``**kwargs`` and crashes recreating ops with required positional fields like
+    ``Field``).
+
+    ``dt.name`` is omitted because it defaults to ``gen_name()`` — a fresh uuid4
+    per process — so folding it in makes the token non-reproducible (gh-2229;
+    see :func:`view_rules`).
+    """
+    return (
+        "xorq.FlightExpr",
+        dt.input_expr,
+        _rename_unbound_xorq(dt.unbound_expr.op()).to_expr(),
+        dt.make_connection,
+    )
+
+
+def normalize_flight_udxf(dt: ops.DatabaseTable) -> tuple:
+    """Identity of a ``FlightUDXF``, deliberately excluding ``dt.name``.
+
+    The qualname is what distinguishes two exchangers that inherit rather than
+    override ``exchange_f``, and it is deterministic (``name or
+    process_df.__name__``, never a ``gen_name()``). ``dt.udxf`` is already the
+    exchanger *class* — do not write ``type(dt.udxf).__qualname__``, which reads
+    the metaclass and yields ``"ABCMeta"`` for every UDXF
+    (``test_flight_udxf_qualname_is_the_class_not_the_metaclass`` pins this).
+
+    See :func:`normalize_flight_expr` for why ``dt.name`` is excluded.
+    """
+    return (
+        "xorq.FlightUDXF",
+        dt.input_expr,
+        dt.udxf.__qualname__,
+        getattr(dt.udxf, "exchange_f", _MISSING),
+        dt.make_connection,
+    )
+
+
+class ViewRule(NamedTuple):
+    """One row of :func:`view_rules`: an op type and its normalizer per regime."""
+
+    op_type: type
+    normalizer: Callable
+    snapshot_normalizer: Callable
+
+
+@functools.cache
+def view_rules() -> tuple[ViewRule, ...]:
+    """The single source of truth for ``DatabaseTable``-subclass normalization.
+
+    Two dispatch tables normalize these ops — the global one
+    (:func:`_dispatch_databasetable`) and the snapshot one
+    (``SnapshotStrategy.normalize_databasetable``) — because dasher's
+    MRO-with-earliest-match-wins lookup would otherwise pick the broader
+    ``DatabaseTable`` rule over the more specific subclasses.  They used to be
+    hand-mirrored ``match`` statements, and they drifted: the snapshot copy
+    omitted ``FlightExpr``/``FlightUDXF`` and its ``case _`` fallback folded
+    their ``gen_name()`` uuid4 into the key, making ``xorq build``
+    non-reproducible and every ``SnapshotStrategy`` cache miss per process
+    (gh-2229).  The identical bug had already been fixed once in the dask era
+    (gh-610) and returned with the dasher rewrite, so the table is the fix:
+    adding a row serves both regimes at once (the ADR-0016 pattern —
+    table-driven dispatch with registration tripwires).
+
+    Two columns because the regimes legitimately differ for exactly one op:
+    ``Read`` takes stat-based identity globally and path-only identity under
+    snapshot.  Every other row is deliberately the same callable in both
+    columns, which is the invariant that drift used to break silently.
+
+    Order is significant — :func:`lookup_view_normalizer` takes the first
+    ``isinstance`` match, so a subtype must precede its supertype.
+
+    Resolved lazily (and cached) because the snapshot column lives in
+    ``xorq.caching.strategy``, which imports this module.
+    """
+    from xorq.caching.strategy import snapshot_normalize_read  # noqa: PLC0415
     from xorq.expr.relations import (  # noqa: PLC0415
         CachedNode,
         FlightExpr,
@@ -308,57 +395,91 @@ def _dispatch_databasetable(dt):
         RemoteTable,
     )
 
-    match dt:
-        case Read():
-            return _normalize_read_xorq(dt)
-        case CachedNode():
-            return normalize_cached_node(dt)
-        case RemoteTable():
-            return normalize_remote_table(dt)
-        case FlightExpr():
-            # FlightExpr/FlightUDXF carry input_expr / make_connection that the
-            # plain datafusion path would silently flatten away. Inline the
-            # dasher 0.1.0 logic but use ``_rename_unbound_xorq`` (whose
-            # op.replace callback signs ``(node, _kwargs)`` correctly — dasher
-            # 0.1.0's ``_rename_unbound`` uses ``**kwargs`` and crashes
-            # recreating ops with required positional fields like ``Field``).
-            return (
-                "xorq.FlightExpr",
-                dt.input_expr,
-                _rename_unbound_xorq(dt.unbound_expr.op()).to_expr(),
-                dt.make_connection,
-            )
-        case FlightUDXF():
-            # ``type(dt.udxf).__qualname__`` distinguishes UDXF classes even
-            # when ``exchange_f`` is absent or shared — bare
-            # ``getattr(..., None)`` would otherwise collapse two distinct
-            # UDXFs (both missing ``exchange_f``) onto the same token.
-            return (
-                "xorq.FlightUDXF",
-                dt.input_expr,
-                type(dt.udxf).__qualname__,
-                getattr(dt.udxf, "exchange_f", _MISSING),
-                dt.make_connection,
-            )
+    return (
+        ViewRule(Read, _normalize_read_xorq, snapshot_normalize_read),
+        ViewRule(CachedNode, normalize_cached_node, normalize_cached_node),
+        ViewRule(RemoteTable, normalize_remote_table, normalize_remote_table),
+        ViewRule(FlightExpr, normalize_flight_expr, normalize_flight_expr),
+        ViewRule(FlightUDXF, normalize_flight_udxf, normalize_flight_udxf),
+    )
+
+
+def lookup_view_normalizer(dt: ops.DatabaseTable, *, snapshot: bool) -> Callable | None:
+    """Return the normalizer for ``dt``, or ``None`` to use the caller's fallback.
+
+    Raises ``NotImplementedError`` for an unhandled ``DatabaseTableView``: a
+    name-folding fallback is right for a genuine backend table (there ``name``
+    *is* the identity) and wrong for a view, whose ``name`` defaults to a
+    per-process ``gen_name()`` uuid4 (gh-2229; see :func:`view_rules`).  Both
+    dispatch tables route through here so the guard covers both.
+
+    Not made redundant by ``test_view_rules.py``'s static exhaustiveness check:
+    that check reads ``DatabaseTableView.__subclasses__()``, which only sees
+    imported modules, and xorq imports backends lazily.
+    """
+    for rule in view_rules():
+        if isinstance(dt, rule.op_type):
+            return rule.snapshot_normalizer if snapshot else rule.normalizer
+    from xorq.expr.relations import DatabaseTableView  # noqa: PLC0415
+
+    if isinstance(dt, DatabaseTableView):
+        raise NotImplementedError(
+            f"{type(dt).__name__} is a DatabaseTableView with no normalizer; "
+            "add a row to xorq.common.utils.dasher._relations.view_rules "
+            "rather than letting a fallback fold its generated name into the key"
+        )
+    return None
+
+
+def unhandled_view_op_types() -> tuple[type, ...]:
+    """``DatabaseTableView`` subclasses (recursively) with no :func:`view_rules` row.
+
+    Only sees subclasses whose defining module has been imported; see the
+    caveat on :func:`lookup_view_normalizer`.
+    """
+    from xorq.expr.relations import DatabaseTableView  # noqa: PLC0415
+
+    handled = tuple(rule.op_type for rule in view_rules())
+
+    def descendants(cls):
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from descendants(sub)
+
+    return tuple(
+        cls
+        for cls in dict.fromkeys(descendants(DatabaseTableView))
+        if not issubclass(cls, handled)
+    )
+
+
+def _dispatch_databasetable(dt: ops.DatabaseTable) -> tuple:
+    # DatabaseTable-subclass dispatch is shared with
+    # ``SnapshotStrategy.normalize_databasetable`` via ``view_rules`` so the two
+    # regimes cannot drift on which ops they cover (gh-2229); returning None
+    # here means "not a view, fall through to the per-backend chain below".
+    normalizer = lookup_view_normalizer(dt, snapshot=False)
+    if normalizer is not None:
+        return normalizer(dt)
     # For datafusion-backed file tables, dasher's normalize_datafusion_
     # databasetable stops at ep_str — which captures the path but no stat —
     # so file edits don't invalidate the cache key. _normalize_datafusion_
     # databasetable_xorq stats the underlying files to restore mtime sensitivity.
-    if dt.source.name in ("datafusion", "xorq_datafusion"):
+    if dt.source.name in DATAFUSION_BACKEND_NAMES:
         return _normalize_datafusion_databasetable_xorq(dt)
-    if dt.source.name == "duckdb":
+    if dt.source.name == BackendName.DUCKDB:
         return _normalize_duckdb_databasetable_xorq(dt)
     # xorq_dasher 0.1.0's bigquery normalizer unpacks its result frame by
     # column label and crashes on every table; use the fixed xorq version.
-    if dt.source.name == "bigquery":
+    if dt.source.name == BackendName.BIGQUERY:
         return _normalize_bigquery_databasetable_xorq(dt)
     # pandas-backend tables and in-memory sqlite are memory-resident:
     # xorq_dasher's dispatch hashes the IPC bytes of their
     # ``to_pyarrow_batches()`` stream, which is pyarrow-version-coupled
     # (issue #2191) — route them to the canonical form instead.
-    if dt.source.name == "pandas":
+    if dt.source.name == BackendName.PANDAS:
         return normalize_memory_databasetable_canonical(dt)
-    if dt.source.name == "sqlite" and dt.source.is_in_memory():
+    if dt.source.name == BackendName.SQLITE and dt.source.is_in_memory():
         return normalize_memory_databasetable_canonical(dt)
     # All remaining backends fall through to ``xorq_dasher``
     # ``normalize_databasetable`` (bigquery is handled above and never reaches
@@ -383,9 +504,15 @@ def _dispatch_databasetable(dt):
 
 
 __all__ = [
+    "ViewRule",
     "_databasetable_dispatcher",
     "_normalize_bigquery_databasetable_xorq",
     "_normalize_datafusion_databasetable_xorq",
     "_normalize_duckdb_databasetable_xorq",
     "_normalize_read_xorq",
+    "lookup_view_normalizer",
+    "normalize_flight_expr",
+    "normalize_flight_udxf",
+    "unhandled_view_op_types",
+    "view_rules",
 ]
