@@ -23,6 +23,90 @@ and reuse.
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
 ![xorq catalog TUI](docs/images/catalog-tui.png)
 
+# Xorq in 60 seconds
+
+Think of Xorq as giving a dataframe pipeline a **reproducible identity**.
+
+### 1. Define the pipeline
+
+You start with a lazy dataframe expression:
+
+```python
+import xorq.api as xo
+
+penguins = xo.examples.penguins.fetch()
+penguins_agg = (
+    penguins
+    .filter(xo._.species.notnull())
+    .group_by("species")
+    .agg(avg_bill_length=xo._.bill_length_mm.mean())
+)
+```
+
+This describes the transformation: filter the penguins data, group it by
+species, and calculate the average bill length. Unlike a sequence of scripts
+that must be executed in the right order, the expression gives Xorq a
+structured representation of the computation.
+
+### 2. Build it
+
+Save the expression in `expr.py`, then build it into a reproducible artifact:
+
+```bash
+xorq uv build expr.py
+```
+
+Xorq produces a hashed build directory:
+
+```text
+builds/fa2122f6a9e9/
+├── expr.yaml
+├── expr_metadata.json
+├── requirements.txt
+└── xorq-<version>-py3-none-any.whl
+```
+
+The manifest (`expr.yaml` + `*_metadata.json`) is the content-addressed
+specification of the pipeline. It captures the computation, including its
+operations, schema, lineage, and inputs. The build packages that
+specification with the environment needed to reproduce and execute it.
+
+### 3. Add it to a catalog
+
+Add the build to a catalog:
+
+```bash
+xorq catalog add builds/fa2122f6a9e9/ -a penguins-agg
+```
+
+The catalog is a Git repository of these entries. An entry can be discovered
+by its hash or by a human-readable alias such as `penguins-agg`.
+
+The flow is:
+
+```text
+Dataframe expression
+        ↓
+    xorq uv build
+        ↓
+Content-addressed specification
+        +
+Reproducible environment
+        ↓
+   Catalog entry
+        ↓
+     Git repo
+        ↓
+ Humans / CI / agents
+```
+
+Another human or agent can now discover, reproduce, run, or compose that
+pipeline without reconstructing the original work from scripts, environment
+setup, and chat history.
+
+That is the core idea behind Xorq's executable memory: instead of remembering
+a description of what happened, the catalog keeps the computation itself.
+
 ---
 # The Problem
 
