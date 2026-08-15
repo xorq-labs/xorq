@@ -21,6 +21,7 @@ from xorq.catalog.cli import (
     _entry_run_bundle,
     _forward_ctx_params,
     _has_expr_modifications,
+    _resolve_single_entry,
     _stage_bundle_into_build,
     cli,
 )
@@ -345,6 +346,33 @@ def test_compose_by_hash_falls_back_to_an_arbitrary_alias(
     expr = _compose_expr(catalog, (source_name, "trn"), None)
 
     assert _source_tag(expr).metadata["alias"] == "src"
+
+
+@pytest.mark.parametrize(
+    "addressed_by",
+    (
+        pytest.param("src", id="first-alias"),
+        pytest.param("prod", id="second-alias"),
+    ),
+)
+def test_single_entry_records_the_alias_the_caller_named(
+    catalog_with_source_and_transform: tuple, addressed_by: str
+) -> None:
+    """A single-entry run tags the same alias a multi-entry compose would.
+
+    `_resolve_and_execute` sends one entry to `_resolve_single_entry` and two or
+    more to `_compose_expr`; both reach `_make_source_tag`, so the alias must
+    not depend on which arm ran. Goes through `_resolve_single_entry` rather
+    than `_eval_entry` so the alias is derived from the name the caller typed
+    instead of being handed in by the test.
+    """
+    catalog_path, source_name, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    catalog.add_alias(source_name, "prod")
+
+    expr = _resolve_single_entry(catalog, addressed_by, None, None, None, MagicMock())
+
+    assert _source_tag(expr).metadata["alias"] == addressed_by
 
 
 # --- compose + run roundtrip tests ---
