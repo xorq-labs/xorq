@@ -104,7 +104,7 @@ Another human or agent can now discover, reproduce, run, or compose that
 pipeline without reconstructing the original work from scripts, environment
 setup, and chat history.
 
-That is the core idea behind Xorq's executable memory: instead of remembering
+That is the core idea behind Xorq's executable catalog: instead of remembering
 a description of what happened, the catalog keeps the computation itself.
 
 ---
