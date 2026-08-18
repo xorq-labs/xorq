@@ -97,16 +97,25 @@ moves data between them.
 
 # Comparison
 
-A Xorq catalog entry is a computation you reason about by its invariants (schema,
-lineage, content hash, deterministic execution), the way you reason about a
-matrix by its properties rather than its entries.
+Xorq is complementary to general-purpose data catalogs. Atlan, Collibra, and
+Unity Catalog inventory and govern the assets you already have: descriptions,
+owners, glossaries, policies, permissions, harvested lineage. Xorq catalogs the
+computation, so an entry is something you run, not something you read about.
 
-| Approach | Unit of reuse | Answer produced by | Provenance & reproducibility |
-|----------|-------------|---------------------|-------------------------------|
-| Agent memory (Mem0, etc) | Markdown snippets | LLM reading the prompt | None |
-| MCP / open context servers | Tool bindings | Tool at runtime; LLM consumes as text | Per-tool |
-| dbt | SQL model files | Warehouse executing compiled SQL | `manifest.json` captures lineage; env (warehouse, packages) pinned externally |
-| **Xorq** | Content-addressed expression + pinned env | Engine executing the expression | `expr.yaml` + uv-pinned env shipped with the artifact |
+| Dimension | Xorq | Atlan, Collibra, Unity Catalog |
+|-----------|------|--------------------------------|
+| Cataloged unit | Content-addressed expression plus pinned environment | Metadata record over an existing table |
+| Result of a lookup | Arrow stream from running the entry | A governed table you query with external code |
+| Lineage | Read off the manifest, exact by construction | Harvested from executed queries, best effort |
+| Operating model | Git repo of build artifacts on disk, no service to call | Hosted metastore and control plane |
+| Portability | Same expression runs on DataFusion, DuckDB, Snowflake, Databricks | Bound to the host platform |
+| Primary contributors | Agents and engineers composing new pipelines | Stewards, analysts, compliance teams |
+| Out of scope | Glossaries, ownership workflows, policy, access control | Packaging the pipeline and its environment |
+
+A governance catalog tells you what data exists, who owns it, and who may read
+it. Xorq tells an agent what to run to get the same answer twice and humans how
+it arrived at that answer. Read governed tables through the Databricks or
+Snowflake backend, and register entries as assets.
 
 
 # Benchmark
