@@ -24,6 +24,7 @@ import xorq.api as xo
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.catalog.cli import cli as catalog_cli
 from xorq.cli import (
+    EPIPE_EXIT_CODE,
     arbitrate_output_format,
     build_command,
     cli,
@@ -554,6 +555,58 @@ def test_run_command_stdout(tmp_path, fixture_dir, output_format):
         assert stdout
     else:
         raise AssertionError("No expression hash")
+
+
+@pytest.mark.slow(level=1)
+@pytest.mark.skipif(sys.platform == "win32", reason="no SIGPIPE/head on windows")
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        pytest.param("csv", id="csv"),
+        pytest.param("json", id="json"),
+        pytest.param("parquet", id="parquet"),
+    ],
+)
+def test_run_command_stdout_broken_pipe(tmp_path: Path, output_format: str) -> None:
+    """`xorq run -o- | head` must exit quietly instead of dumping a traceback."""
+    # write far more than a pipe buffer holds, so the producer is still writing
+    # when head exits and actually takes EPIPE
+    parquet_path = tmp_path / "rows.parquet"
+    pd.DataFrame({"i": range(50_000), "s": ["x" * 64] * 50_000}).to_parquet(
+        parquet_path
+    )
+    expr = xo.deferred_read_parquet(
+        path=parquet_path, con=xo.connect(), table_name="rows"
+    )
+    expr_path = build_expr(
+        expr, builds_dir=tmp_path / "builds", cache_dir=tmp_path / "cache"
+    )
+
+    producer = _subprocess.Popen(
+        (
+            "xorq",
+            "run",
+            str(expr_path),
+            "--output-path",
+            "-",
+            "--format",
+            output_format,
+        ),
+        stdout=_subprocess.PIPE,
+        stderr=_subprocess.PIPE,
+    )
+    # head -c works the same for the binary formats as it does for csv/json
+    consumer = _subprocess.Popen(
+        ("head", "-c", "128"), stdin=producer.stdout, stdout=_subprocess.PIPE
+    )
+    producer.stdout.close()  # only head holds the read end of the pipe
+    (head_stdout, _) = consumer.communicate()
+    stderr = producer.stderr.read()
+    producer.stderr.close()
+
+    assert len(head_stdout) == 128
+    assert producer.wait() == EPIPE_EXIT_CODE
+    assert not stderr, stderr.decode()
 
 
 def test_run_command_logging(tmp_path):
