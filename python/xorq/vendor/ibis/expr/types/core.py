@@ -859,6 +859,32 @@ def _parse_lineage(raw):
             )
 
 
+# one (name, engine, sql, relations) entry per query in the expression plan
+SqlQueries = tuple[tuple[str, str, str, tuple[str, ...]], ...]
+
+
+def _normalize_sql_queries(value):
+    """Pad entries to (name, engine, sql, relations).
+
+    Entries from before relations were recorded have no relations element;
+    normalizing in the field converter keeps every construction path (from_dict,
+    evolve, direct construction) producing the shape consumers unpack. Malformed
+    entries degrade instead of failing the whole metadata parse: entries too
+    short to name a query are dropped, and a relations value that is not a
+    list reads as no relations.
+    """
+    return tuple(
+        (
+            q[0],
+            q[1],
+            q[2],
+            tuple(q[3]) if len(q) > 3 and isinstance(q[3], (tuple, list)) else (),
+        )
+        for q in value
+        if len(q) >= 3
+    )
+
+
 @frozen
 class ExprMetadata:
     kind: ExprKind = field(validator=instance_of(ExprKind))
@@ -875,7 +901,7 @@ class ExprMetadata:
         factory=tuple, validator=deep_iterable(instance_of(dict))
     )
     params: tuple = field(factory=tuple)
-    sql_queries: tuple[tuple[str, str, str], ...] = field(factory=tuple)
+    sql_queries: SqlQueries = field(factory=tuple, converter=_normalize_sql_queries)
     lineage: Optional[LineageDAG] = field(default=None, validator=_validate_lineage)
     builders: tuple[dict, ...] = field(
         factory=tuple, validator=deep_iterable(instance_of(dict))
@@ -887,6 +913,22 @@ class ExprMetadata:
         from xorq.common.utils.caching_utils import CacheKey  # noqa: PLC0415
 
         return CacheKey(**raw) if raw else None
+
+    @staticmethod
+    def _parse_sql_queries(data):
+        """Join the 3-element sql_queries entries with the sql_relations map.
+
+        Entries stay [name, engine, sql] on disk so readers that predate
+        relations keep parsing them; each query's relations live under the
+        parallel "sql_relations" key. Entries briefly written with inline
+        relations carry them as a 4th element.
+        """
+        relations = data.get("sql_relations") or {}
+        return tuple(
+            # the field converter normalizes shapes; only the join happens here
+            (*q, relations.get(q[0])) if len(q) == 3 else tuple(q)
+            for q in data.get("sql_queries") or ()
+        )
 
     @classmethod
     def from_dict(cls, data):
@@ -905,7 +947,7 @@ class ExprMetadata:
             projected_cache_key=cls._parse_cache_key(data.get("cache_keys")),
             composed_from=tuple(data.get("composed_from") or data.get("sources") or ()),
             params=tuple(data.get("params") or ()),
-            sql_queries=tuple(tuple(q) for q in data.get("sql_queries", ())),
+            sql_queries=cls._parse_sql_queries(data),
             lineage=_parse_lineage(data.get("lineage")),
             builders=tuple(data.get("builders", ())),
         )
@@ -984,9 +1026,19 @@ class ExprMetadata:
                     "composed_from",
                     list(self.composed_from) if self.composed_from else None,
                 ),
+                # sql_queries entries stay [name, engine, sql] so readers that
+                # predate relations keep parsing them; relations go in the
+                # parallel sql_relations map those readers ignore.
                 (
                     "sql_queries",
-                    [list(q) for q in self.sql_queries] if self.sql_queries else None,
+                    [list(q[:3]) for q in self.sql_queries]
+                    if self.sql_queries
+                    else None,
+                ),
+                (
+                    "sql_relations",
+                    {q[0]: list(q[3]) for q in self.sql_queries if len(q) > 3 and q[3]}
+                    or None,
                 ),
                 (
                     "lineage",

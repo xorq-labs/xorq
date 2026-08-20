@@ -52,8 +52,12 @@ from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import CatalogPushError
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.common.utils.logging_utils import get_logger
+from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.config import options
+from xorq.ibis_yaml.config import config as build_config
 from xorq.ibis_yaml.enums import ExprKind
+from xorq.ibis_yaml.sql import sql_query_deps
+from xorq.vendor.ibis.expr.types.core import SqlQueries
 
 
 if TYPE_CHECKING:
@@ -358,8 +362,8 @@ class CatalogRowData:
         return _format_cached(self.cached)
 
     @cached_property
-    def sqls(self) -> tuple[tuple[str, str, str], ...]:
-        """((name, engine, sql), ...) for all queries in the expression plan."""
+    def sqls(self) -> SqlQueries:
+        """((name, engine, sql, relations), ...) for all queries in the expression plan."""
         return self.entry.metadata.sql_queries
 
     @cached_property
@@ -659,18 +663,42 @@ def _build_git_log_rows(repo, max_count=100) -> tuple[GitLogRowData, ...]:
     )
 
 
-def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
+def _dag_label(name: str) -> str:
+    """Truncate a trailing generated token, keeping the descriptive prefix.
+
+    Recognizes the shapes the build pipeline produces: a whole-name legacy hex
+    hash, a raw gen_name uid (ibis_<ns>_<26 chars>, kept by reads that skip
+    hex sanitization, e.g. pinned leaves — get_uid_prefix is the canonical
+    recognizer), or an underscore-separated 32-hex dasher token. Anything else
+    is user-chosen and kept whole — a greedy hex match would eat a prefix that
+    happens to end in hex characters and collapse sibling labels to the same
+    string. Tokens truncate to config.hash_length, the width .sql artifact
+    names already use.
+    """
+    n = build_config.hash_length
+    if re.fullmatch(r"[a-f0-9]{20,}", name):
+        return name[:n]
+    if prefix := get_uid_prefix(name):
+        return f"{prefix}{name[len(prefix) :][:n]}"
+    return re.sub(r"(?<=_)[a-f0-9]{32}$", lambda m: m.group(0)[:n], name)
+
+
+def _render_sql_dag(sqls: SqlQueries) -> str:
     """Render multiple SQL queries as a topologically-sorted DAG."""
-    name_to_sql = {name: (engine, sql) for name, engine, sql in sqls}
-    # build dependency graph: name → set of names it depends on
-    deps = {
-        name: frozenset(
-            ref
-            for ref in re.findall(r'FROM "([a-f0-9]{20,})"', sql)
-            if ref in name_to_sql
-        )
-        for name, (_, sql) in name_to_sql.items()
-    }
+    name_to_sql = {name: (engine, sql) for name, engine, sql, _ in sqls}
+    deps = sql_query_deps(sqls)
+    if not any(relations for *_, relations in sqls):
+        # entries recorded before relations existed: fall back to scanning the
+        # SQL for quoted legacy hex names (user-named into_backend sub-queries),
+        # the one dependency shape the pre-relations renderer could order.
+        deps = {
+            name: frozenset(
+                ref
+                for ref in re.findall(r'FROM "([a-f0-9]{20,})"', sql)
+                if ref != name and ref in name_to_sql
+            )
+            for name, (_, sql) in name_to_sql.items()
+        }
     # topological sort (Kahn's algorithm) — leaves first, main last
     in_degree = {n: len(d) for n, d in deps.items()}
     queue = [n for n, d in in_degree.items() if d == 0]
@@ -686,18 +714,11 @@ def _render_sql_dag(sqls: tuple[tuple[str, str, str], ...]) -> str:
     # append any remaining (cycle fallback)
     order.extend(n for n in name_to_sql if n not in order)
 
-    parts = tuple(
-        segment
-        for i, name in enumerate(order)
+    return "\n\n  ↓\n\n".join(
+        f"-- [{_dag_label(name)}] ({engine})\n{sql}"
+        for name in order
         for engine, sql in (name_to_sql[name],)
-        for label in (("main" if name == "main" else name[:12]),)
-        for segment in (
-            (f"-- [{label}] ({engine})\n{sql}", "  ↓")
-            if i < len(order) - 1
-            else (f"-- [{label}] ({engine})\n{sql}",)
-        )
     )
-    return "\n\n".join(parts)
 
 
 def _revision_pair(i, rev_entry, commit):
@@ -1414,7 +1435,7 @@ class CatalogScreen(Screen):
     def _load_sql_preview(
         self,
         entry_hash: str,
-        raw: str | tuple[tuple[str, str, str], ...],
+        raw: str | SqlQueries,
     ) -> None:
         try:
             if not isinstance(raw, str):
@@ -1617,13 +1638,13 @@ class CatalogScreen(Screen):
                 self._current_sql_hash = None
                 sql_preview.update("(SQL unavailable)")
                 sql_panel.border_subtitle = ""
-            case ((_, engine, sql),):
+            case ((_, engine, sql, _),):
                 sql_panel.border_subtitle = engine
                 self._current_sql_hash = row_data.row_key
                 sql_preview.update(Text("Rendering SQL Query…", style="dim"))
                 self._load_sql_preview(row_data.row_key, sql)
             case sqls:
-                engines = sorted({engine for _, engine, _ in sqls})
+                engines = sorted({engine for _, engine, _, _ in sqls})
                 sql_panel.border_subtitle = (
                     f"{len(sqls)} queries · {', '.join(engines)}"
                 )
