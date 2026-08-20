@@ -132,7 +132,7 @@ sqlite = [
     "adbc-driver-sqlite>=1.4.0",
 ]
 gizmosql = [
-    "adbc-driver-gizmosql>=1.1.5",
+    "adbc-driver-gizmosql>=2.0.0",
     "duckdb>=1.5",  # see duckdb extra above
     "gizmosql>=1.26.0,<2",
     "cryptography>=42",
