@@ -22,6 +22,10 @@ from xorq.catalog import constants as catalog_constants
 
 
 if TYPE_CHECKING:
+    from typing import BinaryIO
+
+    from xorq.api import Expr
+    from xorq.catalog.catalog import CatalogEntry
     from xorq.catalog.content_store import ContentStoreConfig
     from xorq.common.utils.lineage_utils import LineageDAG
 
@@ -1555,8 +1559,18 @@ def _get_catalog_entry(catalog, name):
         ) from err
 
 
-def _eval_entry(catalog_entry, code, instream=None, cache_dir=None):
-    """Evaluate a single catalog entry to an expression."""
+def _eval_entry(
+    catalog_entry: "CatalogEntry",
+    code: str | None,
+    instream: "str | BinaryIO | None" = None,
+    cache_dir: str | None = None,
+    alias: str | None = None,
+) -> "Expr":
+    """Evaluate a single catalog entry to an expression.
+
+    *alias* is the alias the caller addressed the entry by, threaded through to
+    the source tag; None lets it fall back to the entry's first alias.
+    """
     from xorq.catalog.bind import _eval_code, _make_source_expr  # noqa: PLC0415
 
     match catalog_entry.kind:
@@ -1579,7 +1593,7 @@ def _eval_entry(catalog_entry, code, instream=None, cache_dir=None):
                 ) from err
             expr = replace_unbound(loaded_expr, input_expr.op())
         case ExprKind.Source | ExprKind.Expr | ExprKind.Composed | ExprKind.ExprBuilder:
-            expr = _make_source_expr(catalog_entry, cache_dir=cache_dir)
+            expr = _make_source_expr(catalog_entry, alias=alias, cache_dir=cache_dir)
         case _:
             raise click.ClickException(
                 f"Unsupported entry kind {catalog_entry.kind!r} for 'run'."
@@ -1646,6 +1660,7 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
             source=source_entry,
             transforms=transform_entries,
             code=code,
+            alias=catalog.maybe_alias(source_name),
         ).expr
 
     def _load(entry):
@@ -2092,7 +2107,13 @@ def _resolve_single_entry(
     catalog_entry = _get_catalog_entry(catalog, entry)
 
     span.set_attribute("kind", str(catalog_entry.kind))
-    expr = _eval_entry(catalog_entry, code, instream, cache_dir=cache_dir)
+    expr = _eval_entry(
+        catalog_entry,
+        code,
+        instream,
+        cache_dir=cache_dir,
+        alias=catalog.maybe_alias(entry),
+    )
 
     if rename_map and entry in rename_map:
         from xorq.common.utils.graph_utils import rename_params  # noqa: PLC0415

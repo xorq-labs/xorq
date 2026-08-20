@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import click
@@ -12,14 +15,23 @@ from xorq.catalog import cli as cli_mod
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import (
     _assert_requirements_identical,
+    _compose_expr,
     _entry_run_bundle,
     _forward_ctx_params,
     _has_expr_modifications,
+    _resolve_single_entry,
     _stage_bundle_into_build,
     cli,
 )
+from xorq.catalog.enums import CatalogTag
 from xorq.cli import cli as top_cli
+from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.relations import HashingTag
 from xorq.ibis_yaml.enums import DumpFiles
+
+
+if TYPE_CHECKING:
+    from xorq.api import Expr
 
 
 # --- run command ---
@@ -282,6 +294,82 @@ def test_compose_without_alias_catalogs_by_hash(
     )
     assert result.exit_code == 0, result.output
     assert "Cataloged as" in result.output
+
+
+def _source_tag(expr: "Expr") -> HashingTag:
+    """Return the sole catalog SOURCE tag on *expr*."""
+    (source_tag,) = tuple(
+        ht
+        for ht in walk_nodes(HashingTag, expr)
+        if ht.metadata.get("tag") == CatalogTag.SOURCE
+    )
+    return source_tag
+
+
+@pytest.mark.parametrize(
+    "addressed_by",
+    (
+        pytest.param("src", id="first-alias"),
+        pytest.param("prod", id="second-alias"),
+    ),
+)
+def test_compose_records_the_alias_the_caller_named(
+    catalog_with_source_and_transform: tuple, addressed_by: str
+) -> None:
+    """The SOURCE tag records the alias the caller addressed the source by.
+
+    With two aliases on the entry, `_make_source_tag`'s fallback to the first
+    alias gets one of these two cases wrong whichever way the alias list is
+    ordered, so the pair pins the behavior without depending on that order.
+    """
+    catalog_path, source_name, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    catalog.add_alias(source_name, "prod")
+
+    expr = _compose_expr(catalog, (addressed_by, "trn"), None)
+
+    assert _source_tag(expr).metadata["alias"] == addressed_by
+
+
+def test_compose_by_hash_falls_back_to_an_arbitrary_alias(
+    catalog_with_source_and_transform: tuple,
+) -> None:
+    """Addressing by hash still records an alias, because `_make_source_tag`
+    falls back to the entry's first one. So a recorded alias does not mean the
+    caller named it — this pins the fallback, it does not endorse it."""
+    catalog_path, source_name, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+
+    expr = _compose_expr(catalog, (source_name, "trn"), None)
+
+    assert _source_tag(expr).metadata["alias"] == "src"
+
+
+@pytest.mark.parametrize(
+    "addressed_by",
+    (
+        pytest.param("src", id="first-alias"),
+        pytest.param("prod", id="second-alias"),
+    ),
+)
+def test_single_entry_records_the_alias_the_caller_named(
+    catalog_with_source_and_transform: tuple, addressed_by: str
+) -> None:
+    """A single-entry run tags the same alias a multi-entry compose would.
+
+    `_resolve_and_execute` sends one entry to `_resolve_single_entry` and two or
+    more to `_compose_expr`; both reach `_make_source_tag`, so the alias must
+    not depend on which arm ran. Goes through `_resolve_single_entry` rather
+    than `_eval_entry` so the alias is derived from the name the caller typed
+    instead of being handed in by the test.
+    """
+    catalog_path, source_name, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    catalog.add_alias(source_name, "prod")
+
+    expr = _resolve_single_entry(catalog, addressed_by, None, None, None, MagicMock())
+
+    assert _source_tag(expr).metadata["alias"] == addressed_by
 
 
 # --- compose + run roundtrip tests ---
