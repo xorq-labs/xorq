@@ -41,6 +41,9 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.constants import CONTENT_STORE_YAML, MAIN_BRANCH
 from xorq.catalog.content_store import (
+    _MAX_PRESIGNED_BLOB_BYTES,
+    _PRESIGNED_ASSUMED_BYTES_PER_SECOND,
+    _PRESIGNED_BATCH_SIZE,
     _STAGING_REAP_SECONDS,
     POINTER_VERSION,
     ContentCache,
@@ -2576,3 +2579,56 @@ def test_staging_dir_is_absent_when_caching_is_disabled(tmp_path: Path) -> None:
 
     assert cache.staging_dir is None
     assert cache.reap_stale_staging() == 0
+
+
+def test_staging_over_the_budget_does_not_empty_the_cache(tmp_path: Path) -> None:
+    """Eviction that cannot restore the budget is skipped, not performed anyway.
+
+    Staged bytes are unevictable, so once they exceed the budget on their own
+    no amount of eviction brings the total under it. Evicting regardless would
+    empty the cache for nothing — and debris from a killed process would keep
+    doing so on every write until the reaper removed it.
+    """
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=1000)
+    staging = cache.staging_dir
+    assert staging is not None
+    (staging / "debris.tmp").write_bytes(b"x" * 1500)
+
+    source = tmp_path / "entry.bin"
+    source.write_bytes(b"z" * 400)
+    cache.put("cat/aa/bb/first.zip", source)
+    cache.put("cat/cc/dd/second.zip", source)
+
+    assert cache.get_path("cat/aa/bb/first.zip") is not None
+    assert cache.get_path("cat/cc/dd/second.zip") is not None
+
+
+def test_reap_threshold_outlasts_the_slowest_batch_the_fetcher_can_run(
+    tmp_path: Path,
+) -> None:
+    """The threshold is derived from the work, not picked as a round number.
+
+    A full mint batch of maximum-size objects is the slowest transfer the fetch
+    path can be asked to perform. Reaping has to sit well clear of it, or a
+    legitimate fetch loses its staging mid-flight.
+    """
+    batch_seconds = (
+        _PRESIGNED_BATCH_SIZE
+        * _MAX_PRESIGNED_BLOB_BYTES
+        // _PRESIGNED_ASSUMED_BYTES_PER_SECOND
+    )
+
+    assert _STAGING_REAP_SECONDS > batch_seconds * 4
+
+
+def test_adopt_names_the_staging_file_a_concurrent_reap_removed(
+    tmp_path: Path,
+) -> None:
+    """A reaped staging file is reported, not surfaced as a bare OS error."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    staging = cache.staging_dir
+    assert staging is not None
+    vanished = staging / "gone.tmp"
+
+    with pytest.raises(ContentStoreError, match="disappeared before it could be"):
+        cache.adopt("cat/aa/bb/entry.zip", vanished)

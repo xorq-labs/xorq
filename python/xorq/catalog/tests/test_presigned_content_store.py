@@ -1470,30 +1470,52 @@ def test_hosted_single_object_get_reports_an_unsupported_capability(
     ),
 )
 def test_expiry_margin_never_undercuts_the_time_the_body_needs(size: int) -> None:
-    """The margin covers the floor and the body, without pinning constants.
+    """The margin covers the body outright, plus the floor for setup.
 
-    Asserting the relationship rather than the number means tuning the assumed
-    bandwidth or the blob ceiling does not churn this test.
+    The body assertion is the one that matters: the margin times the assumed
+    bandwidth must reach the size it was computed for, or the URL can pass the
+    pre-flight check and expire before the last byte. Asserting the
+    relationship rather than the number means tuning the assumed bandwidth or
+    the blob ceiling does not churn this test.
     """
     margin = PresignedContentStore._expiry_margin_seconds(size)
 
+    assert margin * _PRESIGNED_ASSUMED_BYTES_PER_SECOND >= size
     assert margin >= _PRESIGNED_EXPIRY_MARGIN_SECONDS
-    assert margin >= min(
-        size // _PRESIGNED_ASSUMED_BYTES_PER_SECOND, _MAX_TRANSFER_SECONDS
-    )
-    assert margin <= _MAX_TRANSFER_SECONDS
+    assert margin <= _PRESIGNED_EXPIRY_MARGIN_SECONDS + _MAX_TRANSFER_SECONDS
 
 
 def test_expiry_margin_covers_the_largest_permitted_object() -> None:
     """The cap is derived from the blob ceiling, not from the socket timeout.
 
     A 5 GB object needs far longer than one socket idle timeout, so capping the
-    margin at that timeout would let the URL expire mid-transfer.
+    margin at that timeout would let the URL expire mid-transfer. The cap has
+    to reach the whole object: truncating the division here left the largest
+    permitted blob a second short of its own derived ceiling.
     """
     largest = PresignedContentStore._expiry_margin_seconds(_MAX_PRESIGNED_BLOB_BYTES)
 
-    assert largest == _MAX_TRANSFER_SECONDS
+    assert largest == _PRESIGNED_EXPIRY_MARGIN_SECONDS + _MAX_TRANSFER_SECONDS
+    assert (
+        _MAX_TRANSFER_SECONDS * _PRESIGNED_ASSUMED_BYTES_PER_SECOND
+        >= _MAX_PRESIGNED_BLOB_BYTES
+    )
     assert largest > _SOCKET_IDLE_TIMEOUT_SECONDS
+
+
+def test_expiry_margin_adds_the_setup_floor_to_the_body_term() -> None:
+    """The floor and the body term are summed, not chosen between.
+
+    A body far past the point where its own term exceeds the floor still needs
+    connection setup, so ``max(floor, body)`` would silently drop it.
+    """
+    big = 4 * 1024**3
+    body_seconds = -(-big // _PRESIGNED_ASSUMED_BYTES_PER_SECOND)
+    assert body_seconds > _PRESIGNED_EXPIRY_MARGIN_SECONDS
+
+    margin = PresignedContentStore._expiry_margin_seconds(big)
+
+    assert margin == _PRESIGNED_EXPIRY_MARGIN_SECONDS + body_seconds
 
 
 def test_expiry_margin_is_monotonic_in_size() -> None:

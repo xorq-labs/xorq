@@ -73,22 +73,34 @@ _TRANSFER_CHUNK_BYTES = 1024 * 1024
 _SOCKET_IDLE_TIMEOUT_SECONDS = 300
 # A signed URL is re-minted when it would expire before the transfer it was
 # minted for could plausibly finish. The floor covers connection setup and
-# round trip; the size-derived term covers the body.
+# round trip and the size-derived term covers the body; they are summed, not
+# alternatives, since a multi-gigabyte body still has to pay for setup.
 _PRESIGNED_EXPIRY_MARGIN_SECONDS = 30
 _PRESIGNED_ASSUMED_BYTES_PER_SECOND = 10 * 1024 * 1024
-# Derived, not co-declared: the ceiling on the margin is the time the largest
-# permitted object needs, so raising the blob limit cannot silently leave the
-# margin too small to cover it.
-_MAX_TRANSFER_SECONDS = _MAX_PRESIGNED_BLOB_BYTES // _PRESIGNED_ASSUMED_BYTES_PER_SECOND
+# Derived, not co-declared: the ceiling on the body term is the time the
+# largest permitted object needs, so raising the blob limit cannot silently
+# leave the margin too small to cover it. Rounded up, because a floor-divided
+# ceiling is shorter than the transfer it was derived from.
+_MAX_TRANSFER_SECONDS = -(
+    -_MAX_PRESIGNED_BLOB_BYTES // _PRESIGNED_ASSUMED_BYTES_PER_SECOND
+)
 # Pointer files are ~100 bytes; the cap bounds memory when parsing pointers
 # that came from an untrusted clone.
 _MAX_POINTER_BYTES = 4096
 # In-flight downloads live here, inside the cache dir but apart from cache
-# entries. Files older than the reap threshold cannot belong to a live fetch —
-# a single transfer is bounded by the socket idle timeout — so they are debris
-# from a killed process and are removed.
+# entries. The reap threshold is derived from the slowest transfer this code
+# can be asked to perform — a full mint batch of maximum-size objects — scaled
+# for a link far slower than the assumed bandwidth. A staging file older than
+# that is debris from a killed process rather than a live fetch. Deriving it
+# means raising the batch size or the blob ceiling cannot silently make the
+# threshold too short. It is a heuristic, not a guarantee: a transfer slower
+# still would have its staging reaped underneath it, so ``adopt`` reports a
+# vanished staging file plainly instead of failing obscurely.
 _STAGING_DIRNAME = ".staging"
-_STAGING_REAP_SECONDS = 24 * 60 * 60
+_STAGING_REAP_SLOWDOWN_FACTOR = 8
+_STAGING_REAP_SECONDS = (
+    _STAGING_REAP_SLOWDOWN_FACTOR * _PRESIGNED_BATCH_SIZE * _MAX_TRANSFER_SECONDS
+)
 _CATALOG_TOKEN_ENV = "XORQ_CATALOG_TOKEN"
 _CATALOG_TOKEN_SERVICE_ENV = "XORQ_CATALOG_TOKEN_SERVICE_URL"
 
@@ -966,16 +978,15 @@ class PresignedContentStore(ContentStore):
         """Seconds of validity a signed URL needs to transfer *size* bytes.
 
         A fixed few seconds is not enough for a multi-gigabyte body: the URL
-        passes the pre-flight check and then expires mid-transfer. The cap is
-        the time the largest permitted object needs, not the socket idle
-        timeout — that timeout bounds a single stalled read, not the transfer.
+        passes the pre-flight check and then expires mid-transfer. The floor
+        for setup and the time the body needs are summed, since a large body
+        pays for setup too, and the body term is rounded up and capped at the
+        time the largest permitted object needs — not at the socket idle
+        timeout, which bounds a single stalled read rather than a transfer.
         """
-        return min(
-            _MAX_TRANSFER_SECONDS,
-            max(
-                _PRESIGNED_EXPIRY_MARGIN_SECONDS,
-                size // _PRESIGNED_ASSUMED_BYTES_PER_SECOND,
-            ),
+        body_seconds = -(-size // _PRESIGNED_ASSUMED_BYTES_PER_SECOND)
+        return _PRESIGNED_EXPIRY_MARGIN_SECONDS + min(
+            _MAX_TRANSFER_SECONDS, body_seconds
         )
 
     @classmethod
@@ -1266,8 +1277,12 @@ class ContentCache:
 
         A process killed mid-fetch leaves full-size objects behind. They are
         not cache entries, so nothing else would ever remove them. The age
-        threshold is what makes this safe to run while another process is
-        fetching: its in-flight files are minutes old at most.
+        threshold is what keeps this tolerable to run while another process is
+        fetching: it is many times longer than the slowest batch the fetch code
+        can be asked to perform, so reaping a file another process still owns
+        means that process has been transferring for hours at a small fraction
+        of the assumed bandwidth. It costs that fetch an ``adopt`` failure, not
+        corruption — the archives it already wrote are untouched.
         """
         staging = self.staging_dir
         if staging is None or not staging.is_dir():
@@ -1323,6 +1338,15 @@ class ContentCache:
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             os.replace(local_path, dest)
+        except FileNotFoundError as exc:
+            # dest.parent exists by the line above, so the missing path is the
+            # source: a concurrent reap took a staging file this fetch was
+            # still holding. Name that, rather than surfacing a bare
+            # FileNotFoundError from the copy fallback.
+            raise ContentStoreError(
+                f"staged content for {key} disappeared before it could be "
+                f"adopted into the cache: {local_path}"
+            ) from exc
         except OSError:
             # Typically a cross-device staging dir; any rename failure degrades
             # to a copy rather than losing the object.
@@ -1352,6 +1376,7 @@ class ContentCache:
         protect_path = self._path(protect) if protect is not None else None
         entries: list[tuple[float, int, Path]] = []
         total = 0
+        staged_total = 0
         for p in self.cache_dir.rglob("*"):
             if not p.is_file():
                 continue
@@ -1360,6 +1385,7 @@ class ContentCache:
                 # In-flight bytes occupy the volume, so they count against the
                 # budget — but they belong to a live fetch and must not be
                 # evicted out from under it.
+                staged_total += st.st_size
                 total += st.st_size
                 continue
             if p.name.endswith(".tmp"):
@@ -1369,6 +1395,14 @@ class ContentCache:
             entries.append((st.st_atime, st.st_size, p))
             total += st.st_size
         if total <= self.max_bytes:
+            return
+        if staged_total >= self.max_bytes:
+            # Staged bytes alone have blown the budget, so evicting entries
+            # cannot bring the total back under it. Doing so anyway would empty
+            # the cache for no gain in the invariant — and debris from a killed
+            # process would keep emptying it on every write until the reaper
+            # ran. Staging always drains, by adopt() or by the caller's unlink;
+            # the first write after it does restores the budget.
             return
         entries.sort()
         for _atime, size, path in entries:

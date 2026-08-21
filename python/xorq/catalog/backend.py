@@ -27,6 +27,7 @@ from xorq.catalog.constants import (
     POINTER_SUFFIX,
 )
 from xorq.catalog.content_store import (
+    _PRESIGNED_BATCH_SIZE,
     ContentCache,
     ContentIntegrityError,
     ContentSpec,
@@ -49,9 +50,11 @@ from xorq.catalog.git_utils import commit_context
 _HOSTED_COMPONENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 
 # Objects are staged on disk before being verified and adopted into the cache,
-# so a fetch of N objects must not stage all N at once. Matching the presigned
-# store's own mint batch size keeps this from costing extra round trips.
-_FETCH_BATCH_SIZE = 10
+# so a fetch of N objects must not stage all N at once. Derived from the
+# presigned store's own mint batch size rather than co-declared with it: a
+# group larger than one mint would cost extra round trips, and a smaller one
+# would leave part of each mint unused.
+_FETCH_BATCH_SIZE = _PRESIGNED_BATCH_SIZE
 
 
 def _repo_has_annex_artifacts(repo: Repo) -> bool:
@@ -528,17 +531,22 @@ class GitPointerBackend(CatalogBackend):
         dir: that is the volume sized for content, and it lets ``adopt`` rename
         instead of copying the whole object a second time.
 
-        ``get_many`` is all-or-nothing, so a transport failure discards this
-        whole group — but earlier groups are already adopted and stay cached,
-        which is why ``fetch_content`` splits the work rather than staging
-        every object at once.
+        ``get_many`` is all-or-nothing, so a transport or in-transit integrity
+        failure discards this whole group — but earlier groups are already
+        adopted and stay cached, which is why ``fetch_content`` splits the work
+        rather than staging every object at once. A local ``_verify_content``
+        failure below is not group-atomic: keys earlier in the group are
+        already written and cached. That leaves valid data, since each key is
+        verified against its own pointer before it is written.
         """
         staging_dir = self.cache.staging_dir
         downloads: dict[str, Path] = {}
         try:
             for key, _entry in batch:
-                # The ".tmp" suffix keeps in-flight files out of cache eviction
-                # and out of DirectoryContentStore.list_keys.
+                # Location is what keeps these out of cache eviction: the
+                # staging dir is counted but never evicted. The ".tmp" suffix
+                # only matters if a DirectoryContentStore shares this volume,
+                # where it keeps in-flight files out of list_keys.
                 fd, tmp = tempfile.mkstemp(dir=staging_dir, suffix=".tmp")
                 os.close(fd)
                 downloads[key] = Path(tmp)
