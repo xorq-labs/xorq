@@ -1200,6 +1200,74 @@ def test_catalog_join_command_rebinds_into_backend_entry(
     assert "b" in result.output
 
 
+@pytest.mark.parametrize(
+    "left_name,right_name",
+    [
+        pytest.param("duckdb-into-df", "df-into-df", id="duckdb-left"),
+        pytest.param("df-into-df", "duckdb-into-df", id="df-left"),
+    ],
+)
+def test_catalog_join_command_into_backend_mixed_source_backends(
+    runner: CliRunner,
+    catalog_path: str,
+    tmp_path: Path,
+    left_name: str,
+    right_name: str,
+) -> None:
+    """Both entries end up on the xorq hub via `.into_backend()`, but read
+    from *different* source backends first (one duckdb, one already
+    xorq-datafusion) -- and check both argument orderings, since the
+    rebind/merge logic must not care which side is "left"/"right"."""
+    pq_a = tmp_path / "a.parquet"
+    pq_b = tmp_path / "b.parquet"
+    pd.DataFrame({"id": [1, 2, 3], "x": ["x1", "x2", "x3"]}).to_parquet(pq_a)
+    pd.DataFrame({"id": [1, 2, 3], "y": ["y1", "y2", "y3"]}).to_parquet(pq_b)
+
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    duckdb_into_df = deferred_read_parquet(
+        pq_a, xo.duckdb.connect(), table_name="a"
+    ).into_backend(xo.connect(), name="a_remote")
+    df_into_df = deferred_read_parquet(
+        pq_b, xo.connect(), table_name="b"
+    ).into_backend(xo.connect(), name="b_remote")
+    catalog.add(duckdb_into_df, aliases=("duckdb-into-df",))
+    catalog.add(df_into_df, aliases=("df-into-df",))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            left_name,
+            right_name,
+            "--on",
+            "id",
+            "-a",
+            f"joined-{left_name}-{right_name}",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            f"joined-{left_name}-{right_name}",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "x1" in result.output and "y1" in result.output
+    assert "x2" in result.output and "y2" in result.output
+    assert "x3" in result.output and "y3" in result.output
+
+
 def test_catalog_union_command(runner: CliRunner, catalog_path: str) -> None:
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     jan = xo.memtable({"user_id": [1, 2], "amount": [10.0, 20.0]}, name="jan_source")
