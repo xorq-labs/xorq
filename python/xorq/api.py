@@ -25,6 +25,12 @@ from xorq.ibis_yaml.compiler import (
     build_expr,
     load_expr,
 )
+from xorq.ibis_yaml.combine import (
+    join_builds,
+    join_exprs,
+    union_builds,
+    union_exprs,
+)
 from xorq.common.utils.graph_utils import (
     replace_sources,
 )
@@ -44,6 +50,10 @@ __all__ = [  # noqa: PLE0604
     "udf",
     "build_expr",
     "load_expr",
+    "join_builds",
+    "join_exprs",
+    "union_builds",
+    "union_exprs",
     "replace_sources",
     *api.__all__,
     *caching.__all__,

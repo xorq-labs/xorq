@@ -22,8 +22,10 @@ from xorq.catalog import constants as catalog_constants
 
 
 if TYPE_CHECKING:
+    from xorq.catalog.catalog import Catalog
     from xorq.catalog.content_store import ContentStoreConfig
     from xorq.common.utils.lineage_utils import LineageDAG
+    from xorq.ibis_yaml.packager import JointBundle
 
 from xorq.cli import (
     _get_cache_dir,
@@ -1762,7 +1764,9 @@ def _harvest_entry_from_zip(zf, harvest_dir, entry_name=None, seen_wheels=None):
 
 
 @contextmanager
-def _entry_run_bundle(catalog, entries):
+def _entry_run_bundle(
+    catalog: "Catalog", entries: tuple[str, ...], *, ignore_mismatch: bool = False
+) -> Iterator["JointBundle"]:
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
     from xorq.ibis_yaml.packager import JointBundle  # noqa: PLC0415
 
@@ -1800,7 +1804,8 @@ def _entry_run_bundle(catalog, entries):
 
             if not all_wheel_paths:
                 raise click.ClickException("no wheels found in entries")
-            _assert_requirements_identical(req_contents)
+            if not ignore_mismatch:
+                _assert_requirements_identical(req_contents)
             req_path = harvest_dir / DumpFiles.requirements
             req_path.write_bytes(req_contents[0][1])
 
@@ -1808,9 +1813,16 @@ def _entry_run_bundle(catalog, entries):
             unpinned = [e for e, pin in python_pins if pin is None]
             if len(distinct_pins) > 1:
                 detail = ", ".join(f"{e!r}={pin}" for e, pin in python_pins)
-                raise click.ClickException(
-                    f"entries built on different Python minors: {detail}"
+                if not ignore_mismatch:
+                    raise click.ClickException(
+                        f"entries built on different Python minors: {detail}"
+                    )
+                click.echo(
+                    f"WARNING: ignoring Python-minor mismatch ({detail}); "
+                    f"using {python_pins[0][0]!r}'s environment.",
+                    err=True,
                 )
+                distinct_pins = {python_pins[0][1]}
             if distinct_pins and unpinned:
                 joint = next(iter(distinct_pins))
                 click.echo(
@@ -2082,6 +2094,220 @@ def compose(
                     click.echo(f"Entry {entry_name!r} already exists", err=True)
             else:
                 click.echo(f"Cataloged as {label!r}", err=True)
+            span.set_attribute("cataloged", label)
+
+
+@cli.command("join")
+@click.argument("left_entry", shell_complete=_complete_entry_or_alias_names)
+@click.argument("right_entry", shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "--on",
+    default=None,
+    help="Comma-separated column(s) present in both entries to join on.",
+)
+@click.option(
+    "--left-on",
+    default=None,
+    help="Comma-separated left-entry columns (paired with --right-on).",
+)
+@click.option(
+    "--right-on",
+    default=None,
+    help="Comma-separated right-entry columns (paired with --left-on).",
+)
+@click.option(
+    "--how",
+    type=click.Choice(("inner", "left", "right", "outer", "semi", "anti", "cross")),
+    default="inner",
+    show_default=True,
+    help="Join method.",
+)
+@click.option(
+    "--lname",
+    default="",
+    show_default=True,
+    help="Rename format string for overlapping left columns.",
+)
+@click.option(
+    "--rname",
+    default="{name}_right",
+    show_default=True,
+    help="Rename format string for overlapping right columns.",
+)
+@sync_option
+@click.option(
+    "-a",
+    "--alias",
+    default=None,
+    help="Also register this alias for the cataloged entry.",
+)
+@cache_dir_option
+@click.option(
+    "--ignore-venv-mismatch",
+    is_flag=True,
+    default=False,
+    help="Proceed even if the entries' wheel requirements or Python minor differ.",
+)
+@click.pass_context
+def join(
+    ctx: click.Context,
+    left_entry: str,
+    right_entry: str,
+    on: str | None,
+    left_on: str | None,
+    right_on: str | None,
+    how: str,
+    lname: str,
+    rname: str,
+    sync: bool,
+    alias: str | None,
+    cache_dir: str | None,
+    ignore_venv_mismatch: bool,
+) -> None:
+    """Join two catalog entries into a new cataloged entry.
+
+    Resolves both entries to expressions, joins them, builds the result,
+    and registers it in the catalog.
+
+    \b
+    Arguments:
+      LEFT_ENTRY   Name or alias of the left catalog entry.
+      RIGHT_ENTRY  Name or alias of the right catalog entry.
+
+    \b
+    Examples:
+      # Inner-join two entries on a shared column and alias the result
+      xorq catalog join orders customers --on customer_id --alias enriched-orders
+    """
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+    from xorq.ibis_yaml.combine import join_exprs  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+
+    with tracer.start_as_current_span("catalog.join") as span:
+        span.set_attributes({"left_entry": left_entry, "right_entry": right_entry})
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            left_expr = _get_catalog_entry(catalog, left_entry).load_expr(
+                cache_dir=cache_dir
+            )
+            right_expr = _get_catalog_entry(catalog, right_entry).load_expr(
+                cache_dir=cache_dir
+            )
+
+            try:
+                expr = join_exprs(
+                    left_expr,
+                    right_expr,
+                    on=on,
+                    left_on=left_on,
+                    right_on=right_on,
+                    how=how,
+                    lname=lname,
+                    rname=rname,
+                )
+            except ValueError as e:
+                raise click.BadParameter(str(e)) from None
+
+            build_kwargs = {} if cache_dir is None else {"cache_dir": Path(cache_dir)}
+            build_path = build_expr(expr, **build_kwargs)
+
+            entries = (left_entry, right_entry)
+            with _entry_run_bundle(
+                catalog, entries, ignore_mismatch=ignore_venv_mismatch
+            ) as bundle:
+                _stage_bundle_into_build(bundle, build_path)
+
+            entry_name = build_path.name
+            aliases = (alias,) if alias else ()
+            catalog.add(build_path, sync=sync, aliases=aliases, exist_ok=True)
+            label = alias or entry_name
+            click.echo(f"Cataloged as {label!r}", err=True)
+            span.set_attribute("cataloged", label)
+
+
+@cli.command("union")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "--distinct",
+    is_flag=True,
+    default=False,
+    help="Deduplicate rows (default is union-all).",
+)
+@sync_option
+@click.option(
+    "-a",
+    "--alias",
+    default=None,
+    help="Also register this alias for the cataloged entry.",
+)
+@cache_dir_option
+@click.option(
+    "--ignore-venv-mismatch",
+    is_flag=True,
+    default=False,
+    help="Proceed even if the entries' wheel requirements or Python minor differ.",
+)
+@click.pass_context
+def union(
+    ctx: click.Context,
+    entries: tuple[str, ...],
+    distinct: bool,
+    sync: bool,
+    alias: str | None,
+    cache_dir: str | None,
+    ignore_venv_mismatch: bool,
+) -> None:
+    """Union two-or-more catalog entries into a new cataloged entry.
+
+    Resolves all entries to expressions, unions them (they must share an
+    identical schema), builds the result, and registers it in the catalog.
+
+    \b
+    Arguments:
+      ENTRIES  Two or more entries (names or aliases) to union.
+
+    \b
+    Examples:
+      # Union-all (the default) two entries and alias the result
+      xorq catalog union orders-jan orders-feb --alias orders-q1
+    """
+    if len(entries) < 2:
+        raise click.UsageError("At least two entries are required.")
+
+    from xorq.common.exceptions import RelationError  # noqa: PLC0415
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+    from xorq.ibis_yaml.combine import union_exprs  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+
+    with tracer.start_as_current_span("catalog.union") as span:
+        span.set_attribute("entries", entries)
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            exprs = [
+                _get_catalog_entry(catalog, name).load_expr(cache_dir=cache_dir)
+                for name in entries
+            ]
+
+            try:
+                expr = union_exprs(*exprs, distinct=distinct)
+            except ValueError as e:
+                raise click.BadParameter(str(e)) from None
+            except RelationError as e:
+                raise click.ClickException(str(e)) from e
+
+            build_kwargs = {} if cache_dir is None else {"cache_dir": Path(cache_dir)}
+            build_path = build_expr(expr, **build_kwargs)
+
+            with _entry_run_bundle(
+                catalog, entries, ignore_mismatch=ignore_venv_mismatch
+            ) as bundle:
+                _stage_bundle_into_build(bundle, build_path)
+
+            entry_name = build_path.name
+            aliases = (alias,) if alias else ()
+            catalog.add(build_path, sync=sync, aliases=aliases, exist_ok=True)
+            label = alias or entry_name
+            click.echo(f"Cataloged as {label!r}", err=True)
             span.set_attribute("cataloged", label)
 
 

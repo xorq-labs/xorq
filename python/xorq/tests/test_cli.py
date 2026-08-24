@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import contextlib
 import io
+import json
 import os
 import re
 import shutil
@@ -56,6 +59,7 @@ from xorq.ibis_yaml.compiler import (
     build_expr,
     load_expr,
 )
+from xorq.ibis_yaml.enums import DumpFiles
 from xorq.init_templates import InitTemplates
 
 
@@ -267,6 +271,135 @@ def test_run_command_raises_on_unbound_expr(tmp_path):
     build_dir = build_expr(expr, builds_dir=tmp_path)
     with pytest.raises(ValueError, match="Cannot run unbound expression"):
         run_command(build_dir)
+
+
+def _build_joinable_sources(tmp_path: Path) -> tuple[Path, Path]:
+    left = xo.memtable({"id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]}, name="left_t")
+    right = xo.memtable({"id": [1, 2, 4], "name": ["a", "b", "d"]}, name="right_t")
+    left_path = build_expr(left, builds_dir=tmp_path / "builds")
+    right_path = build_expr(right, builds_dir=tmp_path / "builds")
+    return left_path, right_path
+
+
+def test_join_command_default(tmp_path: Path) -> None:
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    test_args = [
+        "xorq",
+        "join",
+        str(left_path),
+        str(right_path),
+        "--on",
+        "id",
+        "--builds-dir",
+        str(tmp_path / "joined-builds"),
+    ]
+    (returncode, stdout, stderr) = subprocess_run(test_args)
+    assert returncode == 0, stderr
+
+    result_path = stdout.decode("ascii").strip().splitlines()[-1]
+    assert Path(result_path).is_dir()
+    loaded = load_expr(result_path)
+    assert set(loaded.columns) == {"id", "amount", "name"}
+
+
+def test_join_command_left_on_right_on(tmp_path: Path) -> None:
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    test_args = [
+        "xorq",
+        "join",
+        str(left_path),
+        str(right_path),
+        "--left-on",
+        "id",
+        "--right-on",
+        "id",
+        "--how",
+        "left",
+        "--builds-dir",
+        str(tmp_path / "joined-builds"),
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode == 0, stderr
+
+
+def test_join_command_missing_predicate_fails(tmp_path: Path) -> None:
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    test_args = ["xorq", "join", str(left_path), str(right_path)]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"must specify --on" in stderr
+
+
+def test_union_command_default(tmp_path: Path) -> None:
+    left = xo.memtable({"id": [1, 2], "amount": [10.0, 20.0]}, name="jan")
+    right = xo.memtable({"id": [3, 4], "amount": [30.0, 40.0]}, name="feb")
+    left_path = build_expr(left, builds_dir=tmp_path / "builds")
+    right_path = build_expr(right, builds_dir=tmp_path / "builds")
+
+    test_args = [
+        "xorq",
+        "union",
+        str(left_path),
+        str(right_path),
+        "--builds-dir",
+        str(tmp_path / "union-builds"),
+    ]
+    (returncode, stdout, stderr) = subprocess_run(test_args)
+    assert returncode == 0, stderr
+
+    result_path = stdout.decode("ascii").strip().splitlines()[-1]
+    loaded = load_expr(result_path)
+    assert loaded.count().execute() == 4
+
+
+def test_union_command_requires_two_paths(tmp_path: Path) -> None:
+    left_path, _ = _build_joinable_sources(tmp_path)
+    test_args = ["xorq", "union", str(left_path)]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+
+
+def test_union_command_schema_mismatch(tmp_path: Path) -> None:
+    """left/right sources have different schemas -- union must fail cleanly."""
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    test_args = ["xorq", "union", str(left_path), str(right_path)]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+
+
+def test_join_command_version_mismatch(tmp_path: Path) -> None:
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    metadata_path = right_path / DumpFiles.build_metadata
+    metadata = json.loads(metadata_path.read_text())
+    metadata["current_library_version"] = "0.0.0-test-mismatch"
+    metadata_path.write_text(json.dumps(metadata))
+
+    test_args = ["xorq", "join", str(left_path), str(right_path), "--on", "id"]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"different xorq library versions" in stderr
+
+
+def test_join_command_ignore_venv_mismatch(tmp_path: Path) -> None:
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    metadata_path = right_path / DumpFiles.build_metadata
+    metadata = json.loads(metadata_path.read_text())
+    metadata["current_library_version"] = "0.0.0-test-mismatch"
+    metadata_path.write_text(json.dumps(metadata))
+
+    test_args = [
+        "xorq",
+        "join",
+        str(left_path),
+        str(right_path),
+        "--on",
+        "id",
+        "--ignore-venv-mismatch",
+        "--builds-dir",
+        str(tmp_path / "joined-builds"),
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode == 0, stderr
 
 
 @pytest.mark.slow(level=1)

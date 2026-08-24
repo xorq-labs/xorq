@@ -1,13 +1,16 @@
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import click
 import pyarrow as pa
 import pytest
 from click.testing import CliRunner
 
+import xorq.api as xo
 from xorq.catalog import cli as cli_mod
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import (
@@ -1045,6 +1048,127 @@ def test_catalog_compose_uv_path_end_to_end(
     assert result.returncode == 0, result.stderr
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     assert catalog.catalog_yaml.contains_alias("e2e-composed")
+
+
+# --- catalog join / union commands ---
+
+
+def test_catalog_join_command(
+    runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
+) -> None:
+    catalog_path, left_name, right_name = catalog_with_two_sources
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            left_name,
+            right_name,
+            "--on",
+            "user_id",
+            "-a",
+            "joined",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert catalog.catalog_yaml.contains_alias("joined")
+
+
+def test_catalog_join_command_requires_two_arguments(
+    runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
+) -> None:
+    catalog_path, left_name, _ = catalog_with_two_sources
+    result = runner.invoke(cli, ["--path", catalog_path, "join", left_name])
+    assert result.exit_code != 0
+
+
+def test_catalog_join_command_run_roundtrip(
+    runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
+) -> None:
+    catalog_path, left_name, right_name = catalog_with_two_sources
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            left_name,
+            right_name,
+            "--on",
+            "user_id",
+            "-a",
+            "joined",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "run", "joined", "-o", "-", "-f", "csv"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "amount" in result.output
+    assert "name" in result.output
+
+
+def test_catalog_union_command(runner: CliRunner, catalog_path: str) -> None:
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    jan = xo.memtable({"user_id": [1, 2], "amount": [10.0, 20.0]}, name="jan_source")
+    feb = xo.memtable({"user_id": [3, 4], "amount": [30.0, 40.0]}, name="feb_source")
+    catalog.add(jan, aliases=("jan",))
+    catalog.add(feb, aliases=("feb",))
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "union", "jan", "feb", "-a", "q1"]
+    )
+    assert result.exit_code == 0, result.output
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert catalog.catalog_yaml.contains_alias("q1")
+
+
+def test_catalog_union_command_requires_two_entries(
+    runner: CliRunner, catalog_path: str
+) -> None:
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    jan = xo.memtable({"user_id": [1, 2], "amount": [10.0, 20.0]}, name="jan_source")
+    catalog.add(jan, aliases=("jan",))
+
+    result = runner.invoke(cli, ["--path", catalog_path, "union", "jan"])
+    assert result.exit_code != 0
+
+
+def test_catalog_union_command_schema_mismatch(
+    runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
+) -> None:
+    """left/right sources have different schemas -- union must fail cleanly."""
+    catalog_path, left_name, right_name = catalog_with_two_sources
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "union", left_name, right_name]
+    )
+    assert result.exit_code != 0
+
+
+def test_entry_run_bundle_ignore_mismatch_skips_requirements_check(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    with patch.object(cli_mod, "_assert_requirements_identical") as mock_assert:
+        with _entry_run_bundle(catalog, ("src", "trn"), ignore_mismatch=True):
+            pass
+        mock_assert.assert_not_called()
+
+
+def test_entry_run_bundle_default_calls_requirements_check(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    with patch.object(cli_mod, "_assert_requirements_identical") as mock_assert:
+        with _entry_run_bundle(catalog, ("src", "trn")):
+            pass
+        mock_assert.assert_called_once()
 
 
 # --- _has_expr_modifications ---
