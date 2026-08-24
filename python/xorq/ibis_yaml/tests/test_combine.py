@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pandas as pd
 import pytest
 
 import xorq.api as xo
+from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.combine import (
     _build_join_predicates,
     join_exprs,
@@ -36,6 +40,28 @@ def datafusion_right() -> xo.Expr:
     return xo.datafusion.connect().create_table(
         "right_t", {"id": [1, 2, 4], "name": ["a", "b", "d"]}
     )
+
+
+@pytest.fixture
+def shared_parquet_path(tmp_path: Path) -> str:
+    path = str(tmp_path / "shared.parquet")
+    pd.DataFrame({"id": [1, 2, 3], "a": ["x", "y", "z"]}).to_parquet(path)
+    return path
+
+
+@pytest.fixture
+def file_backed_left(shared_parquet_path: str) -> xo.Expr:
+    # A fresh `xo.duckdb.connect()` -- same profile params as the one in
+    # `file_backed_right`, but a distinct connection object (this is what
+    # two independent `load_expr()` calls of the same source look like).
+    return deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+
+
+@pytest.fixture
+def file_backed_right(shared_parquet_path: str) -> xo.Expr:
+    return deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    ).rename(b="a")
 
 
 @pytest.fixture
@@ -129,13 +155,57 @@ def test_join_exprs_different_backend_classes_raises(
         join_exprs(duckdb_left, datafusion_right, on="id")
 
 
-def test_join_exprs_same_backend_different_profile_raises(
+def test_join_exprs_same_profile_in_memory_data_raises(
     datafusion_left: xo.Expr, datafusion_right: xo.Expr
 ) -> None:
-    # Two separate `xo.datafusion.connect()` calls: same backend class, but
-    # distinct connections (profile idx N vs N+1) -- not interchangeable.
+    # Two separate `xo.datafusion.connect()` calls with matching params share
+    # a `Profile` (idx aside), but each `.create_table(...)` registers data
+    # only on its own session -- same profile does not imply same data here,
+    # so rebind_backends (on by default) correctly declines to touch it and
+    # this still raises.
     with pytest.raises(ValueError, match="different backend"):
         join_exprs(datafusion_left, datafusion_right, on="id")
+
+
+def test_join_exprs_same_profile_file_backed_rebinds_by_default(
+    file_backed_left: xo.Expr, file_backed_right: xo.Expr
+) -> None:
+    # Same scenario as above, but reading a real file: same profile really
+    # does mean the same physical data, so this is exactly the case
+    # `rebind_backends` (on by default) fixes.
+    joined = join_exprs(file_backed_left, file_backed_right, on="id")
+    result = joined.execute()
+    assert set(result.columns) == {"id", "a", "b"}
+    assert len(result) == 3
+
+
+def test_join_exprs_no_rebind_backends_still_raises(
+    file_backed_left: xo.Expr, file_backed_right: xo.Expr
+) -> None:
+    with pytest.raises(ValueError, match="different backend"):
+        join_exprs(file_backed_left, file_backed_right, on="id", rebind_backends=False)
+
+
+def test_join_exprs_into_backend_remote_table_raises_not_silently_broken(
+    shared_parquet_path: str,
+) -> None:
+    """A `RemoteTable` (from `.into_backend(...)`) sharing a profile with
+    another source is *not* rebind-eligible: unlike a plain `Read`, its data
+    is tied to the specific connection instance that produced it. Before
+    excluding non-`Read` nodes from rebinding, this same-profile match was
+    rebound anyway and only failed at `.execute()` with an unrelated
+    `AttributeError` (missing `read_record_batches`) -- now it fails at
+    `join_exprs` time with the standard, actionable message instead.
+    """
+    datafusion_direct = deferred_read_parquet(
+        shared_parquet_path, xo.datafusion.connect(), table_name="t"
+    )
+    duckdb_into_datafusion = deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    ).into_backend(xo.datafusion.connect(), name="t_remote")
+
+    with pytest.raises(ValueError, match="different backend"):
+        join_exprs(datafusion_direct, duckdb_into_datafusion, on="id")
 
 
 def test_union_exprs_different_backend_classes_raises(
@@ -147,8 +217,26 @@ def test_union_exprs_different_backend_classes_raises(
         union_exprs(duckdb_left, datafusion_right)
 
 
-def test_union_exprs_same_backend_different_profile_raises(
+def test_union_exprs_same_profile_in_memory_data_raises(
     datafusion_left: xo.Expr, datafusion_right: xo.Expr
 ) -> None:
     with pytest.raises(ValueError, match="different backend"):
         union_exprs(datafusion_left, datafusion_right)
+
+
+def test_union_exprs_same_profile_file_backed_rebinds_by_default(
+    shared_parquet_path: str,
+) -> None:
+    left = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    right = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    unioned = union_exprs(left, right)
+    assert unioned.count().execute() == 6
+
+
+def test_union_exprs_no_rebind_backends_still_raises(
+    shared_parquet_path: str,
+) -> None:
+    left = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    right = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    with pytest.raises(ValueError, match="different backend"):
+        union_exprs(left, right, rebind_backends=False)

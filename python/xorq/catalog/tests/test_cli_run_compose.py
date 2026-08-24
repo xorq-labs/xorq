@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import click
+import pandas as pd
 import pyarrow as pa
 import pytest
 from click.testing import CliRunner
@@ -22,6 +23,7 @@ from xorq.catalog.cli import (
     cli,
 )
 from xorq.cli import cli as top_cli
+from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.enums import DumpFiles
 
 
@@ -1112,6 +1114,48 @@ def test_catalog_join_command_run_roundtrip(
     assert "name" in result.output
 
 
+def test_catalog_join_command_rebinds_same_profile_file_backed_entries(
+    runner: CliRunner, catalog_path: str, tmp_path: Path
+) -> None:
+    """Two entries reading the *same* file via *separate* `xo.duckdb.connect()`
+    calls: `CatalogEntry.load_expr()` always constructs a fresh connection
+    per call, so this used to always fail regardless of the data being
+    identical -- now fixed by --rebind-backends (on by default)."""
+    pq_path = tmp_path / "shared.parquet"
+    pd.DataFrame({"id": [1, 2, 3], "a": ["x", "y", "z"]}).to_parquet(pq_path)
+
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    left = deferred_read_parquet(pq_path, xo.duckdb.connect(), table_name="t")
+    right = deferred_read_parquet(pq_path, xo.duckdb.connect(), table_name="t").rename(
+        b="a"
+    )
+    catalog.add(left, aliases=("left-src",))
+    catalog.add(right, aliases=("right-src",))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            "left-src",
+            "right-src",
+            "--on",
+            "id",
+            "-a",
+            "joined-file-backed",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "run", "joined-file-backed", "-o", "-", "-f", "csv"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "a" in result.output
+    assert "b" in result.output
+
+
 def test_catalog_union_command(runner: CliRunner, catalog_path: str) -> None:
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     jan = xo.memtable({"user_id": [1, 2], "amount": [10.0, 20.0]}, name="jan_source")
@@ -1209,6 +1253,31 @@ def test_join_or_union_bundle_ignore_mismatch_warns_on_python_minor_mismatch(
         with _entry_run_bundle(catalog, ("src", "trn"), ignore_mismatch=True) as bundle:
             pass
     assert bundle.python_version == "3.10"
+
+
+def test_join_or_union_bundle_ignore_mismatch_skips_unpinned_first_entry(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    """When the *first* entry is unpinned but later entries disagree, the
+    fallback must pick a real pin (not `None`) and name an entry that
+    actually has one -- previously `distinct_pins = {python_pins[0][1]}`
+    collapsed to `{None}` here, producing `JointBundle(python_version=None)`
+    (silently dropping both recorded pins) and a warning claiming the
+    unpinned entry's "environment" was used."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    third = xo.memtable({"user_id": [1, 2]}, name="extra_source")
+    catalog.add(third, aliases=("extra",))
+
+    with patch(
+        "xorq.ibis_yaml.packager._python_minor_from_metadata_text",
+        side_effect=[None, "3.10", "3.11"],
+    ):
+        with _entry_run_bundle(
+            catalog, ("src", "trn", "extra"), ignore_mismatch=True
+        ) as bundle:
+            pass
+    assert bundle.python_version in {"3.10", "3.11"}
 
 
 # --- _has_expr_modifications ---

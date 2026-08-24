@@ -43,6 +43,7 @@ from xorq.cli_options import (
     serve_options,
     unbind_options,
 )
+from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.io_utils import Peeker
 from xorq.common.utils.logging_utils import Run, Runs
 from xorq.common.utils.node_utils import (
@@ -330,6 +331,111 @@ def test_join_command_missing_predicate_fails(tmp_path: Path) -> None:
     assert b"must specify --on" in stderr
 
 
+def test_join_command_empty_on_fails_instead_of_cross_joining(tmp_path: Path) -> None:
+    """An empty --on (e.g. from an unset shell variable) must not silently
+    fall through to a predicate-less (cartesian-product) join."""
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    test_args = ["xorq", "join", str(left_path), str(right_path), "--on", ""]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"at least one non-empty column" in stderr
+
+
+def test_join_command_cross_with_on_fails(tmp_path: Path) -> None:
+    """--how=cross takes no predicates; combining it with --on must be
+    rejected up front rather than building an artifact that always fails
+    at `xorq run` time."""
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    test_args = [
+        "xorq",
+        "join",
+        str(left_path),
+        str(right_path),
+        "--how",
+        "cross",
+        "--on",
+        "id",
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"takes no predicates" in stderr
+
+
+def test_join_command_typo_column_fails_cleanly(tmp_path: Path) -> None:
+    left_path, right_path = _build_joinable_sources(tmp_path)
+    test_args = ["xorq", "join", str(left_path), str(right_path), "--on", "nope"]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"Traceback (most recent call last)" not in stderr
+    assert b"nope" in stderr
+
+
+def test_join_command_bad_rname_template_fails_cleanly(tmp_path: Path) -> None:
+    # Needs an overlapping non-join column for --rname's template to ever be
+    # applied -- _build_joinable_sources's only shared column is the join key.
+    left = xo.memtable({"id": [1, 2, 3], "val": [10, 20, 30]}, name="left_t")
+    right = xo.memtable({"id": [1, 2, 4], "val": [1, 2, 3]}, name="right_t")
+    left_path = build_expr(left, builds_dir=tmp_path / "builds")
+    right_path = build_expr(right, builds_dir=tmp_path / "builds")
+
+    test_args = [
+        "xorq",
+        "join",
+        str(left_path),
+        str(right_path),
+        "--on",
+        "id",
+        "--rname",
+        "{bogus}",
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"Traceback (most recent call last)" not in stderr
+    assert b"unknown placeholder" in stderr
+
+
+def test_join_command_rname_collision_fails_cleanly(tmp_path: Path) -> None:
+    """--rname "{name}" collides overlapping right columns back onto the
+    left's names; the join is well-formed enough to build a schema (so the
+    collision doesn't surface at predicate-validation time) but must not
+    silently drop the colliding column through the build/YAML round-trip."""
+    left = xo.memtable({"id": [1, 2, 3], "val": [10, 20, 30]}, name="left_t")
+    right = xo.memtable({"id": [1, 2, 4], "val": [1, 2, 3]}, name="right_t")
+    left_path = build_expr(left, builds_dir=tmp_path / "builds")
+    right_path = build_expr(right, builds_dir=tmp_path / "builds")
+
+    test_args = [
+        "xorq",
+        "join",
+        str(left_path),
+        str(right_path),
+        "--on",
+        "id",
+        "--rname",
+        "{name}",
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"Traceback (most recent call last)" not in stderr
+    assert b"Name collisions" in stderr
+
+
+def test_join_command_nonexistent_path_fails_cleanly(tmp_path: Path) -> None:
+    _, right_path = _build_joinable_sources(tmp_path)
+    test_args = [
+        "xorq",
+        "join",
+        str(tmp_path / "does-not-exist"),
+        str(right_path),
+        "--on",
+        "id",
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"Traceback (most recent call last)" not in stderr
+    assert b"cannot read build metadata" in stderr
+
+
 def test_union_command_default(tmp_path: Path) -> None:
     left = xo.memtable({"id": [1, 2], "amount": [10.0, 20.0]}, name="jan")
     right = xo.memtable({"id": [3, 4], "amount": [30.0, 40.0]}, name="feb")
@@ -448,6 +554,73 @@ def test_union_command_ignore_library_version_mismatch(tmp_path: Path) -> None:
     ]
     (returncode, _, stderr) = subprocess_run(test_args)
     assert returncode == 0, stderr
+
+
+def _build_file_backed_joinable_sources(tmp_path: Path) -> tuple[Path, Path]:
+    """Two builds reading the *same* parquet file via *separate* connections.
+
+    Each `xo.duckdb.connect()` call constructs a fresh connection object even
+    with identical params, so loading these two builds independently (as
+    `join`/`union` always do) produces two distinct backend connections for
+    what is physically the same data source -- exactly the case
+    `--rebind-backends` (on by default) is meant to fix.
+    """
+    pq_path = tmp_path / "shared.parquet"
+    pd.DataFrame({"id": [1, 2, 3], "a": ["x", "y", "z"]}).to_parquet(pq_path)
+    left = deferred_read_parquet(pq_path, xo.duckdb.connect(), table_name="t")
+    right = deferred_read_parquet(pq_path, xo.duckdb.connect(), table_name="t").rename(
+        b="a"
+    )
+    left_path = build_expr(left, builds_dir=tmp_path / "builds")
+    right_path = build_expr(right, builds_dir=tmp_path / "builds")
+    return left_path, right_path
+
+
+def test_join_command_rebinds_same_profile_file_backed_sources_by_default(
+    tmp_path: Path,
+) -> None:
+    """Two independently-built/loaded reads of the same file, same backend
+    class, same connection params -- previously always failed with an
+    unhandled `XorqError` regardless; now succeeds by default."""
+    left_path, right_path = _build_file_backed_joinable_sources(tmp_path)
+    test_args = [
+        "xorq",
+        "join",
+        str(left_path),
+        str(right_path),
+        "--on",
+        "id",
+        "--builds-dir",
+        str(tmp_path / "joined-builds"),
+    ]
+    (returncode, stdout, stderr) = subprocess_run(test_args)
+    assert returncode == 0, stderr
+
+    result_path = stdout.decode("ascii").strip().splitlines()[-1]
+    run_args = ["xorq", "run", result_path, "-o", "-", "-f", "csv"]
+    (run_returncode, run_stdout, run_stderr) = subprocess_run(run_args)
+    assert run_returncode == 0, run_stderr
+    output = run_stdout.decode("ascii")
+    assert "id" in output and "a" in output and "b" in output
+
+
+def test_join_command_no_rebind_backends_fails_cleanly(tmp_path: Path) -> None:
+    left_path, right_path = _build_file_backed_joinable_sources(tmp_path)
+    test_args = [
+        "xorq",
+        "join",
+        str(left_path),
+        str(right_path),
+        "--on",
+        "id",
+        "--no-rebind-backends",
+        "--builds-dir",
+        str(tmp_path / "joined-builds"),
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"Traceback (most recent call last)" not in stderr
+    assert b"different backend" in stderr
 
 
 @pytest.mark.slow(level=1)

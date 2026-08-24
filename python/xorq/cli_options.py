@@ -198,6 +198,18 @@ ignore_venv_mismatch_option = click.option(
 )
 
 
+# Shared by `xorq join`/`union` and `xorq catalog join`/`union`.
+rebind_backends_option = click.option(
+    "--rebind-backends/--no-rebind-backends",
+    default=True,
+    show_default=True,
+    help=(
+        "In multi-root mode, rebind same-profile backend sources to one "
+        "backend before execution. Never transfers table data."
+    ),
+)
+
+
 def cache_strategy_options(fn):
     fn = click.option(
         "--ttl",

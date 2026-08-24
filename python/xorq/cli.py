@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections.abc
 import contextlib
 import datetime
+import json
 import os
 import pdb
 import sys
@@ -26,6 +27,7 @@ from xorq.cli_options import (
     limit_option,
     output_options,
     params_option,
+    rebind_backends_option,
     relocate_reads_option,
     serve_options,
     unbind_options,
@@ -428,6 +430,8 @@ def _check_library_version_match(
         assert_matching_library_versions(*build_paths)
     except BuildVersionMismatchError as e:
         raise click.ClickException(str(e)) from e
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+        raise click.ClickException(f"cannot read build metadata: {e}") from e
 
 
 @_lazy_span("cli.join_command")
@@ -444,6 +448,7 @@ def join_command(
     cache_dir: str | None = None,
     relocate_reads: bool = True,
     ignore_library_version_mismatch: bool = False,
+    rebind_backends: bool = True,
     emit_build_path_to: str | None = None,
 ) -> None:
     """Join two build artifacts into a new build artifact."""
@@ -466,6 +471,7 @@ def join_command(
             how=how,
             lname=lname,
             rname=rname,
+            rebind_backends=rebind_backends,
         )
 
     click.echo(f"Written join result to {build_path}", err=True)
@@ -482,6 +488,7 @@ def union_command(
     cache_dir: str | None = None,
     relocate_reads: bool = True,
     ignore_library_version_mismatch: bool = False,
+    rebind_backends: bool = True,
     emit_build_path_to: str | None = None,
 ) -> None:
     """Union two-or-more build artifacts into a new build artifact."""
@@ -498,6 +505,7 @@ def union_command(
             builds_dir=builds_dir,
             relocate_reads=relocate_reads,
             distinct=distinct,
+            rebind_backends=rebind_backends,
         )
 
     click.echo(f"Written union result to {build_path}", err=True)
@@ -1275,6 +1283,7 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
 @cache_dir_option
 @relocate_reads_option()
 @ignore_library_version_mismatch_option
+@rebind_backends_option
 @emit_build_path_option
 def join(
     left_path: str,
@@ -1289,6 +1298,7 @@ def join(
     cache_dir: str | None,
     relocate_reads: bool,
     ignore_library_version_mismatch: bool,
+    rebind_backends: bool,
     emit_build_path_to: str | None,
 ) -> None:
     """Join two build artifacts into a new build artifact.
@@ -1323,6 +1333,7 @@ def join(
             cache_dir=cache_dir,
             relocate_reads=relocate_reads,
             ignore_library_version_mismatch=ignore_library_version_mismatch,
+            rebind_backends=rebind_backends,
             emit_build_path_to=emit_build_path_to,
         )
 
@@ -1344,6 +1355,7 @@ def join(
 @cache_dir_option
 @relocate_reads_option()
 @ignore_library_version_mismatch_option
+@rebind_backends_option
 @emit_build_path_option
 def union(
     paths: tuple[str, ...],
@@ -1352,6 +1364,7 @@ def union(
     cache_dir: str | None,
     relocate_reads: bool,
     ignore_library_version_mismatch: bool,
+    rebind_backends: bool,
     emit_build_path_to: str | None,
 ) -> None:
     """Union two-or-more build artifacts into a new build artifact.
@@ -1381,6 +1394,7 @@ def union(
             cache_dir=cache_dir,
             relocate_reads=relocate_reads,
             ignore_library_version_mismatch=ignore_library_version_mismatch,
+            rebind_backends=rebind_backends,
             emit_build_path_to=emit_build_path_to,
         )
 

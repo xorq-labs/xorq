@@ -53,6 +53,7 @@ from xorq.cli_options import (
     limit_option,
     output_options,
     params_option,
+    rebind_backends_option,
     relocate_reads_option,
     rename_params_option,
     serve_options,
@@ -1822,12 +1823,22 @@ def _entry_run_bundle(
                     raise click.ClickException(
                         f"entries built on different Python minors: {detail}"
                     )
+                # Fall back to the first entry that actually has a pin, not
+                # just the first entry overall -- python_pins[0] could be
+                # unpinned, which previously collapsed distinct_pins to
+                # {None}: a truthy set that made the unpinned-entries warning
+                # below claim "running under None" and left JointBundle with
+                # no real pin, silently dropping both recorded Python minors
+                # in favor of whatever Python happened to be ambient.
+                fallback_entry, fallback_pin = next(
+                    (e, pin) for e, pin in python_pins if pin is not None
+                )
                 click.echo(
                     f"WARNING: ignoring Python-minor mismatch ({detail}); "
-                    f"using {python_pins[0][0]!r}'s environment.",
+                    f"using {fallback_entry!r}'s environment.",
                     err=True,
                 )
-                distinct_pins = {python_pins[0][1]}
+                distinct_pins = {fallback_pin}
             if distinct_pins and unpinned:
                 joint = next(iter(distinct_pins))
                 click.echo(
@@ -2150,6 +2161,7 @@ def compose(
 )
 @cache_dir_option
 @ignore_venv_mismatch_option
+@rebind_backends_option
 @click.pass_context
 def join(
     ctx: click.Context,
@@ -2165,6 +2177,7 @@ def join(
     alias: str | None,
     cache_dir: str | None,
     ignore_venv_mismatch: bool,
+    rebind_backends: bool,
 ) -> None:
     """Join two catalog entries into a new cataloged entry.
 
@@ -2200,6 +2213,7 @@ def join(
             how=how,
             lname=lname,
             rname=rname,
+            rebind_backends=rebind_backends,
         )
 
     with tracer.start_as_current_span("catalog.join") as span:
@@ -2236,6 +2250,7 @@ def join(
 )
 @cache_dir_option
 @ignore_venv_mismatch_option
+@rebind_backends_option
 @click.pass_context
 def union(
     ctx: click.Context,
@@ -2245,6 +2260,7 @@ def union(
     alias: str | None,
     cache_dir: str | None,
     ignore_venv_mismatch: bool,
+    rebind_backends: bool,
 ) -> None:
     """Union two-or-more catalog entries into a new cataloged entry.
 
@@ -2271,7 +2287,7 @@ def union(
             _get_catalog_entry(catalog, name).load_expr(cache_dir=cache_dir)
             for name in entries
         ]
-        return union_exprs(*exprs, distinct=distinct)
+        return union_exprs(*exprs, distinct=distinct, rebind_backends=rebind_backends)
 
     with tracer.start_as_current_span("catalog.union") as span:
         span.set_attribute("entries", entries)
