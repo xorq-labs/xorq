@@ -186,26 +186,39 @@ def test_join_exprs_no_rebind_backends_still_raises(
         join_exprs(file_backed_left, file_backed_right, on="id", rebind_backends=False)
 
 
-def test_join_exprs_into_backend_remote_table_raises_not_silently_broken(
+def test_join_exprs_into_backend_remote_table_rebinds_by_default(
     shared_parquet_path: str,
 ) -> None:
     """A `RemoteTable` (from `.into_backend(...)`) sharing a profile with
-    another source is *not* rebind-eligible: unlike a plain `Read`, its data
-    is tied to the specific connection instance that produced it. Before
-    excluding non-`Read` nodes from rebinding, this same-profile match was
-    rebound anyway and only failed at `.execute()` with an unrelated
-    `AttributeError` (missing `read_record_batches`) -- now it fails at
-    `join_exprs` time with the standard, actionable message instead.
-    """
-    datafusion_direct = deferred_read_parquet(
-        shared_parquet_path, xo.datafusion.connect(), table_name="t"
-    )
-    duckdb_into_datafusion = deferred_read_parquet(
+    another source is safe to rebind, same as a plain `Read`: `into_backend`
+    is lazy (stores `source`/`remote_expr`, no registration happens until
+    execution), so repointing `.source` onto a same-profile connection is
+    equivalent to letting it register there in the first place. Confirmed
+    with the actual hub backend (`xo.connect()`, not a bare `xo.datafusion
+    .connect()`, which doesn't implement `read_record_batches` at all and
+    would fail identically with zero rebinding involved)."""
+    left = deferred_read_parquet(shared_parquet_path, xo.connect(), table_name="t")
+    right_raw = deferred_read_parquet(
         shared_parquet_path, xo.duckdb.connect(), table_name="t"
-    ).into_backend(xo.datafusion.connect(), name="t_remote")
+    ).rename(b="a")
+    right = right_raw.into_backend(xo.connect(), name="t_remote")
+
+    joined = join_exprs(left, right, on="id")
+    result = joined.execute()
+    assert set(result.columns) == {"id", "a", "b"}
+    assert len(result) == 3
+
+
+def test_join_exprs_into_backend_no_rebind_backends_still_raises(
+    shared_parquet_path: str,
+) -> None:
+    left = deferred_read_parquet(shared_parquet_path, xo.connect(), table_name="t")
+    right = deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    ).into_backend(xo.connect(), name="t_remote")
 
     with pytest.raises(ValueError, match="different backend"):
-        join_exprs(datafusion_direct, duckdb_into_datafusion, on="id")
+        join_exprs(left, right, on="id", rebind_backends=False)
 
 
 def test_union_exprs_different_backend_classes_raises(

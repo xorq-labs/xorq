@@ -1156,6 +1156,50 @@ def test_catalog_join_command_rebinds_same_profile_file_backed_entries(
     assert "b" in result.output
 
 
+def test_catalog_join_command_rebinds_into_backend_entry(
+    runner: CliRunner, catalog_path: str, tmp_path: Path
+) -> None:
+    """One entry reads a file directly on the xorq hub (`xo.connect()`); the
+    other reads it via duckdb and `.into_backend()`s onto a *separate*
+    `xo.connect()` instance -- same profile as the first entry's hub, but a
+    distinct connection object once each entry is loaded independently.
+    `.into_backend()` is lazy (no registration until execution), so this is
+    exactly as rebind-eligible as two plain same-profile reads."""
+    pq_path = tmp_path / "shared.parquet"
+    pd.DataFrame({"id": [1, 2, 3], "a": ["x", "y", "z"]}).to_parquet(pq_path)
+
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    left = deferred_read_parquet(pq_path, xo.connect(), table_name="t")
+    right = deferred_read_parquet(
+        pq_path, xo.duckdb.connect(), table_name="t"
+    ).rename(b="a").into_backend(xo.connect(), name="t_remote")
+    catalog.add(left, aliases=("hub-left",))
+    catalog.add(right, aliases=("into-backend-right",))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            "hub-left",
+            "into-backend-right",
+            "--on",
+            "id",
+            "-a",
+            "joined-into-backend",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "run", "joined-into-backend", "-o", "-", "-f", "csv"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "a" in result.output
+    assert "b" in result.output
+
+
 def test_catalog_union_command(runner: CliRunner, catalog_path: str) -> None:
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     jan = xo.memtable({"user_id": [1, 2], "amount": [10.0, 20.0]}, name="jan_source")

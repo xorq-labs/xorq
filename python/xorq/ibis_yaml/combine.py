@@ -115,11 +115,26 @@ def _rebind_same_profile_sources(*exprs: "Expr") -> tuple["Expr", ...]:
     `Profile` content (con_name + kwargs, ignoring the session-local `idx`)
     -- e.g. two `xo.connect()` calls, or two `load_expr()` calls of the same
     source, each of which always constructs a fresh connection object
-    (`Profile.get_con()` has no caching). For a plain file/table `Read` (e.g.
-    `deferred_read_parquet`), same profile means the same physical resource,
-    so rewriting every reference onto one connection object is safe and
-    never touches table data -- the same rewrite `replace_sources` already
-    does for `normalize_profiles`, just deduping instead of reindexing.
+    (`Profile.get_con()` has no caching). Rewriting every reference in a
+    same-profile group onto one connection object is a pure graph rewrite
+    (the same one `replace_sources` already does for `normalize_profiles`,
+    just deduping instead of reindexing) and safe for:
+    - A plain file/table `Read` (e.g. `deferred_read_parquet`): same profile
+      means the same physical resource.
+    - A `RemoteTable` (`.into_backend(...)`): lazy by construction --
+      `into_backend` just stores `(source=con, remote_expr)`, no
+      registration happens until `read_record_batches` runs at execution
+      time -- so repointing `.source` onto a same-profile connection is as
+      safe as for a `Read`. Confirmed live with two `xo.connect()` hub
+      connections and a `.into_backend()` on one side: rewriting `.source`
+      and executing produces the correct joined result. (An earlier version
+      of this excluded `RemoteTable` after hitting `AttributeError: 'Backend'
+      object has no attribute 'read_record_batches'` -- that backend
+      (`xo.datafusion.connect()`, not the `xo.connect()` hub) doesn't
+      implement `read_record_batches` at all and would fail identically
+      with zero rebinding involved; `con_name` is part of the profile
+      content-key, so a backend lacking a capability is never grouped with
+      one that has it in the first place.)
 
     Same profile does *not* imply interchangeable for anything else that
     carries a backend:
@@ -127,23 +142,20 @@ def _rebind_same_profile_sources(*exprs: "Expr") -> tuple["Expr", ...]:
       with identical params are still two independent sessions, each with
       its own registered data. `replace_sources(transfer_tables=False)`
       already refuses to rewrite these.
-    - A `RemoteTable` (`.into_backend(...)`), `CachedNode`, `FlightExpr`/
-      `FlightUDXF`, or `TeeNode`: each ties a node to state that lives only
-      on the *specific* connection instance that produced it -- rewriting
-      `.source` there is not blocked by `replace_sources` (it only guards
-      `DatabaseTable`) but silently produces a connection missing that
-      state. Confirmed live: a `RemoteTable` rebound onto a same-profile
-      xorq-datafusion connection it was never registered on raised
-      `AttributeError: 'Backend' object has no attribute
-      'read_record_batches'` at execution time, well past this check.
+    - `CachedNode`, `FlightExpr`/`FlightUDXF`, or `TeeNode`: each may tie a
+      node to state living only on the specific connection instance that
+      produced it, unverified either way -- left excluded conservatively;
+      rewriting `.source` there is not blocked by `replace_sources` itself
+      (it only guards `DatabaseTable`).
 
     So a backend is only rebind-eligible if *every* node referencing it
-    (across all of *exprs*) is a plain `Read`; a backend touched by any
-    other node type is left alone entirely, as both a merge source and a
-    merge target. `replace_sources` failing for an eligible group (e.g. a
-    `DatabaseTable` sharing that backend after all) is caught per expr and
-    treated as "can't rebind that one", falling through to the standard
-    multi-backend error rather than leaking that internal ValueError.
+    (across all of *exprs*) is a `Read` or `RemoteTable`; a backend touched
+    by any other node type is left alone entirely, as both a merge source
+    and a merge target. `replace_sources` failing for an eligible group
+    (e.g. a `DatabaseTable` sharing that backend after all) is caught per
+    expr and treated as "can't rebind that one", falling through to the
+    standard multi-backend error rather than leaking that internal
+    ValueError.
     """
     import xorq.expr.relations as rel  # noqa: PLC0415
     import xorq.vendor.ibis.expr.operations as ops  # noqa: PLC0415
@@ -154,12 +166,12 @@ def _rebind_same_profile_sources(*exprs: "Expr") -> tuple["Expr", ...]:
         walk_nodes,
     )
 
+    safe_node_types = (rel.Read, rel.RemoteTable)
     backend_node_types = (
         ops.DatabaseTable,
         ops.SQLQueryResult,
         rel.CachedNode,
-        rel.Read,
-        rel.RemoteTable,
+        *safe_node_types,
         rel.FlightUDXF,
         rel.FlightExpr,
         rel.TeeNode,
@@ -168,7 +180,7 @@ def _rebind_same_profile_sources(*exprs: "Expr") -> tuple["Expr", ...]:
         id(source)
         for expr in exprs
         for node in walk_nodes(backend_node_types, expr)
-        if not isinstance(node, rel.Read)
+        if not isinstance(node, safe_node_types)
         for source in (
             node.writer.cons if isinstance(node, rel.TeeNode) else (node.source,)
         )
