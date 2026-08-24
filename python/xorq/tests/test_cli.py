@@ -360,11 +360,18 @@ def test_union_command_requires_two_paths(tmp_path: Path) -> None:
 
 
 def test_union_command_schema_mismatch(tmp_path: Path) -> None:
-    """left/right sources have different schemas -- union must fail cleanly."""
+    """left/right sources have different schemas -- union must fail cleanly.
+
+    A nonzero exit code alone would also pass on an uncaught traceback, so
+    assert on the clean-failure shape too: no traceback, and the expected
+    RelationError message surfaced via click.ClickException.
+    """
     left_path, right_path = _build_joinable_sources(tmp_path)
     test_args = ["xorq", "union", str(left_path), str(right_path)]
     (returncode, _, stderr) = subprocess_run(test_args)
     assert returncode != 0
+    assert b"Traceback (most recent call last)" not in stderr
+    assert b"schemas must be equal" in stderr.lower()
 
 
 def test_join_command_version_mismatch(tmp_path: Path) -> None:
@@ -380,7 +387,7 @@ def test_join_command_version_mismatch(tmp_path: Path) -> None:
     assert b"different xorq library versions" in stderr
 
 
-def test_join_command_ignore_venv_mismatch(tmp_path: Path) -> None:
+def test_join_command_ignore_library_version_mismatch(tmp_path: Path) -> None:
     left_path, right_path = _build_joinable_sources(tmp_path)
     metadata_path = right_path / DumpFiles.build_metadata
     metadata = json.loads(metadata_path.read_text())
@@ -394,9 +401,50 @@ def test_join_command_ignore_venv_mismatch(tmp_path: Path) -> None:
         str(right_path),
         "--on",
         "id",
-        "--ignore-venv-mismatch",
+        "--ignore-library-version-mismatch",
         "--builds-dir",
         str(tmp_path / "joined-builds"),
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode == 0, stderr
+
+
+def _build_unionable_sources(tmp_path: Path) -> tuple[Path, Path]:
+    left = xo.memtable({"id": [1, 2], "amount": [10.0, 20.0]}, name="jan")
+    right = xo.memtable({"id": [3, 4], "amount": [30.0, 40.0]}, name="feb")
+    left_path = build_expr(left, builds_dir=tmp_path / "builds")
+    right_path = build_expr(right, builds_dir=tmp_path / "builds")
+    return left_path, right_path
+
+
+def test_union_command_version_mismatch(tmp_path: Path) -> None:
+    left_path, right_path = _build_unionable_sources(tmp_path)
+    metadata_path = right_path / DumpFiles.build_metadata
+    metadata = json.loads(metadata_path.read_text())
+    metadata["current_library_version"] = "0.0.0-test-mismatch"
+    metadata_path.write_text(json.dumps(metadata))
+
+    test_args = ["xorq", "union", str(left_path), str(right_path)]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"different xorq library versions" in stderr
+
+
+def test_union_command_ignore_library_version_mismatch(tmp_path: Path) -> None:
+    left_path, right_path = _build_unionable_sources(tmp_path)
+    metadata_path = right_path / DumpFiles.build_metadata
+    metadata = json.loads(metadata_path.read_text())
+    metadata["current_library_version"] = "0.0.0-test-mismatch"
+    metadata_path.write_text(json.dumps(metadata))
+
+    test_args = [
+        "xorq",
+        "union",
+        str(left_path),
+        str(right_path),
+        "--ignore-library-version-mismatch",
+        "--builds-dir",
+        str(tmp_path / "unioned-builds"),
     ]
     (returncode, _, stderr) = subprocess_run(test_args)
     assert returncode == 0, stderr

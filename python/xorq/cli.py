@@ -19,7 +19,10 @@ from xorq.cli_options import (
     apply_in_help_order,
     cache_dir_option,
     cache_strategy_options,
+    emit_build_path_option,
     ensure_materialized_option,
+    ignore_library_version_mismatch_option,
+    join_predicate_options,
     limit_option,
     output_options,
     params_option,
@@ -413,10 +416,10 @@ def run_command(
         raise
 
 
-def _check_venv_match(
-    build_paths: collections.abc.Sequence[str], ignore_venv_mismatch: bool
+def _check_library_version_match(
+    build_paths: collections.abc.Sequence[str], ignore_library_version_mismatch: bool
 ) -> None:
-    if ignore_venv_mismatch:
+    if ignore_library_version_mismatch:
         return
     from xorq.common.exceptions import BuildVersionMismatchError  # noqa: PLC0415
     from xorq.ibis_yaml.combine import assert_matching_library_versions  # noqa: PLC0415
@@ -440,18 +443,17 @@ def join_command(
     builds_dir: str = "builds",
     cache_dir: str | None = None,
     relocate_reads: bool = True,
-    ignore_venv_mismatch: bool = False,
+    ignore_library_version_mismatch: bool = False,
     emit_build_path_to: str | None = None,
 ) -> None:
     """Join two build artifacts into a new build artifact."""
-    from xorq.common.exceptions import RelationError  # noqa: PLC0415
-    from xorq.ibis_yaml.combine import join_builds  # noqa: PLC0415
+    from xorq.ibis_yaml.combine import combine_errors, join_builds  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
-    _check_venv_match((left_path, right_path), ignore_venv_mismatch)
+    _check_library_version_match((left_path, right_path), ignore_library_version_mismatch)
 
     click.echo(f"Joining {left_path} and {right_path} (how={how})", err=True)
-    try:
+    with combine_errors():
         build_path = join_builds(
             left_path,
             right_path,
@@ -465,10 +467,6 @@ def join_command(
             lname=lname,
             rname=rname,
         )
-    except ValueError as e:
-        raise click.BadParameter(str(e)) from None
-    except RelationError as e:
-        raise click.ClickException(str(e)) from e
 
     click.echo(f"Written join result to {build_path}", err=True)
     if emit_build_path_to:
@@ -483,18 +481,17 @@ def union_command(
     builds_dir: str = "builds",
     cache_dir: str | None = None,
     relocate_reads: bool = True,
-    ignore_venv_mismatch: bool = False,
+    ignore_library_version_mismatch: bool = False,
     emit_build_path_to: str | None = None,
 ) -> None:
     """Union two-or-more build artifacts into a new build artifact."""
-    from xorq.common.exceptions import RelationError  # noqa: PLC0415
-    from xorq.ibis_yaml.combine import union_builds  # noqa: PLC0415
+    from xorq.ibis_yaml.combine import combine_errors, union_builds  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
-    _check_venv_match(paths, ignore_venv_mismatch)
+    _check_library_version_match(paths, ignore_library_version_mismatch)
 
     click.echo(f"Unioning {', '.join(str(p) for p in paths)}", err=True)
-    try:
+    with combine_errors():
         build_path = union_builds(
             *paths,
             cache_dir=Path(cache_dir),
@@ -502,10 +499,6 @@ def union_command(
             relocate_reads=relocate_reads,
             distinct=distinct,
         )
-    except ValueError as e:
-        raise click.BadParameter(str(e)) from None
-    except RelationError as e:
-        raise click.ClickException(str(e)) from e
 
     click.echo(f"Written union result to {build_path}", err=True)
     if emit_build_path_to:
@@ -971,16 +964,7 @@ def uv_group(ctx):
     help="Output SQL files and other debug artifacts.",
 )
 @relocate_reads_option()
-@click.option(
-    "--emit-build-path-to",
-    type=click.Path(),
-    default=None,
-    help=(
-        "Write the resulting build directory path to this file. Use when "
-        "stdout may be polluted (for example by OTel console fallback) and a "
-        "subprocess consumer needs the path unambiguously."
-    ),
-)
+@emit_build_path_option
 def uv_build(
     script_path: str,
     expr_name: str,
@@ -1209,16 +1193,7 @@ def uv_run_unbound(
     help="Output SQL files and other debug artifacts.",
 )
 @relocate_reads_option()
-@click.option(
-    "--emit-build-path-to",
-    type=click.Path(),
-    default=None,
-    help=(
-        "Write the resulting build directory path to this file. Use when "
-        "stdout may be polluted (for example by OTel console fallback) and a "
-        "subprocess consumer needs the path unambiguously."
-    ),
-)
+@emit_build_path_option
 def build(
     script_path: str,
     expr_name: str,
@@ -1290,40 +1265,7 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
 @cli.command("join")
 @click.argument("left_path")
 @click.argument("right_path")
-@click.option(
-    "--on",
-    default=None,
-    help="Comma-separated column(s) present in both tables to join on.",
-)
-@click.option(
-    "--left-on",
-    default=None,
-    help="Comma-separated left-table columns (paired with --right-on).",
-)
-@click.option(
-    "--right-on",
-    default=None,
-    help="Comma-separated right-table columns (paired with --left-on).",
-)
-@click.option(
-    "--how",
-    type=click.Choice(("inner", "left", "right", "outer", "semi", "anti", "cross")),
-    default="inner",
-    show_default=True,
-    help="Join method.",
-)
-@click.option(
-    "--lname",
-    default="",
-    show_default=True,
-    help="Rename format string for overlapping left columns.",
-)
-@click.option(
-    "--rname",
-    default="{name}_right",
-    show_default=True,
-    help="Rename format string for overlapping right columns.",
-)
+@join_predicate_options(noun="table")
 @click.option(
     "--builds-dir",
     default="builds",
@@ -1332,22 +1274,8 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
 )
 @cache_dir_option
 @relocate_reads_option()
-@click.option(
-    "--ignore-venv-mismatch",
-    is_flag=True,
-    default=False,
-    help="Proceed even if the two builds recorded different xorq library versions.",
-)
-@click.option(
-    "--emit-build-path-to",
-    type=click.Path(),
-    default=None,
-    help=(
-        "Write the resulting build directory path to this file. Use when "
-        "stdout may be polluted (for example by OTel console fallback) and a "
-        "subprocess consumer needs the path unambiguously."
-    ),
-)
+@ignore_library_version_mismatch_option
+@emit_build_path_option
 def join(
     left_path: str,
     right_path: str,
@@ -1360,7 +1288,7 @@ def join(
     builds_dir: str,
     cache_dir: str | None,
     relocate_reads: bool,
-    ignore_venv_mismatch: bool,
+    ignore_library_version_mismatch: bool,
     emit_build_path_to: str | None,
 ) -> None:
     """Join two build artifacts into a new build artifact.
@@ -1394,7 +1322,7 @@ def join(
             builds_dir=builds_dir,
             cache_dir=cache_dir,
             relocate_reads=relocate_reads,
-            ignore_venv_mismatch=ignore_venv_mismatch,
+            ignore_library_version_mismatch=ignore_library_version_mismatch,
             emit_build_path_to=emit_build_path_to,
         )
 
@@ -1415,29 +1343,15 @@ def join(
 )
 @cache_dir_option
 @relocate_reads_option()
-@click.option(
-    "--ignore-venv-mismatch",
-    is_flag=True,
-    default=False,
-    help="Proceed even if the builds recorded different xorq library versions.",
-)
-@click.option(
-    "--emit-build-path-to",
-    type=click.Path(),
-    default=None,
-    help=(
-        "Write the resulting build directory path to this file. Use when "
-        "stdout may be polluted (for example by OTel console fallback) and a "
-        "subprocess consumer needs the path unambiguously."
-    ),
-)
+@ignore_library_version_mismatch_option
+@emit_build_path_option
 def union(
     paths: tuple[str, ...],
     distinct: bool,
     builds_dir: str,
     cache_dir: str | None,
     relocate_reads: bool,
-    ignore_venv_mismatch: bool,
+    ignore_library_version_mismatch: bool,
     emit_build_path_to: str | None,
 ) -> None:
     """Union two-or-more build artifacts into a new build artifact.
@@ -1466,7 +1380,7 @@ def union(
             builds_dir=builds_dir,
             cache_dir=cache_dir,
             relocate_reads=relocate_reads,
-            ignore_venv_mismatch=ignore_venv_mismatch,
+            ignore_library_version_mismatch=ignore_library_version_mismatch,
             emit_build_path_to=emit_build_path_to,
         )
 

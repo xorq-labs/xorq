@@ -11,6 +11,34 @@ from xorq.ibis_yaml.combine import (
 
 
 @pytest.fixture
+def duckdb_left() -> xo.Expr:
+    return xo.duckdb.connect().create_table(
+        "left_t", {"id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]}
+    )
+
+
+@pytest.fixture
+def duckdb_right() -> xo.Expr:
+    return xo.duckdb.connect().create_table(
+        "right_t", {"id": [1, 2, 4], "name": ["a", "b", "d"]}
+    )
+
+
+@pytest.fixture
+def datafusion_left() -> xo.Expr:
+    return xo.datafusion.connect().create_table(
+        "left_t", {"id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]}
+    )
+
+
+@pytest.fixture
+def datafusion_right() -> xo.Expr:
+    return xo.datafusion.connect().create_table(
+        "right_t", {"id": [1, 2, 4], "name": ["a", "b", "d"]}
+    )
+
+
+@pytest.fixture
 def left() -> xo.Expr:
     return xo.memtable({"id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]}, name="left_t")
 
@@ -92,3 +120,35 @@ def test_union_exprs_distinct(left: xo.Expr) -> None:
 def test_union_exprs_requires_at_least_two(left: xo.Expr) -> None:
     with pytest.raises(ValueError, match="at least 2"):
         union_exprs(left)
+
+
+def test_join_exprs_different_backend_classes_raises(
+    duckdb_left: xo.Expr, datafusion_right: xo.Expr
+) -> None:
+    with pytest.raises(ValueError, match="different backend"):
+        join_exprs(duckdb_left, datafusion_right, on="id")
+
+
+def test_join_exprs_same_backend_different_profile_raises(
+    datafusion_left: xo.Expr, datafusion_right: xo.Expr
+) -> None:
+    # Two separate `xo.datafusion.connect()` calls: same backend class, but
+    # distinct connections (profile idx N vs N+1) -- not interchangeable.
+    with pytest.raises(ValueError, match="different backend"):
+        join_exprs(datafusion_left, datafusion_right, on="id")
+
+
+def test_union_exprs_different_backend_classes_raises(
+    duckdb_left: xo.Expr, datafusion_right: xo.Expr
+) -> None:
+    # Backend check runs before the schema check, so mismatched columns here
+    # (amount/name) don't matter -- the backend error fires first.
+    with pytest.raises(ValueError, match="different backend"):
+        union_exprs(duckdb_left, datafusion_right)
+
+
+def test_union_exprs_same_backend_different_profile_raises(
+    datafusion_left: xo.Expr, datafusion_right: xo.Expr
+) -> None:
+    with pytest.raises(ValueError, match="different backend"):
+        union_exprs(datafusion_left, datafusion_right)

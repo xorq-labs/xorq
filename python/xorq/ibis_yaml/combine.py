@@ -11,14 +11,36 @@ strings (used by the top-level tier).
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import click
+
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
     from xorq.api import Expr
+
+
+@contextmanager
+def combine_errors() -> "Iterator[None]":
+    """Map `join_exprs`/`union_exprs`'s exceptions to clean CLI errors.
+
+    Shared by both CLI tiers (`xorq join`/`union` and `xorq catalog
+    join`/`union`) so the ValueError/RelationError -> click mapping can't
+    drift out of sync between call sites the way it already had (catalog
+    `join` was missing the `RelationError` arm `union` had).
+    """
+    from xorq.common.exceptions import RelationError  # noqa: PLC0415
+
+    try:
+        yield
+    except ValueError as e:
+        raise click.BadParameter(str(e)) from None
+    except RelationError as e:
+        raise click.ClickException(str(e)) from e
 
 
 def _split_columns(value: str) -> tuple[str, ...]:
@@ -57,6 +79,29 @@ def _build_join_predicates(
     return ()
 
 
+def _assert_single_backend(*exprs: "Expr") -> None:
+    """Raise `ValueError` if the exprs are bound to more than one backend/connection.
+
+    Two connections of the same backend class (e.g. two `xo.connect()` calls)
+    are distinct here too -- `Expr._find_backend()` distinguishes them by
+    connection identity, not backend class, and combining them raises an
+    opaque `XorqError` deep inside execution/build rather than failing here
+    with an actionable message.
+    """
+    seen: dict[int, object] = {}
+    for expr in exprs:
+        backends, _ = expr._find_backends()  # xorq-style: disable=protected-access
+        for backend in backends:
+            seen.setdefault(id(backend), backend)
+    if len(seen) > 1:
+        named = ", ".join(sorted(type(b).__name__ for b in seen.values()))
+        raise ValueError(
+            f"cannot combine exprs bound to {len(seen)} different backend "
+            f"connections ({named}); use `.into_backend(...)` to bring them "
+            "onto one connection first"
+        )
+
+
 def join_exprs(
     left: "Expr",
     right: "Expr",
@@ -69,6 +114,7 @@ def join_exprs(
     rname: str = "{name}_right",
 ) -> "Expr":
     """Join two already-resolved exprs; a thin wrapper around `Table.join`."""
+    _assert_single_backend(left, right)
     predicates = _build_join_predicates(on, left_on, right_on, how)
     return left.join(right, predicates, how=how, lname=lname, rname=rname)
 
@@ -77,6 +123,7 @@ def union_exprs(*exprs: "Expr", distinct: bool = False) -> "Expr":
     """Union two-or-more already-resolved exprs; a thin wrapper around `Table.union`."""
     if len(exprs) < 2:
         raise ValueError("union requires at least 2 sources")
+    _assert_single_backend(*exprs)
     first, *rest = exprs
     return first.union(*rest, distinct=distinct)
 
@@ -143,5 +190,5 @@ def assert_matching_library_versions(*build_paths: str | Path) -> None:
         detail = ", ".join(f"{p}={v}" for p, v in versions.items())
         raise BuildVersionMismatchError(
             f"builds recorded different xorq library versions: {detail}. "
-            "Pass --ignore-venv-mismatch to proceed anyway."
+            "Pass --ignore-library-version-mismatch to proceed anyway."
         )

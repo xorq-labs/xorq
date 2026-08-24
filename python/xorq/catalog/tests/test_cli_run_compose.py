@@ -1141,15 +1141,25 @@ def test_catalog_union_command_requires_two_entries(
 def test_catalog_union_command_schema_mismatch(
     runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
 ) -> None:
-    """left/right sources have different schemas -- union must fail cleanly."""
+    """left/right sources have different schemas -- union must fail cleanly.
+
+    A nonzero exit code alone would also pass on an uncaught exception
+    escaping past click, so check that it was actually handled cleanly: a
+    handled ClickException surfaces as `result.exception` being the
+    `SystemExit` click raises internally, not the raw exception.
+    """
     catalog_path, left_name, right_name = catalog_with_two_sources
     result = runner.invoke(
         cli, ["--path", catalog_path, "union", left_name, right_name]
     )
     assert result.exit_code != 0
+    assert isinstance(result.exception, SystemExit), (
+        f"expected a clean ClickException exit, got {result.exception!r}"
+    )
+    assert "schemas must be equal" in result.output.lower()
 
 
-def test_entry_run_bundle_ignore_mismatch_skips_requirements_check(
+def test_join_or_union_bundle_ignore_mismatch_skips_requirements_check(
     catalog_with_source_and_transform: tuple[str, str, str],
 ) -> None:
     catalog_path, _, _ = catalog_with_source_and_transform
@@ -1160,7 +1170,7 @@ def test_entry_run_bundle_ignore_mismatch_skips_requirements_check(
         mock_assert.assert_not_called()
 
 
-def test_entry_run_bundle_default_calls_requirements_check(
+def test_join_or_union_bundle_default_calls_requirements_check(
     catalog_with_source_and_transform: tuple[str, str, str],
 ) -> None:
     catalog_path, _, _ = catalog_with_source_and_transform
@@ -1169,6 +1179,36 @@ def test_entry_run_bundle_default_calls_requirements_check(
         with _entry_run_bundle(catalog, ("src", "trn")):
             pass
         mock_assert.assert_called_once()
+
+
+def test_join_or_union_bundle_python_minor_mismatch_raises_by_default(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    with patch(
+        "xorq.ibis_yaml.packager._python_minor_from_metadata_text",
+        side_effect=["3.10", "3.11"],
+    ):
+        with pytest.raises(click.ClickException, match="different Python minors"):
+            with _entry_run_bundle(catalog, ("src", "trn")):
+                pass
+
+
+def test_join_or_union_bundle_ignore_mismatch_warns_on_python_minor_mismatch(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    """With ignore_mismatch=True, a Python-minor mismatch downgrades to a
+    WARNING and the bundle is built under the *first* entry's pin."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    with patch(
+        "xorq.ibis_yaml.packager._python_minor_from_metadata_text",
+        side_effect=["3.10", "3.11"],
+    ):
+        with _entry_run_bundle(catalog, ("src", "trn"), ignore_mismatch=True) as bundle:
+            pass
+    assert bundle.python_version == "3.10"
 
 
 # --- _has_expr_modifications ---
