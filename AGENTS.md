@@ -1,8 +1,9 @@
 # xorq — agent guidance
 
-This file follows the categories in [`AGENTS.meta.md`](AGENTS.meta.md).
-Each section below names the concrete xorq mechanism for that category, or
-states plainly that the category doesn't apply here.
+Each section below names the concrete xorq mechanism for a recurring
+category of agent-conduct concern (a truthful record, real evidence,
+explicit consent, trust boundaries, minimal footprint, single source of
+truth, etc.), or states plainly that the category doesn't apply here.
 
 ## 1. Truthful, non-rewritable record of accepted work
 
