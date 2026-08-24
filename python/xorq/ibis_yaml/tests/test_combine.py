@@ -9,9 +9,11 @@ import xorq.api as xo
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.combine import (
     _build_join_predicates,
+    join_builds,
     join_exprs,
     union_exprs,
 )
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 
 
 @pytest.fixture
@@ -175,6 +177,39 @@ def test_join_exprs_same_profile_file_backed_rebinds_by_default(
     # `rebind_backends` (on by default) fixes.
     joined = join_exprs(file_backed_left, file_backed_right, on="id")
     result = joined.execute()
+    assert set(result.columns) == {"id", "a", "b"}
+    assert len(result) == 3
+
+
+def test_join_builds_rebind_survives_colliding_saved_idx(
+    shared_parquet_path: str, tmp_path: Path
+) -> None:
+    """`Profile.idx` is a session-local counter, but a *single-source* build
+    always canonicalizes its one backend to idx=0 before serializing (see
+    `normalize_profiles`) -- so any two independently-built, single-source
+    builds are saved with the *same* idx=0 regardless of their actual
+    content. Loading both back reconstructs two backends that: (a) may
+    coincidentally share idx=0, and (b) are grouped for rebinding purely by
+    content (idx excluded from the comparison already), not by idx. This
+    pins that the merge produces exactly one surviving profile -- no
+    duplicate/colliding entries -- and the build round-trips correctly.
+    """
+    left = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    right = deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    ).rename(b="a")
+    left_path = build_expr(left, builds_dir=tmp_path / "builds")
+    right_path = build_expr(right, builds_dir=tmp_path / "builds")
+
+    # Confirm the premise: both independently saved with idx=0.
+    for path in (left_path, right_path):
+        assert "idx: 0" in (path / "profiles.yaml").read_text()
+
+    result_path = join_builds(left_path, right_path, on="id", builds_dir=tmp_path / "joined")
+    profiles_text = (result_path / "profiles.yaml").read_text()
+    assert profiles_text.count("idx:") == 1
+
+    result = load_expr(result_path).execute()
     assert set(result.columns) == {"id", "a", "b"}
     assert len(result) == 3
 

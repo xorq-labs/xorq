@@ -158,28 +158,23 @@ def _rebind_same_profile_sources(*exprs: "Expr") -> tuple["Expr", ...]:
     ValueError.
     """
     import xorq.expr.relations as rel  # noqa: PLC0415
-    import xorq.vendor.ibis.expr.operations as ops  # noqa: PLC0415
     from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
     from xorq.common.utils.graph_utils import (  # noqa: PLC0415
+        BACKEND_LEAF_NODE_TYPES,
         find_all_sources,
         replace_sources,
         walk_nodes,
     )
 
+    # Walk the same node-type list find_all_sources uses (not a hand-copied
+    # subset) so a future backend-bearing leaf type is unsafe by default --
+    # added there, it's excluded here automatically -- rather than silently
+    # skipping this exclusion check until someone remembers to update both.
     safe_node_types = (rel.Read, rel.RemoteTable)
-    backend_node_types = (
-        ops.DatabaseTable,
-        ops.SQLQueryResult,
-        rel.CachedNode,
-        *safe_node_types,
-        rel.FlightUDXF,
-        rel.FlightExpr,
-        rel.TeeNode,
-    )
     unsafe_ids = {
         id(source)
         for expr in exprs
-        for node in walk_nodes(backend_node_types, expr)
+        for node in walk_nodes(BACKEND_LEAF_NODE_TYPES, expr)
         if not isinstance(node, safe_node_types)
         for source in (
             node.writer.cons if isinstance(node, rel.TeeNode) else (node.source,)
