@@ -158,13 +158,13 @@ def _rebind_same_profile_sources(*exprs: "Expr") -> tuple["Expr", ...]:
     ValueError.
     """
     import xorq.expr.relations as rel  # noqa: PLC0415
-    from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
     from xorq.common.utils.graph_utils import (  # noqa: PLC0415
         BACKEND_LEAF_NODE_TYPES,
         find_all_sources,
         replace_sources,
         walk_nodes,
     )
+    from xorq.ibis_yaml.compiler import profile_content_key  # noqa: PLC0415
 
     # Walk the same node-type list find_all_sources uses (not a hand-copied
     # subset) so a future backend-bearing leaf type is unsafe by default --
@@ -188,8 +188,9 @@ def _rebind_same_profile_sources(*exprs: "Expr") -> tuple["Expr", ...]:
         return exprs
 
     def content_key(backend):
-        profile = backend._profile  # xorq-style: disable=protected-access
-        return tokenize({k: v for k, v in profile.as_dict().items() if k != "idx"})
+        return profile_content_key(
+            backend._profile  # xorq-style: disable=protected-access
+        )
 
     groups: dict[str, list] = {}
     for backend in backends:

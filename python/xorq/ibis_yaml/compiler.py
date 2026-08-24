@@ -406,6 +406,18 @@ def canonicalize_expr(expr, read_normalize_method=normalize_read_path_stat):
     return expr
 
 
+def profile_content_key(profile: Profile) -> str:
+    """Content-only identity of a `Profile`, ignoring the session-local `idx`.
+
+    Shared by every place that needs to tell whether two `Profile`s describe
+    the same underlying connection regardless of which session constructed
+    them: `normalize_profiles` (canonical `idx` ordering), `hydrate_cons`
+    (connection cache keying), and `combine._rebind_same_profile_sources`
+    (same-profile backend rebinding).
+    """
+    return tokenize(toolz.dissoc(profile.as_dict(), "idx"))
+
+
 def normalize_profiles(expr):
     """Rewrite the expression graph so Profile.idx values are canonical.
 
@@ -422,8 +434,9 @@ def normalize_profiles(expr):
         return expr
 
     def content_key(backend):
-        p = backend._profile
-        return tokenize(toolz.dissoc(p.as_dict(), "idx"))
+        return profile_content_key(
+            backend._profile  # xorq-style: disable=protected-access
+        )
 
     # sort by content hash → deterministic canonical order
     # Python sort is stable so backends with the same content hash
@@ -478,9 +491,6 @@ def hydrate_cons(
         an unrelated single load, which keeps today's per-call behavior.
     """
 
-    def content_key(profile):
-        return tokenize({k: v for k, v in profile.as_dict().items() if k != "idx"})
-
     def kwargs_to_con(kwargs):
         match dct := dict(kwargs):
             case {"kwargs_tuple": dict()}:
@@ -490,7 +500,7 @@ def hydrate_cons(
         profile = Profile(**dct)
         if con_cache is None:
             return profile.get_con(lazy=lazy)
-        key = content_key(profile)
+        key = profile_content_key(profile)
         if key not in con_cache:
             con_cache[key] = profile.get_con(lazy=lazy)
         return con_cache[key]

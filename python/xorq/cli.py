@@ -434,6 +434,15 @@ def _check_library_version_match(
         raise click.ClickException(f"cannot read build metadata: {e}") from e
 
 
+def _emit_combine_result(
+    kind: str, build_path: Path, emit_build_path_to: str | None
+) -> None:
+    click.echo(f"Written {kind} result to {build_path}", err=True)
+    if emit_build_path_to:
+        Path(emit_build_path_to).write_text(str(build_path))
+    click.echo(str(build_path))
+
+
 @_lazy_span("cli.join_command")
 def join_command(
     left_path: str,
@@ -474,10 +483,7 @@ def join_command(
             rebind_backends=rebind_backends,
         )
 
-    click.echo(f"Written join result to {build_path}", err=True)
-    if emit_build_path_to:
-        Path(emit_build_path_to).write_text(str(build_path))
-    click.echo(str(build_path))
+    _emit_combine_result("join", build_path, emit_build_path_to)
 
 
 @_lazy_span("cli.union_command")
@@ -508,10 +514,7 @@ def union_command(
             rebind_backends=rebind_backends,
         )
 
-    click.echo(f"Written union result to {build_path}", err=True)
-    if emit_build_path_to:
-        Path(emit_build_path_to).write_text(str(build_path))
-    click.echo(str(build_path))
+    _emit_combine_result("union", build_path, emit_build_path_to)
 
 
 @_lazy_span("cli.run_cached_command")
