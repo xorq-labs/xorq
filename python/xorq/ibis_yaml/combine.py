@@ -42,6 +42,15 @@ def combine_errors() -> "Iterator[None]":
     - `KeyError`: an `--lname`/`--rname` template referencing a field that
       doesn't exist (e.g. `--rname "{bogus}"` raises `KeyError('bogus')`
       from the bare `str.format` call inside ibis's join disambiguation).
+    - `OSError` (including `FileNotFoundError`): a build path that doesn't
+      exist or can't be read. The top-level CLI's
+      `_check_library_version_match` already maps a missing path cleanly
+      when it runs (the default), but it's a no-op under
+      `--ignore-library-version-mismatch` -- this arm is the backstop that
+      catches it regardless, once `load_expr` reaches the missing path.
+      `load_expr` reads its YAML via the Rust-backed `yaml12` reader, which
+      raises a bare `OSError` (not `FileNotFoundError`) on a missing file,
+      so this must catch the broader type to cover both I/O paths.
     """
     from xorq.common.exceptions import (  # noqa: PLC0415
         IntegrityError,
@@ -55,6 +64,8 @@ def combine_errors() -> "Iterator[None]":
         raise click.BadParameter(str(e)) from None
     except (RelationError, IntegrityError) as e:
         raise click.ClickException(str(e)) from e
+    except OSError as e:
+        raise click.ClickException(f"cannot load build: {e}") from e
     except KeyError as e:
         raise click.BadParameter(
             f"unknown placeholder {e} in --lname/--rname template"

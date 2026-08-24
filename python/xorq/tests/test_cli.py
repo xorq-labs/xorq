@@ -436,6 +436,30 @@ def test_join_command_nonexistent_path_fails_cleanly(tmp_path: Path) -> None:
     assert b"cannot read build metadata" in stderr
 
 
+def test_join_command_nonexistent_path_fails_cleanly_with_ignore_flag(
+    tmp_path: Path,
+) -> None:
+    """`--ignore-library-version-mismatch` skips the metadata read that
+    normally turns a missing path into a clean error -- `combine_errors`
+    must still catch the `OSError` that `load_expr` then raises (the
+    Rust-backed YAML reader raises a bare `OSError`, not
+    `FileNotFoundError`, for a missing file)."""
+    _, right_path = _build_joinable_sources(tmp_path)
+    test_args = [
+        "xorq",
+        "join",
+        str(tmp_path / "does-not-exist"),
+        str(right_path),
+        "--on",
+        "id",
+        "--ignore-library-version-mismatch",
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert b"Traceback (most recent call last)" not in stderr
+    assert b"cannot load build" in stderr
+
+
 def test_union_command_default(tmp_path: Path) -> None:
     left = xo.memtable({"id": [1, 2], "amount": [10.0, 20.0]}, name="jan")
     right = xo.memtable({"id": [3, 4], "amount": [30.0, 40.0]}, name="feb")
