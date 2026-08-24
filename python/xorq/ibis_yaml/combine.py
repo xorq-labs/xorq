@@ -300,8 +300,15 @@ def join_builds(
     """Load two build artifacts, join them, and write the result as a new build."""
     from xorq.ibis_yaml.compiler import build_expr, load_expr  # noqa: PLC0415
 
-    left = load_expr(left_path, cache_dir=cache_dir)
-    right = load_expr(right_path, cache_dir=cache_dir)
+    # Shared so a same-profile connection in both builds is one object from
+    # the moment each is loaded, not two independently-constructed ones that
+    # `join_exprs`'s rebind then has to reconcile after the fact. Gated on
+    # rebind_backends -- same policy toggle, applied proactively here instead
+    # of reactively in `join_exprs` -- so `--no-rebind-backends` still gets
+    # the fully-isolated-connections behavior it promises.
+    con_cache: dict | None = {} if rebind_backends else None
+    left = load_expr(left_path, cache_dir=cache_dir, con_cache=con_cache)
+    right = load_expr(right_path, cache_dir=cache_dir, con_cache=con_cache)
     expr = join_exprs(
         left, right, on=on, left_on=left_on, right_on=right_on, how=how,
         lname=lname, rname=rname, rebind_backends=rebind_backends,
@@ -322,7 +329,10 @@ def union_builds(
     """Load two-or-more build artifacts, union them, and write the result as a new build."""
     from xorq.ibis_yaml.compiler import build_expr, load_expr  # noqa: PLC0415
 
-    exprs: Sequence[Expr] = [load_expr(path, cache_dir=cache_dir) for path in paths]
+    con_cache: dict | None = {} if rebind_backends else None
+    exprs: Sequence[Expr] = [
+        load_expr(path, cache_dir=cache_dir, con_cache=con_cache) for path in paths
+    ]
     expr = union_exprs(*exprs, distinct=distinct, rebind_backends=rebind_backends)
     return build_expr(
         expr, builds_dir=builds_dir, cache_dir=cache_dir, relocate_reads=relocate_reads

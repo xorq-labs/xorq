@@ -2198,11 +2198,17 @@ def join(
     from xorq.ibis_yaml.combine import combine_errors, join_exprs  # noqa: PLC0415
 
     def make_expr():
+        # Shared so a same-profile connection between the two entries is one
+        # object from the moment each loads, not two independently-constructed
+        # ones that join_exprs's rebind then has to reconcile after the fact.
+        # Gated on rebind_backends so --no-rebind-backends still gets fully
+        # isolated connections, matching join_builds/union_builds.
+        con_cache = {} if rebind_backends else None
         left_expr = _get_catalog_entry(catalog, left_entry).load_expr(
-            cache_dir=cache_dir
+            cache_dir=cache_dir, con_cache=con_cache
         )
         right_expr = _get_catalog_entry(catalog, right_entry).load_expr(
-            cache_dir=cache_dir
+            cache_dir=cache_dir, con_cache=con_cache
         )
         return join_exprs(
             left_expr,
@@ -2283,8 +2289,11 @@ def union(
     from xorq.ibis_yaml.combine import combine_errors, union_exprs  # noqa: PLC0415
 
     def make_expr():
+        con_cache = {} if rebind_backends else None
         exprs = [
-            _get_catalog_entry(catalog, name).load_expr(cache_dir=cache_dir)
+            _get_catalog_entry(catalog, name).load_expr(
+                cache_dir=cache_dir, con_cache=con_cache
+            )
             for name in entries
         ]
         return union_exprs(*exprs, distinct=distinct, rebind_backends=rebind_backends)

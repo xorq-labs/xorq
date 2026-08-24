@@ -1450,7 +1450,13 @@ class CatalogEntry:
         ).with_suffix(PREFERRED_SUFFIX)
         return catalog_path
 
-    def load_expr(self, lazy=False, read_only_parquet_metadata=False, cache_dir=None):
+    def load_expr(
+        self,
+        lazy=False,
+        read_only_parquet_metadata=False,
+        cache_dir=None,
+        con_cache=None,
+    ):
         if not self.is_content_local:
             self.fetch()
         return load_expr_from_zip(
@@ -1458,6 +1464,7 @@ class CatalogEntry:
             lazy=lazy,
             read_only_parquet_metadata=read_only_parquet_metadata,
             cache_dir=cache_dir,
+            con_cache=con_cache,
         )
 
     @property
