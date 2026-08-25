@@ -1235,7 +1235,8 @@ def test_catalog_join_command_rebinds_same_profile_file_backed_entries(
     assert result.exit_code == 0, result.output
 
     result = runner.invoke(
-        cli, ["--path", catalog_path, "run", "joined-file-backed", "-o", "-", "-f", "csv"]
+        cli,
+        ["--path", catalog_path, "run", "joined-file-backed", "-o", "-", "-f", "csv"],
     )
     assert result.exit_code == 0, result.output
     assert "a" in result.output
@@ -1256,9 +1257,11 @@ def test_catalog_join_command_rebinds_into_backend_entry(
 
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     left = deferred_read_parquet(pq_path, xo.connect(), table_name="t")
-    right = deferred_read_parquet(
-        pq_path, xo.duckdb.connect(), table_name="t"
-    ).rename(b="a").into_backend(xo.connect(), name="t_remote")
+    right = (
+        deferred_read_parquet(pq_path, xo.duckdb.connect(), table_name="t")
+        .rename(b="a")
+        .into_backend(xo.connect(), name="t_remote")
+    )
     catalog.add(left, aliases=("hub-left",))
     catalog.add(right, aliases=("into-backend-right",))
 
@@ -1279,7 +1282,8 @@ def test_catalog_join_command_rebinds_into_backend_entry(
     assert result.exit_code == 0, result.output
 
     result = runner.invoke(
-        cli, ["--path", catalog_path, "run", "joined-into-backend", "-o", "-", "-f", "csv"]
+        cli,
+        ["--path", catalog_path, "run", "joined-into-backend", "-o", "-", "-f", "csv"],
     )
     assert result.exit_code == 0, result.output
     assert "a" in result.output
@@ -1313,9 +1317,9 @@ def test_catalog_join_command_into_backend_mixed_source_backends(
     duckdb_into_df = deferred_read_parquet(
         pq_a, xo.duckdb.connect(), table_name="a"
     ).into_backend(xo.connect(), name="a_remote")
-    df_into_df = deferred_read_parquet(
-        pq_b, xo.connect(), table_name="b"
-    ).into_backend(xo.connect(), name="b_remote")
+    df_into_df = deferred_read_parquet(pq_b, xo.connect(), table_name="b").into_backend(
+        xo.connect(), name="b_remote"
+    )
     catalog.add(duckdb_into_df, aliases=("duckdb-into-df",))
     catalog.add(df_into_df, aliases=("df-into-df",))
 
