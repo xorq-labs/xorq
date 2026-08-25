@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 import pytest
 import toolz
 import yaml12
+from attr import evolve
 from toolz import identity
 
 import xorq.api as xo
@@ -61,10 +62,11 @@ from xorq.ibis_yaml.compiler import (
 )
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import WritePhase
-from xorq.ibis_yaml.sql import find_relations
+from xorq.ibis_yaml.sql import find_relations, sql_query_deps
 from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
 do_roundtrip_expr = toolz.compose(load_expr, build_expr)
@@ -1086,7 +1088,7 @@ def test_build_expr_kind_partial(tmp_path):
     assert entry["schema_in"] == {"a": "int64"}
 
 
-def test_extract_sql_queries_binds_non_none_defaults():
+def test_extract_sql_queries_binds_non_none_defaults() -> None:
     """Params with non-None defaults are bound into the generated SQL."""
     threshold = xo.param("threshold", "float64", default=1.0)
     t = xo.table(schema={"x": "float64"})
@@ -1094,6 +1096,118 @@ def test_extract_sql_queries_binds_non_none_defaults():
     result = _extract_sql_queries(expr, ExprKind.UnboundExpr)
     assert len(result) == 1
     assert "1.0" in result[0][2]
+
+
+def test_extract_sql_queries_records_relations(parquet_dir: pathlib.Path) -> None:
+    """Each query carries the relations it references, so consumers (e.g. the
+    TUI SQL DAG) can order queries without parsing SQL text."""
+    con = xo.connect()
+    awards_players = deferred_read_parquet(
+        parquet_dir / "awards_players.parquet", con=con
+    )
+    batting = deferred_read_parquet(parquet_dir / "batting.parquet", con=con)
+    expr = awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
+
+    result = _extract_sql_queries(expr, ExprKind.Expr)
+    by_name = {name: relations for name, _, _, relations in result}
+    read_names = set(by_name) - {"main"}
+    assert read_names, "expected one query per deferred read"
+    assert read_names <= set(by_name["main"])
+    assert all(by_name[name] == (name,) for name in read_names)
+
+
+def test_extract_sql_queries_unbound_records_relations(
+    parquet_dir: pathlib.Path,
+) -> None:
+    """The UnboundExpr branch records source relations like every other kind,
+    so consumers can tell "no sources" from "not recorded"."""
+    con = xo.connect()
+    batting = deferred_read_parquet(parquet_dir / "batting.parquet", con=con)
+    t = xo.table({"playerID": "string"}, name="unbound_t")
+    expr = batting.join(t, predicates=["playerID"])
+
+    ((name, _, _, relations),) = _extract_sql_queries(expr, ExprKind.UnboundExpr)
+    assert name == "main"
+    assert any(r.startswith("ibis_xorq-read_parquet") for r in relations)
+
+
+def test_sql_query_deps_rules() -> None:
+    """Edges come only from references to other recorded queries: a query's
+    own name (deferred reads list themselves), plain source tables, and the
+    synthetic "main" root key are never edges."""
+    sqls = (
+        ("main", "duckdb", "SELECT 1", ("r1", "batting", "main")),
+        ("r1", "duckdb", "SELECT 2", ("r1", "main")),
+    )
+    assert sql_query_deps(sqls) == {"main": frozenset({"r1"}), "r1": frozenset()}
+
+
+def test_expr_metadata_sql_queries_tolerates_pre_relations_entries() -> None:
+    """Metadata written before relations were recorded has 3-element
+    sql_queries entries; they parse with empty relations and round-trip."""
+    meta = ExprMetadata.from_dict(
+        {
+            "kind": "expr",
+            "schema_out": {"a": "int64"},
+            "sql_queries": [["main", "duckdb", "SELECT 1"]],
+        }
+    )
+    assert meta.sql_queries == (("main", "duckdb", "SELECT 1", ()),)
+    assert ExprMetadata.from_dict(meta.to_dict()).sql_queries == meta.sql_queries
+
+
+def test_expr_metadata_serializes_relations_out_of_band() -> None:
+    """sql_queries entries stay [name, engine, sql] on disk, the shape readers
+    that predate relations unpack; relations round-trip through the parallel
+    sql_relations key those readers ignore."""
+    meta = ExprMetadata.from_dict(
+        {
+            "kind": "expr",
+            "schema_out": {"a": "int64"},
+            "sql_queries": [["main", "duckdb", "SELECT 1", ["r1"]]],
+        }
+    )
+    data = meta.to_dict()
+    assert data["sql_queries"] == [["main", "duckdb", "SELECT 1"]]
+    assert data["sql_relations"] == {"main": ["r1"]}
+    assert ExprMetadata.from_dict(data).sql_queries == meta.sql_queries
+
+
+def test_expr_metadata_normalizes_legacy_sql_queries_on_construction() -> None:
+    """3-element entries are padded by the field converter at every
+    construction boundary, so evolve/direct construction cannot smuggle in
+    tuples that crash consumers (to_dict, the TUI match arms) far from the
+    construction site."""
+    meta = ExprMetadata.from_dict({"kind": "expr", "schema_out": {"a": "int64"}})
+    evolved = evolve(meta, sql_queries=(("main", "duckdb", "SELECT 1"),))
+    assert evolved.sql_queries == (("main", "duckdb", "SELECT 1", ()),)
+    assert evolved.to_dict()["sql_queries"] == [["main", "duckdb", "SELECT 1"]]
+
+
+def test_expr_metadata_sql_queries_degrades_on_malformed_entries() -> None:
+    """A malformed sidecar (hand edit, merge-conflict damage, foreign writer)
+    degrades to fewer/relation-less queries instead of making the whole
+    catalog entry unreadable: entries too short to name a query are dropped,
+    and null or scalar relations read as no relations (never per-character
+    tuples)."""
+    meta = ExprMetadata.from_dict(
+        {
+            "kind": "expr",
+            "schema_out": {"a": "int64"},
+            "sql_queries": [
+                ["truncated"],
+                ["q1", "duckdb", "SELECT 1", None],
+                ["q2", "duckdb", "SELECT 2", "batting"],
+                ["q3", "duckdb", "SELECT 3"],
+            ],
+            "sql_relations": {"q3": None},
+        }
+    )
+    assert meta.sql_queries == (
+        ("q1", "duckdb", "SELECT 1", ()),
+        ("q2", "duckdb", "SELECT 2", ()),
+        ("q3", "duckdb", "SELECT 3", ()),
+    )
 
 
 def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):

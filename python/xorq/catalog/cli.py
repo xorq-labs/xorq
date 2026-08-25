@@ -1284,7 +1284,12 @@ def show(ctx: click.Context, name: str, as_json: bool, as_raw: bool) -> None:
             return
 
         if as_json:
-            click.echo(json.dumps(entry.sidecar_metadata, indent=2, default=str))
+            data = dict(entry.sidecar_metadata)
+            if "expr_metadata" in data:
+                # normalize through the parser so legacy sidecars present the
+                # same sql_queries shape as `schema --json`; --raw stays verbatim
+                data["expr_metadata"] = entry.metadata.to_dict()
+            click.echo(json.dumps(data, indent=2, default=str))
             return
 
         meta = entry.metadata

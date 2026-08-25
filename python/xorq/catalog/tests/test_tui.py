@@ -16,6 +16,7 @@ IMPORTANT — populating the catalog tree in pilot tests:
 
 import asyncio
 import importlib
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -61,6 +62,7 @@ from xorq.catalog.tui import (
     RemoveAliasScreen,
     RevisionRowData,
     _build_git_log_rows,
+    _dag_label,
     _entry_info,
     _find_project_path,
     _format_cached,
@@ -2274,28 +2276,28 @@ def test_render_sql_text_disabled_at_exact_boundary():
 # ---------------------------------------------------------------------------
 
 
-def test_render_sql_dag_empty():
+def test_render_sql_dag_empty() -> None:
     assert _render_sql_dag(()) == ""
 
 
-def test_render_sql_dag_single():
-    result = _render_sql_dag((("main", "duckdb", "SELECT 1"),))
+def test_render_sql_dag_single() -> None:
+    result = _render_sql_dag((("main", "duckdb", "SELECT 1", ()),))
     assert "-- [main] (duckdb)" in result
     assert "SELECT 1" in result
     assert "↓" not in result
 
 
-def test_render_sql_dag_single_non_main_name():
+def test_render_sql_dag_single_non_main_name() -> None:
     name = "abcdef1234567890abcdef12"
-    result = _render_sql_dag(((name, "duckdb", "SELECT 1"),))
+    result = _render_sql_dag(((name, "duckdb", "SELECT 1", ()),))
     assert f"-- [{name[:12]}]" in result
     assert "-- [main]" not in result
 
 
-def test_render_sql_dag_multiple_no_deps():
+def test_render_sql_dag_multiple_no_deps() -> None:
     sqls = (
-        ("main", "duckdb", "SELECT * FROM t"),
-        ("abcdef1234567890abcdef12", "duckdb", "SELECT 1"),
+        ("main", "duckdb", "SELECT * FROM t", ()),
+        ("abcdef1234567890abcdef12", "duckdb", "SELECT 1", ()),
     )
     result = _render_sql_dag(sqls)
     assert "↓" in result
@@ -2303,17 +2305,101 @@ def test_render_sql_dag_multiple_no_deps():
     assert "-- [abcdef123456]" in result
 
 
-def test_render_sql_dag_dep_ordered_before_main():
-    dep_hash = "ab" * 10  # 20 hex chars — matches FROM "..." regex
-    main_sql = f'SELECT x FROM "{dep_hash}"'
+def test_render_sql_dag_deps_order_before_main() -> None:
+    """Queries named in main's recorded relations render above main."""
+    r1 = f"ibis_xorq-read_parquet_{'a1' * 16}"
+    r2 = f"ibis_xorq-read_parquet_{'b2' * 16}"
     sqls = (
-        ("main", "duckdb", main_sql),
-        (dep_hash, "duckdb", "SELECT 1 AS x"),
+        ("main", "xorq_datafusion", "SELECT * FROM ...", (r1, r2)),
+        (r1, "xorq_datafusion", f'SELECT * FROM "{r1}"', (r1,)),
+        (r2, "xorq_datafusion", f'SELECT * FROM "{r2}"', (r2,)),
     )
     result = _render_sql_dag(sqls)
-    dep_pos = result.index(dep_hash[:12])
     main_pos = result.index("-- [main]")
-    assert dep_pos < main_pos
+    assert result.index(f"-- [{_dag_label(r1)}]") < main_pos
+    assert result.index(f"-- [{_dag_label(r2)}]") < main_pos
+
+
+def test_render_sql_dag_ignores_self_and_unknown_relations() -> None:
+    """Relations also list plain source tables (not queries) and, for reads,
+    the read's own name; neither may become an edge. The unknown ref sits on
+    a mid-chain query that something depends on: if the not-a-query guard is
+    dropped, that query is stuck at nonzero in-degree and the cycle fallback
+    emits main first, so this ordering assertion actually fails (a two-node
+    fixture passes with or without the guard)."""
+    r1 = f"ibis_xorq-read_parquet_{'a1' * 16}"
+    rt = f"ibis_rbr-placeholder_{'b2' * 16}"
+    sqls = (
+        ("main", "duckdb", "SELECT * FROM ...", (rt,)),
+        (rt, "duckdb", f'SELECT * FROM "{r1}"', (r1, "batting")),
+        (r1, "duckdb", f'SELECT * FROM "{r1}"', (r1,)),
+    )
+    result = _render_sql_dag(sqls)
+    positions = tuple(
+        result.index(f"-- [{_dag_label(name)}]") for name in (r1, rt, "main")
+    )
+    assert positions == tuple(sorted(positions))
+
+
+def test_dag_label_keeps_hex_ending_user_prefixes_apart() -> None:
+    """The hash match must not eat a user-chosen prefix that happens to end in
+    hex characters; a greedy [a-f0-9]{20,}$ collapsed these two names to the
+    same label. Names with a hash-like suffix that is not the generated
+    32-hex shape stay whole rather than being silently truncated."""
+    a = f"read_deadbeefdeadbeef{'1' * 32}"
+    b = f"read_deadbeefdeadbeef{'2' * 32}"
+    assert _dag_label(a) != _dag_label(b)
+    sha_named = f"events_{'0123456789abcdef' * 2}01234567"  # 40-hex git SHA
+    assert _dag_label(sha_named) == sha_named
+
+
+def test_dag_label_truncates_unsanitized_gen_name_uids() -> None:
+    """Reads that skip hex sanitization (e.g. pinned leaves) keep their raw
+    26-char base32 gen_name uid, which never matches the hex-token pattern;
+    the label truncates it too, so pinned and unpinned siblings render at
+    the same width."""
+    uid = "mfqz3kwbygvhnwuqioxbhmvdgu"
+    assert _dag_label(f"ibis_xorq-read_parquet_{uid}") == (
+        f"ibis_xorq-read_parquet_{uid[:12]}"
+    )
+
+
+def test_render_sql_dag_labels_distinguish_sibling_reads() -> None:
+    """Truncating only the trailing hash keeps sibling reads apart; a flat
+    name[:12] collapsed them all to `ibis_xorq-re`."""
+    r1 = f"ibis_xorq-read_parquet_{'a1' * 16}"
+    r2 = f"ibis_xorq-read_parquet_{'b2' * 16}"
+    sqls = ((r1, "duckdb", "SELECT 1", ()), (r2, "duckdb", "SELECT 2", ()))
+    result = _render_sql_dag(sqls)
+    labels = re.findall(r"-- \[([^\]]+)\]", result)
+    assert len(set(labels)) == 2
+
+
+def test_render_sql_dag_legacy_entries_fall_back_to_sql_scan() -> None:
+    """Entries recorded before relations existed parse with all relations
+    empty; the renderer then falls back to the old quoted-hex SQL scan so a
+    user-named into_backend sub-query still orders above main."""
+    dep_hash = "ab" * 10
+    sqls = (
+        ("main", "duckdb", f'SELECT x FROM "{dep_hash}"', ()),
+        (dep_hash, "duckdb", "SELECT 1 AS x", ()),
+    )
+    result = _render_sql_dag(sqls)
+    assert result.index(dep_hash[:12]) < result.index("-- [main]")
+
+
+def test_render_sql_dag_relation_named_main_is_not_an_edge() -> None:
+    """A source table literally named "main" (e.g. duckdb's default schema)
+    must not read as a dependency on the main query: the resulting cycle
+    would break the ordering."""
+    r1 = f"ibis_xorq-read_parquet_{'a1' * 16}"
+    sqls = (
+        ("main", "duckdb", "SELECT * FROM ...", (r1,)),
+        (r1, "duckdb", "SELECT * FROM main.t", (r1, "main")),
+    )
+    result = _render_sql_dag(sqls)
+    r1_pos = result.index(f"-- [{_dag_label(r1)}]")
+    assert r1_pos < result.index("-- [main]")
 
 
 # ---------------------------------------------------------------------------

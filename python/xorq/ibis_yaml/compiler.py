@@ -86,12 +86,12 @@ from xorq.ibis_yaml.enums import (
     RegistryEnum,
     WritePhase,
 )
-from xorq.ibis_yaml.sql import generate_sql_plans
+from xorq.ibis_yaml.sql import find_relations, generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
-from xorq.vendor.ibis.expr.types.core import ExprMetadata
+from xorq.vendor.ibis.expr.types.core import ExprMetadata, SqlQueries
 
 
 @functools.cache
@@ -522,8 +522,8 @@ def make_read_op(parquet_path, read_kwargs, con=None):
     return op
 
 
-def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
-    """Extract (name, engine, sql) tuples from an expression for caching."""
+def _extract_sql_queries(expr: ir.Expr, kind: ExprKind) -> SqlQueries:
+    """Extract (name, engine, sql, relations) tuples from an expression for caching."""
     from xorq.expr.api import _remove_tag_nodes, bind_params  # noqa: PLC0415
     from xorq.expr.api import to_sql as xorq_to_sql  # noqa: PLC0415
     from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
@@ -542,11 +542,20 @@ def _extract_sql_queries(expr, kind) -> tuple[tuple[str, str, str], ...]:
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
-            return (("main", "xorq_datafusion", sql),) if sql else ()
+            return (
+                (("main", "xorq_datafusion", sql, tuple(find_relations(clean))),)
+                if sql
+                else ()
+            )
         case _:
             sql_plans, deferred_reads = generate_sql_plans(clean)
             return tuple(
-                (name, info.get("engine", "?"), info.get("sql", "").strip())
+                (
+                    name,
+                    info.get("engine", "?"),
+                    info.get("sql", "").strip(),
+                    tuple(info.get("relations", ())),
+                )
                 for mapping in (
                     sql_plans.get("queries", {}),
                     deferred_reads.get("reads", {}),

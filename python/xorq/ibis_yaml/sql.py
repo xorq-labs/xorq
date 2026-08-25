@@ -9,12 +9,17 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import Read, RemoteTable
+from xorq.vendor.ibis.expr.types.core import SqlQueries
 
 
 class QueryInfo(TypedDict):
     engine: str
     profile_name: str
     sql: str
+    # every query's referenced relation names; _extract_sql_queries records
+    # them into expr_metadata and the TUI SQL DAG orders queries from them
+    relations: List[str]
+    options: Dict[str, Any]
 
 
 class SQLPlans(TypedDict):
@@ -105,6 +110,26 @@ def get_read_options(read_instance) -> Dict[str, Any]:
         "method_name": read_instance.method_name,
         "name": read_instance.name,
         "read_kwargs": read_kwargs_list,
+    }
+
+
+def sql_query_deps(sql_queries: SqlQueries) -> Dict[str, frozenset]:
+    """name → the query names it depends on, from recorded relations.
+
+    Relations list every relation a query references: plain source tables
+    (not queries here), the query's own name (deferred reads), and possibly
+    "main" (a source table named like duckdb's default schema). Only
+    references to other recorded queries are edges; "main" is the root plan
+    key and never a dependency, so a source table named "main" cannot
+    introduce a cycle. These rules live here, next to the producer of
+    relations, so consumers do not each rediscover them.
+    """
+    names = {q[0] for q in sql_queries}
+    return {
+        name: frozenset(
+            ref for ref in relations if ref not in (name, "main") and ref in names
+        )
+        for name, _, _, relations in sql_queries
     }
 
 
