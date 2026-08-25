@@ -7,10 +7,15 @@
 
 ## Context
 
-The hosted (`presigned`) content store landed alongside the existing
-`directory` and `s3` stores. Reviewing it surfaced sixteen findings, and
-sorting them by cause rather than by symptom produced two clusters that
-account for most of them.
+The hosted (`presigned`) content store joins the existing `directory` and
+`s3` stores. Reviewing it surfaced sixteen findings, and sorting them by
+cause rather than by symptom produced two clusters that account for most of
+them.
+
+Everything below describes that store as it stands on the branch adding it,
+`hosted-presigned-catalogs`, which this ADR does not depend on and may
+outlive — so the counts are the ones a reader will find there, not
+necessarily on `main` today.
 
 ### Cluster A — the `ContentStore` ABC models one store family
 
@@ -42,7 +47,7 @@ value, so nothing downstream can tell whether it already ran. Consequences:
   the CLI, once in `Catalog.set_remote`, once when materialising the store.
 - `GitPointerBackend.content_store` costs **three** git subprocesses per access
   (`Remote.urls`, then `git remote get-url` twice for fetch and push).
-  `fetch_content` now touches it once per batch.
+  `fetch_content` touches it once per batch.
 - `Catalog._validated_git_remotes` re-validates on every property access, so
   what reads as a cheap accessor spawns two subprocesses.
 - `CatalogBackend` grew five validation hooks, three of them empty defaults
