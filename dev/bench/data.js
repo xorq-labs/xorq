@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787100051290,
+  "lastUpdate": 1787669386745,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -35346,6 +35346,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.17949465526601563",
             "extra": "mean: 1.6491740586000105 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd8af03d1645f13104a077fcbda1bb6acc9c8b85",
+          "message": "feat(cli): add join/union commands for combining build artifacts and catalog entries (#2258)\n\n## Summary\n\nAdds `join`/`union` commands at both CLI tiers, for combining\ntwo-or-more sources into one:\n\n- `xorq join LEFT_PATH RIGHT_PATH` / `xorq union PATH...` — combine\nplain build-artifact paths into a new build, mirroring `xorq\nbuild`/`xorq run`'s conventions.\n- `xorq catalog join ENTRY ENTRY` / `xorq catalog union ENTRY...` —\ncombine catalog entries and auto-register the result, mirroring `xorq\ncatalog compose`.\n\nBoth tiers share one public core, `xorq.ibis_yaml.combine` (re-exported\nvia `xorq.api`:\n`join_exprs`/`union_exprs`/`join_builds`/`union_builds`), that wraps\nibis's existing `Table.join`/`Table.union` — no new relational logic.\n\n## Command surface\n\n```\nxorq join LEFT_PATH RIGHT_PATH [--on COL | --left-on COL --right-on COL]\n                                [--how inner|left|right|outer|semi|anti|cross]\n                                [--lname TMPL] [--rname TMPL]\n                                [--builds-dir DIR] [--cache-dir DIR] [--relocate-reads/--no-relocate-reads]\n                                [--ignore-library-version-mismatch]\n                                [--rebind-backends/--no-rebind-backends]\n                                [--emit-build-path-to PATH]\n\nxorq union PATH... [--distinct] [--builds-dir DIR] [--cache-dir DIR] [--relocate-reads/--no-relocate-reads]\n                    [--ignore-library-version-mismatch] [--rebind-backends/--no-rebind-backends]\n                    [--emit-build-path-to PATH]\n\nxorq catalog join LEFT_ENTRY RIGHT_ENTRY [--on COL | --left-on COL --right-on COL] [--how ...]\n                                          [--lname TMPL] [--rname TMPL] [--sync/--no-sync] [--alias NAME]\n                                          [--cache-dir DIR] [--ignore-venv-mismatch]\n                                          [--rebind-backends/--no-rebind-backends]\n\nxorq catalog union ENTRY... [--distinct] [--sync/--no-sync] [--alias NAME] [--cache-dir DIR]\n                             [--ignore-venv-mismatch] [--rebind-backends/--no-rebind-backends]\n```\n\n`--on`/`--left-on`+`--right-on` accept comma-separated column lists;\n`--how=cross` takes no predicate. Both tiers load their sources, combine\nthem, and (top-level) write a new build artifact, or (catalog tier)\nbuild and register a new cataloged entry — an `--alias` can be attached\nat catalog time.\n\n## Version-mismatch guard\n\nCombining fails fast by default if the sources recorded different\nenvironments, with a per-tier override:\n\n- Top level: compares `build_metadata.json`'s `current_library_version`\nacross the input builds; overridden with\n`--ignore-library-version-mismatch`.\n- Catalog tier: reuses the existing wheel/requirements-merge check\n(`_entry_run_bundle`, run *before* loading/building so a mismatch\ndoesn't waste a full load+build cycle); overridden with\n`--ignore-venv-mismatch`.\n\nThe two override flags are named differently on purpose — they check\ndifferent things (a recorded library version vs. wheel/Python-minor\ncompatibility) and living at different tiers.\n\n## Execution model\n\nv1 runs fully in-process — no per-build venv reinvocation like `catalog\nrun`'s default subprocess path. Two-or-more input builds pinned to\ndifferent venvs is a separate, harder problem, deferred for later.\n\n## Cross-backend / cross-source combining\n\nTwo independently-loaded builds or catalog entries normally get two\ndistinct connection objects even when they describe the identical\nbackend config (`Profile.get_con()` never caches), which would otherwise\nmake every non-memtable join/union fail with an opaque backend-mismatch\nerror regardless of whether the underlying data is actually the same.\n\nThis is handled by `--rebind-backends`/`--no-rebind-backends` (default\n**on**, both tiers), implemented in two complementary layers:\n\n- **Load-time connection sharing**: `join_builds`/`union_builds` and the\ncatalog tier's `join`/`union` share one `con_cache` (keyed by `Profile`\ncontent, `idx` excluded) across every load they do, so a same-profile\nconnection is a single object from the moment each source is loaded.\n- **Graph-level rebind backstop**: `_rebind_same_profile_sources`\ncollapses any same-profile backend connections still present after\nloading (e.g. for exprs assembled outside these load sites) via\n`replace_sources`/`find_all_sources` — a pure graph rewrite that never\ntransfers table data.\n\nA backend is only rebind-eligible if every node referencing it is a\n`Read` (e.g. `deferred_read_parquet`) or a `RemoteTable`\n(`.into_backend()`'s op, safe because it's lazy — no registration\nhappens until execution). An in-memory `DatabaseTable`\n(`.create_table()`) or anything tying state to a specific connection\ninstance (`CachedNode`, `FlightExpr`/`FlightUDXF`, `TeeNode`) is\nexcluded and left alone as both a merge source and target. The\nrebind-eligible node-type list (`BACKEND_LEAF_NODE_TYPES` in\n`graph_utils.py`) is the same one `find_all_sources` walks, so a future\nbackend-bearing node type is unsafe-by-default rather than silently\nrebindable.\n\nGenuinely different backends (different engine, or different underlying\nresource under the same engine) still correctly fail, with a message\npointing at bridging them with `.into_backend(...)` first.\n\n**Known limitation:** combining two independently-loaded entries that\neach reference an *existing* persistent table on the same remote\ndatabase (Postgres, Snowflake, ...) via `.table(name)` is not covered —\n`Backend.table(name)` constructs `ops.DatabaseTable`, the same op type\nan in-memory `.create_table()` registration produces, and there's\ncurrently no way to distinguish \"a real server-side table, safe to\nre-derive from an equivalent connection\" from \"ephemeral client-side\ndata that only exists in this session\" at that op. `.into_backend()`\nbridges and file-backed reads\n(`deferred_read_parquet`/`deferred_read_csv`) are unaffected. Fixing\nthis needs per-instance metadata on the table reference (a\nnode-type-level flag isn't expressive enough, since the same backend can\nhold both persistent and session-scoped tables under the same op type) —\nfiled as a follow-up.\n\n**Filed, not implemented:** the rebind-safety fact for each node type\n(`Read`/`RemoteTable` safe, others not) currently lives as a local tuple\n+ prose in `combine.py`, rather than in the codebase's existing\nregistered, tripwire-enforced pattern for per-op-type facts\n(`OPAQUE_SPECS` in `graph_utils.py`). A `session_bound: bool` field on\nthat registry would unify it; not done here since the current allowlist\nis correct and tested.\n\n## Error handling\n\n`join_exprs`/`union_exprs`'s exceptions are mapped to clean CLI errors\nby a shared `combine_errors()` context manager (used by both tiers, so\nthe mapping can't drift out of sync between call sites):\n\n- `ValueError`/`XorqTypeError` (bad predicate spec, typo'd\n`--on`/`--left-on`/`--right-on` column) → `click.BadParameter`\n- `RelationError`/`IntegrityError` (schema mismatch, or an unresolved\n`--lname`/`--rname` collision) → `click.ClickException`\n- `KeyError` (an `--lname`/`--rname` template referencing a nonexistent\nfield) → `click.BadParameter`\n- `OSError` (a build path that doesn't exist or can't be read —\nincluding the case where `--ignore-library-version-mismatch` skips the\nearlier metadata check that would otherwise catch it) →\n`click.ClickException`\n\n`--how=cross` combined with a predicate, and an empty/whitespace `--on`\n(e.g. from an unset shell variable), are both rejected up front rather\nthan building an artifact that fails later. A colliding\n`--rname`/`--lname` is caught immediately at join time — `Table.join()`\nreturns a lazy \"unfinished\" chain whose collision check normally only\nfires on `.execute()`, which `build_expr`/`load_expr` never call, so\n`join_exprs` forces that check before returning.\n\n## Registration\n\nBoth commands are registered in `docs/generate_cli_reference.py`'s\nCI-checked groups.\n\n## Test plan\n\n- `pytest python/xorq/ibis_yaml/tests/test_combine.py` —\n`_build_join_predicates`/`join_exprs`/`union_exprs` unit tests,\nincluding the backend-rebind guard (same-backend-class,\nsame-profile-file-backed, same-profile-`.into_backend()`, idx-collision,\nand genuinely-different-backend cases) and the predicate/collision fixes\n- `pytest python/xorq/ibis_yaml/tests/test_compiler.py` —\n`load_expr`/`hydrate_cons`'s `con_cache` parameter: shares same-profile\nconnections when passed, preserves independent-per-call behavior when\nomitted\n- `pytest python/xorq/tests/test_cli.py -k \"join or union\"` — top-level\nCLI happy path, predicate variants, schema-mismatch failure,\nlibrary-version-mismatch guard, and error-path regressions (including\nthe `OSError`/`--ignore-library-version-mismatch` combination)\n- `pytest python/xorq/catalog/tests/test_cli_run_compose.py` —\ncatalog-tier CLI happy path (including `.into_backend()` entries from\nmixed source backends, both join orderings), schema-mismatch failure,\n`_entry_run_bundle`'s requirements/Python-minor branches\n- `python docs/generate_cli_reference.py` — confirms `join`/`union` are\nregistered in the CI docs-lint groups\n- Manual: `xorq build` two scripts, `xorq join <left> <right> --on id`,\n`xorq run <result>`; `xorq catalog add` + `xorq catalog join --alias`,\n`xorq catalog run <alias>`\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Sonnet 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T10:43:11-04:00",
+          "tree_id": "9412e31c1d9d4a78d3b93824b937f483ce6568ec",
+          "url": "https://github.com/xorq-labs/xorq/commit/fd8af03d1645f13104a077fcbda1bb6acc9c8b85"
+        },
+        "date": 1787669352059,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.585093542571781,
+            "unit": "iter/sec",
+            "range": "stddev: 0.020232397992722567",
+            "extra": "mean: 131.83753033333622 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5308828179231297,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07389590671809014",
+            "extra": "mean: 395.11904420000405 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7314685546400205,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2019229309059937",
+            "extra": "mean: 1.3671127674000048 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.41707709090882,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06036391339366417",
+            "extra": "mean: 413.72284060000766 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5002711756612914,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06096949407420345",
+            "extra": "mean: 399.95661660000223 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.8977444343881964,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0389908448177708",
+            "extra": "mean: 345.0959953999984 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 112.26383367130606,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017972585622041935",
+            "extra": "mean: 8.907588199133393 msec\nrounds: 231"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.807264930957694,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08237142515994152",
+            "extra": "mean: 262.6557432000027 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 14.015029087788456,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010085520598426186",
+            "extra": "mean: 71.35197463637931 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.123218719157261,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019692107465610748",
+            "extra": "mean: 98.78281085714288 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.258479569390301,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021599103166831987",
+            "extra": "mean: 121.08766409091292 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.1112604138715,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03440393290327906",
+            "extra": "mean: 163.63236587499586 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.932963245220176,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011592666514296666",
+            "extra": "mean: 202.7179101666642 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.642381107130043,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011009733417504252",
+            "extra": "mean: 215.4067011999814 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.4238724690281535,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058028975771156885",
+            "extra": "mean: 412.5629598000046 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.172629641845484,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06035573265460807",
+            "extra": "mean: 315.19594559997586 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.6687581830415554,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13515912826092918",
+            "extra": "mean: 599.2479977999892 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.7600928677940506,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11052781489133667",
+            "extra": "mean: 568.1518392000044 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.552592603357279,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12928558323886727",
+            "extra": "mean: 644.0839649999816 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.4569676179648563,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10750186133158707",
+            "extra": "mean: 686.357052599999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.220920939859124,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15143599746226166",
+            "extra": "mean: 819.0538530000026 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1272402487512097,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17334593427893705",
+            "extra": "mean: 887.1223335999844 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9491705309498211,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16143695322547927",
+            "extra": "mean: 1.053551461400002 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.573156288767158,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0494560673984511",
+            "extra": "mean: 1.7447248152000043 sec\nrounds: 5"
           }
         ]
       }
