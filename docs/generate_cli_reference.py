@@ -75,6 +75,10 @@ MAIN_GROUPS = (
         ),
     ),
     (
+        "Combine",
+        ("join", "union"),
+    ),
+    (
         "Serve",
         ("serve-flight-udxf", "serve-unbound"),
     ),
@@ -106,7 +110,7 @@ CATALOG_GROUPS = (
     ),
     (
         "Composition and execution",
-        ("compose", "run", "run-cached", "serve-unbound"),
+        ("compose", "join", "union", "run", "run-cached", "serve-unbound"),
     ),
     (
         "Cache",

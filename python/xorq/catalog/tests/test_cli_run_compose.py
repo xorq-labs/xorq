@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import click
+import pandas as pd
 import pyarrow as pa
 import pytest
 from click.testing import CliRunner
 
+import xorq.api as xo
 from xorq.catalog import cli as cli_mod
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import (
@@ -19,6 +23,7 @@ from xorq.catalog.cli import (
     cli,
 )
 from xorq.cli import cli as top_cli
+from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.enums import DumpFiles
 
 
@@ -1045,6 +1050,346 @@ def test_catalog_compose_uv_path_end_to_end(
     assert result.returncode == 0, result.stderr
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     assert catalog.catalog_yaml.contains_alias("e2e-composed")
+
+
+# --- catalog join / union commands ---
+
+
+def test_catalog_join_command(
+    runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
+) -> None:
+    catalog_path, left_name, right_name = catalog_with_two_sources
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            left_name,
+            right_name,
+            "--on",
+            "user_id",
+            "-a",
+            "joined",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert catalog.catalog_yaml.contains_alias("joined")
+
+
+def test_catalog_join_command_requires_two_arguments(
+    runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
+) -> None:
+    catalog_path, left_name, _ = catalog_with_two_sources
+    result = runner.invoke(cli, ["--path", catalog_path, "join", left_name])
+    assert result.exit_code != 0
+
+
+def test_catalog_join_command_run_roundtrip(
+    runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
+) -> None:
+    catalog_path, left_name, right_name = catalog_with_two_sources
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            left_name,
+            right_name,
+            "--on",
+            "user_id",
+            "-a",
+            "joined",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "run", "joined", "-o", "-", "-f", "csv"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "amount" in result.output
+    assert "name" in result.output
+
+
+def test_catalog_join_command_rebinds_same_profile_file_backed_entries(
+    runner: CliRunner, catalog_path: str, tmp_path: Path
+) -> None:
+    """Two entries reading the *same* file via *separate* `xo.duckdb.connect()`
+    calls: `CatalogEntry.load_expr()` always constructs a fresh connection
+    per call, so this used to always fail regardless of the data being
+    identical -- now fixed by --rebind-backends (on by default)."""
+    pq_path = tmp_path / "shared.parquet"
+    pd.DataFrame({"id": [1, 2, 3], "a": ["x", "y", "z"]}).to_parquet(pq_path)
+
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    left = deferred_read_parquet(pq_path, xo.duckdb.connect(), table_name="t")
+    right = deferred_read_parquet(pq_path, xo.duckdb.connect(), table_name="t").rename(
+        b="a"
+    )
+    catalog.add(left, aliases=("left-src",))
+    catalog.add(right, aliases=("right-src",))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            "left-src",
+            "right-src",
+            "--on",
+            "id",
+            "-a",
+            "joined-file-backed",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "run", "joined-file-backed", "-o", "-", "-f", "csv"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "a" in result.output
+    assert "b" in result.output
+
+
+def test_catalog_join_command_rebinds_into_backend_entry(
+    runner: CliRunner, catalog_path: str, tmp_path: Path
+) -> None:
+    """One entry reads a file directly on the xorq hub (`xo.connect()`); the
+    other reads it via duckdb and `.into_backend()`s onto a *separate*
+    `xo.connect()` instance -- same profile as the first entry's hub, but a
+    distinct connection object once each entry is loaded independently.
+    `.into_backend()` is lazy (no registration until execution), so this is
+    exactly as rebind-eligible as two plain same-profile reads."""
+    pq_path = tmp_path / "shared.parquet"
+    pd.DataFrame({"id": [1, 2, 3], "a": ["x", "y", "z"]}).to_parquet(pq_path)
+
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    left = deferred_read_parquet(pq_path, xo.connect(), table_name="t")
+    right = deferred_read_parquet(
+        pq_path, xo.duckdb.connect(), table_name="t"
+    ).rename(b="a").into_backend(xo.connect(), name="t_remote")
+    catalog.add(left, aliases=("hub-left",))
+    catalog.add(right, aliases=("into-backend-right",))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            "hub-left",
+            "into-backend-right",
+            "--on",
+            "id",
+            "-a",
+            "joined-into-backend",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "run", "joined-into-backend", "-o", "-", "-f", "csv"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "a" in result.output
+    assert "b" in result.output
+
+
+@pytest.mark.parametrize(
+    "left_name,right_name",
+    [
+        pytest.param("duckdb-into-df", "df-into-df", id="duckdb-left"),
+        pytest.param("df-into-df", "duckdb-into-df", id="df-left"),
+    ],
+)
+def test_catalog_join_command_into_backend_mixed_source_backends(
+    runner: CliRunner,
+    catalog_path: str,
+    tmp_path: Path,
+    left_name: str,
+    right_name: str,
+) -> None:
+    """Both entries end up on the xorq hub via `.into_backend()`, but read
+    from *different* source backends first (one duckdb, one already
+    xorq-datafusion) -- and check both argument orderings, since the
+    rebind/merge logic must not care which side is "left"/"right"."""
+    pq_a = tmp_path / "a.parquet"
+    pq_b = tmp_path / "b.parquet"
+    pd.DataFrame({"id": [1, 2, 3], "x": ["x1", "x2", "x3"]}).to_parquet(pq_a)
+    pd.DataFrame({"id": [1, 2, 3], "y": ["y1", "y2", "y3"]}).to_parquet(pq_b)
+
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    duckdb_into_df = deferred_read_parquet(
+        pq_a, xo.duckdb.connect(), table_name="a"
+    ).into_backend(xo.connect(), name="a_remote")
+    df_into_df = deferred_read_parquet(
+        pq_b, xo.connect(), table_name="b"
+    ).into_backend(xo.connect(), name="b_remote")
+    catalog.add(duckdb_into_df, aliases=("duckdb-into-df",))
+    catalog.add(df_into_df, aliases=("df-into-df",))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "join",
+            left_name,
+            right_name,
+            "--on",
+            "id",
+            "-a",
+            f"joined-{left_name}-{right_name}",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "run",
+            f"joined-{left_name}-{right_name}",
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "x1" in result.output and "y1" in result.output
+    assert "x2" in result.output and "y2" in result.output
+    assert "x3" in result.output and "y3" in result.output
+
+
+def test_catalog_union_command(runner: CliRunner, catalog_path: str) -> None:
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    jan = xo.memtable({"user_id": [1, 2], "amount": [10.0, 20.0]}, name="jan_source")
+    feb = xo.memtable({"user_id": [3, 4], "amount": [30.0, 40.0]}, name="feb_source")
+    catalog.add(jan, aliases=("jan",))
+    catalog.add(feb, aliases=("feb",))
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "union", "jan", "feb", "-a", "q1"]
+    )
+    assert result.exit_code == 0, result.output
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert catalog.catalog_yaml.contains_alias("q1")
+
+
+def test_catalog_union_command_requires_two_entries(
+    runner: CliRunner, catalog_path: str
+) -> None:
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    jan = xo.memtable({"user_id": [1, 2], "amount": [10.0, 20.0]}, name="jan_source")
+    catalog.add(jan, aliases=("jan",))
+
+    result = runner.invoke(cli, ["--path", catalog_path, "union", "jan"])
+    assert result.exit_code != 0
+
+
+def test_catalog_union_command_schema_mismatch(
+    runner: CliRunner, catalog_with_two_sources: tuple[str, str, str]
+) -> None:
+    """left/right sources have different schemas -- union must fail cleanly.
+
+    A nonzero exit code alone would also pass on an uncaught exception
+    escaping past click, so check that it was actually handled cleanly: a
+    handled ClickException surfaces as `result.exception` being the
+    `SystemExit` click raises internally, not the raw exception.
+    """
+    catalog_path, left_name, right_name = catalog_with_two_sources
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "union", left_name, right_name]
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, SystemExit), (
+        f"expected a clean ClickException exit, got {result.exception!r}"
+    )
+    assert "schemas must be equal" in result.output.lower()
+
+
+def test_join_or_union_bundle_ignore_mismatch_skips_requirements_check(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    with patch.object(cli_mod, "_assert_requirements_identical") as mock_assert:
+        with _entry_run_bundle(catalog, ("src", "trn"), ignore_mismatch=True):
+            pass
+        mock_assert.assert_not_called()
+
+
+def test_join_or_union_bundle_default_calls_requirements_check(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    with patch.object(cli_mod, "_assert_requirements_identical") as mock_assert:
+        with _entry_run_bundle(catalog, ("src", "trn")):
+            pass
+        mock_assert.assert_called_once()
+
+
+def test_join_or_union_bundle_python_minor_mismatch_raises_by_default(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    with patch(
+        "xorq.ibis_yaml.packager._python_minor_from_metadata_text",
+        side_effect=["3.10", "3.11"],
+    ):
+        with pytest.raises(click.ClickException, match="different Python minors"):
+            with _entry_run_bundle(catalog, ("src", "trn")):
+                pass
+
+
+def test_join_or_union_bundle_ignore_mismatch_warns_on_python_minor_mismatch(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    """With ignore_mismatch=True, a Python-minor mismatch downgrades to a
+    WARNING and the bundle is built under the *first* entry's pin."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    with patch(
+        "xorq.ibis_yaml.packager._python_minor_from_metadata_text",
+        side_effect=["3.10", "3.11"],
+    ):
+        with _entry_run_bundle(catalog, ("src", "trn"), ignore_mismatch=True) as bundle:
+            pass
+    assert bundle.python_version == "3.10"
+
+
+def test_join_or_union_bundle_ignore_mismatch_skips_unpinned_first_entry(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> None:
+    """When the *first* entry is unpinned but later entries disagree, the
+    fallback must pick a real pin (not `None`) and name an entry that
+    actually has one -- previously `distinct_pins = {python_pins[0][1]}`
+    collapsed to `{None}` here, producing `JointBundle(python_version=None)`
+    (silently dropping both recorded pins) and a warning claiming the
+    unpinned entry's "environment" was used."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    third = xo.memtable({"user_id": [1, 2]}, name="extra_source")
+    catalog.add(third, aliases=("extra",))
+
+    with patch(
+        "xorq.ibis_yaml.packager._python_minor_from_metadata_text",
+        side_effect=[None, "3.10", "3.11"],
+    ):
+        with _entry_run_bundle(
+            catalog, ("src", "trn", "extra"), ignore_mismatch=True
+        ) as bundle:
+            pass
+    assert bundle.python_version in {"3.10", "3.11"}
 
 
 # --- _has_expr_modifications ---

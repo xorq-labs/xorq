@@ -375,6 +375,24 @@ def catalog_with_source_and_transform(catalog_path):
 
 
 @pytest.fixture
+def catalog_with_two_sources(catalog_path: str) -> tuple[str, str, str]:
+    """Populate a catalog with two independent, joinable/unionable source entries."""
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+
+    left = xo.memtable(
+        {"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]}, name="left_source"
+    )
+    left_entry = catalog.add(left, aliases=("left-src",))
+
+    right = xo.memtable(
+        {"user_id": [1, 2, 4], "name": ["a", "b", "d"]}, name="right_source"
+    )
+    right_entry = catalog.add(right, aliases=("right-src",))
+
+    return catalog_path, left_entry.name, right_entry.name
+
+
+@pytest.fixture
 def repo_cloned_bare(catalog_populated, backend_type, tmpdir):
     if backend_type != "annex":
         pytest.skip("repo_cloned_bare requires annex backend")

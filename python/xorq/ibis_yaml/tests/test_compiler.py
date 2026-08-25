@@ -1791,6 +1791,53 @@ def test_loaded_non_relocatable_becomes_database_table(
 
 
 # ---------------------------------------------------------------------------
+# load_expr's con_cache shares same-profile connections across independent loads
+# ---------------------------------------------------------------------------
+
+
+def test_load_expr_con_cache_shares_same_profile_connections(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """Two independent `load_expr` calls sharing a `con_cache` dict get the
+    *same* connection object for a matching profile, instead of two distinct
+    objects that a later rebind pass has to reconcile. This is the proactive
+    counterpart to `combine.py`'s `_rebind_same_profile_sources` -- callers
+    that load several builds up front (join_builds/union_builds, catalog
+    join/union) share one cache across all their loads."""
+    left = deferred_read_parquet(sample_parquet, xo.duckdb.connect(), table_name="t")
+    right = deferred_read_parquet(sample_parquet, xo.duckdb.connect(), table_name="t")
+    left_path = build_expr(left, builds_dir=builds_dir)
+    right_path = build_expr(right, builds_dir=builds_dir)
+
+    con_cache: dict = {}
+    loaded_left = load_expr(left_path, con_cache=con_cache)
+    loaded_right = load_expr(right_path, con_cache=con_cache)
+
+    left_backends, _ = loaded_left._find_backends()  # xorq-style: disable=protected-access
+    right_backends, _ = loaded_right._find_backends()  # xorq-style: disable=protected-access
+    assert left_backends[0] is right_backends[0]
+
+
+def test_load_expr_without_con_cache_keeps_connections_independent(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """Default behavior (no `con_cache` passed) is unchanged: each `load_expr`
+    call still constructs its own fresh connection, matching every caller
+    that predates this parameter (e.g. `catalog run`, `compose`)."""
+    left = deferred_read_parquet(sample_parquet, xo.duckdb.connect(), table_name="t")
+    right = deferred_read_parquet(sample_parquet, xo.duckdb.connect(), table_name="t")
+    left_path = build_expr(left, builds_dir=builds_dir)
+    right_path = build_expr(right, builds_dir=builds_dir)
+
+    loaded_left = load_expr(left_path)
+    loaded_right = load_expr(right_path)
+
+    left_backends, _ = loaded_left._find_backends()  # xorq-style: disable=protected-access
+    right_backends, _ = loaded_right._find_backends()  # xorq-style: disable=protected-access
+    assert left_backends[0] is not right_backends[0]
+
+
+# ---------------------------------------------------------------------------
 # _prepare_relocatable_reads(mark=True) is idempotent
 # ---------------------------------------------------------------------------
 

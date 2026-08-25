@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cache, partial, reduce
 from pathlib import Path
@@ -22,8 +22,13 @@ from xorq.catalog import constants as catalog_constants
 
 
 if TYPE_CHECKING:
+    from opentelemetry.trace import Span
+
+    from xorq.api import Expr
+    from xorq.catalog.catalog import Catalog
     from xorq.catalog.content_store import ContentStoreConfig
     from xorq.common.utils.lineage_utils import LineageDAG
+    from xorq.ibis_yaml.packager import JointBundle
 
 from xorq.cli import (
     _get_cache_dir,
@@ -42,10 +47,13 @@ from xorq.cli_options import (
     env_options,
     fuse_option,
     gcs_option,
+    ignore_venv_mismatch_option,
+    join_predicate_options,
     json_option,
     limit_option,
     output_options,
     params_option,
+    rebind_backends_option,
     relocate_reads_option,
     rename_params_option,
     serve_options,
@@ -1762,7 +1770,9 @@ def _harvest_entry_from_zip(zf, harvest_dir, entry_name=None, seen_wheels=None):
 
 
 @contextmanager
-def _entry_run_bundle(catalog, entries):
+def _entry_run_bundle(
+    catalog: "Catalog", entries: tuple[str, ...], *, ignore_mismatch: bool = False
+) -> Iterator["JointBundle"]:
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
     from xorq.ibis_yaml.packager import JointBundle  # noqa: PLC0415
 
@@ -1800,7 +1810,8 @@ def _entry_run_bundle(catalog, entries):
 
             if not all_wheel_paths:
                 raise click.ClickException("no wheels found in entries")
-            _assert_requirements_identical(req_contents)
+            if not ignore_mismatch:
+                _assert_requirements_identical(req_contents)
             req_path = harvest_dir / DumpFiles.requirements
             req_path.write_bytes(req_contents[0][1])
 
@@ -1808,9 +1819,26 @@ def _entry_run_bundle(catalog, entries):
             unpinned = [e for e, pin in python_pins if pin is None]
             if len(distinct_pins) > 1:
                 detail = ", ".join(f"{e!r}={pin}" for e, pin in python_pins)
-                raise click.ClickException(
-                    f"entries built on different Python minors: {detail}"
+                if not ignore_mismatch:
+                    raise click.ClickException(
+                        f"entries built on different Python minors: {detail}"
+                    )
+                # Fall back to the first entry that actually has a pin, not
+                # just the first entry overall -- python_pins[0] could be
+                # unpinned, which previously collapsed distinct_pins to
+                # {None}: a truthy set that made the unpinned-entries warning
+                # below claim "running under None" and left JointBundle with
+                # no real pin, silently dropping both recorded Python minors
+                # in favor of whatever Python happened to be ambient.
+                fallback_entry, fallback_pin = next(
+                    (e, pin) for e, pin in python_pins if pin is not None
                 )
+                click.echo(
+                    f"WARNING: ignoring Python-minor mismatch ({detail}); "
+                    f"using {fallback_entry!r}'s environment.",
+                    err=True,
+                )
+                distinct_pins = {fallback_pin}
             if distinct_pins and unpinned:
                 joint = next(iter(distinct_pins))
                 click.echo(
@@ -1827,6 +1855,41 @@ def _entry_run_bundle(catalog, entries):
                 requirements_path=req_path,
                 python_version=joint_python,
             )
+
+
+def _combine_and_catalog(
+    catalog: "Catalog",
+    entries: tuple[str, ...],
+    make_expr: Callable[[], "Expr"],
+    *,
+    cache_dir: str | Path | None,
+    sync: bool,
+    alias: str | None,
+    ignore_mismatch: bool,
+    span: "Span",
+) -> str:
+    """Validate compatibility, build+stage the combined expr, and catalog it.
+
+    Shared tail for `catalog join`/`catalog union`. Enters `_entry_run_bundle`
+    (and therefore its wheel/Python-minor mismatch check) *before* calling
+    `make_expr`/`build_expr`, so a mismatch fails before the expensive
+    load/build work runs rather than after.
+    """
+    from xorq.ibis_yaml.compiler import build_expr  # noqa: PLC0415
+
+    with _entry_run_bundle(catalog, entries, ignore_mismatch=ignore_mismatch) as bundle:
+        expr = make_expr()
+        build_kwargs = {} if cache_dir is None else {"cache_dir": Path(cache_dir)}
+        build_path = build_expr(expr, **build_kwargs)
+        _stage_bundle_into_build(bundle, build_path)
+
+    entry_name = build_path.name
+    aliases = (alias,) if alias else ()
+    catalog.add(build_path, sync=sync, aliases=aliases, exist_ok=True)
+    label = alias or entry_name
+    click.echo(f"Cataloged as {label!r}", err=True)
+    span.set_attribute("cataloged", label)
+    return label
 
 
 @contextmanager
@@ -2083,6 +2146,173 @@ def compose(
             else:
                 click.echo(f"Cataloged as {label!r}", err=True)
             span.set_attribute("cataloged", label)
+
+
+@cli.command("join")
+@click.argument("left_entry", shell_complete=_complete_entry_or_alias_names)
+@click.argument("right_entry", shell_complete=_complete_entry_or_alias_names)
+@join_predicate_options(noun="entry")
+@sync_option
+@click.option(
+    "-a",
+    "--alias",
+    default=None,
+    help="Also register this alias for the cataloged entry.",
+)
+@cache_dir_option
+@ignore_venv_mismatch_option
+@rebind_backends_option
+@click.pass_context
+def join(
+    ctx: click.Context,
+    left_entry: str,
+    right_entry: str,
+    on: str | None,
+    left_on: str | None,
+    right_on: str | None,
+    how: str,
+    lname: str,
+    rname: str,
+    sync: bool,
+    alias: str | None,
+    cache_dir: str | None,
+    ignore_venv_mismatch: bool,
+    rebind_backends: bool,
+) -> None:
+    """Join two catalog entries into a new cataloged entry.
+
+    Resolves both entries to expressions, joins them, builds the result,
+    and registers it in the catalog.
+
+    \b
+    Arguments:
+      LEFT_ENTRY   Name or alias of the left catalog entry.
+      RIGHT_ENTRY  Name or alias of the right catalog entry.
+
+    \b
+    Examples:
+      # Inner-join two entries on a shared column and alias the result
+      xorq catalog join orders customers --on customer_id --alias enriched-orders
+    """
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+    from xorq.ibis_yaml.combine import combine_errors, join_exprs  # noqa: PLC0415
+
+    def make_expr():
+        # Shared so a same-profile connection between the two entries is one
+        # object from the moment each loads, not two independently-constructed
+        # ones that join_exprs's rebind then has to reconcile after the fact.
+        # Gated on rebind_backends so --no-rebind-backends still gets fully
+        # isolated connections, matching join_builds/union_builds.
+        con_cache = {} if rebind_backends else None
+        left_expr = _get_catalog_entry(catalog, left_entry).load_expr(
+            cache_dir=cache_dir, con_cache=con_cache
+        )
+        right_expr = _get_catalog_entry(catalog, right_entry).load_expr(
+            cache_dir=cache_dir, con_cache=con_cache
+        )
+        return join_exprs(
+            left_expr,
+            right_expr,
+            on=on,
+            left_on=left_on,
+            right_on=right_on,
+            how=how,
+            lname=lname,
+            rname=rname,
+            rebind_backends=rebind_backends,
+        )
+
+    with tracer.start_as_current_span("catalog.join") as span:
+        span.set_attributes({"left_entry": left_entry, "right_entry": right_entry})
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            with combine_errors():
+                _combine_and_catalog(
+                    catalog,
+                    (left_entry, right_entry),
+                    make_expr,
+                    cache_dir=cache_dir,
+                    sync=sync,
+                    alias=alias,
+                    ignore_mismatch=ignore_venv_mismatch,
+                    span=span,
+                )
+
+
+@cli.command("union")
+@click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "--distinct",
+    is_flag=True,
+    default=False,
+    help="Deduplicate rows (default is union-all).",
+)
+@sync_option
+@click.option(
+    "-a",
+    "--alias",
+    default=None,
+    help="Also register this alias for the cataloged entry.",
+)
+@cache_dir_option
+@ignore_venv_mismatch_option
+@rebind_backends_option
+@click.pass_context
+def union(
+    ctx: click.Context,
+    entries: tuple[str, ...],
+    distinct: bool,
+    sync: bool,
+    alias: str | None,
+    cache_dir: str | None,
+    ignore_venv_mismatch: bool,
+    rebind_backends: bool,
+) -> None:
+    """Union two-or-more catalog entries into a new cataloged entry.
+
+    Resolves all entries to expressions, unions them (they must share an
+    identical schema), builds the result, and registers it in the catalog.
+
+    \b
+    Arguments:
+      ENTRIES  Two or more entries (names or aliases) to union.
+
+    \b
+    Examples:
+      # Union-all (the default) two entries and alias the result
+      xorq catalog union orders-jan orders-feb --alias orders-q1
+    """
+    if len(entries) < 2:
+        raise click.UsageError("At least two entries are required.")
+
+    from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
+    from xorq.ibis_yaml.combine import combine_errors, union_exprs  # noqa: PLC0415
+
+    def make_expr():
+        con_cache = {} if rebind_backends else None
+        exprs = [
+            _get_catalog_entry(catalog, name).load_expr(
+                cache_dir=cache_dir, con_cache=con_cache
+            )
+            for name in entries
+        ]
+        return union_exprs(*exprs, distinct=distinct, rebind_backends=rebind_backends)
+
+    with tracer.start_as_current_span("catalog.union") as span:
+        span.set_attribute("entries", entries)
+        with click_context_catalog(ctx):
+            catalog = ctx.obj.make_catalog(init=False)
+            with combine_errors():
+                _combine_and_catalog(
+                    catalog,
+                    entries,
+                    make_expr,
+                    cache_dir=cache_dir,
+                    sync=sync,
+                    alias=alias,
+                    ignore_mismatch=ignore_venv_mismatch,
+                    span=span,
+                )
 
 
 def _resolve_single_entry(

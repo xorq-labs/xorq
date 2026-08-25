@@ -406,6 +406,19 @@ def canonicalize_expr(expr, read_normalize_method=normalize_read_path_stat):
     return expr
 
 
+def profile_content_key(profile: Profile) -> str:
+    """Content-only identity of a `Profile`, ignoring the session-local `idx`.
+
+    Shared by every place that needs to tell whether two `Profile`s describe
+    the same underlying connection regardless of which session constructed
+    them: `normalize_profiles` (canonical `idx` ordering), `hydrate_cons`
+    (connection cache keying), and `combine._rebind_same_profile_sources`
+    (same-profile backend rebinding). Delegates to `Profile.content_hash`,
+    which also backs `hash_name` -- one computation, not two.
+    """
+    return profile.content_hash
+
+
 def normalize_profiles(expr):
     """Rewrite the expression graph so Profile.idx values are canonical.
 
@@ -422,8 +435,9 @@ def normalize_profiles(expr):
         return expr
 
     def content_key(backend):
-        p = backend._profile
-        return tokenize(toolz.dissoc(p.as_dict(), "idx"))
+        return profile_content_key(
+            backend._profile  # xorq-style: disable=protected-access
+        )
 
     # sort by content hash → deterministic canonical order
     # Python sort is stable so backends with the same content hash
@@ -461,14 +475,36 @@ def dehydrate_cons(cons):
     return dehydrated
 
 
-def hydrate_cons(hash_to_profile_kwargs, lazy=False):
+def hydrate_cons(
+    hash_to_profile_kwargs: dict, lazy: bool = False, con_cache: dict | None = None
+) -> dict:
+    """Reconstruct connections from their dumped profile kwargs.
+
+    con_cache : dict[str, BaseBackend] | None
+        When given, connections are shared across calls by profile *content*
+        (con_name + kwargs, matching `normalize_profiles`'s own comparison --
+        `idx` is session-local and excluded): a caller loading several builds
+        that share a same-config connection (e.g. `join_builds`/`union_builds`
+        loading each side) gets one connection object per distinct config
+        instead of a fresh one per build, the way a single `load_expr` call
+        already shares one connection across every read in that build. Pass
+        the *same* dict across those calls; leave it `None` (the default) for
+        an unrelated single load, which keeps today's per-call behavior.
+    """
+
     def kwargs_to_con(kwargs):
         match dct := dict(kwargs):
             case {"kwargs_tuple": dict()}:
                 dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
             case _:
                 dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
-        return Profile(**dct).get_con(lazy=lazy)
+        profile = Profile(**dct)
+        if con_cache is None:
+            return profile.get_con(lazy=lazy)
+        key = profile_content_key(profile)
+        if key not in con_cache:
+            con_cache[key] = profile.get_con(lazy=lazy)
+        return con_cache[key]
 
     profiles = toolz.valmap(
         kwargs_to_con,
@@ -884,6 +920,9 @@ class ExprLoader:
     cache_dir = field(
         validator=optional(or_(instance_of(Path), instance_of(str))), default=None
     )
+    # Shared with `hydrate_cons` -- see its docstring. `None` (the default)
+    # keeps this load's connections private to it, matching prior behavior.
+    con_cache = field(validator=optional(instance_of(dict)), default=None)
 
     @property
     def expr_hash(self):
@@ -900,7 +939,9 @@ class ExprLoader:
         read_only_parquet_metadata: bool = False,
     ):
         profiles = hydrate_cons(
-            self.artifact_store.load_yaml(DumpFiles.profiles), lazy=lazy
+            self.artifact_store.load_yaml(DumpFiles.profiles),
+            lazy=lazy,
+            con_cache=self.con_cache,
         )
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         entry = self.artifact_store.read_json(DumpFiles.expr_metadata)

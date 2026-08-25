@@ -121,6 +121,95 @@ ensure_materialized_option = click.option(
 )
 
 
+emit_build_path_option = click.option(
+    "--emit-build-path-to",
+    type=click.Path(),
+    default=None,
+    help=(
+        "Write the resulting build directory path to this file. Use when "
+        "stdout may be polluted (for example by OTel console fallback) and a "
+        "subprocess consumer needs the path unambiguously."
+    ),
+)
+
+
+# Shared by `xorq join` and `xorq catalog join` so the predicate flags stay
+# identical across both tiers. Only the noun (build vs catalog entry) varies.
+def join_predicate_options(noun: str = "table") -> Callable[[_F], _F]:
+    noun_plural = f"{noun[:-1]}ies" if noun.endswith("y") else f"{noun}s"
+
+    def decorator(fn: _F) -> _F:
+        return apply_in_help_order(
+            fn,
+            click.option(
+                "--on",
+                default=None,
+                help=f"Comma-separated column(s) present in both {noun_plural} to join on.",
+            ),
+            click.option(
+                "--left-on",
+                default=None,
+                help=f"Comma-separated left-{noun} columns (paired with --right-on).",
+            ),
+            click.option(
+                "--right-on",
+                default=None,
+                help=f"Comma-separated right-{noun} columns (paired with --left-on).",
+            ),
+            click.option(
+                "--how",
+                type=click.Choice(
+                    ("inner", "left", "right", "outer", "semi", "anti", "cross")
+                ),
+                default="inner",
+                show_default=True,
+                help="Join method.",
+            ),
+            click.option(
+                "--lname",
+                default="",
+                show_default=True,
+                help="Rename format string for overlapping left columns.",
+            ),
+            click.option(
+                "--rname",
+                default="{name}_right",
+                show_default=True,
+                help="Rename format string for overlapping right columns.",
+            ),
+        )
+
+    return decorator
+
+
+ignore_library_version_mismatch_option = click.option(
+    "--ignore-library-version-mismatch",
+    is_flag=True,
+    default=False,
+    help="Proceed even if the builds recorded different xorq library versions.",
+)
+
+
+ignore_venv_mismatch_option = click.option(
+    "--ignore-venv-mismatch",
+    is_flag=True,
+    default=False,
+    help="Proceed even if the entries' wheel requirements or Python minor differ.",
+)
+
+
+# Shared by `xorq join`/`union` and `xorq catalog join`/`union`.
+rebind_backends_option = click.option(
+    "--rebind-backends/--no-rebind-backends",
+    default=True,
+    show_default=True,
+    help=(
+        "In multi-root mode, rebind same-profile backend sources to one "
+        "backend before execution. Never transfers table data."
+    ),
+)
+
+
 def cache_strategy_options(fn):
     fn = click.option(
         "--ttl",

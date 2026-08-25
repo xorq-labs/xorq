@@ -725,6 +725,29 @@ def exclusively_pinned_leaves(
     return frozenset(under_pin - live)
 
 
+# Every node type that carries a backend-bearing `.source` (or, for
+# TeeNode, `.writer.cons`). Single source of truth for "what can hold a
+# backend" -- consumers that need to reason about backend-bearing nodes
+# individually (not just get the deduplicated sources, like find_all_sources
+# does) must walk this same tuple rather than keep their own copy: a second,
+# hand-maintained list silently stops covering a node type added here later,
+# which is a fail-*open* bug (the omitted type's backend looks untouched by
+# anything, instead of looking untouched-by-nothing-we-checked).
+BACKEND_LEAF_NODE_TYPES = (
+    ops.DatabaseTable,
+    ops.SQLQueryResult,
+    rel.CachedNode,
+    rel.Read,
+    rel.RemoteTable,
+    rel.FlightUDXF,
+    rel.FlightExpr,
+    # TeeNode holds its write target's backend(s) inside its writer
+    rel.TeeNode,
+    # ExprScalarUDF has an expr we need to get to
+    # FlightOperator has a dynamically generated connection: it should be passed a Profile instead
+)
+
+
 def find_all_sources(
     expr: Expr | Node, *, execution_only: bool = False
 ) -> Tuple[Any, ...]:
@@ -743,20 +766,7 @@ def find_all_sources(
     shared between ``uncached`` and a live branch is still found via the live
     branch.
     """
-    node_types = (
-        ops.DatabaseTable,
-        ops.SQLQueryResult,
-        rel.CachedNode,
-        rel.Read,
-        rel.RemoteTable,
-        rel.FlightUDXF,
-        rel.FlightExpr,
-        # TeeNode holds its write target's backend(s) inside its writer
-        rel.TeeNode,
-        # ExprScalarUDF has an expr we need to get to
-        # FlightOperator has a dynamically generated connection: it should be passed a Profile instead
-    )
     gen_children = _gen_children_exec if execution_only else gen_children_of
-    nodes = walk_nodes(node_types, expr, gen_children=gen_children)
+    nodes = walk_nodes(BACKEND_LEAF_NODE_TYPES, expr, gen_children=gen_children)
     sources = get_ordered_unique_sources(nodes)
     return sources

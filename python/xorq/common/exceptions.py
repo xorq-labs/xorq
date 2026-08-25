@@ -62,6 +62,10 @@ class UnboundExpressionError(ValueError, XorqError):
     """UnboundExpressionError."""
 
 
+class BuildVersionMismatchError(ValueError, XorqError):
+    """Raised when combining build artifacts recorded under different xorq library versions."""
+
+
 class NormalizeMethodError(TranslationError):
     """A Read's normalize_method could not be resolved by name (see #2155)."""
 

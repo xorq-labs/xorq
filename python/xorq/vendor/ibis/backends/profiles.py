@@ -200,11 +200,21 @@ class Profile:
         return dict(self.kwargs_tuple)
 
     @property
-    def hash_name(self):
+    def content_hash(self):
+        """Digest of this profile's connection content, excluding session-local `idx`.
+
+        Two `Profile`s describing the same backend config hash equal here
+        even if their `idx` differs (e.g. two independently-constructed
+        profiles for the same connection in the same process). This is
+        what `xorq.ibis_yaml.compiler.profile_content_key` returns.
+        """
         from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
 
-        dasher_hash = tokenize(toolz.dissoc(self.as_dict(), "idx"))
-        return f"{dasher_hash}_{self.idx}"
+        return tokenize(toolz.dissoc(self.as_dict(), "idx"))
+
+    @property
+    def hash_name(self):
+        return f"{self.content_hash}_{self.idx}"
 
     def get_con(self, lazy=False, **kwargs):
         """Create a connection using this profile's parameters.

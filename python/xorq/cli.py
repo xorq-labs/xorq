@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections.abc
 import contextlib
 import datetime
+import json
 import os
 import pdb
 import sys
@@ -19,10 +20,14 @@ from xorq.cli_options import (
     apply_in_help_order,
     cache_dir_option,
     cache_strategy_options,
+    emit_build_path_option,
     ensure_materialized_option,
+    ignore_library_version_mismatch_option,
+    join_predicate_options,
     limit_option,
     output_options,
     params_option,
+    rebind_backends_option,
     relocate_reads_option,
     serve_options,
     unbind_options,
@@ -411,6 +416,105 @@ def run_command(
         set_span_error(span, e)
         rl.finalize(status="error", span_context=span.get_span_context())
         raise
+
+
+def _check_library_version_match(
+    build_paths: collections.abc.Sequence[str], ignore_library_version_mismatch: bool
+) -> None:
+    if ignore_library_version_mismatch:
+        return
+    from xorq.common.exceptions import BuildVersionMismatchError  # noqa: PLC0415
+    from xorq.ibis_yaml.combine import assert_matching_library_versions  # noqa: PLC0415
+
+    try:
+        assert_matching_library_versions(*build_paths)
+    except BuildVersionMismatchError as e:
+        raise click.ClickException(str(e)) from e
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+        raise click.ClickException(f"cannot read build metadata: {e}") from e
+
+
+def _emit_combine_result(
+    kind: str, build_path: Path, emit_build_path_to: str | None
+) -> None:
+    click.echo(f"Written {kind} result to {build_path}", err=True)
+    if emit_build_path_to:
+        Path(emit_build_path_to).write_text(str(build_path))
+    click.echo(str(build_path))
+
+
+@_lazy_span("cli.join_command")
+def join_command(
+    left_path: str,
+    right_path: str,
+    on: str | None = None,
+    left_on: str | None = None,
+    right_on: str | None = None,
+    how: str = "inner",
+    lname: str = "",
+    rname: str = "{name}_right",
+    builds_dir: str = "builds",
+    cache_dir: str | None = None,
+    relocate_reads: bool = True,
+    ignore_library_version_mismatch: bool = False,
+    rebind_backends: bool = True,
+    emit_build_path_to: str | None = None,
+) -> None:
+    """Join two build artifacts into a new build artifact."""
+    from xorq.ibis_yaml.combine import combine_errors, join_builds  # noqa: PLC0415
+
+    cache_dir = _get_cache_dir(cache_dir)
+    _check_library_version_match((left_path, right_path), ignore_library_version_mismatch)
+
+    click.echo(f"Joining {left_path} and {right_path} (how={how})", err=True)
+    with combine_errors():
+        build_path = join_builds(
+            left_path,
+            right_path,
+            cache_dir=Path(cache_dir),
+            builds_dir=builds_dir,
+            relocate_reads=relocate_reads,
+            on=on,
+            left_on=left_on,
+            right_on=right_on,
+            how=how,
+            lname=lname,
+            rname=rname,
+            rebind_backends=rebind_backends,
+        )
+
+    _emit_combine_result("join", build_path, emit_build_path_to)
+
+
+@_lazy_span("cli.union_command")
+def union_command(
+    paths: collections.abc.Sequence[str],
+    distinct: bool = False,
+    builds_dir: str = "builds",
+    cache_dir: str | None = None,
+    relocate_reads: bool = True,
+    ignore_library_version_mismatch: bool = False,
+    rebind_backends: bool = True,
+    emit_build_path_to: str | None = None,
+) -> None:
+    """Union two-or-more build artifacts into a new build artifact."""
+    from xorq.ibis_yaml.combine import combine_errors, union_builds  # noqa: PLC0415
+
+    cache_dir = _get_cache_dir(cache_dir)
+    _check_library_version_match(paths, ignore_library_version_mismatch)
+
+    click.echo(f"Unioning {', '.join(str(p) for p in paths)}", err=True)
+    with combine_errors():
+        build_path = union_builds(
+            *paths,
+            cache_dir=Path(cache_dir),
+            builds_dir=builds_dir,
+            relocate_reads=relocate_reads,
+            distinct=distinct,
+            rebind_backends=rebind_backends,
+        )
+
+    _emit_combine_result("union", build_path, emit_build_path_to)
 
 
 @_lazy_span("cli.run_cached_command")
@@ -871,16 +975,7 @@ def uv_group(ctx):
     help="Output SQL files and other debug artifacts.",
 )
 @relocate_reads_option()
-@click.option(
-    "--emit-build-path-to",
-    type=click.Path(),
-    default=None,
-    help=(
-        "Write the resulting build directory path to this file. Use when "
-        "stdout may be polluted (for example by OTel console fallback) and a "
-        "subprocess consumer needs the path unambiguously."
-    ),
-)
+@emit_build_path_option
 def uv_build(
     script_path: str,
     expr_name: str,
@@ -1109,16 +1204,7 @@ def uv_run_unbound(
     help="Output SQL files and other debug artifacts.",
 )
 @relocate_reads_option()
-@click.option(
-    "--emit-build-path-to",
-    type=click.Path(),
-    default=None,
-    help=(
-        "Write the resulting build directory path to this file. Use when "
-        "stdout may be polluted (for example by OTel console fallback) and a "
-        "subprocess consumer needs the path unambiguously."
-    ),
-)
+@emit_build_path_option
 def build(
     script_path: str,
     expr_name: str,
@@ -1185,6 +1271,135 @@ def run(build_path, cache_dir, output_path, output_format, limit, raw_params):
     """
     with maybe_unzip(build_path) as p:
         run_command(p, output_path, output_format, cache_dir, limit, raw_params)
+
+
+@cli.command("join")
+@click.argument("left_path")
+@click.argument("right_path")
+@join_predicate_options(noun="table")
+@click.option(
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for the generated build artifact.",
+)
+@cache_dir_option
+@relocate_reads_option()
+@ignore_library_version_mismatch_option
+@rebind_backends_option
+@emit_build_path_option
+def join(
+    left_path: str,
+    right_path: str,
+    on: str | None,
+    left_on: str | None,
+    right_on: str | None,
+    how: str,
+    lname: str,
+    rname: str,
+    builds_dir: str,
+    cache_dir: str | None,
+    relocate_reads: bool,
+    ignore_library_version_mismatch: bool,
+    rebind_backends: bool,
+    emit_build_path_to: str | None,
+) -> None:
+    """Join two build artifacts into a new build artifact.
+
+    Loads both builds, joins them with the given predicate and join method,
+    and writes the result as a new build artifact. Execute it later with
+    `xorq run`, or add it to a catalog with `xorq catalog add`.
+
+    \b
+    Arguments:
+      LEFT_PATH   Path to the left build directory.
+      RIGHT_PATH  Path to the right build directory.
+
+    \b
+    Examples:
+      # Inner-join two builds on a shared column
+      xorq join builds/left builds/right --on id
+      # Left join on differently-named columns
+      xorq join builds/left builds/right --left-on user_id --right-on id --how left
+    """
+    with maybe_unzip(left_path) as lp, maybe_unzip(right_path) as rp:
+        join_command(
+            lp,
+            rp,
+            on=on,
+            left_on=left_on,
+            right_on=right_on,
+            how=how,
+            lname=lname,
+            rname=rname,
+            builds_dir=builds_dir,
+            cache_dir=cache_dir,
+            relocate_reads=relocate_reads,
+            ignore_library_version_mismatch=ignore_library_version_mismatch,
+            rebind_backends=rebind_backends,
+            emit_build_path_to=emit_build_path_to,
+        )
+
+
+@cli.command("union")
+@click.argument("paths", nargs=-1)
+@click.option(
+    "--distinct",
+    is_flag=True,
+    default=False,
+    help="Deduplicate rows (default is union-all).",
+)
+@click.option(
+    "--builds-dir",
+    default="builds",
+    show_default=True,
+    help="Directory for the generated build artifact.",
+)
+@cache_dir_option
+@relocate_reads_option()
+@ignore_library_version_mismatch_option
+@rebind_backends_option
+@emit_build_path_option
+def union(
+    paths: tuple[str, ...],
+    distinct: bool,
+    builds_dir: str,
+    cache_dir: str | None,
+    relocate_reads: bool,
+    ignore_library_version_mismatch: bool,
+    rebind_backends: bool,
+    emit_build_path_to: str | None,
+) -> None:
+    """Union two-or-more build artifacts into a new build artifact.
+
+    Loads all builds, unions them (they must share an identical schema), and
+    writes the result as a new build artifact.
+
+    \b
+    Arguments:
+      PATHS  Two or more build directory paths to union.
+
+    \b
+    Examples:
+      # Union-all (the default) two builds
+      xorq union builds/a builds/b
+      # Deduplicate rows across three builds
+      xorq union builds/a builds/b builds/c --distinct
+    """
+    if len(paths) < 2:
+        raise click.UsageError("At least two paths are required.")
+    with contextlib.ExitStack() as stack:
+        unzipped = tuple(stack.enter_context(maybe_unzip(p)) for p in paths)
+        union_command(
+            unzipped,
+            distinct=distinct,
+            builds_dir=builds_dir,
+            cache_dir=cache_dir,
+            relocate_reads=relocate_reads,
+            ignore_library_version_mismatch=ignore_library_version_mismatch,
+            rebind_backends=rebind_backends,
+            emit_build_path_to=emit_build_path_to,
+        )
 
 
 def raise_for_missing_relocation_source(
