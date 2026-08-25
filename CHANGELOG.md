@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.0] - 2026-08-25
+### Details
+#### Added
+- Add Xorq in 60 seconds README guide by @kannandreams in [#2256](https://github.com/xorq-labs/xorq/pull/2256)
+- Add join/union commands for combining build artifacts and catalog entries by @dlovell in [#2258](https://github.com/xorq-labs/xorq/pull/2258)
+
+#### Changed
+- Declarative secret keys via Backend._secret_key_sources by @dlovell in [#2184](https://github.com/xorq-labs/xorq/pull/2184)
+- Top up tier 2 from an imported backend's static _secret_keys by @dlovell in [#2226](https://github.com/xorq-labs/xorq/pull/2226)
+- Update comparison section by @hussainsultan in [#2245](https://github.com/xorq-labs/xorq/pull/2245)
+
+#### Fixed
+- Surface exchange failures instead of hanging or returning empty by @dlovell in [#2231](https://github.com/xorq-labs/xorq/pull/2231)
+- Drop MetricComputation.__module__ property so builds can load by @dlovell in [#2233](https://github.com/xorq-labs/xorq/pull/2233)
+- Exclude FlightExpr/FlightUDXF names from the snapshot hash by @dlovell in [#2230](https://github.com/xorq-labs/xorq/pull/2230)
+- **Breaking:** Failing splits abort the exchange — excepts_print_exc defaults to reraise by @dlovell in [#2242](https://github.com/xorq-labs/xorq/pull/2242)
+- Record query relations in build metadata and order the SQL DAG from them by @hussainsultan in [#2225](https://github.com/xorq-labs/xorq/pull/2225)
+
+## New Contributors
+* @kannandreams made their first contribution in [#2256](https://github.com/xorq-labs/xorq/pull/2256)
+
 ## [0.3.39] - 2026-08-11
 ### Details
 #### Changed
