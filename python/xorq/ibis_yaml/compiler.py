@@ -413,9 +413,10 @@ def profile_content_key(profile: Profile) -> str:
     the same underlying connection regardless of which session constructed
     them: `normalize_profiles` (canonical `idx` ordering), `hydrate_cons`
     (connection cache keying), and `combine._rebind_same_profile_sources`
-    (same-profile backend rebinding).
+    (same-profile backend rebinding). Delegates to `Profile.content_hash`,
+    which also backs `hash_name` -- one computation, not two.
     """
-    return tokenize(toolz.dissoc(profile.as_dict(), "idx"))
+    return profile.content_hash
 
 
 def normalize_profiles(expr):
