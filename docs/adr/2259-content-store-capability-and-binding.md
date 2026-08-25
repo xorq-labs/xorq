@@ -1,4 +1,4 @@
-# ADR-XXXX: Content-store capabilities and hosted bindings
+# ADR-2259: Content-store capabilities and hosted bindings
 
 - **Status:** Proposed
 - **Date:** 2026-08-07
