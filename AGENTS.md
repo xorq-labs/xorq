@@ -95,6 +95,15 @@ Categories 9 and 10 cover conventions the repo's own tooling encodes.
   to the auto-generated changelog. `CONTRIBUTING.md` documents `fix`,
   `feat`, `docs`, and `style`; history also uses `chore`, `release`,
   `ref`/`refactor`, `perf`, `ci`, `test`, and `build`.
+- `chore` leads the history only because most of it is bot-authored
+  `chore(deps)` bumps. For your own commits it means repo upkeep that
+  changes no behavior — CI, pre-commit, nix, tooling. It is not a way to
+  keep something out of the release notes: nothing is excluded, and a
+  `chore` is routed by its verb like anything else, so
+  `chore: remove unused hotfix_utils module` lands under Removed. If the
+  change alters what users get, it isn't a `chore`. Prefer the plain
+  `docs`/`test` types over the `chore(docs)`/`chore(test)` seen in
+  history.
 - `git-cliff` groups commits by the verb that starts the summary, not by
   the type (see `commit_parsers` in `pyproject.toml`): `add` and
   `support` become "Added", `remove` and `delete` become "Removed",
