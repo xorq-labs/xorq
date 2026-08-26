@@ -1,9 +1,10 @@
 # xorq — agent guidance
 
-Each section below names the concrete xorq mechanism for a recurring
-category of agent-conduct concern (a truthful record, real evidence,
-explicit consent, trust boundaries, minimal footprint, single source of
-truth, etc.), or states plainly that the category doesn't apply here.
+Each section below takes one recurring category of agent-conduct concern
+— a truthful record, real evidence, explicit consent, accurate outward
+representation, sensitive data, trust boundaries, minimal footprint,
+single source of truth — and names the concrete xorq mechanism for it, or
+states plainly that the category doesn't apply here.
 
 ## 1. Truthful, non-rewritable record of accepted work
 
@@ -32,12 +33,12 @@ truth, etc.), or states plainly that the category doesn't apply here.
   result) or use the tool's own validation path.
 - Before claiming a change works: run the relevant slice of the suite
   (`python -m pytest`, scoped with `-m <marker>` — see `pyproject.toml`'s
-  `markers` list, e.g. `duckdb`, `postgres`, `snapshot_check`, `slow`) and
-  don't rely on markers you didn't actually run to imply coverage of
-  backends you didn't test. `just download-data` and `just up postgres`
-  are prerequisites for the fixtures many tests depend on — evidence from
-  a suite run without them (silent skips) doesn't establish what it looks
-  like it establishes.
+  `markers` list, such as `duckdb`, `postgres`, `snapshot_check`,
+  `slow`) and don't rely on markers you didn't actually run to imply
+  coverage of backends you didn't test. `just download-data` and
+  `just up postgres` are prerequisites for the fixtures many tests depend
+  on — evidence from a suite run without them (silent skips) doesn't
+  establish what it looks like it establishes.
 - Closing a GitHub issue or marking a PR ready is a stronger claim than
   commenting on it. If verification isn't done, say what was tried and
   what remains instead of closing/resolving.
@@ -46,9 +47,9 @@ truth, etc.), or states plainly that the category doesn't apply here.
   A claim is only a declared contract — and only then needs a backing
   `assert` or test — when it's written as one of a closed set of inline
   tags (`# INVARIANT:`, `# GUARANTEE:`, `# CONTRACT:`, `# PRECONDITION:`,
-  `# POSTCONDITION:`), mirroring the existing convention of a fixed tag
-  marking a load-bearing comment (compare Rust's `// SAFETY:` idiom), or a
-  dedicated `Guarantees:`/`Invariants:` section in a docstring, parallel to
+  `# POSTCONDITION:`) — a fixed tag marking a load-bearing comment, in the
+  spirit of Rust's `// SAFETY:` idiom — or a dedicated
+  `Guarantees:`/`Invariants:` section in a docstring, parallel to
   the `Parameters:`/`Returns:` sections it may already use. When adding a
   new one, prefer writing it as an inline `assert` at the same site over a
   tagged comment plus a separate test — that way there's one artifact, not
@@ -66,15 +67,16 @@ truth, etc.), or states plainly that the category doesn't apply here.
   removed before a PR merges — tests run with `--no-sources`, so leaving
   it in place silently changes what gets tested against. Don't merge with
   it present, and flag it if you find it left behind.
-- Deleting or overwriting entries in a git-native catalog, `warehouse/`
-  contents, or a git-annex-backed large-object store (see
+- Deleting or overwriting entries in a git-native catalog, an Iceberg
+  `warehouse_path` directory, or a git-annex-backed large-object store (see
   `docs/adr/0003-optional-git-annex-backend.md`) is data loss for anyone
   else who reads that catalog. Treat it the same as any other destructive
   filesystem operation: confirm before deleting, prefer archiving/moving
   over removal.
 - Rotating, revoking, or hardcoding backend credentials (Postgres, cloud
-  storage, `OPENWEATHER_API_KEY`, etc.) is out of scope for an agent to do
-  unilaterally — see category 5 for how these should be handled instead.
+  storage, `OPENWEATHER_API_KEY`, and the like) is out of scope for an
+  agent to do unilaterally — see category 5 for how these should be
+  handled instead.
 
 ## 4. Accurate representation to external/future audiences
 
@@ -114,8 +116,9 @@ credential-handling code on that path as a genuine boundary: don't assume
 a connection is trusted without checking what actually authenticates it,
 and don't let a credential intended for one backend/profile reach a
 different one. If this surface grows a multi-client or multi-tenant story,
-that's the point to write a real trust-boundary section here, modeled on
-category 6 of `AGENTS.meta.md`, rather than deferring indefinitely.
+that's the point to replace this section with a real trust-boundary
+description — what the boundary is, what crosses it, and what gets
+verified at the crossing — rather than deferring indefinitely.
 
 ## 7. Minimum necessary footprint
 
@@ -151,7 +154,12 @@ category 6 of `AGENTS.meta.md`, rather than deferring indefinitely.
 
 Docs and any user-facing copy follow `STYLEGUIDE.md` (capitalize "Xorq" in
 body text, no Latin abbreviations, second person / present tense, sentence
-case headings, etc.). The repo already enforces basic prose/spelling
-mechanically (`vale`, `codespell`, and an `xorq-check-style` PostToolUse
-hook per `.claude/settings.json`) — don't fight or bypass that tooling,
-fix what it flags.
+case headings, and so on). Some of this is enforced mechanically, but not
+uniformly: `vale` covers only the `.qmd` pages under `docs/`, and skips
+`docs/reference/**` and `docs/adr/**` (see `.vale.ini` and
+`.github/workflows/ci-docs-lint.yml`); `codespell` runs repo-wide from
+pre-commit; the `xorq-check-style` PostToolUse hook in
+`.claude/settings.json` is best-effort and exits quietly when the command
+isn't installed. Don't fight or bypass that tooling — fix what it
+flags — and don't read a clean run over a file outside `vale`'s scope as
+confirmation that the file follows `STYLEGUIDE.md`.
