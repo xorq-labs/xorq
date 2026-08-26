@@ -4,7 +4,8 @@ Each section below takes one recurring category of agent-conduct concern
 — a truthful record, real evidence, explicit consent, accurate outward
 representation, sensitive data, trust boundaries, minimal footprint,
 single source of truth — and names the concrete xorq mechanism for it, or
-states plainly that the category doesn't apply here.
+states plainly that the category doesn't apply here. Categories 9 and 10
+cover the mechanical conventions the repo's own tooling encodes.
 
 ## 1. Truthful, non-rewritable record of accepted work
 
@@ -39,6 +40,19 @@ states plainly that the category doesn't apply here.
   `just up postgres` are prerequisites for the fixtures many tests depend
   on — evidence from a suite run without them (silent skips) doesn't
   establish what it looks like it establishes.
+- Markers are applied by path, not by decorator (see
+  `python/xorq/backends/conftest.py`): tests under
+  `python/xorq/backends/<name>/` get `<name>`, everything else gets
+  `core`. So `-m core` is the default slice for non-backend work.
+- Catalog tests are excluded from the marker run entirely
+  (`--ignore=python/xorq/catalog` in `.github/workflows/ci-test.yml`) and
+  run from `ci-test-catalog.yml`, split into a `git` job and an `annex`
+  job by nodeid. A new catalog test needing the `git-annex` binary must
+  consume the `backend_type` fixture, or otherwise carry `[annex]` in its
+  nodeid, or it silently lands in the job that can't run it — see the
+  comment on that split in `ci-test-catalog.yml`.
+- CI also filters `-k 'not script_execution and not slow'`, so a local
+  `-m <marker>` run is a superset of what CI actually runs.
 - Closing a GitHub issue or marking a PR ready is a stronger claim than
   commenting on it. If verification isn't done, say what was tried and
   what remains instead of closing/resolving.
@@ -62,11 +76,19 @@ states plainly that the category doesn't apply here.
   release that triggers publishing to PyPI) are explicitly maintainer-only.
   Do not run them, or trigger the `ci-pre-release` workflow, without the
   user explicitly asking for a release in the current conversation.
-- The `[tool.uv.sources]` path override used to develop against a local
-  `xorq-datafusion` checkout (see "Working with xorq-datafusion") must be
-  removed before a PR merges — tests run with `--no-sources`, so leaving
-  it in place silently changes what gets tested against. Don't merge with
-  it present, and flag it if you find it left behind.
+- The local-checkout override used to develop against `xorq-datafusion`
+  (see "Working with xorq-datafusion" in `CONTRIBUTING.md`) must be
+  removed before a PR merges — leaving it in silently changes what gets
+  tested against. What has to go is the one `xorq-datafusion` entry with
+  a `path = ...` value, not the `[tool.uv.sources]` table itself — that
+  table is a permanent fixture holding three `git = ...` sources. Grep
+  for a `path =` entry, not for the table name, or you'll report three
+  legitimate dependencies as a leftover.
+- `CONTRIBUTING.md` attributes that failure to tests running with
+  `--no-sources`, but the flag appears nowhere else in the repo. What CI
+  actually runs is `uv sync --locked`, which fails on an unlocked path
+  source. Same outcome, different mechanism — don't go looking for a
+  `--no-sources` invocation to confirm it.
 - Deleting or overwriting entries in a git-native catalog, an Iceberg
   `warehouse_path` directory, or a git-annex-backed large-object store (see
   `docs/adr/0003-optional-git-annex-backend.md`) is data loss for anyone
@@ -80,12 +102,23 @@ states plainly that the category doesn't apply here.
 
 ## 4. Accurate representation to external/future audiences
 
-- Commit messages follow Conventional Commits (`fix`, `feat`, `docs`,
-  `style`, plus `refactor`, `build`, `chore`, `test`, `release` as seen in
-  history) and are the direct input to the auto-generated changelog. Pick
-  the type that matches the actual SemVer impact — a `feat` mislabeled as
-  `fix` (or vice versa) corrupts the generated release notes and the
-  version-bump signal, not just the commit log's readability.
+- Commit messages follow Conventional Commits and are the direct input
+  to the auto-generated changelog. `CONTRIBUTING.md` documents `fix`,
+  `feat`, `docs`, and `style`; history also uses `chore`, `release`,
+  `ref`/`refactor`, `perf`, `ci`, `test`, and `build`.
+- `git-cliff` groups commits by the verb that starts the summary, not by
+  the type: `^.*: add` and `^.*: support` become "Added", `^fix`,
+  `^.*: fix`, and `^test` become "Fixed", and everything else falls
+  through to "Changed" (see `commit_parsers` in `pyproject.toml`). Two
+  `feat` commits land in different sections depending on their verb, so
+  write the verb you actually mean — that's the token the changelog
+  reads.
+- `filter_unconventional` is on, so a summary that doesn't parse as a
+  conventional commit is dropped from the changelog entirely rather than
+  misfiled. That's the failure mode worth avoiding.
+- The type still carries the SemVer claim a human reads when computing
+  the next version number, which is a manual step (see "Release Flow" in
+  `CONTRIBUTING.md`). Pick the type that matches the actual impact.
 - Only add `fixes #NNNN` to a commit/PR body when the change actually
   closes that issue.
 - Don't post unsolicited comments on GitHub issues or PRs; don't frame a
@@ -122,18 +155,29 @@ verified at the crossing — rather than deferring indefinitely.
 
 ## 7. Minimum necessary footprint
 
-- Every `__init__.py` (or star-importable module) declares an explicit
-  `__all__`; that's the sole source of truth for the public surface. Don't
-  use the `@public` decorator in first-party code (it's vendored-ibis-only)
-  and don't add names to a public surface that aren't meant to be
-  supported API.
+- `__all__` is the sole source of truth for a module's public surface.
+  Declare it on new `__init__.py` and star-importable modules, and don't
+  add names to it that aren't meant to be supported API. Don't use the
+  `@public` decorator in first-party code (it's vendored-ibis-only).
+- Enforcement of `__all__` is opt-in per module: the `unlisted-import`
+  rule (category 9) skips any module that declares no `__all__`, so
+  adding one opts that module and its importers into the check. Many
+  existing modules, `python/xorq/__init__.py` among them, still don't
+  declare one — that's a gap to close going forward, not a pattern to
+  copy, and retrofitting one onto an old module means checking its
+  importers in the same change.
 - Default to eager, module-scope imports. Move an import into function
   scope only for one of the three documented reasons — optional/extra
   dependency, heavy import cost, or breaking an import cycle — and mark it
   `# noqa: PLC0415` so the exception is explicit and reviewable, per
-  `CONTRIBUTING.md`'s "Eager vs. lazy imports" section. `PLC0415` is
-  enforced by ruff (see `pyproject.toml`); don't add a blanket
-  per-file/per-module ignore to work around it.
+  `CONTRIBUTING.md`'s "Eager vs. lazy imports" section. "Heavy import
+  cost" always means a third-party package: stdlib imports are cheap, and
+  the `deferred-stdlib` rule (category 9) forbids deferring them
+  anywhere.
+- `PLC0415` is enforced by ruff (see `pyproject.toml`); don't add a
+  blanket per-file/per-module ignore to work around it. The existing
+  `python/xorq/vendor/**` exemption is the vendored-ibis carve-out, not a
+  precedent for first-party code.
 
 ## 8. Single source of truth for tracked work, docs, and comments
 
@@ -150,16 +194,47 @@ verified at the crossing — rather than deferring indefinitely.
   an ADR) should point at it rather than re-explain it, so the explanation
   itself still lives in exactly one place.
 
-## Documentation conventions
+## 9. Code conventions the tooling encodes
 
-Docs and any user-facing copy follow `STYLEGUIDE.md` (capitalize "Xorq" in
-body text, no Latin abbreviations, second person / present tense, sentence
-case headings, and so on). Some of this is enforced mechanically, but not
-uniformly: `vale` covers only the `.qmd` pages under `docs/`, and skips
-`docs/reference/**` and `docs/adr/**` (see `.vale.ini` and
-`.github/workflows/ci-docs-lint.yml`); `codespell` runs repo-wide from
-pre-commit; the `xorq-check-style` PostToolUse hook in
-`.claude/settings.json` is best-effort and exits quietly when the command
-isn't installed. Don't fight or bypass that tooling — fix what it
-flags — and don't read a clean run over a file outside `vale`'s scope as
-confirmation that the file follows `STYLEGUIDE.md`.
+- `xorq-check-style` is this project's Python style enforcer, not a prose
+  checker. `xorq-check-style --list` prints the current rule set and is
+  the source of truth for it, so this file doesn't keep a second copy.
+  Read that list once before writing Python here: the rules decide which
+  library you reach for, where a class is allowed to live, and what shape
+  a test takes — choices you make on nearly every file.
+- Nothing runs it for you. It's a declared dev dependency with
+  repo-level config in `pyproject.toml`, but no CI workflow and no
+  pre-commit hook invokes it. The only automatic trigger is the
+  PostToolUse hook in `.claude/settings.json`, which matches `Edit` and
+  `Write` — a file you author through a shell heredoc, a `sed` call, or a
+  generator script is never checked. Run `xorq-check-style` yourself
+  (`--diff` lints only changed lines) when you've written Python any
+  other way.
+- `uv.lock` is regenerated by the `uv-lock` pre-commit hook, and
+  `ci-lint` fails the build when the working tree is dirty after linting.
+  If you change dependencies in `pyproject.toml`, commit the regenerated
+  lockfile in the same commit.
+- ruff runs only over `python`, `examples`, and `docs` (see
+  `.pre-commit-config.yaml` and `.github/workflows/ci-lint.yml`). A clean
+  ruff run says nothing about files outside those trees.
+
+## 10. Documentation conventions
+
+Docs and user-facing copy follow `STYLEGUIDE.md`. `docs/LINTING.md` is the
+source of truth for which checks run and how to run them locally
+(`just docs-lint`) — this file doesn't restate that table. Don't fight or
+bypass the tooling; fix what it flags.
+
+Two things about its reach that neither file makes obvious:
+
+- `vale` only styles `.qmd` files, and zeroes out its rules for
+  `docs/reference/**` and `docs/adr/**` (see `.vale.ini`). A clean lint
+  run over a Markdown file — this one included — is not evidence that
+  the file follows `STYLEGUIDE.md`.
+- It does reach Python docstrings, indirectly:
+  `docs/generate_cli_reference.py` renders Click docstrings into
+  `docs/api_reference/cli/`, which is not excluded, and `ci-docs-lint`
+  generates those pages before running `vale`. But that workflow triggers
+  only on `docs/**`, so a docstring-only change in `python/xorq/cli.py`
+  fails nothing at the time — it surfaces later, on someone else's docs
+  PR.
