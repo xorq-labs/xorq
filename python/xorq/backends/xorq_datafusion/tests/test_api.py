@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+import xorq.vendor.ibis.expr.types as ir
 from xorq.api import SessionConfig
 
 
@@ -50,9 +51,21 @@ def test_with_config(
     assert len(result) == 10
 
 
-def test_cases(alltypes):
+def test_cases(alltypes: ir.Table) -> None:
     expr = xo.cases((alltypes["bool_col"], alltypes["string_col"]), else_=None).substr(
         0, 2
     )
 
     assert expr.execute() is not None
+
+
+def test_cases_deferred(alltypes: ir.Table) -> None:
+    deferred = xo.cases((xo._.bool_col, xo._.string_col), else_=None)
+
+    assert isinstance(deferred, xo.Deferred)
+
+    expr = alltypes.mutate(result=deferred)
+    result = expr.execute()
+    expected = result.string_col.where(result.bool_col, None)
+
+    assert result.result.equals(expected)

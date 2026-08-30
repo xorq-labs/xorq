@@ -1165,6 +1165,7 @@ def case() -> bl.SearchedCaseBuilder:
     return bl.SearchedCaseBuilder()
 
 
+@deferrable
 def cases(
     branch: tuple[Any, Any], *branches: tuple[Any, Any], else_: Any | None = None
 ) -> ir.Value:
