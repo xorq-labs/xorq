@@ -157,6 +157,19 @@ jobs:
           POSTGRES_PORT: 5432
           POSTGRES_DATABASE: ibis_testing
 
+      # Builds its own wheel and isolated env, so the dev/test groups installed
+      # here cannot mask a missing declaration.
+      - name: bare-install CLI round trip
+        if: matrix.backend.name == 'core'
+        timeout-minutes: 10
+        run: >
+          uv run --no-sync pytest
+          --import-mode=importlib
+          python/xorq/tests/test_bare_install.py
+          -m bare_install
+          -v --durations=20
+        working-directory: ${{ github.workspace }}
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.5.4
         with:

@@ -33,6 +33,22 @@ dependencies = [
     "pandas>=2.2.3,<3 ; python_version >= '3.10' and python_version < '4.0'",
     "atpublic>=5.1",
     "parsy>=2",
+    "packaging>=22",
+    # Per-interpreter floors so `--resolution lowest-direct` gets a wheel and not
+    # a source build.  Each is the first release with wheels for that Python,
+    # except numpy on 3.10, where 1.22.4 is pandas' own floor (1.21.3 was the
+    # first with cp310 wheels).  The `>= '3.13'` rows are open upward and only
+    # safe while requires-python caps at <3.14; raising that cap needs a new row
+    # per interpreter, or lowest-direct picks a release with no wheel for it.
+    "numpy>=1.22.4; python_version < '3.11'",
+    "numpy>=1.23.2; python_version == '3.11'",
+    "numpy>=1.26.0; python_version == '3.12'",
+    "numpy>=2.1.0; python_version >= '3.13'",
+    "xxhash>=3.0; python_version < '3.11'",
+    "xxhash>=3.2; python_version == '3.11'",
+    "xxhash>=3.4; python_version == '3.12'",
+    "xxhash>=3.5; python_version >= '3.13'",
+    "pygments>=2.13",
     "python-dateutil>=2.8.2",
     "pytz>=2022.7",
     "sqlglot>=23.4,!=26.32.0,<28.7.0",
@@ -324,6 +340,7 @@ markers = [
     "databricks: Databricks tests",
     "xorq_datafusion: xorq DataFusion backend tests",
     "uv_export: tests that call uv export against the project lockfile",
+    "bare_install: tests that build the wheel and drive the CLI against declared dependencies only",
     "bigquery: BigQuery tests",
 ]
 consider_namespace_packages = true
