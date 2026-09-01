@@ -1,4 +1,4 @@
-"""Import every module in bare-install-modules.txt; exit non-zero on the first failure.
+"""Import every module in bare_install_modules.txt; exit non-zero on the first failure.
 
 Run inside an environment holding only [project].dependencies, so it must not
 import anything beyond the standard library and xorq itself.

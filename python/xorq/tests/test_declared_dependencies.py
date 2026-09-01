@@ -16,18 +16,26 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
 
-# Optional backends are excluded: their imports are extras-gated and lazy.
-# `backends/pandas` and `common/utils/dasher` are in scope because pandas is a
-# core dependency and dasher is always loaded; they are also the only module-level
-# import sites for numpy and xxhash, so without them those declarations have no
-# guard at all.
-CORE_PACKAGES = (
-    "python/xorq/backends/pandas",
-    "python/xorq/caching",
-    "python/xorq/catalog",
-    "python/xorq/common/utils/dasher",
-    "python/xorq/flight",
-    "python/xorq/ibis_yaml",
+SCANNED_PACKAGE = "python/xorq"
+
+# Modules whose module-level third-party imports belong to an optional backend.
+# Excluded by path rather than by scanning an allowlist of packages, so a new
+# module anywhere in xorq is in scope by default and has to be excluded
+# deliberately.  test_extras_gated_modules_are_all_still_needed keeps this from
+# accumulating entries that no longer apply.
+EXTRAS_GATED_MODULES = (
+    "python/xorq/backends/databricks/backend.py",
+    "python/xorq/backends/postgres/__init__.py",
+    "python/xorq/backends/pyiceberg/__init__.py",
+    "python/xorq/backends/pyiceberg/compiler.py",
+    "python/xorq/common/utils/bigquery_utils.py",
+    "python/xorq/common/utils/databricks_utils.py",
+    "python/xorq/common/utils/gcloud_utils.py",
+    "python/xorq/common/utils/ibis_utils.py",
+    "python/xorq/common/utils/postgres_utils.py",
+    "python/xorq/common/utils/snowflake_utils.py",
+    "python/xorq/common/utils/sqlite_utils.py",
+    "python/xorq/expr/ml/sklearn_utils.py",
 )
 
 # Import root -> distribution name, for the cases where they differ.
@@ -52,12 +60,25 @@ def declared_dependency_names(root_dir):
 
 
 def iter_core_modules(root_dir):
-    for package in CORE_PACKAGES:
-        for path in sorted(root_dir.joinpath(package).rglob("*.py")):
-            parts = path.relative_to(root_dir).parts
-            if "tests" in parts or path.name == "conftest.py":
-                continue
-            yield path
+    """Every xorq module that must import with only the declared dependencies."""
+    excluded = {root_dir.joinpath(module) for module in EXTRAS_GATED_MODULES}
+    for path in sorted(root_dir.joinpath(SCANNED_PACKAGE).rglob("*.py")):
+        parts = path.relative_to(root_dir).parts
+        if "tests" in parts or "vendor" in parts or path.name == "conftest.py":
+            continue
+        if path in excluded:
+            continue
+        yield path
+
+
+def undeclared_imports(path, declared):
+    """Module-level import roots of *path* that are not declared dependencies."""
+    return {
+        import_root
+        for import_root in module_level_import_roots(path)
+        if canonicalize_name(IMPORT_ROOT_TO_DISTRIBUTION.get(import_root, import_root))
+        not in declared
+    }
 
 
 def module_level_import_roots(path):
@@ -87,12 +108,29 @@ def test_root_dir_is_the_repo_checkout(root_dir):
     assert pyproject["project"]["name"] == "xorq"
 
 
-def test_core_packages_all_exist(root_dir):
-    """A typo in CORE_PACKAGES would silently scan nothing."""
-    missing = [
-        package for package in CORE_PACKAGES if not root_dir.joinpath(package).is_dir()
+def test_extras_gated_modules_all_exist(root_dir):
+    """A stale path silently excludes nothing and hides a typo."""
+    missing = [m for m in EXTRAS_GATED_MODULES if not root_dir.joinpath(m).is_file()]
+    assert not missing, f"EXTRAS_GATED_MODULES entries do not exist: {missing}"
+
+
+def test_extras_gated_modules_are_all_still_needed(root_dir):
+    """Every exclusion must still have an undeclared module-level import.
+
+    Without this the list becomes a place to park problems: an entry whose
+    import was since declared, or removed, would keep a whole module out of
+    scope for no reason.
+    """
+    declared = declared_dependency_names(root_dir)
+    unnecessary = [
+        module
+        for module in EXTRAS_GATED_MODULES
+        if not undeclared_imports(root_dir.joinpath(module), declared)
     ]
-    assert not missing, f"CORE_PACKAGES entries do not exist: {missing}"
+    assert not unnecessary, (
+        f"EXTRAS_GATED_MODULES entries no longer have an undeclared "
+        f"module-level import and should be removed: {unnecessary}"
+    )
 
 
 def test_core_module_scan_is_non_empty(root_dir):
@@ -104,10 +142,8 @@ def test_core_module_imports_are_declared(root_dir):
     declared = declared_dependency_names(root_dir)
     undeclared = {}
     for path in iter_core_modules(root_dir):
-        for import_root in module_level_import_roots(path):
+        for import_root in undeclared_imports(path, declared):
             distribution = IMPORT_ROOT_TO_DISTRIBUTION.get(import_root, import_root)
-            if canonicalize_name(distribution) in declared:
-                continue
             undeclared.setdefault(distribution, set()).add(
                 str(path.relative_to(root_dir))
             )

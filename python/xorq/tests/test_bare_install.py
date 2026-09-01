@@ -70,8 +70,10 @@ def test_core_modules_import(wheel, root_dir):
 def test_module_listing_covers_the_new_declarations(root_dir):
     """pygments and xxhash are only reached through tui and the pandas executor.
 
-    Without those two entries the round trip never imports either, so three of
-    the four declarations this branch adds would go unexercised end to end.
+    This exercises those import paths; it does not guard the declarations.
+    Removing numpy, pygments or xxhash from pyproject.toml leaves these tests
+    green, because each still arrives transitively via pandas, rich/textual and
+    xorq-dasher.  test_declared_dependencies is what fails on removal.
     """
     listing = root_dir.joinpath(MODULE_LISTING).read_text()
     for module in ("xorq.catalog.tui", "xorq.backends.pandas.executor"):

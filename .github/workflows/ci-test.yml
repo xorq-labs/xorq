@@ -165,6 +165,7 @@ jobs:
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
+          python/xorq/tests/test_bare_install.py
           -m bare_install
           -v --durations=20
         working-directory: ${{ github.workspace }}

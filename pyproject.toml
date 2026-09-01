@@ -34,8 +34,10 @@ dependencies = [
     "atpublic>=5.1",
     "parsy>=2",
     "packaging>=22",
-    # Per-interpreter floors: the first release with wheels for that Python, so
-    # `--resolution lowest-direct` gets a wheel and not a source build.
+    # Per-interpreter floors so `--resolution lowest-direct` gets a wheel and not
+    # a source build.  Each is the first release with wheels for that Python,
+    # except numpy on 3.10, where 1.22.4 is pandas' own floor (1.21.3 was the
+    # first with cp310 wheels).
     "numpy>=1.22.4; python_version < '3.11'",
     "numpy>=1.23.2; python_version == '3.11'",
     "numpy>=1.26.0; python_version == '3.12'",
