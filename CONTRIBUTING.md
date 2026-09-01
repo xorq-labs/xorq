@@ -226,5 +226,5 @@ change is not present in PyPI.
 9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `release-$version_number`
 10. Wait for all ci-pre-release tests to pass
 11. "Squash and merge" the PR
-12. Tag the updated main with `v$version_number` and push the tag: `git fetch && git tag v$version_number origin/main && git push --tags`
+12. Tag the updated main with `v$version_number` and push that tag alone: `git fetch && git tag v$version_number origin/main && git push origin v$version_number`. Not `git push --tags`, which publishes every local tag, including any local-only archive or backup tags.
 13. Create a [GitHub release](https://github.com/xorq-labs/xorq/releases/new) to trigger the publishing workflow.
