@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788286986231,
+  "lastUpdate": 1788291694932,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -36498,6 +36498,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.11939790852798236",
             "extra": "mean: 1.807875349400001 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8badfb2c20c32d818562198c97e5831f14e9c845",
+          "message": "docs: correct three defects in the Release Flow steps (#2272)\n\nThree fixes to the `## Release Flow` section of CONTRIBUTING.md. Docs\nonly.\n\n**1. Step 9 named a branch that does not exist** (CONTRIBUTING.md:226)\n\n- Was: `Use workflow from -> Branch $version_number`. Step 3\n(CONTRIBUTING.md:220) creates `release-$version_number`, and `git\nls-remote --heads origin` has no bare-version branches (only\n`release-0.4.1`).\n- Consequence: dispatching `ci-pre-release` on the wrong ref builds the\n*previous* version and publishes it via `uv publish --publish-url\nhttps://test.pypi.org/legacy/`\n(`.github/workflows/ci-pre-release.yml:36`). TestPyPI rejects a reused\nversion, so it cannot be undone.\n\n**2. Step 4 omitted `uv.lock`** (CONTRIBUTING.md:221)\n\n- `git show 61a4758b --stat` (release: 0.4.0) touches CHANGELOG.md,\npyproject.toml **and** uv.lock; the message reads \"`uv.lock`:\nregenerated (xorq's own version only)\".\n- Consequence: a release commit that bumps only pyproject.toml leaves\nuv.lock pinning the old version.\n\n**3. Step 5's command places the new changelog section in the wrong\nposition** (CONTRIBUTING.md:222)\n\n- Running `git cliff ... -p CHANGELOG.md --tag vX -u` against the\ncurrent CHANGELOG puts the new `## [X]` block **above** `##\n[Unreleased]` (verified by running it on a scratch copy).\n- `git show 61a4758b -- CHANGELOG.md` shows the `## [0.4.0]` block\ninserted **after** the `## [Unreleased]` / `### Details` lines.\n- Consequence: without the manual move, the changelog ordering diverges\nfrom every prior release.\n\n~~Left alone: step 7 pushes to a remote named `upstream` while the\ncanonical checkout names it `origin` — fork-setup-dependent, out of\nscope.~~ No longer true — see defect 5 below.\n\n---\n\n## Defect 4 (added after the initial three)\n\n**Step 12 pushed every local tag.** It read `git push --tags`, which\npublishes all tags in the local repository, not just the release tag.\nFound while cutting v0.4.1: the working checkout had **17 local-only\ntags** that command would have pushed to the public remote —\n`archive/pre-landing/*`, `backup/*` and similar throwaway refs.\n\nEvidence:\n\n```console\n$ comm -23 <(git tag | sort) \\\n    <(git ls-remote --tags origin | sed 's/.*refs\\/tags\\///' | grep -v '\\^{}' | sort) | wc -l\n17\n```\n\nNow `git push origin v$version_number`, with a note on why `--tags` is\nthe wrong tool.\n\nAll four defects were hit in practice while cutting 0.4.1, not found by\nreading.\n\n\n\n## Defect 5 (added during review of defect 4)\n\n**Steps 7 and 12 disagreed about the remote.** Step 7 pushed the release\nbranch to `upstream`; step 12 tagged from `origin/main`. Only one can be\nright in a given checkout, and the step-12 rewrite above made the\ncontradiction load-bearing on the one step that publishes a public,\nhard-to-retract ref.\n\n`origin` is the correct name:\n\n- CONTRIBUTING.md:14 documents setup as `git clone\ngit@github.com:xorq-labs/xorq.git`, so `origin` is the canonical repo\nand no `upstream` remote exists.\n- `git show 91cb4719` (release: 0.1.17) is where step 7 was flipped\n`origin` -> `upstream`, leaving step 12 on `origin/main`. Step 7 is the\nanomaly.\n\nStep 7 is now `git push --set-upstream origin\n\"release-$version_number\"`, and step 12's bare `git fetch` is now `git\nfetch origin` so the tag base cannot be stale.\n\nAlso in the same commit: step 5 said to move the generated section\n\"below\" without naming the anchor. git-cliff emits `## [Unreleased]` and\n`### Details` as a two-line block, so \"move it below\" can be read as\n\"below the `## [Unreleased]` heading\" -- which orphans `### Details`\nonto the wrong version. It now names the whole block.\n\nThis one was found by review, not by cutting a release.\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T15:35:35-04:00",
+          "tree_id": "4c997aae30d254d917b5dfd915a7b0f7eb4846b7",
+          "url": "https://github.com/xorq-labs/xorq/commit/8badfb2c20c32d818562198c97e5831f14e9c845"
+        },
+        "date": 1788291690626,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.219720562753166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029981935056447463",
+            "extra": "mean: 138.50951588888924 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.812782306654237,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05108927879836648",
+            "extra": "mean: 355.51986999999485 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7599750698021284,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17978403651438085",
+            "extra": "mean: 1.315832636800002 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.3770087898048193,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06531283503520828",
+            "extra": "mean: 420.6968036000035 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.9065443078480477,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05073332805415293",
+            "extra": "mean: 344.0511803999925 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.0831738637704382,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01594983059941596",
+            "extra": "mean: 324.34109919999514 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 151.31228341762818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009288330547494048",
+            "extra": "mean: 6.608848782223175 msec\nrounds: 225"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.9741722172048224,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08486413946169175",
+            "extra": "mean: 251.6247272000044 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 13.456974162467422,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014035926385345456",
+            "extra": "mean: 74.31091030768864 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.92128272162267,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014208962871966126",
+            "extra": "mean: 100.79341835714217 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.151931248093774,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02256290878245681",
+            "extra": "mean: 122.67031818182193 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.4778285389736645,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024782301690870232",
+            "extra": "mean: 182.55408925000083 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.710280110584387,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04596506111150677",
+            "extra": "mean: 212.3015991666648 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.720152312971157,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009879982196327058",
+            "extra": "mean: 211.85757020000437 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.210576364588037,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07585855884959769",
+            "extra": "mean: 452.37071019998893 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.2961906550216264,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02075788518632088",
+            "extra": "mean: 303.38050940000585 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7279078213318622,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10543861334416997",
+            "extra": "mean: 578.7345758000015 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.84434454166147,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10965707381277098",
+            "extra": "mean: 542.198042400014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6589338275423298,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06865670755350893",
+            "extra": "mean: 602.7967984000156 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5284467322099333,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14780190539138202",
+            "extra": "mean: 654.2589799999973 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2658396778411922,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15729130262450786",
+            "extra": "mean: 789.9894572000107 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1840244255941184,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13857178215824847",
+            "extra": "mean: 844.5771712000123 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9938609947772953,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13894531348197384",
+            "extra": "mean: 1.0061769253999955 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.613269290942671,
+            "unit": "iter/sec",
+            "range": "stddev: 0.24336561465951603",
+            "extra": "mean: 1.6306050454 sec\nrounds: 5"
           }
         ]
       }
