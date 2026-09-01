@@ -12,6 +12,8 @@ import pytest
 
 # tomlkit rather than tomllib: xorq supports 3.10, where tomllib does not exist.
 import tomlkit
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 
 # Optional backends are excluded: their imports are extras-gated and lazy.
@@ -41,24 +43,11 @@ pytestmark = pytest.mark.core
 
 
 def declared_dependency_names(project_root):
-    """Normalized distribution names from [project].dependencies."""
+    """Canonical distribution names from [project].dependencies."""
     pyproject = tomlkit.parse(project_root.joinpath("pyproject.toml").read_text())
-    dependencies = pyproject["project"]["dependencies"]
-    # strip extras, version specifiers and environment markers
     return {
-        str(dependency)
-        .split(";")[0]
-        .strip()
-        .split("[")[0]
-        .split("<")[0]
-        .split(">")[0]
-        .split("=")[0]
-        .split("!")[0]
-        .split("~")[0]
-        .strip()
-        .lower()
-        .replace("_", "-")
-        for dependency in dependencies
+        canonicalize_name(Requirement(str(dependency)).name)
+        for dependency in pyproject["project"]["dependencies"]
     }
 
 
@@ -119,7 +108,7 @@ def test_core_module_imports_are_declared(project_root):
     for path in iter_core_modules(project_root):
         for import_root in module_level_import_roots(path):
             distribution = IMPORT_ROOT_TO_DISTRIBUTION.get(import_root, import_root)
-            if distribution.lower().replace("_", "-") in declared:
+            if canonicalize_name(distribution) in declared:
                 continue
             undeclared.setdefault(distribution, set()).add(
                 str(path.relative_to(project_root))
@@ -169,7 +158,7 @@ def test_module_level_import_roots_classification(tmp_path, source, expected):
 def test_declared_dependency_names_strips_specifiers(project_root):
     declared = declared_dependency_names(project_root)
     assert {"pyarrow", "pandas", "gitpython", "py-yaml12"} <= declared
-    assert not any(character in name for name in declared for character in "<>=!;[ ")
+    assert all(name == canonicalize_name(name) for name in declared)
 
 
 def test_regression_packaging_is_declared(project_root):

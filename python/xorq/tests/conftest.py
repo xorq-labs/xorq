@@ -223,7 +223,12 @@ def struct_df(struct):
 @pytest.fixture(scope="session")
 def project_root():
     """The source checkout containing pyproject.toml; skip if installed."""
-    root = Path(__file__).parents[3]
-    if not root.joinpath("pyproject.toml").exists():
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        PYPROJECT_NAME,
+        find_file_upwards,
+    )
+
+    try:
+        return find_file_upwards(Path(__file__).parent, PYPROJECT_NAME).parent
+    except ValueError:
         pytest.skip("not running from a source checkout")
-    return root
