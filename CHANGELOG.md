@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.1] - 2026-09-01
+### Details
+#### Fixed
+- Make cases deferrable by @hussainsultan in [#2265](https://github.com/xorq-labs/xorq/pull/2265)
+- Declare packaging, numpy, pygments and xxhash as runtime dependencies by @dlovell in [#2268](https://github.com/xorq-labs/xorq/pull/2268)
+
 ## [0.4.0] - 2026-08-25
 ### Details
 #### Added
