@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -68,4 +69,26 @@ def test_cases_deferred(alltypes: ir.Table) -> None:
     result = expr.execute()
     expected = result.string_col.where(result.bool_col, None)
 
-    assert result.result.equals(expected)
+    pd.testing.assert_series_equal(result.result, expected, check_names=False)
+
+
+def test_cases_deferred_multiple_branches(alltypes: ir.Table) -> None:
+    deferred = xo.cases(
+        (xo._.int_col == 1, xo._.string_col),
+        (xo._.int_col == 2, "two"),
+        else_=xo._.string_col.upper(),
+    )
+
+    assert isinstance(deferred, xo.Deferred)
+
+    expr = alltypes.mutate(result=deferred)
+    result = expr.execute()
+    expected = pd.Series(
+        np.select(
+            (result.int_col == 1, result.int_col == 2),
+            (result.string_col, "two"),
+            default=result.string_col.str.upper(),
+        )
+    )
+
+    pd.testing.assert_series_equal(result.result, expected, check_names=False)
