@@ -34,9 +34,19 @@ dependencies = [
     "atpublic>=5.1",
     "parsy>=2",
     "packaging>=22",
-    "numpy>=1.22.4",
-    "pygments>=2.13",
-    "xxhash>=3.0",
+    # numpy and xxhash floors are per-interpreter: each is the first release
+    # shipping wheels for that Python, so `--resolution lowest-direct` resolves
+    # to a wheel instead of falling back to a source build (numpy from source
+    # needs BLAS, which CI runners do not have).
+    "numpy>=1.22.4; python_version < '3.11'",
+    "numpy>=1.23.2; python_version == '3.11'",
+    "numpy>=1.26.0; python_version == '3.12'",
+    "numpy>=2.1.0; python_version >= '3.13'",  # 2.1.0 is first numpy with cp313 wheels
+    "xxhash>=3.0; python_version < '3.11'",
+    "xxhash>=3.2; python_version == '3.11'",
+    "xxhash>=3.4; python_version == '3.12'",
+    "xxhash>=3.5; python_version >= '3.13'",  # 3.5.0 is first xxhash with cp313 wheels
+    "pygments>=2.13",  # pure python, wheels work on every supported interpreter
     "python-dateutil>=2.8.2",
     "pytz>=2022.7",
     "sqlglot>=23.4,!=26.32.0,<28.7.0",
