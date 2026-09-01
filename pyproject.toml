@@ -255,6 +255,7 @@ extend-select = [
     "FURB",   # refurb: modernize Python code
     "PLC0415",  # import-outside-toplevel: imports must be at module level
     "DTZ",      # flake8-datetimez: enforce timezone-aware datetime usage
+    "S101",     # assert used: see the per-file-ignores ratchet below
     # TODO: add PLW1514 (unspecified-encoding) when it graduates from ruff preview
 ]
 ignore = [
@@ -271,10 +272,46 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "python/xorq/__init__.py" = ["I001"]
 "python/xorq/api.py" = ["I001"]
-"python/xorq/vendor/**" = ["B", "PLC0415"]
+"python/xorq/vendor/**" = ["B", "PLC0415", "S101"]
 # Tutorial snippets are extracted block-by-block from .qmd files, so
 # imports appear next to the block that introduces them.
 "docs/tutorials/**/*.snippets.py" = ["E402", "I001"]
+
+# S101 (assert used) -- assert is the right tool in a test, and examples and
+# docs snippets assert as inline receipts, so those are exempt outright.
+"**/tests/**" = ["S101"]
+"**/test_*.py" = ["S101"]
+"**/conftest.py" = ["S101"]
+"examples/**" = ["S101"]
+"docs/**" = ["S101"]
+
+# Ratchet, not amnesty: every library file that holds an assert today is listed
+# here so the rule can be on without a repo-wide rewrite. The point of the rule
+# is that no *new* one lands. Delete a line when its file's last assert goes;
+# this list only shrinks. An assert stating an internal invariant can stay --
+# what must not stay is an assert validating input that crosses a process, file
+# or network boundary, where the right answer is a real exception with a
+# message (see xorq/catalog/zip_utils.py for the shape).
+"python/xorq/backends/pandas/executor.py" = ["S101"]
+"python/xorq/caching/storage.py" = ["S101"]
+"python/xorq/catalog/catalog.py" = ["S101"]
+"python/xorq/catalog/replay.py" = ["S101"]
+"python/xorq/common/utils/attr_utils.py" = ["S101"]
+"python/xorq/common/utils/download_utils.py" = ["S101"]
+"python/xorq/common/utils/gcloud_utils.py" = ["S101"]
+"python/xorq/common/utils/ibis_utils.py" = ["S101"]
+"python/xorq/common/utils/node_utils.py" = ["S101"]
+"python/xorq/common/utils/snowflake_keypair_utils.py" = ["S101"]
+"python/xorq/common/utils/snowflake_utils.py" = ["S101"]
+"python/xorq/common/utils/tls_utils.py" = ["S101"]
+"python/xorq/common/utils/trace_utils.py" = ["S101"]
+"python/xorq/expr/api.py" = ["S101"]
+"python/xorq/expr/ml/pipeline_lib.py" = ["S101"]
+"python/xorq/expr/ml/structer.py" = ["S101"]
+"python/xorq/flight/__init__.py" = ["S101"]
+"python/xorq/flight/client.py" = ["S101"]
+"python/xorq/flight/exchanger.py" = ["S101"]
+"python/xorq/ibis_yaml/compiler.py" = ["S101"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["xorq"]
