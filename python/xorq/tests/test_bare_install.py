@@ -68,7 +68,12 @@ def test_core_modules_import(wheel, root_dir):
 
 
 def test_module_listing_covers_the_new_declarations(root_dir):
-    """pygments and xxhash are only reached through tui and the pandas executor.
+    """Each declaration needs a module that imports it named in the listing.
+
+    pygments comes from catalog/tui.py, numpy from backends/pandas/executor.py,
+    xxhash from common/utils/dasher.  dasher is reached incidentally through
+    xorq.api today, so name it explicitly: coverage should not depend on
+    xorq.api continuing to import it.
 
     This exercises those import paths; it does not guard the declarations.
     Removing numpy, pygments or xxhash from pyproject.toml leaves these tests
@@ -76,7 +81,11 @@ def test_module_listing_covers_the_new_declarations(root_dir):
     xorq-dasher.  test_declared_dependencies is what fails on removal.
     """
     listing = root_dir.joinpath(MODULE_LISTING).read_text()
-    for module in ("xorq.catalog.tui", "xorq.backends.pandas.executor"):
+    for module in (
+        "xorq.catalog.tui",
+        "xorq.backends.pandas.executor",
+        "xorq.common.utils.dasher",
+    ):
         assert module in listing
 
 

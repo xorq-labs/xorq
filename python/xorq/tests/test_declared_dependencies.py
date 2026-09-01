@@ -18,6 +18,11 @@ from packaging.utils import canonicalize_name
 
 SCANNED_PACKAGE = "python/xorq"
 
+# vendor/ is skipped: its module-level third-party imports are upstream ibis's,
+# and re-vendoring would churn any exclusion list kept here.  It is not
+# unguarded -- xorq.api imports vendor/ibis, so test_bare_install catches an
+# undeclared import there that is genuinely absent from a bare install.
+
 # Modules whose module-level third-party imports belong to an optional backend.
 # Excluded by path rather than by scanning an allowlist of packages, so a new
 # module anywhere in xorq is in scope by default and has to be excluded
@@ -148,9 +153,15 @@ def test_core_module_imports_are_declared(root_dir):
                 str(path.relative_to(root_dir))
             )
     assert not undeclared, "\n".join(
-        f"{name!r} is imported at module level by {sorted(paths)} "
-        f"but is not in [project].dependencies"
-        for name, paths in sorted(undeclared.items())
+        (
+            *(
+                f"{name!r} is imported at module level by {sorted(paths)} "
+                f"but is not in [project].dependencies"
+                for name, paths in sorted(undeclared.items())
+            ),
+            "Declare it, or -- if the import root differs from the distribution "
+            "name -- add the mapping to IMPORT_ROOT_TO_DISTRIBUTION.",
+        )
     )
 
 
@@ -207,7 +218,7 @@ def test_regression_packaging_is_declared(root_dir):
 def test_declaration_is_covered_by_the_scan(root_dir, distribution):
     """Deleting any of these from pyproject.toml must fail the scan.
 
-    Without this, a declaration can sit outside CORE_PACKAGES and a future
+    Without this, a declaration can sit outside the scan and a future
     lowest-direct failure invites deleting it with nothing going red.
     """
     imported = {

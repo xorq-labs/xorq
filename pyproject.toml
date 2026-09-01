@@ -37,7 +37,9 @@ dependencies = [
     # Per-interpreter floors so `--resolution lowest-direct` gets a wheel and not
     # a source build.  Each is the first release with wheels for that Python,
     # except numpy on 3.10, where 1.22.4 is pandas' own floor (1.21.3 was the
-    # first with cp310 wheels).
+    # first with cp310 wheels).  The `>= '3.13'` rows are open upward and only
+    # safe while requires-python caps at <3.14; raising that cap needs a new row
+    # per interpreter, or lowest-direct picks a release with no wheel for it.
     "numpy>=1.22.4; python_version < '3.11'",
     "numpy>=1.23.2; python_version == '3.11'",
     "numpy>=1.26.0; python_version == '3.12'",

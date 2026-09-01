@@ -10,3 +10,4 @@ xorq.ibis_yaml.compiler
 xorq.ibis_yaml.packager
 xorq.ibis_yaml.pep723
 xorq.backends.pandas.executor
+xorq.common.utils.dasher

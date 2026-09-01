@@ -11,11 +11,8 @@ import sys
 
 def main():
     listing = pathlib.Path(__file__).with_name("bare_install_modules.txt")
-    names = [
-        line.strip()
-        for line in listing.read_text().splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
+    lines = (line.strip() for line in listing.read_text().splitlines())
+    names = [line for line in lines if line and not line.startswith("#")]
     if not names:
         sys.exit(f"no modules listed in {listing}")
     for name in names:
