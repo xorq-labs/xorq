@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 
 import pandas as pd
@@ -5,11 +6,19 @@ import pytest
 from click.testing import CliRunner
 
 import xorq.api as xo
-from xorq.catalog.backend import GitBackend
+from xorq.catalog.backend import GitBackend, GitPointerBackend
 from xorq.catalog.bind import bind
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.composer import ExprComposer
+from xorq.catalog.content_store import (
+    ContentCache,
+    PresignedContentStore,
+    PresignedContentStoreConfig,
+    compute_content_key,
+    compute_sha256,
+    parse_pointer,
+)
 from xorq.catalog.enums import CatalogTag
 from xorq.catalog.replay import Replayer
 from xorq.catalog.tests.conftest import _replay_rebuild
@@ -60,6 +69,51 @@ def test_rebuild_produces_consistent_target(source_catalog, target_path):
         src_df = src_entry.expr.execute().reset_index(drop=True)
         tgt_df = tgt_entry.expr.execute().reset_index(drop=True)
         pd.testing.assert_frame_equal(src_df, tgt_df)
+
+
+def test_plain_replay_uploads_entry_to_presigned_target(tmp_path, monkeypatch):
+    source = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    source_entry = source.add(xo.memtable({"value": [1, 2, 3]}))
+
+    catalog_id = str(uuid.uuid4())
+    service_url = "http://127.0.0.1:8765/"
+    config = PresignedContentStoreConfig(
+        catalog_id=catalog_id,
+        service_url=service_url,
+    )
+    target_repo = Catalog.init_repo_path(
+        tmp_path / "target",
+        content_store_config=config,
+    )
+    target_repo.create_remote("origin", f"{service_url}alice/replay.git")
+    target = Catalog(
+        backend=GitPointerBackend.from_repo(
+            target_repo,
+            cache=ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9),
+        )
+    )
+
+    uploaded = {}
+
+    def upload(_store, key, local_path, *, sha256=None):
+        uploaded[key] = (Path(local_path).read_bytes(), sha256)
+        return True
+
+    monkeypatch.setattr(PresignedContentStore, "ensure_present", upload)
+
+    Replayer(from_catalog=source).replay(target)
+
+    target_entry = target.get_catalog_entry(source_entry.name)
+    pointer_path = target.backend.entry_tracked_path(target_entry.catalog_path)
+    source_bytes = source_entry.catalog_path.read_bytes()
+    sha256 = compute_sha256(source_entry.catalog_path)
+    key = compute_content_key(catalog_id, sha256)
+
+    assert target.list() == [source_entry.name]
+    assert target_entry.sidecar_metadata == source_entry.sidecar_metadata
+    assert parse_pointer(pointer_path, canonical=True) == (sha256, len(source_bytes))
+    assert target_entry.catalog_path.read_bytes() == source_bytes
+    assert uploaded == {key: (source_bytes, sha256)}
 
 
 def test_rebuild_preserves_composed_from_linkage(source_catalog, target_path):
@@ -417,6 +471,46 @@ def test_rebuild_preserves_aliases(source_catalog, target_path):
         target_entry = target.get_catalog_entry(alias, maybe_alias=True)
         assert target_entry.exists()
         assert target_entry.name in target.list()
+
+
+def test_replay_fetches_cached_pointer_content_before_copying(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from xorq.catalog.content_store import (  # noqa: PLC0415
+        compute_content_key,
+        parse_pointer,
+    )
+    from xorq.catalog.replay import AddEntry, RebuildContext  # noqa: PLC0415
+    from xorq.catalog.tests.conftest import directory_store_config  # noqa: PLC0415
+
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_MAX_BYTES", str(10**9))
+    source = Catalog.from_repo_path(
+        tmp_path / "source",
+        init=True,
+        content_store_config=directory_store_config(tmp_path / "source-store"),
+    )
+    entry = source.add(xo.memtable({"value": [1, 2, 3]}), aliases=("source",))
+    sha256, _size = parse_pointer(source.backend._pointer_path(entry.catalog_path))
+    key = compute_content_key(source.backend.catalog_id, sha256)
+    source.backend.cache.put(key, entry.catalog_path)
+    entry.catalog_path.unlink()
+
+    assert source.backend.cache.contains(key)
+    assert not entry.is_content_local
+
+    target = Catalog.from_repo_path(tmp_path / "target", init=True)
+    AddEntry(entry_hash=entry.name, aliases=("replayed",)).do(
+        source,
+        target,
+        RebuildContext(),
+    )
+
+    assert entry.catalog_path.exists()
+    replayed = target.get_catalog_entry("replayed", maybe_alias=True)
+    assert replayed.exists()
+    assert replayed.catalog_path.exists()
 
 
 def test_remove_entry_translates_via_remap(tmpdir):

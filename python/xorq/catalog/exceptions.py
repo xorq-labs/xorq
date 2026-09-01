@@ -5,6 +5,14 @@ class ContentIntegrityError(XorqError):
     """Raised when content does not match the expected checksum."""
 
 
+class ContentStoreError(XorqError):
+    """Raised when an external content store operation fails."""
+
+
+class ContentStoreCapabilityError(ContentStoreError):
+    """Raised when a content-store operation is unsupported."""
+
+
 class CatalogPushError(RuntimeError):
     """Raised when ``catalog.push()`` cannot publish to a remote."""
 
