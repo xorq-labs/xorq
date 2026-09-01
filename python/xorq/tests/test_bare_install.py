@@ -24,16 +24,8 @@ t = xo.memtable({"a": [1, 2, 3]})
 expr = t.filter(t.a > 1)
 """
 
-# Modules on the build, run and catalog paths.
-CORE_MODULES = (
-    "xorq",
-    "xorq.api",
-    "xorq.cli",
-    "xorq.catalog.cli",
-    "xorq.ibis_yaml.compiler",
-    "xorq.ibis_yaml.packager",
-    "xorq.ibis_yaml.pep723",
-)
+BARE_IMPORT_CHECK = "python/xorq/tests/check_bare_imports.py"
+MODULE_LISTING = "python/xorq/tests/bare_install_modules.txt"
 
 
 def run_bare(wheel, args, cwd):
@@ -67,11 +59,23 @@ def wheel(project_root, tmp_path_factory):
     return wheel
 
 
-def test_core_modules_import(wheel, tmp_path):
+def test_core_modules_import(wheel, project_root):
     """The static scan cannot see function-level imports; this can."""
-    source = ";".join(f"import {module}" for module in CORE_MODULES)
-    returncode, stdout, stderr = run_bare(wheel, ("python", "-c", source), cwd=tmp_path)
+    returncode, stdout, stderr = run_bare(
+        wheel, ("python", BARE_IMPORT_CHECK), cwd=project_root
+    )
     assert returncode == 0, stderr
+
+
+def test_module_listing_covers_the_new_declarations(project_root):
+    """pygments and xxhash are only reached through tui and the pandas executor.
+
+    Without those two entries the round trip never imports either, so three of
+    the four declarations this branch adds would go unexercised end to end.
+    """
+    listing = project_root.joinpath(MODULE_LISTING).read_text()
+    for module in ("xorq.catalog.tui", "xorq.backends.pandas.executor"):
+        assert module in listing
 
 
 def test_build_then_run_round_trip(wheel, tmp_path):
@@ -79,10 +83,14 @@ def test_build_then_run_round_trip(wheel, tmp_path):
     tmp_path.joinpath("expr.py").write_text(EXPR_PY)
 
     returncode, stdout, stderr = run_bare(
-        wheel, ("xorq", "build", "expr.py", "-e", "expr"), cwd=tmp_path
+        wheel,
+        # not stdout: OTel's ConsoleSpanExporter flushes there at shutdown, after
+        # the path is printed, whenever OTEL_EXPORTER_CONSOLE_FALLBACK is set.
+        ("xorq", "build", "expr.py", "-e", "expr", "--emit-build-path-to", "path.txt"),
+        cwd=tmp_path,
     )
     assert returncode == 0, stderr
-    build_path = stdout.strip().splitlines()[-1]
+    build_path = tmp_path.joinpath("path.txt").read_text().strip()
     assert tmp_path.joinpath(build_path).exists()
 
     returncode, stdout, stderr = run_bare(

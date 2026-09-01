@@ -111,7 +111,7 @@ jobs:
           mkdir -p test-wheel && cd test-wheel
           python -c "import pathlib; print(f'Current working directory: {pathlib.Path.cwd()}')"
           python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
-          python -c "import xorq.api, xorq.cli, xorq.catalog.cli, xorq.ibis_yaml.compiler, xorq.ibis_yaml.packager, xorq.ibis_yaml.pep723"
+          python "$GITHUB_WORKSPACE/python/xorq/tests/check_bare_imports.py"
           cd ..
           deactivate
           
@@ -126,7 +126,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install dist/*.tar.gz
           python -c "import xorq; print(f'Successfully installed xorq {xorq.__version__} from source distribution')"
-          python -c "import xorq.api, xorq.cli, xorq.catalog.cli, xorq.ibis_yaml.compiler, xorq.ibis_yaml.packager, xorq.ibis_yaml.pep723"
+          python "$GITHUB_WORKSPACE/python/xorq/tests/check_bare_imports.py"
           deactivate
 
       - name: Test extras installation from wheel

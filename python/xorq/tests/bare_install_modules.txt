@@ -1,0 +1,12 @@
+# Modules that must import with only [project].dependencies installed.
+# Read by python/xorq/tests/test_bare_install.py and by the bare-environment
+# smoke steps in ci-test-library.yml and ci-test-install.yaml.
+xorq
+xorq.api
+xorq.cli
+xorq.catalog.cli
+xorq.catalog.tui
+xorq.ibis_yaml.compiler
+xorq.ibis_yaml.packager
+xorq.ibis_yaml.pep723
+xorq.backends.pandas.executor

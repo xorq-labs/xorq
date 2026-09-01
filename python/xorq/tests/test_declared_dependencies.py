@@ -15,9 +15,16 @@ import tomlkit
 
 
 # Optional backends are excluded: their imports are extras-gated and lazy.
+# `backends/pandas` and `common/utils/dasher` are in scope because pandas is a
+# core dependency and dasher is always loaded; they are also the only module-level
+# import sites for numpy and xxhash, so without them those declarations have no
+# guard at all.
 CORE_PACKAGES = (
+    "python/xorq/backends/pandas",
     "python/xorq/caching",
     "python/xorq/catalog",
+    "python/xorq/common/utils/dasher",
+    "python/xorq/flight",
     "python/xorq/ibis_yaml",
 )
 
@@ -26,6 +33,8 @@ IMPORT_ROOT_TO_DISTRIBUTION = {
     "attr": "attrs",
     "git": "gitpython",
     "yaml12": "py-yaml12",
+    # namespace root: several declared opentelemetry-* distributions provide it
+    "opentelemetry": "opentelemetry-sdk",
 }
 
 pytestmark = pytest.mark.core
@@ -169,3 +178,19 @@ def test_regression_packaging_is_declared(project_root):
     assert "packaging" in module_level_import_roots(
         project_root.joinpath("python", "xorq", "ibis_yaml", "packager.py")
     )
+
+
+@pytest.mark.parametrize("distribution", ("packaging", "numpy", "pygments", "xxhash"))
+def test_declaration_is_covered_by_the_scan(project_root, distribution):
+    """Deleting any of these from pyproject.toml must fail the scan.
+
+    Without this, a declaration can sit outside CORE_PACKAGES and a future
+    lowest-direct failure invites deleting it with nothing going red.
+    """
+    imported = {
+        IMPORT_ROOT_TO_DISTRIBUTION.get(import_root, import_root)
+        for path in iter_core_modules(project_root)
+        for import_root in module_level_import_roots(path)
+    }
+    assert distribution in imported
+    assert distribution in declared_dependency_names(project_root)
