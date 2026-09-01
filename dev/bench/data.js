@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788280653214,
+  "lastUpdate": 1788284924417,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -36114,6 +36114,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.1281277767698866",
             "extra": "mean: 1.6623062081999707 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1cf2cd712c3c225ec7e2647f915b4aed563bc5d",
+          "message": "fix(deps): declare packaging, numpy, pygments and xxhash as runtime dependencies (#2268)\n\n## The bug\n\n`python/xorq/ibis_yaml/packager.py:40` imports `packaging` at module\nlevel, but `packaging` was never declared in `[project].dependencies`.\nIt reaches every development environment transitively — `pytest`,\n`black`, `matplotlib` and `snowflake-connector-python` all depend on it\n— so nothing local ever noticed.\n\nInstalling only the declared dependencies fails:\n\n```console\n$ uv tool run --isolated --python 3.12 --with xorq==0.4.0 xorq run builds/f68b0e436e96\n  File \".../xorq/ibis_yaml/packager.py\", line 40, in <module>\n    from packaging.specifiers import SpecifierSet\nModuleNotFoundError: No module named 'packaging'\n```\n\n`xorq build` survives, because it doesn't reach `packager` on that path.\n`xorq run`, `xorq catalog` and the TUI (`catalog/tui.py:82`) are dead on\na clean install, as is `backends/pandas/executor.py`.\n\n**This affects 0.4.0 as published, so it needs a patch release, not just\na fix on main.**\n\n## The fix\n\nDeclared `packaging`. Auditing the rest of the always-loaded code\nsurfaced three more module-level imports of undeclared distributions,\narriving via `pandas`, `rich`/`textual` and `xorq-dasher`:\n\n| import | reached today via | declared range of the provider |\n| --- | --- | --- |\n| `numpy` | `pandas` | `pandas>=2.2.3,<3` |\n| `pygments` | `rich`, `textual` | `rich>=13.9.4` |\n| `xxhash` | `xorq-dasher` | `xorq-dasher>=0.1.1` |\n\nEvery one of those is an open-ended range in someone else's metadata.\nDeclared all three rather than depend on them.\n\n### Correction: declaring is not free under `--resolution lowest-direct`\n\nMy first pass claimed this \"adds no install surface\". That was wrong,\nand `ci-test-lowest-direct (3.13)` caught it. Floor-lowering applies to\n**direct** dependencies, so promoting `numpy` and `xxhash` from\ntransitive to declared newly subjected them to the floor lock, where a\nbare `>=` selects a release predating the interpreter:\n\n```\nnumpy==1.26.0   # no cp313 wheel -> sdist -> meson: \"No BLAS library detected!\"\nxxhash==3.0.0   # no cp313 wheel either; queued to fail right after numpy\n```\n\nPreviously `pandas`' own per-interpreter numpy floors happened to keep\nthis installable. Floors are now the first release shipping wheels for\neach supported interpreter, following the existing precedent for\n`matplotlib` and `scikit-learn` in the `examples` extra:\n\n|  | 3.10 | 3.11 | 3.12 | 3.13 |\n| --- | --- | --- | --- | --- |\n| `numpy` | 1.22.4 | 1.23.2 | 1.26.0 | 2.1.0 |\n| `xxhash` | 3.0 | 3.2 | 3.4 | 3.5 |\n\nGated rather than raised outright, so numpy 1.x stays usable on older\ninterpreters — xorq only touches `numpy.ndarray` and `numpy.dtype`, so\nforcing 2.1 everywhere would constrain downstreams for nothing.\n`pygments` is pure python and needs no gate.\n\nVerified with `uv pip compile --resolution lowest-direct` for each of\n3.10–3.13, cross-checking every resolved version against the PyPI file\nlist — all twelve now ship a usable wheel.\n\nEverything else that turned up in the audit is either extras-gated\n(`pyiceberg`, `adbc_*`, `snowflake`, `databricks`, `sklearn`, `gcsfs`)\nor `try`/`except ImportError`-guarded (`regex` in\n`backends/pandas/kernels.py:10`, `importlib_metadata` in\n`__init__.py:1`).\n\n## Tests\n\n### `python/xorq/tests/test_declared_dependencies.py` — static, `core`\nmarker\n\nAST-scans **all of `python/xorq`**, minus twelve extras-gated modules\nnamed by path, for third-party imports at module scope and asserts each\nis declared. Scoping by exclusion rather than inclusion means a new\nmodule anywhere in xorq is guarded by default;\n`test_extras_gated_modules_are_all_still_needed` stops the exclusion\nlist becoming a place to park problems. Walking `tree.body` rather than\n`ast.walk` is what makes it precise: imports nested in `try`/`except\nImportError`, `if` blocks or function bodies are guarded or deferred on\npurpose, so their absence is already handled. That classification is\nitself parametrized and tested.\n\n**There is deliberately no allowlist** for \"it arrives via some other\ndependency\":\n\n- An allowlist encodes the *same* inference that shipped this bug.\n`packaging` was already an unwritten allowlist entry — *\"pytest pulls\nit, we're fine.\"* True in every dev env, false in every user env.\nWriting it down makes it auditable, not true.\n- It asserts a fact that isn't ours to hold. \"pygments comes via rich\"\nis a claim about rich's metadata under an open range; rich can drop it\nand nothing in this repo changes.\n- A guard test over `uv.lock` doesn't fix that. The lock is one dev\nresolution at one moment, while users resolve fresh from PyPI. And\n*reachable ≠ present*: `pandas` lists `numpy` twice under split\n`python_version` markers, so a naive graph walk reports \"covered\" for an\nedge whose marker is false on the user's interpreter.\n- The cost is upside down — lock parsing plus marker evaluation,\nmaintained forever, to avoid writing three lines.\n\nSince there's no exception mechanism, there's no configuration surface\nto argue about: an undeclared module-level import is a hard failure with\na one-line fix.\n\nRuns in the `core` job and in `ci-test-lowest-direct`, which also\nexercises the new floors under `--resolution lowest-direct`.\n\n### `python/xorq/tests/test_bare_install.py` — end-to-end,\n`bare_install` marker\n\nBuilds the wheel and drives the CLI through `uv tool run --isolated`,\nwhich installs `[project].dependencies` and nothing else. This covers\nwhat the static scan structurally cannot: most packager imports in\n`cli.py` are lazy, inside function bodies (`# noqa: PLC0415`).\n\nIt asserts a **build → run round trip**, not just `--help`, because that\ndistinction is the whole bug.\n\n## Verified both tests fail before the fix\n\nDeleting `\"packaging>=22\"` from `pyproject.toml` and re-running:\n\n```\ndrop packaging -> 3 failed, 19 passed     # static scan\n               -> 2 failed,  5 passed     # bare install\ndrop numpy     -> 2 failed, 20 passed\ndrop xxhash    -> 2 failed, 20 passed\ndrop pygments  -> 2 failed, 20 passed\n```\n\nwith the original traceback reproduced through `cli.py:348 ->\npackager.py:40`. Note what still passes on a `packaging` drop: **every\n`--help` test stayed green** — which is why the round trip, not\n`--help`, is the thing worth asserting.\n\n### What each layer actually guards\n\nOnly `packaging` is caught by *both* layers. Removing `numpy`,\n`pygments` or `xxhash` leaves all bare-install tests green, because each\nstill arrives transitively via `pandas`, `rich`/`textual` and\n`xorq-dasher`. The bare-install layer exercises those import paths;\n**the static scan is what guards the declarations.** An earlier revision\nof this PR overstated that, and the docstring now says it plainly.\n\nRestored, all 29 pass.\n\n## CI\n\n`ci-test-library` and `ci-test-install` already installed the wheel into\na bare environment — but only smoke-imported `xorq` itself, which\nsucceeds even when broken. Worse, `ci-test-library`'s pytest step runs\n`--with pytest --with pytest-cov`, and **pytest depends on\n`packaging`**, so that environment is contaminated against exactly this\nclass of bug.\n\nBoth workflows now import the modules on the build, run and catalog\npaths in the bare environment, with no pytest present, on wheel and\nsdist. `ci-test-install` covers that across 3.10–3.13 and three\noperating systems.\n\nThe module list lives in one place —\n`python/xorq/tests/bare_install_modules.txt`, driven by\n`check_bare_imports.py` — read by the test and by all four workflow\nsteps, rather than being repeated as five hand-maintained `python -c\n\"import …\"` one-liners.\n\nThe `bare_install` tests also needed a step of their own: `ci-test.yml`\nfilters on the backend matrix name, `ci-test-library` on `\"library or\nxorq\"`, and every other workflow names explicit paths — so nothing\nselected that marker and the round trip ran only locally. Now wired into\nthe `core` matrix entry, which already has uv and a synced project; the\ntest builds its own wheel and spawns its own isolated environment, so\nthe surrounding dev/test groups don't contaminate what's under test.\n\n## Known limitations\n\nStated rather than left to be discovered:\n\n- **`vendor/` is outside the static scan.** Its module-level imports are\nupstream ibis's and re-vendoring would churn any exclusion list kept\nhere. Not a hole: `xorq.api` imports `vendor/ibis`, so the bare-install\nlayer catches an undeclared import there that is genuinely absent from a\nbare install.\n- **The exclusion-minimality guard only catches import roots that match\ntheir distribution name.** An aliased one (`sklearn` → `scikit-learn`)\nwould not be flagged as stale, because pre-registering that alias\ncollides with `test_import_root_mapping_has_no_stale_entries`.\n- **The twelve exclusions are verified non-stale, not verified\nextras-gated.** Several of those distributions aren't declared in any\nextra — pre-existing, and out of scope here.\n- **The `>= '3.13'` floors are open upward**, safe only while\n`requires-python` caps at `<3.14`. Noted in `pyproject.toml` where the\nnext bump will see it.\n\n## Follow-ups\n\n- **0.4.0 on PyPI carries this bug.** Merging fixes `main`; it does not\nhelp anyone already installed. Needs a patch release.\n- **#2269** — unrelated, found while diagnosing CI here: Flight replaces\nexception messages over ~1–2 KB with an opaque gRPC metadata-size error,\nso real failures with chained tracebacks surface as transport errors.\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T13:42:57-04:00",
+          "tree_id": "61087afc2a9aeb0b97061562d665dfa7893825fe",
+          "url": "https://github.com/xorq-labs/xorq/commit/a1cf2cd712c3c225ec7e2647f915b4aed563bc5d"
+        },
+        "date": 1788284920612,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.165671930835973,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02065710488308017",
+            "extra": "mean: 139.55425390000187 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.794542725528218,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07131868024528586",
+            "extra": "mean: 357.8402973999914 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8017513641522115,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18761043104641445",
+            "extra": "mean: 1.2472694711999908 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.381477104592659,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004525568284145774",
+            "extra": "mean: 295.7287508000036 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8302368803153484,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0838915435280915",
+            "extra": "mean: 353.32731580000427 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.513690938352783,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06523742839434091",
+            "extra": "mean: 397.82138080001914 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 166.49936519238824,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006587982235582996",
+            "extra": "mean: 6.006028904942134 msec\nrounds: 263"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.5590125874053467,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14562032882182097",
+            "extra": "mean: 280.9768090000034 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 11.84653587244449,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022692753729159135",
+            "extra": "mean: 84.41286218750577 msec\nrounds: 16"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 13.843612699828448,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006042767048993415",
+            "extra": "mean: 72.23547939999737 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 11.05308676542124,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0038101668433742344",
+            "extra": "mean: 90.47246450000064 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.792534134934492,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006223065720525084",
+            "extra": "mean: 128.32795887501192 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 5.019891709941943,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011581538329502395",
+            "extra": "mean: 199.20748450001233 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.141813409385038,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004964857724208841",
+            "extra": "mean: 194.48391460000494 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.332196333979993,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0565656815196567",
+            "extra": "mean: 428.78036700000166 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.692231718221236,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013477434771123186",
+            "extra": "mean: 270.83890620000375 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.753654401212536,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09363360476886115",
+            "extra": "mean: 570.2377841999919 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8004973703298788,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09680182830802835",
+            "extra": "mean: 555.4020885999876 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6631850946970155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09170467171621653",
+            "extra": "mean: 601.2559895999857 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.6557869684673243,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09860780721115674",
+            "extra": "mean: 603.9424268000175 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.3249069839181233,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12810239124641012",
+            "extra": "mean: 754.7699666000085 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.2208836223304345,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12655999596420003",
+            "extra": "mean: 819.0788881999993 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0875973802202468,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1319917805636583",
+            "extra": "mean: 919.4578969999839 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6454880136172343,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13572807941048493",
+            "extra": "mean: 1.5492154446000086 sec\nrounds: 5"
           }
         ]
       }
