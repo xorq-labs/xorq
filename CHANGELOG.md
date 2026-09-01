@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Details
 #### Changed
 - Number ADRs by the pull request that adds them by @dlovell in [#2210](https://github.com/xorq-labs/xorq/pull/2210)
+- Check cited repo paths and reject bare short SHAs by @dlovell in [#2221](https://github.com/xorq-labs/xorq/pull/2221)
+- Decide the citation tier per line, not per file by @dlovell in [#2222](https://github.com/xorq-labs/xorq/pull/2222)
 - **Breaking:** Fold the rule-set fingerprint into the build hash (every build-directory name moves; cache keys are unaffected) by @dlovell in [#2200](https://github.com/xorq-labs/xorq/pull/2200)
 - Drop the allowlist entries #2200 has landed by @dlovell in [#2212](https://github.com/xorq-labs/xorq/pull/2212)
 - Accept ADR-2210, and say what enforces it now by @dlovell in [#2218](https://github.com/xorq-labs/xorq/pull/2218)
