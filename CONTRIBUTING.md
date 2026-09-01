@@ -218,12 +218,12 @@ change is not present in PyPI.
 1. Ensure you're on upstream main: `git switch main && git pull`
 2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
 3. Create a branch that starts from the upstream main: `git switch --create=release-$version_number`
-4. Update the version number in `pyproject.toml`: `version = "$version_number"`
-5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.).
+4. Update the version number in `pyproject.toml`: `version = "$version_number"`, then run `uv lock` so xorq's own version is updated in `uv.lock`.
+5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.). The command prepends the new section above `## [Unreleased]`; move it below.
 6. Create commit with a message denoting the release: `git add --update && git commit -m "release: $version_number"`.
 7. Push the new branch: `git push --set-upstream upstream "release-$version_number"`
 8. Open a PR for the new branch `release-$version_number`
-9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `$version_number`
+9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `release-$version_number`
 10. Wait for all ci-pre-release tests to pass
 11. "Squash and merge" the PR
 12. Tag the updated main with `v$version_number` and push the tag: `git fetch && git tag v$version_number origin/main && git push --tags`
