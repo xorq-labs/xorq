@@ -42,19 +42,19 @@ IMPORT_ROOT_TO_DISTRIBUTION = {
 pytestmark = pytest.mark.core
 
 
-def declared_dependency_names(project_root):
+def declared_dependency_names(root_dir):
     """Canonical distribution names from [project].dependencies."""
-    pyproject = tomlkit.parse(project_root.joinpath("pyproject.toml").read_text())
+    pyproject = tomlkit.parse(root_dir.joinpath("pyproject.toml").read_text())
     return {
         canonicalize_name(Requirement(str(dependency)).name)
         for dependency in pyproject["project"]["dependencies"]
     }
 
 
-def iter_core_modules(project_root):
+def iter_core_modules(root_dir):
     for package in CORE_PACKAGES:
-        for path in sorted(project_root.joinpath(package).rglob("*.py")):
-            parts = path.relative_to(project_root).parts
+        for path in sorted(root_dir.joinpath(package).rglob("*.py")):
+            parts = path.relative_to(root_dir).parts
             if "tests" in parts or path.name == "conftest.py":
                 continue
             yield path
@@ -80,38 +80,36 @@ def module_level_import_roots(path):
     }
 
 
-def test_project_root_is_the_repo_checkout(project_root):
+def test_root_dir_is_the_repo_checkout(root_dir):
     """The other tests are vacuous if we resolve the wrong pyproject.toml."""
-    assert project_root.joinpath("python", "xorq", "__init__.py").exists()
-    pyproject = tomlkit.parse(project_root.joinpath("pyproject.toml").read_text())
+    assert root_dir.joinpath("python", "xorq", "__init__.py").exists()
+    pyproject = tomlkit.parse(root_dir.joinpath("pyproject.toml").read_text())
     assert pyproject["project"]["name"] == "xorq"
 
 
-def test_core_packages_all_exist(project_root):
+def test_core_packages_all_exist(root_dir):
     """A typo in CORE_PACKAGES would silently scan nothing."""
     missing = [
-        package
-        for package in CORE_PACKAGES
-        if not project_root.joinpath(package).is_dir()
+        package for package in CORE_PACKAGES if not root_dir.joinpath(package).is_dir()
     ]
     assert not missing, f"CORE_PACKAGES entries do not exist: {missing}"
 
 
-def test_core_module_scan_is_non_empty(project_root):
-    modules = list(iter_core_modules(project_root))
+def test_core_module_scan_is_non_empty(root_dir):
+    modules = list(iter_core_modules(root_dir))
     assert len(modules) > 20, f"expected to scan many modules, found {len(modules)}"
 
 
-def test_core_module_imports_are_declared(project_root):
-    declared = declared_dependency_names(project_root)
+def test_core_module_imports_are_declared(root_dir):
+    declared = declared_dependency_names(root_dir)
     undeclared = {}
-    for path in iter_core_modules(project_root):
+    for path in iter_core_modules(root_dir):
         for import_root in module_level_import_roots(path):
             distribution = IMPORT_ROOT_TO_DISTRIBUTION.get(import_root, import_root)
             if canonicalize_name(distribution) in declared:
                 continue
             undeclared.setdefault(distribution, set()).add(
-                str(path.relative_to(project_root))
+                str(path.relative_to(root_dir))
             )
     assert not undeclared, "\n".join(
         f"{name!r} is imported at module level by {sorted(paths)} "
@@ -120,10 +118,10 @@ def test_core_module_imports_are_declared(project_root):
     )
 
 
-def test_import_root_mapping_has_no_stale_entries(project_root):
+def test_import_root_mapping_has_no_stale_entries(root_dir):
     imported = {
         import_root
-        for path in iter_core_modules(project_root)
+        for path in iter_core_modules(root_dir)
         for import_root in module_level_import_roots(path)
     }
     stale = sorted(set(IMPORT_ROOT_TO_DISTRIBUTION) - imported)
@@ -155,22 +153,22 @@ def test_module_level_import_roots_classification(tmp_path, source, expected):
     assert module_level_import_roots(path) == expected
 
 
-def test_declared_dependency_names_strips_specifiers(project_root):
-    declared = declared_dependency_names(project_root)
+def test_declared_dependency_names_strips_specifiers(root_dir):
+    declared = declared_dependency_names(root_dir)
     assert {"pyarrow", "pandas", "gitpython", "py-yaml12"} <= declared
     assert all(name == canonicalize_name(name) for name in declared)
 
 
-def test_regression_packaging_is_declared(project_root):
+def test_regression_packaging_is_declared(root_dir):
     """Undeclared, this broke `xorq run` while leaving `xorq build` green."""
-    assert "packaging" in declared_dependency_names(project_root)
+    assert "packaging" in declared_dependency_names(root_dir)
     assert "packaging" in module_level_import_roots(
-        project_root.joinpath("python", "xorq", "ibis_yaml", "packager.py")
+        root_dir.joinpath("python", "xorq", "ibis_yaml", "packager.py")
     )
 
 
 @pytest.mark.parametrize("distribution", ("packaging", "numpy", "pygments", "xxhash"))
-def test_declaration_is_covered_by_the_scan(project_root, distribution):
+def test_declaration_is_covered_by_the_scan(root_dir, distribution):
     """Deleting any of these from pyproject.toml must fail the scan.
 
     Without this, a declaration can sit outside CORE_PACKAGES and a future
@@ -178,8 +176,8 @@ def test_declaration_is_covered_by_the_scan(project_root, distribution):
     """
     imported = {
         IMPORT_ROOT_TO_DISTRIBUTION.get(import_root, import_root)
-        for path in iter_core_modules(project_root)
+        for path in iter_core_modules(root_dir)
         for import_root in module_level_import_roots(path)
     }
     assert distribution in imported
-    assert distribution in declared_dependency_names(project_root)
+    assert distribution in declared_dependency_names(root_dir)

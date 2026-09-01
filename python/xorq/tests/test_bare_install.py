@@ -47,11 +47,11 @@ def run_bare(wheel, args, cwd):
 
 
 @pytest.fixture(scope="module")
-def wheel(project_root, tmp_path_factory):
+def wheel(root_dir, tmp_path_factory):
     dist = tmp_path_factory.mktemp("dist")
     returncode, stdout, stderr = subprocess_run(
         ("uv", "build", "--wheel", "-o", str(dist)),
-        cwd=project_root,
+        cwd=root_dir,
         text=True,
     )
     assert returncode == 0, stderr
@@ -59,21 +59,21 @@ def wheel(project_root, tmp_path_factory):
     return wheel
 
 
-def test_core_modules_import(wheel, project_root):
+def test_core_modules_import(wheel, root_dir):
     """The static scan cannot see function-level imports; this can."""
     returncode, stdout, stderr = run_bare(
-        wheel, ("python", BARE_IMPORT_CHECK), cwd=project_root
+        wheel, ("python", BARE_IMPORT_CHECK), cwd=root_dir
     )
     assert returncode == 0, stderr
 
 
-def test_module_listing_covers_the_new_declarations(project_root):
+def test_module_listing_covers_the_new_declarations(root_dir):
     """pygments and xxhash are only reached through tui and the pandas executor.
 
     Without those two entries the round trip never imports either, so three of
     the four declarations this branch adds would go unexercised end to end.
     """
-    listing = project_root.joinpath(MODULE_LISTING).read_text()
+    listing = root_dir.joinpath(MODULE_LISTING).read_text()
     for module in ("xorq.catalog.tui", "xorq.backends.pandas.executor"):
         assert module in listing
 
