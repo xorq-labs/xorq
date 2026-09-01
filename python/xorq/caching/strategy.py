@@ -36,7 +36,15 @@ def _lazy_default_key_prefix():
 
 
 def snapshot_normalize_read(read: Read) -> tuple:
-    """Normalize Read for snapshot caching using path identity only, not file modification stats."""
+    """Normalize Read for snapshot caching using path identity only, not file modification stats.
+
+    The path half is deliberately regime-specific -- ``view_rules`` licenses
+    ``Read`` as the one op that may normalize differently under snapshot
+    (gh-1861), pinned by ``test_only_read_diverges_between_regimes``. The kwarg
+    half at the bottom is *not*: it filters the same ``READ_IDENTITY_KEYS`` as
+    ``_read_extra_kwargs`` in the global regime, and nothing pins the two
+    together. See ``constants.READ_IDENTITY_KEYS`` (gh-2206, gh-2217).
+    """
     read_kwargs = dict(read.read_kwargs)
     if "hash_path" not in read_kwargs:
         # path-less Read (e.g. an API-backed source): the registered
