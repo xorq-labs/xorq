@@ -53,11 +53,21 @@ jobs:
       - name: test wheel
         run: | 
           uv run --isolated --no-project -p ${{ matrix.python-version }} --with dist/*.whl -- python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
+          # The modules on the build, run and catalog paths must import with the
+          # declared dependencies and nothing else.  Deliberately kept out of the
+          # pytest invocation below: pytest depends on `packaging`, so running these
+          # imports in that environment would mask a missing declaration.
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with dist/*.whl -- python -c "import xorq.api, xorq.cli, xorq.catalog.cli, xorq.ibis_yaml.compiler, xorq.ibis_yaml.packager, xorq.ibis_yaml.pep723"
           uv run --isolated --no-project -p ${{ matrix.python-version }} --with dist/*.whl --with pytest --with pytest-cov -- pytest --import-mode=importlib --cov --cov-report=xml -m "library or xorq"
 
       - name: test source distribution
         run: | 
           uv run --isolated --no-project -p ${{ matrix.python-version }} --with dist/*.tar.gz -- python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
+          # The modules on the build, run and catalog paths must import with the
+          # declared dependencies and nothing else.  Deliberately kept out of the
+          # pytest invocation below: pytest depends on `packaging`, so running these
+          # imports in that environment would mask a missing declaration.
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with dist/*.tar.gz -- python -c "import xorq.api, xorq.cli, xorq.catalog.cli, xorq.ibis_yaml.compiler, xorq.ibis_yaml.packager, xorq.ibis_yaml.pep723"
           uv run --isolated --no-project -p ${{ matrix.python-version }} --with dist/*.tar.gz --with pytest --with pytest-cov -- pytest --import-mode=importlib --cov --cov-report=xml -m "library or xorq"
 
       - name: Upload coverage reports to Codecov

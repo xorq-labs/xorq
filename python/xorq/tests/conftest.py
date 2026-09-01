@@ -218,3 +218,16 @@ def struct(con):
 @pytest.fixture(scope="session")
 def struct_df(struct):
     return struct.execute()
+
+
+@pytest.fixture(scope="session")
+def project_root():
+    """The source checkout containing pyproject.toml.
+
+    Skips when xorq is imported from an installed wheel rather than a checkout,
+    since the packaging tests have nothing to read in that case.
+    """
+    root = Path(__file__).parents[3]
+    if not root.joinpath("pyproject.toml").exists():
+        pytest.skip("not running from a source checkout")
+    return root

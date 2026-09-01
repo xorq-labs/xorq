@@ -6162,15 +6162,19 @@ dependencies = [
     { name = "cryptography" },
     { name = "filelock" },
     { name = "gitpython" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-exporter-prometheus" },
     { name = "opentelemetry-sdk" },
+    { name = "packaging" },
     { name = "pandas" },
     { name = "parsy" },
     { name = "prometheus-client" },
     { name = "py-yaml12" },
     { name = "pyarrow" },
+    { name = "pygments" },
     { name = "python-dateutil" },
     { name = "pytz" },
     { name = "rich" },
@@ -6184,6 +6188,7 @@ dependencies = [
     { name = "uv" },
     { name = "xorq-dasher" },
     { name = "xorq-datafusion" },
+    { name = "xxhash" },
 ]
 
 [package.optional-dependencies]
@@ -6336,11 +6341,13 @@ requires-dist = [
     { name = "matplotlib", marker = "python_full_version >= '3.13' and extra == 'examples'", specifier = ">=3.9.2" },
     { name = "matplotlib", marker = "python_full_version < '3.13' and extra == 'examples'", specifier = ">=3.8.0" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
+    { name = "numpy", specifier = ">=1.22.4" },
     { name = "openai", marker = "extra == 'examples'", specifier = ">=1.65.4" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.32.1" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.32.1" },
     { name = "opentelemetry-exporter-prometheus", specifier = ">=0.55b1" },
     { name = "opentelemetry-sdk", specifier = ">=1.32.1" },
+    { name = "packaging", specifier = ">=22" },
     { name = "pandas", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=2.2.3,<3" },
     { name = "parsy", specifier = ">=2" },
     { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.8.3,<1" },
@@ -6350,6 +6357,7 @@ requires-dist = [
     { name = "py-yaml12" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=18.0.0,<22" },
     { name = "pydata-google-auth", marker = "extra == 'bigquery'", specifier = ">=1.4.0,<2" },
+    { name = "pygments", specifier = ">=2.13" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'examples'", specifier = ">=0.9.0" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'pyiceberg'", specifier = ">=0.9.0" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
@@ -6373,6 +6381,7 @@ requires-dist = [
     { name = "xorq-datafusion", specifier = "==0.2.10" },
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
+    { name = "xxhash", specifier = ">=3.0" },
 ]
 provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "examples", "postgres", "sqlite", "gizmosql", "ibis", "geospatial", "trino", "bigquery", "bsl", "databricks", "annex"]
 
