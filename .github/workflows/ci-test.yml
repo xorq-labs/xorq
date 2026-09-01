@@ -157,6 +157,20 @@ jobs:
           POSTGRES_PORT: 5432
           POSTGRES_DATABASE: ibis_testing
 
+      # Builds the wheel and drives the CLI through `uv tool run --isolated`, so
+      # the environment under test holds [project].dependencies and nothing else.
+      # Kept out of the pytest step above: that environment has the dev and test
+      # groups installed, which supply distributions xorq must declare itself.
+      - name: bare-install CLI round trip
+        if: matrix.backend.name == 'core'
+        timeout-minutes: 10
+        run: >
+          uv run --no-sync pytest
+          --import-mode=importlib
+          -m bare_install
+          -v --durations=20
+        working-directory: ${{ github.workspace }}
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.5.4
         with:
