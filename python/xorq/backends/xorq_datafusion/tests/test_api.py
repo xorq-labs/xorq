@@ -1,7 +1,9 @@
+import numpy as np
 import pandas as pd
 import pytest
 
 import xorq.api as xo
+import xorq.vendor.ibis.expr.types as ir
 from xorq.api import SessionConfig
 
 
@@ -50,9 +52,43 @@ def test_with_config(
     assert len(result) == 10
 
 
-def test_cases(alltypes):
+def test_cases(alltypes: ir.Table) -> None:
     expr = xo.cases((alltypes["bool_col"], alltypes["string_col"]), else_=None).substr(
         0, 2
     )
 
     assert expr.execute() is not None
+
+
+def test_cases_deferred(alltypes: ir.Table) -> None:
+    deferred = xo.cases((xo._.bool_col, xo._.string_col), else_=None)
+
+    assert isinstance(deferred, xo.Deferred)
+
+    expr = alltypes.mutate(result=deferred)
+    result = expr.execute()
+    expected = result.string_col.where(result.bool_col, None)
+
+    pd.testing.assert_series_equal(result.result, expected, check_names=False)
+
+
+def test_cases_deferred_multiple_branches(alltypes: ir.Table) -> None:
+    deferred = xo.cases(
+        (xo._.int_col == 1, xo._.string_col),
+        (xo._.int_col == 2, "two"),
+        else_=xo._.string_col.upper(),
+    )
+
+    assert isinstance(deferred, xo.Deferred)
+
+    expr = alltypes.mutate(result=deferred)
+    result = expr.execute()
+    expected = pd.Series(
+        np.select(
+            (result.int_col == 1, result.int_col == 2),
+            (result.string_col, "two"),
+            default=result.string_col.str.upper(),
+        )
+    )
+
+    pd.testing.assert_series_equal(result.result, expected, check_names=False)
