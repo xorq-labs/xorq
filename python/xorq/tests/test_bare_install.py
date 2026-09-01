@@ -1,15 +1,8 @@
-"""Exercise the CLI against an environment holding only the declared dependencies.
+"""Drive the CLI against an environment holding only the declared dependencies.
 
-``test_declared_dependencies`` reasons statically about module-level imports.
-It cannot see an import deferred inside a function body, and most of the
-packager imports in ``xorq/cli.py`` are exactly that.  These tests close the
-gap by building the wheel and driving the CLI through ``uv tool run
---isolated``, which installs ``[project].dependencies`` and nothing else.
-
-This is what distinguishes a real regression from a plausible one: the
-``packaging`` omission left ``xorq build`` fully working while ``xorq run``
-raised ``ModuleNotFoundError`` at import time, so any test that only built, or
-only checked ``--help``, stayed green.
+Covers what the static scan in ``test_declared_dependencies`` cannot: imports
+deferred inside a function body, which is most of the packager imports in
+``xorq/cli.py``.
 """
 
 import sys
@@ -31,8 +24,7 @@ t = xo.memtable({"a": [1, 2, 3]})
 expr = t.filter(t.a > 1)
 """
 
-# Modules on the build, run and catalog paths.  Each must import with only the
-# declared dependencies present.
+# Modules on the build, run and catalog paths.
 CORE_MODULES = (
     "xorq",
     "xorq.api",
@@ -45,7 +37,6 @@ CORE_MODULES = (
 
 
 def run_bare(wheel, args, cwd):
-    """Run a command against an env holding only xorq's declared dependencies."""
     return subprocess_run(
         (
             "uv",

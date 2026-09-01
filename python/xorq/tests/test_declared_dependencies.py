@@ -1,15 +1,8 @@
-"""Guard against importing a distribution xorq does not declare a dependency on.
+"""Assert xorq declares every distribution it imports at module level.
 
-The failure this prevents: a module-level ``import foo`` in always-loaded code
-where ``foo`` is absent from ``[project].dependencies`` and only reaches the
-developer's environment transitively through a dev/test dependency.  Every
-local check passes; a user's ``uv tool run --isolated --with xorq`` raises
-``ModuleNotFoundError``.
-
-There is deliberately no allowlist for "it arrives via some other dependency".
-Those edges live in other projects' metadata under open version ranges, so an
-allowlist records a belief rather than a guarantee.  If xorq imports it at
-module level, xorq declares it.
+An undeclared import reaches dev environments transitively (pytest, black) and
+fails only on a user's bare install.  No allowlist for "it arrives via another
+dependency": if xorq imports it at module level, xorq declares it.
 """
 
 import ast
@@ -21,9 +14,7 @@ import pytest
 import tomlkit
 
 
-# Packages loaded on the build, run and catalog paths.  Optional backends are
-# excluded: their third-party imports are gated behind extras and reached only
-# through a lazy import in the caller.
+# Optional backends are excluded: their imports are extras-gated and lazy.
 CORE_PACKAGES = (
     "python/xorq/caching",
     "python/xorq/catalog",
@@ -74,10 +65,8 @@ def iter_core_modules(project_root):
 def module_level_import_roots(path):
     """Third-party import roots imported unconditionally at module scope.
 
-    Walking ``tree.body`` rather than ``ast.walk`` is what makes this
-    unconditional: imports nested in ``try``/``except ImportError``, ``if``
-    blocks or function bodies are deferred or guarded on purpose, so their
-    absence is already handled and is not a packaging bug.
+    ``tree.body`` not ``ast.walk``: guarded and deferred imports already handle
+    their own absence.
     """
     tree = ast.parse(path.read_text())
     roots = set()
@@ -134,7 +123,6 @@ def test_core_module_imports_are_declared(project_root):
 
 
 def test_import_root_mapping_has_no_stale_entries(project_root):
-    """The alias map should not accumulate entries nothing imports any more."""
     imported = {
         import_root
         for path in iter_core_modules(project_root)
@@ -176,11 +164,7 @@ def test_declared_dependency_names_strips_specifiers(project_root):
 
 
 def test_regression_packaging_is_declared(project_root):
-    """xorq.ibis_yaml.packager imports packaging at module level.
-
-    Undeclared, this broke every ``xorq run`` on a clean install while leaving
-    ``xorq build`` working, so no existing test noticed.
-    """
+    """Undeclared, this broke `xorq run` while leaving `xorq build` green."""
     assert "packaging" in declared_dependency_names(project_root)
     assert "packaging" in module_level_import_roots(
         project_root.joinpath("python", "xorq", "ibis_yaml", "packager.py")
