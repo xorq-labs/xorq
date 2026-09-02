@@ -1,2 +1,7 @@
+# Commits excluded from `git blame` output (bulk reformats, import sorting).
+# Enable once per clone -- git deliberately never picks this up automatically:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# `pre-commit install` also sets it, via the post-checkout hook in
+# .pre-commit-config.yaml. GitHub's web blame honors this file with no setup.
 # chore: fix import order using ruff
 01b9b5aa271d1b1f8f8ae127ca758d6b2a0fb3bd

@@ -4,6 +4,9 @@ ci:
   autoupdate_commit_msg: "chore(deps): pre-commit.ci autoupdate"
   skip:
     - ruff
+default_install_hook_types:
+  - pre-commit
+  - post-checkout
 default_stages:
   - pre-commit
 repos:
@@ -33,3 +36,13 @@ repos:
     hooks:
       # Update the uv lockfile
       - id: uv-lock
+  - repo: local
+    hooks:
+      - id: git-blame-ignore-revs
+        name: configure blame.ignoreRevsFile
+        entry: git config blame.ignoreRevsFile .git-blame-ignore-revs
+        language: system
+        stages:
+          - post-checkout
+        always_run: true
+        pass_filenames: false

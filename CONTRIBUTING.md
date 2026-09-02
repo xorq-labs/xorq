@@ -23,6 +23,8 @@ uv sync --all-extras --all-groups
 source .venv/bin/activate
 # set up the git hook scripts
 uv run pre-commit install
+# ignore bulk-reformat commits in git blame (per clone; git never accepts this from the repo itself)
+git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 > [!IMPORTANT]
 > Rename `.gitignore.template` to `.gitignore` 
