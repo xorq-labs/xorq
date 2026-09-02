@@ -1,16 +1,5 @@
-# Commits excluded from `git blame` output (bulk reformats, import sorting).
-# Enable once per clone -- git deliberately never picks this up automatically:
-#   git config --replace-all blame.ignoreRevsFile .git-blame-ignore-revs
-# The first checkout after `pre-commit install` sets it too, via the
-# post-checkout hook in .pre-commit-config.yaml; the install itself does not.
-# GitHub's web blame honors this file with no setup.
-#
-# Caveat: once set, `git blame` fails with "could not open object name list" at
-# any rev predating this file -- bisecting into early history, or checking out
-# a tag up to v0.1.2.post. There is no per-command override, because
-# blame.ignoreRevsFile is multi-valued and both `-c` and `--ignore-revs-file`
-# append to it rather than replace it. Unset it for the duration instead:
-#   git config --unset-all blame.ignoreRevsFile
-# The next checkout puts it back.
+# Commits `git blame` should skip (bulk reformats, import sorting). Takes effect
+# only where blame.ignoreRevsFile is set, which is per clone -- see "git blame
+# and bulk reformats" in CONTRIBUTING.md for how that happens and its one caveat.
 # chore: fix import order using ruff
 01b9b5aa271d1b1f8f8ae127ca758d6b2a0fb3bd
