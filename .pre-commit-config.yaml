@@ -40,7 +40,7 @@ repos:
     hooks:
       - id: git-blame-ignore-revs
         name: configure blame.ignoreRevsFile
-        entry: git config blame.ignoreRevsFile .git-blame-ignore-revs
+        entry: git config --replace-all blame.ignoreRevsFile .git-blame-ignore-revs
         language: system
         stages:
           - post-checkout

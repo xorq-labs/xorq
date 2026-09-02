@@ -24,8 +24,12 @@ source .venv/bin/activate
 # set up the git hook scripts
 uv run pre-commit install
 # ignore bulk-reformat commits in git blame (per clone; git never accepts this from the repo itself)
-git config blame.ignoreRevsFile .git-blame-ignore-revs
+git config --replace-all blame.ignoreRevsFile .git-blame-ignore-revs
 ```
+> [!NOTE]
+> `pre-commit install` also installs a `post-checkout` hook that keeps
+> `blame.ignoreRevsFile` set. Clones set up before that hook existed need to run
+> `uv run pre-commit install` once more to pick it up.
 > [!IMPORTANT]
 > Rename `.gitignore.template` to `.gitignore` 
 
