@@ -1,2 +1,4 @@
 # chore: fix import order using ruff
 01b9b5aa271d1b1f8f8ae127ca758d6b2a0fb3bd
+# chore: format with ruff
+87bf1a1cb04c02b395ebad9521cbb156f52b0dda
