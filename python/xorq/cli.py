@@ -464,7 +464,9 @@ def join_command(
     from xorq.ibis_yaml.combine import combine_errors, join_builds  # noqa: PLC0415
 
     cache_dir = _get_cache_dir(cache_dir)
-    _check_library_version_match((left_path, right_path), ignore_library_version_mismatch)
+    _check_library_version_match(
+        (left_path, right_path), ignore_library_version_mismatch
+    )
 
     click.echo(f"Joining {left_path} and {right_path} (how={how})", err=True)
     with combine_errors():

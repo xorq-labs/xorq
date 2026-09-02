@@ -56,7 +56,9 @@ def file_backed_left(shared_parquet_path: str) -> xo.Expr:
     # A fresh `xo.duckdb.connect()` -- same profile params as the one in
     # `file_backed_right`, but a distinct connection object (this is what
     # two independent `load_expr()` calls of the same source look like).
-    return deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    return deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    )
 
 
 @pytest.fixture
@@ -194,7 +196,9 @@ def test_join_builds_rebind_survives_colliding_saved_idx(
     pins that the merge produces exactly one surviving profile -- no
     duplicate/colliding entries -- and the build round-trips correctly.
     """
-    left = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    left = deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    )
     right = deferred_read_parquet(
         shared_parquet_path, xo.duckdb.connect(), table_name="t"
     ).rename(b="a")
@@ -205,7 +209,9 @@ def test_join_builds_rebind_survives_colliding_saved_idx(
     for path in (left_path, right_path):
         assert "idx: 0" in (path / "profiles.yaml").read_text()
 
-    result_path = join_builds(left_path, right_path, on="id", builds_dir=tmp_path / "joined")
+    result_path = join_builds(
+        left_path, right_path, on="id", builds_dir=tmp_path / "joined"
+    )
     profiles_text = (result_path / "profiles.yaml").read_text()
     assert profiles_text.count("idx:") == 1
 
@@ -275,8 +281,12 @@ def test_union_exprs_same_profile_in_memory_data_raises(
 def test_union_exprs_same_profile_file_backed_rebinds_by_default(
     shared_parquet_path: str,
 ) -> None:
-    left = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
-    right = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    left = deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    )
+    right = deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    )
     unioned = union_exprs(left, right)
     assert unioned.count().execute() == 6
 
@@ -284,7 +294,11 @@ def test_union_exprs_same_profile_file_backed_rebinds_by_default(
 def test_union_exprs_no_rebind_backends_still_raises(
     shared_parquet_path: str,
 ) -> None:
-    left = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
-    right = deferred_read_parquet(shared_parquet_path, xo.duckdb.connect(), table_name="t")
+    left = deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    )
+    right = deferred_read_parquet(
+        shared_parquet_path, xo.duckdb.connect(), table_name="t"
+    )
     with pytest.raises(ValueError, match="different backend"):
         union_exprs(left, right, rebind_backends=False)
