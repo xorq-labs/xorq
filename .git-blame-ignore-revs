@@ -1,2 +1,5 @@
+# Commits `git blame` should skip (bulk reformats, import sorting). Takes effect
+# only where blame.ignoreRevsFile is set, which is per clone -- see "git blame
+# and bulk reformats" in CONTRIBUTING.md for how that happens and its one caveat.
 # chore: fix import order using ruff
 01b9b5aa271d1b1f8f8ae127ca758d6b2a0fb3bd
