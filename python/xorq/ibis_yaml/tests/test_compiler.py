@@ -1927,8 +1927,12 @@ def test_load_expr_con_cache_shares_same_profile_connections(
     loaded_left = load_expr(left_path, con_cache=con_cache)
     loaded_right = load_expr(right_path, con_cache=con_cache)
 
-    left_backends, _ = loaded_left._find_backends()  # xorq-style: disable=protected-access
-    right_backends, _ = loaded_right._find_backends()  # xorq-style: disable=protected-access
+    left_backends, _ = (
+        loaded_left._find_backends()
+    )  # xorq-style: disable=protected-access
+    right_backends, _ = (
+        loaded_right._find_backends()
+    )  # xorq-style: disable=protected-access
     assert left_backends[0] is right_backends[0]
 
 
@@ -1946,8 +1950,12 @@ def test_load_expr_without_con_cache_keeps_connections_independent(
     loaded_left = load_expr(left_path)
     loaded_right = load_expr(right_path)
 
-    left_backends, _ = loaded_left._find_backends()  # xorq-style: disable=protected-access
-    right_backends, _ = loaded_right._find_backends()  # xorq-style: disable=protected-access
+    left_backends, _ = (
+        loaded_left._find_backends()
+    )  # xorq-style: disable=protected-access
+    right_backends, _ = (
+        loaded_right._find_backends()
+    )  # xorq-style: disable=protected-access
     assert left_backends[0] is not right_backends[0]
 
 
