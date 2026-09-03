@@ -240,6 +240,7 @@ sqlite = "xorq.backends.sqlite"
 gizmosql = "xorq.backends.gizmosql"
 databricks = "xorq.backends.databricks"
 bigquery = "xorq.backends.bigquery"
+redshift = "xorq.backends.redshift"
 
 [project.scripts]
 xorq = "xorq.cli:main"
