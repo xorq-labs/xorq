@@ -18,7 +18,7 @@ today:
 
 | | |
 |---|---|
-| Distribution | Not on PyPI — the driver payload 404s under every plausible name. The *installer*, `dbc`, is on PyPI; the driver it fetches is not |
+| Distribution | Not on PyPI — four candidate package names were checked and all 404, and Columnar publishes no driver as a wheel. The *installer*, `dbc`, is on PyPI; the driver it fetches is not |
 | Environment | `dbc install --level` accepts only `user` and `system`. There is no environment level |
 | Platforms | Builds exist for `linux_amd64`, `linux_arm64`, `macos_arm64` and `windows_amd64`. **No `macos_amd64`** — for any version |
 
@@ -82,7 +82,7 @@ import, for the platforms upstream builds.
 |---|---|---|
 | connect, DDL, introspection, query | psycopg | baseline, PyPI-installable |
 | `to_pyarrow_batches` | Columnar ADBC | accelerator, degrades |
-| `read_record_batches` (ingest) | psycopg | baseline — see below |
+| `read_record_batches` (ingest) | psycopg | baseline — **decided here, not yet implemented**, see *Implementation status* |
 
 ### Why a wheel rather than `dbc install`
 
@@ -174,11 +174,52 @@ authenticating is what made it a choice.
 Rejected because no requirement string resolves — the driver payload is not on
 any index. This is the alternative the repackaged wheel exists to synthesise.
 
+### Use `adbc_driver_postgresql` as the accelerator — **untested, and it would supersede this decision**
+
+Redshift speaks the PostgreSQL wire protocol, and `adbc-driver-postgresql` is
+already declared in the `postgres` extra, is already what the inherited
+`to_pyarrow_batches` reaches for, and publishes PyPI wheels covering *more*
+platforms than the Columnar driver — including the Intel-Mac build Columnar does
+not provide for any version.
+
+If it works against Redshift, the repackaging decision above is unnecessary, the
+platform gap closes, and the accelerator becomes an ordinary declared
+dependency. That would be a strictly better outcome than the decision recorded
+here.
+
+It is **not tested**, because it needs a live Redshift endpoint and the test rig
+was destroyed before the possibility was noticed. It may fail: the driver does
+type and catalog introspection through `pg_catalog`, and Redshift's is
+incomplete — the same class of failure that made `CURRENT_SCHEMA` need an
+override. Recorded as an alternative rather than dismissed, because the cost of
+testing it is one query in a session that has to happen anyway, and a positive
+result would delete work rather than add it. **Revisit this ADR before
+implementing the wheel.**
+
 ### Do not offer an accelerator at all
 
 Rejected. The Arrow-native path is a genuine performance win, and the wheel
 makes it available without compromising installability on any platform that has
 a build.
+
+## Implementation status
+
+This ADR is `Proposed`, and the consequences below are **targets, not
+descriptions**. As of this revision the backend exists over the psycopg baseline
+for connect, DDL, introspection and query, but three parts of the decision are
+unbuilt, and one of them is the optionality claim itself:
+
+| Decision | Status |
+|---|---|
+| psycopg baseline for connect/DDL/introspection/query | **implemented** |
+| `redshift` extra so the backend installs with `uv sync` | **not implemented** — no extra exists; `boto3` still undeclared |
+| psycopg `read_record_batches` (the ingest baseline) | **not implemented** — inherited from postgres unmodified, and unconditional ADBC ingest with no psycopg branch |
+| `to_pyarrow_batches` discriminating driver-absent from auth-failed | **not implemented** — inherits postgres's blanket `except Exception` |
+| `xorq-adbc-driver-redshift` wheels and the CI that asserts payload presence | **not implemented** — referenced nowhere in `pyproject.toml` or the workflows |
+
+The second and third matter most: until the ingest path exists, an installation
+without the accelerator cannot ingest at all, which is precisely the degradation
+this ADR claims to provide. Treat that as the first implementation task.
 
 ## Consequences
 
