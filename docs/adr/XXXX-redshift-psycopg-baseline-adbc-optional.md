@@ -82,7 +82,7 @@ import, for the platforms upstream builds.
 |---|---|---|
 | connect, DDL, introspection, query | psycopg | baseline, PyPI-installable |
 | `to_pyarrow_batches` | Columnar ADBC | accelerator, degrades |
-| `read_record_batches` (ingest) | psycopg | baseline — **decided here, not yet implemented**, see *Implementation status* |
+| `read_record_batches` (ingest) | psycopg | baseline, dispatching on driver availability |
 
 ### Why a wheel rather than `dbc install`
 
@@ -205,21 +205,24 @@ a build.
 ## Implementation status
 
 This ADR is `Proposed`, and the consequences below are **targets, not
-descriptions**. As of this revision the backend exists over the psycopg baseline
-for connect, DDL, introspection and query, but three parts of the decision are
-unbuilt, and one of them is the optionality claim itself:
+descriptions**. As of this revision the psycopg baseline is real for every path
+this ADR names — connect, DDL, introspection, query and ingest — and what
+remains unbuilt is the accelerator and its packaging:
 
 | Decision | Status |
 |---|---|
 | psycopg baseline for connect/DDL/introspection/query | **implemented** |
 | `redshift` extra so the backend installs with `uv sync` | **not implemented** — no extra exists; `boto3` still undeclared |
-| psycopg `read_record_batches` (the ingest baseline) | **not implemented** — inherited from postgres unmodified, and unconditional ADBC ingest with no psycopg branch |
-| `to_pyarrow_batches` discriminating driver-absent from auth-failed | **not implemented** — inherits postgres's blanket `except Exception` |
+| psycopg `read_record_batches` (the ingest baseline) | **implemented** — `CREATE TABLE` + parameterised `INSERT`, dispatched on driver availability |
+| `to_pyarrow_batches` discriminating driver-absent from auth-failed | **implemented** — availability is decided before connecting, so a rejected credential propagates |
 | `xorq-adbc-driver-redshift` wheels and the CI that asserts payload presence | **not implemented** — referenced nowhere in `pyproject.toml` or the workflows |
 
-The second and third matter most: until the ingest path exists, an installation
-without the accelerator cannot ingest at all, which is precisely the degradation
-this ADR claims to provide. Treat that as the first implementation task.
+One caveat on the two implemented rows: dispatch is on the driver being
+*installed and credentialed*, which is not the same as its being known to work.
+No Columnar driver is packaged yet, so the only ADBC driver that can satisfy the
+check today is `adbc_driver_postgresql` — the untested alternative above. Until
+a live endpoint settles that, "accelerator available" is a statement about the
+environment rather than about Redshift.
 
 ## Consequences
 

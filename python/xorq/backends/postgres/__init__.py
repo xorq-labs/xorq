@@ -113,6 +113,35 @@ class Backend(IbisPostgresBackend):
             ),
         ).sql(self.dialect)
 
+    def _open_adbc_conn_or_none(self):
+        """Open an ADBC connection for the Arrow paths, or ``None`` if there is
+        not one to be had.
+
+        A seam rather than a behaviour change. Postgres keeps the catch-all on
+        purpose: an absent ``password`` in ``_con_kwargs`` is an ordinary way
+        for the ADBC URI to be unbuildable while psycopg is perfectly
+        connected -- a ``.pgpass``, a service file, ``PGPASSWORD`` -- and for a
+        static credential, quietly using the psycopg path is the right answer.
+
+        A subclass whose credentials rotate cannot afford that catch-all,
+        because driver-absent and auth-failed arrive here as the same
+        exception. Overriding this one method is how it tells them apart.
+        """
+        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
+
+        try:
+            return PgADBC(self).get_conn()
+        except Exception:
+            # A genuine config/auth error is indistinguishable here from a
+            # missing ADBC URI; both fall through to the psycopg path, so log
+            # at debug to keep the real cause diagnosable.
+            logger.debug(
+                "ADBC connection unavailable; falling back to psycopg",
+                backend=self.name,
+                exc_info=True,
+            )
+            return None
+
     @util.experimental
     def to_pyarrow_batches(
         self,
@@ -124,24 +153,11 @@ class Backend(IbisPostgresBackend):
         chunk_size: int = 1_000_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
-        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
-
         def _batches(self, *, pyarrow_schema, struct_type, query):
             # Primary path: ADBC opens its own independent postgres connection
             # per call, so concurrent generators never share psycopg connection
             # state (eliminates OutOfOrderTransactionNesting).
-            try:
-                adbc_con = PgADBC(self).get_conn()
-            except Exception:
-                # A genuine config/auth error is indistinguishable here from a
-                # missing ADBC URI; both fall through to the psycopg path, so log
-                # at debug to keep the real cause diagnosable.
-                logger.debug(
-                    "ADBC connection unavailable; falling back to psycopg",
-                    backend=self.name,
-                    exc_info=True,
-                )
-                adbc_con = None
+            adbc_con = self._open_adbc_conn_or_none()
 
             if adbc_con is not None:
                 cur = adbc_con.cursor()
