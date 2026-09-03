@@ -14,9 +14,12 @@ that is wrong, so the assertions are on the specific observable, not on
 
 from __future__ import annotations
 
+import pytest
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+import xorq
+import xorq.api as xo
 from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.redshift import DEFAULT_PORT
 from xorq.backends.redshift import Backend as RedshiftBackend
@@ -71,6 +74,31 @@ def test_top_level_methods_are_not_inherited():
     Redshift."""
     assert PostgresBackend._top_level_methods == ("connect_examples", "connect_env")
     assert RedshiftBackend._top_level_methods == ()
+
+
+def test_api_namespace_exposes_no_postgres_connect_helpers():
+    """The class attribute is only half of trap 5.
+
+    ``_top_level_methods`` is surfaced on the backend namespace by
+    ``xorq.api.__getattr__``, so this is the observable a user would actually
+    hit: ``xo.redshift.connect_env`` must not exist, because it is backed by
+    ``PostgresConfig`` and would connect to postgres, and
+    ``xo.redshift.connect_examples`` must not exist, because it is hardcoded to
+    a public postgres host.
+    """
+    assert hasattr(xo.postgres, "connect_env")
+    assert hasattr(xo.postgres, "connect_examples")
+
+    assert hasattr(xo.redshift, "connect")
+    assert not hasattr(xo.redshift, "connect_env")
+    assert not hasattr(xo.redshift, "connect_examples")
+
+
+def test_plain_xorq_import_does_not_expose_the_backend():
+    """The proxy is ``xorq.api``; plain ``import xorq`` raises, as it does for
+    every other backend."""
+    with pytest.raises(AttributeError):
+        xorq.redshift
 
 
 def test_current_schema_is_called_with_parentheses():
