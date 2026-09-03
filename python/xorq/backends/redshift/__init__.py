@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import importlib.util
 from typing import Any
 
+import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.redshift.compiler import compiler
+from xorq.common.utils.logging_utils import get_logger
+from xorq.vendor.ibis.expr import types as ir
+
+
+logger = get_logger(__name__)
 
 
 __all__ = [
@@ -16,6 +24,11 @@ __all__ = [
 
 # Redshift listens on 5439; the postgres backend defaults to 5432.
 DEFAULT_PORT = 5439
+
+# The modes ``adbc_ingest`` accepts, restated so the psycopg path accepts
+# exactly the same set: whichever branch runs must be an implementation detail,
+# and it stops being one the moment the two disagree about what ``mode`` means.
+INGEST_MODES = ("create", "append", "replace", "create_append")
 
 
 class Backend(PostgresBackend):
@@ -114,6 +127,191 @@ class Backend(PostgresBackend):
         with con.cursor() as cursor, con.transaction():
             [(schema,)] = cursor.execute(sql).fetchall()
         return schema
+
+    def _adbc_unavailable_reason(self) -> str | None:
+        """Why the ADBC accelerator cannot be used, or ``None`` if it can.
+
+        The single point of dispatch for both Arrow paths, and the reason
+        neither of them needs a catch-all. Availability is decided from local
+        facts *before* anything is dialled, so every exception raised by the
+        subsequent connect is a real failure and propagates -- which is what
+        separates "no driver installed" from "these credentials were rejected".
+        Under a rotating IAM credential that distinction is the difference
+        between a quiet fallback and silence about an expired password.
+
+        Both checks mirror what ``PgADBC`` would actually do, rather than
+        approximating it: it imports ``adbc_driver_postgresql`` and it reads
+        ``_con_kwargs["password"]`` to interpolate into a URI. A ``password``
+        that is absent *or* ``None`` is disqualifying, and the ``None`` case is
+        the one worth stating: it does not raise, it formats into the URI as
+        the literal string ``"None"`` and fails later as an auth error against
+        a password nobody set.
+
+        This method is also the seam the accelerator work extends. Adding the
+        Columnar driver, or ruling ``adbc_driver_postgresql`` in or out against
+        a live endpoint, changes a clause here and touches neither Arrow path.
+
+        Note what is *not* settled: whether ``adbc_driver_postgresql`` works
+        against Redshift at all is untested -- it is recorded as an alternative
+        in ADR-redshift-psycopg-baseline-adbc-optional, needs a live endpoint,
+        and may fail on ``pg_catalog`` introspection the way ``CURRENT_SCHEMA``
+        did. So a "no reason" answer here means the accelerator is *installed
+        and credentialed*, not that it is known to work.
+        """
+        if importlib.util.find_spec("adbc_driver_postgresql") is None:
+            return "adbc_driver_postgresql is not installed"
+        if self._con_kwargs.get("password") is None:
+            return "no password in _con_kwargs for PgADBC to build a URI from"
+        return None
+
+    def _open_adbc_conn_or_none(self):
+        """Open an ADBC connection for the Arrow read path, or ``None``.
+
+        Overrides the postgres implementation to drop its ``except Exception``.
+        That catch-all is right for postgres, where an unbuildable URI is an
+        ordinary consequence of a ``.pgpass`` connection, but here it would
+        swallow a rejected temporary credential and quietly downgrade to
+        psycopg -- reporting nothing while the IAM path is broken.
+        """
+        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
+
+        if (reason := self._adbc_unavailable_reason()) is not None:
+            logger.debug(
+                "ADBC accelerator unavailable; using the psycopg baseline",
+                backend=self.name,
+                reason=reason,
+            )
+            return None
+        return PgADBC(self).get_conn()
+
+    def read_record_batches(
+        self,
+        record_batches: pa.RecordBatchReader,
+        table_name: str | None = None,
+        password: str | None = None,
+        temporary: bool = False,
+        mode: str = "create",
+        **kwargs: Any,
+    ) -> ir.Table:
+        """Ingest Arrow record batches, over ADBC if it is there and psycopg if
+        it is not.
+
+        The postgres implementation is unconditional ADBC. Inheriting it made
+        this backend claim a psycopg baseline it did not have, and under that
+        baseline an absent driver is the *common* case rather than the edge:
+        no Columnar driver is installable from PyPI, and none is built for
+        Intel macOS at all. So the fallback is the path that has to work.
+
+        Dispatching here rather than rescuing a failed ADBC attempt is what
+        keeps the accelerator an addition: when the driver question is settled
+        the ADBC branch gains a clause in ``_adbc_unavailable_reason``, and
+        this method does not change shape.
+
+        ``kwargs`` reach ``adbc_ingest`` on the ADBC branch and are dropped on
+        the psycopg one, which has nothing to spend them on. That asymmetry is
+        inherited rather than chosen: ``read_csv`` and ``read_parquet`` forward
+        their *own* reader kwargs down this call, so rejecting unknown ones
+        would break both callers on the branch that is meant to be the
+        baseline.
+        """
+        if table_name is None:
+            raise ValueError("table_name is required")
+        if mode not in INGEST_MODES:
+            raise ValueError(f"mode must be one of {INGEST_MODES}, got {mode!r}")
+
+        if (reason := self._adbc_unavailable_reason()) is None:
+            return super().read_record_batches(
+                record_batches,
+                table_name=table_name,
+                password=password,
+                temporary=temporary,
+                mode=mode,
+                **kwargs,
+            )
+
+        logger.debug(
+            "ingesting over psycopg",
+            backend=self.name,
+            reason=reason,
+            table_name=table_name,
+        )
+        return self._read_record_batches_psycopg(
+            record_batches,
+            table_name,
+            temporary=temporary,
+            mode=mode,
+        )
+
+    def _read_record_batches_psycopg(
+        self,
+        record_batches: pa.RecordBatchReader,
+        table_name: str,
+        *,
+        temporary: bool = False,
+        mode: str = "create",
+    ) -> ir.Table:
+        """``CREATE TABLE`` + parameterised ``INSERT`` over the live psycopg
+        connection.
+
+        ``INSERT`` rather than ``COPY`` because Redshift has no
+        ``COPY ... FROM STDIN``: its ``COPY`` reads from S3, which would make
+        the baseline require a bucket, an IAM role to assume and a staging
+        lifecycle. That is the deferred ``redshift.ingest.bucket`` work, and
+        keeping it out is exactly why ``COPY``-from-S3 is off the v1 list.
+
+        ``TEMPORARY`` is applied to the ``CREATE`` directly, where the ADBC
+        path creates a permanent table and converts it afterwards via
+        ``make_table_temporary``. That rename-and-copy dance is not overhead
+        ADBC failed to avoid -- it opens its own connection, so a temp table
+        created there would be invisible to this one. Sharing the psycopg
+        connection is what makes the direct form correct here.
+
+        The reader's own batch size bounds each ``executemany``, so a caller
+        that wants smaller transactions controls it upstream; the whole ingest
+        is one transaction, so a failure part-way leaves no half-filled table.
+
+        A ``Table`` is normalised to a reader rather than iterated: iterating a
+        ``pa.Table`` yields *columns*, so it would fail here on a missing
+        ``num_rows`` while working perfectly on the ADBC branch, which accepts
+        tables. Which branch runs has to stay an implementation detail.
+        """
+        if isinstance(record_batches, pa.Table):
+            record_batches = record_batches.to_reader()
+
+        schema = sch.Schema.from_pyarrow(record_batches.schema)
+        quoted = self.compiler.quoted
+        table = sg.table(table_name, quoted=quoted)
+
+        statements = []
+        if mode == "replace":
+            statements.append(sge.Drop(this=table, kind="TABLE", exists=True))
+        if mode != "append":
+            statements.append(
+                sge.Create(
+                    kind="TABLE",
+                    this=sge.Schema(
+                        this=sg.to_identifier(table_name, quoted=quoted),
+                        expressions=schema.to_sqlglot(self.dialect),
+                    ),
+                    exists=mode == "create_append",
+                    properties=sge.Properties(
+                        expressions=[sge.TemporaryProperty()] if temporary else []
+                    ),
+                )
+            )
+
+        insert = self._build_insert_template(
+            table_name, schema=schema, columns=True, placeholder="%s"
+        )
+
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            for statement in statements:
+                cursor.execute(statement.sql(self.dialect))
+            for batch in record_batches:
+                if batch.num_rows:
+                    cursor.executemany(insert, list(zip(*batch.to_pydict().values())))
+        return self.table(table_name)
 
 
 def connect(**kwargs):
