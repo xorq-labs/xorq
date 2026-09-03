@@ -1,4 +1,4 @@
-# ADR-XXXX: Make the Columnar Redshift driver optional via a psycopg baseline
+# ADR-XXXX: Make the Columnar Redshift driver optional via a psycopg baseline, and ship it as a repackaged wheel
 
 - **Status:** Proposed
 - **Date:** 2026-09-03
@@ -8,101 +8,130 @@
 ## Context
 
 Adding a backend is not by itself an architecture decision — twenty ADRs exist
-and none is about a data backend. This one is not about Redshift. It is about
-what xorq does when the best driver for a source **cannot be a Python
-dependency at all**, which has not come up before and which the Redshift work
-forces.
+and none is about a data backend. This one is not really about Redshift. It is
+about what xorq does when the best driver for a source is distributed in a way
+that no `[project.optional-dependencies]` entry can express.
 
 Every backend with an external driver declares it as a PyPI extra in
-`pyproject.toml`. The Columnar ADBC Redshift driver cannot be declared that
-way, for three independent reasons:
+`pyproject.toml`. The Columnar ADBC Redshift driver cannot be declared that way
+today:
 
 | | |
 |---|---|
-| Distribution | Not on PyPI. It 404s. Installation is out-of-band, via the `dbc` tool — `dbc` itself is on PyPI, but the driver it fetches is not |
-| License | Closed-source `LicenseRef-PBL` |
-| Platforms | No `macos_amd64` build; the flake targets darwin x86_64 |
+| Distribution | Not on PyPI — the driver payload 404s under every plausible name. The *installer*, `dbc`, is on PyPI; the driver it fetches is not |
+| Environment | `dbc install --level` accepts only `user` and `system`. There is no environment level |
+| Platforms | Builds exist for `linux_amd64`, `linux_arm64`, `macos_arm64` and `windows_amd64`. **No `macos_amd64`** — for any version |
 
-There is no requirement string that resolves, so "declare it as an optional
-dependency" — the shape every other external-driver backend uses — is not
-available. The real choice is narrower and worse:
+**The environment row is the load-bearing one**, and it is not the row that is
+usually cited. A `dbc`-installed driver is machine-global: it cannot be captured
+in `uv.lock`, cannot be reconstructed by `uv sync`, and two projects on one
+machine cannot pin different driver versions. "Not on PyPI" is a fact about one
+index that Columnar could retire tomorrow by publishing anywhere; the
+environment defect is a property of `dbc`'s install model and survives that.
 
-- **Mandatory**: the backend works well, and `uv sync` cannot install it. A
-  closed-source binary becomes a hard requirement of an open-source project,
-  and a platform xorq supports is dropped.
-- **Optional**: the backend must do useful work without the driver, which means
-  something else has to be the baseline.
+The irony is sharp: `adbc_driver_manager` already searches
+`sys.prefix/etc/adbc/drivers`, but only when running inside a real virtualenv.
+The hook `dbc` cannot target is one the driver manager already honours.
 
-Optionality is only possible if a PyPI-installable driver can actually do the
-job. Redshift speaks the PostgreSQL wire protocol and psycopg is already in the
-`postgres` extra, so the candidate is obvious — but the question is not
-protocol compatibility, it is **authentication**. Redshift Serverless IAM auth
-mints a temporary password through
-`redshift-serverless:GetCredentials`, and whether a generic PostgreSQL client
-can present one was unknown. If it could not, the ADBC driver would be the only
-way in and this decision would be forced rather than made.
+Two things that are *not* obstacles, both of which earlier drafts of this
+decision treated as though they were:
 
-A live IAM rig was built to settle it, and torn down afterwards. It is
-deliberately not part of this repository: it is throwaway AWS infrastructure,
-not xorq functionality. Experiment 1: psycopg connected with a
-`GetCredentials` temporary password and queried successfully, against a
-Redshift Serverless namespace with no admin password at all
-(`adminPasswordSecretArn: null`) — so the connection can only have gone through
-IAM. `current_user` came back as the assumed role, not a database user.
+- **The driver is not closed-source, and its licence permits redistribution.**
+  It is source-visible, and ships under the Permissive Binary License v1.0,
+  which opens "Redistribution and use in binary form, without modification, are
+  permitted provided that the following conditions are met". The conditions are
+  notice reproduction, no reverse engineering, dependency-file inclusion, and no
+  endorsement use. Downloads are ungated — no account, key or trial — and
+  Redshift is not among the drivers Columnar gates.
+- **The macOS gap is narrower than "no macOS build" and is the registry norm.**
+  Apple Silicon is covered by a Developer-ID-signed binary present in every
+  version. Only Intel Macs lack one — as do 14 of the 20 drivers in the same
+  registry, *including bigquery, which xorq already ships*. xorq has already
+  accepted this exact constraint once.
 
-That is what makes optionality available rather than theoretical.
+Optionality is only worth discussing if a PyPI-installable driver can do the
+job at all, and for Redshift the open question was authentication: IAM mints a
+temporary password through `redshift-serverless:GetCredentials`, and whether a
+generic PostgreSQL client can present one was unknown. A live IAM rig, since
+torn down, settled it: psycopg connected with such a password and queried
+successfully against a namespace with no admin password
+(`adminPasswordSecretArn: null`), so the connection can only have gone through
+IAM.
 
 ## Decision drivers
 
-- A backend must be installable by `uv sync` with no out-of-band steps.
-- xorq must not take a hard dependency on a closed-source binary.
+- A backend must be installable by `uv sync`, and the resulting environment must
+  be reproducible from the lockfile.
 - Platform coverage must not silently narrow.
-- The driver's Arrow-native path is a real win and should stay reachable, not
-  be designed out.
+- The driver's Arrow-native path is a real win and should stay reachable.
+- No user should get a broken install because an accelerator is unavailable.
 
 ## Decision
 
-**A driver that cannot be a PyPI dependency is optional, and the backend has a
-PyPI-installable baseline that works without it. For Redshift: psycopg is the
-baseline, the Columnar ADBC driver is an optional accelerator, and every path
-that uses the driver degrades to the baseline.**
+Two parts, and the second only makes sense because of the first.
 
-This is ADR-0003's shape. There, git-annex was a system dependency that not
-every user should have to install, and the decision was not "how the catalog
-works" but "make the dependency optional, behind an abstraction that has a
-working implementation without it." The same move: the abstraction is the
-existing postgres backend, and psycopg is the implementation that works without
-the optional binary.
+**1. psycopg is the baseline.** Connect, DDL, introspection and query all work
+with psycopg alone. Every driver-backed path degrades to it.
+
+**2. The accelerator ships as a repackaged platform wheel**, not as an
+out-of-band `dbc install`. xorq builds `xorq-adbc-driver-redshift` wheels that
+bundle the unmodified Columnar shared library and resolve its absolute path at
+import, for the platforms upstream builds.
 
 | Path | Driver | Role |
 |---|---|---|
 | connect, DDL, introspection, query | psycopg | baseline, PyPI-installable |
-| `to_pyarrow_batches` | Columnar ADBC | optional accelerator, degrades |
+| `to_pyarrow_batches` | Columnar ADBC | accelerator, degrades |
 | `read_record_batches` (ingest) | psycopg | baseline — see below |
 
-The `redshift` extra declares `psycopg` and `boto3`. The driver is never a
-declared dependency; it is documented as `dbc install redshift`, and the
-missing `macos_amd64` build is stated rather than worked around.
+### Why a wheel rather than `dbc install`
+
+The wheel is what makes the accelerator a *declarable, lockable* dependency
+instead of a machine-global side effect. It is also not a novel mechanism:
+`adbc_driver_snowflake` is a PyPI wheel that ships its Go shared library inside
+the Python package and hands the driver manager an absolute path, and xorq
+already depends on three ADBC drivers packaged exactly that way.
+
+Path resolution must happen **in Python at import**, not through a shipped
+manifest. A driver manifest carrying a relative path does not work — resolution
+falls through to a bare `dlopen` and fails — and a wheel cannot write an
+absolute-path manifest at build time, because the install prefix is not known
+then and wheels have no post-install hook. The manifest inside Columnar's own
+tarball is additionally not spec-compliant; `dbc` translates it on install.
+
+Two build hazards, both silent, both already hit:
+
+- Build backends that honour VCS ignore rules will happily build a wheel with
+  **no driver in it** — exit 0, no warning, a few kilobytes. CI must assert the
+  payload's presence and size, not merely that the build succeeded.
+- A wheel carrying a native library must not be tagged `purelib`. Purity is a
+  build-time value, so it needs a build hook; left alone the wheel mistags and
+  still installs, which is why this goes unnoticed.
+
+**Publishing to a public index is gated on asking Columnar first.** The licence
+permits redistribution, but publishing another company's binary under an
+`xorq-*` name is a courtesy call at minimum, and the better outcome is that they
+publish it themselves. Until that conversation happens, the wheels are built and
+consumed privately. This ADR decides the *mechanism*, not the publication.
+
+If the wheel path is ever abandoned, the fallback is already precedented in this
+repo: `dbc install <driver>` plus `driver="<name>"`, exactly as the bigquery
+backend does, with the CI recipe in
+`.github/workflows/ci-test-bigquery.yml` transferring directly.
 
 ### Every driver-backed path needs a baseline, and one did not have one
 
-This is the substantive consequence, and the reason the decision is not simply
-a packaging note. Optionality is a claim that has to be true of *each* path,
-and on the postgres backend it is not: `read_record_batches` is an
-unconditional ADBC ingest call with no psycopg branch. Inheriting it would mean
-the common case — driver absent — is the failing one.
-
-Nor can that be fixed by installing the driver, because the driver's ingest is
-`COPY`-from-S3 underneath and refuses to run without a staging bucket:
-`INVALID_STATE: [redshift] Must set redshift.ingest.bucket to ingest data`. So
-ADBC ingest is not an accelerator that degrades — it drags in an S3 bucket as
-required user-facing configuration.
+Optionality is a claim that has to hold for *each* path, and on the postgres
+backend it does not: `read_record_batches` is an unconditional ADBC ingest call
+with no psycopg branch. Nor is that fixed by installing the driver, because the
+driver's ingest is `COPY`-from-S3 underneath and refuses to run without a
+staging bucket: `INVALID_STATE: [redshift] Must set redshift.ingest.bucket to
+ingest data`.
 
 v1 therefore ingests through a psycopg temp-table + `INSERT` round-trip, which
-experiment 6 also exercised and which works. `COPY`-from-S3 stays out of scope
-for v1 **because the baseline does not need it**, rather than v1 shipping with
-a scope list that contradicts its own implementation. Two constraints follow,
-cheap now and expensive later:
+was exercised and works. `COPY`-from-S3 stays out of scope for v1 **because the
+baseline does not need it**, rather than v1 shipping with a scope list that
+contradicts its own implementation. Two constraints follow:
 
 1. Dispatch on driver availability from the outset, so an ADBC ingest branch
    arrives later as an addition rather than a restructuring.
@@ -114,74 +143,80 @@ cheap now and expensive later:
 
 The postgres backend tries ADBC first in `to_pyarrow_batches` and falls back to
 psycopg on *any* exception; its own comment acknowledges this swallows genuine
-errors. Under a mandatory driver that is a wart. Under an optional one it is
-the mechanism itself: the absent-driver case is now normal and permanent, so a
+errors. Under a mandatory driver that is a wart. Under an optional one it is the
+mechanism itself: absent-driver is now normal and permanent on Intel Mac, so a
 blanket `except` makes every real failure — an expired credential, a permission
-error — indistinguishable from it, and the operator sees a slow query instead
-of an error. The fallback must catch driver-absence specifically.
+error — indistinguishable from it, and the operator sees a slow query instead of
+an error. The fallback must catch driver-absence specifically.
 
 ## Alternatives considered
+
+### `dbc install redshift`, out-of-band, as the primary mechanism
+
+The pattern the bigquery backend uses today.
+
+Rejected as *primary*, retained as fallback. It cannot be captured in
+`uv.lock`, so the environment is not reproducible and two projects on one
+machine cannot pin different driver versions. It also requires an out-of-band
+step before the accelerator exists at all.
 
 ### Make the driver mandatory
 
 Ship one Arrow-native code path.
 
-Rejected: `uv sync` could not install the backend, a closed-source
-`LicenseRef-PBL` binary would become a hard dependency, and darwin x86_64 would
-be dropped. It was only necessary if psycopg could not authenticate, and
-experiment 1 showed it can.
+Rejected: darwin x86_64 would be dropped outright, and an accelerator that is
+unavailable on a supported platform cannot be a hard requirement. Before the
+rig ran this would also have been forced rather than chosen; psycopg
+authenticating is what made it a choice.
 
-### Declare the driver in `[project.optional-dependencies]`
+### Declare the upstream driver in `[project.optional-dependencies]`
 
-Rejected because it is not possible, not because it is unwise. The package
-404s on PyPI, so no requirement string resolves. This is a distribution fact.
+Rejected because no requirement string resolves — the driver payload is not on
+any index. This is the alternative the repackaged wheel exists to synthesise.
 
-### Vendor or repackage the driver so it can be declared
+### Do not offer an accelerator at all
 
-Rejected. Redistributing a closed-source `LicenseRef-PBL` binary is a licensing
-question xorq should not answer by doing it, and it would not fix the missing
-`macos_amd64` build.
-
-### Support ADBC ingest in v1 with a required `redshift.ingest.bucket`
-
-Deferred, not rejected. It adds an S3 staging bucket as user-facing
-configuration for a path that only works when an out-of-band driver is present.
-The dispatch point above exists so this can arrive as an addition.
+Rejected. The Arrow-native path is a genuine performance win, and the wheel
+makes it available without compromising installability on any platform that has
+a build.
 
 ## Consequences
 
 ### Positive
 
-- The backend installs with `uv sync` and no out-of-band steps.
-- No closed-source binary becomes a hard dependency; no supported platform is
-  dropped.
-- The Arrow-native read path stays available to anyone who runs
-  `dbc install redshift`.
+- The backend installs with `uv sync`, and the accelerator is lockable rather
+  than machine-global.
+- No supported platform gets a broken install; Intel Mac degrades to the
+  baseline.
+- The Arrow-native path reaches Linux, Apple Silicon and Windows users without
+  an out-of-band step.
 - `boto3` gets declared. It is currently undeclared repo-wide despite being
   imported by the catalog's S3 utilities.
-- The pattern generalises: the next source whose best driver is not on PyPI has
-  a precedent to follow.
+- The pattern generalises to the next source whose driver is not on PyPI.
 
 ### Negative
 
+- **xorq becomes a redistributor of a third party's binary**, with the
+  maintenance tail that implies: a wheel per platform, a version-drift watcher,
+  and signature verification at build time. This is the real cost of the
+  decision and it is ongoing.
 - Two read paths exist, so both need testing and the boundary between them is a
   real source of bugs — which is why the blanket `except` is not inherited.
 - Ingest is row-oriented `INSERT` in v1, slower than `COPY`-from-S3 for large
   loads.
-- Users wanting the accelerated paths must install a driver out-of-band, and
-  macOS x86_64 users cannot at all.
-- Performance now depends on whether an out-of-band step was taken, so two
-  users on identical code can see materially different throughput.
+- Intel Macs get no accelerator, and neither does an x86_64 Python running under
+  Rosetta on Apple Silicon — Rosetta translates x86_64 to arm64, not the
+  reverse, so an arm64 dylib cannot be loaded either way.
+- Performance depends on platform, so two users on identical code can see
+  materially different throughput.
 
 ## References
-
-The IAM auth rig that produced the experimental results above was throwaway
-infrastructure and is not in this repository. Its findings are recorded in this
-ADR and in the Redshift backend plan; the rig itself was destroyed after use.
 
 - `python/xorq/backends/postgres/__init__.py` — the backend subclassed, and the
   ADBC-first fallback discussed above
 - `python/xorq/common/utils/adbc_utils.py` — the bulk-ingest capability probe,
   not reached when the driver fails to load
+- `.github/workflows/ci-test-bigquery.yml` — the out-of-band `dbc install`
+  fallback pattern, already in use for another backend
 - [ADR-0003](0003-optional-git-annex-backend.md) — making an external
   dependency optional behind an abstraction
