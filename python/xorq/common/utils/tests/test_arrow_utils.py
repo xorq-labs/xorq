@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+import pandas as pd
+import pyarrow as pa
+import pytest
+
+from xorq.common.utils.arrow_utils import (
+    PANDAS_METADATA_KEY,
+    drop_pandas_schema_metadata,
+    has_pandas_schema_metadata,
+)
+
+
+@pytest.fixture
+def pandas_sourced_table() -> pa.Table:
+    return pa.Table.from_pandas(pd.DataFrame({"k": ["x"], "v": [1]}))
+
+
+def test_from_pandas_carries_the_metadata(pandas_sourced_table: pa.Table) -> None:
+    assert has_pandas_schema_metadata(pandas_sourced_table.schema)
+
+
+def test_drop_table(pandas_sourced_table: pa.Table) -> None:
+    dropped = drop_pandas_schema_metadata(pandas_sourced_table)
+    assert dropped.schema.metadata is None
+    assert dropped.equals(pandas_sourced_table)
+
+
+def test_drop_batch(pandas_sourced_table: pa.Table) -> None:
+    (batch,) = pandas_sourced_table.to_batches()
+    dropped = drop_pandas_schema_metadata(batch)
+    assert dropped.schema.metadata is None
+    assert dropped.to_pydict() == batch.to_pydict()
+
+
+def test_drop_reader(pandas_sourced_table: pa.Table) -> None:
+    dropped = drop_pandas_schema_metadata(pandas_sourced_table.to_reader())
+    assert dropped.schema.metadata is None
+    assert dropped.read_all().to_pydict() == pandas_sourced_table.to_pydict()
+
+
+def test_drop_schema(pandas_sourced_table: pa.Table) -> None:
+    dropped = drop_pandas_schema_metadata(pandas_sourced_table.schema)
+    assert dropped.metadata is None
+    assert dropped == pandas_sourced_table.schema.remove_metadata()
+
+
+def test_other_schema_metadata_preserved(pandas_sourced_table: pa.Table) -> None:
+    table = pandas_sourced_table.replace_schema_metadata(
+        {**pandas_sourced_table.schema.metadata, b"mine": b"keep"}
+    )
+    assert drop_pandas_schema_metadata(table).schema.metadata == {b"mine": b"keep"}
+
+
+def test_field_metadata_preserved() -> None:
+    field = pa.field("k", pa.string(), metadata={b"field": b"keep"})
+    table = pa.Table.from_pandas(
+        pd.DataFrame({"k": ["x"]}), schema=pa.schema([field])
+    ).replace_schema_metadata({PANDAS_METADATA_KEY: b"{}"})
+    dropped = drop_pandas_schema_metadata(table)
+    assert dropped.schema.metadata is None
+    assert dropped.schema.field("k").metadata == {b"field": b"keep"}
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        pytest.param(None, id="no-metadata"),
+        pytest.param({b"mine": b"keep"}, id="other-metadata"),
+    ],
+)
+def test_without_the_key_is_identity(
+    pandas_sourced_table: pa.Table, metadata: dict[bytes, bytes] | None
+) -> None:
+    table = pandas_sourced_table.replace_schema_metadata(metadata)
+    assert drop_pandas_schema_metadata(table) is table
+
+
+def test_unsupported_type_raises() -> None:
+    with pytest.raises(TypeError, match="Cannot drop pandas schema metadata"):
+        drop_pandas_schema_metadata(pd.DataFrame({"k": ["x"]}))

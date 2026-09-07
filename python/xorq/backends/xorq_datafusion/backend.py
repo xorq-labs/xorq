@@ -31,6 +31,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion.compiler import compiler
 from xorq.backends.xorq_datafusion.provider import IbisTableProvider
 from xorq.common.utils import classproperty
+from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
 from xorq.common.utils.aws_utils import make_s3_connection
 from xorq.expr import Expr
 from xorq.expr.pyaggregator import PyAggregator, make_struct_type
@@ -512,16 +513,21 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 [col for col in source.column_names if col.startswith("__index_level_")]
             )
 
-        # Phase 4: dispatch to the DataFusion registration API.
+        # Phase 4: dispatch to the DataFusion registration API. Arrow sources get
+        # their pandas schema metadata dropped: DataFusion's schema equality is
+        # metadata-sensitive, so two tables carrying different blobs cannot join.
         self.con.deregister_table(table_ident)
         match source:
             case pa.Table():
+                source = drop_pandas_schema_metadata(source)
                 self.con.register_record_batches(table_ident, [source.to_batches()])
             case pa.RecordBatch():
+                source = drop_pandas_schema_metadata(source)
                 self.con.register_record_batches(table_ident, [[source]])
             case pa.RecordBatchReader():
                 if "ordering" in kwargs:
                     kwargs["sort_order"] = self._translate_sort(kwargs.pop("ordering"))
+                source = drop_pandas_schema_metadata(source)
                 self.con.register_record_batch_reader(table_ident, source, **kwargs)
             case ds.Dataset():
                 self.con.register_dataset(table_ident, source)
@@ -604,7 +610,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         schema = op.schema
 
         self.con.deregister_table(name)
-        if batches := op.data.to_pyarrow(schema).to_batches():
+        table = drop_pandas_schema_metadata(op.data.to_pyarrow(schema))
+        if batches := table.to_batches():
             self.con.register_record_batches(name, [batches])
         else:
             import pyarrow.dataset as ds  # noqa: PLC0415
