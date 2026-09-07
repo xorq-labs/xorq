@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788291694932,
+  "lastUpdate": 1788771537879,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -36690,6 +36690,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.24336561465951603",
             "extra": "mean: 1.6306050454 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "413f47514918364809c48e432a28e487a5056cfc",
+          "message": "docs: make blame.ignoreRevsFile discoverable and automatic (#2275)\n\n## Problem\n\nThe repo has a `.git-blame-ignore-revs` file, but it does nothing in a\nfresh clone. Git deliberately refuses to read `blame.ignoreRevsFile`\nfrom repository-tracked config (that would let a repo change local git\nbehavior), so every contributor has to set it by hand — and nothing in\nthe repo says so. GitHub's web blame reads the file automatically, so\nthe local/web mismatch is easy to miss.\n\n## Changes\n\n- **`CONTRIBUTING.md`** — document the one-liner (`git config\n--replace-all blame.ignoreRevsFile .git-blame-ignore-revs`) right after\nthe existing `pre-commit install` step, and a \"git blame and bulk\nreformats\" subsection covering how the hook sets it, that existing\nclones must re-run `pre-commit install` to pick up the new hook type,\nand the caveat below. This is the one place any of it is written down.\n- **`.git-blame-ignore-revs`** — a three-line header saying what the\nfile is and pointing at that subsection, rather than restating it in a\nfile that is mostly machine-read.\n- **`.pre-commit-config.yaml`** — a `post-checkout` hook that sets the\nconfig, plus `default_install_hook_types: [pre-commit, post-checkout]`\nso `pre-commit install` wires both. Contributors who follow the setup\nsteps get it without running the extra command.\n\n`--replace-all` rather than plain `git config <name> <value>`: the\nsingle-value form hard-fails (exit 5, `cannot overwrite multiple values\nwith a single value`) when a clone's local config already holds more\nthan one `blame.ignoreRevsFile` entry, which git explicitly supports.\nThe hook would then print `Failed` on every checkout with no way to\nrecover, since each retry hits the same error. `--replace-all` collapses\nthe list to the one correct value.\n\n## Verification\n\nIn a fresh clone of this branch (pre-commit 4.6.0, git 2.55):\n\n- `blame.ignoreRevsFile` starts unset.\n- `pre-commit install` reports `installed at .git/hooks/pre-commit`\n**and** `installed at .git/hooks/post-checkout`.\n- The next checkout runs `configure blame.ignoreRevsFile...Passed`,\nafter which `git config --get blame.ignoreRevsFile` returns\n`.git-blame-ignore-revs`.\n- Seeded with two local `blame.ignoreRevsFile` values, the hook still\npasses and leaves exactly one value. (With the single-value form it\nexited 5 and failed on every subsequent checkout.)\n- An existing `post-checkout` hook (e.g. git-lfs) is preserved —\npre-commit migrates it via its `.legacy` mechanism.\n\n## Caveats\n\n- **`git blame` fails at revs predating this file.** Once the config is\nset, `git blame` on any file exits 128 with `fatal: could not open\nobject name list: .git-blame-ignore-revs` whenever the working tree is\nat a rev older than `14a30475` (2024-05-17) — bisecting into early\nhistory, or checking out a tag up to `v0.1.2.post`. There is no\nper-command override: `blame.ignoreRevsFile` is multi-valued, so `-c\nblame.ignoreRevsFile=` and `--ignore-revs-file=\"\"`/`=/dev/null` all\n*append* rather than replace, and blame still tries to open the\nconfigured path. The workaround is `git config --unset-all\nblame.ignoreRevsFile` for the duration; the next checkout restores it.\nThis is documented in `CONTRIBUTING.md`.\n- **No visible blame difference today.** The single rev currently listed\n(`01b9b5aa`, the ruff import-order pass) no longer owns any lines in any\nfile. This PR is about the mechanism being in place and correct for the\nnext bulk reformat, not about fixing blame output right now.\n\n## Notes\n\n- `default_install_hook_types` changes what `pre-commit install`\ninstalls, so **existing** clones need to re-run `pre-commit install`\nonce to pick up the post-checkout hook. New clones get it from the\ndocumented setup flow.\n- The hook is `stages: [post-checkout]` only, so it never runs on `git\ncommit` and `pre-commit.ci` is unaffected (it doesn't run post-checkout\nhooks). It does run on *file* checkouts, though: `git checkout --\n<file>` measured 0.153s with the hook vs 0.004s without, and `git\nrestore <file>` prints a `configure blame.ignoreRevsFile...Passed` line\neach time.\n- Branch is named `docs-blame-ignore-revs` rather than\n`docs/blame-ignore-revs`: origin already has a branch literally named\n`docs`, which blocks any `docs/*` ref.\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T10:53:05+02:00",
+          "tree_id": "26fdf7ee3d955a54210dac98dbd72daeb6a7f646",
+          "url": "https://github.com/xorq-labs/xorq/commit/413f47514918364809c48e432a28e487a5056cfc"
+        },
+        "date": 1788771534508,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.399918135660515,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030856216193694257",
+            "extra": "mean: 156.25199866666625 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.0226191459052925,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009086462198102371",
+            "extra": "mean: 330.83890219999716 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7672208354830051,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16075602191471783",
+            "extra": "mean: 1.303405686800005 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.61728905879006,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05714337764998798",
+            "extra": "mean: 382.0747259999962 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.061018735612904,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02403791709132279",
+            "extra": "mean: 326.6886243999977 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.2048305975740603,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016729173052396212",
+            "extra": "mean: 312.02897299999677 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 171.2389431896225,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006920014775618075",
+            "extra": "mean: 5.839793106481881 msec\nrounds: 216"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.88344857441099,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08318213106812472",
+            "extra": "mean: 257.5030879999929 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 13.518587775861086,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013573345223438565",
+            "extra": "mean: 73.97222376923196 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.493859934922552,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01623827383470292",
+            "extra": "mean: 105.3312358571422 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.840911040890074,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019613133880711692",
+            "extra": "mean: 127.5362001666688 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.9205047258699794,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030183293529878565",
+            "extra": "mean: 168.90451849999266 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.761481111012328,
+            "unit": "iter/sec",
+            "range": "stddev: 0.032238020709996935",
+            "extra": "mean: 210.01868466666926 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.648472233348414,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013134160572371899",
+            "extra": "mean: 215.1244429999906 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.201701368343204,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06673086439517933",
+            "extra": "mean: 454.1942037999945 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.474246170868791,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011518079596732518",
+            "extra": "mean: 287.8322233999711 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.860669596078818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09030899708037317",
+            "extra": "mean: 537.4409310000033 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8866428840539335,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09676617445425546",
+            "extra": "mean: 530.0420172000145 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5905587137429622,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10321598810977461",
+            "extra": "mean: 628.7098937999986 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5510589418612808,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10176929790879077",
+            "extra": "mean: 644.7208245999946 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2685515918315131,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13480386732842792",
+            "extra": "mean: 788.3006149999915 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1733835155982282,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15446143756767755",
+            "extra": "mean: 852.2362780000094 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.994099745231098,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16867300193984178",
+            "extra": "mean: 1.0059352743999852 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6161978141046809,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16320559460927728",
+            "extra": "mean: 1.622855480999999 sec\nrounds: 5"
           }
         ]
       }
