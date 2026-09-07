@@ -23,9 +23,32 @@ uv sync --all-extras --all-groups
 source .venv/bin/activate
 # set up the git hook scripts
 uv run pre-commit install
+# ignore bulk-reformat commits in git blame (per clone; git never accepts this from the repo itself)
+git config --replace-all blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 > [!IMPORTANT]
 > Rename `.gitignore.template` to `.gitignore` 
+
+### git blame and bulk reformats
+
+`.git-blame-ignore-revs` lists the commits `git blame` should skip. Git
+deliberately never accepts `blame.ignoreRevsFile` from the repository itself,
+hence the `git config` line above. `pre-commit install` also installs a
+`post-checkout` hook that sets it -- not the install itself, the next checkout
+after it -- so clones set up before that hook existed need `uv run pre-commit
+install` once more. GitHub's web blame honors the file with no setup at all.
+
+One caveat: with the setting on, `git blame` exits 128 with `fatal: could not
+open object name list: .git-blame-ignore-revs` at any rev predating the file
+(2024-05-17), so bisecting into early history or checking out a tag up to
+`v0.1.2.post` breaks blame entirely. There is no per-command override --
+`blame.ignoreRevsFile` is multi-valued, so `-c blame.ignoreRevsFile=` and
+`--ignore-revs-file=""` append to the list rather than replace it. Unset it for
+the duration instead, and the next checkout puts it back:
+
+```bash
+git config --unset-all blame.ignoreRevsFile
+```
 
 ## Dev container
 
