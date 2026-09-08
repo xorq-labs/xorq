@@ -26,7 +26,11 @@ jobs:
       matrix:
         python-version: [ "3.13" ]
     steps:
+      # fetch-depth: 0 for the changed-lines style gate below --- a shallow
+      # clone has no merge base with the target branch.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       # Prose is listed explicitly rather than scanning the tree, so a
       # generated or vendored file cannot fail the build over wording nobody
@@ -53,6 +57,37 @@ jobs:
       # Update output format to enable automatic inline annotations.
       - name: Run Ruff
         run: uv run --no-sync ruff check --output-format=github python examples docs scripts
+
+      # Files are expanded with `git ls-files` because xorq-check-style reports
+      # nothing and exits 0 when handed a directory (xorq-labs/xorq-style#30).
+      #
+      # --disable is the ratchet: every rule listed has a nonzero count today.
+      # Move a rule off the list once it reaches zero and the gate tightens.
+      - name: Style (rules at zero, whole repo)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git ls-files 'python/*.py' 'examples/*.py' 'docs/*.py' 'scripts/*.py' \
+            | xargs -n 40 uv run --no-sync xorq-check-style --disable \
+              type-annotations,pytest-param-id,future-annotations,print,pytest-tmp-path,protected-access,deferred-import-test,redundant-import,os-environ,init-reexport,deferred-stdlib,import-aliasing,stdlib-logging,os-path,test-class,exception-placement,relative-import,exception-hierarchy,enum-placement,cache-method
+
+      # Pull requests only: GITHUB_BASE_REF is empty on push and tag builds, so
+      # `git merge-base HEAD origin/` would fail and redden every push to main.
+      #
+      # pipefail is load-bearing --- an empty diff is a legitimate exit-0 pass,
+      # so a failure left of the pipe otherwise reads as clean.
+      #
+      # The four disabled rules are 93% of the backlog; with them on, touching
+      # any signature or parametrize list reddens the PR.
+      - name: Style (changed lines)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=$(git merge-base HEAD "origin/$GITHUB_BASE_REF")
+          git diff "$base" HEAD \
+            | uv run --no-sync xorq-check-style --diff --disable \
+              type-annotations,pytest-param-id,future-annotations,print
 
       - name: Verify no uncommitted changes
         run: |
