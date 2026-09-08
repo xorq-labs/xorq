@@ -97,9 +97,9 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     if not sentinels:
         return {}
     try:
-        provider = placeholder._find_backend(
+        provider = placeholder._find_backend(  # xorq-style: disable=protected-access
             use_default=True
-        )  # xorq-style: disable=protected-access
+        )
         compiler = getattr(provider, "compiler", None)
         if compiler is None:
             return {}
