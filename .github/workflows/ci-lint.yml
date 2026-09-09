@@ -54,6 +54,13 @@ jobs:
       - name: Run Ruff
         run: uv run --no-sync ruff check --output-format=github python examples docs scripts
 
+      # A separate command, not a flag on the step above: `ruff check` is the
+      # linter and `ruff format` the formatter, and a file can be lint-clean and
+      # format-dirty at once. Same paths as the linter so the two stay in sync.
+      # No --output-format here; the formatter's is preview-gated.
+      - name: Run Ruff format check
+        run: uv run --no-sync ruff format --check python examples docs scripts
+
       - name: Verify no uncommitted changes
         run: |
           echo "Checking for uncommitted changes in the workspace..."
