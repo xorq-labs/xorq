@@ -3,3 +3,5 @@
 # and bulk reformats" in CONTRIBUTING.md for how that happens and its one caveat.
 # chore: fix import order using ruff
 01b9b5aa271d1b1f8f8ae127ca758d6b2a0fb3bd
+# chore: format with ruff
+e67f468abe3027d92eb369c2cac52eaa30ba6174
