@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.2] - 2026-09-10
+### Details
+#### Changed
+- Correct three defects in the Release Flow steps by @dlovell in [#2272](https://github.com/xorq-labs/xorq/pull/2272)
+- Make blame.ignoreRevsFile discoverable and automatic by @dlovell in [#2275](https://github.com/xorq-labs/xorq/pull/2275)
+- Format with ruff by @ray1097 in [#2274](https://github.com/xorq-labs/xorq/pull/2274)
+
+## New Contributors
+* @ray1097 made their first contribution in [#2274](https://github.com/xorq-labs/xorq/pull/2274)
+
 ## [0.4.1] - 2026-09-01
 ### Details
 #### Fixed
