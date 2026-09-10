@@ -41,6 +41,37 @@ def test_drop_reader(pandas_sourced_table: pa.Table) -> None:
     assert dropped.read_all().to_pydict() == pandas_sourced_table.to_pydict()
 
 
+def test_drop_dictionary_reader() -> None:
+    """A dictionary column has no self-cast kernel in every Arrow release."""
+    table = pa.Table.from_pandas(pd.DataFrame({"c": pd.Categorical(["a", "b"])}))
+    assert has_pandas_schema_metadata(table.schema)
+
+    dropped = drop_pandas_schema_metadata(table.to_reader())
+    assert dropped.schema.metadata is None
+    assert dropped.schema.field("c").type == table.schema.field("c").type
+    assert dropped.read_all().to_pydict() == table.to_pydict()
+
+
+def test_drop_reader_falls_back_when_cast_is_unsupported(
+    pandas_sourced_table: pa.Table,
+) -> None:
+    class NoCastReader:
+        """``RecordBatchReader`` is immutable, so stand in for one."""
+
+        schema = pandas_sourced_table.schema
+
+        def __iter__(self):
+            return iter(pandas_sourced_table.to_batches())
+
+        def cast(self, schema):
+            raise pa.ArrowNotImplementedError("no cast kernel")
+
+    handler = drop_pandas_schema_metadata.registry[pa.RecordBatchReader]
+    dropped = handler(NoCastReader())
+    assert dropped.schema.metadata is None
+    assert dropped.read_all().to_pydict() == pandas_sourced_table.to_pydict()
+
+
 def test_drop_in_memory_dataset(pandas_sourced_table: pa.Table) -> None:
     dataset = ds.dataset(pandas_sourced_table)
     dropped = drop_pandas_schema_metadata(dataset)

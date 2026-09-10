@@ -29,7 +29,7 @@ from xorq.backends.xorq_datafusion import Backend
 
 # create_table routes through a pandas conversion a one-shot reader does not
 # survive -- unrelated to #2266.
-CREATABLE_SOURCES = [p for p in PANDAS_SOURCES if p.id != "record-batch-reader"]
+CREATABLE_SOURCES = [p for p in PANDAS_SOURCES if "record-batch-reader" not in p.id]
 # read_record_batches takes batch sources only, and any iterable of batches.
 BATCH_SOURCES = [
     pytest.param(pa.Table.from_pandas, id="pyarrow-table"),
@@ -178,6 +178,7 @@ def test_cross_join_of_registered_filesystem_datasets(
     con.register(to_dataset(right_df, "b"), "b")
 
     assert engine_schema(con, "a").metadata is None
+    assert engine_schema(con, "b").metadata is None
     assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
 
 

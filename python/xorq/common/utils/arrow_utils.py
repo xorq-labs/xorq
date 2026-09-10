@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import functools
 import sys
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
+
+
+if TYPE_CHECKING:
+    import pyarrow.dataset as ds
 
 
 PANDAS_METADATA_KEY = b"pandas"
@@ -37,11 +42,14 @@ def drop_pandas_schema_metadata(obj: object) -> object:
     are preserved. Objects without the key are returned unchanged.
     """
     # A Dataset cannot exist unless pyarrow.dataset is already imported, so
-    # handling it here keeps this module from importing it eagerly -- both
+    # probing for it here keeps this module from importing it eagerly -- both
     # DataFusion backends deliberately import it lazily at the call site.
-    if (ds := sys.modules.get("pyarrow.dataset")) is not None and isinstance(
-        obj, ds.Dataset
+    # Registering on first sight restores singledispatch caching and makes the
+    # handler visible to callers introspecting ``.registry``.
+    if (dataset := sys.modules.get("pyarrow.dataset")) is not None and isinstance(
+        obj, dataset.Dataset
     ):
+        drop_pandas_schema_metadata.register(dataset.Dataset, _dataset)
         return _dataset(obj)
     raise TypeError(f"Cannot drop pandas schema metadata from {type(obj)}")
 
@@ -64,15 +72,28 @@ def _table_or_batch(obj: pa.Table | pa.RecordBatch) -> pa.Table | pa.RecordBatch
 
 @drop_pandas_schema_metadata.register(pa.RecordBatchReader)
 def _reader(obj: pa.RecordBatchReader) -> pa.RecordBatchReader:
-    # cast is C++-backed and only restates the schema, so the returned reader
-    # stays a native Arrow C stream: no per-batch trip through Python, and the
-    # original's error and close semantics are preserved.
+    """Restate the reader's schema, and each batch's, without the blob."""
     if not has_pandas_schema_metadata(obj.schema):
         return obj
-    return obj.cast(drop_pandas_schema_metadata(obj.schema))
+    schema = drop_pandas_schema_metadata(obj.schema)
+    try:
+        # cast is C++-backed and only restates the schema, so the returned
+        # reader stays a native Arrow C stream: no per-batch trip through
+        # Python, and the original's error and close semantics are preserved.
+        return obj.cast(schema)
+    except (TypeError, pa.ArrowNotImplementedError):
+        # cast demands a cast kernel for every field pair, even type -> same
+        # type, so an exotic column type can make it fail where a plain
+        # metadata swap would not. Wrapping has no such constraint: a carrying
+        # reader comes back as a new one draining the original, which the
+        # wrapper then owns -- errors surface from it as it is consumed, and
+        # discarding it unconsumed leaves the original unread.
+        return pa.RecordBatchReader.from_batches(
+            schema, map(drop_pandas_schema_metadata, obj)
+        )
 
 
-def _dataset(obj):
+def _dataset(obj: ds.Dataset) -> ds.Dataset:
     if not has_pandas_schema_metadata(obj.schema):
         return obj
     # replace_schema keeps the fragments and the laziness: only the declared

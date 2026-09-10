@@ -544,11 +544,16 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 source = drop_pandas_schema_metadata(source)
                 self.con.register_dataset(table_ident, source)
             case ir.Table():
-                # Cross-backend expr: IbisTableProvider executes via source's own
-                # backend, which owns the schema it reports; nothing to strip here.
+                # Cross-backend expr: IbisTableProvider declares a schema rebuilt
+                # from the ibis schema, which never carries the blob. Its scan
+                # output is assumed to match that declared schema.
                 self.con.register_table_provider(table_ident, IbisTableProvider(source))
             case ir.Expr():
-                # Cross-backend non-table expr: materialize via source's own backend.
+                # Cross-backend non-table expr: materialize via source's own
+                # backend. The strip is defensive -- every in-tree backend's
+                # to_pyarrow_batches round-trips through the ibis schema and so
+                # cannot leak the blob -- but a reader that did carry it would
+                # disagree with the schema DataFusion records here.
                 self.con.register_record_batch_reader(
                     table_ident,
                     drop_pandas_schema_metadata(source.to_pyarrow_batches()),
