@@ -23,20 +23,10 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
+from xorq.backends.tests.pandas_metadata_util import PANDAS_SOURCES, engine_schema
 from xorq.backends.xorq_datafusion import Backend
 
 
-PANDAS_SOURCES = [
-    pytest.param(lambda df: df, id="pandas"),
-    pytest.param(pa.Table.from_pandas, id="pyarrow-table"),
-    pytest.param(
-        lambda df: pa.Table.from_pandas(df).to_batches()[0], id="record-batch"
-    ),
-    pytest.param(
-        lambda df: pa.Table.from_pandas(df).to_reader(), id="record-batch-reader"
-    ),
-    pytest.param(lambda df: ds.dataset(pa.Table.from_pandas(df)), id="dataset"),
-]
 # create_table routes through a pandas conversion a one-shot reader does not
 # survive -- unrelated to #2266.
 CREATABLE_SOURCES = [p for p in PANDAS_SOURCES if p.id != "record-batch-reader"]
@@ -68,16 +58,6 @@ def cross_join_agg(con: Backend) -> pd.DataFrame:
         .aggregate(n=xo._.v.sum())
         .execute()
     )
-
-
-def engine_schema(con: Backend, name: str) -> pa.Schema:
-    """The schema DataFusion itself holds for ``name``.
-
-    Not ``con.table(name).to_pyarrow().schema``: that rebuilds the result from
-    the ibis schema, which never carries metadata, so it reports none whether
-    or not registration dropped the blob.
-    """
-    return con.con.sql(f'SELECT * FROM "{name}"').schema()
 
 
 @pytest.mark.parametrize("to_source", PANDAS_SOURCES)
@@ -180,6 +160,25 @@ def test_read_record_batches_table_has_no_pandas_metadata(
     con.read_record_batches(to_source(left_df), table_name="a")
 
     assert engine_schema(con, "a").metadata is None
+
+
+def test_cross_join_of_registered_filesystem_datasets(
+    left_df: pd.DataFrame, right_df: pd.DataFrame, tmp_path: Path
+) -> None:
+    """A parquet file pandas wrote carries the blob in the dataset schema."""
+
+    def to_dataset(df: pd.DataFrame, name: str) -> ds.Dataset:
+        directory = tmp_path / name
+        directory.mkdir()
+        pq.write_table(pa.Table.from_pandas(df), directory / "t.parquet")
+        return ds.dataset(directory, format="parquet")
+
+    con = xo.connect()
+    con.register(to_dataset(left_df, "a"), "a")
+    con.register(to_dataset(right_df, "b"), "b")
+
+    assert engine_schema(con, "a").metadata is None
+    assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
 
 
 def test_read_parquet_has_no_pandas_metadata(

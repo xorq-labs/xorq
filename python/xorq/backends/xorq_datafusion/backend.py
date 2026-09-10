@@ -544,12 +544,14 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 source = drop_pandas_schema_metadata(source)
                 self.con.register_dataset(table_ident, source)
             case ir.Table():
-                # Cross-backend expr: IbisTableProvider executes via source's own backend.
+                # Cross-backend expr: IbisTableProvider executes via source's own
+                # backend, which owns the schema it reports; nothing to strip here.
                 self.con.register_table_provider(table_ident, IbisTableProvider(source))
             case ir.Expr():
                 # Cross-backend non-table expr: materialize via source's own backend.
                 self.con.register_record_batch_reader(
-                    table_ident, source.to_pyarrow_batches()
+                    table_ident,
+                    drop_pandas_schema_metadata(source.to_pyarrow_batches()),
                 )
             case Table():
                 self.con.register_table(table_ident, source)

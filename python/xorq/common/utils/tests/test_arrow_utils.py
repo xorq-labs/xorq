@@ -45,6 +45,7 @@ def test_drop_in_memory_dataset(pandas_sourced_table: pa.Table) -> None:
     dataset = ds.dataset(pandas_sourced_table)
     dropped = drop_pandas_schema_metadata(dataset)
     assert dropped.schema.metadata is None
+    assert dropped.to_table().schema.metadata is None
     assert dropped.to_table().to_pydict() == pandas_sourced_table.to_pydict()
 
 
@@ -55,6 +56,7 @@ def test_drop_filesystem_dataset(pandas_sourced_table: pa.Table, tmp_path) -> No
 
     dropped = drop_pandas_schema_metadata(dataset)
     assert dropped.schema.metadata is None
+    assert dropped.to_table().schema.metadata is None
     assert dropped.to_table().to_pydict() == pandas_sourced_table.to_pydict()
 
 

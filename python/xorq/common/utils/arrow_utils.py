@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import functools
+import sys
 
 import pyarrow as pa
-import pyarrow.dataset as ds
 
 
 PANDAS_METADATA_KEY = b"pandas"
@@ -36,6 +36,13 @@ def drop_pandas_schema_metadata(obj: object) -> object:
     Other metadata keys and all field-level metadata (Arrow extension types)
     are preserved. Objects without the key are returned unchanged.
     """
+    # A Dataset cannot exist unless pyarrow.dataset is already imported, so
+    # handling it here keeps this module from importing it eagerly -- both
+    # DataFusion backends deliberately import it lazily at the call site.
+    if (ds := sys.modules.get("pyarrow.dataset")) is not None and isinstance(
+        obj, ds.Dataset
+    ):
+        return _dataset(obj)
     raise TypeError(f"Cannot drop pandas schema metadata from {type(obj)}")
 
 
@@ -57,23 +64,15 @@ def _table_or_batch(obj: pa.Table | pa.RecordBatch) -> pa.Table | pa.RecordBatch
 
 @drop_pandas_schema_metadata.register(pa.RecordBatchReader)
 def _reader(obj: pa.RecordBatchReader) -> pa.RecordBatchReader:
-    """Wrap the reader, restating its schema and each batch's without the blob.
-
-    A reader cannot be rewritten in place, so a carrying reader comes back as a
-    new one draining the original. The original is then owned by the wrapper:
-    errors it raises surface from the wrapper as it is consumed, and discarding
-    the wrapper without consuming it leaves the original unread.
-    """
+    # cast is C++-backed and only restates the schema, so the returned reader
+    # stays a native Arrow C stream: no per-batch trip through Python, and the
+    # original's error and close semantics are preserved.
     if not has_pandas_schema_metadata(obj.schema):
         return obj
-    return pa.RecordBatchReader.from_batches(
-        drop_pandas_schema_metadata(obj.schema),
-        map(drop_pandas_schema_metadata, obj),
-    )
+    return obj.cast(drop_pandas_schema_metadata(obj.schema))
 
 
-@drop_pandas_schema_metadata.register(ds.Dataset)
-def _dataset(obj: ds.Dataset) -> ds.Dataset:
+def _dataset(obj):
     if not has_pandas_schema_metadata(obj.schema):
         return obj
     # replace_schema keeps the fragments and the laziness: only the declared
