@@ -9,6 +9,8 @@ internal "Schema mismatch" error. Registration drops the blob now.
 
 from __future__ import annotations
 
+from typing import Any, Callable
+
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -51,7 +53,9 @@ def cross_join_agg(con: Backend) -> pd.DataFrame:
     ],
 )
 def test_cross_join_of_registered_pandas_sourced_tables(
-    to_source: callable, left_df: pd.DataFrame, right_df: pd.DataFrame
+    to_source: Callable[[pd.DataFrame], Any],
+    left_df: pd.DataFrame,
+    right_df: pd.DataFrame,
 ) -> None:
     con = xo.connect()
     con.register(to_source(left_df), "a")
@@ -68,11 +72,47 @@ def test_cross_join_of_registered_pandas_sourced_tables(
     ],
 )
 def test_cross_join_of_created_pandas_sourced_tables(
-    to_source: callable, left_df: pd.DataFrame, right_df: pd.DataFrame
+    to_source: Callable[[pd.DataFrame], Any],
+    left_df: pd.DataFrame,
+    right_df: pd.DataFrame,
 ) -> None:
     con = xo.connect()
     con.create_table("a", to_source(left_df))
     con.create_table("b", to_source(right_df))
+
+    assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
+
+
+@pytest.mark.parametrize(
+    "to_source",
+    [
+        pytest.param(pa.Table.from_pandas, id="pyarrow-table"),
+        pytest.param(lambda df: pa.Table.from_pandas(df).to_batches(), id="batch-list"),
+        pytest.param(
+            lambda df: pa.Table.from_pandas(df).to_reader(), id="record-batch-reader"
+        ),
+    ],
+)
+def test_cross_join_of_read_record_batches(
+    to_source: Callable[[pd.DataFrame], Any],
+    left_df: pd.DataFrame,
+    right_df: pd.DataFrame,
+) -> None:
+    con = xo.connect()
+    con.read_record_batches(to_source(left_df), table_name="a")
+    con.read_record_batches(to_source(right_df), table_name="b")
+
+    # the registered readers are one-shot, so this is the only scan
+    assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
+
+
+def test_cross_join_read_record_batches_against_created_table(
+    left_df: pd.DataFrame, right_df: pd.DataFrame
+) -> None:
+    """The two registration paths must agree: one strips, the other must too."""
+    con = xo.connect()
+    con.read_record_batches(pa.Table.from_pandas(left_df), table_name="a")
+    con.create_table("b", right_df)
 
     assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
 

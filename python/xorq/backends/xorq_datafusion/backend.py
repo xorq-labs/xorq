@@ -86,6 +86,17 @@ def _casting_reader(
     )
 
 
+def _target_schema(schema: pa.Schema | None, default: pa.Schema) -> pa.Schema:
+    """Pick the schema to cast to, without pandas' schema metadata.
+
+    DataFusion's schema equality is metadata-sensitive, so a table registered
+    with the ``{"pandas": ...}`` blob cannot join one registered without it
+    (xorq #2266). Batches are cast to the returned schema, so dropping it here
+    strips the blob from the whole registration.
+    """
+    return drop_pandas_schema_metadata(schema if schema is not None else default)
+
+
 def _compile_pyarrow_udwf(udwf_node: Any) -> WindowUDF:
     def make_datafusion_udwf(
         input_types,
@@ -813,7 +824,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         registered: Any = None
         match source:
             case StreamCache():
-                target_schema = schema if schema is not None else source.schema
+                target_schema = _target_schema(schema, source.schema)
                 # source.cast returns a CastingStreamCache: a replayable view
                 # over the *same* cache that retypes on each read, so DataFusion's
                 # repeated scans share one buffer and the source's max_readers
@@ -826,10 +837,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 # mismatch rather than accommodate it.
                 registered = source.cast(target_schema)
             case pa.Table():
-                target_schema = schema if schema is not None else source.schema
+                target_schema = _target_schema(schema, source.schema)
                 batches = source.to_batches()
             case pa.RecordBatchReader():
-                target_schema = schema if schema is not None else source.schema
+                target_schema = _target_schema(schema, source.schema)
                 batches = source
             case str() | bytes():
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
@@ -839,7 +850,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     first = next(it)
                 except StopIteration:
                     raise ValueError("source has no rows") from None
-                target_schema = schema if schema is not None else first.schema
+                target_schema = _target_schema(schema, first.schema)
                 batches = itertools.chain([first], it)
             case _:
                 raise TypeError(f"unsupported source type: {type(source).__name__}")

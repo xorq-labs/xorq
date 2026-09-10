@@ -6,6 +6,8 @@ description of the metadata-sensitive schema equality this guards against.
 
 from __future__ import annotations
 
+from typing import Any, Callable
+
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -26,7 +28,9 @@ import xorq.api as xo
         ),
     ],
 )
-def test_cross_join_of_pandas_sourced_tables(to_source: callable) -> None:
+def test_cross_join_of_pandas_sourced_tables(
+    to_source: Callable[[pd.DataFrame], Any],
+) -> None:
     con = xo.datafusion.connect()
     con.create_table("a", to_source(pd.DataFrame({"k": ["x"], "v": [1]})))
     con.create_table("b", to_source(pd.DataFrame({"g": ["y"]})))
