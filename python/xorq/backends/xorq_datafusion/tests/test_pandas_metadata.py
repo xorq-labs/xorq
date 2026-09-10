@@ -3,20 +3,51 @@
 ``pa.Table.from_pandas`` attaches a ``{"pandas": ...}`` schema-level metadata
 blob. DataFusion's schema equality is metadata-sensitive in the
 ``join_selection`` physical optimizer rule and in its logical/physical schema
-verifier, so two tables carrying *different* blobs used to fail to join with an
-internal "Schema mismatch" error. Registration drops the blob now.
+verifier, so two tables *both* carrying the blob fail to join with an internal
+"Schema mismatch" error. Registration drops the blob now.
+
+``read_parquet`` needs no such handling even for a file pandas wrote: the blob
+lives in the parquet key-value metadata and DataFusion infers the table schema
+without it (see ``test_read_parquet_has_no_pandas_metadata``).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
 from xorq.backends.xorq_datafusion import Backend
+
+
+PANDAS_SOURCES = [
+    pytest.param(lambda df: df, id="pandas"),
+    pytest.param(pa.Table.from_pandas, id="pyarrow-table"),
+    pytest.param(
+        lambda df: pa.Table.from_pandas(df).to_batches()[0], id="record-batch"
+    ),
+    pytest.param(
+        lambda df: pa.Table.from_pandas(df).to_reader(), id="record-batch-reader"
+    ),
+    pytest.param(lambda df: ds.dataset(pa.Table.from_pandas(df)), id="dataset"),
+]
+# create_table routes through a pandas conversion a one-shot reader does not
+# survive -- unrelated to #2266.
+CREATABLE_SOURCES = [p for p in PANDAS_SOURCES if p.id != "record-batch-reader"]
+# read_record_batches takes batch sources only, and any iterable of batches.
+BATCH_SOURCES = [
+    pytest.param(pa.Table.from_pandas, id="pyarrow-table"),
+    pytest.param(lambda df: pa.Table.from_pandas(df).to_batches(), id="batch-list"),
+    pytest.param(
+        lambda df: pa.Table.from_pandas(df).to_reader(), id="record-batch-reader"
+    ),
+]
 
 
 @pytest.fixture
@@ -39,19 +70,17 @@ def cross_join_agg(con: Backend) -> pd.DataFrame:
     )
 
 
-@pytest.mark.parametrize(
-    "to_source",
-    [
-        pytest.param(lambda df: df, id="pandas"),
-        pytest.param(pa.Table.from_pandas, id="pyarrow-table"),
-        pytest.param(
-            lambda df: pa.Table.from_pandas(df).to_batches()[0], id="record-batch"
-        ),
-        pytest.param(
-            lambda df: pa.Table.from_pandas(df).to_reader(), id="record-batch-reader"
-        ),
-    ],
-)
+def engine_schema(con: Backend, name: str) -> pa.Schema:
+    """The schema DataFusion itself holds for ``name``.
+
+    Not ``con.table(name).to_pyarrow().schema``: that rebuilds the result from
+    the ibis schema, which never carries metadata, so it reports none whether
+    or not registration dropped the blob.
+    """
+    return con.con.sql(f'SELECT * FROM "{name}"').schema()
+
+
+@pytest.mark.parametrize("to_source", PANDAS_SOURCES)
 def test_cross_join_of_registered_pandas_sourced_tables(
     to_source: Callable[[pd.DataFrame], Any],
     left_df: pd.DataFrame,
@@ -64,13 +93,7 @@ def test_cross_join_of_registered_pandas_sourced_tables(
     assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
 
 
-@pytest.mark.parametrize(
-    "to_source",
-    [
-        pytest.param(lambda df: df, id="pandas"),
-        pytest.param(pa.Table.from_pandas, id="pyarrow-table"),
-    ],
-)
+@pytest.mark.parametrize("to_source", CREATABLE_SOURCES)
 def test_cross_join_of_created_pandas_sourced_tables(
     to_source: Callable[[pd.DataFrame], Any],
     left_df: pd.DataFrame,
@@ -83,16 +106,7 @@ def test_cross_join_of_created_pandas_sourced_tables(
     assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
 
 
-@pytest.mark.parametrize(
-    "to_source",
-    [
-        pytest.param(pa.Table.from_pandas, id="pyarrow-table"),
-        pytest.param(lambda df: pa.Table.from_pandas(df).to_batches(), id="batch-list"),
-        pytest.param(
-            lambda df: pa.Table.from_pandas(df).to_reader(), id="record-batch-reader"
-        ),
-    ],
-)
+@pytest.mark.parametrize("to_source", BATCH_SOURCES)
 def test_cross_join_of_read_record_batches(
     to_source: Callable[[pd.DataFrame], Any],
     left_df: pd.DataFrame,
@@ -106,13 +120,13 @@ def test_cross_join_of_read_record_batches(
     assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
 
 
-def test_cross_join_read_record_batches_against_created_table(
+def test_cross_join_read_record_batches_against_registered_table(
     left_df: pd.DataFrame, right_df: pd.DataFrame
 ) -> None:
-    """The two registration paths must agree: one strips, the other must too."""
+    """The registration paths must agree: one strips, the other must too."""
     con = xo.connect()
     con.read_record_batches(pa.Table.from_pandas(left_df), table_name="a")
-    con.create_table("b", right_df)
+    con.register(pa.Table.from_pandas(right_df), "b")
 
     assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
 
@@ -138,8 +152,43 @@ def test_cross_join_of_memtables() -> None:
     ]
 
 
-def test_registered_table_has_no_pandas_metadata(left_df: pd.DataFrame) -> None:
+@pytest.mark.parametrize("to_source", PANDAS_SOURCES)
+def test_registered_table_has_no_pandas_metadata(
+    to_source: Callable[[pd.DataFrame], Any], left_df: pd.DataFrame
+) -> None:
     con = xo.connect()
-    table = con.create_table("a", left_df)
+    con.register(to_source(left_df), "a")
 
-    assert table.to_pyarrow().schema.metadata is None
+    assert engine_schema(con, "a").metadata is None
+
+
+@pytest.mark.parametrize("to_source", CREATABLE_SOURCES)
+def test_created_table_has_no_pandas_metadata(
+    to_source: Callable[[pd.DataFrame], Any], left_df: pd.DataFrame
+) -> None:
+    con = xo.connect()
+    con.create_table("a", to_source(left_df))
+
+    assert engine_schema(con, "a").metadata is None
+
+
+@pytest.mark.parametrize("to_source", BATCH_SOURCES)
+def test_read_record_batches_table_has_no_pandas_metadata(
+    to_source: Callable[[pd.DataFrame], Any], left_df: pd.DataFrame
+) -> None:
+    con = xo.connect()
+    con.read_record_batches(to_source(left_df), table_name="a")
+
+    assert engine_schema(con, "a").metadata is None
+
+
+def test_read_parquet_has_no_pandas_metadata(
+    left_df: pd.DataFrame, tmp_path: Path
+) -> None:
+    path = tmp_path / "left.parquet"
+    pq.write_table(pa.Table.from_pandas(left_df), path)
+
+    con = xo.connect()
+    con.read_parquet(path, table_name="a")
+
+    assert engine_schema(con, "a").metadata is None

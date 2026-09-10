@@ -541,6 +541,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 source = drop_pandas_schema_metadata(source)
                 self.con.register_record_batch_reader(table_ident, source, **kwargs)
             case ds.Dataset():
+                source = drop_pandas_schema_metadata(source)
                 self.con.register_dataset(table_ident, source)
             case ir.Table():
                 # Cross-backend expr: IbisTableProvider executes via source's own backend.

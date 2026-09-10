@@ -19,6 +19,7 @@ from xorq.vendor.ibis.util import gen_name
 
 if TYPE_CHECKING:
     import pandas as pd
+    import pyarrow.dataset as ds
 
 
 __all__ = [
@@ -216,10 +217,12 @@ def _pyarrow_rb(
 
 
 @_read_in_memory.register("pyarrow.dataset.Dataset")
-def _pyarrow_rb(source, table_name, _conn, overwrite: bool = False):
+def _pyarrow_dataset(
+    source: ds.Dataset, table_name: str, _conn: Backend, overwrite: bool = False
+) -> None:
     tmp_name = gen_name("pyarrow")
     with _create_and_drop_memtable(_conn, table_name, tmp_name, overwrite):
-        _conn.con.register_dataset(tmp_name, source)
+        _conn.con.register_dataset(tmp_name, drop_pandas_schema_metadata(source))
 
 
 @_read_in_memory.register("pandas.DataFrame")

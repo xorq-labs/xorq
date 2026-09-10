@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 import pytest
 
 from xorq.common.utils.arrow_utils import (
@@ -37,6 +39,23 @@ def test_drop_reader(pandas_sourced_table: pa.Table) -> None:
     dropped = drop_pandas_schema_metadata(pandas_sourced_table.to_reader())
     assert dropped.schema.metadata is None
     assert dropped.read_all().to_pydict() == pandas_sourced_table.to_pydict()
+
+
+def test_drop_in_memory_dataset(pandas_sourced_table: pa.Table) -> None:
+    dataset = ds.dataset(pandas_sourced_table)
+    dropped = drop_pandas_schema_metadata(dataset)
+    assert dropped.schema.metadata is None
+    assert dropped.to_table().to_pydict() == pandas_sourced_table.to_pydict()
+
+
+def test_drop_filesystem_dataset(pandas_sourced_table: pa.Table, tmp_path) -> None:
+    pq.write_table(pandas_sourced_table, tmp_path / "t.parquet")
+    dataset = ds.dataset(tmp_path, format="parquet")
+    assert has_pandas_schema_metadata(dataset.schema)
+
+    dropped = drop_pandas_schema_metadata(dataset)
+    assert dropped.schema.metadata is None
+    assert dropped.to_table().to_pydict() == pandas_sourced_table.to_pydict()
 
 
 def test_drop_schema(pandas_sourced_table: pa.Table) -> None:

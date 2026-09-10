@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 
 import pyarrow as pa
+import pyarrow.dataset as ds
 
 
 PANDAS_METADATA_KEY = b"pandas"
@@ -56,9 +57,25 @@ def _table_or_batch(obj: pa.Table | pa.RecordBatch) -> pa.Table | pa.RecordBatch
 
 @drop_pandas_schema_metadata.register(pa.RecordBatchReader)
 def _reader(obj: pa.RecordBatchReader) -> pa.RecordBatchReader:
+    """Wrap the reader, restating its schema and each batch's without the blob.
+
+    A reader cannot be rewritten in place, so a carrying reader comes back as a
+    new one draining the original. The original is then owned by the wrapper:
+    errors it raises surface from the wrapper as it is consumed, and discarding
+    the wrapper without consuming it leaves the original unread.
+    """
     if not has_pandas_schema_metadata(obj.schema):
         return obj
     return pa.RecordBatchReader.from_batches(
         drop_pandas_schema_metadata(obj.schema),
         map(drop_pandas_schema_metadata, obj),
     )
+
+
+@drop_pandas_schema_metadata.register(ds.Dataset)
+def _dataset(obj: ds.Dataset) -> ds.Dataset:
+    if not has_pandas_schema_metadata(obj.schema):
+        return obj
+    # replace_schema keeps the fragments and the laziness: only the declared
+    # schema changes, so a FileSystemDataset is not read here.
+    return obj.replace_schema(drop_pandas_schema_metadata(obj.schema))
