@@ -83,6 +83,21 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _normalize_semantic_metadata(value):
+    """Validate and normalize JSON/YAML-compatible catalog metadata."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        if not all(isinstance(key, str) for key in value):
+            raise TypeError("semantic metadata mapping keys must be strings")
+        return {key: _normalize_semantic_metadata(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_semantic_metadata(item) for item in value]
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    raise TypeError(f"unsupported semantic metadata value: {type(value).__name__}")
+
+
 def _check_backend_exclusive(
     content_store_config: ContentStoreConfig | None,
     annex: AnnexConfig | None | Literal[False],
@@ -356,21 +371,38 @@ class Catalog:
         embed_config = attr.evolve(readonly_config, embedcreds="yes")
         self.set_remote_config(embed_config)
 
-    def _add_zip(self, path, sync=True, aliases=(), exist_ok=False):
+    def _add_zip(
+        self, path, sync=True, aliases=(), exist_ok=False, semantic_metadata=None
+    ):
         # should we enable not syncing?
         with self.maybe_synchronizing(sync):
-            catalog_addition = CatalogAddition(BuildZip(path), self, aliases=aliases)
+            catalog_addition = CatalogAddition(
+                BuildZip(path),
+                self,
+                aliases=aliases,
+                semantic_metadata=_normalize_semantic_metadata(semantic_metadata),
+            )
             catalog_entry = catalog_addition.add(exist_ok=exist_ok)
             self.assert_consistency()
             return catalog_entry
 
     def _add_build_dir(
-        self, build_dir, sync=True, aliases=(), exist_ok=False, project_path=None
+        self,
+        build_dir,
+        sync=True,
+        aliases=(),
+        exist_ok=False,
+        project_path=None,
+        semantic_metadata=None,
     ):
         _ensure_wheel_artifacts(build_dir, project_path=project_path)
         with make_zip_context(build_dir) as zip_path:
             return self._add_zip(
-                zip_path, sync=sync, aliases=aliases, exist_ok=exist_ok
+                zip_path,
+                sync=sync,
+                aliases=aliases,
+                exist_ok=exist_ok,
+                semantic_metadata=semantic_metadata,
             )
 
     def _add_expr(
@@ -381,6 +413,7 @@ class Catalog:
         exist_ok: bool = False,
         project_path: Path | None = None,
         relocate_reads: bool = True,
+        semantic_metadata=None,
     ) -> CatalogEntry:
         with build_expr_context(expr, relocate_reads=relocate_reads) as path:
             return self._add_build_dir(
@@ -389,6 +422,7 @@ class Catalog:
                 aliases=aliases,
                 exist_ok=exist_ok,
                 project_path=project_path,
+                semantic_metadata=semantic_metadata,
             )
 
     def add(
@@ -399,6 +433,8 @@ class Catalog:
         exist_ok: bool = False,
         project_path: Path | None = None,
         relocate_reads: bool | None = None,
+        *,
+        metadata=None,
     ) -> CatalogEntry:
         """Add a build to the catalog.
 
@@ -431,14 +467,17 @@ class Catalog:
         shared = {"sync": sync, "aliases": aliases, "exist_ok": exist_ok}
         match obj:
             case Path() if obj.is_dir():
-                return self._add_build_dir(obj, project_path=project_path, **shared)
+                return self._add_build_dir(
+                    obj, project_path=project_path, semantic_metadata=metadata, **shared
+                )
             case Path() if obj.is_file():
-                return self._add_zip(obj, **shared)
+                return self._add_zip(obj, semantic_metadata=metadata, **shared)
             case Expr():
                 return self._add_expr(
                     obj,
                     project_path=project_path,
                     relocate_reads=True if relocate_reads is None else relocate_reads,
+                    semantic_metadata=metadata,
                     **shared,
                 )
             case _:
@@ -1328,6 +1367,7 @@ class CatalogAddition:
     build_zip = field(validator=instance_of(BuildZip))
     catalog = field(validator=instance_of(Catalog))
     aliases = field(validator=deep_iterable(instance_of(str)), default=())
+    semantic_metadata = field(default=None)
     _maybe_tmpfile = field(
         validator=optional(instance_of(tempfile._TemporaryFileWrapper)),
         default=None,
@@ -1355,6 +1395,7 @@ class CatalogAddition:
                 "md5sum": self.build_zip.md5sum,
                 "backends": backends,
                 "expr_metadata": expr_data,
+                "semantic_metadata": self.semantic_metadata,
             }.items()
             if v is not None
         }
@@ -1510,6 +1551,11 @@ class CatalogEntry:
     @cached_property
     def backends(self) -> tuple[str, ...]:
         return tuple(self.sidecar_metadata.get("backends", ()))
+
+    @property
+    def semantic_metadata(self):
+        """Optional catalog-level semantic metadata from the sidecar."""
+        return self.sidecar_metadata.get("semantic_metadata")
 
     @property
     def aliases(self):

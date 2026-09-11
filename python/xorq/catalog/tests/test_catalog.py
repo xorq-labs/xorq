@@ -76,6 +76,56 @@ from xorq.common.utils.caching_utils import CacheKey
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, ExprKind
 
 
+def test_catalog_add_semantic_metadata_roundtrip(catalog, data_dict):
+    path = next(iter(data_dict.values()))
+    metadata = {
+        "domain": "analytics",
+        "tags": ["daily", "trusted"],
+        "options": {"enabled": True, "threshold": 0.5},
+    }
+
+    entry = catalog.add(path, metadata=metadata)
+    reloaded = Catalog.from_repo_path(catalog.repo_path, init=False).get_catalog_entry(
+        entry.name
+    )
+
+    assert entry.semantic_metadata == metadata
+    assert reloaded.semantic_metadata == metadata
+    assert "semantic_metadata" in reloaded.sidecar_metadata
+    assert reloaded.sidecar_metadata["expr_metadata"] == entry.sidecar_metadata[
+        "expr_metadata"
+    ]
+
+
+def test_catalog_add_legacy_sidecar_has_no_semantic_metadata(catalog, data_dict):
+    path = next(iter(data_dict.values()))
+    entry = catalog.add(path)
+    assert entry.semantic_metadata is None
+
+    # A sidecar without the optional key is the legacy on-disk format.
+    sidecar = catalog_mod.yaml12.parse_yaml(entry.metadata_path.read_text())
+    sidecar.pop("semantic_metadata", None)
+    entry.metadata_path.write_text(catalog_mod.yaml12.format_yaml(sidecar))
+    reloaded = Catalog.from_repo_path(catalog.repo_path, init=False).get_catalog_entry(
+        entry.name
+    )
+    assert reloaded.semantic_metadata is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        object(),
+        {1: "non-string key"},
+        {"nested": {"bad": object()}},
+    ],
+)
+def test_catalog_add_rejects_invalid_semantic_metadata(catalog, data_dict, metadata):
+    path = next(iter(data_dict.values()))
+    with pytest.raises(TypeError, match="semantic metadata|unsupported"):
+        catalog.add(path, metadata=metadata)
+
+
 def test_catalog_add(catalog, data_dict):
     catalog_entries = tuple(catalog.add(path) for path in data_dict.values())
     assert all(catalog_entry.exists() for catalog_entry in catalog_entries)
