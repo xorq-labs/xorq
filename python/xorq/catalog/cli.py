@@ -1289,6 +1289,8 @@ def show(ctx: click.Context, name: str, as_json: bool, as_raw: bool) -> None:
                 # normalize through the parser so legacy sidecars present the
                 # same sql_queries shape as `schema --json`; --raw stays verbatim
                 data["expr_metadata"] = entry.metadata.to_dict()
+            # always present (null when unset) so consumers can rely on the key
+            data.setdefault("semantic_metadata", None)
             click.echo(json.dumps(data, indent=2, default=str))
             return
 
@@ -1310,6 +1312,8 @@ def show(ctx: click.Context, name: str, as_json: bool, as_raw: bool) -> None:
         backends = entry.backends
         if backends:
             click.echo(f"{'Backends:':<15} {', '.join(backends)}")
+        if entry.semantic_metadata is not None:
+            click.echo(f"{'Semantic:':<15} {entry.semantic_metadata}")
         click.echo(
             f"{'Content local:':<15} {'yes' if entry.is_content_local else 'no'}"
         )
