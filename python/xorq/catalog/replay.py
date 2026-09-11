@@ -20,10 +20,9 @@ back under any outer wrapping.
 
 Rebuild protocols (see ``xorq.expr.builders.get_rebuild_dispatch``):
   1. Handler-level ``reemit`` callable on the ``TagHandler``.
-  2. Domain-object ``reemit(tag_node, rebuild_subexpr)`` method
-     (multi-output builders like ``FittedPipeline``).
-  3. Domain-object ``with_inputs_translated(remap, to_catalog)`` +
-     ``expr`` (single-output builders like ``ExprComposer``).
+  2. Domain object implementing the ``Rebuildable`` protocol
+     (``rebuild(tag_node, rebuild_subexpr, remap, to_catalog)``), e.g.
+     ``FittedPipeline`` and ``ExprComposer``.
 """
 
 from __future__ import annotations
@@ -124,7 +123,7 @@ def _rebuild_subexpr(expr, *, from_catalog, to_catalog, ctx):
       catalog tags inside the chain are rebuilt as part of the same
       composition.
     - Registered builder tag (``ExprKind.ExprBuilder``): dispatches via
-      the handler protocol. The handler's ``reemit`` recursively
+      the handler protocol. The recovered object's ``rebuild`` recursively
       rebuilds its own inputs via the ``rebuild_subexpr`` closure
       passed in; outer processing does not re-enter its subtree.
 
@@ -188,8 +187,8 @@ def _rebuild_subexpr(expr, *, from_catalog, to_catalog, ctx):
             if tag_name and tag_name in _get_from_tag_node_registry():
                 msg = (
                     f"rebuild: handler for tag {tag_name!r} has no rebuild "
-                    "protocol (handler.reemit, object.reemit, or "
-                    "object.with_inputs_translated)"
+                    "protocol (handler.reemit, or a Rebuildable object with "
+                    "a rebuild() method)"
                 )
                 if ctx.on_unrebuilt_builder is OnUnrebuiltBuilder.RAISE:
                     raise RuntimeError(msg)
