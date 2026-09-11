@@ -22,7 +22,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.loader import load_backend
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
-from xorq.vendor.ibis.backends.profiles import Profile
+from xorq.vendor.ibis.backends.profiles import Profile, check_for_exposed_secrets
 
 
 if TYPE_CHECKING:
@@ -944,6 +944,28 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
         new_backend = self.__class__(*args, **kwargs)
         new_backend.reconnect()
         return new_backend
+
+    def expr_safe_profile_kwargs(self) -> dict:
+        """Connection kwargs as authored, checked safe to capture in expressions.
+
+        Returns the Profile's kwargs -- env var references preserved, never
+        the resolved values `do_connect` received -- after
+        `check_for_exposed_secrets` rejects any raw secret value. A callable
+        that closes over connection state (e.g. a `flight_udxf` `process_df`)
+        is cloudpickled into build artifacts, so a client captured that way
+        must be built from these kwargs, not from the live connection. This
+        is the supported surface for out-of-tree backends; the profile
+        internals behind it are not.
+
+        Raises
+        ------
+        ValueError
+            If a declared secret kwarg holds a raw value rather than an env
+            var reference.
+        """
+        kwargs = self._profile.kwargs_dict
+        check_for_exposed_secrets(self.name, kwargs)
+        return kwargs
 
     @abc.abstractmethod
     def disconnect(self) -> None:
