@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import subprocess
 import tempfile
@@ -110,6 +111,10 @@ def _normalize_semantic_metadata_value(value):
         }
     if isinstance(value, (list, tuple)):
         return [_normalize_semantic_metadata_value(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        raise TypeError(
+            f"unsupported semantic metadata value: non-finite float {value!r}"
+        )
     if isinstance(value, (str, int, float, bool)):
         return value
     raise TypeError(f"unsupported semantic metadata value: {type(value).__name__}")
@@ -391,13 +396,15 @@ class Catalog:
     def _add_zip(
         self, path, sync=True, aliases=(), exist_ok=False, semantic_metadata=None
     ):
+        # Normalize before any I/O so invalid metadata fails fast (no pull/push).
+        semantic_metadata = _normalize_semantic_metadata(semantic_metadata)
         # should we enable not syncing?
         with self.maybe_synchronizing(sync):
             catalog_addition = CatalogAddition(
                 BuildZip(path),
                 self,
                 aliases=aliases,
-                semantic_metadata=_normalize_semantic_metadata(semantic_metadata),
+                semantic_metadata=semantic_metadata,
             )
             catalog_entry = catalog_addition.add(exist_ok=exist_ok)
             self.assert_consistency()
@@ -482,6 +489,9 @@ class Catalog:
         stored value updates the sidecar; ``None`` leaves it untouched.
         """
         from xorq.api import Expr  # noqa: PLC0415
+
+        # Fail fast on invalid metadata before any build work or sync I/O.
+        metadata = _normalize_semantic_metadata(metadata)
 
         if relocate_reads and not isinstance(obj, Expr):
             raise ValueError(
@@ -1392,7 +1402,7 @@ class CatalogAddition:
     build_zip = field(validator=instance_of(BuildZip))
     catalog = field(validator=instance_of(Catalog))
     aliases = field(validator=deep_iterable(instance_of(str)), default=())
-    semantic_metadata = field(default=None)
+    semantic_metadata = field(default=None, converter=_normalize_semantic_metadata)
     _maybe_tmpfile = field(
         validator=optional(instance_of(tempfile._TemporaryFileWrapper)),
         default=None,
