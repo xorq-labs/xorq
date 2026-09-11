@@ -90,10 +90,18 @@ def value(op, *args, **kwargs):
     method = _get_method_name(op)
     kwargs = [(k, v) for k, v in kwargs.items() if v is not None]
 
-    if args:
+    if args and kwargs:
+        raise NotImplementedError(
+            f"decompile does not support ops with both positional and keyword "
+            f"arguments: {type(op).__name__} args={args} kwargs={kwargs}"
+        )
+    elif args:
         this, *args = args
-    else:
+    elif kwargs:
         (_, this), *kwargs = kwargs
+    else:
+        # Zero-arg analytic functions (row_number, rank, dense_rank, etc.)
+        return f"ibis.{method}()"
 
     # if there is a single keyword argument prefer to pass that as positional
     if not args and len(kwargs) == 1:
