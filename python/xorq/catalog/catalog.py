@@ -84,15 +84,32 @@ logger = get_logger(__name__)
 
 
 def _normalize_semantic_metadata(value):
-    """Validate and normalize JSON/YAML-compatible catalog metadata."""
+    """Validate and normalize JSON/YAML-compatible catalog metadata.
+
+    Top-level value must be a dict (or None); nested values may be
+    dicts, lists/tuples, strings, numbers, booleans, or None.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise TypeError(
+            f"semantic metadata must be a dict, got {type(value).__name__}"
+        )
+    return _normalize_semantic_metadata_value(value)
+
+
+def _normalize_semantic_metadata_value(value):
     if value is None:
         return None
     if isinstance(value, dict):
         if not all(isinstance(key, str) for key in value):
             raise TypeError("semantic metadata mapping keys must be strings")
-        return {key: _normalize_semantic_metadata(item) for key, item in value.items()}
+        return {
+            key: _normalize_semantic_metadata_value(item)
+            for key, item in value.items()
+        }
     if isinstance(value, (list, tuple)):
-        return [_normalize_semantic_metadata(item) for item in value]
+        return [_normalize_semantic_metadata_value(item) for item in value]
     if isinstance(value, (str, int, float, bool)):
         return value
     raise TypeError(f"unsupported semantic metadata value: {type(value).__name__}")
@@ -455,6 +472,14 @@ class Catalog:
         is self-contained and resolves on both the load and fuse/bind paths
         (#2133) -- and is a no-op for a ``Path``. Passing ``relocate_reads=True``
         explicitly with a ``Path`` is a misuse and raises.
+
+        *metadata* is optional catalog-level semantic metadata stored in the
+        entry sidecar (separate from the expression's own metadata). It must
+        be a dict with string keys holding JSON/YAML-compatible values (or
+        ``None`` for no metadata). It is available as
+        ``CatalogEntry.semantic_metadata``. When the entry already exists and
+        *exist_ok* is true, a non-``None`` *metadata* that differs from the
+        stored value updates the sidecar; ``None`` leaves it untouched.
         """
         from xorq.api import Expr  # noqa: PLC0415
 
@@ -1422,6 +1447,17 @@ class CatalogAddition:
         if self.catalog.contains(self.name):
             if not exist_ok:
                 raise ValueError(f"Entry '{self.name}' already exists in catalog")
+            if self.semantic_metadata is not None:
+                existing = CatalogEntry(
+                    self.name, self.catalog, require_exists=True
+                )
+                if existing.semantic_metadata != self.semantic_metadata:
+                    sidecar = dict(existing.sidecar_metadata)
+                    sidecar["semantic_metadata"] = self.semantic_metadata
+                    existing.metadata_path.write_text(
+                        yaml12.format_yaml(sidecar)
+                    )
+                    self.catalog.backend.stage(existing.metadata_path)
             for catalog_alias in self.catalog_aliases:
                 catalog_alias._add()
             return CatalogEntry(self.name, self.catalog, require_exists=True)

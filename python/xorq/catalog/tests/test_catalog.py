@@ -116,6 +116,8 @@ def test_catalog_add_legacy_sidecar_has_no_semantic_metadata(catalog, data_dict)
     "metadata",
     [
         object(),
+        ["top-level", "list"],
+        "top-level-string",
         {1: "non-string key"},
         {"nested": {"bad": object()}},
     ],
@@ -124,6 +126,25 @@ def test_catalog_add_rejects_invalid_semantic_metadata(catalog, data_dict, metad
     path = next(iter(data_dict.values()))
     with pytest.raises(TypeError, match="semantic metadata|unsupported"):
         catalog.add(path, metadata=metadata)
+
+
+def test_catalog_add_exist_ok_updates_semantic_metadata(catalog, data_dict):
+    path = next(iter(data_dict.values()))
+    entry = catalog.add(path, metadata={"v": 1})
+    assert entry.semantic_metadata == {"v": 1}
+
+    updated = catalog.add(path, metadata={"v": 2}, exist_ok=True)
+    assert updated.semantic_metadata == {"v": 2}
+    reloaded = Catalog.from_repo_path(
+        catalog.repo_path, init=False
+    ).get_catalog_entry(entry.name)
+    assert reloaded.semantic_metadata == {"v": 2}
+
+    # None leaves stored metadata untouched; same value is idempotent.
+    untouched = catalog.add(path, exist_ok=True)
+    assert untouched.semantic_metadata == {"v": 2}
+    same = catalog.add(path, metadata={"v": 2}, exist_ok=True)
+    assert same.semantic_metadata == {"v": 2}
 
 
 def test_catalog_add(catalog, data_dict):
