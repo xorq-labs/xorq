@@ -40,6 +40,35 @@ def test_show_json_includes_semantic_metadata(runner, catalog, catalog_path, dat
     }
 
 
+def test_show_json_semantic_metadata_null_when_unset(
+    runner, catalog, catalog_path, data_dict
+):
+    source = next(iter(data_dict.values()))
+    entry = catalog.add(source)
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", entry.name, "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "semantic_metadata" in data
+    assert data["semantic_metadata"] is None
+
+
+def test_show_human_includes_semantic_metadata(
+    runner, catalog, catalog_path, data_dict
+):
+    source = next(iter(data_dict.values()))
+    entry = catalog.add(source, metadata={"owner": "analytics"})
+
+    result = runner.invoke(cli, ["--path", catalog_path, "show", entry.name])
+
+    assert result.exit_code == 0, result.output
+    assert "Semantic:" in result.output
+    assert "analytics" in result.output
+
+
 # --- init command ---
 
 

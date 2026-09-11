@@ -149,13 +149,17 @@ def test_catalog_add_exist_ok_updates_semantic_metadata(catalog, data_dict):
     path = next(iter(data_dict.values()))
     entry = catalog.add(path, metadata={"v": 1})
     assert entry.semantic_metadata == {"v": 1}
+    expr_before = entry.sidecar_metadata["expr_metadata"]
 
     updated = catalog.add(path, metadata={"v": 2}, exist_ok=True)
     assert updated.semantic_metadata == {"v": 2}
+    # rewriting the sidecar for one key must leave the rest untouched
+    assert updated.sidecar_metadata["expr_metadata"] == expr_before
     reloaded = Catalog.from_repo_path(
         catalog.repo_path, init=False
     ).get_catalog_entry(entry.name)
     assert reloaded.semantic_metadata == {"v": 2}
+    assert reloaded.sidecar_metadata["expr_metadata"] == expr_before
 
     # None leaves stored metadata untouched; same value is idempotent.
     untouched = catalog.add(path, exist_ok=True)
