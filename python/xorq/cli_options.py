@@ -338,9 +338,9 @@ gcs_option = click.option(
 content_store_option = click.option(
     "--content-store",
     "content_store_type",
-    type=click.Choice(["s3", "directory"]),
+    type=click.Choice(["s3", "directory", "presigned"]),
     default=None,
-    help="Create a pointer-backend catalog with the given content store type.",
+    help="Create a pointer catalog backed by directory, S3, or hosted storage.",
 )
 
 
