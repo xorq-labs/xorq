@@ -28,9 +28,12 @@ entry = catalog.add(
     aliases=("sales-by-region",),
     metadata={
         "domain": "sales",
-        "owner": "data-platform",
-        "tags": ["curated", "daily"],
         "description": "Total order amount by region",
+        "columns": {
+            "region": "Sales region code",
+            "amount": "Order total in USD",
+            "total": "Summed order amount by region",
+        },
     },
     sync=False,
 )
