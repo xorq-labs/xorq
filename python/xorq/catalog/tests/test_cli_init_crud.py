@@ -1,3 +1,4 @@
+import json
 from contextlib import nullcontext as does_not_raise
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,6 +20,24 @@ from xorq.catalog.tests.conftest import (
     make_build_zip,
 )
 from xorq.catalog.zip_utils import extract_build_zip_context
+
+
+# --- show command ---
+
+
+def test_show_json_includes_semantic_metadata(runner, catalog, catalog_path, data_dict):
+    source = next(iter(data_dict.values()))
+    entry = catalog.add(source, metadata={"owner": "analytics", "labels": ["daily"]})
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "show", entry.name, "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["semantic_metadata"] == {
+        "owner": "analytics",
+        "labels": ["daily"],
+    }
 
 
 # --- init command ---
