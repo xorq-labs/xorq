@@ -120,12 +120,29 @@ def test_catalog_add_legacy_sidecar_has_no_semantic_metadata(catalog, data_dict)
         "top-level-string",
         {1: "non-string key"},
         {"nested": {"bad": object()}},
+        {"threshold": float("nan")},
+        {"threshold": float("inf")},
     ],
 )
 def test_catalog_add_rejects_invalid_semantic_metadata(catalog, data_dict, metadata):
     path = next(iter(data_dict.values()))
     with pytest.raises(TypeError, match="semantic metadata|unsupported"):
         catalog.add(path, metadata=metadata)
+
+
+def test_catalog_add_semantic_metadata_preserves_identity(catalog, tmp_path):
+    # Same expression content with absent/different metadata must resolve
+    # to the same content-derived entry name.
+    expr = xo.memtable({"a": [1, 2, 3]})
+    untagged = catalog.add(expr)
+    tagged = catalog.add(expr, metadata={"v": 1}, exist_ok=True)
+    assert tagged.name == untagged.name
+    assert tagged.semantic_metadata == {"v": 1}
+
+    other = Catalog.from_repo_path(tmp_path / "other-catalog", init=True)
+    retagged = other.add(expr, metadata={"v": 2})
+    assert retagged.name == untagged.name
+    assert retagged.semantic_metadata == {"v": 2}
 
 
 def test_catalog_add_exist_ok_updates_semantic_metadata(catalog, data_dict):
