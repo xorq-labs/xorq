@@ -3,8 +3,9 @@ name: ci-test-lowest-direct
 # Verifies the declared dependency floor. The main ci-test workflow always
 # resolves to the newest allowed versions, so `pyproject.toml` lower bounds go
 # untested. This job resolves direct dependencies to their lowest allowed
-# versions (`uv --resolution lowest-direct`) and runs the core suite, so floor
-# violations fail loudly. See issue #2109.
+# versions (`uv --resolution lowest-direct`) and runs the core suite plus the
+# datafusion backend tests (so the `datafusion` extra's and the test group's
+# `deltalake` floors are exercised), so floor violations fail loudly. See issue #2109.
 
 on:
   push:
@@ -106,7 +107,7 @@ jobs:
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
-          -m 'core and not uv_export'
+          -m '(core or datafusion) and not uv_export'
           --ignore=python/xorq/catalog
           -k 'not script_execution and not slow'
           -v --durations=20
