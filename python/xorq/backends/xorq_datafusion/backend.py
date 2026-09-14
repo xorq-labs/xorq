@@ -93,6 +93,13 @@ def _target_schema(schema: pa.Schema | None, default: pa.Schema) -> pa.Schema:
     with the ``{"pandas": ...}`` blob cannot join one registered without it
     (xorq #2266). Batches are cast to the returned schema, so dropping it here
     strips the blob from the whole registration.
+
+    A caller-supplied ``schema`` is normalized too, not just the source's own:
+    an explicit schema is as likely to come from ``pa.Table.from_pandas`` as an
+    inferred one, and honoring the blob there would reopen the bug for exactly
+    the callers being explicit about their types. Every other metadata key and
+    all field-level metadata survive, so an extension type declared through
+    ``schema`` still round-trips.
     """
     return drop_pandas_schema_metadata(schema if schema is not None else default)
 

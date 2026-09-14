@@ -4,13 +4,8 @@ from __future__ import annotations
 
 import functools
 import sys
-from typing import TYPE_CHECKING
 
 import pyarrow as pa
-
-
-if TYPE_CHECKING:
-    import pyarrow.dataset as ds
 
 
 PANDAS_METADATA_KEY = b"pandas"
@@ -42,14 +37,19 @@ def drop_pandas_schema_metadata(obj: object) -> object:
     are preserved. Objects without the key are returned unchanged.
     """
     # A Dataset cannot exist unless pyarrow.dataset is already imported, so
-    # probing for it here keeps this module from importing it eagerly.
-    # Registering on first sight restores singledispatch caching and makes the
-    # handler visible to callers introspecting ``.registry``.
+    # probing for it here keeps this module from importing it eagerly: it costs
+    # ~200ms on top of pyarrow, and ``import xorq.api`` reaches this module.
+    # The handler is inlined rather than registered on first sight, because
+    # ``singledispatch.register`` mutates a shared registry and cache that the
+    # dispatch path is otherwise only reading.
     if (dataset := sys.modules.get("pyarrow.dataset")) is not None and isinstance(
         obj, dataset.Dataset
     ):
-        drop_pandas_schema_metadata.register(dataset.Dataset, _dataset)
-        return _dataset(obj)
+        if not has_pandas_schema_metadata(obj.schema):
+            return obj
+        # replace_schema keeps the fragments and the laziness: only the declared
+        # schema changes, so a FileSystemDataset is not read here.
+        return obj.replace_schema(drop_pandas_schema_metadata(obj.schema))
     raise TypeError(f"Cannot drop pandas schema metadata from {type(obj)}")
 
 
@@ -95,11 +95,3 @@ def _reader(obj: pa.RecordBatchReader) -> pa.RecordBatchReader:
         return pa.RecordBatchReader.from_batches(
             schema, map(drop_pandas_schema_metadata, obj)
         )
-
-
-def _dataset(obj: ds.Dataset) -> ds.Dataset:
-    if not has_pandas_schema_metadata(obj.schema):
-        return obj
-    # replace_schema keeps the fragments and the laziness: only the declared
-    # schema changes, so a FileSystemDataset is not read here.
-    return obj.replace_schema(drop_pandas_schema_metadata(obj.schema))

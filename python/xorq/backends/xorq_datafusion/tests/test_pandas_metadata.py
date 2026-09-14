@@ -26,6 +26,7 @@ import xorq.api as xo
 from xorq.backends.tests.pandas_metadata_util import PANDAS_SOURCES, engine_schema
 from xorq.backends.xorq_datafusion import Backend
 from xorq.backends.xorq_datafusion.provider import IbisTableProvider
+from xorq.common.utils.arrow_utils import has_pandas_schema_metadata
 
 
 # create_table routes through a pandas conversion a one-shot reader does not
@@ -109,6 +110,28 @@ def test_cross_join_read_record_batches_against_registered_table(
     con.read_record_batches(pa.Table.from_pandas(left_df), table_name="a")
     con.register(pa.Table.from_pandas(right_df), "b")
 
+    assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
+
+
+def test_read_record_batches_strips_an_explicit_schema(
+    left_df: pd.DataFrame, right_df: pd.DataFrame
+) -> None:
+    """An explicitly passed schema is normalized too, not just an inferred one.
+
+    A caller being explicit about types is as likely to hand over a schema from
+    ``pa.Table.from_pandas`` as an inferred one, so honoring the blob there
+    would reopen xorq #2266 for exactly those callers.
+    """
+    con = xo.connect()
+    schema = pa.Table.from_pandas(left_df).schema
+    assert has_pandas_schema_metadata(schema)
+
+    con.read_record_batches(
+        pa.Table.from_pandas(left_df), table_name="a", schema=schema
+    )
+    con.create_table("b", right_df)
+
+    assert engine_schema(con, "a").metadata is None
     assert cross_join_agg(con).to_dict("records") == [{"g": "y", "n": 1}]
 
 
