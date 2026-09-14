@@ -4,13 +4,8 @@ from __future__ import annotations
 
 import functools
 import sys
-from typing import TYPE_CHECKING
 
 import pyarrow as pa
-
-
-if TYPE_CHECKING:
-    import pyarrow.dataset as ds
 
 
 PANDAS_METADATA_KEY = b"pandas"
@@ -100,11 +95,3 @@ def _reader(obj: pa.RecordBatchReader) -> pa.RecordBatchReader:
         return pa.RecordBatchReader.from_batches(
             schema, map(drop_pandas_schema_metadata, obj)
         )
-
-
-def _dataset(obj: ds.Dataset) -> ds.Dataset:
-    if not has_pandas_schema_metadata(obj.schema):
-        return obj
-    # replace_schema keeps the fragments and the laziness: only the declared
-    # schema changes, so a FileSystemDataset is not read here.
-    return obj.replace_schema(drop_pandas_schema_metadata(obj.schema))
