@@ -298,22 +298,12 @@ known-first-party = ["xorq"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 lines-after-imports = 2
 
-[tool.xorq-style]
-# The ratchet: these four rules are the bulk of the style backlog, and with
-# them on, touching any signature or parametrize list reddens the PR. They sit
-# here rather than on the CI command line so that a local run, the pre-commit
-# hook and CI all enforce the same set. Drop a rule once its count reaches zero.
-disable = [
-    "type-annotations",
-    "pytest-param-id",
-    "future-annotations",
-    "print",
-]
-
 [tool.xorq-style.unlisted-import]
-# The package lives under python/, not under the ("src", ".") default. Without
-# this the rule resolves no modules and silently passes every import.
-src-roots = ["python"]
+# The package lives under python/, which the ("src", ".") default does not
+# cover: with it, the rule resolves no module and silently passes every import.
+# "." keeps examples/, docs/ and scripts/ in scope, which a bare "python" would
+# exempt outright -- the rule only fires on files under a listed root.
+src-roots = ["python", "."]
 
 [tool.xorq-style.print]
 # Example scripts print receipts to stdout by design. allow-files matches on

@@ -97,23 +97,37 @@ python -m pytest # or pytest
 
 ## Style checks
 
-Ruff and `xorq-check-style` both gate the merge. `xorq-check-style` enforces the
-conventions below — import placement, `__all__`, `pytest` idioms — that Ruff has
-no rule for. `pre-commit install` wires it up locally, so a CI style failure is
-reproducible before you push.
+Ruff and `xorq-check-style` run on every pull request. `xorq-check-style`
+enforces the conventions below — import placement, `__all__`, `pytest` idioms —
+that Ruff has no rule for. `pre-commit install` wires it up locally, so a CI
+style failure is reproducible before you push.
 
-It runs as two gates:
+It runs as two gates, both in `.github/workflows/ci-lint.yml`:
 
 - **Changed lines**, on pull requests and as the pre-commit hook. Every rule
-  applies except the ratchet in `[tool.xorq-style] disable` in `pyproject.toml`.
-  Pre-existing violations in a file you edit do not block you.
-- **Whole repo**, on every build. Only the rules already at zero everywhere,
-  named by elimination in `--disable` in `.github/workflows/ci-lint.yml`. Drive
-  a rule's count to zero, move it off that list, and it can never come back.
+  applies except the four in `scripts/check-style-diff.sh`, which CI and the
+  hook both run so they cannot drift. Pre-existing violations in a file you
+  edit do not block you.
+- **Whole repo**, on every build. Only the rules already at zero everywhere —
+  whatever is left after the `--disable` list. Drive a rule's count to zero,
+  move it off that list, and it can never come back.
+
+To reproduce what CI will say about your branch, run the gate over the same
+range CI uses:
 
 ```bash
-uv run pre-commit run xorq-check-style --all-files  # your staged diff, as CI sees it
-uv run xorq-check-style python/xorq/expr/api.py     # one file, every rule
+uv run scripts/check-style-diff.sh origin/main...HEAD
+```
+
+The pre-commit hook runs the same script over your staged changes. Run it by
+hand with `uv run pre-commit run xorq-check-style` — without `--all-files`,
+which turns off the stash that makes the working tree match the index.
+
+To see every rule a single file breaks, including the four the gate lets
+through, check the file directly:
+
+```bash
+uv run xorq-check-style python/xorq/expr/api.py
 ```
 
 Suppress a single line with a trailing pragma:
