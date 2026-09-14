@@ -526,9 +526,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             from deltalake import DeltaTable
         except ImportError:
             raise ImportError(
-                "The deltalake extra is required to use the "
+                "The deltalake package is required to use the "
                 "read_delta method. You can install it using pip:\n\n"
-                "pip install 'ibis-framework[deltalake]'\n"
+                "pip install deltalake\n"
             )
 
         delta_table = DeltaTable(source_table, **kwargs)

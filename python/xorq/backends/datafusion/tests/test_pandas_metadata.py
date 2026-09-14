@@ -11,6 +11,7 @@ from typing import Any, Callable
 import pandas as pd
 import pyarrow as pa
 import pytest
+from deltalake import write_deltalake
 
 import xorq.api as xo
 from xorq.backends.tests.pandas_metadata_util import PANDAS_SOURCES, engine_schema
@@ -83,3 +84,23 @@ def test_cross_join_of_registered_against_created_table() -> None:
     )
     assert actual.to_dict("records") == [{"g": "y", "n": 1}]
     assert engine_schema(con, "a").metadata is None
+
+
+def test_cross_join_of_delta_against_created_table(tmp_path) -> None:
+    """A Delta table joins a ``create_table`` table.
+
+    ``read_delta`` registers a dataset rather than going through
+    ``create_table``; this is a round-trip smoke test, not a
+    metadata-discriminating one -- ``to_pyarrow_dataset`` builds its schema
+    from the Delta log, so no pandas metadata reaches the register path.
+    """
+    con = xo.datafusion.connect()
+    path = tmp_path / "delta"
+    write_deltalake(str(path), pd.DataFrame({"k": ["x"], "v": [1]}))
+    a = con.read_delta(path, "a")
+    con.create_table("b", pd.DataFrame({"g": ["y"]}))
+
+    actual = con.execute(
+        a.cross_join(con.table("b")).group_by("g").aggregate(n=xo._.v.sum())
+    )
+    assert actual.to_dict("records") == [{"g": "y", "n": 1}]

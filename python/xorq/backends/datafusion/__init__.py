@@ -15,10 +15,12 @@ from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.datafusion import Backend as IbisDatafusionBackend
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
-from xorq.vendor.ibis.util import gen_name
+from xorq.vendor.ibis.util import gen_name, normalize_filename
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pandas as pd
 
 
@@ -44,6 +46,46 @@ class Backend(IbisDatafusionBackend):
         if isinstance(source, (pa.Table, pa.RecordBatch, ds.Dataset)):
             source = drop_pandas_schema_metadata(source)
         return super()._register(source, table_name, **kwargs)
+
+    def read_delta(
+        self, source_table: str | Path, table_name: str | None = None, **kwargs: Any
+    ) -> ir.Table:
+        """Register a Delta Lake table as a table in the current database.
+
+        Parameters
+        ----------
+        source_table
+            The data source. Must be a directory
+            containing a Delta Lake table.
+        table_name
+            An optional name to use for the created table. This defaults to
+            a sequentially generated name.
+        **kwargs
+            Additional keyword arguments passed to deltalake.DeltaTable.
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table
+
+        """
+        try:
+            from deltalake import DeltaTable  # noqa: PLC0415
+        except ImportError as e:
+            raise ImportError(
+                "The deltalake package is required to use the "
+                "read_delta method. You can install it using pip:\n\n"
+                "pip install deltalake\n"
+            ) from e
+
+        # super() registers the dataset unstripped; routing through _register
+        # is defensive -- to_pyarrow_dataset builds its schema from the Delta
+        # log, so no pandas metadata has been observed on this path (xorq #2266).
+        delta_table = DeltaTable(normalize_filename(source_table), **kwargs)
+        return self._register(
+            delta_table.to_pyarrow_dataset(),
+            table_name=table_name or gen_name("read_delta"),
+        )
 
     def create_table(
         self,
