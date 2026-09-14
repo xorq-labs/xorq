@@ -31,6 +31,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion.compiler import compiler
 from xorq.backends.xorq_datafusion.provider import IbisTableProvider
 from xorq.common.utils import classproperty
+from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
 from xorq.common.utils.aws_utils import make_s3_connection
 from xorq.expr import Expr
 from xorq.expr.pyaggregator import PyAggregator, make_struct_type
@@ -83,6 +84,24 @@ def _casting_reader(
     return pa.RecordBatchReader.from_batches(
         schema, (_select_and_cast(batch, schema) for batch in batches)
     )
+
+
+def _target_schema(schema: pa.Schema | None, default: pa.Schema) -> pa.Schema:
+    """Pick the schema to cast to, without pandas' schema metadata.
+
+    DataFusion's schema equality is metadata-sensitive, so a table registered
+    with the ``{"pandas": ...}`` blob cannot join one registered without it
+    (xorq #2266). Batches are cast to the returned schema, so dropping it here
+    strips the blob from the whole registration.
+
+    A caller-supplied ``schema`` is normalized too, not just the source's own:
+    an explicit schema is as likely to come from ``pa.Table.from_pandas`` as an
+    inferred one, and honoring the blob there would reopen the bug for exactly
+    the callers being explicit about their types. Every other metadata key and
+    all field-level metadata survive, so an extension type declared through
+    ``schema`` still round-trips.
+    """
+    return drop_pandas_schema_metadata(schema if schema is not None else default)
 
 
 def _compile_pyarrow_udwf(udwf_node: Any) -> WindowUDF:
@@ -512,26 +531,40 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 [col for col in source.column_names if col.startswith("__index_level_")]
             )
 
-        # Phase 4: dispatch to the DataFusion registration API.
+        # Phase 4: dispatch to the DataFusion registration API. Arrow sources get
+        # their pandas schema metadata dropped: DataFusion's schema equality is
+        # metadata-sensitive, so two tables carrying different blobs cannot join.
         self.con.deregister_table(table_ident)
         match source:
             case pa.Table():
+                source = drop_pandas_schema_metadata(source)
                 self.con.register_record_batches(table_ident, [source.to_batches()])
             case pa.RecordBatch():
+                source = drop_pandas_schema_metadata(source)
                 self.con.register_record_batches(table_ident, [[source]])
             case pa.RecordBatchReader():
                 if "ordering" in kwargs:
                     kwargs["sort_order"] = self._translate_sort(kwargs.pop("ordering"))
+                source = drop_pandas_schema_metadata(source)
                 self.con.register_record_batch_reader(table_ident, source, **kwargs)
             case ds.Dataset():
+                source = drop_pandas_schema_metadata(source)
                 self.con.register_dataset(table_ident, source)
             case ir.Table():
-                # Cross-backend expr: IbisTableProvider executes via source's own backend.
+                # Cross-backend expr: IbisTableProvider declares a schema rebuilt
+                # from the ibis schema, which never carries the blob, and strips
+                # its scan output so the two agree.
                 self.con.register_table_provider(table_ident, IbisTableProvider(source))
             case ir.Expr():
-                # Cross-backend non-table expr: materialize via source's own backend.
+                # Cross-backend non-table expr: materialize via source's own
+                # backend. The pandas backend's to_pyarrow_batches does leak the
+                # blob (it builds the result with pa.Table.from_pandas and the
+                # convert_table cast is skipped when the types already match), so
+                # the strip is what keeps the reader agreeing with the schema
+                # DataFusion records here.
                 self.con.register_record_batch_reader(
-                    table_ident, source.to_pyarrow_batches()
+                    table_ident,
+                    drop_pandas_schema_metadata(source.to_pyarrow_batches()),
                 )
             case Table():
                 self.con.register_table(table_ident, source)
@@ -604,7 +637,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         schema = op.schema
 
         self.con.deregister_table(name)
-        if batches := op.data.to_pyarrow(schema).to_batches():
+        table = drop_pandas_schema_metadata(op.data.to_pyarrow(schema))
+        if batches := table.to_batches():
             self.con.register_record_batches(name, [batches])
         else:
             import pyarrow.dataset as ds  # noqa: PLC0415
@@ -806,7 +840,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         registered: Any = None
         match source:
             case StreamCache():
-                target_schema = schema if schema is not None else source.schema
+                target_schema = _target_schema(schema, source.schema)
                 # source.cast returns a CastingStreamCache: a replayable view
                 # over the *same* cache that retypes on each read, so DataFusion's
                 # repeated scans share one buffer and the source's max_readers
@@ -819,10 +853,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 # mismatch rather than accommodate it.
                 registered = source.cast(target_schema)
             case pa.Table():
-                target_schema = schema if schema is not None else source.schema
+                target_schema = _target_schema(schema, source.schema)
                 batches = source.to_batches()
             case pa.RecordBatchReader():
-                target_schema = schema if schema is not None else source.schema
+                target_schema = _target_schema(schema, source.schema)
                 batches = source
             case str() | bytes():
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
@@ -832,7 +866,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     first = next(it)
                 except StopIteration:
                     raise ValueError("source has no rows") from None
-                target_schema = schema if schema is not None else first.schema
+                target_schema = _target_schema(schema, first.schema)
                 batches = itertools.chain([first], it)
             case _:
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
