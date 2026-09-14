@@ -66,6 +66,14 @@ jobs:
       - name: Run Ruff
         run: uv run --no-sync ruff check --output-format=github $LINT_PATHS
 
+      # Before the gates run, prove they can fail: every rule must flag a file
+      # written to provoke it. A rule that has stopped firing -- misconfigured,
+      # renamed upstream, switched off by accident -- reports the same clean
+      # tree as a rule with nothing to say, so this is the only thing standing
+      # between a green build and a gate that never looked.
+      - name: Test the style gate
+        run: uv run --no-sync --with pytest pytest scripts/style_tests -q
+
       # Files are expanded with `git ls-files` because xorq-check-style reports
       # nothing and exits 0 when handed a directory (xorq-labs/xorq-style#30).
       #
@@ -80,7 +88,11 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t globs < <(printf '%s/*.py\n' $LINT_PATHS)
-          git ls-files -- "${globs[@]}" \
+          mapfile -t files < <(git ls-files -- "${globs[@]}")
+          # An empty list means the globs stopped matching the tree, not that
+          # the tree is clean. Say so rather than passing on nothing.
+          (( ${#files[@]} )) || { echo "::error::style gate matched no files"; exit 1; }
+          printf '%s\n' "${files[@]}" \
             | xargs uv run --no-sync xorq-check-style --disable \
               type-annotations,pytest-param-id,future-annotations,print,pytest-tmp-path,protected-access,unlisted-import,deferred-import-test,redundant-import,os-environ,init-reexport,deferred-stdlib,import-aliasing,stdlib-logging,os-path,test-class,exception-placement,relative-import,exception-hierarchy,enum-placement,cache-method
 
