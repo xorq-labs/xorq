@@ -20,6 +20,10 @@ You talk to Claude in plain language. It picks the matching skill and runs the
 
 A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/_shared/essentials.md) once per session, so each skill has access to the same information in context without duplication.
 
+<!-- vale Google.WordList = NO -->
+<!-- `ingest` is the name of a skill, not a verb choice: it has to match
+     the SKILL.md it links to and what the user types. -->
+
 ## Skills
 
 | Skill | What it does |
@@ -43,5 +47,7 @@ A session, one line per turn—what you say, and the skill Claude reaches for.
 | "From `customers`, keep `age > 30`, select name and age." | composer |
 | "Fit a classifier on `transactions` for `is_fraud`, save it." | ml |
 | "That run was slow, what happened?" | diagnose |
+
+<!-- vale Google.WordList = YES -->
 
 Full command-line and Python API index: <https://docs.xorq.dev/llms.txt>
