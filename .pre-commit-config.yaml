@@ -38,14 +38,13 @@ repos:
       - id: uv-lock
   - repo: local
     hooks:
-      # Mirrors the changed-lines gate in ci-lint.yml: the staged diff, not the
-      # staged files, so pre-existing violations in a file you touch stay out
-      # of the way. The ratchet lives in [tool.xorq-style] in pyproject.toml,
-      # so this and CI disable the same rules.
+      # The same script CI runs, over the staged diff rather than base...HEAD:
+      # the diff, not the staged files, so pre-existing violations in a file you
+      # touch stay out of the way.
       - id: xorq-check-style
         name: xorq style (changed lines)
-        entry: bash -c 'git diff --cached -- python examples docs scripts | uv run --no-sync xorq-check-style --diff'
-        language: system
+        entry: scripts/check-style-diff.sh --cached
+        language: script
         types: [python]
         pass_filenames: false
       - id: git-blame-ignore-revs
