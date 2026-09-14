@@ -95,6 +95,37 @@ just up postgres # some of the tests use postgres
 python -m pytest # or pytest
 ```
 
+## Style checks
+
+Ruff and `xorq-check-style` both gate the merge. `xorq-check-style` enforces the
+conventions below — import placement, `__all__`, `pytest` idioms — that Ruff has
+no rule for. `pre-commit install` wires it up locally, so a CI style failure is
+reproducible before you push.
+
+It runs as two gates:
+
+- **Changed lines**, on pull requests and as the pre-commit hook. Every rule
+  applies except the ratchet in `[tool.xorq-style] disable` in `pyproject.toml`.
+  Pre-existing violations in a file you edit do not block you.
+- **Whole repo**, on every build. Only the rules already at zero everywhere,
+  named by elimination in `--disable` in `.github/workflows/ci-lint.yml`. Drive
+  a rule's count to zero, move it off that list, and it can never come back.
+
+```bash
+uv run pre-commit run xorq-check-style --all-files  # your staged diff, as CI sees it
+uv run xorq-check-style python/xorq/expr/api.py     # one file, every rule
+```
+
+Suppress a single line with a trailing pragma:
+
+```python
+if ctx._protected_args:  # xorq-style: disable=protected-access
+```
+
+The pragma binds to the line it sits on, so a `ruff format` re-wrap can strand
+it on the wrong one. The changed-lines gate catches that, because the re-wrap
+puts the line back in the diff.
+
 ## Module and import conventions
 
 These rules keep the public API explicit and import time predictable across the
