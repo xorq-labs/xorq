@@ -102,12 +102,12 @@ def relocate_reads_option(
         default=True,
         show_default=True,
         help=(
-            f"Bundle local-file Read nodes{caches} into the {noun} so it is "
+            f"Bundle local-file Read nodes{caches} into the {noun} so it's "
             "self-contained and runnable from anywhere. Remote reads "
-            "(s3://, gs://, ...) are already location-independent and left in "
+            "(s3://, gs://) are already location-independent and left in "
             f"place. Pass --no-relocate-reads for a lean, machine-local {noun}; "
-            "this only affects reads not already bundled -- relocation discards "
-            "a read's original path, so it cannot be undone by a later "
+            "this only affects reads not already bundled. Relocation discards "
+            "a read's original path, so it can't be undone by a later "
             "--no-relocate-reads on an already-relocated input."
         ),
     )
@@ -144,7 +144,7 @@ def join_predicate_options(noun: str = "table") -> Callable[[_F], _F]:
             click.option(
                 "--on",
                 default=None,
-                help=f"Comma-separated column(s) present in both {noun_plural} to join on.",
+                help=f"Comma-separated columns present in both {noun_plural} to join on.",
             ),
             click.option(
                 "--left-on",
@@ -186,7 +186,7 @@ ignore_library_version_mismatch_option = click.option(
     "--ignore-library-version-mismatch",
     is_flag=True,
     default=False,
-    help="Proceed even if the builds recorded different xorq library versions.",
+    help="Proceed even if the builds recorded different Xorq library versions.",
 )
 
 

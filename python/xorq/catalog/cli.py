@@ -581,8 +581,8 @@ def pin(
 
     Pinning changes the build hash, so it always yields a new content-named
     entry rather than mutating the source. Use --alias to name it, or
-    --move-aliases to move every alias (e.g. `prod`) from the source entry onto
-    the pinned entry.
+    --move-aliases to move every alias (for example, `prod`) from the source
+    entry onto the pinned entry.
 
     \b
     Arguments:
@@ -1116,8 +1116,8 @@ def lineage(
     `--level` picks how much detail, `--node` picks how much of the graph,
     `--format` picks the rendering, and `--expand` opens a node up: its columns
     are listed under it in the tree, or inside it in the diagram. With `--node`,
-    the compact level prints the subtree feeding that node — including a Flight
-    boundary's nested input lineage — and a handle matching several nodes (a
+    the compact level prints the subtree feeding that node, including a Flight
+    boundary's nested input lineage, and a handle matching several nodes (a
     kind, a tag) prints each match in turn.
 
     The TUI's Lineage panel expands the same way, with `]` and `[` on the node
