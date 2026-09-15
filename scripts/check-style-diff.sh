@@ -5,8 +5,10 @@
 # `--cached` in the hook.
 set -euo pipefail
 
-# Keep in step with LINT_PATHS in .github/workflows/ci-lint.yml, which scopes
-# Ruff and the whole-repo gate to the same trees.
+# The same trees as LINT_PATHS in .github/workflows/ci-lint.yml and the
+# ruff-check args in .pre-commit-config.yaml. None of the three can read the
+# others, so test_lint_paths_agree in scripts/style_tests/ compares them:
+# change this list and that test names the files still holding the old one.
 paths=(python examples docs scripts)
 
 # The ratchet: these four are the bulk of the style backlog, and with them on,

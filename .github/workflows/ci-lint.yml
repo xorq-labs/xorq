@@ -14,9 +14,11 @@ permissions:
   contents: read
 
 env:
-  # The trees Ruff and the style gates lint, in one place. Mirrored by the
-  # ruff-check args and the xorq-check-style hook in .pre-commit-config.yaml,
-  # which cannot read this.
+  # The trees Ruff and the style gates lint. Two other files carry the same
+  # list and cannot read this one: the ruff-check args in
+  # .pre-commit-config.yaml, and `paths` in scripts/check-style-diff.sh.
+  # test_lint_paths_agree in scripts/style_tests/ reads all three and fails
+  # when they diverge -- change one and it will tell you about the others.
   LINT_PATHS: python examples docs scripts
 
 
@@ -26,11 +28,14 @@ jobs:
   # does not carry over to the linters: a prose-only change is the one this job
   # has the most to say about, and it was the one case that ran nothing at all.
   # The job installs only the dev group, so running it everywhere is cheap.
+  #
+  # No matrix, deliberately. A matrix names the check after its cell --
+  # `lint (3.13)` rather than `lint` -- and a ruleset matches a required status
+  # check by that name, so introducing one renames the check and leaves any
+  # ruleset asking for `lint` waiting on a context nothing will ever report.
+  # Spelling the version inline is what keeps the name stable enough to require.
   lint:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ "3.13" ]
     steps:
       # The changed-lines style gate below needs the base branch, which the
       # default checkout does not fetch, leaving `origin/$GITHUB_BASE_REF`
@@ -52,7 +57,7 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7

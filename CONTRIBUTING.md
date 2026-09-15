@@ -112,6 +112,14 @@ It runs as two gates, both in `.github/workflows/ci-lint.yml`:
   whatever is left after the `--disable` list. Drive a rule's count to zero,
   move it off that list, and it can never come back.
 
+Before either gate runs, CI runs `scripts/style_tests/`. `xorq-check-style` exits
+0 both on a clean file and on one it never examined, so every rule owns a file it
+is required to flag; a rule that stops firing fails there rather than reporting a
+comfortable zero. The suite also reads the two `--disable` lists and the three
+copies of the linted-tree list rather than restating any of them, so a typo, a
+rule that leaves the checker, or a tree list that agrees in only two of its three
+files fails a test instead of silently enforcing a set nobody chose.
+
 To reproduce what CI will say about your branch, run the gate over the same
 range CI uses:
 
@@ -188,6 +196,18 @@ module it tested. State the ratio at the rule it justifies, once. Never in a tes
 docstring, where the assertion is already the specification and a count is a
 claim nothing checks. If a number has to be exact, compute it rather than write
 it down.
+
+**Don't claim parity in prose.** A comment saying one thing "mirrors" another
+asserts a property nothing enforces, and the two drift while the comment goes on
+insisting they haven't. The pre-commit style hook claimed to mirror the CI gate
+and had already lost the pathspec, the quotepath handling and the `pipefail` that
+gate depends on — all three in the commit that wrote the claim. This holds for
+configuration as much as for code: a path list or a pinned version copied into a
+second file rots exactly the way a count does, and is harder to read while doing
+it. Make them one thing both callers run. Failing that, write the test that reads
+both and compares, and have the comment point at that test rather than assert the
+agreement itself. Where neither is possible, say what differs instead of
+asserting that nothing does.
 
 ## Writing the commit
 

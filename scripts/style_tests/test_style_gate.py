@@ -26,6 +26,7 @@ from fixtures import FIXTURES, SUPPORT
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci-lint.yml"
 DIFF_GATE = REPO_ROOT / "scripts" / "check-style-diff.sh"
+PRE_COMMIT = REPO_ROOT / ".pre-commit-config.yaml"
 
 # A rule id as both files spell it, and as `--list` prints it.
 RULE = r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*"
@@ -97,9 +98,50 @@ def repo_violations() -> frozenset[str]:
 
 
 def _lint_paths() -> list[str]:
+    """The linted trees as the workflow spells them."""
     match = re.search(r"^\s+LINT_PATHS:\s*(.+)$", WORKFLOW.read_text(), re.MULTILINE)
     assert match, "no LINT_PATHS in the workflow"
     return match.group(1).split()
+
+
+def _diff_gate_paths() -> list[str]:
+    """The pathspec the changed-lines gate passes to `git diff`."""
+    match = re.search(r"^paths=\((.+)\)$", DIFF_GATE.read_text(), re.MULTILINE)
+    assert match, f"no paths=() assignment in {DIFF_GATE.name}"
+    return match.group(1).split()
+
+
+def _ruff_hook_paths() -> list[str]:
+    """The trees ruff-check lints on every run, whatever is staged.
+
+    pre-commit appends the staged files to these arguments, so they are the
+    floor ruff always covers rather than the whole of what it sees. That makes
+    the hook broader than CI, which lints these trees and nothing else -- the
+    lists are still worth comparing, but they are not the same claim.
+    """
+    block = re.search(
+        r"^(\s+)- id: ruff-check$(.*?)(?=^\1- id: |\Z)",
+        PRE_COMMIT.read_text(),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert block, f"no ruff-check hook in {PRE_COMMIT.name}"
+    args = re.search(r"^\s+args: \[(.+)\]$", block.group(2), re.MULTILINE)
+    assert args, f"the ruff-check hook in {PRE_COMMIT.name} has no args"
+    return [
+        arg
+        for arg in re.findall(r'"([^"]+)"', args.group(1))
+        if not arg.startswith("-")
+    ]
+
+
+def _assert_trees_exist(paths: list[str], where: str) -> None:
+    """A list of linted trees that names something else has stopped being one.
+
+    This is what catches a flag whose value got separated from it -- rewrite
+    `--output-format=full` as two tokens and `full` reads as a tree.
+    """
+    missing = [path for path in paths if not (REPO_ROOT / path).is_dir()]
+    assert not missing, f"{where} lints {missing}, which are not directories here"
 
 
 @pytest.mark.parametrize(
@@ -136,6 +178,29 @@ def test_every_rule_has_a_fixture(known_rules: frozenset[str]) -> None:
         "fixtures are out of step with xorq-check-style --list; "
         f"missing {sorted(known_rules - set(FIXTURES))}, "
         f"stale {sorted(set(FIXTURES) - known_rules)}"
+    )
+
+
+def test_lint_paths_agree() -> None:
+    """One list of linted trees, written in three files that cannot read each other.
+
+    CI reads LINT_PATHS, the changed-lines gate carries its own pathspec so the
+    pre-commit hook gets the same one, and ruff-check in .pre-commit-config.yaml
+    takes its trees as arguments -- as a floor, since pre-commit adds the staged
+    files to them. Nothing makes one of them read another, so the comparison
+    happens here instead. Order is compared too: they are written in the same
+    order today, and keeping it that way makes a diff between them readable.
+    """
+    workflow = _lint_paths()
+    _assert_trees_exist(workflow, f"LINT_PATHS in {WORKFLOW.name}")
+    _assert_trees_exist(_diff_gate_paths(), DIFF_GATE.name)
+    _assert_trees_exist(_ruff_hook_paths(), f"ruff-check in {PRE_COMMIT.name}")
+    assert _diff_gate_paths() == workflow, (
+        f"{DIFF_GATE.name} lints {_diff_gate_paths()}, {WORKFLOW.name} lints {workflow}"
+    )
+    assert _ruff_hook_paths() == workflow, (
+        f"ruff-check in {PRE_COMMIT.name} lints {_ruff_hook_paths()}, "
+        f"{WORKFLOW.name} lints {workflow}"
     )
 
 

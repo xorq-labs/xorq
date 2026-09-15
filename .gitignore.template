@@ -91,6 +91,8 @@ ci/ibis_testing.db
 
 builds
 .envrc.secrets
+# Per-developer copy of .envrcs/.envrc.user.template; see .envrcs/README.md.
+.envrcs/.envrc.user
 .envrcs/.worktree-symlinks
 .worktree-manifest
 .devcontainer/
