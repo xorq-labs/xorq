@@ -73,3 +73,12 @@ def test_to_delta_round_trip(con, delta_path, tmp_path) -> None:
     con.to_delta(t, str(out))
 
     assert con.read_delta(out, "b").execute().to_dict("records") == [{"k": "x", "v": 1}]
+
+
+def test_to_delta_without_deltalake(con, delta_path, tmp_path, monkeypatch) -> None:
+    """The install hint fires when ``deltalake.writer`` is not importable."""
+    t = con.read_delta(delta_path, "a")
+    monkeypatch.setitem(sys.modules, "deltalake.writer", None)
+
+    with pytest.raises(ImportError, match="pip install deltalake"):
+        con.to_delta(t, str(tmp_path / "out"))

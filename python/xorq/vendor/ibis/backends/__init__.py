@@ -19,6 +19,7 @@ import xorq.common.exceptions as exc
 import xorq.vendor.ibis.config
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.deltalake_utils import import_write_deltalake
 from xorq.loader import load_backend
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
@@ -576,14 +577,7 @@ class _FileIOHandler:
             Additional keyword arguments passed to deltalake.writer.write_deltalake method
 
         """
-        try:
-            from deltalake.writer import write_deltalake
-        except ImportError:
-            raise ImportError(
-                "The deltalake package is required to use the "
-                "to_delta method. You can install it using pip:\n\n"
-                "pip install deltalake\n"
-            )
+        write_deltalake = import_write_deltalake()
 
         with expr.to_pyarrow_batches(params=params) as batch_reader:
             write_deltalake(path, batch_reader, **kwargs)
