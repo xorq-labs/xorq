@@ -12,9 +12,11 @@ import sys
 
 import pandas as pd
 import pytest
-from deltalake import write_deltalake
 
 import xorq.api as xo
+
+
+write_deltalake = pytest.importorskip("deltalake").write_deltalake
 
 
 @pytest.fixture

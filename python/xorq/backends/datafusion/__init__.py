@@ -12,6 +12,7 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
+from xorq.common.utils.deltalake_utils import import_delta_table
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.datafusion import Backend as IbisDatafusionBackend
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
@@ -69,18 +70,11 @@ class Backend(IbisDatafusionBackend):
             The just-registered table
 
         """
-        try:
-            from deltalake import DeltaTable  # noqa: PLC0415
-        except ImportError as e:
-            raise ImportError(
-                "The deltalake package is required to use the "
-                "read_delta method. You can install it using pip:\n\n"
-                "pip install deltalake\n"
-            ) from e
+        DeltaTable = import_delta_table()
 
-        # super() registers the dataset unstripped; routing through _register
-        # is defensive -- to_pyarrow_dataset builds its schema from the Delta
-        # log, so no pandas metadata has been observed on this path (xorq #2266).
+        # super() reaches DataFusion through the deprecated register(), which
+        # bypasses _register and so leaves any pandas metadata on the dataset
+        # in place (xorq #2266).
         delta_table = DeltaTable(normalize_filename(source_table), **kwargs)
         return self._register(
             delta_table.to_pyarrow_dataset(),

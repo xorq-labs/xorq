@@ -33,6 +33,7 @@ from xorq.backends.xorq_datafusion.provider import IbisTableProvider
 from xorq.common.utils import classproperty
 from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
 from xorq.common.utils.aws_utils import make_s3_connection
+from xorq.common.utils.deltalake_utils import import_delta_table
 from xorq.expr import Expr
 from xorq.expr.pyaggregator import PyAggregator, make_struct_type
 from xorq.expr.udf import ExprScalarUDF
@@ -747,14 +748,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         self.con.deregister_table(table_name)
 
-        try:
-            from deltalake import DeltaTable  # noqa: PLC0415
-        except ImportError as err:
-            raise ImportError(
-                "The deltalake package is required to use the "
-                "read_delta method. You can install it using pip:\n\n"
-                "pip install deltalake\n"
-            ) from err
+        DeltaTable = import_delta_table()
 
         delta_table = DeltaTable(source_table, **kwargs)
 
