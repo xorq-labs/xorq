@@ -1117,8 +1117,8 @@ def lineage(
     `--format` picks the rendering, and `--expand` opens a node up: its columns
     are listed under it in the tree, or inside it in the diagram. With `--node`,
     the compact level prints the subtree feeding that node, including a Flight
-    boundary's nested input lineage, and a handle matching several nodes (a
-    kind, a tag) prints each match in turn.
+    boundary's nested input lineage. A handle matching several nodes (a kind, a
+    tag) prints each match in turn.
 
     The TUI's Lineage panel expands the same way, with `]` and `[` on the node
     under its cursor.
