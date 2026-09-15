@@ -72,9 +72,9 @@ class Backend(IbisDatafusionBackend):
         """
         DeltaTable = import_delta_table()
 
-        # super() reaches DataFusion through the deprecated register(), which
-        # bypasses _register and so leaves any pandas metadata on the dataset
-        # in place (xorq #2266).
+        # super() hands the dataset straight to self.con.register_dataset,
+        # bypassing _register and leaving any pandas metadata in place
+        # (xorq #2266).
         delta_table = DeltaTable(normalize_filename(source_table), **kwargs)
         return self._register(
             delta_table.to_pyarrow_dataset(),

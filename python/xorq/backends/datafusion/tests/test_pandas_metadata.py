@@ -17,7 +17,9 @@ import xorq.api as xo
 from xorq.backends.tests.pandas_metadata_util import PANDAS_SOURCES, engine_schema
 
 
-deltalake = pytest.importorskip("deltalake")
+@pytest.fixture
+def deltalake():
+    return pytest.importorskip("deltalake")
 
 
 @pytest.mark.parametrize("to_source", PANDAS_SOURCES)
@@ -89,7 +91,9 @@ def test_cross_join_of_registered_against_created_table() -> None:
     assert engine_schema(con, "a").metadata is None
 
 
-def test_cross_join_of_delta_against_created_table(tmp_path, monkeypatch) -> None:
+def test_cross_join_of_delta_against_created_table(
+    tmp_path, monkeypatch, deltalake
+) -> None:
     """``read_delta`` is a live door that bypasses ``create_table``'s strip.
 
     ``to_pyarrow_dataset`` builds its schema from the Delta log, so a real
