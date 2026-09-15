@@ -15,11 +15,10 @@ permissions:
 
 env:
   # The trees Ruff and the style gates lint. Two other files carry the same
-  # list and cannot read this one: `paths` in scripts/check-style-diff.sh,
-  # and the ruff-check args in .pre-commit-config.yaml -- a floor there
-  # rather than a scope, since pre-commit appends the staged files to them.
-  # test_lint_paths_agree in scripts/style_tests/ reads all three and fails
-  # when they diverge -- change one and it will tell you about the others.
+  # list and cannot read this one: `paths` in scripts/check-style-diff.sh, and
+  # the ruff-check args in .pre-commit-config.yaml, which explains why its copy
+  # means something slightly different. test_lint_paths_agree in
+  # scripts/style_tests/ compares all three and names the first that disagrees.
   LINT_PATHS: python examples docs scripts
 
 
@@ -30,11 +29,8 @@ jobs:
   # has the most to say about, and it was the one case that ran nothing at all.
   # The job installs only the dev group, so running it everywhere is cheap.
   #
-  # No matrix, deliberately. A matrix names the check after its cell --
-  # `lint (3.13)` rather than `lint` -- and a ruleset matches a required status
-  # check by that name, so introducing one renames the check and leaves any
-  # ruleset asking for `lint` waiting on a context nothing will ever report.
-  # Spelling the version inline is what keeps the name stable enough to require.
+  # No matrix: a one-cell matrix would name the check `lint (3.13)`, and a
+  # ruleset matches a required check on that name.
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -75,16 +71,17 @@ jobs:
       # Before the gates run, prove they can fail: every rule must flag a file
       # written to provoke it. A rule that has stopped firing -- misconfigured,
       # renamed upstream, switched off by accident -- reports the same clean
-      # tree as a rule with nothing to say, so this is the only thing standing
-      # between a green build and a gate that never looked.
+      # tree as a rule with nothing to say. The file-count guard below covers
+      # the other half: a gate that matched nothing at all.
       - name: Test the style gate
         run: uv run --no-sync --with pytest pytest scripts/style_tests -q
 
       # Files are expanded with `git ls-files` because xorq-check-style reports
       # nothing and exits 0 when handed a directory (xorq-labs/xorq-style#30).
       #
-      # --disable is the ratchet: every rule listed has a nonzero count today.
-      # Move a rule off the list once it reaches zero and the gate tightens.
+      # --disable is the ratchet: every rule listed still has violations, which
+      # test_ratcheted_rules_still_have_violations enforces -- when one reaches
+      # zero that test fails and asks for it to come off, tightening the gate.
       # It lives here rather than in [tool.xorq-style] disable because that
       # would apply to every invocation, including the editor PostToolUse hook
       # -- the rules would then go unreported on new code as well as old, and
@@ -103,10 +100,9 @@ jobs:
               type-annotations,pytest-param-id,future-annotations,print,pytest-tmp-path,protected-access,unlisted-import,deferred-import-test,redundant-import,os-environ,init-reexport,deferred-stdlib,import-aliasing,stdlib-logging,os-path,test-class,exception-placement,relative-import,exception-hierarchy,enum-placement,cache-method
 
       # Pull requests only: GITHUB_BASE_REF is empty on every other event, and
-      # the argument would then resolve `origin/` and redden every push to
-      # main. The script itself carries the pathspec, the
-      # disabled rules and the quotepath handling, so this and the pre-commit
-      # hook cannot drift apart.
+      # the argument would then resolve `origin/` and redden every push to main.
+      # Everything else lives in the script, which the pre-commit hook also
+      # runs, so the two cannot drift apart.
       - name: Style (changed lines)
         if: github.event_name == 'pull_request'
         shell: bash

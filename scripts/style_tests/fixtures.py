@@ -3,18 +3,15 @@
 Each entry is the smallest source that rule must flag, keyed by rule id. The
 paths are relative to a throwaway project root and matter: several rules key off
 the filename (`enums.py`, `exceptions.py`, `test_*.py`) or off where the file
-sits relative to `src-roots`, so a fixture that mirrors the real layout is what
-makes a misconfigured root visible.
+sits relative to `src-roots`, so a fixture laid out the way `src-roots` names is
+what makes a misconfigured root visible.
 """
 
 __all__ = ["FIXTURES", "SUPPORT"]
 
 
-# What the fixtures below import, plus the __init__.py that makes `pkg` a
-# package so those imports resolve; never checked themselves.
+# The module `unlisted-import` resolves against; never checked itself.
 SUPPORT: dict[str, str] = {
-    "python/pkg/__init__.py": "",
-    "python/pkg/sibling.py": "",
     "python/pkg/provider.py": "__all__ = ['shown']\n\nshown = 1\nhidden = 2\n",
 }
 

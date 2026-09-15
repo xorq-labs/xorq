@@ -99,15 +99,15 @@ python -m pytest # or pytest
 
 Ruff and `xorq-check-style` run on every pull request. `xorq-check-style`
 enforces the conventions below — import placement, `__all__`, `pytest` idioms —
-that Ruff has no rule for. `pre-commit install` wires it up locally, so a CI
-style failure is reproducible before you push.
+that Ruff has no rule for. `pre-commit install` runs it on each commit over what
+you staged; the command below reproduces what CI will say about the branch.
 
 It runs as two gates, both in `.github/workflows/ci-lint.yml`:
 
 - **Changed lines**, on pull requests and as the pre-commit hook. Every rule
-  applies except the four in `scripts/check-style-diff.sh`, which CI and the
-  hook both run so they cannot drift. Pre-existing violations in a file you
-  edit do not block you.
+  applies except those in `disable=` in `scripts/check-style-diff.sh`, which CI
+  and the hook both run so they cannot drift. Pre-existing violations in a file
+  you edit do not block you.
 - **Whole repo**, on every build. Only the rules already at zero everywhere —
   whatever is left after the `--disable` list. Drive a rule's count to zero,
   move it off that list, and it can never come back.
@@ -120,8 +120,9 @@ copies of the linted-tree list rather than restating any of them, so a typo, a
 rule that leaves the checker, or a tree list that agrees in only two of its three
 files fails a test instead of silently enforcing a set nobody chose.
 
-To reproduce what CI will say about your branch, run the gate over the same
-range CI uses:
+To reproduce what CI will say about your branch, run the gate over the range CI
+uses — `origin/$GITHUB_BASE_REF...HEAD`, which for a pull request against main
+is:
 
 ```bash
 uv run scripts/check-style-diff.sh origin/main...HEAD
@@ -131,7 +132,7 @@ The pre-commit hook runs the same script over your staged changes. Run it by
 hand with `uv run pre-commit run xorq-check-style` — without `--all-files`,
 which turns off the stash that makes the working tree match the index.
 
-To see every rule a single file breaks, including the four the gate lets
+To see every rule a single file breaks, including the ones the gate lets
 through, check the file directly:
 
 ```bash
@@ -199,15 +200,14 @@ it down.
 
 **Don't claim parity in prose.** A comment saying one thing "mirrors" another
 asserts a property nothing enforces, and the two drift while the comment goes on
-insisting they haven't. The pre-commit style hook claimed to mirror the CI gate
-and had already lost the pathspec, the quotepath handling and the `pipefail` that
-gate depends on — all three in the commit that wrote the claim. This holds for
-configuration as much as for code: a path list or a pinned version copied into a
-second file rots exactly the way a count does, and is harder to read while doing
-it. Make them one thing both callers run. Failing that, write the test that reads
-both and compares, and have the comment point at that test rather than assert the
-agreement itself. Where neither is possible, say what differs instead of
-asserting that nothing does.
+insisting they haven't: the pre-commit style hook claimed to mirror the CI gate
+in the same commit that gave it neither the gate's `core.quotepath=false` nor
+its `pipefail`. This holds for configuration as much as for code — a path list
+or a pinned version copied into a second file rots the way a count does. Make
+them one thing both callers run; failing that, write the test that reads both
+and compares, and have the comment point at the test rather than assert the
+agreement. Where neither is possible, say what differs instead of claiming
+nothing does.
 
 ## Writing the commit
 
