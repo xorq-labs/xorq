@@ -26,6 +26,13 @@ repos:
     rev: v0.15.12
     hooks:
       # Run the linter.
+      # These trees are the floor ruff-check always lints, not the whole of
+      # what it sees: pre-commit appends the staged files, so a staged .py
+      # anywhere gets linted too, and this hook is the stricter of the pair.
+      # CI lints these trees and nothing else. The list is the third copy of
+      # LINT_PATHS in ci-lint.yml (the second is `paths` in
+      # scripts/check-style-diff.sh); test_lint_paths_agree in
+      # scripts/style_tests/ fails when the three diverge.
       - id: ruff-check
         args: ["--output-format=full", "--fix", "python", "examples", "docs", "scripts"]
       # Run the formatter.
