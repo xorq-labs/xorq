@@ -29,7 +29,7 @@ repos:
       # These trees are a floor, not a scope: pre-commit appends the staged
       # files, so a staged Python file outside them is linted too, making this
       # hook broader than CI, which lints these trees and nothing else. The
-      # hook runs only when something of `types_or` is staged, and its
+      # hook runs only when a Python, stub or notebook file is staged, and its
       # `--force-exclude` still applies ruff's default excludes to what
       # pre-commit hands it. The list is the third copy of LINT_PATHS in
       # ci-lint.yml (the second is `paths` in

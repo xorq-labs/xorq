@@ -16,8 +16,8 @@ permissions:
 env:
   # The trees Ruff and the style gates lint. Two other files carry the same
   # list and cannot read this one: `paths` in scripts/check-style-diff.sh, and
-  # the ruff-check args in .pre-commit-config.yaml, which explains why its copy
-  # means something slightly different. test_lint_paths_agree in
+  # the ruff-check args in .pre-commit-config.yaml, where a comment explains why
+  # that copy means something slightly different. test_lint_paths_agree in
   # scripts/style_tests/ compares all three and names the first that disagrees.
   LINT_PATHS: python examples docs scripts
 
