@@ -15,8 +15,9 @@ permissions:
 
 env:
   # The trees Ruff and the style gates lint. Two other files carry the same
-  # list and cannot read this one: the ruff-check args in
-  # .pre-commit-config.yaml, and `paths` in scripts/check-style-diff.sh.
+  # list and cannot read this one: `paths` in scripts/check-style-diff.sh,
+  # and the ruff-check args in .pre-commit-config.yaml -- a floor there
+  # rather than a scope, since pre-commit appends the staged files to them.
   # test_lint_paths_agree in scripts/style_tests/ reads all three and fails
   # when they diverge -- change one and it will tell you about the others.
   LINT_PATHS: python examples docs scripts
@@ -101,9 +102,9 @@ jobs:
             | xargs uv run --no-sync xorq-check-style --disable \
               type-annotations,pytest-param-id,future-annotations,print,pytest-tmp-path,protected-access,unlisted-import,deferred-import-test,redundant-import,os-environ,init-reexport,deferred-stdlib,import-aliasing,stdlib-logging,os-path,test-class,exception-placement,relative-import,exception-hierarchy,enum-placement,cache-method
 
-      # Pull requests only: GITHUB_BASE_REF is empty on anything but
-      # `pull_request`, where the argument would resolve `origin/` and redden
-      # every push to main. The script itself carries the pathspec, the
+      # Pull requests only: GITHUB_BASE_REF is empty on every other event, and
+      # the argument would then resolve `origin/` and redden every push to
+      # main. The script itself carries the pathspec, the
       # disabled rules and the quotepath handling, so this and the pre-commit
       # hook cannot drift apart.
       - name: Style (changed lines)

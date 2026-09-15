@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The changed-lines style gate, shared by .github/workflows/ci-lint.yml and the
 # xorq-check-style hook in .pre-commit-config.yaml so the two cannot drift.
-# Arguments are the `git diff` revision selector: `origin/main...HEAD` in CI,
-# `--cached` in the hook.
+# Arguments are the `git diff` revision selector:
+# `origin/$GITHUB_BASE_REF...HEAD` in CI, `--cached` in the hook.
 set -euo pipefail
 
 # The same trees as LINT_PATHS in .github/workflows/ci-lint.yml and the
@@ -11,8 +11,8 @@ set -euo pipefail
 # change this list and that test names the files still holding the old one.
 paths=(python examples docs scripts)
 
-# The ratchet: these four are the bulk of the style backlog, and with them on,
-# touching any signature or parametrize list reddens the diff. They are passed
+# The ratchet: these four are the bulk of the style backlog, and with them
+# enforced, touching any signature or parametrize list reddens the diff. They are passed
 # here rather than set in [tool.xorq-style] disable because that would apply to
 # every invocation, including the editor PostToolUse hook -- the rules would
 # then go unreported on new code as well as old, and their counts could never
