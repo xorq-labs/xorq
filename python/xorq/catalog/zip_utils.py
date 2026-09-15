@@ -12,6 +12,7 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     VALID_SUFFIXES,
 )
+from xorq.common.exceptions import XorqInputError
 from xorq.common.utils.file_utils import file_digest
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
 
@@ -28,15 +29,17 @@ def test_zip(zip_path):
             Path(info.filename).name for info in zf.infolist() if not info.is_dir()
         }
         missing = set(REQUIRED_ARCHIVE_NAMES).difference(names)
-        assert not missing, (
-            f"Archive is not a valid expression entry "
-            f"(missing {missing}); found: {sorted(names)}"
-        )
+        if missing:
+            raise XorqInputError(
+                f"Archive is not a valid expression entry "
+                f"(missing {missing}); found: {sorted(names)}"
+            )
         wheels = [name for name in names if name.endswith(".whl")]
-        assert len(wheels) >= 1, (
-            f"Archive must contain at least one .whl file, "
-            f"found {len(wheels)}: {sorted(names)}"
-        )
+        if not wheels:
+            raise XorqInputError(
+                f"Archive must contain at least one .whl file, "
+                f"found {len(wheels)}: {sorted(names)}"
+            )
 
 
 @contextmanager
@@ -68,7 +71,11 @@ def extract_build_zip_to(zip_path, td):
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(td)
     (build_dir, *rest) = Path(td).iterdir()
-    assert not rest
+    if rest:
+        raise XorqInputError(
+            f"Build archive must hold exactly one top-level directory, "
+            f"found {sorted(p.name for p in (build_dir, *rest))}"
+        )
     return build_dir
 
 
@@ -93,10 +100,12 @@ class BuildZip:
     path = field(validator=instance_of(Path), converter=Path)
 
     def __attrs_post_init__(self):
-        assert "".join(self.path.suffixes) in VALID_SUFFIXES, (
-            f"Invalid archive suffix '{self.path.suffixes}', expected one of {VALID_SUFFIXES}"
-        )
-        assert self.path.exists(), f"Build archive not found at {self.path}"
+        if "".join(self.path.suffixes) not in VALID_SUFFIXES:
+            raise XorqInputError(
+                f"Invalid archive suffix '{self.path.suffixes}', expected one of {VALID_SUFFIXES}"
+            )
+        if not self.path.exists():
+            raise FileNotFoundError(f"Build archive not found at {self.path}")
         test_zip(self.path)
 
     @property
