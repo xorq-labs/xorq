@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
 
       # `quartodoc build` regenerates docs/reference/ (gitignored) by reflecting
       # over the imported xorq.api: ~7 of this job's ~9 minutes, and a pure
@@ -34,7 +34,7 @@ jobs:
       # would otherwise perturb the key.
       - name: Restore quartodoc API reference
         id: quartodoc-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: |
             docs/reference
@@ -43,10 +43,10 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.12.14"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v7.6.0
         with:
           enable-cache: true
 
@@ -74,12 +74,12 @@ jobs:
         run: uv run --no-sync python docs/generate_llms_txt.py
 
       - name: Vale (prose style)
-        uses: vale-cli/vale-action@v2
+        uses: vale-cli/vale-action@v2.1.2
         with:
           version: "3.14.2"
           files: "docs/"
 
-      - uses: quarto-dev/quarto-actions/setup@v2
+      - uses: quarto-dev/quarto-actions/setup@v2.2.0
         with:
           version: 1.8.24
 
@@ -92,7 +92,7 @@ jobs:
           SKIP_QUARTODOC: ${{ steps.quartodoc-cache.outputs.cache-hit == 'true' && '1' || '0' }}
 
       - name: Lychee (internal links)
-        uses: lycheeverse/lychee-action@v2
+        uses: lycheeverse/lychee-action@v2.9.0
         with:
           # Exclude the quartodoc-generated reference tree: its pages carry
           # unresolved interlinks (raw .qmd targets, .html#member anchors for
