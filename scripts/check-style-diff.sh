@@ -7,16 +7,13 @@ set -euo pipefail
 
 # The same trees as LINT_PATHS in .github/workflows/ci-lint.yml and the
 # ruff-check args in .pre-commit-config.yaml. None of the three can read the
-# others, so test_lint_paths_agree in scripts/style_tests/ compares them:
-# change this list and that test names the files still holding the old one.
+# others, so test_lint_paths_agree in scripts/style_tests/ compares them and
+# names the first that disagrees.
 paths=(python examples docs scripts)
 
-# The ratchet: these four are the bulk of the style backlog, and with them
-# enforced, touching any signature or parametrize list reddens the diff. They are passed
-# here rather than set in [tool.xorq-style] disable because that would apply to
-# every invocation, including the editor PostToolUse hook -- the rules would
-# then go unreported on new code as well as old, and their counts could never
-# fall.
+# The ratchet: the bulk of the style backlog, and with these enforced, touching
+# any signature or parametrize list reddens the diff. See the whole-repo step in
+# ci-lint.yml for why the ratchet is a flag here rather than pyproject config.
 disable=type-annotations,pytest-param-id,future-annotations,print
 
 # During conflict resolution the staged diff holds everything the merge brought

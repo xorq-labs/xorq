@@ -2,10 +2,10 @@
 
 `xorq-check-style` exits 0 with no output both when a file is clean and when it
 never examined that file, so a rule that has stopped working looks exactly like
-a rule with nothing to report. That ambiguity is not hypothetical: until this
-branch set `src-roots`, `unlisted-import` sat on the enforced list resolving no
-modules at all, and a directory argument (xorq-labs/xorq-style#30) still reports
-a clean tree it never opened.
+a rule with nothing to report. That ambiguity is not hypothetical: before
+33b94478 set `src-roots`, `unlisted-import` sat on the enforced list resolving
+no modules at all; it now sits on the ratchet with a real count. A directory
+argument (xorq-labs/xorq-style#30) still reports a clean tree it never opened.
 
 Every rule therefore owns a fixture it is required to flag. A rule that stops
 firing fails here rather than reporting a comfortable zero, and a rule that
@@ -112,12 +112,10 @@ def _diff_gate_paths() -> list[str]:
 
 
 def _ruff_hook_paths() -> list[str]:
-    """The trees ruff-check lints on every run, whatever is staged.
+    """The trees ruff-check lints as a floor rather than a scope.
 
-    pre-commit appends the staged files to these arguments, so they are the
-    floor ruff always covers rather than the whole of what it sees. That makes
-    the hook broader than CI, which lints these trees and nothing else -- the
-    lists are still worth comparing, but they are not the same claim.
+    The comment on the hook in .pre-commit-config.yaml says what that means.
+    The lists are still worth comparing; they are just not the same claim.
     """
     block = re.search(
         r"^(\s+)- id: ruff-check$(.*?)(?=^\1- id: |\Z)",
