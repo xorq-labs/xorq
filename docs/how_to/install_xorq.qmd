@@ -52,7 +52,7 @@ Install the latest development version from GitHub:
 pip install git+https://github.com/xorq-labs/xorq.git
 ```
 
-For local development, clone and install in editable mode:
+To develop locally, clone the repository and install in editable mode:
 
 ```bash
 git clone https://github.com/xorq-labs/xorq.git

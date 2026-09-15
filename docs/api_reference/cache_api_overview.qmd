@@ -30,8 +30,8 @@ For the conceptual treatment of those two axes, see
 
 Build any cache with `from_kwargs(...)` and attach it with `.cache(...)`. The
 keyword arguments are forwarded to the storage; the accepted arguments and their
-defaults are documented on each class's reference page (linked in the matrix
-above). The example below caches a small real dataset into the embedded
+defaults are documented on each class's reference page (linked in the preceding
+matrix). The example below caches a small real dataset into the embedded
 (local DataFusion) backend with `SourceCache`, then to a local Parquet file with
 `ParquetCache`:
 
