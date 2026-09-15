@@ -36,6 +36,7 @@ def test_read_delta(con, delta_path) -> None:
     assert con.read_delta(delta_path, "a").execute().to_dict("records") == [
         {"k": "x", "v": 1}
     ]
+    assert "a" in con.list_tables()
 
 
 def test_read_delta_generates_table_name(con, delta_path) -> None:
