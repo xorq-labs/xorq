@@ -43,7 +43,7 @@ final = str(Path(tmp) / "final.parquet")
 pass_expr = (
     xo.connect()
     .register(xo.memtable(data), table_name="src_pass")
-    .pipe(make_parquet_wap_expr, staging, final, audit_no_nulls)
+    .pipe(make_parquet_wap_expr(), staging, final, audit_no_nulls)
 )
 
 fail_staging = str(Path(tmp) / "fail_staging.parquet")
@@ -52,7 +52,7 @@ fail_final = str(Path(tmp) / "fail_final.parquet")
 fail_expr = (
     xo.connect()
     .register(xo.memtable(bad_data), table_name="src_fail")
-    .pipe(make_parquet_wap_expr, fail_staging, fail_final, audit_no_nulls)
+    .pipe(make_parquet_wap_expr(), fail_staging, fail_final, audit_no_nulls)
 )
 
 
