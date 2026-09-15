@@ -12,13 +12,16 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
+from xorq.common.utils.deltalake_utils import import_delta_table
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.datafusion import Backend as IbisDatafusionBackend
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
-from xorq.vendor.ibis.util import gen_name
+from xorq.vendor.ibis.util import gen_name, normalize_filename
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pandas as pd
 
 
@@ -44,6 +47,39 @@ class Backend(IbisDatafusionBackend):
         if isinstance(source, (pa.Table, pa.RecordBatch, ds.Dataset)):
             source = drop_pandas_schema_metadata(source)
         return super()._register(source, table_name, **kwargs)
+
+    def read_delta(
+        self, source_table: str | Path, table_name: str | None = None, **kwargs: Any
+    ) -> ir.Table:
+        """Register a Delta Lake table as a table in the current database.
+
+        Parameters
+        ----------
+        source_table
+            The data source. Must be a directory
+            containing a Delta Lake table.
+        table_name
+            An optional name to use for the created table. This defaults to
+            a sequentially generated name.
+        **kwargs
+            Additional keyword arguments passed to deltalake.DeltaTable.
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table
+
+        """
+        DeltaTable = import_delta_table()
+
+        # super() hands the dataset straight to self.con.register_dataset,
+        # bypassing _register and leaving any pandas metadata in place
+        # (xorq #2266).
+        delta_table = DeltaTable(normalize_filename(source_table), **kwargs)
+        return self._register(
+            delta_table.to_pyarrow_dataset(),
+            table_name=table_name or gen_name("read_delta"),
+        )
 
     def create_table(
         self,
