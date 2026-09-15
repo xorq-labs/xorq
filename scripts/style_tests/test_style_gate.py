@@ -2,10 +2,10 @@
 
 `xorq-check-style` exits 0 with no output both when a file is clean and when it
 never examined that file, so a rule that has stopped working looks exactly like
-a rule with nothing to report. That ambiguity is not hypothetical: it is how
-`unlisted-import` came to sit on the enforced list while `src-roots` left it
-resolving no modules at all, and how a directory argument (xorq-labs/xorq-style#30)
-reports a clean tree it never opened.
+a rule with nothing to report. That ambiguity is not hypothetical: until this
+branch set `src-roots`, `unlisted-import` sat on the enforced list resolving no
+modules at all, and a directory argument (xorq-labs/xorq-style#30) still reports
+a clean tree it never opened.
 
 Every rule therefore owns a fixture it is required to flag. A rule that stops
 firing fails here rather than reporting a comfortable zero, and a rule that
@@ -28,7 +28,7 @@ WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci-lint.yml"
 DIFF_GATE = REPO_ROOT / "scripts" / "check-style-diff.sh"
 PRE_COMMIT = REPO_ROOT / ".pre-commit-config.yaml"
 
-# A rule id as both files spell it, and as `--list` prints it.
+# A rule id as the two --disable lists spell it, and as `--list` prints it.
 RULE = r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*"
 
 

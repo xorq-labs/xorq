@@ -10,7 +10,8 @@ makes a misconfigured root visible.
 __all__ = ["FIXTURES", "SUPPORT"]
 
 
-# Imported by the fixtures above them; never checked themselves.
+# What the fixtures below import, plus the __init__.py that makes `pkg` a
+# package so those imports resolve; never checked themselves.
 SUPPORT: dict[str, str] = {
     "python/pkg/__init__.py": "",
     "python/pkg/sibling.py": "",
