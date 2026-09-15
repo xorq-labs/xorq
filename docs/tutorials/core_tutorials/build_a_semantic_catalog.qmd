@@ -236,7 +236,16 @@ catalog_dir = Path("flights-catalog")
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
 
 # <3>
-catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
+catalog.add(
+    flights_model_expr,
+    aliases=("flights-model",),
+    metadata={
+        "domain": "flights",
+        "owner": "analytics",
+        "tags": ["semantic-model", "tutorial"],
+    },
+    sync=False,
+)
 
 print("Catalog at:", catalog_dir.absolute())
 print("Aliases:   ", catalog.list_aliases())
@@ -244,11 +253,43 @@ print("Aliases:   ", catalog.list_aliases())
 1. `to_tagged(flights_model)` serializes the dimensions, measures, and underlying table into a Xorq expression with BSL metadata attached. Bind it to `flights_model_expr` to make the role explicit: it's the *expression form* of the model, ready for the catalog. You're cataloging the model itself, not the result of one of its queries.
 2. A stable path inside the project directory. Use anywhere you like—but a real folder (not a temp dir) is what lets the *next* script find the catalog by path. `Catalog.from_repo_path(..., init=True)` initializes a fresh git repo there.
 3. The alias `flights-model` is the human-readable handle. Internally each entry has a content-addressed hash; the alias just points at it.
+4. `metadata` stores optional catalog semantic metadata separately from the expression. Use JSON/YAML-compatible values with string mapping keys; it does not change the expression identity or the expression's existing builder metadata.
 
 ::: {.callout-note}
 ### Why go through the catalog?
 The catalog speaks the language of expressions: schemas, lineage, content hashes, deferred reads. By tagging the model and storing it as a catalog entry, the model travels through the same pipes as everything else—`xorq build`, `xorq run`, lineage tools—and `from_tagged` lets you get the rich Python object back when you need it.
 :::
+
+### Read catalog semantic metadata
+
+The metadata passed to `Catalog.add(...)` is available on the returned `CatalogEntry` through `semantic_metadata`. It is stored with the catalog entry and is separate from the expression's BSL metadata:
+
+```python
+entry = catalog.get_catalog_entry("flights-model", maybe_alias=True)
+print(entry.semantic_metadata)
+# {'domain': 'flights', 'owner': 'analytics',
+#  'tags': ['semantic-model', 'tutorial']}
+```
+
+The same sidecar data is included in structured CLI output. For example:
+
+```bash
+xorq catalog --path flights-catalog show flights-model --json
+```
+
+The JSON object includes a `semantic_metadata` field alongside the other entry metadata:
+
+```json
+{
+  "semantic_metadata": {
+    "domain": "flights",
+    "owner": "analytics",
+    "tags": ["semantic-model", "tutorial"]
+  }
+}
+```
+
+Entries created before semantic metadata support do not have this sidecar field; their `semantic_metadata` property is `None`. The `--raw` option continues to print the sidecar YAML as-is.
 
 ::: {.callout-tip}
 ### Pointing at a real catalog
@@ -368,7 +409,16 @@ flights_model_expr = to_tagged(flights_model)
 
 catalog_dir = Path("flights-catalog")
 catalog = Catalog.from_repo_path(catalog_dir, init=True)
-catalog.add(flights_model_expr, aliases=("flights-model",), sync=False)
+catalog.add(
+    flights_model_expr,
+    aliases=("flights-model",),
+    metadata={
+        "domain": "flights",
+        "owner": "analytics",
+        "tags": ["semantic-model", "tutorial"],
+    },
+    sync=False,
+)
 ```
 
 `recover_flights.py`—reads the catalog from scratch, recovers the model, runs a new query:
