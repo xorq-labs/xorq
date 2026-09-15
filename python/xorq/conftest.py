@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 import numpy as np
@@ -6,6 +7,32 @@ import pytest
 
 import xorq.api as xo
 from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY
+
+
+@pytest.fixture(autouse=True)
+def _strict_monkeypatch(monkeypatch):
+    """Fail fast when a string-target monkeypatch names a non-existent module attribute.
+
+    Catches the common mistake of patching ``"xorq.a.b.name"`` when ``name``
+    was imported into ``xorq.a.b`` at the top level but has since been deferred
+    — meaning the attribute no longer exists on the module and the patch would
+    silently miss.
+    """
+    _original = type(monkeypatch).setattr
+
+    def _checked_setattr(self, target, *args, **kwargs):
+        if isinstance(target, str):
+            mod_path, _, attr = target.rpartition(".")
+            if mod_path:
+                mod = importlib.import_module(mod_path)
+                if not hasattr(mod, attr):
+                    raise AttributeError(
+                        f"{attr!r} is not an attribute of {mod_path!r}; "
+                        f"patch the canonical source module instead"
+                    )
+        return _original(self, target, *args, **kwargs)
+
+    monkeypatch.setattr = _checked_setattr.__get__(monkeypatch)
 
 
 @pytest.fixture
