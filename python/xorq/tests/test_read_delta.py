@@ -63,3 +63,13 @@ def test_read_delta_without_deltalake(con, tmp_path, monkeypatch) -> None:
 
     with pytest.raises(ImportError, match="pip install deltalake"):
         con.read_delta(tmp_path / "delta", "a")
+
+
+def test_to_delta_round_trip(con, delta_path, tmp_path) -> None:
+    """``to_delta`` writes what ``read_delta`` reads back."""
+    t = con.read_delta(delta_path, "a")
+    out = tmp_path / "out"
+
+    con.to_delta(t, str(out))
+
+    assert con.read_delta(out, "b").execute().to_dict("records") == [{"k": "x", "v": 1}]
