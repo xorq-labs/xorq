@@ -184,10 +184,10 @@ def test_lint_paths_agree() -> None:
 
     CI reads LINT_PATHS, the changed-lines gate carries its own pathspec so the
     pre-commit hook gets the same one, and ruff-check in .pre-commit-config.yaml
-    takes its trees as arguments -- as a floor, since pre-commit adds the staged
-    files to them. Nothing makes one of them read another, so the comparison
-    happens here instead. Order is compared too: they are written in the same
-    order today, and keeping it that way makes a diff between them readable.
+    takes its trees as arguments. Nothing makes one of them read another, so the
+    comparison happens here instead. Order is compared too: they are written in
+    the same order today, and keeping it that way makes a diff between them
+    readable.
     """
     workflow = _lint_paths()
     _assert_trees_exist(workflow, f"LINT_PATHS in {WORKFLOW.name}")

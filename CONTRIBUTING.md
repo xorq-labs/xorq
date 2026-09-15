@@ -99,8 +99,9 @@ python -m pytest # or pytest
 
 Ruff and `xorq-check-style` run on every pull request. `xorq-check-style`
 enforces the conventions below — import placement, `__all__`, `pytest` idioms —
-that Ruff has no rule for. `pre-commit install` runs it on each commit over what
-you staged; the command below reproduces what CI will say about the branch.
+that Ruff has no rule for. `pre-commit install` runs it over what you staged, on
+any commit that stages Python; the command below reproduces what CI will say
+about the branch.
 
 It runs as two gates, both in `.github/workflows/ci-lint.yml`:
 
