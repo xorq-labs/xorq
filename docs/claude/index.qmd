@@ -20,11 +20,13 @@ You talk to Claude in plain language. It picks the matching skill and runs the
 
 A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/_shared/essentials.md) once per session, so each skill has access to the same information in context without duplication.
 
+## Skills
+
 <!-- vale Google.WordList = NO -->
 <!-- `ingest` is the name of a skill, not a verb choice: it has to match
-     the SKILL.md it links to and what the user types. -->
-
-## Skills
+     the SKILL.md it links to and what the user types. Scoped to the table
+     rather than the whole section, and a comment between two rows breaks
+     the table, so the two tables carrying the name are wrapped separately. -->
 
 | Skill | What it does |
 |-------|--------------|
@@ -35,9 +37,13 @@ A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claud
 | [**builder**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/builder/SKILL.md) | Round-trip tagged objects (semantic models, fitted pipelines, your own) through the catalog. |
 | [**diagnose**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/diagnose/SKILL.md) | Failed, slow, or stale runs, and caching. |
 
+<!-- vale Google.WordList = YES -->
+
 ## Example
 
 A session, one line per turn—what you say, and the skill Claude reaches for.
+
+<!-- vale Google.WordList = NO -->
 
 | You ask | Skill |
 |---------|-------|
