@@ -50,6 +50,46 @@ class BundledSourceTypes(StrEnum):
     read = "reads"
 
 
+class DocKey(StrEnum):
+    """Top-level keys of a serialized expression document (``expr.yaml``)."""
+
+    definitions = "definitions"
+    expression = "expression"
+
+
+class NodeKey(StrEnum):
+    """Node-def keys of a serialized expression document.
+
+    The full vocabulary the translator writes, so producer and consumer name
+    the same keys; not every member has a reader-side use.
+    """
+
+    op = "op"
+    name = "name"
+    table = "table"
+    profile = "profile"
+    namespace = "namespace"
+    method_name = "method_name"
+    read_kwargs = "read_kwargs"
+    normalize_method = "normalize_method"
+    snapshot_hash = "snapshot_hash"
+
+
+class ReadKwarg(StrEnum):
+    """Serialized ``read_kwargs`` keys that name a ``Read``'s source."""
+
+    hash_path = "hash_path"
+    read_path = "read_path"
+    table_name = "table_name"
+
+
+class NamespaceKey(StrEnum):
+    """Keys of a ``DatabaseTable``'s serialized namespace."""
+
+    catalog = "catalog"
+    database = "database"
+
+
 class RefEnum(StrEnum):
     dtype_ref = "dtype_ref"
     node_ref = "node_ref"

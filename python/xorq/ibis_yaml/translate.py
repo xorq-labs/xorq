@@ -40,7 +40,13 @@ from xorq.ibis_yaml.common import (
     serialize_callable,
     translate_to_yaml,
 )
-from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
+from xorq.ibis_yaml.enums import (
+    NamespaceKey,
+    NodeKey,
+    ReadKwarg,
+    RefEnum,
+    RegistryEnum,
+)
 from xorq.ibis_yaml.normalize_registry import (
     deserialize_normalize_method,
     serialize_normalize_method,
@@ -456,17 +462,17 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
     profile_name = op.source._profile.hash_name
     namespace_dict = freeze(
         {
-            "catalog": op.namespace.catalog,
-            "database": op.namespace.database,
+            NamespaceKey.catalog: op.namespace.catalog,
+            NamespaceKey.database: op.namespace.database,
         }
     )
 
     node_dict = freeze(
         {
-            "op": "DatabaseTable",
-            "table": op.name,
-            "profile": profile_name,
-            "namespace": namespace_dict,
+            NodeKey.op: "DatabaseTable",
+            NodeKey.table: op.name,
+            NodeKey.profile: profile_name,
+            NodeKey.namespace: namespace_dict,
         }
         | context.registry.register_schema(op.schema)
     )
@@ -734,15 +740,17 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
         if (outer := context.current_remote_table) is not None:
             rename_key = (op, outer)
         table_name = f"{prefix}{tokenize(rename_key)}"
-        read_kwargs = update_read_kwargs(read_kwargs, (("table_name", table_name),))
+        read_kwargs = update_read_kwargs(
+            read_kwargs, ((ReadKwarg.table_name, table_name),)
+        )
     return freeze(
         {
-            "op": "Read",
-            "method_name": op.method_name,
-            "name": table_name,
-            "profile": profile_hash_name,
-            "read_kwargs": read_kwargs,
-            "normalize_method": serialize_normalize_method(op.normalize_method),
+            NodeKey.op: "Read",
+            NodeKey.method_name: op.method_name,
+            NodeKey.name: table_name,
+            NodeKey.profile: profile_hash_name,
+            NodeKey.read_kwargs: read_kwargs,
+            NodeKey.normalize_method: serialize_normalize_method(op.normalize_method),
         }
         | context.registry.register_schema(op.schema)
     )
