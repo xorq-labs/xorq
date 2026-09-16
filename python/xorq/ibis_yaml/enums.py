@@ -50,18 +50,10 @@ class BundledSourceTypes(StrEnum):
     read = "reads"
 
 
-class DocKey(StrEnum):
-    """Top-level keys of a serialized expression document (``expr.yaml``)."""
-
-    definitions = "definitions"
-    expression = "expression"
-
-
 class NodeKey(StrEnum):
-    """Node-def keys of a serialized expression document.
+    """Node-def keys the ``DatabaseTable`` and ``Read`` translators write.
 
-    The full vocabulary the translator writes, so producer and consumer name
-    the same keys; not every member has a reader-side use.
+    Other ops still spell their keys out; this covers that subset only.
     """
 
     op = "op"
