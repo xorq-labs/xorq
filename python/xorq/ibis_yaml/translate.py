@@ -741,7 +741,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
             rename_key = (op, outer)
         table_name = f"{prefix}{tokenize(rename_key)}"
         read_kwargs = update_read_kwargs(
-            read_kwargs, ((ReadKwarg.table_name.value, table_name),)
+            read_kwargs, ((ReadKwarg.table_name, table_name),)
         )
     return freeze(
         {

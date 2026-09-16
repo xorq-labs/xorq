@@ -51,7 +51,8 @@ class BundledSourceTypes(StrEnum):
 
 
 class NodeKey(StrEnum):
-    """Node-def keys the ``DatabaseTable`` and ``Read`` translators write.
+    """Keys of the ``DatabaseTable`` and ``Read`` node defs, plus the hash the
+    ``Registry`` stamps on them.
 
     Other ops still spell their keys out; this covers that subset only.
     """

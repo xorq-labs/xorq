@@ -67,14 +67,10 @@ class Registry:
         """
 
         node_hash = content_hash(node)
-        op_name = str(node_dict.get(NodeKey.op.value, "unknown")).lower()
+        op_name = str(node_dict.get(NodeKey.op, "unknown")).lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
-        node_dict_with_hash = freeze(
-            node_dict | {NodeKey.snapshot_hash.value: node_hash}
-        )
-        if isinstance(node, Read) and ReadKwarg.read_path.value in dict(
-            node.read_kwargs
-        ):
+        node_dict_with_hash = freeze(node_dict | {NodeKey.snapshot_hash: node_hash})
+        if isinstance(node, Read) and ReadKwarg.read_path in dict(node.read_kwargs):
             # Reads whose parquet was materialized into the build bundle carry
             # a build-relative `read_path`. The absolute `hash_path` assigned
             # at build time embeds the tmpdir root, so serializing it verbatim
@@ -84,13 +80,13 @@ class Registry:
             # the stored value to the relative read_path is lossless.
             from xorq.common.utils.node_utils import update_read_kwargs  # noqa: PLC0415
 
-            old_read_kwargs = node_dict_with_hash[NodeKey.read_kwargs.value]
-            new_path = Path(dict(old_read_kwargs)[ReadKwarg.read_path.value])
+            old_read_kwargs = node_dict_with_hash[NodeKey.read_kwargs]
+            new_path = Path(dict(old_read_kwargs)[ReadKwarg.read_path])
             modified_read_kwargs = update_read_kwargs(
-                old_read_kwargs, ((ReadKwarg.hash_path.value, new_path),)
+                old_read_kwargs, ((ReadKwarg.hash_path, new_path),)
             )
             node_dict_with_hash = freeze(
-                node_dict_with_hash | {NodeKey.read_kwargs.value: modified_read_kwargs}
+                node_dict_with_hash | {NodeKey.read_kwargs: modified_read_kwargs}
             )
         self.nodes.setdefault(node_ref, node_dict_with_hash)
         frozen = freeze({RefEnum.node_ref: node_ref})
