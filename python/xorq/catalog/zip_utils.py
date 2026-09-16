@@ -118,3 +118,7 @@ class BuildZip:
         """Read and parse a single member from the zip archive."""
         with zipfile.ZipFile(self.path, "r") as zf:
             return read_f(zf.read(member_path).decode())
+
+    def read_dump_file(self, dump_file, read_f):
+        """Read and parse one of the build's dump files, under the internal prefix."""
+        return self.read_member(f"{self.internal_prefix}/{dump_file}", read_f)
