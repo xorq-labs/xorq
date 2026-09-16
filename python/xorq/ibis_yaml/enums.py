@@ -50,6 +50,19 @@ class BundledSourceTypes(StrEnum):
     read = "reads"
 
 
+class DocKey(StrEnum):
+    """Top-level keys of a serialized expression document (``expr.yaml``).
+
+    Consumed by the reader, not the writer: ``xorq.catalog.inspection`` walks a
+    document from ``expression`` through ``definitions``, while ``ExprDumper``
+    builds both keys structurally. No producer references them, so they look
+    unused from inside this package -- they are not.
+    """
+
+    definitions = "definitions"
+    expression = "expression"
+
+
 class NodeKey(StrEnum):
     """Keys of the ``DatabaseTable`` and ``Read`` node defs, plus the hash the
     ``Registry`` stamps on them.
