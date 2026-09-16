@@ -67,7 +67,7 @@ class Registry:
         """
 
         node_hash = content_hash(node)
-        op_name = str(node_dict.get(NodeKey.op, "unknown")).lower()
+        op_name = node_dict.get(NodeKey.op, "unknown").lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {NodeKey.snapshot_hash: node_hash})
         if isinstance(node, Read) and ReadKwarg.read_path in dict(node.read_kwargs):
