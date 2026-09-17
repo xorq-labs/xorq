@@ -475,21 +475,37 @@ def test_build_record_is_deep_frozen_and_hashable() -> None:
         pytest.param([None], id="null-entry"),
         pytest.param([{"a": 1, "b": 2}], id="mapping-entry"),
         pytest.param(["ab"], id="two-char-string-entry"),
+        pytest.param([[["a"], "b"]], id="unhashable-key"),
         pytest.param("hash_path", id="not-a-list"),
+        pytest.param({}, id="empty-mapping"),
     ],
 )
 def test_malformed_read_kwargs_names_the_node(read_kwargs: object) -> None:
     """A read_kwargs entry that is not a pair fails with the ref, not a dict error.
 
     A mapping or a two-character string would coerce into a plausible pair, so
-    they must be rejected rather than read as a fabricated kwarg.
+    they must be rejected rather than read as a fabricated kwarg, and an
+    unhashable key would otherwise reach `dict()` as a bare TypeError.
     """
     with pytest.raises(ValueError, match="@read_0"):
         iter_source_leaves(read_doc(read_kwargs=read_kwargs))
 
 
-def test_empty_read_kwargs_is_legal() -> None:
-    """A read node def with no read_kwargs reads as an external, unbundled leaf."""
+def test_null_read_kwargs_names_the_node() -> None:
+    """A `read_kwargs:` truncated to null is corruption, not an absent key.
+
+    `_read_to_yaml` writes `read_kwargs` for every `Read`, so a null value is a
+    damaged archive.  Reading it as empty would drop `read_path`, turning a
+    bundled read into a plausible external leaf that a drift check then flags.
+    """
+    doc = read_doc()
+    doc["definitions"]["nodes"]["@read_0"]["read_kwargs"] = None
+    with pytest.raises(ValueError, match="@read_0"):
+        iter_source_leaves(doc)
+
+
+def test_absent_read_kwargs_is_legal() -> None:
+    """A read node def with no read_kwargs key reads as an external, unbundled leaf."""
     (leaf,) = iter_source_leaves(read_doc(read_kwargs=None))
     assert leaf.read_kwargs == ()
     assert not leaf.bundled

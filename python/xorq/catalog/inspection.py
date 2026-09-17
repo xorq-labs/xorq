@@ -221,22 +221,32 @@ def get_node_key(node_ref: str, node_def: dict, key: str) -> Any:
 def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
     """``read_kwargs`` as ``(key, value)`` pairs, naming the node on a bad entry.
 
-    The serialized form is a list of pairs; an entry of any other length would
-    otherwise reach ``dict()`` as an unattributable "dictionary update sequence
-    element #0 has length 9", which is exactly the traceback this module exists
-    to avoid on a corrupt archive.
+    The serialized form is a list of string-keyed pairs; an entry of any other
+    length would otherwise reach ``dict()`` as an unattributable "dictionary
+    update sequence element #0 has length 9", which is exactly the traceback
+    this module exists to avoid on a corrupt archive.
 
-    The shape is checked *before* anything is coerced, so every corrupt form
-    raises with the ref rather than some of them: a truncated ``read_kwargs:``
-    parses to ``None`` and a scalar entry to an ``int``, both of which
-    ``tuple()`` rejects with an unattributable ``TypeError``, and a mapping or
-    a two-character string would pass a length test by being silently coerced
+    The shape is checked *before* anything is coerced, so every corrupt shape
+    raises with the ref rather than some of them: a scalar entry is rejected by
+    ``tuple()`` with an unattributable ``TypeError``, an unhashable key reaches
+    ``dict()`` as a bare "unhashable type: 'list'", and a mapping or a
+    two-character string would pass a length test by being silently coerced
     into a plausible-looking pair (``tuple({"a": 1, "b": 2})`` is
     ``("a", "b")``) -- a fabricated kwarg is worse than a named failure.
+
+    Only an *absent* key is legal: a ``DatabaseTable`` never carries one, while
+    ``_read_to_yaml`` writes ``read_kwargs`` unconditionally for every
+    ``Read``.  A present-but-null value is therefore a damaged archive and
+    raises rather than reading as empty, which would drop ``read_path`` and
+    turn a bundled read into a plausible *external* leaf that a drift check
+    then falsely flags.
     """
-    entries = node_def.get(NodeKey.read_kwargs) or ()
+    entries = node_def.get(NodeKey.read_kwargs, ())
     if not isinstance(entries, (list, tuple)) or not all(
-        isinstance(entry, (list, tuple)) and len(entry) == 2 for entry in entries
+        isinstance(entry, (list, tuple))
+        and len(entry) == 2
+        and isinstance(entry[0], str)
+        for entry in entries
     ):
         raise ValueError(
             f"node {node_ref!r} has a malformed {NodeKey.read_kwargs} entry"
