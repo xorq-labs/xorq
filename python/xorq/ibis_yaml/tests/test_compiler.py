@@ -1640,7 +1640,9 @@ def test_read_kwargs_keys_are_plain_str(
     """read_kwargs keys must never be StrEnum members: they reach op state and repr."""
 
     def assert_plain(expr):
-        for node in walk_nodes(Read, expr):
+        reads = list(walk_nodes(Read, expr))
+        assert reads
+        for node in reads:
             assert all(type(name) is str for name, _ in node.read_kwargs), (
                 node.read_kwargs
             )

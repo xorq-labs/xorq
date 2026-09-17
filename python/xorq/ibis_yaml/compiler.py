@@ -832,7 +832,7 @@ class ExprDumper:
                 # reconstruction on load; InMemoryTable data is deterministic,
                 # so content-hash normalization keeps the YAML reproducible
                 # across processes and rebuild timestamps.
-                type_kwargs = {str(which): True}
+                type_kwargs = {which: True}
                 con_kwargs = {}
             elif _is_relocatable_read(node):
                 plan = self._prepare_relocatable_read(node)
