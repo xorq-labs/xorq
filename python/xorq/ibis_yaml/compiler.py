@@ -80,6 +80,7 @@ from xorq.ibis_yaml.common import (
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import (
     BundledSourceTypes,
+    DocKey,
     DumpFiles,
     ExprKind,
     RefEnum,
@@ -312,8 +313,8 @@ class YamlExpressionTranslator:
             )
             return freeze(
                 {
-                    "definitions": context.definitions,
-                    "expression": expr_dict,
+                    DocKey.definitions: context.definitions,
+                    DocKey.expression: expr_dict,
                 }
             )
 
@@ -324,10 +325,10 @@ class YamlExpressionTranslator:
     ) -> ir.Expr:
         _ensure_translate_registered()
         context = TranslationContext(
-            registry=Registry(**yaml_dict.get("definitions", {})),
+            registry=Registry(**yaml_dict.get(DocKey.definitions, {})),
             profiles=freeze(dict(profiles)),
         )
-        expr_dict = freeze(yaml_dict["expression"])
+        expr_dict = freeze(yaml_dict[DocKey.expression])
         return translate_from_yaml(expr_dict, context)
 
 
