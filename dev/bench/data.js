@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789481411861,
+  "lastUpdate": 1789638865057,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -38034,6 +38034,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.08886755948329315",
             "extra": "mean: 1.7293373788000053 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5a24ca3f22b1f46821cc7e714571df31ac7c2657",
+          "message": "refactor(ibis_yaml): name the serialized node keys with enums (#2302)\n\nCloses: no issue. Split out of #2301, which had picked this up while it\nwas only supposed to read `expr.yaml`.\n\n## What\n\nThe translator writes `expr.yaml`'s node defs from string literals and\n`Registry.register_node` reads them back with the same strings spelled a\nsecond time. Two copies of a vocabulary that must agree exactly, with\nnothing tying them together. Both sides now use `DocKey`, `NodeKey`,\n`ReadKwarg` and `NamespaceKey`.\n\n| File | Change |\n|---|---|\n| `ibis_yaml/enums.py` | the vocabulary, next to `RefEnum` and\n`RegistryEnum` |\n| `ibis_yaml/translate.py` | writes and reads back `DatabaseTable` and\n`Read` node defs with it |\n| `ibis_yaml/common.py` | `Registry.register_node` reads them with it |\n| `ibis_yaml/compiler.py` | `YamlExpressionTranslator` for the\ndocument's top-level keys, and every site indexing a `Read`'s\n`read_kwargs` |\n| `common/utils/node_utils.py` | `plain_key`, so enum members cannot\nleak into op state |\n| `ibis_yaml/tests/test_compiler.py` | pins the serialization invariant\n|\n\n## Why\n\nRenaming a key on one side and missing the other is a silent `KeyError`\nat load time, and the two sides sit in different modules. The enums make\nthe two references the same object.\n\nTwo things were rejected along the way, both with a number attached.\n\nAn earlier revision normalized dict keys inside `_to_yaml_safe`, then\nadded a `_to_yaml_key` guard to stop that normalization turning a\nhashable composite key into an unhashable one. The hazard existed only\nbecause of the normalization. Removing all of it broke 4 tests out of\n640, and all 4 were the ones written for the guard. Build hashes and\n`expr.yaml` bytes were unchanged either way. It is gone, replaced by an\nassertion.\n\nThe `op` values stay as the literals `\"DatabaseTable\"` and `\"Read\"`. The\nenum naming them is `xorq.catalog.enums.LeafKind`, and `ibis_yaml`\nimporting `catalog` inverts the dependency. `NodeKey`'s docstring\nrecords that so the gap is not closed by adding the import.\n\n## Verification\n\n`expr.yaml` bytes feed `content_hash`, then the build hash, then every\ncatalog entry name, so a serialization change renames entries. Built\nthree expression shapes on `main` and on this branch:\n\n| Expression | build hash | `expr.yaml` sha256 |\n|---|---|---|\n| sqlite `DatabaseTable` + filter | `9d7e4e833673` | `b3cc0cce871589ad`\n|\n| relocated parquet `Read` + filter | `1f1fc2f9f6d6` |\n`6c58629092b0e59a` |\n| `DatabaseTable` union memtable | `92370b65a017` | `c545e57463af4cbd` |\n\nIdentical on both sides, all three, re-checked after each round of the\nmigration.\n\n`test_compiler.py`: 113 passed, 1 skipped. Full `ibis_yaml` suite: 6\nfailed, 627 passed, and that failure set is byte-identical to `main`'s\n(postgres, which is not running here, and the benchmark plugin).\n\nThe byte comparison could pass vacuously if the writer tagged the enum\nkeys, so the invariant is asserted directly:\n\n```python\nassert re.search(rf\"^\\s*{NodeKey.read_kwargs}:$\", expr_text, re.MULTILINE)\nassert re.search(rf\"^\\s*{NodeKey.op}: Read$\", expr_text, re.MULTILINE)\nassert not re.search(r\"^\\s*!\", expr_text, re.MULTILINE)   # no YAML tags\n```\n\n## Not addressed\n\nNo behavior change and no public API move. `_to_yaml_safe` normalizes\nvalues but still passes dict keys through, so an enum key reaches\n`yaml12` as a `str` subclass. That predates this PR:\n`Registry.register_node` has always returned `freeze({RefEnum.node_ref:\n...})`. This PR adds more such keys and pins the invariant rather than\nchanging the serializer.\n\nOther ops keep their literals. `UnboundTable`, `RemoteTable`,\n`CachedNode` and the cache writers are out of scope, and `NodeKey`'s\ndocstring says so. That boundary matters: `CachedNode`'s `\"source\"` is a\nprofile hash name while `ReadKwarg.source` is a filesystem path, so a\nblanket replace of that string breaks caching.\n\nThe `Read` op's own argument names stay literal. `read_kwargs` and\n`normalize_method` in a `__recreate__` call are constructor arguments\nbeside the mapping, not keys inside it.\n\nProducers outside `ibis_yaml` still spell these keys out:\n`defer_utils.make_read_kwargs`, `node_utils.change_read_table_name`,\n`constants.READ_*_KEYS`, and the dasher `Read` normalizer. Known, not\noversights.\n\n`ibis_yaml/enums.py` is byte-identical with #2301's copy so the two\nmerge as one change in either order.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-17T11:48:20+02:00",
+          "tree_id": "0a8110b9e01bc30129f1f0ca6a35d395c6e6a92e",
+          "url": "https://github.com/xorq-labs/xorq/commit/5a24ca3f22b1f46821cc7e714571df31ac7c2657"
+        },
+        "date": 1789638861778,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.49431222920509,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005777210467571658",
+            "extra": "mean: 133.43452600000205 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.119759959738786,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09079812434240905",
+            "extra": "mean: 471.7515280000043 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.6841850522409881,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1698774708921599",
+            "extra": "mean: 1.461592878600004 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5728214046094555,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0547818866940598",
+            "extra": "mean: 388.67835840000566 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5799163146249717,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05537565030780298",
+            "extra": "mean: 387.6094718000047 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.619815519287333,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04023079644202802",
+            "extra": "mean: 381.7062662000069 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 117.82963602076319,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00746800880071877",
+            "extra": "mean: 8.48682923728786 msec\nrounds: 236"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.3895023403049698,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12363405906554238",
+            "extra": "mean: 295.0285615999974 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 14.14088452738206,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010624966851583496",
+            "extra": "mean: 70.7169341538448 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.178786102806145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016425706072654724",
+            "extra": "mean: 98.2435419999949 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.223337903856319,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019559465548972994",
+            "extra": "mean: 121.60512089999997 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.945398955927781,
+            "unit": "iter/sec",
+            "range": "stddev: 0.044564940244437225",
+            "extra": "mean: 168.1972912857199 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.561739137208093,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014417413221718746",
+            "extra": "mean: 219.2146394000133 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.373863425892299,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006269035252594342",
+            "extra": "mean: 228.63082420000183 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.1309280499449077,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04334681792840183",
+            "extra": "mean: 469.27910119999297 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.1538206956718047,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017666328481795477",
+            "extra": "mean: 317.075730199997 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7020505026556494,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06615405862308042",
+            "extra": "mean: 587.5266323999995 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.621146059564272,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08225028343566511",
+            "extra": "mean: 616.8475653999849 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.317201291971391,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1078036946846916",
+            "extra": "mean: 759.1854078000097 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.3703989658460414,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10166848367710396",
+            "extra": "mean: 729.7145028000159 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.0688281879523425,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12488438246181624",
+            "extra": "mean: 935.6040674000155 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.0533032799841873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11715456913046123",
+            "extra": "mean: 949.3941763999942 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.8754426506802736,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13463541272613797",
+            "extra": "mean: 1.1422792791999996 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5409532390884519,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06709640358401348",
+            "extra": "mean: 1.8485886167999979 sec\nrounds: 5"
           }
         ]
       }
