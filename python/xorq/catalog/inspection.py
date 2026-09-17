@@ -119,6 +119,27 @@ def translation_context(doc: dict) -> TranslationContext:
     return TranslationContext(registry=Registry(**known))
 
 
+def get_node_def(nodes: dict, ref: str) -> dict:
+    """``nodes[ref]``, named when the ref dangles or resolves to a non-mapping.
+
+    Both are corruption, and both have to be caught where the ref is resolved: a
+    non-mapping entry rides the walk's fall-through arm unnoticed and surfaces
+    later as a bare ``AttributeError`` out of ``get_node_key``, which is the
+    unattributable crash this module exists to avoid.
+    """
+    if (node_def := nodes.get(ref)) is None:
+        raise ValueError(
+            f"node_ref {ref!r} has no definition in "
+            f"{DocKey.definitions}.{RegistryEnum.nodes}"
+        )
+    if not isinstance(node_def, dict):
+        raise ValueError(
+            f"node_ref {ref!r} resolves to {type(node_def).__name__}, "
+            f"not a node definition"
+        )
+    return node_def
+
+
 def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
     """Every ``node_ref`` reachable from ``expression``, cutting a pin's edges.
 
@@ -139,12 +160,7 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
             case dict():
                 if (ref := cur.get(RefEnum.node_ref)) is not None and ref not in seen:
                     seen.add(ref)
-                    if (node_def := nodes.get(ref)) is None:
-                        raise ValueError(
-                            f"node_ref {ref!r} has no definition in "
-                            f"{DocKey.definitions}.{RegistryEnum.nodes}"
-                        )
-                    stack.append(node_def)
+                    stack.append(get_node_def(nodes, ref))
                 pruned = pruned_at_pin if cur.get(NodeKey.op) == PinOp.CACHE_TAG else ()
                 stack.extend(value for key, value in cur.items() if key not in pruned)
             case list() | tuple():
@@ -161,6 +177,11 @@ def has_pin(doc: dict) -> bool:
     is the pinned set, and a pin the expression cannot reach prunes nothing, so
     an over-broad ``True`` costs two walks with an empty difference and cannot
     change the answer.
+
+    Scanning the registry means reading entries no ``node_ref`` reaches, so a
+    non-mapping one is skipped rather than raised on, unlike ``get_node_def``.
+    An unreachable entry is not this record's source however damaged it is, and
+    a reachable one still fails by name when the walk resolves its ref.
     """
     return any(
         node_def.get(NodeKey.op) == PinOp.CACHE_TAG

@@ -401,6 +401,38 @@ def test_dangling_node_ref_names_the_ref() -> None:
 
 
 @pytest.mark.parametrize(
+    "node_def", ["garbled", [1, 2, 3], 7], ids=["str", "list", "int"]
+)
+def test_non_mapping_node_def_names_the_ref(node_def: object) -> None:
+    """A registry entry that is not a mapping fails by name, at the ref.
+
+    It survives `nodes.get(ref) is not None`, is ignored by the walk's
+    fall-through arm, and would otherwise crash much later as a bare
+    `AttributeError` when `get_node_key` reads its `op`.
+    """
+    doc = {
+        "definitions": {"nodes": {"@read_0": node_def}},
+        "expression": {"node_ref": "@read_0"},
+    }
+    with pytest.raises(ValueError, match="@read_0"):
+        walk_node_refs(doc, SOURCE_WALK_PRUNED)
+    with pytest.raises(ValueError, match="@read_0"):
+        iter_source_leaves(doc)
+
+
+def test_an_unreachable_non_mapping_node_def_is_ignored() -> None:
+    """A damaged entry no `node_ref` reaches is not this record's problem.
+
+    `has_pin` scans the whole registry, so it must skip such an entry rather
+    than raise: the leaves come from the walk either way.
+    """
+    doc = read_doc()
+    doc["definitions"]["nodes"]["@garbage_0"] = "garbled"
+    (leaf,) = iter_source_leaves(doc)
+    assert leaf.node_ref == "@read_0"
+
+
+@pytest.mark.parametrize(
     ("doc", "match"),
     [
         pytest.param(
