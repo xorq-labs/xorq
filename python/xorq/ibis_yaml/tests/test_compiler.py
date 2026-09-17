@@ -60,9 +60,10 @@ from xorq.ibis_yaml.compiler import (
     _sanitize_generated_names,
     build_expr,
     load_expr,
+    make_read_op,
 )
 from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.enums import NodeKey, WritePhase
+from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, WritePhase
 from xorq.ibis_yaml.sql import find_relations, sql_query_deps
 from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
@@ -1631,6 +1632,28 @@ def test_relocatable_survives_round_trip(
     kw = dict(reads[0].read_kwargs)
     assert kw.get("relocatable") is True
     assert "read_path" in kw
+
+
+def test_read_kwargs_keys_are_plain_str(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """read_kwargs keys must never be StrEnum members: they reach op state and repr."""
+
+    def assert_plain(expr):
+        for node in walk_nodes(Read, expr):
+            assert all(type(name) is str for name, _ in node.read_kwargs), (
+                node.read_kwargs
+            )
+
+    t = deferred_read_parquet(sample_parquet, relocatable=True)
+    assert_plain(_prepare_relocatable_reads(t, mark=True))
+    assert_plain(load_expr(build_expr(t, builds_dir=builds_dir)))
+
+    dr_op = make_read_op(
+        parquet_path=sample_parquet,
+        read_kwargs={ReadKwarg.table_name: "t", ReadKwarg.read_path: "reads/t.parquet"},
+    )
+    assert all(type(name) is str for name, _ in dr_op.read_kwargs)
 
 
 def test_relocatable_rebuild_from_loaded_expr(

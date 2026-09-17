@@ -58,6 +58,7 @@ from xorq.common.utils.graph_utils import (
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import (
     change_read_table_name,
+    plain_key,
     recreate,
     update_read_kwargs,
 )
@@ -83,7 +84,6 @@ from xorq.ibis_yaml.enums import (
     DocKey,
     DumpFiles,
     ExprKind,
-    NodeKey,
     ReadKwarg,
     RefEnum,
     RegistryEnum,
@@ -180,13 +180,13 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
                 read_kwargs = node.read_kwargs
                 overrides = {}
                 if marking:
-                    read_kwargs += ((str(ReadKwarg.relocatable), True),)
+                    read_kwargs += ((ReadKwarg.relocatable, True),)
                     overrides["normalize_method"] = normalize_read_path_md5sum
                 read_kwargs = update_read_kwargs(
                     read_kwargs,
                     (
                         (
-                            str(ReadKwarg.read_path),
+                            ReadKwarg.read_path,
                             relocatable_read_path_str(kw[ReadKwarg.hash_path]),
                         ),
                     ),
@@ -525,6 +525,8 @@ def hydrate_cons(
 def make_read_op(parquet_path, read_kwargs, con=None):
     if con is None:
         con = default_backend()
+    # keys land in the op's read_kwargs verbatim, so strip any StrEnum members
+    read_kwargs = {plain_key(name): value for name, value in read_kwargs.items()}
     op = deferred_read_parquet(parquet_path, con, **read_kwargs).op()
     args = dict(zip(op.__argnames__, op.__args__))
     op = op.__recreate__(args)
@@ -843,8 +845,8 @@ class ExprDumper:
                 new_kwargs = update_read_kwargs(
                     node.read_kwargs,
                     (
-                        (str(ReadKwarg.hash_path), plan.path),
-                        (str(ReadKwarg.read_path), read_path),
+                        (ReadKwarg.hash_path, plan.path),
+                        (ReadKwarg.read_path, read_path),
                     ),
                 )
                 args = dict(zip(node.__argnames__, node.__args__)) | {
@@ -866,15 +868,12 @@ class ExprDumper:
             plan = self._prepare_memtable(node, which)
             dr_op = make_read_op(
                 parquet_path=plan.path,
-                # plain-str keys throughout: read_path lands in
-                # deferred_read_parquet's **kwargs, so an enum member here would
-                # survive into read_kwargs and show up in repr diagnostics
                 read_kwargs={
-                    str(ReadKwarg.table_name): node.name,
-                    str(ReadKwarg.schema): node.schema,
+                    ReadKwarg.table_name: node.name,
+                    ReadKwarg.schema: node.schema,
                     **type_kwargs,
-                    str(NodeKey.normalize_method): normalize_read_path_md5sum,
-                    str(ReadKwarg.read_path): str(Path(which, plan.path.name)),
+                    "normalize_method": normalize_read_path_md5sum,
+                    ReadKwarg.read_path: str(Path(which, plan.path.name)),
                 },
                 **con_kwargs,
             )
@@ -998,7 +997,7 @@ class ExprLoader:
                 )
                 return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
             resolved_kwargs = update_read_kwargs(
-                dr.read_kwargs, ((str(ReadKwarg.hash_path), path),)
+                dr.read_kwargs, ((ReadKwarg.hash_path, path),)
             )
             relocatable = kw.get(ReadKwarg.relocatable, False)
             args = dict(zip(dr.__argnames__, dr.__args__)) | {

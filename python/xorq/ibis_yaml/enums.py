@@ -88,7 +88,8 @@ class ReadKwarg(StrEnum):
     Not the ``Read`` op's own argument names: ``read_kwargs`` and
     ``normalize_method`` are constructor arguments that sit beside this mapping
     rather than inside it, so call sites rebuilding a node with
-    ``__recreate__`` keep spelling those out. ``schema`` and ``source`` are
+    ``__recreate__`` -- or handing kwargs to ``make_read_op`` -- keep spelling
+    those out. ``schema`` and ``source`` are
     trickier -- ``Read`` has args of those names too, and they mean something
     else there (``Read.source`` is a backend connection; ``ReadKwarg.source``
     is a filesystem path), so these members belong on the mapping only, never
