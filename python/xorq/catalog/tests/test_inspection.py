@@ -539,6 +539,24 @@ def test_translation_context_never_carries_node_defs() -> None:
     assert registry.schemas == doc["definitions"]["schemas"]
 
 
+def test_a_dtype_ref_schema_resolves_through_the_registry() -> None:
+    """A recorded schema written as a `dtype_ref` renders, which is why `dtypes` rides along.
+
+    `register_schema` inlines its dtypes today -- `_datatype_to_yaml` does that
+    whenever `context is None` -- so only an archive written when it did not
+    exercises the `dtypes` member of `SCHEMA_REGISTRY_KEYS`.  Without a case
+    that resolves a ref, dropping that key would break every such archive with
+    a green suite.
+    """
+    doc = read_doc()
+    doc["definitions"]["dtypes"] = {
+        "dtype_0": {"op": "DataType", "type": "Int64", "nullable": True}
+    }
+    doc["definitions"]["schemas"]["schema_0"] = {"x": {"dtype_ref": "dtype_0"}}
+    (leaf,) = iter_source_leaves(doc)
+    assert leaf.recorded == xo.schema({"x": "int64"})
+
+
 def test_unknown_bundle_prefix_stays_bundled() -> None:
     """An unrecognized bundle dir degrades the kind, it does not kill the report."""
     doc = read_doc(read_kwargs=[["read_path", "future_bundle/src.parquet"]])
