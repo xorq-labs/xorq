@@ -118,7 +118,15 @@ def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
             return pair
 
 
-def get_live_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
+def open_con(leaf: SourceLeaf, record: BuildRecord) -> Any:
+    """The backend connection ``leaf`` recorded.
+
+    Its own function so that connection policy has one place to live.
+    """
+    return make_profile(record.get_profile_dict(leaf)).get_con()
+
+
+def get_table_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
     """``leaf``'s live schema, or ``None`` when the backend does not list the table.
 
     The listing is the only positive evidence of absence. Vendored ibis raises a
@@ -132,14 +140,25 @@ def get_live_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
     return con.table(leaf.table, database=database).schema()
 
 
+def get_live_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
+    """``leaf``'s live schema, or ``None`` when it is positively absent."""
+    match leaf.kind:
+        case LeafKind.DATABASE_TABLE:
+            return get_table_schema(con, leaf)
+        # `Read` arrives in xorq-labs/xorq#2296; `checkable_leaves` filters every
+        # other kind out before a probe can get here.
+        case _:
+            raise ValueError(f"no probe for leaf kind {leaf.kind}")
+
+
 def probe_leaf(leaf: SourceLeaf, record: BuildRecord) -> LeafReport:
-    """Connect through ``leaf``'s recorded profile and compare the schemas.
+    """Reach ``leaf`` through its recorded profile and compare the schemas.
 
     Anything that raises is ``unreachable``: no cause is guessed from an error
     message.
     """
     try:
-        con = make_profile(record.get_profile_dict(leaf)).get_con()
+        con = open_con(leaf, record)
         live = get_live_schema(con, leaf)
     except Exception as e:
         return LeafReport(leaf, Verdict.UNREACHABLE, error=f"{type(e).__name__}: {e}")
