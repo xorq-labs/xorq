@@ -231,13 +231,23 @@ def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
     otherwise reach ``dict()`` as an unattributable "dictionary update sequence
     element #0 has length 9", which is exactly the traceback this module exists
     to avoid on a corrupt archive.
+
+    The shape is checked *before* anything is coerced, so every corrupt form
+    raises with the ref rather than some of them: a truncated ``read_kwargs:``
+    parses to ``None`` and a scalar entry to an ``int``, both of which
+    ``tuple()`` rejects with an unattributable ``TypeError``, and a mapping or
+    a two-character string would pass a length test by being silently coerced
+    into a plausible-looking pair (``tuple({"a": 1, "b": 2})`` is
+    ``("a", "b")``) -- a fabricated kwarg is worse than a named failure.
     """
-    pairs = tuple(map(tuple, node_def.get(NodeKey.read_kwargs, ())))
-    if any(len(pair) != 2 for pair in pairs):
+    entries = node_def.get(NodeKey.read_kwargs) or ()
+    if not isinstance(entries, (list, tuple)) or not all(
+        isinstance(entry, (list, tuple)) and len(entry) == 2 for entry in entries
+    ):
         raise ValueError(
             f"node {node_ref!r} has a malformed {NodeKey.read_kwargs} entry"
         )
-    return pairs
+    return tuple(map(tuple, entries))
 
 
 @frozen
@@ -398,6 +408,15 @@ class BuildRecord:
     also make ``@frozen``'s generated ``__hash__`` raise on a ``dict`` field.
     ``FrozenOrderedDict`` subclasses ``dict``, so every ``.get`` / ``[]``
     traversal in this module reads it unchanged.
+
+    That freeze is the one place the module does pay for the whole document:
+    it rebuilds every mapping and ``FrozenDict.__init__`` hashes each one
+    eagerly, so ``definitions.nodes`` -- where the UDF pickle blobs live -- is
+    copied and hashed even though no blob is ever read.  Cost is ~2x the parsed
+    doc at peak, once per record, which a ``check-sources`` sweep pays per
+    entry.  It buys a record that cannot go stale and can be used as a key;
+    profile a sweep with that in mind rather than expecting the traversal to be
+    the only cost.
     """
 
     expr_doc = field(validator=instance_of(dict), converter=freeze)
