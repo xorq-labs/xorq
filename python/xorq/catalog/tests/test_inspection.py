@@ -30,6 +30,7 @@ from xorq.catalog.inspection import (
     get_source_leaves,
     iter_source_leaves,
     reachable_node_refs,
+    translation_context,
 )
 from xorq.catalog.zip_utils import BuildZip
 from xorq.ibis_yaml.enums import BundledSourceTypes, DumpFiles
@@ -496,6 +497,21 @@ def test_unknown_registry_section_is_dropped() -> None:
     doc["definitions"]["future_section"] = {"x": 1}
     (leaf,) = iter_source_leaves(doc)
     assert leaf.kind == LeafKind.READ
+
+
+def test_translation_context_never_carries_node_defs() -> None:
+    """The translator is handed schemas and dtypes, never `definitions.nodes`.
+
+    `nodes` is where the UDF pickle blobs live, and `translate_from_yaml` is an
+    unbounded `lru_cache` keyed on the context, so a registry handed to it is
+    pinned for the life of the process -- once per entry over a `check-sources`
+    sweep.  Schema rendering does not need them, so they are not passed; this
+    asserts that rather than leaving it to `get_schema` happening not to look.
+    """
+    doc = read_doc()
+    registry = translation_context(doc).registry
+    assert registry.nodes == {}
+    assert registry.schemas == doc["definitions"]["schemas"]
 
 
 def test_unknown_bundle_prefix_stays_bundled() -> None:
