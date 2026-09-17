@@ -55,6 +55,7 @@ if TYPE_CHECKING:
 
 # See `LeafKind` for why these stay string comparisons against the `op` field.
 LEAF_OPS = frozenset(LeafKind)
+REGISTRY_KEYS = frozenset(RegistryEnum)
 
 
 def get_doc_key(doc: dict, key: str) -> Any:
@@ -91,7 +92,7 @@ def translation_context(doc: dict) -> TranslationContext:
     definitions = get_doc_key(doc, DocKey.definitions)
     # A registry section a newer xorq added is not ours to pass along: drop it
     # rather than let `Registry.__init__` raise an unnamed TypeError.
-    known = {k: v for k, v in definitions.items() if k in tuple(RegistryEnum)}
+    known = {k: v for k, v in definitions.items() if k in REGISTRY_KEYS}
     return TranslationContext(registry=Registry(**known))
 
 
@@ -208,6 +209,10 @@ class SourceLeaf:
                     if isinstance(path, (list, tuple))
                     else str(path)
                 )
+            # Unreachable while `LeafKind` has exactly the two members
+            # matched above -- `LeafKind(...)` on `op` already rejected
+            # anything else.  It fires only once `LeafKind` grows a member
+            # this match forgot, which is why no test reaches it.
             case _:
                 raise ValueError(f"no leaf extraction for kind {kind}")
         return cls(

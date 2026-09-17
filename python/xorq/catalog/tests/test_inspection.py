@@ -425,6 +425,14 @@ def test_missing_schema_ref_names_the_node() -> None:
         iter_source_leaves(read_doc(schema_ref=None))
 
 
+def test_unknown_registry_section_is_dropped() -> None:
+    """A registry section a newer xorq added must not break extraction."""
+    doc = read_doc()
+    doc["definitions"]["future_section"] = {"x": 1}
+    (leaf,) = iter_source_leaves(doc)
+    assert leaf.kind == LeafKind.read
+
+
 def test_unknown_bundle_prefix_stays_bundled() -> None:
     """An unrecognized bundle dir degrades the kind, it does not kill the report."""
     doc = read_doc(read_kwargs=[["read_path", "future_bundle/src.parquet"]])
