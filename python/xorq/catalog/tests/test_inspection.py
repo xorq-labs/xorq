@@ -469,6 +469,14 @@ def test_unknown_bundle_prefix_stays_bundled() -> None:
     assert leaf.bundle_kind is None
 
 
+def test_windows_separator_bundle_prefix_is_recognized() -> None:
+    """An archive written on Windows stores `\\`, and its kind must still resolve."""
+    doc = read_doc(read_kwargs=[["read_path", "reads\\src.parquet"]])
+    (leaf,) = iter_source_leaves(doc)
+    assert leaf.bundled
+    assert leaf.bundle_kind == BundledSourceTypes.read
+
+
 def test_bundled_counts_tolerates_unknown_kind() -> None:
     """A known and an unknown bundle kind sort together, they do not raise."""
     doc = read_doc(read_kwargs=[["read_path", "reads/known.parquet"]])

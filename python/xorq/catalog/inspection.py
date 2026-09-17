@@ -33,6 +33,7 @@ key is the signal.  See xorq-labs/xorq#2293 for the epic this feeds.
 
 from __future__ import annotations
 
+from collections import Counter
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -63,7 +64,12 @@ if TYPE_CHECKING:
 
 # See `LeafKind` for why these stay string comparisons against the `op` field.
 LEAF_OPS = frozenset(LeafKind)
-REGISTRY_KEYS = frozenset(RegistryEnum)
+# The registry sections `get_schema` can reach.  `nodes` is deliberately absent:
+# it holds the UDF pickle blobs this module never touches, and the translator's
+# unbounded cache would pin whatever registry it is handed.  `dtypes` is here
+# for an archive that used dtype refs -- `_datatype_to_yaml` inlines them when
+# `context is None`, which is how `register_schema` writes them today.
+SCHEMA_REGISTRY_KEYS = frozenset({RegistryEnum.dtypes, RegistryEnum.schemas})
 # The `CacheTag` edges each walk cuts.  The source walk keeps the pin's frozen
 # read and drops the upstream it discarded; the live walk drops the pin whole,
 # so their difference is what only the pin reaches.  Mirrors
@@ -98,6 +104,14 @@ def translation_context(doc: dict) -> TranslationContext:
     render its parameters -- ``decimal(10, 2)``, ``array<int64>``,
     ``timestamp('UTC')`` -- for free.  ``get_schema`` constructs dtypes only;
     it never reaches a node def, so no UDF blob is touched.
+
+    Only the sections schema resolution reads are passed along, which makes
+    "no node def is reachable from the translator" structural rather than
+    incidental.  It also bounds what this context retains:
+    ``translate_from_yaml`` is an unbounded ``lru_cache`` keyed on the
+    (hashable, frozen) context, so a registry handed to it is pinned for the
+    life of the process -- and a ``check-sources`` sweep builds one context per
+    entry.
     """
     from xorq.ibis_yaml.common import Registry, TranslationContext  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import _ensure_translate_registered  # noqa: PLC0415
@@ -106,7 +120,7 @@ def translation_context(doc: dict) -> TranslationContext:
     definitions = get_doc_key(doc, DocKey.definitions)
     # A registry section a newer xorq added is not ours to pass along: drop it
     # rather than let `Registry.__init__` raise an unnamed TypeError.
-    known = {k: v for k, v in definitions.items() if k in REGISTRY_KEYS}
+    known = {k: v for k, v in definitions.items() if k in SCHEMA_REGISTRY_KEYS}
     return TranslationContext(registry=Registry(**known))
 
 
@@ -355,13 +369,8 @@ class BuildRecord:
         An unknown kind sorts last, so a leaf written by another version cannot
         crash the summary alongside the kinds we do recognize.
         """
-        kinds = tuple(leaf.bundle_kind for leaf in self.source_leaves if leaf.bundled)
-        return tuple(
-            sorted(
-                ((kind, kinds.count(kind)) for kind in set(kinds)),
-                key=lambda kv: (kv[0] is None, kv[0] or ""),
-            )
-        )
+        kinds = Counter(leaf.bundle_kind for leaf in self.source_leaves if leaf.bundled)
+        return tuple(sorted(kinds.items(), key=lambda kv: (kv[0] is None, kv[0] or "")))
 
     def get_profile_dict(self, leaf: SourceLeaf) -> dict[str, Any] | None:
         """The serialized profile ``leaf`` needs to be reached, if it names one.
