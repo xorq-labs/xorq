@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789652249574,
+  "lastUpdate": 1789656949657,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -38802,6 +38802,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.1965759704681735",
             "extra": "mean: 1.071877513800007 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "55ae2c2600da6a27a40202e5cfbbcfadf6f604cf",
+          "message": "fix: reattach the one dead style pragma and gate style on the merge path (#2278)\n\nCloses #2276, but not as specified: the issue's premise does not hold,\nand the change it proposes would delete eleven live suppressions. The\ncorrection is in \"Why\".\n\n## What\n\n`xorq-check-style` was installed but never ran on the merge path, so\nevery rule it implements was advisory. This puts it there as two gates,\nand reattaches the one pragma that genuinely suppresses nothing.\n\n| File | Change |\n| --- | --- |\n| `.github/workflows/ci-lint.yml` | Whole-repo gate on the rules already\nat zero; changed-lines gate, pull requests only; `fetch-depth: 0`;\n`LINT_PATHS` as the tree list |\n| `scripts/check-style-diff.sh` | The changed-lines gate itself. CI and\nthe pre-commit hook both run this one script, so they cannot drift |\n| `.pre-commit-config.yaml` | `xorq-check-style` hook over the staged\ndiff, calling that script |\n| `scripts/style_tests/` | One deliberately broken file per rule, plus\nsix tests that read the gate's own config rather than restate it |\n| `pyproject.toml` | `[tool.xorq-style.unlisted-import] src-roots`. The\npackage lives under `python/`, which the `(\"src\", \".\")` default does not\ncover, so the rule resolved no module and passed every import |\n| `python/xorq/expr/remote_table_exec.py:100` | Pragma moved back onto\nthe line it suppresses |\n| `CONTRIBUTING.md` | How to run each gate locally, how to suppress a\nline, and why a comment must not claim parity that nothing enforces |\n\nTwo rule sets, not one. The whole-repo gate runs on every build over the\n5 rules with zero violations anywhere, unchanged lines included, which\nthe diff form structurally cannot reach. The changed-lines gate runs\nevery rule except the four bulk ones, so pre-existing violations in a\nfile you edit stay out of your way. The `--disable` lists are the\nratchet: a rule comes off when its count hits zero, and a test fails to\nask for it.\n\n## Why\n\nNothing stopped a violation from landing. Worse, a suppression can rot\nin place: `ruff format` re-wrapped the call at\n`remote_table_exec.py:100` and stranded its pragma two lines below,\nleaving a live violation covered by nothing.\n\n#2276 reads that as twelve dead pragmas and proposes deleting all of\nthem. Stripping each from a path-preserving copy and re-running the\nchecker gives 11 of 12 live. The cause of the bad table is that\nviolations go to stderr (`check.py:1346`) while `--json` and `--list` go\nto stdout, so a harness capturing stdout sees an empty result and reads\nevery pragma as dead. The issue's own baseline recipe has the same\ndefect and returns 0, not 7,275. Only the four pragmas in\n`ibis_yaml/tests/test_compiler.py` are dead, since the rule skips test\nfiles, and #2274 already removed them.\n\nWhat was rejected:\n\n- **Every rule on changed lines**, as #2276 specifies. Measured over the\nlast five commits on main: 18 violations, every one from the bulk\nbacklog (14 `type-annotations`, 3 `pytest-param-id`, 1\n`future-annotations`). That reddens nearly every pull request touching a\nsignature or a parametrize list. Those four rules are 6,794 of the 7,360\ntotal and stay off.\n- **Restructuring the call so receiver and pragma share a line**, also\n#2276's suggestion. At 102 characters `ruff format` re-wraps it straight\nback into the shape it started in.\n- **The ratchet in `[tool.xorq-style] disable`** rather than a CI flag.\nThat applies to every invocation, the editor hook included, so those\nrules would go unreported on new code too and their counts could never\nfall.\n\nOne correction to the proposed gate: `ci-lint.yml` also runs on push to\nmain and on tags, where `GITHUB_BASE_REF` is empty. The snippet in #2276\nwould resolve `origin/`, fail, and with `set -euo pipefail` correctly\npresent, redden every push to main. Guarded with `if: github.event_name\n== 'pull_request'`.\n\n## Verification\n\n| Check | Result |\n| --- | --- |\n| `pytest scripts/style_tests -q` | 32 passed |\n| Whole-repo gate on this branch | exit 0, 707 files, 0 violations |\n| Changed-lines gate on this branch | exit 0 |\n| Enforced set (26 rules, 21 ratcheted) | `dataclasses`,\n`attrs-mutable-default`, `pytest-mark-qualify`, `strenum-compat`,\n`leaf-enum-import`, all at 0 across 707 files |\n| Ratcheted rules still carry violations | 21 of 21, asserted by\n`test_ratcheted_rules_still_have_violations` |\n\nThe positive controls exist because `xorq-check-style` exits 0 both on a\nclean file and on one it never examined, so a broken rule looks exactly\nlike a satisfied one. `test_rule_fires_on_its_fixture` gives all 26\nrules a file each must flag. `unlisted-import` is the reason: before\n`src-roots` was set it sat on the enforced list resolving nothing,\nreporting a clean tree it never opened. It now sits on the ratchet with\n71 real violations.\n\nThe remaining tests read configuration instead of duplicating it.\n`test_lint_paths_agree` compares the three copies of the linted-tree\nlist (workflow env, script `paths`, pre-commit ruff args) and names the\nfirst that disagrees. `test_ratchets_name_real_rules` checks both\n`--disable` lists against `--list`, so a typo or a rule renamed upstream\nfails here. `test_changed_lines_gate_is_the_stricter_one` checks the\nwhole-repo ratchet contains the diff ratchet.\n`test_every_rule_has_a_fixture` fails when a dependency bump adds a\nrule, rather than letting it join the enforced set unannounced.\n\n## Not addressed\n\n- No public API change. The only source edit is a moved comment.\n- Neither gate catches pragma rot on a line nobody touched, which is\nexactly the bug found here. That needs xorq-labs/xorq-style#29\n(unused-suppression).\n- The other eleven pragmas stay. They suppress live violations.\n- The 7,360-violation backlog is untouched. The ratchet is the mechanism\nfor draining it, one rule at a time, not a drain.\n- Violations still go to stderr while `--json` goes to stdout. Worth\nfiling upstream, since that split is what made #2276 wrong, but nothing\nhere depends on it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-09-17T16:49:49+02:00",
+          "tree_id": "9ad31274ed863e1fc679b4f3f3800c247aba112d",
+          "url": "https://github.com/xorq-labs/xorq/commit/55ae2c2600da6a27a40202e5cfbbcfadf6f604cf"
+        },
+        "date": 1789656945359,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.434255231689368,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0068011687617148",
+            "extra": "mean: 118.56411414285617 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5746742690756195,
+            "unit": "iter/sec",
+            "range": "stddev: 0.059985687154140106",
+            "extra": "mean: 388.398645999996 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7519889146125658,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1644013372472441",
+            "extra": "mean: 1.329806837000001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.43411253045061,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07437448162057447",
+            "extra": "mean: 410.8273498000017 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.6852545644553367,
+            "unit": "iter/sec",
+            "range": "stddev: 0.061358949827011754",
+            "extra": "mean: 372.4041710000165 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.941041270921147,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06143356668335903",
+            "extra": "mean: 340.01562979998425 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 143.284937950037,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0069535550904530575",
+            "extra": "mean: 6.9791006249986784 msec\nrounds: 232"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.9053305234896363,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08762049492908282",
+            "extra": "mean: 256.0602730000028 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 14.160085742037744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005146790482137856",
+            "extra": "mean: 70.6210413000008 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.160571301559246,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01821437463763442",
+            "extra": "mean: 98.41966266665926 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 8.655194826693297,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024841635187395572",
+            "extra": "mean: 115.53754941667194 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.22317500414474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03194139842160771",
+            "extra": "mean: 160.68967999999728 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.8070016709718315,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013502643832383227",
+            "extra": "mean: 208.02988399998412 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.795365111590198,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01345773374018496",
+            "extra": "mean: 208.53469479999376 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.400414308052935,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06975578407270408",
+            "extra": "mean: 416.5947506000066 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.247394514387068,
+            "unit": "iter/sec",
+            "range": "stddev: 0.052368023840704034",
+            "extra": "mean: 307.93917880000663 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7764434846023405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08856379418888351",
+            "extra": "mean: 562.9224958000009 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8226113244017021,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09328484978467935",
+            "extra": "mean: 548.6633307999796 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6181815827511445,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09958695886843427",
+            "extra": "mean: 617.9776179999863 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.523016459375022,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11511932815011307",
+            "extra": "mean: 656.5917222000053 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2662730285419552,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11992431112878378",
+            "extra": "mean: 789.7191028000066 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1627321208525905,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12650898957938586",
+            "extra": "mean: 860.0433255999974 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9897618729000052,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1326521268643143",
+            "extra": "mean: 1.0103440306000038 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6106668574318339,
+            "unit": "iter/sec",
+            "range": "stddev: 0.23476724168121824",
+            "extra": "mean: 1.6375540735999834 sec\nrounds: 5"
           }
         ]
       }
