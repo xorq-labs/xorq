@@ -30,12 +30,6 @@ if TYPE_CHECKING:
 
 # `Read` joins in xorq-labs/xorq#2296; this is the `DatabaseTable` spine.
 CHECKABLE_KINDS = frozenset({LeafKind.DATABASE_TABLE})
-# Drivers that create their database file on open, and the kwarg naming it. A
-# read-only command must not bring one into existence, and the fresh empty
-# database would be reported as `table-missing` when the truth is it is gone.
-FILE_BACKED_CONS = {"sqlite": "database", "duckdb": "database"}
-# sqlite spells in-memory as `None`, duckdb as `:memory:`.
-IN_MEMORY_TARGETS = frozenset({None, "", ":memory:"})
 
 
 @frozen
@@ -131,6 +125,14 @@ def get_leaf_profile(leaf: SourceLeaf, record: BuildRecord) -> Profile:
     if (profile_dict := record.get_profile_dict(leaf)) is None:
         raise ValueError(f"node {leaf.node_ref!r} records no profile")
     return make_profile(profile_dict)
+
+
+# Drivers that create their database file on open, and the kwarg naming it. A
+# read-only command must not bring one into existence, and the fresh empty
+# database would be reported as `table-missing` when the truth is it is gone.
+FILE_BACKED_CONS = {"sqlite": "database", "duckdb": "database"}
+# sqlite spells in-memory as `None`, duckdb as `:memory:`.
+IN_MEMORY_TARGETS = frozenset({None, "", ":memory:"})
 
 
 def missing_database_file(profile: Profile) -> str | None:
