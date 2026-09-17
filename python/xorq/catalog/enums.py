@@ -25,15 +25,6 @@ class OnUnrebuiltBuilder(StrEnum):
     WARN = "warn"
 
 
-class DriftState(StrEnum):
-    """Verdict for one source leaf: the recorded schema vs the live schema."""
-
-    equal = "equal"
-    changed = "changed"
-    table_missing = "table-missing"
-    unreachable = "unreachable"
-
-
 class LeafKind(StrEnum):
     """The two ``op`` names that denote an external source leaf.
 
@@ -45,5 +36,21 @@ class LeafKind(StrEnum):
     Flight nodes -- none of which are external sources.
     """
 
-    database_table = "DatabaseTable"
-    read = "Read"
+    DATABASE_TABLE = "DatabaseTable"
+    READ = "Read"
+
+
+class PinKey(StrEnum):
+    """The serialized ``CacheTag`` members a source walk must treat specially.
+
+    ``OP`` is the ``op`` value ``_cache_tag_to_yaml`` writes; the other two are
+    that node def's edges.  ``PARENT`` is the frozen read of the cache artifact
+    and ``UNCACHED`` the upstream the pin discarded -- neither is a source of
+    the record, so both are cut where ``graph_utils`` cuts them for hashing.
+    Compared as strings for the same reason as ``LeafKind``: the walk reads
+    dicts and never constructs a node.
+    """
+
+    OP = "CacheTag"
+    PARENT = "parent"
+    UNCACHED = "uncached"

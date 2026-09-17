@@ -7,7 +7,6 @@ load still reports the sources it was built against.
 
 from __future__ import annotations
 
-import ast
 import datetime
 import decimal
 import pickle
@@ -22,10 +21,10 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
-import xorq.catalog.enums as enums_mod
 from xorq.backends.sqlite import Backend as SqliteBackend
+from xorq.caching import ParquetCache
 from xorq.catalog.catalog import Catalog, CatalogEntry
-from xorq.catalog.enums import DriftState, LeafKind
+from xorq.catalog.enums import LeafKind, PinKey
 from xorq.catalog.inspection import (
     BuildRecord,
     get_source_leaves,
@@ -123,8 +122,15 @@ def entries(
     exotic = xo.deferred_read_parquet(
         world.exotic_path, xo.connect(), table_name="exotic"
     )
+    cache = ParquetCache.from_kwargs(
+        source=xo.connect(), base_path=tmp_path_factory.mktemp("inspection-cache")
+    )
+    # relocate_reads=False so the pin's frozen read keeps its absolute cache-dir
+    # path: an unbundled read is exactly the shape a false external leaf takes.
+    pinned = read.filter(read.a > 1).cache(cache=cache).ls.pin(ensure_materialized=True)
     return {
         "sqlite": catalog.add(t.filter(t.a > 1)),
+        "pinned": catalog.add(pinned, relocate_reads=False),
         "read_relocated": catalog.add(read.filter(read.a > 1)),
         "read_absolute": catalog.add(read.filter(read.a > 1), relocate_reads=False),
         "exotic": catalog.add(exotic, relocate_reads=False),
@@ -141,7 +147,7 @@ def entries(
 
 def test_database_table_leaf(entries: dict[str, CatalogEntry]) -> None:
     (leaf,) = get_source_leaves(entries["sqlite"])
-    assert leaf.kind == LeafKind.database_table
+    assert leaf.kind == LeafKind.DATABASE_TABLE
     assert leaf.name == "t"
     assert leaf.table == "t"
     assert leaf.namespace == (None, None)
@@ -182,7 +188,7 @@ def test_read_leaf_names_the_path_not_the_table(
 ) -> None:
     """A Read's display name is its recorded path, never the generated name."""
     (leaf,) = get_source_leaves(entries["read_absolute"])
-    assert leaf.kind == LeafKind.read
+    assert leaf.kind == LeafKind.READ
     assert leaf.name == str(world.src_path)
     assert leaf.table == "src"
     assert leaf.method_name == "read_parquet"
@@ -217,7 +223,7 @@ def test_recorded_schema_keeps_dtype_parameters(
 def test_self_join_reports_one_leaf(entries: dict[str, CatalogEntry]) -> None:
     """The registry keys on content hash, so one table read twice is one source."""
     (leaf,) = get_source_leaves(entries["self_join"])
-    assert (leaf.kind, leaf.name) == (LeafKind.database_table, "t")
+    assert (leaf.kind, leaf.name) == (LeafKind.DATABASE_TABLE, "t")
 
 
 def test_cache_and_into_backend_report_only_true_sources(
@@ -226,11 +232,33 @@ def test_cache_and_into_backend_report_only_true_sources(
     """CachedNode and RemoteTable subclass DatabaseTable; neither is a source."""
     record = BuildRecord.from_catalog_entry(entries["cached"])
     (leaf,) = record.source_leaves
-    assert (leaf.kind, leaf.name) == (LeafKind.database_table, "t")
+    assert (leaf.kind, leaf.name) == (LeafKind.DATABASE_TABLE, "t")
     # the nodes an isinstance check would have swallowed really are in the record
     nodes = record.expr_doc["definitions"]["nodes"]
     ops = {nodes[ref]["op"] for ref in reachable_node_refs(record.expr_doc)}
     assert {"CachedNode", "RemoteTable"} <= ops
+
+
+def test_pinned_cache_reports_no_external_leaf(
+    entries: dict[str, CatalogEntry], world: SimpleNamespace
+) -> None:
+    """A pin's frozen read is a cache artifact, not a source, and the upstream it
+    discarded is not this record's source either."""
+    record = BuildRecord.from_catalog_entry(entries["pinned"])
+    (leaf,) = record.source_leaves
+    assert (leaf.kind, leaf.pinned, leaf.bundled) == (LeafKind.READ, True, False)
+    assert leaf.drift_exempt
+    assert record.external_leaves == ()
+
+    nodes = record.expr_doc["definitions"]["nodes"]
+    assert PinKey.OP in {node["op"] for node in nodes.values()}
+    # the discarded upstream read is in the record, and out of the walk's reach
+    hash_paths = {
+        dict(map(tuple, node.get("read_kwargs", ()))).get("hash_path")
+        for node in nodes.values()
+    }
+    assert str(world.src_path) in hash_paths
+    assert leaf.name != str(world.src_path)
 
 
 def test_bundled_only_entry_has_no_external_leaves(
@@ -252,7 +280,7 @@ def test_mixed_entry_keeps_only_the_external_leaf(
     record = BuildRecord.from_catalog_entry(entries["mixed"])
     assert len(record.source_leaves) == 2
     (external,) = record.external_leaves
-    assert (external.kind, external.name) == (LeafKind.database_table, "t")
+    assert (external.kind, external.name) == (LeafKind.DATABASE_TABLE, "t")
     assert record.bundled_counts == ((BundledSourceTypes.read, 1),)
 
 
@@ -312,7 +340,7 @@ def test_unloadable_entry_still_yields_leaves(
         entry.load_expr()
 
     (leaf,) = get_source_leaves(entry)
-    assert (leaf.kind, leaf.name) == (LeafKind.database_table, "t")
+    assert (leaf.kind, leaf.name) == (LeafKind.DATABASE_TABLE, "t")
 
 
 def test_extraction_never_unpickles(
@@ -330,7 +358,7 @@ def test_extraction_never_unpickles(
     monkeypatch.setattr(cloudpickle, "loads", refuse)
 
     (leaf,) = get_source_leaves(entry)
-    assert (leaf.kind, leaf.name) == (LeafKind.database_table, "t")
+    assert (leaf.kind, leaf.name) == (LeafKind.DATABASE_TABLE, "t")
 
 
 def test_read_kwargs_are_deep_frozen_so_leaves_hash() -> None:
@@ -430,7 +458,7 @@ def test_unknown_registry_section_is_dropped() -> None:
     doc = read_doc()
     doc["definitions"]["future_section"] = {"x": 1}
     (leaf,) = iter_source_leaves(doc)
-    assert leaf.kind == LeafKind.read
+    assert leaf.kind == LeafKind.READ
 
 
 def test_unknown_bundle_prefix_stays_bundled() -> None:
@@ -457,19 +485,92 @@ def test_bundled_counts_tolerates_unknown_kind() -> None:
     assert record.bundled_counts == ((BundledSourceTypes.read, 1), (None, 1))
 
 
-def test_enums_live_with_the_catalog_enums_and_add_no_imports() -> None:
-    """DriftState and LeafKind land in the catalog's leaf enum module (#2294)."""
-    assert (DriftState.table_missing, LeafKind.database_table) == (
-        "table-missing",
-        "DatabaseTable",
-    )
-    tree = ast.parse(Path(enums_mod.__file__).read_text())
-    imported = {
-        node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    } | {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
+def cache_tag_doc(live_upstream: bool) -> dict:
+    """A pinned cache over one table, which a live branch optionally also reads."""
+    expression = {"node_ref": "@cachetag_0"}
+    if live_upstream:
+        expression = {"left": expression, "right": {"node_ref": "@databasetable_0"}}
+    return {
+        "definitions": {
+            "dtypes": {},
+            "nodes": {
+                "@read_0": {
+                    "op": "Read",
+                    "name": "cache_key",
+                    "method_name": "read_parquet",
+                    "profile": "p0",
+                    "read_kwargs": [["hash_path", "/home/me/.cache/cache_key.parquet"]],
+                    "schema_ref": "schema_0",
+                },
+                "@databasetable_0": {
+                    "op": "DatabaseTable",
+                    "table": "t",
+                    "profile": "p1",
+                    "schema_ref": "schema_0",
+                },
+                "@cachetag_0": {
+                    "op": "CacheTag",
+                    "parent": {"node_ref": "@read_0"},
+                    "uncached": {"node_ref": "@databasetable_0"},
+                    "cache": {"op": "ParquetCache"},
+                    "schema_ref": "schema_0",
+                },
+            },
+            "schemas": {
+                "schema_0": {"x": {"op": "DataType", "type": "Int64", "nullable": True}}
+            },
+        },
+        "expression": expression,
     }
-    assert imported == {"xorq.common.compat"}
+
+
+def test_pin_hides_the_upstream_it_discarded() -> None:
+    (leaf,) = iter_source_leaves(cache_tag_doc(live_upstream=False))
+    assert (leaf.node_ref, leaf.pinned) == ("@read_0", True)
+
+
+def test_a_leaf_shared_with_a_live_branch_stays_live() -> None:
+    """`under_pin - live`: only a leaf reachable ONLY through the pin is pinned."""
+    leaves = {leaf.node_ref: leaf for leaf in iter_source_leaves(cache_tag_doc(True))}
+    assert leaves["@read_0"].pinned
+    assert not leaves["@databasetable_0"].pinned
+    record = BuildRecord(expr_doc=cache_tag_doc(True), profiles={})
+    (external,) = record.external_leaves
+    assert external.node_ref == "@databasetable_0"
+
+
+def test_read_without_hash_path_falls_back_to_the_node_name() -> None:
+    """The fallback is lazy: a present hash_path must not need `name` at all."""
+    (leaf,) = iter_source_leaves(read_doc(read_kwargs=None))
+    assert leaf.name == "src"
+    (named,) = iter_source_leaves(read_doc(name=None))
+    assert named.name == "s3://bucket/src.parquet"
+
+
+def test_read_missing_both_path_and_name_names_the_node() -> None:
+    with pytest.raises(ValueError, match="@read_0"):
+        iter_source_leaves(read_doc(read_kwargs=None, name=None))
+
+
+def test_missing_op_names_the_node() -> None:
+    with pytest.raises(ValueError, match="@read_0"):
+        iter_source_leaves(read_doc(op=None))
+
+
+def test_dangling_profile_ref_names_the_profile() -> None:
+    """A leaf naming a profile the record does not hold is a corrupt record."""
+    record = BuildRecord(expr_doc=read_doc(), profiles={})
+    (leaf,) = record.source_leaves
+    with pytest.raises(ValueError, match="p0"):
+        record.get_profile_dict(leaf)
+
+
+def test_unparsable_expr_member_names_the_file(
+    tmp_path_factory: pytest.TempPathFactory, world: SimpleNamespace
+) -> None:
+    """An empty expr.yaml must fail naming the member, not as an attrs TypeError."""
+    catalog = make_catalog(tmp_path_factory.mktemp("inspection-empty") / "repo")
+    entry = catalog.add(world.con.table("t").filter(xo._.a > 1))
+    rewrite_member(entry.catalog_path, DumpFiles.expr, lambda data: b"")
+    with pytest.raises(ValueError, match=DumpFiles.expr):
+        get_source_leaves(entry)
