@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-09-17
+### Details
+#### Added
+- Add read_delta, fix the deltalake install hint by @mesejo in [#2289](https://github.com/xorq-labs/xorq/pull/2289)
+
+#### Changed
+- Drop dead xorq-style pragmas, ignore reformat in blame by @mesejo in [#2279](https://github.com/xorq-labs/xorq/pull/2279)
+- Name the serialized node keys with enums by @mesejo in [#2302](https://github.com/xorq-labs/xorq/pull/2302)
+- Read build dump files through one helper by @mesejo in [#2303](https://github.com/xorq-labs/xorq/pull/2303)
+- Extract source leaves from an unloadable build record by @mesejo in [#2301](https://github.com/xorq-labs/xorq/pull/2301)
+
+#### Fixed
+- Drop pandas schema metadata on registration by @mesejo in [#2277](https://github.com/xorq-labs/xorq/pull/2277)
+- Fix vale prose findings by @mesejo in [#2292](https://github.com/xorq-labs/xorq/pull/2292)
+
 ## [Unreleased]
 ### Details
 
