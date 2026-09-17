@@ -83,6 +83,7 @@ from xorq.ibis_yaml.enums import (
     DocKey,
     DumpFiles,
     ExprKind,
+    ReadKwarg,
     RefEnum,
     RegistryEnum,
     WritePhase,
@@ -109,9 +110,9 @@ def _is_relocatable_candidate(node: Any) -> bool:
     if not isinstance(node, Read):
         return False
     kw = dict(node.read_kwargs)
-    if kw.get("relocatable", False):
+    if kw.get(ReadKwarg.relocatable, False):
         return False
-    hash_path = kw.get("hash_path")
+    hash_path = kw.get(ReadKwarg.hash_path)
     if hash_path is None:
         return False
     return not str(hash_path).startswith(REMOTE_SCHEMES)
@@ -121,7 +122,7 @@ def _is_relocatable_read(node: Any) -> bool:
     """Return True if *node* is a Read already marked ``relocatable``."""
     if not isinstance(node, Read):
         return False
-    return any(k == "relocatable" and v for k, v in node.read_kwargs)
+    return any(k == ReadKwarg.relocatable and v for k, v in node.read_kwargs)
 
 
 def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
@@ -158,7 +159,8 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
         # ever makes us do a no-op rebuild we could have skipped, never skip a
         # bake that was needed.)
         if not any(
-            _is_relocatable_read(node) and "read_path" not in dict(node.read_kwargs)
+            _is_relocatable_read(node)
+            and ReadKwarg.read_path not in dict(node.read_kwargs)
             for node in walk_nodes(Read, expr)
         ):
             return expr
@@ -168,20 +170,25 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
         if isinstance(node, Read) and node not in pinned:
             kw = dict(node.read_kwargs)
             marking = mark and _is_relocatable_candidate(node)
-            baking = _is_relocatable_read(node) and "read_path" not in kw
+            baking = _is_relocatable_read(node) and ReadKwarg.read_path not in kw
             if marking or baking:
                 # Internal invariant (not user input): make_read_kwargs sets
                 # hash_path for every path-based read, and a relocatable read is
                 # always path-based, so absence means a malformed / hand-built node.
-                assert "hash_path" in kw, "relocatable Read must have hash_path"
+                assert ReadKwarg.hash_path in kw, "relocatable Read must have hash_path"
                 read_kwargs = node.read_kwargs
                 overrides = {}
                 if marking:
-                    read_kwargs += (("relocatable", True),)
+                    read_kwargs += ((ReadKwarg.relocatable, True),)
                     overrides["normalize_method"] = normalize_read_path_md5sum
                 read_kwargs = update_read_kwargs(
                     read_kwargs,
-                    (("read_path", relocatable_read_path_str(kw["hash_path"])),),
+                    (
+                        (
+                            ReadKwarg.read_path,
+                            relocatable_read_path_str(kw[ReadKwarg.hash_path]),
+                        ),
+                    ),
                 )
                 # Read is a graph leaf, so replace_nodes passes empty kwargs here
                 # and recreate can override the node's own args directly.
@@ -380,7 +387,7 @@ def _sanitize_generated_names(expr, normalize_method):
                     node.normalize_method
                     if (
                         _is_relocatable_read(node)
-                        or "hash_path" not in dict(node.read_kwargs)
+                        or ReadKwarg.hash_path not in dict(node.read_kwargs)
                     )
                     else normalize_method
                 )
@@ -703,8 +710,8 @@ class ExprDumper:
     def _prepare_relocatable_read(self, read_node: Read) -> WritePlan:
         kw = dict(read_node.read_kwargs)
         # Internal invariant; see the matching guard in _prepare_relocatable_reads.
-        assert "hash_path" in kw, "relocatable Read must have hash_path"
-        source_path = Path(kw["hash_path"])
+        assert ReadKwarg.hash_path in kw, "relocatable Read must have hash_path"
+        source_path = Path(kw[ReadKwarg.hash_path])
         return WritePlan.build(
             self.artifact_store,
             self.artifact_store.copy_file,
@@ -830,11 +837,14 @@ class ExprDumper:
                 # pre-hash bake pass uses) so the two stay byte-equal -- that
                 # equality is what keeps a relocated build load+rebuild hash-stable
                 read_path = relocatable_read_path_str(
-                    dict(node.read_kwargs)["hash_path"]
+                    dict(node.read_kwargs)[ReadKwarg.hash_path]
                 )
                 new_kwargs = update_read_kwargs(
                     node.read_kwargs,
-                    (("hash_path", plan.path), ("read_path", read_path)),
+                    (
+                        (ReadKwarg.hash_path, plan.path),
+                        (ReadKwarg.read_path, read_path),
+                    ),
                 )
                 args = dict(zip(node.__argnames__, node.__args__)) | {
                     "read_kwargs": new_kwargs
@@ -856,11 +866,11 @@ class ExprDumper:
             dr_op = make_read_op(
                 parquet_path=plan.path,
                 read_kwargs={
-                    "table_name": node.name,
-                    "schema": node.schema,
+                    ReadKwarg.table_name: node.name,
+                    ReadKwarg.schema: node.schema,
                     **type_kwargs,
                     "normalize_method": normalize_read_path_md5sum,
-                    "read_path": str(Path(which, plan.path.name)),
+                    ReadKwarg.read_path: str(Path(which, plan.path.name)),
                 },
                 **con_kwargs,
             )
@@ -973,7 +983,7 @@ class ExprLoader:
     ):
         def resolve_read(dr):
             kw = dict(dr.read_kwargs)
-            path = expr_path.joinpath(kw["read_path"])
+            path = expr_path.joinpath(kw[ReadKwarg.read_path])
             if BundledSourceTypes.inmemory in kw:
                 import pyarrow.parquet as pq  # noqa: PLC0415
 
@@ -983,8 +993,10 @@ class ExprLoader:
                     else default_backend().read_parquet(path).execute()
                 )
                 return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
-            resolved_kwargs = update_read_kwargs(dr.read_kwargs, (("hash_path", path),))
-            relocatable = kw.get("relocatable", False)
+            resolved_kwargs = update_read_kwargs(
+                dr.read_kwargs, ((ReadKwarg.hash_path, path),)
+            )
+            relocatable = kw.get(ReadKwarg.relocatable, False)
             args = dict(zip(dr.__argnames__, dr.__args__)) | {
                 "read_kwargs": resolved_kwargs
             }
@@ -992,7 +1004,9 @@ class ExprLoader:
             return node if relocatable else node.make_dt()
 
         drs = tuple(
-            dr for dr in walk_nodes(Read, loaded) if "read_path" in dict(dr.read_kwargs)
+            dr
+            for dr in walk_nodes(Read, loaded)
+            if ReadKwarg.read_path in dict(dr.read_kwargs)
         )
         replacements = {dr: resolve_read(dr) for dr in drs}
         op = loaded.op()

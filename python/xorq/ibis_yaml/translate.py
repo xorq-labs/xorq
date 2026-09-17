@@ -481,11 +481,11 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
 
 @register_from_yaml_handler("DatabaseTable")
 def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ibis.Expr:
-    profile_name = yaml_dict.get("profile")
-    table_name = yaml_dict.get("table")
-    namespace_dict = yaml_dict.get("namespace", {})
-    catalog = namespace_dict.get("catalog")
-    database = namespace_dict.get("database")
+    profile_name = yaml_dict.get(NodeKey.profile)
+    table_name = yaml_dict.get(NodeKey.table)
+    namespace_dict = yaml_dict.get(NodeKey.namespace, {})
+    catalog = namespace_dict.get(NamespaceKey.catalog)
+    database = namespace_dict.get(NamespaceKey.database)
     # we should validate that schema is the same
     schema = context.get_schema(yaml_dict.get(RefEnum.schema_ref))
 
@@ -709,9 +709,10 @@ def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
         return not parsed.scheme or parsed.scheme == "file"
 
     kw = dict(items)
-    if kw.get("relocatable", False):
+    if kw.get(ReadKwarg.relocatable, False):
         return
-    if path := next((v for k, v in kw.items() if k in ("hash_path", "source")), None):
+    path_keys = (ReadKwarg.hash_path, ReadKwarg.source)
+    if path := next((v for k, v in kw.items() if k in path_keys), None):
         f = toolz.excepts((ValueError, AttributeError), is_local_path)
         paths = normalize_filenames(path)
         if any(map(f, paths)):
@@ -759,19 +760,19 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
 @register_from_yaml_handler("Read")
 def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
-    source = context.profiles[yaml_dict["profile"]]
+    source = context.profiles[yaml_dict[NodeKey.profile]]
     read_kwargs = tuple(
-        (k, ibis.schema(v)) if k == "schema" else (k, v)
-        for k, v in yaml_dict.get("read_kwargs", ())
+        (k, ibis.schema(v)) if k == ReadKwarg.schema else (k, v)
+        for k, v in yaml_dict.get(NodeKey.read_kwargs, ())
     )
     read_op = Read(
-        method_name=yaml_dict["method_name"],
-        name=yaml_dict["name"],
+        method_name=yaml_dict[NodeKey.method_name],
+        name=yaml_dict[NodeKey.name],
         schema=schema,
         source=source,
         read_kwargs=read_kwargs,
         normalize_method=deserialize_normalize_method(
-            yaml_dict.get("normalize_method")
+            yaml_dict.get(NodeKey.normalize_method)
         ),
     )
 

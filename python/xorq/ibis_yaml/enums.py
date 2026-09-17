@@ -83,11 +83,20 @@ class NodeKey(StrEnum):
 
 
 class ReadKwarg(StrEnum):
-    """Serialized ``read_kwargs`` keys that name a ``Read``'s source."""
+    """Keys of a ``Read``'s ``read_kwargs`` mapping, in memory and serialized.
+
+    Not the ``Read`` op's own argument names: ``read_kwargs`` and
+    ``normalize_method`` are constructor arguments that sit beside this mapping
+    rather than inside it, so call sites rebuilding a node with
+    ``__recreate__`` keep spelling those out.
+    """
 
     hash_path = "hash_path"
     read_path = "read_path"
     table_name = "table_name"
+    relocatable = "relocatable"
+    schema = "schema"
+    source = "source"
 
 
 class NamespaceKey(StrEnum):
