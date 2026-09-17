@@ -555,6 +555,18 @@ def test_read_without_hash_path_falls_back_to_the_node_name() -> None:
     assert named.name == "s3://bucket/src.parquet"
 
 
+def test_read_table_falls_back_to_the_node_name() -> None:
+    """A Read whose read_kwargs omit table_name still reports its table.
+
+    `make_read_kwargs` fills `table_name` by binding the backend method's
+    signature, so a backend naming that parameter differently omits it, while
+    `_read_to_yaml` writes `name` either way.
+    """
+    (leaf,) = iter_source_leaves(read_doc())
+    assert leaf.name == "s3://bucket/src.parquet"
+    assert leaf.table == "src"
+
+
 def test_read_missing_both_path_and_name_names_the_node() -> None:
     with pytest.raises(ValueError, match="@read_0"):
         iter_source_leaves(read_doc(read_kwargs=None, name=None))

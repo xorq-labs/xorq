@@ -269,7 +269,16 @@ class SourceLeaf:
                 table = get_node_key(node_ref, node_def, NodeKey.table)
                 name = ".".join(p for p in (catalog, database, table) if p)
             case LeafKind.READ:
-                table = kw.get(ReadKwarg.table_name)
+                # `read_kwargs["table_name"]` is not the reliable spelling:
+                # `make_read_kwargs` fills it by binding the backend method's
+                # signature, so a backend naming that parameter differently
+                # omits it, and `_read_to_yaml` only rewrites it when a uid
+                # rename fires.  `NodeKey.name` is the final table name and is
+                # written unconditionally, which keeps this as populated as the
+                # `DatabaseTable` branch's `table`.  Read with `.get`, not
+                # `get_node_key`: a node def missing `name` is still readable
+                # here as long as it carries a path, same as `path` below.
+                table = kw.get(ReadKwarg.table_name) or node_def.get(NodeKey.name)
                 # The recorded path, never the generated table name.  For a
                 # bundled read that path is the bundle-relative `read_path`
                 # the registry rewrote `hash_path` to, not the original
