@@ -191,18 +191,6 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
     return op.to_expr()
 
 
-# Types _to_yaml_safe expands into an unhashable list/dict: as keys they must be
-# left alone and let the writer say so.
-YAML_EXPANDING_TYPES = (dict, list, tuple, ibis.Schema)
-
-
-def _to_yaml_key(key):
-    # Everything else gets the scalar normalizations _to_yaml_safe applies.
-    if isinstance(key, YAML_EXPANDING_TYPES):
-        return key
-    return _to_yaml_safe(key)
-
-
 def _to_yaml_safe(data):
     if isinstance(data, (RefEnum, RegistryEnum)):
         return data.name
@@ -213,7 +201,7 @@ def _to_yaml_safe(data):
     elif isinstance(data, (pathlib.PurePath, StrEnum)):
         return str(data)
     elif isinstance(data, dict):
-        return {_to_yaml_key(k): _to_yaml_safe(v) for k, v in data.items()}
+        return {k: _to_yaml_safe(v) for k, v in data.items()}
     elif isinstance(data, (list, tuple)):
         return [_to_yaml_safe(v) for v in data]
     return data

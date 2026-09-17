@@ -57,12 +57,11 @@ from xorq.ibis_yaml.compiler import (
     _is_relocatable_candidate,
     _prepare_relocatable_reads,
     _sanitize_generated_names,
-    _to_yaml_safe,
     build_expr,
     load_expr,
 )
 from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.enums import BundledSourceTypes, NodeKey, WritePhase
+from xorq.ibis_yaml.enums import WritePhase
 from xorq.ibis_yaml.sql import find_relations, sql_query_deps
 from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
@@ -2135,33 +2134,3 @@ def test_execute_write_plans_dedupable_writes_once(
     )
     ExprDumper._execute_write_plans(plans)
     assert calls == ["a"]
-
-
-@pytest.mark.parametrize(
-    ("key", "expected"),
-    [
-        (RefEnum.node_ref, "node_ref"),
-        (NodeKey.op, "op"),
-        (BundledSourceTypes.inmemory, "memtables"),
-        (pathlib.PurePosixPath("reads/a.parquet"), "reads/a.parquet"),
-    ],
-    ids=["ref-enum", "node-key", "str-enum-value", "pure-path"],
-)
-def test_to_yaml_safe_normalizes_keys(key, expected) -> None:
-    # yaml12 happily writes a str subclass, so the output bytes cannot catch a
-    # regression here -- assert on the key's exact type instead.
-    ((got, _),) = _to_yaml_safe({key: "value"}).items()
-    assert type(got) is str
-    assert got == expected
-
-
-@pytest.mark.parametrize(
-    "key",
-    [("a", "b"), FrozenOrderedDict({"a": 1}), ibis.schema({"a": "int64"})],
-    ids=["tuple", "frozen-ordered-dict", "schema"],
-)
-def test_to_yaml_safe_leaves_composite_keys_alone(key) -> None:
-    # A composite key must stay hashable rather than become an unhashable
-    # list/dict.
-    ((got, _),) = _to_yaml_safe({key: 1}).items()
-    assert got is key
