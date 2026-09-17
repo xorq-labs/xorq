@@ -1027,6 +1027,73 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
+def _echo_entry_sources(catalog_entry) -> int:
+    """Print one entry's leaf reports as they arrive; return its exit code."""
+    from xorq.catalog.drift import (  # noqa: PLC0415
+        format_leaf_report,
+        format_no_external,
+        iter_leaf_reports,
+    )
+    from xorq.catalog.inspection import BuildRecord  # noqa: PLC0415
+
+    try:
+        record = BuildRecord.from_catalog_entry(catalog_entry)
+    except Exception as e:
+        # A record we cannot read is not evidence of drift, so it ranks as
+        # unreachable rather than raising a traceback over the other entries.
+        click.echo(f"  unreachable: {type(e).__name__}: {e}")
+        return 2
+    codes = []
+    for report in iter_leaf_reports(record):
+        for line in format_leaf_report(report):
+            click.echo(line)
+        codes.append(report.exit_code)
+    if not codes:
+        click.echo(format_no_external(record))
+    return max(codes, default=0)
+
+
+@cli.command("check-sources")
+@click.argument(
+    "names", nargs=-1, required=True, shell_complete=_complete_entry_or_alias_names
+)
+@click.pass_context
+def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
+    """Compare each entry's recorded source schemas against the live ones.
+
+    Reports; never repairs and never infers. Bundled and pinned sources are
+    exempt: their bytes are in the archive, so they cannot drift.
+
+    \b
+    Exit codes (the worst leaf wins):
+      0  every source equal, or nothing external to check
+      2  a source was unreachable
+      3  a source changed, or its table is missing
+
+    \b
+    Arguments:
+      NAMES  One or more entry names or aliases.
+
+    \b
+    Examples:
+      xorq catalog check-sources prod-matches staging
+    """
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        entries = tuple(_get_catalog_entry(catalog, name) for name in names)
+
+    # Probing runs outside the handler above, which funnels every exception into
+    # a ClickException and would collapse every exit code to 1.
+    codes = []
+    for name, catalog_entry in zip(names, entries):
+        click.echo(name)
+        codes.append(_echo_entry_sources(catalog_entry))
+    drifted = sum(code == 3 for code in codes)
+    click.echo()
+    click.echo(f"{len(codes)} entries, {drifted} drifted")
+    ctx.exit(max(codes, default=0))
+
+
 def _resolve_lineage(dag: LineageDAG, handle: str, name: str) -> tuple[dict, ...]:
     """Nodes a `--node`/`--expand` handle names, or a pointer to the listing."""
     if matches := dag.resolve(handle):
