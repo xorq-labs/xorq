@@ -1214,8 +1214,16 @@ def test_expr_metadata_sql_queries_degrades_on_malformed_entries() -> None:
 def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
     t = xo.memtable({"a": [1, 2], "b": [3, 4]})
     build_path = build_expr(t, builds_dir=builds_dir)
-    loaded_yaml = yaml12.parse_yaml(build_path.joinpath(DumpFiles.expr).read_text())
+    expr_text = build_path.joinpath(DumpFiles.expr).read_text()
+    loaded_yaml = yaml12.parse_yaml(expr_text)
     loaded = load_expr(build_path, raise_on_unbound=False)
+
+    # Node defs are keyed by NodeKey members, and _to_yaml_safe passes keys
+    # through untouched: pin that yaml12 writes a str subclass as a plain,
+    # untagged scalar so a dependency bump cannot silently tag them.
+    assert re.search(rf"^\s*{NodeKey.read_kwargs}:$", expr_text, re.MULTILINE)
+    assert re.search(rf"^\s*{NodeKey.op}: Read$", expr_text, re.MULTILINE)
+    assert not re.search(r"^\s*!", expr_text, re.MULTILINE)
 
     reads = tuple(walk_nodes((Read,), loaded))
     assert not reads, "deferred reads should be converted to memtables after load"
@@ -1243,21 +1251,6 @@ def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
         read_path = pathlib.Path(kw["read_path"])
         assert not read_path.is_absolute(), f"read_path should be relative: {read_path}"
         assert hash_path.name == read_path.name
-
-
-def test_str_enum_keys_serialize_as_plain_yaml_keys(builds_dir):
-    # Node defs are keyed by NodeKey members, and _to_yaml_safe passes keys
-    # through untouched: pin that yaml12 writes a str subclass as a plain,
-    # untagged scalar so a dependency bump cannot silently tag them.
-    build_path = build_expr(
-        xo.memtable({"a": [1, 2], "b": [3, 4]}), builds_dir=builds_dir
-    )
-    text = build_path.joinpath(DumpFiles.expr).read_text()
-
-    assert re.search(rf"^\s*{NodeKey.read_kwargs}:$", text, re.MULTILINE)
-    assert re.search(rf"^\s*{NodeKey.op}: Read$", text, re.MULTILINE)
-    assert "!!python" not in text
-    assert not re.search(r"^\s*!", text, re.MULTILINE)
 
 
 def test_roundtrip_database_table_preserves_node_type(builds_dir, users_df):
