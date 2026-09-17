@@ -88,7 +88,17 @@ class ReadKwarg(StrEnum):
     Not the ``Read`` op's own argument names: ``read_kwargs`` and
     ``normalize_method`` are constructor arguments that sit beside this mapping
     rather than inside it, so call sites rebuilding a node with
-    ``__recreate__`` keep spelling those out.
+    ``__recreate__`` keep spelling those out. ``schema`` and ``source`` are
+    trickier -- ``Read`` has args of those names too, and they mean something
+    else there (``Read.source`` is a backend connection; ``ReadKwarg.source``
+    is a filesystem path), so these members belong on the mapping only, never
+    at a ``Read(... schema=..., source=...)`` call site.
+
+    ``ibis_yaml`` is deliberately the only migrated consumer: the producers in
+    ``xorq.common`` (``defer_utils.make_read_kwargs``,
+    ``node_utils.change_read_table_name``, ``constants.READ_*_KEYS``) and the
+    dasher ``Read`` normalizer still spell these keys out; those literals are
+    known, not oversights.
     """
 
     hash_path = "hash_path"

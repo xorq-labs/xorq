@@ -83,6 +83,7 @@ from xorq.ibis_yaml.enums import (
     DocKey,
     DumpFiles,
     ExprKind,
+    NodeKey,
     ReadKwarg,
     RefEnum,
     RegistryEnum,
@@ -179,13 +180,13 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
                 read_kwargs = node.read_kwargs
                 overrides = {}
                 if marking:
-                    read_kwargs += ((ReadKwarg.relocatable, True),)
+                    read_kwargs += ((str(ReadKwarg.relocatable), True),)
                     overrides["normalize_method"] = normalize_read_path_md5sum
                 read_kwargs = update_read_kwargs(
                     read_kwargs,
                     (
                         (
-                            ReadKwarg.read_path,
+                            str(ReadKwarg.read_path),
                             relocatable_read_path_str(kw[ReadKwarg.hash_path]),
                         ),
                     ),
@@ -842,8 +843,8 @@ class ExprDumper:
                 new_kwargs = update_read_kwargs(
                     node.read_kwargs,
                     (
-                        (ReadKwarg.hash_path, plan.path),
-                        (ReadKwarg.read_path, read_path),
+                        (str(ReadKwarg.hash_path), plan.path),
+                        (str(ReadKwarg.read_path), read_path),
                     ),
                 )
                 args = dict(zip(node.__argnames__, node.__args__)) | {
@@ -865,12 +866,15 @@ class ExprDumper:
             plan = self._prepare_memtable(node, which)
             dr_op = make_read_op(
                 parquet_path=plan.path,
+                # plain-str keys throughout: read_path lands in
+                # deferred_read_parquet's **kwargs, so an enum member here would
+                # survive into read_kwargs and show up in repr diagnostics
                 read_kwargs={
-                    ReadKwarg.table_name: node.name,
-                    ReadKwarg.schema: node.schema,
+                    str(ReadKwarg.table_name): node.name,
+                    str(ReadKwarg.schema): node.schema,
                     **type_kwargs,
-                    "normalize_method": normalize_read_path_md5sum,
-                    ReadKwarg.read_path: str(Path(which, plan.path.name)),
+                    str(NodeKey.normalize_method): normalize_read_path_md5sum,
+                    str(ReadKwarg.read_path): str(Path(which, plan.path.name)),
                 },
                 **con_kwargs,
             )
@@ -994,7 +998,7 @@ class ExprLoader:
                 )
                 return ibis.memtable(df, schema=dr.schema, name=dr.name).op()
             resolved_kwargs = update_read_kwargs(
-                dr.read_kwargs, ((ReadKwarg.hash_path, path),)
+                dr.read_kwargs, ((str(ReadKwarg.hash_path), path),)
             )
             relocatable = kw.get(ReadKwarg.relocatable, False)
             args = dict(zip(dr.__argnames__, dr.__args__)) | {
