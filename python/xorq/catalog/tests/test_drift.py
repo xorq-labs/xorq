@@ -26,11 +26,12 @@ from xorq.catalog.drift import (
     EntryReport,
     checkable_leaves,
     format_unchecked,
+    get_schema_reader,
     iter_leaf_reports,
     make_profile,
     probe_leaf,
 )
-from xorq.catalog.enums import LeafKind, Verdict
+from xorq.catalog.enums import Verdict
 from xorq.catalog.inspection import BuildRecord
 from xorq.vendor.ibis.backends.profiles import Profile
 
@@ -203,12 +204,14 @@ def test_entry_report_is_reusable(world: SimpleNamespace) -> None:
     assert tuple(r.verdict for r in report.leaf_reports) == (Verdict.EQUAL,)
 
 
-def test_unhandled_leaf_kind_raises(record: BuildRecord) -> None:
-    """A kind with no schema reader must fail loudly, not report unreachable."""
-    (leaf,) = record.external_leaves
-    read_leaf = evolve(leaf, kind=LeafKind.READ)
+def test_unhandled_leaf_kind_raises() -> None:
+    """A kind with no schema reader must fail loudly, not report unreachable.
+
+    Asserted on a stand-in: every `LeafKind` now has a reader, and `SourceLeaf`
+    validates its kind against that enum, so no leaf can carry an unhandled one.
+    """
     with pytest.raises(ValueError, match="no probe for leaf kind"):
-        probe_leaf(read_leaf, record)
+        get_schema_reader(SimpleNamespace(kind="Bogus"))
 
 
 def test_leaf_without_a_profile_is_unreadable(record: BuildRecord) -> None:
@@ -272,18 +275,21 @@ def test_unchecked_leaves_are_named_beside_the_checked_ones(
     record: BuildRecord,
 ) -> None:
     """An entry whose other leaves are equal still has to say which external
-    leaf nobody probed."""
+    leaf nobody probed.
+
+    Stand-in kind for the same reason as ``test_unhandled_leaf_kind_raises``:
+    both `LeafKind` members are checkable, so nothing real is left out.
+    """
     (leaf,) = record.external_leaves
     assert format_unchecked(record) is None
-    mixed = SimpleNamespace(external_leaves=(leaf, evolve(leaf, kind=LeafKind.READ)))
-    assert format_unchecked(mixed) == "  1 external source not checkable (Read)"
+    mixed = SimpleNamespace(external_leaves=(leaf, SimpleNamespace(kind="Bogus")))
+    assert format_unchecked(mixed) == "  1 external source not checkable (Bogus)"
 
 
-def test_an_unchecked_leaf_is_reported_beside_a_checked_one(
+def test_a_read_and_a_table_are_checked_side_by_side(
     runner: CliRunner, world: SimpleNamespace, tmp_path: Path
 ) -> None:
-    """A mixed entry names the leaf nobody probed and still exits 0 on the one
-    that came back equal."""
+    """A mixed entry probes both kinds, and exits 0 when both came back equal."""
     csv_path = tmp_path / "side.csv"
     csv_path.write_text("a,c\n1,2\n")
     con = xo.duckdb.connect()
@@ -294,7 +300,7 @@ def test_an_unchecked_leaf_is_reported_beside_a_checked_one(
     result = check_sources(runner, world, name)
     assert result.exit_code == 0
     assert "DatabaseTable t: equal" in result.output
-    assert "1 external source not checkable (Read)" in result.output
+    assert f"Read {csv_path}: equal" in result.output
 
 
 def test_a_sweep_shares_one_failed_connect_per_profile(

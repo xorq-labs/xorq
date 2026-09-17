@@ -21,6 +21,8 @@ from attr.validators import deep_iterable, in_, instance_of, optional
 
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
+from xorq.common.constants import READ_EXCLUDE_KEYS, REMOTE_SCHEMES
+from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -29,8 +31,10 @@ if TYPE_CHECKING:
     from xorq.catalog.catalog import CatalogEntry
 
 
-# `Read` joins in xorq-labs/xorq#2296; this is the `DatabaseTable` spine.
-CHECKABLE_KINDS = frozenset({LeafKind.DATABASE_TABLE})
+# Both leaf kinds are probed. What is exempt was already dropped by
+# `drift_exempt`: a bundled leaf's bytes are in the archive, under a filename
+# that *is* their content hash, so the comparison could only return `equal`.
+CHECKABLE_KINDS = frozenset(LeafKind)
 
 
 @frozen
@@ -269,6 +273,46 @@ def get_table_schema(
     return con.table(leaf.table, database=location).schema()
 
 
+def read_call(leaf: SourceLeaf) -> tuple[tuple, dict]:
+    """The paths and kwargs that replay ``leaf``'s read.
+
+    Same split as ``Read.make_dt``, through the same shared exclusion constant,
+    so the relocation bookkeeping keys are dropped in exactly one place.
+    """
+    args = tuple(value for key, value in leaf.read_kwargs if key == ReadKwarg.hash_path)
+    kwargs = {
+        key: value for key, value in leaf.read_kwargs if key not in READ_EXCLUDE_KEYS
+    }
+    return args, kwargs
+
+
+def get_read_schema(
+    con: Any, leaf: SourceLeaf, location: tuple[str, str] | str | None
+) -> Schema | None:
+    """``leaf``'s live schema, or ``None`` when a local path no longer exists.
+
+    A moved file is the file analogue of a renamed table. Nothing else is
+    classified: every other read failure collapses to a bare error whose message
+    does not even name the file, so there is nothing to classify on.
+
+    The read routes to a session-scoped view on the connection this command
+    opened, so it leaves nothing durable behind. ``location`` is unused: a read
+    names its source by path, not by namespace.
+    """
+    args, kwargs = read_call(leaf)
+    paths = tuple(
+        path for arg in args for path in (arg if isinstance(arg, tuple) else (arg,))
+    )
+    # A remote URI is left to the read to resolve: only a local path can be
+    # checked for existence without paying for the fetch.
+    if any(
+        not str(path).startswith(REMOTE_SCHEMES) and not Path(path).exists()
+        for path in paths
+    ):
+        return None
+    return getattr(con, leaf.method_name)(*args, **kwargs).schema()
+
+
 def get_schema_reader(
     leaf: SourceLeaf,
 ) -> Callable[[Any, SourceLeaf, tuple[str, str] | str | None], Schema | None]:
@@ -280,8 +324,9 @@ def get_schema_reader(
     match leaf.kind:
         case LeafKind.DATABASE_TABLE:
             return get_table_schema
-        # `Read` arrives in xorq-labs/xorq#2296; `checkable_leaves` filters every
-        # other kind out before a probe can get here.
+        case LeafKind.READ:
+            return get_read_schema
+        # Unreachable while `LeafKind` has exactly the two members above.
         case _:
             raise ValueError(f"no probe for leaf kind {leaf.kind}")
 
