@@ -1,8 +1,8 @@
 """Source-leaf extraction from a build record (xorq-labs/xorq#2294).
 
-Every test here goes through the *record*, never through ``load_expr``: the
-point of the module under test is that an entry whose expression can no longer
-load still reports the sources it was built against.
+Every test here goes through the *record*, never through ``load_expr``: the point
+of the module under test is that an entry whose expression can no longer load
+still reports the sources it was built against.
 """
 
 from __future__ import annotations
@@ -207,7 +207,7 @@ def test_relocation_decides_bundling(entries: dict[str, CatalogEntry]) -> None:
     assert relocated.name.startswith(f"{BundledSourceTypes.read}/")
     assert not absolute.bundled
     assert absolute.bundle_kind is None
-    # Same source, same recorded schema -- only the location differs.
+    # Same source, same recorded schema; only the location differs.
     assert dict(relocated.recorded) == dict(absolute.recorded)
 
 
@@ -246,8 +246,7 @@ def test_cache_and_into_backend_report_only_true_sources(
 def test_pinned_cache_reports_no_external_leaf(
     entries: dict[str, CatalogEntry], world: SimpleNamespace
 ) -> None:
-    """A pin's frozen read is a cache artifact, not a source, and the upstream it
-    discarded is not this record's source either."""
+    """A pin reports neither its cache artifact nor the upstream it discarded."""
     record = BuildRecord.from_catalog_entry(entries["pinned"])
     (leaf,) = record.source_leaves
     assert (leaf.kind, leaf.pinned, leaf.bundled) == (LeafKind.READ, True, False)
@@ -484,7 +483,7 @@ def test_malformed_read_kwargs_names_the_node(read_kwargs: object) -> None:
     """A read_kwargs entry that is not a pair fails with the ref, not a dict error.
 
     A mapping or a two-character string would coerce into a plausible pair, so
-    they must be rejected rather than read as a fabricated kwarg, and an
+    both must be rejected rather than read as a fabricated kwarg, and an
     unhashable key would otherwise reach `dict()` as a bare TypeError.
     """
     with pytest.raises(ValueError, match="@read_0"):
@@ -495,7 +494,7 @@ def test_null_read_kwargs_names_the_node() -> None:
     """A `read_kwargs:` truncated to null is corruption, not an absent key.
 
     `_read_to_yaml` writes `read_kwargs` for every `Read`, so a null value is a
-    damaged archive.  Reading it as empty would drop `read_path`, turning a
+    damaged archive. Reading it as empty would drop `read_path`, turning a
     bundled read into a plausible external leaf that a drift check then flags.
     """
     doc = read_doc()
@@ -514,10 +513,10 @@ def test_absent_read_kwargs_is_legal() -> None:
 def test_an_unreachable_registry_node_is_not_a_source() -> None:
     """A leaf node def no node_ref reaches is not this record's source.
 
-    The registry accumulates node defs the final expression never reaches --
-    pre-rewrite nodes registered before `_replace_tables` substitutes them, for
-    one -- so leaves come from a walk out of `expression`, not a scan of
-    `definitions.nodes`.  A flat scan would report the stale node too.
+    The registry accumulates node defs the final expression never reaches, such
+    as pre-rewrite ones registered before `_replace_tables` substitutes them, so
+    leaves come from a walk out of `expression`. A flat scan of
+    `definitions.nodes` would report the stale node too.
     """
     doc = read_doc()
     doc["definitions"]["nodes"]["@read_1"] = {
@@ -545,9 +544,9 @@ def test_translation_context_never_carries_node_defs() -> None:
 
     `nodes` is where the UDF pickle blobs live, and `translate_from_yaml` is an
     unbounded `lru_cache` keyed on the context, so a registry handed to it is
-    pinned for the life of the process -- once per entry over a `check-sources`
-    sweep.  Schema rendering does not need them, so they are not passed; this
-    asserts that rather than leaving it to `get_schema` happening not to look.
+    pinned for the life of the process, once per entry over a `check-sources`
+    sweep. Schema rendering does not need them, and this asserts they are absent
+    rather than leaving it to `get_schema` happening not to look.
     """
     doc = read_doc()
     registry = translation_context(doc).registry
@@ -558,11 +557,11 @@ def test_translation_context_never_carries_node_defs() -> None:
 def test_a_dtype_ref_schema_resolves_through_the_registry() -> None:
     """A recorded schema written as a `dtype_ref` renders, which is why `dtypes` rides along.
 
-    `register_schema` inlines its dtypes today -- `_datatype_to_yaml` does that
-    whenever `context is None` -- so only an archive written when it did not
-    exercises the `dtypes` member of `SCHEMA_REGISTRY_KEYS`.  Without a case
-    that resolves a ref, dropping that key would break every such archive with
-    a green suite.
+    `register_schema` inlines its dtypes today (`_datatype_to_yaml` does that
+    whenever `context is None`), so only an archive written when it did not
+    exercises the `dtypes` member of `SCHEMA_REGISTRY_KEYS`. Without a case that
+    resolves a ref, dropping that key would break every such archive with a green
+    suite.
     """
     doc = read_doc()
     doc["definitions"]["dtypes"] = {
@@ -702,7 +701,7 @@ def test_profileless_record_still_reports_leaves(
 ) -> None:
     """A record whose profiles.yaml parses to nothing is still readable.
 
-    `empty_ok` covers the one member that is legitimately empty; without it a
+    `empty_ok` covers the one member that is legitimately empty. Without it a
     valid, profile-less record would fail as hard as a truncated one.
     """
     catalog = make_catalog(tmp_path_factory.mktemp("inspection-noprofiles") / "repo")

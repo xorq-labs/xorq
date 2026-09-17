@@ -1,34 +1,30 @@
 """Read a build record's external source leaves without loading its expression.
 
-A catalog entry freezes its source schemas at build time.  ``inspection`` reads
-those frozen sources back out of the archive so a later pass can compare them
-against the world as it is now.
+A catalog entry freezes its source schemas at build time. This module reads them
+back out of the archive so a later pass can compare them against the world now.
 
-Extraction is pure dict traversal over the serialized build record.  It
-constructs no xorq expression node, unpickles no UDF, and imports no backend.
-Only two members of the archive are needed -- ``expr.yaml`` and
-``profiles.yaml`` -- and both are read in place, so there is no tempdir to
-create and none to clean up.  That is what makes source reporting work on an
-entry whose expression can no longer load at all (a corrupt UDF blob, a
-missing dependency, a backend that is no longer installed).
+Extraction is pure dict traversal over the serialized record: it constructs no
+xorq node, unpickles no UDF, imports no backend. It reads two archive members,
+``expr.yaml`` and ``profiles.yaml``, both in place, so there is no tempdir to
+clean up. That is what makes source reporting work on an entry whose expression
+can no longer load at all (corrupt UDF blob, missing dependency, uninstalled
+backend).
 
-Leaves are enumerated by a reachability walk from ``expression`` through
-``node_ref`` edges rather than by scanning the flat node registry, so a node
-the registry holds but the expression does not reach can never be reported.
-They deduplicate by construction: the registry keys on content hash, so a
-table read twice in a self-join is one node and one leaf.  That is correct --
-it is one source.
+Leaves come from a reachability walk out of ``expression`` along ``node_ref``
+edges rather than a scan of the flat node registry, so a node the registry holds
+but the expression does not reach can never be reported. They deduplicate by
+construction: the registry keys on content hash, so a table read twice in a
+self-join is one node and one leaf, which is correct. It is one source.
 
-The walk stops at a pin the way the build hash does: a ``CacheTag``'s
-``uncached`` branch is the upstream the pin deliberately discarded (see
-``graph_utils.exclusively_pinned_leaves``), so its sources are not this
-record's sources, and the pin's ``parent`` is a read of the cache artifact --
-machine-local, not a user source -- so it is reported drift-exempt.  Both
-edges are only pruned *at the pin*: a leaf also reachable from a live branch
-stays a live, checkable source.
+The walk stops at a pin the way the build hash does. A ``CacheTag``'s
+``uncached`` branch is the upstream the pin discarded (see
+``graph_utils.exclusively_pinned_leaves``), so its sources are not this record's,
+and the pin's ``parent`` reads the cache artifact, machine-local rather than a
+user source, so it is reported drift-exempt. Both edges are pruned only *at the
+pin*: a leaf also reachable from a live branch stays live and checkable.
 
-The bundled/external split is ADR-0006's: the presence of the ``read_path``
-key is the signal.  See xorq-labs/xorq#2293 for the epic this feeds.
+The bundled/external split is ADR-0006's: the presence of the ``read_path`` key
+is the signal. See xorq-labs/xorq#2293 for the epic this feeds.
 """
 
 from __future__ import annotations
@@ -64,15 +60,15 @@ if TYPE_CHECKING:
 
 # See `LeafKind` for why these stay string comparisons against the `op` field.
 LEAF_OPS = frozenset(LeafKind)
-# The registry sections `get_schema` can reach.  `nodes` is deliberately absent:
+# The registry sections `get_schema` can reach. `nodes` is deliberately absent:
 # it holds the UDF pickle blobs this module never touches, and the translator's
-# unbounded cache would pin whatever registry it is handed.  `dtypes` is here
-# for an archive that used dtype refs -- `_datatype_to_yaml` inlines them when
+# unbounded cache would pin whatever registry it is handed. `dtypes` is here for
+# an archive that used dtype refs; `_datatype_to_yaml` inlines them when
 # `context is None`, which is how `register_schema` writes them today.
 SCHEMA_REGISTRY_KEYS = frozenset({RegistryEnum.dtypes, RegistryEnum.schemas})
-# The `CacheTag` edges each walk cuts.  The source walk keeps the pin's frozen
-# read and drops the upstream it discarded; the live walk drops the pin whole,
-# so their difference is what only the pin reaches.  Mirrors
+# The `CacheTag` edges each walk cuts. The source walk keeps the pin's frozen
+# read and drops the upstream it discarded; the live walk drops the pin whole, so
+# their difference is what only the pin reaches. Mirrors
 # `graph_utils._EXEC_EDGES` / `_SKIP_PINS_EDGES`.
 SOURCE_WALK_PRUNED = frozenset({PinKey.UNCACHED})
 LIVE_WALK_PRUNED = frozenset({PinKey.PARENT, PinKey.UNCACHED})
@@ -81,7 +77,7 @@ LIVE_WALK_PRUNED = frozenset({PinKey.PARENT, PinKey.UNCACHED})
 def get_doc_key(doc: dict, key: str) -> Any:
     """``doc[key]``, naming the missing member rather than raising ``KeyError``.
 
-    A truncated or corrupt ``expr.yaml`` must fail loudly: a drift check that
+    A truncated or corrupt ``expr.yaml`` must fail loudly. A drift check that
     silently reports zero sources for an unreadable record is a false pass.
     """
     if (value := doc.get(key)) is None:
@@ -100,18 +96,17 @@ def get_nodes(doc: dict) -> dict:
 def translation_context(doc: dict) -> TranslationContext:
     """A ``TranslationContext`` over ``doc``'s definitions, for dtypes only.
 
-    Reusing the translator's own registry is what makes a recorded schema
-    render its parameters -- ``decimal(10, 2)``, ``array<int64>``,
-    ``timestamp('UTC')`` -- for free.  ``get_schema`` constructs dtypes only;
-    it never reaches a node def, so no UDF blob is touched.
+    Reusing the translator's own registry renders a recorded schema with its
+    parameters (``decimal(10, 2)``, ``array<int64>``, ``timestamp('UTC')``) for
+    free. ``get_schema`` constructs dtypes only and never reaches a node def, so
+    no UDF blob is touched.
 
-    Only the sections schema resolution reads are passed along, which makes
-    "no node def is reachable from the translator" structural rather than
-    incidental.  It also bounds what this context retains:
-    ``translate_from_yaml`` is an unbounded ``lru_cache`` keyed on the
-    (hashable, frozen) context, so a registry handed to it is pinned for the
-    life of the process -- and a ``check-sources`` sweep builds one context per
-    entry.
+    Passing only the sections schema resolution reads makes "no node def is
+    reachable from the translator" structural rather than incidental, and bounds
+    what the context retains: ``translate_from_yaml`` is an unbounded
+    ``lru_cache`` keyed on the frozen context, so any registry handed to it is
+    pinned for the life of the process, once per entry over a ``check-sources``
+    sweep.
     """
     from xorq.ibis_yaml.common import Registry, TranslationContext  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import _ensure_translate_registered  # noqa: PLC0415
@@ -128,13 +123,12 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
     """Every ``node_ref`` reachable from ``expression``, cutting a pin's edges.
 
     ``definitions.nodes`` is flat; the graph lives in the ``node_ref`` values
-    scattered through the node defs.  Walking from the root rather than
-    iterating the registry makes a phantom leaf impossible rather than merely
-    unobserved.
+    scattered through the node defs. Walking from the root rather than iterating
+    the registry makes a phantom leaf impossible rather than merely unobserved.
 
-    ``pruned_at_pin`` names the keys not descended *at a ``CacheTag`` node def
-    only* -- everywhere else every value is descended, so a node the pin shares
-    with a live branch is still reached.
+    ``pruned_at_pin`` names the keys not descended *at a ``CacheTag`` only*.
+    Everywhere else every value is descended, so a node the pin shares with a
+    live branch is still reached.
     """
     nodes = get_nodes(doc)
     seen: set[str] = set()
@@ -163,10 +157,10 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
 def has_pin(doc: dict) -> bool:
     """Whether any node def is a ``CacheTag``.
 
-    A registry scan, not a walk: it only gates the pair of walks whose
-    difference is the pinned set, and a pin the expression cannot reach prunes
-    nothing anyway, so an over-broad ``True`` costs two walks whose difference
-    is empty and can never change the answer.
+    A registry scan, not a walk: it only gates the pair of walks whose difference
+    is the pinned set, and a pin the expression cannot reach prunes nothing, so
+    an over-broad ``True`` costs two walks with an empty difference and cannot
+    change the answer.
     """
     return any(
         node_def.get(NodeKey.op) == PinOp.CACHE_TAG
@@ -179,11 +173,10 @@ def pinned_node_refs(doc: dict) -> frozenset[str]:
     """Refs reachable ONLY through a pin: the frozen cache-artifact reads.
 
     Same ``under_pin - live`` rule as ``graph_utils.exclusively_pinned_leaves``,
-    so a node the pin shares with a live branch keeps its live status.  Both
-    walks are taken here rather than handed in: which prune set each ref set
-    came from is the whole correctness of the difference, and the ``has_pin``
-    short circuit already keeps the common pin-free record to the caller's one
-    walk.
+    so a node the pin shares with a live branch keeps its live status. Both walks
+    are taken here rather than handed in: which prune set each ref set came from
+    is the whole correctness of the difference, and ``has_pin`` already keeps the
+    common pin-free record to one walk.
     """
     if not has_pin(doc):
         return frozenset()
@@ -195,9 +188,9 @@ def pinned_node_refs(doc: dict) -> frozenset[str]:
 def get_bundle_kind(read_path: str) -> BundledSourceTypes | None:
     """Which bundle dir holds ``read_path``, or ``None`` when its prefix is unknown.
 
-    An archive written by another version, or on Windows (where the separator
-    is stored verbatim), must not abort the report for every other leaf: a
-    bundled leaf is drift-exempt either way, so the kind is informational.
+    An archive written by another version, or on Windows (where the separator is
+    stored verbatim), must not abort the report for every other leaf. A bundled
+    leaf is drift-exempt either way, so the kind is only informational.
     """
     prefix = str(read_path).replace("\\", "/").split("/")[0]
     try:
@@ -209,9 +202,9 @@ def get_bundle_kind(read_path: str) -> BundledSourceTypes | None:
 def get_node_key(node_ref: str, node_def: dict, key: str) -> Any:
     """``node_def[key]``, naming the node rather than raising a bare ``KeyError``.
 
-    Same contract as ``get_doc_key``: every required member of a node def is
-    read through here, so a truncated record always fails with the ref that
-    cannot be read.
+    Same contract as ``get_doc_key``: every required member of a node def is read
+    through here, so a truncated record always fails with the ref that cannot be
+    read.
     """
     if (value := node_def.get(key)) is None:
         raise ValueError(f"node {node_ref!r} has no {key}")
@@ -221,25 +214,21 @@ def get_node_key(node_ref: str, node_def: dict, key: str) -> Any:
 def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
     """``read_kwargs`` as ``(key, value)`` pairs, naming the node on a bad entry.
 
-    The serialized form is a list of string-keyed pairs; an entry of any other
-    length would otherwise reach ``dict()`` as an unattributable "dictionary
-    update sequence element #0 has length 9", which is exactly the traceback
-    this module exists to avoid on a corrupt archive.
-
-    The shape is checked *before* anything is coerced, so every corrupt shape
-    raises with the ref rather than some of them: a scalar entry is rejected by
-    ``tuple()`` with an unattributable ``TypeError``, an unhashable key reaches
-    ``dict()`` as a bare "unhashable type: 'list'", and a mapping or a
-    two-character string would pass a length test by being silently coerced
-    into a plausible-looking pair (``tuple({"a": 1, "b": 2})`` is
-    ``("a", "b")``) -- a fabricated kwarg is worse than a named failure.
+    The serialized form is a list of string-keyed pairs, and the shape is checked
+    *before* anything is coerced, so every corrupt shape raises with the ref
+    rather than only some of them. Left to ``dict()`` and ``tuple()`` these are
+    the unattributable tracebacks this module exists to avoid: "dictionary update
+    sequence element #0 has length 9" for a wrong-length entry, a bare
+    ``TypeError`` for a scalar one, "unhashable type: 'list'" for a bad key. A
+    mapping or a two-character string is worse still, passing a length test by
+    coercing into a plausible-looking pair (``tuple({"a": 1, "b": 2})`` is
+    ``("a", "b")``), and a fabricated kwarg is worse than a named failure.
 
     Only an *absent* key is legal: a ``DatabaseTable`` never carries one, while
-    ``_read_to_yaml`` writes ``read_kwargs`` unconditionally for every
-    ``Read``.  A present-but-null value is therefore a damaged archive and
-    raises rather than reading as empty, which would drop ``read_path`` and
-    turn a bundled read into a plausible *external* leaf that a drift check
-    then falsely flags.
+    ``_read_to_yaml`` writes ``read_kwargs`` for every ``Read``. A
+    present-but-null value is a damaged archive and raises rather than reading as
+    empty, which would drop ``read_path`` and turn a bundled read into a
+    plausible *external* leaf that a drift check then falsely flags.
     """
     entries = node_def.get(NodeKey.read_kwargs, ())
     if not isinstance(entries, (list, tuple)) or not all(
@@ -258,13 +247,13 @@ def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
 class SourceLeaf:
     """One source as the build record describes it.
 
-    ``recorded`` is the schema frozen at build time.  ``bundled`` says the
-    bytes already live inside the archive (a relocated read, a materialized
-    memory-backend table, a memtable), so there is nothing outside to drift,
-    and ``bundle_kind`` names which bundle holds them.  ``pinned`` says the
-    leaf is a ``CacheTag``'s frozen read of its cache artifact -- a path under
-    a machine-local cache dir rather than a user source, so equally nothing to
-    check.  Both are ``drift_exempt``.
+    ``recorded`` is the schema frozen at build time. ``bundled`` says the bytes
+    already live inside the archive (a relocated read, a materialized
+    memory-backend table, a memtable), so there is nothing outside to drift, and
+    ``bundle_kind`` names which bundle holds them. ``pinned`` says the leaf is a
+    ``CacheTag``'s frozen read of its cache artifact, a machine-local cache path
+    rather than a user source, so equally nothing to check. Both are
+    ``drift_exempt``.
     """
 
     node_ref = field(validator=instance_of(str))
@@ -283,7 +272,7 @@ class SourceLeaf:
     method_name = field(validator=optional(instance_of(str)))
     read_kwargs = field(
         validator=deep_iterable(instance_of(tuple), instance_of(tuple)),
-        # Deep-freeze: serialized values are often dicts (`columns`, `schema`),
+        # Deep-freeze: serialized values are often dicts (`columns`, `schema`)
         # and `@frozen` generates a `__hash__`, so a shallow tuple() would make
         # the leaf unhashable the moment a consumer puts it in a set.
         converter=lambda kwargs: tuple((k, freeze(v)) for k, v in kwargs),
@@ -305,7 +294,7 @@ class SourceLeaf:
         kind = LeafKind(get_node_key(node_ref, node_def, NodeKey.op))
         read_kwargs = get_read_kwargs(node_ref, node_def)
         kw = dict(read_kwargs)
-        # ADR-0006: the presence of `read_path` *is* the bundled signal -- a
+        # ADR-0006: the presence of `read_path` *is* the bundled signal. A
         # one-key test, not a path-prefix guess.
         read_path = kw.get(ReadKwarg.read_path)
         namespace = dict(node_def.get(NodeKey.namespace) or {})
@@ -318,21 +307,21 @@ class SourceLeaf:
             case LeafKind.READ:
                 # `read_kwargs["table_name"]` is not the reliable spelling:
                 # `make_read_kwargs` fills it by binding the backend method's
-                # signature, so a backend naming that parameter differently
-                # omits it, and `_read_to_yaml` only rewrites it when a uid
-                # rename fires.  `NodeKey.name` is the final table name and is
-                # written unconditionally, which keeps this as populated as the
-                # `DatabaseTable` branch's `table`.  Read with `.get`, not
-                # `get_node_key`: a node def missing `name` is still readable
-                # here as long as it carries a path, same as `path` below.
+                # signature, so a backend naming that parameter differently omits
+                # it, and `_read_to_yaml` only rewrites it on a uid rename.
+                # `NodeKey.name` is the final table name and is written
+                # unconditionally, which keeps this as populated as the
+                # `DatabaseTable` branch's `table`. Read with `.get`: a node def
+                # missing `name` is still readable here as long as it carries a
+                # path, same as `path` below.
                 table = kw.get(ReadKwarg.table_name) or node_def.get(NodeKey.name)
-                # The recorded path, never the generated table name.  For a
-                # bundled read that path is the bundle-relative `read_path`
-                # the registry rewrote `hash_path` to, not the original
-                # source.  Both deferred-read constructors normalize their
-                # path parameter into `hash_path`, so the fallback is
-                # defensive only -- and must stay lazy, or a node def missing
-                # `name` would fail the normal path too.
+                # The recorded path, never the generated table name. For a
+                # bundled read that is the bundle-relative `read_path` the
+                # registry rewrote `hash_path` to, not the original source. Both
+                # deferred-read constructors normalize their path parameter into
+                # `hash_path`, so the fallback is defensive only, and must stay
+                # lazy or a node def missing `name` would fail the normal path
+                # too.
                 path = kw.get(ReadKwarg.hash_path) or get_node_key(
                     node_ref, node_def, NodeKey.name
                 )
@@ -341,10 +330,10 @@ class SourceLeaf:
                     if isinstance(path, (list, tuple))
                     else str(path)
                 )
-            # Unreachable while `LeafKind` has exactly the two members
-            # matched above -- `LeafKind(...)` on `op` already rejected
-            # anything else.  It fires only once `LeafKind` grows a member
-            # this match forgot, which is why no test reaches it.
+            # Unreachable while `LeafKind` has exactly the two members matched
+            # above: `LeafKind(...)` on `op` already rejected anything else. It
+            # fires only once `LeafKind` grows a member this match forgot, which
+            # is why no test reaches it.
             case _:
                 raise ValueError(f"no leaf extraction for kind {kind}")
         return cls(
@@ -385,8 +374,8 @@ def read_document(
     """One YAML member of ``build_zip``, parsed, named on failure.
 
     An empty or non-mapping member would otherwise reach the ``BuildRecord``
-    validators as an unnamed ``TypeError``; ``empty_ok`` allows the one member
-    that is legitimately empty (a record with no profiles).
+    validators as an unnamed ``TypeError``. ``empty_ok`` allows the one member
+    that is legitimately empty, a record with no profiles.
     """
     doc = build_zip.read_dump_file(dump_file, yaml12.parse_yaml)
     if doc is None and empty_ok:
@@ -402,25 +391,23 @@ def read_document(
 class BuildRecord:
     """The two archive members source inspection needs, read in place and parsed.
 
-    Neither member is extracted to disk and neither is loaded into an
-    expression, so a record whose UDF blob is corrupt still reports its
-    sources.
+    Neither member is extracted to disk and neither is loaded into an expression,
+    so a record whose UDF blob is corrupt still reports its sources.
 
-    Both are deep-frozen on the way in.  ``source_leaves`` is a
-    ``cached_property``, so a plain dict here would let a caller mutate the
-    document after first access and silently keep the stale leaves; it would
-    also make ``@frozen``'s generated ``__hash__`` raise on a ``dict`` field.
+    Both are deep-frozen on the way in. ``source_leaves`` is a
+    ``cached_property``, so a plain dict would let a caller mutate the document
+    after first access and silently keep the stale leaves; it would also make
+    ``@frozen``'s generated ``__hash__`` raise on a ``dict`` field.
     ``FrozenOrderedDict`` subclasses ``dict``, so every ``.get`` / ``[]``
-    traversal in this module reads it unchanged.
+    traversal here reads it unchanged.
 
-    That freeze is the one place the module does pay for the whole document:
-    it rebuilds every mapping and ``FrozenDict.__init__`` hashes each one
-    eagerly, so ``definitions.nodes`` -- where the UDF pickle blobs live -- is
-    copied and hashed even though no blob is ever read.  Cost is ~2x the parsed
-    doc at peak, once per record, which a ``check-sources`` sweep pays per
-    entry.  It buys a record that cannot go stale and can be used as a key;
-    profile a sweep with that in mind rather than expecting the traversal to be
-    the only cost.
+    That freeze is the one place the module pays for the whole document: it
+    rebuilds and eagerly hashes every mapping, so ``definitions.nodes``, where
+    the UDF pickle blobs live, is copied and hashed though no blob is ever read.
+    Peak cost is ~2x the parsed doc, once per record, which a ``check-sources``
+    sweep pays per entry. It buys a record that cannot go stale and can be used
+    as a key. Profile a sweep with that in mind rather than expecting the
+    traversal to be the only cost.
     """
 
     expr_doc = field(validator=instance_of(dict), converter=freeze)
@@ -440,7 +427,7 @@ class BuildRecord:
         """``(bundle_kind, count)`` pairs over the bundled leaves, sorted.
 
         An unknown kind sorts last, so a leaf written by another version cannot
-        crash the summary alongside the kinds we do recognize.
+        crash the summary alongside the kinds this version recognizes.
         """
         kinds = Counter(leaf.bundle_kind for leaf in self.source_leaves if leaf.bundled)
         return tuple(sorted(kinds.items(), key=lambda kv: (kv[0] is None, kv[0] or "")))
@@ -448,7 +435,7 @@ class BuildRecord:
     def get_profile_dict(self, leaf: SourceLeaf) -> dict[str, Any] | None:
         """The serialized profile ``leaf`` needs to be reached, if it names one.
 
-        ``None`` means the leaf names no profile.  A leaf naming one the record
+        ``None`` means the leaf names no profile. A leaf naming one the record
         does not hold is a dangling ref in a corrupt record, so it raises rather
         than degrading to the same ``None``.
         """
