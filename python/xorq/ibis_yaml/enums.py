@@ -64,6 +64,11 @@ class NodeKey(StrEnum):
     ``Registry`` stamps on them.
 
     Other ops still spell their keys out; this covers that subset only.
+
+    Keys only: the ``op`` *values* stay literals (``"DatabaseTable"``,
+    ``"Read"``). The enum naming them is ``xorq.catalog.enums.LeafKind``, and
+    ``ibis_yaml`` must not import ``catalog`` -- the dependency runs the other
+    way -- so that boundary is deliberate, not an oversight.
     """
 
     op = "op"
