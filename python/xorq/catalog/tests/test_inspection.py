@@ -24,7 +24,7 @@ import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog.catalog import Catalog, CatalogEntry
-from xorq.catalog.enums import LeafKind, PinKey
+from xorq.catalog.enums import LeafKind, PinOp
 from xorq.catalog.inspection import (
     BuildRecord,
     get_source_leaves,
@@ -251,7 +251,7 @@ def test_pinned_cache_reports_no_external_leaf(
     assert record.external_leaves == ()
 
     nodes = record.expr_doc["definitions"]["nodes"]
-    assert PinKey.OP in {node["op"] for node in nodes.values()}
+    assert PinOp.CACHE_TAG in {node["op"] for node in nodes.values()}
     # the discarded upstream read is in the record, and out of the walk's reach
     hash_paths = {
         dict(map(tuple, node.get("read_kwargs", ()))).get("hash_path")
@@ -620,6 +620,23 @@ def test_dangling_profile_ref_names_the_profile() -> None:
     (leaf,) = record.source_leaves
     with pytest.raises(ValueError, match="p0"):
         record.get_profile_dict(leaf)
+
+
+def test_profileless_record_still_reports_leaves(
+    tmp_path_factory: pytest.TempPathFactory, world: SimpleNamespace
+) -> None:
+    """A record whose profiles.yaml parses to nothing is still readable.
+
+    `empty_ok` covers the one member that is legitimately empty; without it a
+    valid, profile-less record would fail as hard as a truncated one.
+    """
+    catalog = make_catalog(tmp_path_factory.mktemp("inspection-noprofiles") / "repo")
+    entry = catalog.add(world.con.table("t").filter(xo._.a > 1))
+    rewrite_member(entry.catalog_path, DumpFiles.profiles, lambda data: b"")
+    record = BuildRecord.from_catalog_entry(entry)
+    assert record.profiles == {}
+    (leaf,) = get_source_leaves(entry)
+    assert (leaf.kind, leaf.name) == (LeafKind.DATABASE_TABLE, "t")
 
 
 def test_unparsable_expr_member_names_the_file(

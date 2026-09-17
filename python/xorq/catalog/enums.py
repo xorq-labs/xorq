@@ -40,17 +40,28 @@ class LeafKind(StrEnum):
     READ = "Read"
 
 
-class PinKey(StrEnum):
-    """The serialized ``CacheTag`` members a source walk must treat specially.
+class PinOp(StrEnum):
+    """The ``op`` name that denotes a pin, as ``_cache_tag_to_yaml`` writes it.
 
-    ``OP`` is the ``op`` value ``_cache_tag_to_yaml`` writes; the other two are
-    that node def's edges.  ``PARENT`` is the frozen read of the cache artifact
-    and ``UNCACHED`` the upstream the pin discarded -- neither is a source of
-    the record, so both are cut where ``graph_utils`` cuts them for hashing.
-    Compared as strings for the same reason as ``LeafKind``: the walk reads
-    dicts and never constructs a node.
+    Its own enum rather than a member of ``PinKey``: an op *value* in a set of
+    node-def key names would make ``frozenset(PinKey)`` -- the pattern
+    ``LEAF_OPS`` and ``REGISTRY_KEYS`` train the reader to reach for -- quietly
+    wrong.  Compared as a string for the same reason as ``LeafKind``: the walk
+    reads dicts and never constructs a node.
     """
 
-    OP = "CacheTag"
+    CACHE_TAG = "CacheTag"
+
+
+class PinKey(StrEnum):
+    """The ``CacheTag`` node def's edges, as a source walk must treat them.
+
+    ``PARENT`` is the frozen read of the cache artifact and ``UNCACHED`` the
+    upstream the pin discarded -- neither is a source of the record, so both
+    are cut where ``graph_utils`` cuts them for hashing.  Keys only, so
+    ``frozenset(PinKey)`` is a set of prune-keys and nothing else; the op name
+    lives in ``PinOp``.
+    """
+
     PARENT = "parent"
     UNCACHED = "uncached"

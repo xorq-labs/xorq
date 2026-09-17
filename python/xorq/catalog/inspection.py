@@ -41,7 +41,7 @@ import yaml12
 from attr import field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 
-from xorq.catalog.enums import LeafKind, PinKey
+from xorq.catalog.enums import LeafKind, PinKey, PinOp
 from xorq.catalog.zip_utils import BuildZip
 from xorq.ibis_yaml.enums import (
     BundledSourceTypes,
@@ -151,7 +151,7 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
                             f"{DocKey.definitions}.{RegistryEnum.nodes}"
                         )
                     stack.append(node_def)
-                pruned = pruned_at_pin if cur.get(NodeKey.op) == PinKey.OP else ()
+                pruned = pruned_at_pin if cur.get(NodeKey.op) == PinOp.CACHE_TAG else ()
                 stack.extend(value for key, value in cur.items() if key not in pruned)
             case list() | tuple():
                 stack.extend(cur)
@@ -170,15 +170,32 @@ def reachable_node_refs(doc: dict) -> tuple[str, ...]:
     return tuple(sorted(walk_node_refs(doc, SOURCE_WALK_PRUNED)))
 
 
-def pinned_node_refs(doc: dict) -> frozenset[str]:
+def has_pin(doc: dict) -> bool:
+    """Whether any node def is a ``CacheTag``.
+
+    A registry scan, not a walk: it only gates the second walk, and a pin the
+    expression cannot reach prunes nothing anyway, so an over-broad ``True``
+    costs one walk and can never change the answer.
+    """
+    return any(
+        node_def.get(NodeKey.op) == PinOp.CACHE_TAG
+        for node_def in get_nodes(doc).values()
+        if isinstance(node_def, dict)
+    )
+
+
+def pinned_node_refs(doc: dict, source_refs: frozenset[str]) -> frozenset[str]:
     """Refs reachable ONLY through a pin: the frozen cache-artifact reads.
 
     Same ``under_pin - live`` rule as ``graph_utils.exclusively_pinned_leaves``,
     so a node the pin shares with a live branch keeps its live status.
+    ``source_refs`` is the caller's already-computed source walk, so the common
+    pin-free record walks the document once: with no ``CacheTag`` in it the two
+    walks are provably identical and their difference provably empty.
     """
-    return walk_node_refs(doc, SOURCE_WALK_PRUNED) - walk_node_refs(
-        doc, LIVE_WALK_PRUNED
-    )
+    if not has_pin(doc):
+        return frozenset()
+    return source_refs - walk_node_refs(doc, LIVE_WALK_PRUNED)
 
 
 def get_bundle_kind(read_path: str) -> BundledSourceTypes | None:
@@ -338,8 +355,9 @@ def iter_source_leaves(doc: dict) -> tuple[SourceLeaf, ...]:
     """Reachable ``DatabaseTable`` / ``Read`` node defs of ``doc``, in ref order."""
     context = translation_context(doc)
     nodes = get_nodes(doc)
-    pinned = pinned_node_refs(doc)
-    pairs = ((node_ref, nodes[node_ref]) for node_ref in reachable_node_refs(doc))
+    source_refs = walk_node_refs(doc, SOURCE_WALK_PRUNED)
+    pinned = pinned_node_refs(doc, source_refs)
+    pairs = ((node_ref, nodes[node_ref]) for node_ref in sorted(source_refs))
     return tuple(
         SourceLeaf.from_node_def(node_ref, node_def, context, pinned=node_ref in pinned)
         for node_ref, node_def in pairs
