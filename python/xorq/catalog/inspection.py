@@ -160,22 +160,13 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
     return frozenset(seen)
 
 
-def reachable_node_refs(doc: dict) -> tuple[str, ...]:
-    """Every ``node_ref`` this record's sources are reachable through, sorted.
-
-    A pin's discarded ``uncached`` upstream is not among them: those sources
-    belong to the expression the pin replaced, and the record cannot be checked
-    against them -- they may legitimately be gone.
-    """
-    return tuple(sorted(walk_node_refs(doc, SOURCE_WALK_PRUNED)))
-
-
 def has_pin(doc: dict) -> bool:
     """Whether any node def is a ``CacheTag``.
 
-    A registry scan, not a walk: it only gates the second walk, and a pin the
-    expression cannot reach prunes nothing anyway, so an over-broad ``True``
-    costs one walk and can never change the answer.
+    A registry scan, not a walk: it only gates the pair of walks whose
+    difference is the pinned set, and a pin the expression cannot reach prunes
+    nothing anyway, so an over-broad ``True`` costs two walks whose difference
+    is empty and can never change the answer.
     """
     return any(
         node_def.get(NodeKey.op) == PinOp.CACHE_TAG
@@ -184,18 +175,21 @@ def has_pin(doc: dict) -> bool:
     )
 
 
-def pinned_node_refs(doc: dict, source_refs: frozenset[str]) -> frozenset[str]:
+def pinned_node_refs(doc: dict) -> frozenset[str]:
     """Refs reachable ONLY through a pin: the frozen cache-artifact reads.
 
     Same ``under_pin - live`` rule as ``graph_utils.exclusively_pinned_leaves``,
-    so a node the pin shares with a live branch keeps its live status.
-    ``source_refs`` is the caller's already-computed source walk, so the common
-    pin-free record walks the document once: with no ``CacheTag`` in it the two
-    walks are provably identical and their difference provably empty.
+    so a node the pin shares with a live branch keeps its live status.  Both
+    walks are taken here rather than handed in: which prune set each ref set
+    came from is the whole correctness of the difference, and the ``has_pin``
+    short circuit already keeps the common pin-free record to the caller's one
+    walk.
     """
     if not has_pin(doc):
         return frozenset()
-    return source_refs - walk_node_refs(doc, LIVE_WALK_PRUNED)
+    return walk_node_refs(doc, SOURCE_WALK_PRUNED) - walk_node_refs(
+        doc, LIVE_WALK_PRUNED
+    )
 
 
 def get_bundle_kind(read_path: str) -> BundledSourceTypes | None:
@@ -366,7 +360,7 @@ def iter_source_leaves(doc: dict) -> tuple[SourceLeaf, ...]:
     context = translation_context(doc)
     nodes = get_nodes(doc)
     source_refs = walk_node_refs(doc, SOURCE_WALK_PRUNED)
-    pinned = pinned_node_refs(doc, source_refs)
+    pinned = pinned_node_refs(doc)
     pairs = ((node_ref, nodes[node_ref]) for node_ref in sorted(source_refs))
     return tuple(
         SourceLeaf.from_node_def(node_ref, node_def, context, pinned=node_ref in pinned)

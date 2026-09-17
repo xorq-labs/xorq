@@ -26,11 +26,12 @@ from xorq.caching import ParquetCache
 from xorq.catalog.catalog import Catalog, CatalogEntry
 from xorq.catalog.enums import LeafKind, PinOp
 from xorq.catalog.inspection import (
+    SOURCE_WALK_PRUNED,
     BuildRecord,
     get_source_leaves,
     iter_source_leaves,
-    reachable_node_refs,
     translation_context,
+    walk_node_refs,
 )
 from xorq.catalog.zip_utils import BuildZip
 from xorq.ibis_yaml.enums import BundledSourceTypes, DumpFiles
@@ -236,7 +237,9 @@ def test_cache_and_into_backend_report_only_true_sources(
     assert (leaf.kind, leaf.name) == (LeafKind.DATABASE_TABLE, "t")
     # the nodes an isinstance check would have swallowed really are in the record
     nodes = record.expr_doc["definitions"]["nodes"]
-    ops = {nodes[ref]["op"] for ref in reachable_node_refs(record.expr_doc)}
+    ops = {
+        nodes[ref]["op"] for ref in walk_node_refs(record.expr_doc, SOURCE_WALK_PRUNED)
+    }
     assert {"CachedNode", "RemoteTable"} <= ops
 
 
@@ -395,7 +398,7 @@ def test_dangling_node_ref_names_the_ref() -> None:
     """A corrupt record fails with the missing ref, not a bare KeyError."""
     doc = {"definitions": {"nodes": {}}, "expression": {"node_ref": "@filter_0"}}
     with pytest.raises(ValueError, match="@filter_0"):
-        reachable_node_refs(doc)
+        walk_node_refs(doc, SOURCE_WALK_PRUNED)
 
 
 @pytest.mark.parametrize(
@@ -508,7 +511,7 @@ def test_an_unreachable_registry_node_is_not_a_source() -> None:
         "profile": "p0",
         "schema_ref": "schema_0",
     }
-    assert reachable_node_refs(doc) == ("@read_0",)
+    assert walk_node_refs(doc, SOURCE_WALK_PRUNED) == frozenset({"@read_0"})
     (leaf,) = iter_source_leaves(doc)
     assert leaf.node_ref == "@read_0"
 

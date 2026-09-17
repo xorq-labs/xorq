@@ -43,11 +43,12 @@ class LeafKind(StrEnum):
 class PinOp(StrEnum):
     """The ``op`` name that denotes a pin, as ``_cache_tag_to_yaml`` writes it.
 
-    Its own enum rather than a member of ``PinKey``: an op *value* in a set of
-    node-def key names would make ``frozenset(PinKey)`` -- the pattern
-    ``LEAF_OPS`` and ``REGISTRY_KEYS`` train the reader to reach for -- quietly
-    wrong.  Compared as a string for the same reason as ``LeafKind``: the walk
-    reads dicts and never constructs a node.
+    Its own enum rather than a member of ``PinKey``: node-def key names and
+    ``op`` names are different vocabularies, and one enum holding both leaves
+    every member set over it -- ``LEAF_OPS`` is the shape, ``frozenset`` of a
+    whole op enum -- with no way to say which vocabulary it means.  Compared as
+    a string for the same reason as ``LeafKind``: the walk reads dicts and
+    never constructs a node.
     """
 
     CACHE_TAG = "CacheTag"
@@ -58,9 +59,8 @@ class PinKey(StrEnum):
 
     ``PARENT`` is the frozen read of the cache artifact and ``UNCACHED`` the
     upstream the pin discarded -- neither is a source of the record, so both
-    are cut where ``graph_utils`` cuts them for hashing.  Keys only, so
-    ``frozenset(PinKey)`` is a set of prune-keys and nothing else; the op name
-    lives in ``PinOp``.
+    are cut where ``graph_utils`` cuts them for hashing.  Keys only: every
+    member is a prune-key and nothing else; the op name lives in ``PinOp``.
     """
 
     PARENT = "parent"
