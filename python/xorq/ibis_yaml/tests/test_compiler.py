@@ -6,6 +6,7 @@ import itertools
 import json
 import os
 import pathlib
+import re
 import shutil
 import tempfile
 import warnings
@@ -59,9 +60,10 @@ from xorq.ibis_yaml.compiler import (
     _sanitize_generated_names,
     build_expr,
     load_expr,
+    make_read_op,
 )
 from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.enums import WritePhase
+from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, WritePhase
 from xorq.ibis_yaml.sql import find_relations, sql_query_deps
 from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
@@ -1213,8 +1215,16 @@ def test_expr_metadata_sql_queries_degrades_on_malformed_entries() -> None:
 def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
     t = xo.memtable({"a": [1, 2], "b": [3, 4]})
     build_path = build_expr(t, builds_dir=builds_dir)
-    loaded_yaml = yaml12.parse_yaml(build_path.joinpath(DumpFiles.expr).read_text())
+    expr_text = build_path.joinpath(DumpFiles.expr).read_text()
+    loaded_yaml = yaml12.parse_yaml(expr_text)
     loaded = load_expr(build_path, raise_on_unbound=False)
+
+    # Node defs are keyed by NodeKey members, and _to_yaml_safe passes keys
+    # through untouched: pin that yaml12 writes a str subclass as a plain,
+    # untagged scalar so a dependency bump cannot silently tag them.
+    assert re.search(rf"^\s*{NodeKey.read_kwargs}:$", expr_text, re.MULTILINE)
+    assert re.search(rf"^\s*{NodeKey.op}: Read$", expr_text, re.MULTILINE)
+    assert not re.search(r"^\s*!", expr_text, re.MULTILINE)
 
     reads = tuple(walk_nodes((Read,), loaded))
     assert not reads, "deferred reads should be converted to memtables after load"
@@ -1622,6 +1632,30 @@ def test_relocatable_survives_round_trip(
     kw = dict(reads[0].read_kwargs)
     assert kw.get("relocatable") is True
     assert "read_path" in kw
+
+
+def test_read_kwargs_keys_are_plain_str(
+    builds_dir: pathlib.Path, sample_parquet: pathlib.Path
+) -> None:
+    """read_kwargs keys must never be StrEnum members: they reach op state and repr."""
+
+    def assert_plain(expr):
+        reads = list(walk_nodes(Read, expr))
+        assert reads
+        for node in reads:
+            assert all(type(name) is str for name, _ in node.read_kwargs), (
+                node.read_kwargs
+            )
+
+    t = deferred_read_parquet(sample_parquet, relocatable=True)
+    assert_plain(_prepare_relocatable_reads(t, mark=True))
+    assert_plain(load_expr(build_expr(t, builds_dir=builds_dir)))
+
+    dr_op = make_read_op(
+        parquet_path=sample_parquet,
+        read_kwargs={ReadKwarg.table_name: "t", ReadKwarg.read_path: "reads/t.parquet"},
+    )
+    assert all(type(name) is str for name, _ in dr_op.read_kwargs)
 
 
 def test_relocatable_rebuild_from_loaded_expr(
