@@ -1,30 +1,32 @@
 """Read a build record's external source leaves without loading its expression.
 
-A catalog entry freezes its source schemas at build time. This module reads them
-back out of the archive so a later pass can compare them against the world now.
+A catalog entry is a zip, and the ``expr.yaml`` inside it holds the whole
+expression as plain YAML. ``definitions.nodes`` is a flat dict of every node,
+keyed by content hash; ``expression`` is the root and points at the others by
+``node_ref``. The graph is stored flat, and the refs are its edges.
 
-Extraction is pure dict traversal over the serialized record: it constructs no
-xorq node, unpickles no UDF, imports no backend. It reads two archive members,
-``expr.yaml`` and ``profiles.yaml``, both in place, so there is no tempdir to
-clean up. That is what makes source reporting work on an entry whose expression
-can no longer load at all (corrupt UDF blob, missing dependency, uninstalled
-backend).
+``load_expr`` turns that back into Python, which means importing every backend
+and unpickling every UDF. This module answers a narrower question, "which
+sources did this build read, and with what schema", and the YAML already says.
+So it reads ``expr.yaml`` and ``profiles.yaml`` in place, walks dicts, and
+constructs no node. An entry whose expression can no longer load still reports
+its sources.
 
-Leaves come from a reachability walk out of ``expression`` along ``node_ref``
-edges rather than a scan of the flat node registry, so a node the registry holds
-but the expression does not reach can never be reported. They deduplicate by
-construction: the registry keys on content hash, so a table read twice in a
-self-join is one node and one leaf, which is correct. It is one source.
+A source leaf is a reachable node whose ``op`` is ``DatabaseTable`` or ``Read``.
+The walk starts at ``expression`` and follows ``node_ref`` rather than looping
+over ``definitions.nodes``, because the registry also holds nodes the final
+expression never uses. Leaves deduplicate for free: the registry keys on content
+hash, so a table read twice in a self-join is one node, one leaf, one source.
 
-The walk stops at a pin the way the build hash does. A ``CacheTag``'s
-``uncached`` branch is the upstream the pin discarded (see
-``graph_utils.exclusively_pinned_leaves``), so its sources are not this record's,
-and the pin's ``parent`` reads the cache artifact, machine-local rather than a
-user source, so it is reported drift-exempt. Both edges are pruned only *at the
-pin*: a leaf also reachable from a live branch stays live and checkable.
+Two kinds of leaf have nothing outside the archive to drift against, and both
+are ``drift_exempt``. A *bundled* leaf had its bytes copied into the zip at build
+time, and the signal is one key, ADR-0006's ``read_path`` in ``read_kwargs``. A
+*pinned* leaf sits under a ``CacheTag``, whose ``parent`` reads a machine-local
+cache artifact and whose ``uncached`` branch is the upstream the pin discarded
+(see ``graph_utils.exclusively_pinned_leaves``). Both pin edges are cut, but only
+*at the pin*: a node a live branch also reaches stays live and checkable.
 
-The bundled/external split is ADR-0006's: the presence of the ``read_path`` key
-is the signal. See xorq-labs/xorq#2293 for the epic this feeds.
+See xorq-labs/xorq#2293 for the epic this feeds.
 """
 
 from __future__ import annotations
