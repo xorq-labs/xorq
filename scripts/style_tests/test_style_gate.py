@@ -17,13 +17,22 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-from fixtures import FIXTURES, SUPPORT
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# `--import-mode=importlib`, which ci-test.yml passes, imports this module
+# without putting its directory on `sys.path`, so the sibling below is
+# unimportable by bare name. Same insert, same reason, as scripts/tests/.
+sys.path.insert(0, str(Path(__file__).parent))
+
+from fixtures import FIXTURES, SUPPORT  # noqa: E402  (path set above)
+
+
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci-lint.yml"
 DIFF_GATE = REPO_ROOT / "scripts" / "check-style-diff.sh"
 PRE_COMMIT = REPO_ROOT / ".pre-commit-config.yaml"
