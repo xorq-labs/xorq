@@ -26,6 +26,15 @@ repos:
     rev: v0.15.12
     hooks:
       # Run the linter.
+      # These trees are a floor, not a scope: pre-commit appends the staged
+      # files, so a staged Python file outside them is linted too, making this
+      # hook broader than CI, which lints these trees and nothing else. The
+      # hook runs only when a Python, stub or notebook file is staged, and its
+      # `--force-exclude` still applies ruff's default excludes to what
+      # pre-commit hands it. The list is the third copy of LINT_PATHS in
+      # ci-lint.yml (the second is `paths` in
+      # scripts/check-style-diff.sh); test_lint_paths_agree in
+      # scripts/style_tests/ fails when the three diverge.
       - id: ruff-check
         args: ["--output-format=full", "--fix", "python", "examples", "docs", "scripts"]
       # Run the formatter.
@@ -38,6 +47,15 @@ repos:
       - id: uv-lock
   - repo: local
     hooks:
+      # The same script CI runs, over the staged diff rather than base...HEAD:
+      # the diff, not the staged files, so pre-existing violations in a file you
+      # touch stay out of the way.
+      - id: xorq-check-style
+        name: xorq style (changed lines)
+        entry: scripts/check-style-diff.sh --cached
+        language: script
+        types: [python]
+        pass_filenames: false
       - id: git-blame-ignore-revs
         name: configure blame.ignoreRevsFile
         entry: git config --replace-all blame.ignoreRevsFile .git-blame-ignore-revs

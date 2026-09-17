@@ -298,6 +298,13 @@ known-first-party = ["xorq"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 lines-after-imports = 2
 
+[tool.xorq-style.unlisted-import]
+# The package lives under python/, which the ("src", ".") default does not
+# cover: with it, the rule resolves no module and silently passes every import.
+# "." keeps examples/, docs/ and scripts/ in scope, which a bare "python" would
+# exempt outright -- the rule only fires on files under a listed root.
+src-roots = ["python", "."]
+
 [tool.xorq-style.print]
 # Example scripts print receipts to stdout by design. allow-files matches on
 # basename only (no globs), so list each example explicitly as it's touched.
