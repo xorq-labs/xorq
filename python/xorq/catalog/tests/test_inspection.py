@@ -453,6 +453,43 @@ def test_missing_schema_ref_names_the_node() -> None:
         iter_source_leaves(read_doc(schema_ref=None))
 
 
+def test_build_record_is_deep_frozen_and_hashable() -> None:
+    """Cached leaves cannot go stale under a mutated doc, and the record hashes."""
+    record = BuildRecord(expr_doc=read_doc(), profiles={"p0": {"con_name": "duckdb"}})
+    assert len({record}) == 1
+    with pytest.raises(TypeError):
+        record.expr_doc["definitions"] = {}
+    with pytest.raises(TypeError):
+        record.expr_doc["definitions"]["nodes"]["@read_1"] = {}
+
+
+def test_malformed_read_kwargs_names_the_node() -> None:
+    """A read_kwargs entry that is not a pair fails with the ref, not a dict error."""
+    with pytest.raises(ValueError, match="@read_0"):
+        iter_source_leaves(read_doc(read_kwargs=[["hash_path", "s3://b/a", "extra"]]))
+
+
+def test_an_unreachable_registry_node_is_not_a_source() -> None:
+    """A leaf node def no node_ref reaches is not this record's source.
+
+    The registry accumulates node defs the final expression never reaches --
+    pre-rewrite nodes registered before `_replace_tables` substitutes them, for
+    one -- so leaves come from a walk out of `expression`, not a scan of
+    `definitions.nodes`.  A flat scan would report the stale node too.
+    """
+    doc = read_doc()
+    doc["definitions"]["nodes"]["@read_1"] = {
+        "op": "DatabaseTable",
+        "name": "stale",
+        "table": "stale",
+        "profile": "p0",
+        "schema_ref": "schema_0",
+    }
+    assert reachable_node_refs(doc) == ("@read_0",)
+    (leaf,) = iter_source_leaves(doc)
+    assert leaf.node_ref == "@read_0"
+
+
 def test_unknown_registry_section_is_dropped() -> None:
     """A registry section a newer xorq added must not break extraction."""
     doc = read_doc()

@@ -207,6 +207,22 @@ def get_node_key(node_ref: str, node_def: dict, key: str) -> Any:
     return value
 
 
+def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
+    """``read_kwargs`` as ``(key, value)`` pairs, naming the node on a bad entry.
+
+    The serialized form is a list of pairs; an entry of any other length would
+    otherwise reach ``dict()`` as an unattributable "dictionary update sequence
+    element #0 has length 9", which is exactly the traceback this module exists
+    to avoid on a corrupt archive.
+    """
+    pairs = tuple(map(tuple, node_def.get(NodeKey.read_kwargs, ())))
+    if any(len(pair) != 2 for pair in pairs):
+        raise ValueError(
+            f"node {node_ref!r} has a malformed {NodeKey.read_kwargs} entry"
+        )
+    return pairs
+
+
 @frozen
 class SourceLeaf:
     """One source as the build record describes it.
@@ -256,7 +272,7 @@ class SourceLeaf:
         pinned: bool = False,
     ) -> SourceLeaf:
         kind = LeafKind(get_node_key(node_ref, node_def, NodeKey.op))
-        read_kwargs = tuple(map(tuple, node_def.get(NodeKey.read_kwargs, ())))
+        read_kwargs = get_read_kwargs(node_ref, node_def)
         kw = dict(read_kwargs)
         # ADR-0006: the presence of `read_path` *is* the bundled signal -- a
         # one-key test, not a path-prefix guess.
@@ -357,10 +373,17 @@ class BuildRecord:
     Neither member is extracted to disk and neither is loaded into an
     expression, so a record whose UDF blob is corrupt still reports its
     sources.
+
+    Both are deep-frozen on the way in.  ``source_leaves`` is a
+    ``cached_property``, so a plain dict here would let a caller mutate the
+    document after first access and silently keep the stale leaves; it would
+    also make ``@frozen``'s generated ``__hash__`` raise on a ``dict`` field.
+    ``FrozenOrderedDict`` subclasses ``dict``, so every ``.get`` / ``[]``
+    traversal in this module reads it unchanged.
     """
 
-    expr_doc = field(validator=instance_of(dict))
-    profiles = field(validator=instance_of(dict))
+    expr_doc = field(validator=instance_of(dict), converter=freeze)
+    profiles = field(validator=instance_of(dict), converter=freeze)
 
     @cached_property
     def source_leaves(self) -> tuple[SourceLeaf, ...]:
