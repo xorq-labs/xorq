@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from attr import field, frozen
@@ -29,6 +30,12 @@ if TYPE_CHECKING:
 
 # `Read` joins in xorq-labs/xorq#2296; this is the `DatabaseTable` spine.
 CHECKABLE_KINDS = frozenset({LeafKind.DATABASE_TABLE})
+# Drivers that create their database file on open, and the kwarg naming it. A
+# read-only command must not bring one into existence, and the fresh empty
+# database would be reported as `table-missing` when the truth is it is gone.
+FILE_BACKED_CONS = {"sqlite": "database", "duckdb": "database"}
+# sqlite spells in-memory as `None`, duckdb as `:memory:`.
+IN_MEMORY_TARGETS = frozenset({None, "", ":memory:"})
 
 
 @frozen
@@ -126,6 +133,21 @@ def get_leaf_profile(leaf: SourceLeaf, record: BuildRecord) -> Profile:
     return make_profile(profile_dict)
 
 
+def missing_database_file(profile: Profile) -> str | None:
+    """The database file ``profile`` names but that does not exist, if any.
+
+    Checked before connecting, not in the failure handler: by the time the
+    driver has raised it has already created the file.
+    """
+    key = FILE_BACKED_CONS.get(profile.con_name)
+    if key is None:
+        return None
+    target = profile.kwargs_dict.get(key)
+    if target in IN_MEMORY_TARGETS:
+        return None
+    return None if Path(target).exists() else str(target)
+
+
 def open_con(profile: Profile, con_cache: dict) -> Any:
     """The backend connection ``profile`` names.
 
@@ -136,13 +158,18 @@ def open_con(profile: Profile, con_cache: dict) -> Any:
     from xorq.ibis_yaml.compiler import profile_content_key  # noqa: PLC0415
 
     if (key := profile_content_key(profile)) not in con_cache:
-        try:
-            con_cache[key] = profile.get_con()
-        except Exception as e:
-            # A failed connect is cached too: a dead backend takes the full
-            # timeout to fail, and paying that once per leaf behind it is what
-            # the cache exists to avoid.
-            con_cache[key] = e.with_traceback(None)
+        if (path := missing_database_file(profile)) is not None:
+            con_cache[key] = FileNotFoundError(
+                f"{profile.con_name} database {path} does not exist"
+            )
+        else:
+            try:
+                con_cache[key] = profile.get_con()
+            except Exception as e:
+                # A failed connect is cached too: a dead backend takes the full
+                # timeout to fail, and paying that once per leaf behind it is
+                # what the cache exists to avoid.
+                con_cache[key] = e.with_traceback(None)
     if isinstance(con := con_cache[key], Exception):
         # Cleared on the way out as well: re-raising one instance appends the
         # raising frame to its traceback, so a profile behind N leaves would
