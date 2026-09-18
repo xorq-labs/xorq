@@ -413,27 +413,28 @@ def test_an_unreadable_archive_is_unreadable_beside_a_healthy_entry(
     assert "  unreadable: BadZipFile" in result.output
 
 
-def test_a_leaf_defect_keeps_the_leaves_already_probed(
+def test_a_leaf_defect_leaves_the_other_leaves_probed(
     runner: CliRunner,
     world: SimpleNamespace,
     add_entry: Callable[..., Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A leaf that raises mid-loop stops that entry without discarding what the
-    earlier leaves reported: the drift already found still wins the exit code."""
+    """A leaf that raises is named as unreadable and stops nothing else: the
+    leaves after it are still probed, and the drift among them still wins the
+    exit code."""
     add_entry()
     t, u = world.con.table("t"), world.con.table("u")
     entry = world.catalog.add(t.join(u, "a"))
     catalog_entry = world.catalog.get_catalog_entry(entry.name)
     first, second = checkable_leaves(BuildRecord.from_catalog_entry(catalog_entry))
-    world.con.drop_table(first.table, force=True)
+    world.con.drop_table(second.table, force=True)
     world.con.create_table(
-        first.table, pa.table({"a": pa.array([1], pa.int64())}).to_pandas()
+        second.table, pa.table({"a": pa.array([1], pa.int64())}).to_pandas()
     )
     table_location = drift.table_location
 
     def raising_location(leaf):
-        if leaf.table == second.table:
+        if leaf.table == first.table:
             raise ValueError("catalog 'cat' without a database")
         return table_location(leaf)
 
@@ -441,5 +442,6 @@ def test_a_leaf_defect_keeps_the_leaves_already_probed(
 
     result = check_sources(runner, world, entry.name)
     assert result.exit_code == 3
-    assert f"DatabaseTable {first.name}: changed" in result.output
-    assert "  unreadable: ValueError: catalog 'cat' without a database" in result.output
+    assert f"DatabaseTable {first.name}: unreadable" in result.output
+    assert "    ValueError: catalog 'cat' without a database" in result.output
+    assert f"DatabaseTable {second.name}: changed" in result.output

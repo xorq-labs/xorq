@@ -91,10 +91,10 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t globs < <(printf '%s/*.py\n' $LINT_PATHS)
-          # NUL-delimited, and quotepath off: the default octal-escapes a
-          # non-ASCII path inside quotes, and bare xargs would split a path
-          # carrying a space into two files that do not exist.
-          mapfile -d '' -t files < <(git -c core.quotepath=false ls-files -z -- "${globs[@]}")
+          # `-z`: NUL-delimited and verbatim, so a path carrying a space
+          # arrives as one file rather than two that do not exist, and a
+          # non-ASCII one is not octal-escaped into a name no file has.
+          mapfile -d '' -t files < <(git ls-files -z -- "${globs[@]}")
           # An empty list means the globs stopped matching the tree, not that
           # the tree is clean. Say so rather than passing on nothing.
           (( ${#files[@]} )) || { echo "::error::style gate matched no files"; exit 1; }

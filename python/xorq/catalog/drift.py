@@ -38,6 +38,7 @@ class Verdict(StrEnum):
 
     EQUAL = "equal"
     UNREACHABLE = "unreachable"
+    UNREADABLE = "unreadable"
     CHANGED = "changed"
     TABLE_MISSING = "table-missing"
 
@@ -46,7 +47,7 @@ class Verdict(StrEnum):
         match self:
             case Verdict.EQUAL:
                 return 0
-            case Verdict.UNREACHABLE:
+            case Verdict.UNREACHABLE | Verdict.UNREADABLE:
                 return 2
             case _:
                 return 3
@@ -262,7 +263,17 @@ def iter_leaf_reports(
     con_cache = {} if owned else con_cache
     try:
         for leaf in checkable_leaves(record):
-            yield probe_leaf(leaf, record, con_cache)
+            # A defect in one leaf -- a malformed namespace out of
+            # `table_location`, an unhandled kind out of `get_schema_reader` --
+            # is a property of that leaf, so it ranks `unreadable` and stays
+            # with it: the leaves after it are still probed, and one of them
+            # drifting still wins the exit code.
+            try:
+                yield probe_leaf(leaf, record, con_cache)
+            except Exception as e:
+                yield LeafReport(
+                    leaf, Verdict.UNREADABLE, error=f"{type(e).__name__}: {e}"
+                )
     finally:
         if owned:
             close_cons(con_cache)
@@ -282,7 +293,7 @@ def format_leaf_report(report: LeafReport) -> Iterator[str]:
         case Verdict.CHANGED | Verdict.TABLE_MISSING:
             yield f"    recorded: {format_schema(report.leaf.recorded)}"
             yield f"    live:     {format_schema(report.live)}"
-        case Verdict.UNREACHABLE:
+        case Verdict.UNREACHABLE | Verdict.UNREADABLE:
             yield f"    {report.error}"
         case _:
             pass
