@@ -14,6 +14,7 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from attr import field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
@@ -127,12 +128,58 @@ def get_leaf_profile(leaf: SourceLeaf, record: BuildRecord) -> Profile:
     return make_profile(profile_dict)
 
 
-# Drivers that create their database file on open, and the kwarg naming it. A
-# read-only command must not bring one into existence, and the fresh empty
-# database would be reported as `table-missing` when the truth is it is gone.
-FILE_BACKED_CONS = {"sqlite": "database", "duckdb": "database"}
+def sqlite_no_create(target: str) -> dict:
+    """Open an existing sqlite database, or fail; never create one.
+
+    sqlite spells it as a URI mode. `rw` rather than `ro`: recovering a hot WAL
+    needs write access to the sidecar files, and this connection issues no
+    writes of its own anyway.
+
+    The path is percent-encoded because sqlite splits a URI at the first `?`. An
+    unescaped one truncates the path, drops the mode with the rest of the
+    garbled query, and leaves the default `rwc` to create a database at the
+    truncated path -- the very bug this guards against.
+    """
+    return {"database": f"file:{quote(target)}?mode=rw", "uri": True}
+
+
+def duckdb_no_create(target: str) -> dict:
+    """Open an existing duckdb database, or fail; never create one.
+
+    duckdb has a flag, and it blocks writes for the whole session as well.
+    """
+    return {"read_only": True}
+
+
+# Drivers that create their database file on open: the kwarg naming the file,
+# and the kwargs that open it without creating it. A read-only command must not
+# bring a database into existence, and the fresh empty one would be reported as
+# `table-missing` when the truth is that the database is gone.
+FILE_BACKED_CONS = {
+    "sqlite": ("database", sqlite_no_create),
+    "duckdb": ("database", duckdb_no_create),
+}
 # sqlite spells in-memory as `None`, duckdb as `:memory:`.
 IN_MEMORY_TARGETS = frozenset({None, "", ":memory:"})
+# Prefixes that name something other than a local file the driver would create:
+# duckdb's MotherDuck handles, and a sqlite URI, which already carries its own
+# open mode and must not be re-encoded as a path.
+NON_FILE_TARGETS = ("md:", "motherduck:", "file:")
+
+
+def database_target(profile: Profile) -> str | None:
+    """The local database file ``profile`` names, if it names one at all.
+
+    ``None`` for a backend that does not create its target, and for the
+    in-memory spellings, which name no file and take no mode: duckdb refuses
+    `:memory:` outright when asked for it read-only.
+    """
+    if (entry := FILE_BACKED_CONS.get(profile.con_name)) is None:
+        return None
+    target = profile.kwargs_dict.get(entry[0])
+    if target in IN_MEMORY_TARGETS or str(target).startswith(NON_FILE_TARGETS):
+        return None
+    return str(target)
 
 
 def missing_database_file(profile: Profile) -> str | None:
@@ -141,13 +188,23 @@ def missing_database_file(profile: Profile) -> str | None:
     Checked before connecting, not in the failure handler: by the time the
     driver has raised it has already created the file.
     """
-    key = FILE_BACKED_CONS.get(profile.con_name)
-    if key is None:
+    if (target := database_target(profile)) is None:
         return None
-    target = profile.kwargs_dict.get(key)
-    if target in IN_MEMORY_TARGETS:
-        return None
-    return None if Path(target).exists() else str(target)
+    return None if Path(target).exists() else target
+
+
+def no_create_kwargs(profile: Profile) -> dict:
+    """The connect kwargs that keep the driver from creating ``profile``'s file.
+
+    Belt to ``missing_database_file``'s braces: the check above can go stale
+    between the check and the connect, and only the driver can close that
+    window. It also names the honest cause -- sqlite reports a missing file and
+    an unreadable one with the same message, so the pre-check is what turns one
+    of them into `does not exist`.
+    """
+    if (target := database_target(profile)) is None:
+        return {}
+    return FILE_BACKED_CONS[profile.con_name][1](target)
 
 
 def open_con(profile: Profile, con_cache: dict) -> Any:
@@ -166,7 +223,7 @@ def open_con(profile: Profile, con_cache: dict) -> Any:
             )
         else:
             try:
-                con_cache[key] = profile.get_con()
+                con_cache[key] = profile.get_con(**no_create_kwargs(profile))
             except Exception as e:
                 # A failed connect is cached too: a dead backend takes the full
                 # timeout to fail, and paying that once per leaf behind it is
