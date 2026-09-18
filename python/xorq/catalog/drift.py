@@ -109,32 +109,36 @@ def make_profile(profile_dict: dict) -> Profile:
 
 
 def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
-    """``leaf``'s namespace as ibis spells it: a pair, a bare name, or nothing."""
-    match tuple(part for part in leaf.namespace if part):
-        case ():
+    """``leaf``'s namespace as ibis spells it: a pair, a bare name, or nothing.
+
+    The raw ``(catalog, database)`` pair is what gets matched, not a compacted
+    one: ibis reads a lone string as a database, so demoting a catalog into that
+    slot would probe somewhere the leaf never named.
+    """
+    match leaf.namespace:
+        case (None | "", None | ""):
             return None
-        case (only,):
-            return only
+        case (None | "", database):
+            return database
+        case (catalog, None | ""):
+            raise ValueError(f"catalog {catalog!r} without a database")
         case pair:
             return pair
 
 
-def open_con(
-    leaf: SourceLeaf, record: BuildRecord, con_cache: dict | None = None
-) -> Any:
+def open_con(leaf: SourceLeaf, record: BuildRecord, con_cache: dict) -> Any:
     """The backend connection ``leaf`` recorded.
 
     Its own function so that connection policy has one place to live.
-    ``con_cache`` keys on the profile's content hash -- what
-    ``compiler.profile_content_key`` returns -- so a sweep opens one connection
-    per distinct profile rather than one per leaf.
+    ``con_cache`` is required and the caller owns closing it, so every
+    connection this module opens is one ``close_cons`` can reach.
     """
+    from xorq.ibis_yaml.compiler import profile_content_key  # noqa: PLC0415
+
     if (profile_dict := record.get_profile_dict(leaf)) is None:
         raise ValueError(f"node {leaf.node_ref!r} records no profile")
     profile = make_profile(profile_dict)
-    if con_cache is None:
-        return profile.get_con()
-    if (key := profile.content_hash) not in con_cache:
+    if (key := profile_content_key(profile)) not in con_cache:
         try:
             con_cache[key] = profile.get_con()
         except Exception as e:
@@ -199,13 +203,20 @@ def probe_leaf(
     Anything the connection or the read raises is ``unreachable``: no cause is
     guessed from an error message. An unhandled leaf kind raises out of
     ``get_schema_reader`` before the probe starts.
+
+    Without a caller-owned ``con_cache`` the probe closes what it opened.
     """
     read_schema = get_schema_reader(leaf)
+    owned = con_cache is None
+    con_cache = {} if owned else con_cache
     try:
         con = open_con(leaf, record, con_cache)
         live = read_schema(con, leaf)
     except Exception as e:
         return LeafReport(leaf, Verdict.UNREACHABLE, error=f"{type(e).__name__}: {e}")
+    finally:
+        if owned:
+            close_cons(con_cache)
     if live is None:
         return LeafReport(leaf, Verdict.TABLE_MISSING)
     verdict = Verdict.EQUAL if live == leaf.recorded else Verdict.CHANGED

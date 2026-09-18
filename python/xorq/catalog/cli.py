@@ -1072,7 +1072,8 @@ def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
 
     \b
     Exit codes (the worst leaf wins):
-      0  every source equal, or nothing external to check
+      0  every checked source equal; any leaf this version cannot probe is
+         named in the output
       2  a source was unreachable
       3  a source changed, or its table is missing
 
