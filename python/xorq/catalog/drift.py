@@ -10,7 +10,7 @@ archive, so an entry whose expression can no longer load is still checkable.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
 from attr import field, frozen
@@ -140,11 +140,15 @@ def get_table_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
     return con.table(leaf.table, database=database).schema()
 
 
-def get_live_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
-    """``leaf``'s live schema, or ``None`` when it is positively absent."""
+def get_schema_reader(leaf: SourceLeaf) -> Callable[[Any, SourceLeaf], Schema | None]:
+    """The reader that fetches ``leaf``'s live schema.
+
+    Resolved before the probe opens a connection, so a missing arm raises a
+    ``ValueError`` instead of being reported as an unreachable backend.
+    """
     match leaf.kind:
         case LeafKind.DATABASE_TABLE:
-            return get_table_schema(con, leaf)
+            return get_table_schema
         # `Read` arrives in xorq-labs/xorq#2296; `checkable_leaves` filters every
         # other kind out before a probe can get here.
         case _:
@@ -157,9 +161,10 @@ def probe_leaf(leaf: SourceLeaf, record: BuildRecord) -> LeafReport:
     Anything that raises is ``unreachable``: no cause is guessed from an error
     message.
     """
+    read_schema = get_schema_reader(leaf)
     try:
         con = open_con(leaf, record)
-        live = get_live_schema(con, leaf)
+        live = read_schema(con, leaf)
     except Exception as e:
         return LeafReport(leaf, Verdict.UNREACHABLE, error=f"{type(e).__name__}: {e}")
     if live is None:
