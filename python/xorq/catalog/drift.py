@@ -109,11 +109,14 @@ def make_profile(profile_dict: dict) -> Profile:
 
 
 def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
-    """``leaf``'s namespace as ibis spells it: a pair, a bare name, or nothing.
+    """``leaf``'s namespace as ibis spells it: a pair, a bare name, or nothing;
+    a catalog with no database raises.
 
     The raw ``(catalog, database)`` pair is what gets matched, not a compacted
     one: ibis reads a lone string as a database, so demoting a catalog into that
-    slot would probe somewhere the leaf never named.
+    slot would probe somewhere the leaf never named. A catalog with nothing
+    under it is malformed, and raising is what keeps it from being probed
+    anywhere at all.
     """
     match leaf.namespace:
         case (None | "", None | ""):
@@ -166,7 +169,7 @@ def close_cons(con_cache: dict) -> None:
             pass
 
 
-def get_table_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
+def get_table_schema(con: Any, leaf: SourceLeaf, database: Any) -> Schema | None:
     """``leaf``'s live schema, or ``None`` when the backend does not list the table.
 
     The listing is the only positive evidence of absence. Vendored ibis raises a
@@ -174,13 +177,14 @@ def get_table_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
     message in others (sqlite among them), so classifying on the exception would
     misreport a renamed sqlite table.
     """
-    database = table_location(leaf)
     if leaf.table not in con.list_tables(database=database):
         return None
     return con.table(leaf.table, database=database).schema()
 
 
-def get_schema_reader(leaf: SourceLeaf) -> Callable[[Any, SourceLeaf], Schema | None]:
+def get_schema_reader(
+    leaf: SourceLeaf,
+) -> Callable[[Any, SourceLeaf, Any], Schema | None]:
     """The reader that fetches ``leaf``'s live schema.
 
     Resolved before the probe opens a connection, so a missing arm raises a
@@ -202,16 +206,19 @@ def probe_leaf(
 
     Anything the connection or the read raises is ``unreachable``: no cause is
     guessed from an error message. An unhandled leaf kind raises out of
-    ``get_schema_reader`` before the probe starts.
+    ``get_schema_reader``, and a malformed namespace out of ``table_location``,
+    before the probe starts: both are properties of the leaf, not evidence
+    about a backend.
 
     Without a caller-owned ``con_cache`` the probe closes what it opened.
     """
     read_schema = get_schema_reader(leaf)
+    location = table_location(leaf)
     owned = con_cache is None
     con_cache = {} if owned else con_cache
     try:
         con = open_con(leaf, record, con_cache)
-        live = read_schema(con, leaf)
+        live = read_schema(con, leaf, location)
     except Exception as e:
         return LeafReport(leaf, Verdict.UNREACHABLE, error=f"{type(e).__name__}: {e}")
     finally:

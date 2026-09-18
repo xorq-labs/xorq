@@ -292,3 +292,56 @@ def test_a_sweep_shares_one_failed_connect_per_profile(
     for table in ("t", "u", "v"):
         assert f"DatabaseTable {table}: unreachable" in result.output
     assert result.output.count("RuntimeError: backend is gone") == 3
+
+
+def test_a_namespace_reaches_the_reader_as_ibis_spells_it(
+    record: BuildRecord, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A database alone stays a bare name; a full pair stays a pair, because
+    ibis reads a lone string as a database."""
+    (leaf,) = record.external_leaves
+    seen = []
+
+    def recording_list_tables(self, *args, database=None, **kwargs):
+        seen.append(database)
+        return []
+
+    monkeypatch.setattr(SqliteBackend, "list_tables", recording_list_tables)
+
+    for namespace in ((None, "main"), ("cat", "main")):
+        report = probe_leaf(evolve(leaf, namespace=namespace), record)
+        assert report.verdict is Verdict.TABLE_MISSING
+    assert seen == ["main", ("cat", "main")]
+
+
+def test_a_catalog_without_a_database_raises(record: BuildRecord) -> None:
+    """A malformed namespace is a property of the leaf, so it must not be
+    laundered into an unreachable backend."""
+    (leaf,) = record.external_leaves
+    with pytest.raises(ValueError, match="catalog 'cat' without a database"):
+        probe_leaf(evolve(leaf, namespace=("cat", None)), record)
+
+
+def test_a_lone_probe_closes_the_connection_it_opened(
+    record: BuildRecord, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no caller-owned cache, `probe_leaf` owns the connection it opened."""
+    disconnected = []
+    get_con = Profile.get_con
+
+    def counting_get_con(self, *args, **kwargs):
+        con = get_con(self, *args, **kwargs)
+        disconnect = con.disconnect
+
+        def counting_disconnect(*a, **kw):
+            disconnected.append(con)
+            return disconnect(*a, **kw)
+
+        con.disconnect = counting_disconnect
+        return con
+
+    monkeypatch.setattr(Profile, "get_con", counting_get_con)
+
+    (leaf,) = record.external_leaves
+    assert probe_leaf(leaf, record).verdict is Verdict.EQUAL
+    assert len(disconnected) == 1
