@@ -65,3 +65,29 @@ class PinKey(StrEnum):
 
     PARENT = "parent"
     UNCACHED = "uncached"
+
+
+class Verdict(StrEnum):
+    """What a probe found. The exit code is a property of the verdict, not a
+    table maintained beside it, so the two cannot drift apart."""
+
+    EQUAL = "equal"
+    UNREACHABLE = "unreachable"
+    UNREADABLE = "unreadable"
+    CHANGED = "changed"
+    TABLE_MISSING = "table-missing"
+
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case Verdict.EQUAL:
+                return 0
+            case Verdict.UNREACHABLE | Verdict.UNREADABLE:
+                return 2
+            case Verdict.CHANGED | Verdict.TABLE_MISSING:
+                return 3
+            # Every member is named above, so a new one fails here rather than
+            # inheriting a catch-all's "drift" -- which is the drift this
+            # property exists to prevent.
+            case _:
+                raise ValueError(f"no exit code for verdict {self}")
