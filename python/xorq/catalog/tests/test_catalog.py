@@ -72,6 +72,7 @@ from xorq.catalog.zip_utils import (
     with_pure_suffix,
     write_zip,
 )
+from xorq.common.exceptions import XorqInputError
 from xorq.common.utils.caching_utils import CacheKey
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, ExprKind
 
@@ -1467,7 +1468,7 @@ def test_test_zip(elide, catalog, tmpdir):
         Path(tmpdir).joinpath("build.zip"),
         {name: b"" for name in _VALID_ARCHIVE_NAMES if name != elide},
     )
-    with pytest.raises(AssertionError, match=elide):
+    with pytest.raises(XorqInputError, match=elide):
         BuildZip(zip_path)
 
 
@@ -1476,7 +1477,7 @@ def test_test_zip_missing_wheel(catalog, tmpdir):
         Path(tmpdir).joinpath("build.zip"),
         dict.fromkeys(REQUIRED_ARCHIVE_NAMES, b""),
     )
-    with pytest.raises(AssertionError, match=r"\.whl"):
+    with pytest.raises(XorqInputError, match=r"\.whl"):
         BuildZip(zip_path)
 
 
