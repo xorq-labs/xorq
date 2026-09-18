@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import pyarrow as pa
 import pytest
@@ -195,22 +196,85 @@ def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("con_name", "target"),
+    ("con_name", "kwargs_tuple"),
     [
-        pytest.param("duckdb", ":memory:", id="duckdb-in-memory"),
-        pytest.param("sqlite", None, id="sqlite-in-memory"),
-        pytest.param("duckdb", "md:analytics", id="motherduck-handle"),
-        pytest.param("sqlite", "file:/tmp/x.sqlite?mode=ro", id="sqlite-uri"),
-        pytest.param("postgres", "analytics", id="not-file-backed"),
+        pytest.param("duckdb", (("database", ":memory:"),), id="duckdb-in-memory"),
+        pytest.param(
+            "duckdb", (("database", ":memory:scratch"),), id="duckdb-named-in-memory"
+        ),
+        pytest.param("sqlite", (("database", None),), id="sqlite-in-memory"),
+        pytest.param("duckdb", (("database", "md:analytics"),), id="motherduck-handle"),
+        pytest.param(
+            "sqlite",
+            (("database", "file:/tmp/x.sqlite?mode=ro"), ("uri", True)),
+            id="sqlite-uri-with-a-mode",
+        ),
+        pytest.param("postgres", (("database", "analytics"),), id="not-file-backed"),
     ],
 )
 def test_a_target_that_is_no_local_file_is_left_alone(
-    con_name: str, target: str | None
+    con_name: str, kwargs_tuple: tuple
 ) -> None:
-    """Only a plain local path is ours to check or to open with a mode. duckdb
-    refuses `:memory:` read-only outright, a MotherDuck handle is no path, and a
-    recorded URI already spells its own mode."""
-    profile = Profile(con_name=con_name, kwargs_tuple=(("database", target),))
+    """Only a target the driver would create is ours to check or to re-open.
+    duckdb refuses `:memory:` read-only outright and spells a named in-memory
+    database `:memory:<name>`, a MotherDuck handle is no path, and a URI that
+    already carries a non-creating mode is left as recorded."""
+    profile = Profile(con_name=con_name, kwargs_tuple=kwargs_tuple)
 
     assert missing_database_file(profile) is None
     assert no_create_kwargs(profile) == {}
+
+
+@pytest.mark.parametrize(
+    "mode_part",
+    [pytest.param("", id="no-mode"), pytest.param("?mode=rwc", id="mode-rwc")],
+)
+def test_a_recorded_uri_that_would_create_gets_a_mode(
+    tmp_path: Path, mode_part: str
+) -> None:
+    """A URI with no `mode=` defaults to `rwc`, so being a URI is not by itself
+    evidence that the driver will refuse to create."""
+    db_path = tmp_path / "gone.sqlite"
+    profile = Profile(
+        con_name="sqlite",
+        kwargs_tuple=(("database", f"file:{db_path}{mode_part}"), ("uri", True)),
+    )
+
+    assert no_create_kwargs(profile) == {
+        "database": f"file:{db_path}?mode=rw",
+        "uri": True,
+    }
+    with pytest.raises(Exception, match="unable to open"):
+        open_con(profile, {})
+    assert not db_path.exists()
+
+
+def test_a_file_string_without_uri_is_an_ordinary_path(tmp_path: Path) -> None:
+    """Without `uri=True` sqlite reads `file:...?mode=ro` as a literal filename,
+    query string and all, and the default `rwc` creates it under that name."""
+    target = f"file:{tmp_path / 'gone.sqlite'}?mode=ro"
+    profile = Profile(con_name="sqlite", kwargs_tuple=(("database", target),))
+
+    assert missing_database_file(profile) == target
+    assert no_create_kwargs(profile) == {
+        "database": f"file:{quote(target)}?mode=rw",
+        "uri": True,
+    }
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        open_con(profile, {})
+    assert not Path(target).exists()
+
+
+def test_a_recorded_uri_still_reaches_its_tables(tmp_path: Path) -> None:
+    """Rewriting the mode must leave the rest of the URI -- and the path it
+    names -- exactly where it was."""
+    db_path = tmp_path / "live.sqlite"
+    con = SqliteBackend().connect(str(db_path))
+    con.create_table("t", TABLE.to_pandas())
+    con.disconnect()
+    profile = Profile(
+        con_name="sqlite",
+        kwargs_tuple=(("database", f"file:{db_path}"), ("uri", True)),
+    )
+
+    assert open_con(profile, {}).list_tables() == ["t"]
