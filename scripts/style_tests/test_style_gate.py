@@ -279,8 +279,12 @@ exec "$@"
 @pytest.fixture
 def staged_violation(
     tmp_path: Path, changed_lines_ratchet: frozenset[str], monkeypatch
-) -> Path:
-    """A throwaway repo with one staged file the changed-lines gate must flag."""
+) -> tuple[Path, str]:
+    """A throwaway repo with one staged file the changed-lines gate must flag.
+
+    Returns the rule alongside the repo so the caller can assert the gate
+    reported that rule rather than merely exiting non-zero.
+    """
     rule = next(r for r in sorted(FIXTURES) if r not in changed_lines_ratchet)
     relative_path, source = FIXTURES[rule]
 
@@ -293,12 +297,19 @@ def staged_violation(
     repo = tmp_path / "repo"
     repo.mkdir()
     shutil.copy(REPO_ROOT / "pyproject.toml", repo / "pyproject.toml")
+    # Same support modules as test_rule_fires_on_its_fixture: unstaged, so the
+    # gate never checks them, but on disk for the rules that resolve against
+    # them. Which rule is picked above moves with the ratchet.
+    for path, contents in SUPPORT.items():
+        support = repo / path
+        support.parent.mkdir(parents=True, exist_ok=True)
+        support.write_text(contents)
     target = repo / relative_path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(source)
     for args in (["init", "-q"], ["add", "--", relative_path]):
         subprocess.run(["git", *args], cwd=repo, check=True)
-    return repo
+    return repo, rule
 
 
 def _run_diff_gate(repo: Path) -> subprocess.CompletedProcess[str]:
@@ -311,35 +322,46 @@ def _run_diff_gate(repo: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_diff_gate_fails_on_a_staged_violation(staged_violation: Path) -> None:
+def test_diff_gate_fails_on_a_staged_violation(
+    staged_violation: tuple[Path, str],
+) -> None:
     """The gate both CI and the pre-commit hook run can actually fail.
 
     Everything else here reads the script's `disable=` and `paths=()` lines as
     text; nothing executes it, and a gate that never fails is the one failure
-    mode neither of its two callers would report.
+    mode neither of its two callers would report. The assertion is on the rule
+    the checker names, not on the exit code: a broken shim, an unresolved
+    `xorq-check-style`, and a `git diff` erroring under `pipefail` all exit
+    non-zero too.
     """
-    proc = _run_diff_gate(staged_violation)
-    assert proc.returncode != 0, proc.stdout + proc.stderr
+    repo, rule = staged_violation
+    proc = _run_diff_gate(repo)
+    reported = proc.stdout + proc.stderr
+    assert f"[{rule}]" in reported, reported
+    assert proc.returncode != 0, reported
 
 
 @pytest.mark.parametrize(
     "marker", ["MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply"]
 )
-def test_diff_gate_stands_down_mid_replay(staged_violation: Path, marker: str) -> None:
+def test_diff_gate_stands_down_mid_replay(
+    staged_violation: tuple[Path, str], marker: str
+) -> None:
     """A replay marker stands the gate down on the same staged violation.
 
     The stand-down is the branch that switches the whole hook off, so a marker
     the script misspells -- or a `git rev-parse --git-dir` that resolves
     somewhere else, as in a linked worktree -- leaves it on mid-rebase instead.
     """
+    repo, _ = staged_violation
     git_dir = subprocess.run(
         ["git", "rev-parse", "--git-dir"],
-        cwd=staged_violation,
+        cwd=repo,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.strip()
-    (staged_violation / git_dir / marker).touch()
+    (repo / git_dir / marker).touch()
 
-    proc = _run_diff_gate(staged_violation)
+    proc = _run_diff_gate(repo)
     assert proc.returncode == 0, proc.stdout + proc.stderr
