@@ -136,8 +136,20 @@ def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
             return pair
 
 
-def open_con(leaf: SourceLeaf, record: BuildRecord, con_cache: dict) -> Any:
-    """The backend connection ``leaf`` recorded.
+def get_leaf_profile(leaf: SourceLeaf, record: BuildRecord) -> Profile:
+    """The profile ``leaf`` records.
+
+    Resolved before the probe opens a connection, so a leaf naming no profile
+    and a dangling profile ref both raise a ``ValueError`` instead of being
+    reported as an unreachable backend.
+    """
+    if (profile_dict := record.get_profile_dict(leaf)) is None:
+        raise ValueError(f"node {leaf.node_ref!r} records no profile")
+    return make_profile(profile_dict)
+
+
+def open_con(profile: Profile, con_cache: dict) -> Any:
+    """The backend connection ``profile`` names.
 
     Its own function so that connection policy has one place to live.
     ``con_cache`` is required and the caller owns closing it, so every
@@ -145,9 +157,6 @@ def open_con(leaf: SourceLeaf, record: BuildRecord, con_cache: dict) -> Any:
     """
     from xorq.ibis_yaml.compiler import profile_content_key  # noqa: PLC0415
 
-    if (profile_dict := record.get_profile_dict(leaf)) is None:
-        raise ValueError(f"node {leaf.node_ref!r} records no profile")
-    profile = make_profile(profile_dict)
     if (key := profile_content_key(profile)) not in con_cache:
         try:
             con_cache[key] = profile.get_con()
@@ -221,18 +230,20 @@ def probe_leaf(
 
     Anything the connection or the read raises is ``unreachable``: no cause is
     guessed from an error message. An unhandled leaf kind raises out of
-    ``get_schema_reader``, and a malformed namespace out of ``table_location``,
-    before the probe starts: both are properties of the leaf, not evidence
-    about a backend.
+    ``get_schema_reader``, a malformed namespace out of ``table_location``, and
+    a missing or dangling profile out of ``get_leaf_profile``, before the probe
+    starts: all three are properties of the record, not evidence about a
+    backend.
 
     Without a caller-owned ``con_cache`` the probe closes what it opened.
     """
     read_schema = get_schema_reader(leaf)
     location = table_location(leaf)
+    profile = get_leaf_profile(leaf, record)
     owned = con_cache is None
     con_cache = {} if owned else con_cache
     try:
-        con = open_con(leaf, record, con_cache)
+        con = open_con(profile, con_cache)
         live = read_schema(con, leaf, location)
     except Exception as e:
         return LeafReport(leaf, Verdict.UNREACHABLE, error=format_error(e))
@@ -269,7 +280,8 @@ def iter_leaf_reports(
     try:
         for leaf in checkable_leaves(record):
             # A defect in one leaf -- a malformed namespace out of
-            # `table_location`, an unhandled kind out of `get_schema_reader` --
+            # `table_location`, an unhandled kind out of `get_schema_reader`, a
+            # missing or dangling profile out of `get_leaf_profile` --
             # is a property of that leaf, so it ranks `unreadable` and stays
             # with it: the leaves after it are still probed, and one of them
             # drifting still wins the exit code.

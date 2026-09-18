@@ -212,13 +212,16 @@ def test_unhandled_leaf_kind_raises(record: BuildRecord) -> None:
         probe_leaf(read_leaf, record)
 
 
-def test_leaf_without_a_profile_is_unreachable(record: BuildRecord) -> None:
-    """A leaf naming no profile is a record we cannot reach through, not a
-    connect against a `None` profile."""
+def test_leaf_without_a_profile_is_unreadable(record: BuildRecord) -> None:
+    """A leaf naming no profile is a defect in what was read, not a backend we
+    failed to reach: nothing was connected to."""
     (leaf,) = record.external_leaves
-    report = probe_leaf(evolve(leaf, profile=None), record)
-    assert report.verdict is Verdict.UNREACHABLE
-    assert "records no profile" in report.error
+    with pytest.raises(ValueError, match="records no profile"):
+        probe_leaf(evolve(leaf, profile=None), record)
+
+    (report,) = iter_leaf_reports(evolve(record, profiles={}))
+    assert report.verdict is Verdict.UNREADABLE
+    assert "does not hold" in report.error
 
 
 @pytest.fixture

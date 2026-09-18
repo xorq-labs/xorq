@@ -138,6 +138,9 @@ jobs:
         if: ${{ matrix.backend.services }}
         run: just up-ci ${{ matrix.backend.services }}
 
+      # scripts/style_tests belongs to the style gate and runs in ci-lint.yml.
+      # It re-lints every tracked file, and pins its fixture set to the
+      # installed xorq-style, neither of which is this job's business.
       - name: pytest
         timeout-minutes: 20
         run: >
@@ -146,6 +149,7 @@ jobs:
           --cov --cov-report=xml
           -m ${{ matrix.backend.name }}
           --ignore=python/xorq/catalog
+          --ignore=scripts/style_tests
           -k 'not script_execution and not slow'
           -v --durations=20
           ${{ matrix.backend.parallel && '-n auto --dist=loadfile' || '' }}

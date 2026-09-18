@@ -14,6 +14,7 @@ joining the enforced set unannounced.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -261,3 +262,84 @@ def test_ratcheted_rules_still_have_violations(
         f"these rules are at zero and should come off the --disable list in "
         f"{WORKFLOW.name}: {paid_off}"
     )
+
+
+# The gate calls the checker as `uv run --no-sync xorq-check-style`, and the
+# throwaway repo below is not a uv project. The checker is already on PATH for
+# this suite, so the shim drops the wrapper and execs the rest: what is under
+# test is the script's git handling, not uv's resolution.
+UV_SHIM = """#!/usr/bin/env bash
+[ "$1" = run ] || { echo "unexpected uv invocation: $*" >&2; exit 2; }
+shift
+[ "$1" = --no-sync ] && shift
+exec "$@"
+"""
+
+
+@pytest.fixture
+def staged_violation(
+    tmp_path: Path, changed_lines_ratchet: frozenset[str], monkeypatch
+) -> Path:
+    """A throwaway repo with one staged file the changed-lines gate must flag."""
+    rule = next(r for r in sorted(FIXTURES) if r not in changed_lines_ratchet)
+    relative_path, source = FIXTURES[rule]
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (shim := bin_dir / "uv").write_text(UV_SHIM)
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir), prepend=os.pathsep)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shutil.copy(REPO_ROOT / "pyproject.toml", repo / "pyproject.toml")
+    target = repo / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source)
+    for args in (["init", "-q"], ["add", "--", relative_path]):
+        subprocess.run(["git", *args], cwd=repo, check=True)
+    return repo
+
+
+def _run_diff_gate(repo: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(DIFF_GATE), "--cached"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_diff_gate_fails_on_a_staged_violation(staged_violation: Path) -> None:
+    """The gate both CI and the pre-commit hook run can actually fail.
+
+    Everything else here reads the script's `disable=` and `paths=()` lines as
+    text; nothing executes it, and a gate that never fails is the one failure
+    mode neither of its two callers would report.
+    """
+    proc = _run_diff_gate(staged_violation)
+    assert proc.returncode != 0, proc.stdout + proc.stderr
+
+
+@pytest.mark.parametrize(
+    "marker", ["MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply"]
+)
+def test_diff_gate_stands_down_mid_replay(staged_violation: Path, marker: str) -> None:
+    """A replay marker stands the gate down on the same staged violation.
+
+    The stand-down is the branch that switches the whole hook off, so a marker
+    the script misspells -- or a `git rev-parse --git-dir` that resolves
+    somewhere else, as in a linked worktree -- leaves it on mid-rebase instead.
+    """
+    git_dir = subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        cwd=staged_violation,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    (staged_violation / git_dir / marker).touch()
+
+    proc = _run_diff_gate(staged_violation)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
