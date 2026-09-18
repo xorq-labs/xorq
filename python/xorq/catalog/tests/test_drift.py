@@ -200,10 +200,10 @@ def count_cons(monkeypatch: pytest.MonkeyPatch):
     """Start counting connections, and hand back the `(opened, disconnected)`
     lists they land in. Called from the body so that setup a test does first
     does not count."""
+    get_con = Profile.get_con
 
     def install() -> tuple[list, list]:
         opened, disconnected = [], []
-        get_con = Profile.get_con
 
         def counting_get_con(self, *args, **kwargs):
             con = get_con(self, *args, **kwargs)
@@ -325,9 +325,21 @@ def test_a_namespace_reaches_the_reader_as_ibis_spells_it(
         report = probe_leaf(evolve(leaf, namespace=namespace), record)
         assert report.verdict is Verdict.TABLE_MISSING
     assert seen == ["main", ("cat", "main")]
-    # The pair spelling against a real backend, so the shape above is pinned to
-    # ibis's contract and not to the stub.
-    assert xo.duckdb.connect().list_tables(database=("memory", "main")) == []
+
+
+def test_a_pair_namespace_is_a_per_backend_spelling(record: BuildRecord) -> None:
+    """The pair is what duckdb takes, not a contract every backend honours:
+    sqlite, the backend this module probes, raises on it, and the probe reports
+    that as an unreachable backend."""
+    con = xo.duckdb.connect()
+    try:
+        assert con.list_tables(database=("memory", "main")) == []
+    finally:
+        con.disconnect()
+
+    (leaf,) = record.external_leaves
+    report = probe_leaf(evolve(leaf, namespace=("cat", "main")), record)
+    assert report.verdict is Verdict.UNREACHABLE
 
 
 def test_a_catalog_without_a_database_raises(record: BuildRecord) -> None:
