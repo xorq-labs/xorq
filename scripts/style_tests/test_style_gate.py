@@ -95,21 +95,16 @@ def repo_violations() -> frozenset[str]:
     """Every rule with at least one violation in the repository as it stands."""
     paths = _lint_paths()
     globs = [f"{path}/*.py" for path in paths]
-    # NUL-delimited with quotepath off, for the reasons the whole-repo gate in
-    # the workflow spells out: a path with a space or a non-ASCII character
-    # otherwise arrives as something no file is named.
-    files = (
-        subprocess.run(
-            ["git", "-c", "core.quotepath=false", "ls-files", "-z", "--", *globs],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        .stdout.rstrip("\0")
-        .split("\0")
-    )
-    files = [path for path in files if path]
+    # `-z`: NUL-delimited and verbatim, so a path with a space in it arrives as
+    # one entry and a non-ASCII one is not octal-escaped into a name no file has.
+    out = subprocess.run(
+        ["git", "ls-files", "-z", "--", *globs],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    files = [path for path in out.split("\0") if path]
     assert files, f"the gate's globs matched no files under {paths}"
     return _violations(_run("--json", *files, cwd=REPO_ROOT))
 

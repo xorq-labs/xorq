@@ -395,10 +395,10 @@ def test_a_lone_probe_closes_the_connection_it_opened(
     assert len(disconnected) == 1
 
 
-def test_an_unreadable_archive_is_unreachable_beside_a_healthy_entry(
+def test_an_unreadable_archive_is_unreadable_beside_a_healthy_entry(
     runner: CliRunner, world: SimpleNamespace, add_entry: Callable[..., Any]
 ) -> None:
-    """A record that will not parse ranks as unreachable for its own entry and
+    """A record that will not parse ranks as unreadable for its own entry and
     leaves the rest of the sweep to report normally."""
     other = add_entry()
     # Unlinked first: under the annex backend the path is a symlink to a
@@ -410,4 +410,36 @@ def test_an_unreadable_archive_is_unreachable_beside_a_healthy_entry(
     result = check_sources(runner, world, world.name, other.name)
     assert result.exit_code == 2
     assert "DatabaseTable t: equal" in result.output
-    assert "  unreachable: BadZipFile" in result.output
+    assert "  unreadable: BadZipFile" in result.output
+
+
+def test_a_leaf_defect_keeps_the_leaves_already_probed(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    add_entry: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A leaf that raises mid-loop stops that entry without discarding what the
+    earlier leaves reported: the drift already found still wins the exit code."""
+    add_entry()
+    t, u = world.con.table("t"), world.con.table("u")
+    entry = world.catalog.add(t.join(u, "a"))
+    catalog_entry = world.catalog.get_catalog_entry(entry.name)
+    first, second = checkable_leaves(BuildRecord.from_catalog_entry(catalog_entry))
+    world.con.drop_table(first.table, force=True)
+    world.con.create_table(
+        first.table, pa.table({"a": pa.array([1], pa.int64())}).to_pandas()
+    )
+    table_location = drift.table_location
+
+    def raising_location(leaf):
+        if leaf.table == second.table:
+            raise ValueError("catalog 'cat' without a database")
+        return table_location(leaf)
+
+    monkeypatch.setattr(drift, "table_location", raising_location)
+
+    result = check_sources(runner, world, entry.name)
+    assert result.exit_code == 3
+    assert f"DatabaseTable {first.name}: changed" in result.output
+    assert "  unreadable: ValueError: catalog 'cat' without a database" in result.output

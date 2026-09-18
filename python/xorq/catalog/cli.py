@@ -1038,27 +1038,34 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
     from xorq.catalog.inspection import BuildRecord  # noqa: PLC0415
 
     codes = []
+    record = None
     try:
-        record = BuildRecord.from_catalog_entry(catalog_entry)
+        parsed = BuildRecord.from_catalog_entry(catalog_entry)
         # Leaf extraction is a `cached_property`, so it runs here rather than
         # inside `iter_leaf_reports` below: a record we cannot read is not
-        # evidence of drift, and it ranks as unreachable rather than raising a
-        # traceback over the other entries. The probe loop sits under the same
-        # handler because a malformed leaf raises out of `table_location` and an
-        # unhandled kind out of `get_schema_reader`, neither of which may take
-        # the sweep down either.
-        record.source_leaves
+        # evidence of drift, and it must not raise a traceback over the other
+        # entries. The probe loop sits under the same handler because a
+        # malformed leaf raises out of `table_location` and an unhandled kind
+        # out of `get_schema_reader`, neither of which may take the sweep down
+        # either. All three are defects in what we read rather than evidence
+        # about a backend, so they rank `unreadable` and leave `unreachable` to
+        # the probes, which are the only thing here that reached a source.
+        parsed.source_leaves
+        record = parsed
         for report in iter_leaf_reports(record, con_cache):
             for line in format_leaf_report(report):
                 click.echo(line)
             codes.append(report.exit_code)
     except Exception as e:
-        click.echo(f"  unreachable: {type(e).__name__}: {e}")
-        return max(codes + [2])
-    if (unchecked := format_unchecked(record)) is not None:
-        click.echo(unchecked)
-    elif not codes:
-        click.echo(format_no_external(record))
+        click.echo(f"  unreadable: {type(e).__name__}: {e}")
+        codes.append(2)
+    # Whatever else the entry produced, including an abort mid-loop: silence
+    # about a leaf nobody probed would read as a positive claim about it.
+    if record is not None:
+        if (unchecked := format_unchecked(record)) is not None:
+            click.echo(unchecked)
+        elif not codes:
+            click.echo(format_no_external(record))
     return max(codes, default=0)
 
 
@@ -1077,7 +1084,7 @@ def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
     Exit codes (the worst leaf wins):
       0  every checked source equal; any leaf this version cannot probe is
          named in the output
-      2  a source was unreachable
+      2  a source was unreachable, or the entry itself was unreadable
       3  a source changed, or its table is missing
 
     \b
