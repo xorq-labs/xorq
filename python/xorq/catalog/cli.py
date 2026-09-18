@@ -1037,21 +1037,24 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
     )
     from xorq.catalog.inspection import BuildRecord  # noqa: PLC0415
 
+    codes = []
     try:
         record = BuildRecord.from_catalog_entry(catalog_entry)
         # Leaf extraction is a `cached_property`, so it runs here rather than
         # inside `iter_leaf_reports` below: a record we cannot read is not
         # evidence of drift, and it ranks as unreachable rather than raising a
-        # traceback over the other entries.
+        # traceback over the other entries. The probe loop sits under the same
+        # handler because a malformed leaf raises out of `table_location` and an
+        # unhandled kind out of `get_schema_reader`, neither of which may take
+        # the sweep down either.
         record.source_leaves
+        for report in iter_leaf_reports(record, con_cache):
+            for line in format_leaf_report(report):
+                click.echo(line)
+            codes.append(report.exit_code)
     except Exception as e:
         click.echo(f"  unreachable: {type(e).__name__}: {e}")
-        return 2
-    codes = []
-    for report in iter_leaf_reports(record, con_cache):
-        for line in format_leaf_report(report):
-            click.echo(line)
-        codes.append(report.exit_code)
+        return max(codes + [2])
     if (unchecked := format_unchecked(record)) is not None:
         click.echo(unchecked)
     elif not codes:

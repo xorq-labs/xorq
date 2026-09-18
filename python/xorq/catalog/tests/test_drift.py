@@ -7,8 +7,10 @@ drift against.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pyarrow as pa
 import pytest
@@ -17,6 +19,7 @@ from click.testing import CliRunner
 
 import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
+from xorq.catalog import drift
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.drift import (
@@ -36,11 +39,11 @@ from xorq.vendor.ibis.backends.profiles import Profile
 RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
 
 
-def recreate(world: SimpleNamespace, name: str, table: pa.Table) -> None:
-    """Replace the live table. sqlite has no ALTER COLUMN TYPE, so retype is a
-    drop and recreate too."""
+def recreate(world: SimpleNamespace, new: str, table: pa.Table) -> None:
+    """Drop `t`, the table the entry was built over, and put `new` in its place.
+    sqlite has no ALTER COLUMN TYPE, so retype is a drop and recreate too."""
     world.con.drop_table("t", force=True)
-    world.con.create_table(name, table.to_pandas())
+    world.con.create_table(new, table.to_pandas())
 
 
 @pytest.fixture
@@ -164,10 +167,33 @@ def test_worst_verdict_wins_across_entries(
     assert "2 entries, 1 drifted" in result.output
 
 
-def test_reports_stream_per_leaf(record: BuildRecord) -> None:
-    """The CLI must be able to print a leaf before the next one is probed."""
+def test_reports_stream_per_leaf(
+    world: SimpleNamespace,
+    add_entry: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI must be able to print a leaf before the next one is probed.
+
+    Two leaves, because with one there is no next probe to not have run yet and
+    a tuple would pass just as well.
+    """
+    add_entry()
+    t, u = world.con.table("t"), world.con.table("u")
+    entry = world.catalog.add(t.join(u, "a"))
+    record = BuildRecord.from_catalog_entry(world.catalog.get_catalog_entry(entry.name))
+    assert len(checkable_leaves(record)) == 2
+    probed = []
+    read = drift.get_table_schema
+
+    def counting_read(con, leaf, location):
+        probed.append(leaf)
+        return read(con, leaf, location)
+
+    monkeypatch.setattr(drift, "get_table_schema", counting_read)
+
     reports = iter_leaf_reports(record)
     assert next(reports).verdict == Verdict.EQUAL
+    assert len(probed) == 1
 
 
 def test_entry_report_is_reusable(world: SimpleNamespace) -> None:
@@ -367,3 +393,21 @@ def test_a_lone_probe_closes_the_connection_it_opened(
     assert probe_leaf(leaf, record).verdict is Verdict.EQUAL
     assert len(cons) == 1
     assert len(disconnected) == 1
+
+
+def test_an_unreadable_archive_is_unreachable_beside_a_healthy_entry(
+    runner: CliRunner, world: SimpleNamespace, add_entry: Callable[..., Any]
+) -> None:
+    """A record that will not parse ranks as unreachable for its own entry and
+    leaves the rest of the sweep to report normally."""
+    other = add_entry()
+    # Unlinked first: under the annex backend the path is a symlink to a
+    # read-only object, so writing through it is denied.
+    archive = world.catalog.get_catalog_entry(other.name).catalog_path
+    archive.unlink()
+    archive.write_bytes(b"not a zip")
+
+    result = check_sources(runner, world, world.name, other.name)
+    assert result.exit_code == 2
+    assert "DatabaseTable t: equal" in result.output
+    assert "  unreachable: BadZipFile" in result.output
