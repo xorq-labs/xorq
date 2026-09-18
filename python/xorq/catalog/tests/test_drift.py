@@ -195,31 +195,44 @@ def test_leaf_without_a_profile_is_unreachable(record: BuildRecord) -> None:
     assert "records no profile" in report.error
 
 
+@pytest.fixture
+def count_cons(monkeypatch: pytest.MonkeyPatch):
+    """Start counting connections, and hand back the `(opened, disconnected)`
+    lists they land in. Called from the body so that setup a test does first
+    does not count."""
+
+    def install() -> tuple[list, list]:
+        opened, disconnected = [], []
+        get_con = Profile.get_con
+
+        def counting_get_con(self, *args, **kwargs):
+            con = get_con(self, *args, **kwargs)
+            disconnect = con.disconnect
+
+            def counting_disconnect(*a, **kw):
+                disconnected.append(con)
+                return disconnect(*a, **kw)
+
+            con.disconnect = counting_disconnect
+            opened.append(con)
+            return con
+
+        monkeypatch.setattr(Profile, "get_con", counting_get_con)
+        return opened, disconnected
+
+    return install
+
+
 def test_a_sweep_shares_one_connection_per_profile(
     runner: CliRunner,
     world: SimpleNamespace,
     add_entry,
-    monkeypatch: pytest.MonkeyPatch,
+    count_cons,
 ) -> None:
     """Two entries over the same backend cost one connection for the sweep, and
     the sweep closes what it opened."""
     other = add_entry()
-    cons, disconnected = [], []
-    get_con = Profile.get_con
-
-    def counting_get_con(self, *args, **kwargs):
-        con = get_con(self, *args, **kwargs)
-        disconnect = con.disconnect
-
-        def counting_disconnect(*a, **kw):
-            disconnected.append(con)
-            return disconnect(*a, **kw)
-
-        con.disconnect = counting_disconnect
-        cons.append(con)
-        return con
-
-    monkeypatch.setattr(Profile, "get_con", counting_get_con)
+    cons, disconnected = count_cons()
 
     result = check_sources(runner, world, world.name, other.name)
     assert result.exit_code == 0
@@ -312,6 +325,9 @@ def test_a_namespace_reaches_the_reader_as_ibis_spells_it(
         report = probe_leaf(evolve(leaf, namespace=namespace), record)
         assert report.verdict is Verdict.TABLE_MISSING
     assert seen == ["main", ("cat", "main")]
+    # The pair spelling against a real backend, so the shape above is pinned to
+    # ibis's contract and not to the stub.
+    assert xo.duckdb.connect().list_tables(database=("memory", "main")) == []
 
 
 def test_a_catalog_without_a_database_raises(record: BuildRecord) -> None:
@@ -323,25 +339,12 @@ def test_a_catalog_without_a_database_raises(record: BuildRecord) -> None:
 
 
 def test_a_lone_probe_closes_the_connection_it_opened(
-    record: BuildRecord, monkeypatch: pytest.MonkeyPatch
+    record: BuildRecord, count_cons
 ) -> None:
     """With no caller-owned cache, `probe_leaf` owns the connection it opened."""
-    disconnected = []
-    get_con = Profile.get_con
-
-    def counting_get_con(self, *args, **kwargs):
-        con = get_con(self, *args, **kwargs)
-        disconnect = con.disconnect
-
-        def counting_disconnect(*a, **kw):
-            disconnected.append(con)
-            return disconnect(*a, **kw)
-
-        con.disconnect = counting_disconnect
-        return con
-
-    monkeypatch.setattr(Profile, "get_con", counting_get_con)
+    cons, disconnected = count_cons()
 
     (leaf,) = record.external_leaves
     assert probe_leaf(leaf, record).verdict is Verdict.EQUAL
+    assert len(cons) == 1
     assert len(disconnected) == 1

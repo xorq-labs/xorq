@@ -169,22 +169,25 @@ def close_cons(con_cache: dict) -> None:
             pass
 
 
-def get_table_schema(con: Any, leaf: SourceLeaf, database: Any) -> Schema | None:
+def get_table_schema(
+    con: Any, leaf: SourceLeaf, location: tuple[str, str] | str | None
+) -> Schema | None:
     """``leaf``'s live schema, or ``None`` when the backend does not list the table.
 
     The listing is the only positive evidence of absence. Vendored ibis raises a
     typed ``TableNotFound`` in some backends and a bare error carrying the same
     message in others (sqlite among them), so classifying on the exception would
-    misreport a renamed sqlite table.
+    misreport a renamed sqlite table. ``location`` is ``table_location``'s
+    result, passed through as ibis's ``database=``.
     """
-    if leaf.table not in con.list_tables(database=database):
+    if leaf.table not in con.list_tables(database=location):
         return None
-    return con.table(leaf.table, database=database).schema()
+    return con.table(leaf.table, database=location).schema()
 
 
 def get_schema_reader(
     leaf: SourceLeaf,
-) -> Callable[[Any, SourceLeaf, Any], Schema | None]:
+) -> Callable[[Any, SourceLeaf, tuple[str, str] | str | None], Schema | None]:
     """The reader that fetches ``leaf``'s live schema.
 
     Resolved before the probe opens a connection, so a missing arm raises a
