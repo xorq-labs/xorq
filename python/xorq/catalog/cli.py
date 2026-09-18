@@ -1030,6 +1030,7 @@ def schema(ctx, name, as_json):
 def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
     """Print one entry's leaf reports as they arrive; return its exit code."""
     from xorq.catalog.drift import (  # noqa: PLC0415
+        format_error,
         format_leaf_report,
         format_no_external,
         format_unchecked,
@@ -1050,7 +1051,7 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
         # `unreadable` and goes on probing the rest.
         record.source_leaves
     except Exception as e:
-        click.echo(f"  unreadable: {type(e).__name__}: {e}")
+        click.echo(f"  unreadable: {format_error(e)}")
         return 2
     for report in iter_leaf_reports(record, con_cache):
         for line in format_leaf_report(report):

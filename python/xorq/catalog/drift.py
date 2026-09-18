@@ -209,6 +209,11 @@ def get_schema_reader(
             raise ValueError(f"no probe for leaf kind {leaf.kind}")
 
 
+def format_error(e: Exception) -> str:
+    """The one shape an error takes in this command's output."""
+    return f"{type(e).__name__}: {e}"
+
+
 def probe_leaf(
     leaf: SourceLeaf, record: BuildRecord, con_cache: dict | None = None
 ) -> LeafReport:
@@ -230,7 +235,7 @@ def probe_leaf(
         con = open_con(leaf, record, con_cache)
         live = read_schema(con, leaf, location)
     except Exception as e:
-        return LeafReport(leaf, Verdict.UNREACHABLE, error=f"{type(e).__name__}: {e}")
+        return LeafReport(leaf, Verdict.UNREACHABLE, error=format_error(e))
     finally:
         if owned:
             close_cons(con_cache)
@@ -269,11 +274,10 @@ def iter_leaf_reports(
             # with it: the leaves after it are still probed, and one of them
             # drifting still wins the exit code.
             try:
-                yield probe_leaf(leaf, record, con_cache)
+                report = probe_leaf(leaf, record, con_cache)
             except Exception as e:
-                yield LeafReport(
-                    leaf, Verdict.UNREADABLE, error=f"{type(e).__name__}: {e}"
-                )
+                report = LeafReport(leaf, Verdict.UNREADABLE, error=format_error(e))
+            yield report
     finally:
         if owned:
             close_cons(con_cache)
