@@ -158,8 +158,9 @@ def get_schema_reader(leaf: SourceLeaf) -> Callable[[Any, SourceLeaf], Schema | 
 def probe_leaf(leaf: SourceLeaf, record: BuildRecord) -> LeafReport:
     """Reach ``leaf`` through its recorded profile and compare the schemas.
 
-    Anything that raises is ``unreachable``: no cause is guessed from an error
-    message.
+    Anything the connection or the read raises is ``unreachable``: no cause is
+    guessed from an error message. An unhandled leaf kind raises out of
+    ``get_schema_reader`` before the probe starts.
     """
     read_schema = get_schema_reader(leaf)
     try:

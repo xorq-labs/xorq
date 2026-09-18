@@ -12,13 +12,15 @@ from types import SimpleNamespace
 
 import pyarrow as pa
 import pytest
+from attr import evolve
 from click.testing import CliRunner
 
 import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.drift import EntryReport, Verdict, iter_leaf_reports
+from xorq.catalog.drift import EntryReport, Verdict, iter_leaf_reports, probe_leaf
+from xorq.catalog.enums import LeafKind
 
 
 RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
@@ -151,3 +153,13 @@ def test_entry_report_is_reusable(world: SimpleNamespace) -> None:
     assert report.name == world.name
     assert report.exit_code == 0
     assert tuple(r.verdict for r in report.leaf_reports) == (Verdict.EQUAL,)
+
+
+def test_unhandled_leaf_kind_raises(world: SimpleNamespace) -> None:
+    """A kind with no schema reader must fail loudly, not report unreachable."""
+    record = EntryReport.from_catalog_entry(
+        world.catalog.get_catalog_entry(world.name)
+    ).record
+    (leaf,) = record.external_leaves
+    with pytest.raises(ValueError):
+        probe_leaf(evolve(leaf, kind=LeafKind.READ), record)
