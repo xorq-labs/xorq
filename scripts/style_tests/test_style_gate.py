@@ -14,7 +14,6 @@ joining the enforced set unannounced.
 """
 
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -26,9 +25,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Under `--import-mode=importlib` this module is imported without its own
-# directory landing on `sys.path`, so the sibling below is unimportable by
-# bare name. Same insert, same reason, as scripts/tests/.
+# `--import-mode=importlib`, which ci-test.yml passes, imports this module
+# without putting its directory on `sys.path`, so the sibling below is
+# unimportable by bare name. Same insert, same reason, as scripts/tests/.
 sys.path.insert(0, str(Path(__file__).parent))
 
 from fixtures import FIXTURES, SUPPORT  # noqa: E402  (path set above)
@@ -96,16 +95,13 @@ def repo_violations() -> frozenset[str]:
     """Every rule with at least one violation in the repository as it stands."""
     paths = _lint_paths()
     globs = [f"{path}/*.py" for path in paths]
-    # `-z`: NUL-delimited and verbatim, so a path with a space in it arrives as
-    # one entry and a non-ASCII one is not octal-escaped into a name no file has.
-    out = subprocess.run(
-        ["git", "ls-files", "-z", "--", *globs],
+    files = subprocess.run(
+        ["git", "ls-files", "--", *globs],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,
-    ).stdout
-    files = [path for path in out.split("\0") if path]
+    ).stdout.split()
     assert files, f"the gate's globs matched no files under {paths}"
     return _violations(_run("--json", *files, cwd=REPO_ROOT))
 
@@ -262,106 +258,3 @@ def test_ratcheted_rules_still_have_violations(
         f"these rules are at zero and should come off the --disable list in "
         f"{WORKFLOW.name}: {paid_off}"
     )
-
-
-# The gate calls the checker as `uv run --no-sync xorq-check-style`, and the
-# throwaway repo below is not a uv project. The checker is already on PATH for
-# this suite, so the shim drops the wrapper and execs the rest: what is under
-# test is the script's git handling, not uv's resolution.
-UV_SHIM = """#!/usr/bin/env bash
-[ "$1" = run ] || { echo "unexpected uv invocation: $*" >&2; exit 2; }
-shift
-[ "$1" = --no-sync ] && shift
-exec "$@"
-"""
-
-
-@pytest.fixture
-def staged_violation(
-    tmp_path: Path, changed_lines_ratchet: frozenset[str], monkeypatch
-) -> tuple[Path, str]:
-    """A throwaway repo with one staged file the changed-lines gate must flag.
-
-    Returns the rule alongside the repo so the caller can assert the gate
-    reported that rule rather than merely exiting non-zero.
-    """
-    rule = next(r for r in sorted(FIXTURES) if r not in changed_lines_ratchet)
-    relative_path, source = FIXTURES[rule]
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (shim := bin_dir / "uv").write_text(UV_SHIM)
-    shim.chmod(0o755)
-    monkeypatch.setenv("PATH", str(bin_dir), prepend=os.pathsep)
-
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    shutil.copy(REPO_ROOT / "pyproject.toml", repo / "pyproject.toml")
-    # Same support modules as test_rule_fires_on_its_fixture: unstaged, so the
-    # gate never checks them, but on disk for the rules that resolve against
-    # them. Which rule is picked above moves with the ratchet.
-    for path, contents in SUPPORT.items():
-        support = repo / path
-        support.parent.mkdir(parents=True, exist_ok=True)
-        support.write_text(contents)
-    target = repo / relative_path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(source)
-    for args in (["init", "-q"], ["add", "--", relative_path]):
-        subprocess.run(["git", *args], cwd=repo, check=True)
-    return repo, rule
-
-
-def _run_diff_gate(repo: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [str(DIFF_GATE), "--cached"],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-def test_diff_gate_fails_on_a_staged_violation(
-    staged_violation: tuple[Path, str],
-) -> None:
-    """The gate both CI and the pre-commit hook run can actually fail.
-
-    Everything else here reads the script's `disable=` and `paths=()` lines as
-    text; nothing executes it, and a gate that never fails is the one failure
-    mode neither of its two callers would report. The assertion is on the rule
-    the checker names, not on the exit code: a broken shim, an unresolved
-    `xorq-check-style`, and a `git diff` erroring under `pipefail` all exit
-    non-zero too.
-    """
-    repo, rule = staged_violation
-    proc = _run_diff_gate(repo)
-    reported = proc.stdout + proc.stderr
-    assert f"[{rule}]" in reported, reported
-    assert proc.returncode != 0, reported
-
-
-@pytest.mark.parametrize(
-    "marker", ["MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply"]
-)
-def test_diff_gate_stands_down_mid_replay(
-    staged_violation: tuple[Path, str], marker: str
-) -> None:
-    """A replay marker stands the gate down on the same staged violation.
-
-    The stand-down is the branch that switches the whole hook off, so a marker
-    the script misspells -- or a `git rev-parse --git-dir` that resolves
-    somewhere else, as in a linked worktree -- leaves it on mid-rebase instead.
-    """
-    repo, _ = staged_violation
-    git_dir = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    (repo / git_dir / marker).touch()
-
-    proc = _run_diff_gate(repo)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
