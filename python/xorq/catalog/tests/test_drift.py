@@ -263,10 +263,14 @@ def test_a_sweep_shares_one_failed_connect_per_profile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A dead backend behind two leaves costs one connect attempt, and every
-    leaf behind it still reports unreachable with the original cause."""
+    """Two leaves behind one dead backend cost one connect attempt, a third
+    behind a second dead backend costs another, and every leaf still reports
+    unreachable with the original cause."""
     other = add_entry()
     third = add_entry(tmp_path / "third.sqlite", table="v")
+    third_record = BuildRecord.from_catalog_entry(
+        world.catalog.get_catalog_entry(third.name)
+    )
     attempts = []
 
     def failing_get_con(self, *args, **kwargs):
@@ -277,10 +281,13 @@ def test_a_sweep_shares_one_failed_connect_per_profile(
 
     result = check_sources(runner, world, world.name, other.name, third.name)
     assert result.exit_code == 2
-    (leaf,) = record.external_leaves
     hashes = {profile.content_hash for profile in attempts}
-    assert len(attempts) == len(hashes) == 2
-    assert make_profile(record.get_profile_dict(leaf)).content_hash in hashes
+    assert len(attempts) == 2
+    assert hashes == {
+        make_profile(r.get_profile_dict(leaf)).content_hash
+        for r in (record, third_record)
+        for leaf in r.external_leaves
+    }
     for table in ("t", "u", "v"):
         assert f"DatabaseTable {table}: unreachable" in result.output
     assert result.output.count("RuntimeError: backend is gone") == 3
