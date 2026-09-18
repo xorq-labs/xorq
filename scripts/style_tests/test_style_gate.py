@@ -26,9 +26,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# `--import-mode=importlib`, which ci-test.yml passes, imports this module
-# without putting its directory on `sys.path`, so the sibling below is
-# unimportable by bare name. Same insert, same reason, as scripts/tests/.
+# Under `--import-mode=importlib` this module is imported without its own
+# directory landing on `sys.path`, so the sibling below is unimportable by
+# bare name. Same insert, same reason, as scripts/tests/.
 sys.path.insert(0, str(Path(__file__).parent))
 
 from fixtures import FIXTURES, SUPPORT  # noqa: E402  (path set above)
