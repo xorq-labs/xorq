@@ -1027,29 +1027,32 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
-def _echo_entry_sources(catalog_entry) -> int:
+def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
     """Print one entry's leaf reports as they arrive; return its exit code."""
     from xorq.catalog.drift import (  # noqa: PLC0415
         format_leaf_report,
-        format_no_external,
+        format_nothing_checked,
         iter_leaf_reports,
     )
     from xorq.catalog.inspection import BuildRecord  # noqa: PLC0415
 
     try:
         record = BuildRecord.from_catalog_entry(catalog_entry)
+        # Leaf extraction is a `cached_property`, so it runs here rather than
+        # inside `iter_leaf_reports` below: a record we cannot read is not
+        # evidence of drift, and it ranks as unreachable rather than raising a
+        # traceback over the other entries.
+        record.source_leaves
     except Exception as e:
-        # A record we cannot read is not evidence of drift, so it ranks as
-        # unreachable rather than raising a traceback over the other entries.
         click.echo(f"  unreachable: {type(e).__name__}: {e}")
         return 2
     codes = []
-    for report in iter_leaf_reports(record):
+    for report in iter_leaf_reports(record, con_cache):
         for line in format_leaf_report(report):
             click.echo(line)
         codes.append(report.exit_code)
     if not codes:
-        click.echo(format_no_external(record))
+        click.echo(format_nothing_checked(record))
     return max(codes, default=0)
 
 
@@ -1082,12 +1085,18 @@ def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
         catalog = ctx.obj.make_catalog(init=False)
         entries = tuple(_get_catalog_entry(catalog, name) for name in names)
 
+    from xorq.catalog.drift import close_cons  # noqa: PLC0415
+
     # Probing runs outside the handler above, which funnels every exception into
     # a ClickException and would collapse every exit code to 1.
     codes = []
-    for name, catalog_entry in zip(names, entries):
-        click.echo(name)
-        codes.append(_echo_entry_sources(catalog_entry))
+    con_cache = {}
+    try:
+        for name, catalog_entry in zip(names, entries):
+            click.echo(name)
+            codes.append(_echo_entry_sources(catalog_entry, con_cache))
+    finally:
+        close_cons(con_cache)
     drifted = sum(code == 3 for code in codes)
     click.echo()
     click.echo(f"{len(codes)} entries, {drifted} drifted")

@@ -10,6 +10,7 @@ archive, so an entry whose expression can no longer load is still checkable.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
@@ -118,12 +119,34 @@ def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
             return pair
 
 
-def open_con(leaf: SourceLeaf, record: BuildRecord) -> Any:
+def open_con(
+    leaf: SourceLeaf, record: BuildRecord, con_cache: dict | None = None
+) -> Any:
     """The backend connection ``leaf`` recorded.
 
     Its own function so that connection policy has one place to live.
+    ``con_cache`` keys on the profile's content hash -- what
+    ``compiler.profile_content_key`` returns -- so a sweep opens one connection
+    per distinct profile rather than one per leaf.
     """
-    return make_profile(record.get_profile_dict(leaf)).get_con()
+    if (profile_dict := record.get_profile_dict(leaf)) is None:
+        raise ValueError(f"node {leaf.node_ref!r} records no profile")
+    profile = make_profile(profile_dict)
+    if con_cache is None:
+        return profile.get_con()
+    if (key := profile.content_hash) not in con_cache:
+        con_cache[key] = profile.get_con()
+    return con_cache[key]
+
+
+def close_cons(con_cache: dict) -> None:
+    """Close what a sweep opened. A backend that cannot close is already gone,
+    and a failure here is not evidence about any source."""
+    for con in con_cache.values():
+        try:
+            con.disconnect()
+        except Exception:
+            pass
 
 
 def get_table_schema(con: Any, leaf: SourceLeaf) -> Schema | None:
@@ -155,7 +178,9 @@ def get_schema_reader(leaf: SourceLeaf) -> Callable[[Any, SourceLeaf], Schema | 
             raise ValueError(f"no probe for leaf kind {leaf.kind}")
 
 
-def probe_leaf(leaf: SourceLeaf, record: BuildRecord) -> LeafReport:
+def probe_leaf(
+    leaf: SourceLeaf, record: BuildRecord, con_cache: dict | None = None
+) -> LeafReport:
     """Reach ``leaf`` through its recorded profile and compare the schemas.
 
     Anything the connection or the read raises is ``unreachable``: no cause is
@@ -164,7 +189,7 @@ def probe_leaf(leaf: SourceLeaf, record: BuildRecord) -> LeafReport:
     """
     read_schema = get_schema_reader(leaf)
     try:
-        con = open_con(leaf, record)
+        con = open_con(leaf, record, con_cache)
         live = read_schema(con, leaf)
     except Exception as e:
         return LeafReport(leaf, Verdict.UNREACHABLE, error=f"{type(e).__name__}: {e}")
@@ -181,14 +206,26 @@ def checkable_leaves(record: BuildRecord) -> tuple[SourceLeaf, ...]:
     )
 
 
-def iter_leaf_reports(record: BuildRecord) -> Iterator[LeafReport]:
+def iter_leaf_reports(
+    record: BuildRecord, con_cache: dict | None = None
+) -> Iterator[LeafReport]:
     """One report per checkable leaf, yielded as each probe finishes.
 
     Streaming matters: a dead remote can take ~19 s to fail and cannot be
     interrupted from Python, so buffering would turn slow progress into a hang.
+
+    A caller sweeping several entries passes its own ``con_cache`` to share
+    connections across them, and owns closing it; otherwise the connections
+    this record opened are closed when the iterator finishes.
     """
-    for leaf in checkable_leaves(record):
-        yield probe_leaf(leaf, record)
+    owned = con_cache is None
+    con_cache = {} if owned else con_cache
+    try:
+        for leaf in checkable_leaves(record):
+            yield probe_leaf(leaf, record, con_cache)
+    finally:
+        if owned:
+            close_cons(con_cache)
 
 
 def format_schema(schema: Schema | None) -> str:
@@ -222,3 +259,18 @@ def format_no_external(record: BuildRecord) -> str:
         counts.append(f"{pinned} pinned")
     detail = f" ({', '.join(counts)})" if counts else ""
     return f"  no external sources{detail}"
+
+
+def format_nothing_checked(record: BuildRecord) -> str:
+    """Why an entry produced no reports.
+
+    An external leaf of a kind outside ``CHECKABLE_KINDS`` is not the same as
+    no external leaf at all, and saying "no external sources" over one would be
+    a false negative stated as a positive claim.
+    """
+    if not (external := record.external_leaves):
+        return format_no_external(record)
+    counts = Counter(str(leaf.kind) for leaf in external)
+    detail = ", ".join(f"{count} {kind}" for kind, count in sorted(counts.items()))
+    noun = "source" if len(external) == 1 else "sources"
+    return f"  {len(external)} external {noun} not checkable ({detail})"
