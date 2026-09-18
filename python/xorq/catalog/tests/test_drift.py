@@ -22,6 +22,7 @@ from xorq.catalog.cli import cli
 from xorq.catalog.drift import (
     EntryReport,
     Verdict,
+    checkable_leaves,
     format_unchecked,
     iter_leaf_reports,
     make_profile,
@@ -286,7 +287,7 @@ def test_a_sweep_shares_one_failed_connect_per_profile(
     assert hashes == {
         make_profile(r.get_profile_dict(leaf)).content_hash
         for r in (record, third_record)
-        for leaf in r.external_leaves
+        for leaf in checkable_leaves(r)
     }
     for table in ("t", "u", "v"):
         assert f"DatabaseTable {table}: unreachable" in result.output
