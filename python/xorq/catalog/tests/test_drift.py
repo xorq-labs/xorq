@@ -24,6 +24,7 @@ from xorq.catalog.drift import (
     Verdict,
     format_unchecked,
     iter_leaf_reports,
+    make_profile,
     probe_leaf,
 )
 from xorq.catalog.enums import LeafKind
@@ -57,6 +58,18 @@ def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
         catalog_path=catalog_path,
         name=entry.name,
     )
+
+
+@pytest.fixture
+def add_entry(world: SimpleNamespace):
+    """Add a second entry over its own table, on `world`'s database by default."""
+
+    def add(path: Path | None = None, table: str = "u"):
+        con = SqliteBackend().connect(str(path or world.db_path))
+        con.create_table(table, RECORDED.to_pandas())
+        return world.catalog.add(con.table(table))
+
+    return add
 
 
 @pytest.fixture
@@ -137,13 +150,11 @@ def test_bundled_only_entry_names_its_bundles(
 
 
 def test_worst_verdict_wins_across_entries(
-    runner: CliRunner, world: SimpleNamespace, tmp_path: Path
+    runner: CliRunner, world: SimpleNamespace, add_entry, tmp_path: Path
 ) -> None:
     """One changed entry and one unreachable entry exit 3, not 2."""
     other_path = tmp_path / "other.sqlite"
-    other_con = SqliteBackend().connect(str(other_path))
-    other_con.create_table("u", RECORDED.to_pandas())
-    other = world.catalog.add(other_con.table("u"))
+    other = add_entry(other_path)
     recreate(world, "t", pa.table({"a": pa.array([1], pa.int64())}))
     other_path.write_bytes(b"not a database")
 
@@ -184,13 +195,14 @@ def test_leaf_without_a_profile_is_unreachable(record: BuildRecord) -> None:
 
 
 def test_a_sweep_shares_one_connection_per_profile(
-    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    runner: CliRunner,
+    world: SimpleNamespace,
+    add_entry,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two entries over the same backend cost one connection for the sweep, and
     the sweep closes what it opened."""
-    other_con = SqliteBackend().connect(str(world.db_path))
-    other_con.create_table("u", RECORDED.to_pandas())
-    other = world.catalog.add(other_con.table("u"))
+    other = add_entry()
     cons, disconnected = [], []
     get_con = Profile.get_con
 
@@ -244,13 +256,17 @@ def test_an_unchecked_leaf_is_reported_beside_a_checked_one(
 
 
 def test_a_sweep_shares_one_failed_connect_per_profile(
-    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    runner: CliRunner,
+    world: SimpleNamespace,
+    record: BuildRecord,
+    add_entry,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A dead backend behind two leaves costs one connect attempt, and both
-    leaves still report unreachable."""
-    other_con = SqliteBackend().connect(str(world.db_path))
-    other_con.create_table("u", RECORDED.to_pandas())
-    other = world.catalog.add(other_con.table("u"))
+    """A dead backend behind two leaves costs one connect attempt, and every
+    leaf behind it still reports unreachable with the original cause."""
+    other = add_entry()
+    third = add_entry(tmp_path / "third.sqlite", table="v")
     attempts = []
 
     def failing_get_con(self, *args, **kwargs):
@@ -259,8 +275,12 @@ def test_a_sweep_shares_one_failed_connect_per_profile(
 
     monkeypatch.setattr(Profile, "get_con", failing_get_con)
 
-    result = check_sources(runner, world, world.name, other.name)
+    result = check_sources(runner, world, world.name, other.name, third.name)
     assert result.exit_code == 2
-    assert len(attempts) == 1
-    assert "DatabaseTable t: unreachable" in result.output
-    assert "DatabaseTable u: unreachable" in result.output
+    (leaf,) = record.external_leaves
+    hashes = {profile.content_hash for profile in attempts}
+    assert len(attempts) == len(hashes) == 2
+    assert make_profile(record.get_profile_dict(leaf)).content_hash in hashes
+    for table in ("t", "u", "v"):
+        assert f"DatabaseTable {table}: unreachable" in result.output
+    assert result.output.count("RuntimeError: backend is gone") == 3
