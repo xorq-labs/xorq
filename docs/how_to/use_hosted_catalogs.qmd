@@ -1,0 +1,77 @@
+---
+title: 'Use a hosted catalog'
+description: "Initialize, authenticate to, clone, and replay catalogs backed by the hosted Xorq blob service"
+execute:
+  eval: false
+---
+
+A hosted catalog keeps its reviewable manifest and content pointers in Git while the Xorq catalog service manages the referenced blobs. The Git repository contains the stable service identity; credentials stay in the runtime environment.
+
+## Initialize a hosted catalog
+
+Set the catalog identity and service URL supplied by the hosted service:
+
+```bash
+export XORQ_CONTENT_STORE_PRESIGNED_CATALOG_ID=11111111-1111-4111-8111-111111111111
+export XORQ_CONTENT_STORE_PRESIGNED_SERVICE_URL=https://catalog.example/
+```
+
+Then initialize the catalog with its hosted Git remote:
+
+```bash
+xorq catalog --path ./analytics-catalog init \
+  --content-store presigned \
+  --remote-url https://catalog.example/acme/analytics.git
+```
+
+`--remote-url` is required and must be the catalog's only remote, with an `owner/slug.git` path below the configured service URL. Do not put credentials in it.
+
+Initialization commits only `catalog_id` and `service_url` in `content_store.yaml`:
+
+```yaml
+type: presigned
+catalog_id: 11111111-1111-4111-8111-111111111111
+service_url: https://catalog.example/
+```
+
+Tokens, object-store locations, signed URLs, and cloud credentials are not part of the committed configuration.
+
+## Authenticate at runtime
+
+For private reads and all writes, provide the short-lived bearer token issued by the service:
+
+```bash
+export XORQ_CATALOG_TOKEN='your-short-lived-token'
+export XORQ_CATALOG_TOKEN_SERVICE_URL=https://catalog.example/
+```
+
+Xorq reads `XORQ_CATALOG_TOKEN` for each hosted blob request, so a refreshed token takes effect without changing or recreating the catalog. `XORQ_CATALOG_TOKEN_SERVICE_URL` scopes that credential to one hosted service; Xorq will not send it to a catalog on another origin or base path. The token is never written to Git and is not sent to the signed object-storage URL. Public downloads can work without a token when the service permits anonymous access.
+
+`XORQ_CATALOG_TOKEN` is not passed to Git. Configure Git separately to use the catalog token as the HTTP Basic password, for example with `x-access-token` as the username, through a credential helper or prompt. Never embed it in the remote URL.
+
+## Clone and use the catalog
+
+With any required Git credential configured, clone the hosted URL normally:
+
+```bash
+git clone https://catalog.example/acme/analytics.git
+xorq catalog --path ./analytics list
+```
+
+Xorq detects `content_store.yaml` and uses the hosted blob client automatically. Export `XORQ_CATALOG_TOKEN` before an operation that needs authenticated blob access.
+
+## Replay into a hosted catalog
+
+Provide the target remote along with the hosted content-store configuration:
+
+```bash
+xorq catalog --path ./source-catalog replay ./hosted-copy \
+  --content-store presigned \
+  --remote-url https://catalog.example/acme/hosted-copy.git
+```
+
+Non-dry-run replay requires `--remote-url` and configures it before uploading. A dry run creates no target and needs no remote.
+
+## Blob lifecycle
+
+Removing an entry deletes only its Git-tracked pointer. Hosted blob collection is server-owned, so `xorq catalog gc` is unavailable for hosted catalogs.
