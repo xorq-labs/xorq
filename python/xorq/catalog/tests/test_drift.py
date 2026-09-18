@@ -21,6 +21,7 @@ from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.drift import EntryReport, Verdict, iter_leaf_reports, probe_leaf
 from xorq.catalog.enums import LeafKind
+from xorq.catalog.inspection import BuildRecord
 
 
 RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
@@ -49,6 +50,12 @@ def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
         catalog_path=catalog_path,
         name=entry.name,
     )
+
+
+@pytest.fixture
+def record(world: SimpleNamespace) -> BuildRecord:
+    """The parsed build, without probing anything."""
+    return BuildRecord.from_catalog_entry(world.catalog.get_catalog_entry(world.name))
 
 
 def check_sources(runner: CliRunner, world: SimpleNamespace, *names: str):
@@ -138,11 +145,8 @@ def test_worst_verdict_wins_across_entries(
     assert "2 entries, 1 drifted" in result.output
 
 
-def test_reports_stream_per_leaf(world: SimpleNamespace) -> None:
+def test_reports_stream_per_leaf(record: BuildRecord) -> None:
     """The CLI must be able to print a leaf before the next one is probed."""
-    record = EntryReport.from_catalog_entry(
-        world.catalog.get_catalog_entry(world.name)
-    ).record
     reports = iter_leaf_reports(record)
     assert next(reports).verdict == Verdict.EQUAL
 
@@ -155,11 +159,9 @@ def test_entry_report_is_reusable(world: SimpleNamespace) -> None:
     assert tuple(r.verdict for r in report.leaf_reports) == (Verdict.EQUAL,)
 
 
-def test_unhandled_leaf_kind_raises(world: SimpleNamespace) -> None:
+def test_unhandled_leaf_kind_raises(record: BuildRecord) -> None:
     """A kind with no schema reader must fail loudly, not report unreachable."""
-    record = EntryReport.from_catalog_entry(
-        world.catalog.get_catalog_entry(world.name)
-    ).record
     (leaf,) = record.external_leaves
-    with pytest.raises(ValueError):
-        probe_leaf(evolve(leaf, kind=LeafKind.READ), record)
+    read_leaf = evolve(leaf, kind=LeafKind.READ)
+    with pytest.raises(ValueError, match="no probe for leaf kind"):
+        probe_leaf(read_leaf, record)
