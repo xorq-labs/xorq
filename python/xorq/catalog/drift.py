@@ -141,9 +141,12 @@ def open_con(
             # A failed connect is cached too: a dead backend takes the full
             # timeout to fail, and paying that once per leaf behind it is what
             # the cache exists to avoid.
-            con_cache[key] = e
+            con_cache[key] = e.with_traceback(None)
     if isinstance(con := con_cache[key], Exception):
-        raise con
+        # Cleared on the way out as well: re-raising one instance appends the
+        # raising frame to its traceback, so a profile behind N leaves would
+        # otherwise hang N frames off a cache the sweep keeps for its whole run.
+        raise con.with_traceback(None)
     return con
 
 
@@ -272,15 +275,14 @@ def format_no_external(record: BuildRecord) -> str:
 
 
 def format_unchecked(record: BuildRecord) -> str | None:
-    """The external leaves of a kind outside ``CHECKABLE_KINDS``, or ``None``.
+    """The external leaves ``checkable_leaves`` left out, or ``None``.
 
     Reported whatever else the entry produced: an entry whose other leaves are
     equal still exits 0, and staying quiet about the leaf nobody probed would
     make that a false negative stated as a positive claim.
     """
-    unchecked = tuple(
-        leaf for leaf in record.external_leaves if leaf.kind not in CHECKABLE_KINDS
-    )
+    checked = set(checkable_leaves(record))
+    unchecked = tuple(leaf for leaf in record.external_leaves if leaf not in checked)
     if not unchecked:
         return None
     counts = Counter(str(leaf.kind) for leaf in unchecked)

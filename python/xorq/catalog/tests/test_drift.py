@@ -223,3 +223,21 @@ def test_unchecked_leaves_are_named_beside_the_checked_ones(
     assert format_unchecked(record) is None
     mixed = SimpleNamespace(external_leaves=(leaf, evolve(leaf, kind=LeafKind.READ)))
     assert format_unchecked(mixed) == "  1 external source not checkable (Read)"
+
+
+def test_an_unchecked_leaf_is_reported_beside_a_checked_one(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path
+) -> None:
+    """A mixed entry names the leaf nobody probed and still exits 0 on the one
+    that came back equal."""
+    csv_path = tmp_path / "side.csv"
+    csv_path.write_text("a,c\n1,2\n")
+    con = xo.duckdb.connect()
+    side = xo.deferred_read_csv(csv_path, con=con)
+    t = world.con.table("t").into_backend(con)
+    name = world.catalog.add(side.join(t, "a"), relocate_reads=False).name
+
+    result = check_sources(runner, world, name)
+    assert result.exit_code == 0
+    assert "DatabaseTable t: equal" in result.output
+    assert "1 external source not checkable (Read)" in result.output
