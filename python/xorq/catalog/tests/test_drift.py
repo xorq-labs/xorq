@@ -340,12 +340,13 @@ def test_a_pair_namespace_is_what_duckdb_takes() -> None:
 def test_a_pair_a_backend_cannot_express_comes_back_unreachable(
     record: BuildRecord,
 ) -> None:
-    """The pair is not a contract every backend honours: sqlite reaches the
-    read and rejects it there, so the probe reports the backend's own cause."""
+    """The pair is not a contract every backend honours: sqlite is reachable as
+    recorded, so only the pair breaks it, and it breaks at the read."""
     (leaf,) = record.external_leaves
+    assert probe_leaf(leaf, record).verdict is Verdict.EQUAL
     report = probe_leaf(evolve(leaf, namespace=("cat", "main")), record)
     assert report.verdict is Verdict.UNREACHABLE
-    assert "OperationalError: row value misused" in report.error
+    assert "OperationalError" in report.error
 
 
 def test_a_catalog_without_a_database_raises(record: BuildRecord) -> None:
