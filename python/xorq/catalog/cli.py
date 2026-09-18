@@ -1036,6 +1036,7 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
         format_unchecked,
         iter_leaf_reports,
     )
+    from xorq.catalog.enums import Verdict  # noqa: PLC0415
     from xorq.catalog.inspection import BuildRecord  # noqa: PLC0415
 
     codes = []
@@ -1052,7 +1053,9 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
         record.source_leaves
     except Exception as e:
         click.echo(f"  unreadable: {format_error(e)}")
-        return 2
+        # The same verdict a leaf-level defect ranks, so the entry-level and
+        # leaf-level codes cannot drift apart.
+        return Verdict.UNREADABLE.exit_code
     for report in iter_leaf_reports(record, con_cache):
         for line in format_leaf_report(report):
             click.echo(line)
@@ -1096,6 +1099,7 @@ def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
         entries = tuple(_get_catalog_entry(catalog, name) for name in names)
 
     from xorq.catalog.drift import close_cons  # noqa: PLC0415
+    from xorq.catalog.enums import Verdict  # noqa: PLC0415
 
     # Probing runs outside the handler above, which funnels every exception into
     # a ClickException and would collapse every exit code to 1.
@@ -1107,7 +1111,7 @@ def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
             codes.append(_echo_entry_sources(catalog_entry, con_cache))
     finally:
         close_cons(con_cache)
-    drifted = sum(code == 3 for code in codes)
+    drifted = sum(code == Verdict.CHANGED.exit_code for code in codes)
     click.echo()
     click.echo(f"{len(codes)} entries, {drifted} drifted")
     ctx.exit(max(codes, default=0))

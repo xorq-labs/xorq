@@ -300,7 +300,10 @@ def format_no_external(record: BuildRecord) -> str:
     read like a broken command.
     """
     counts = [f"{count} {kind or 'unknown'}" for kind, count in record.bundled_counts]
-    if pinned := sum(leaf.pinned for leaf in record.source_leaves):
+    # `bundled` already claimed the leaves it counted: a pin whose frozen read
+    # was also bundled is one leaf, and counting it in both columns would make
+    # the detail add up to more sources than the entry has.
+    if pinned := sum(leaf.pinned and not leaf.bundled for leaf in record.source_leaves):
         counts.append(f"{pinned} pinned")
     detail = f" ({', '.join(counts)})" if counts else ""
     return f"  no external sources{detail}"
@@ -313,8 +316,9 @@ def format_unchecked(record: BuildRecord) -> str | None:
     equal still exits 0, and staying quiet about the leaf nobody probed would
     make that a false negative stated as a positive claim.
     """
-    checked = set(checkable_leaves(record))
-    unchecked = tuple(leaf for leaf in record.external_leaves if leaf not in checked)
+    unchecked = tuple(
+        leaf for leaf in record.external_leaves if leaf.kind not in CHECKABLE_KINDS
+    )
     if not unchecked:
         return None
     counts = Counter(str(leaf.kind) for leaf in unchecked)
