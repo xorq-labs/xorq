@@ -117,6 +117,12 @@ def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
     slot would probe somewhere the leaf never named. A catalog with nothing
     under it is malformed, and raising is what keeps it from being probed
     anywhere at all.
+
+    A well-formed pair a backend cannot express is deliberately left alone: it
+    is handed over as recorded and fails at the read, which the probe reports as
+    an unreachable backend. Resolving it against the backend's declared
+    ``list_tables`` arity would be the honest verdict, and waits on a way to ask
+    a backend that.
     """
     match leaf.namespace:
         case (None | "", None | ""):

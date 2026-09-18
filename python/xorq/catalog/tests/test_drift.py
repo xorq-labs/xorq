@@ -327,19 +327,25 @@ def test_a_namespace_reaches_the_reader_as_ibis_spells_it(
     assert seen == ["main", ("cat", "main")]
 
 
-def test_a_pair_namespace_is_a_per_backend_spelling(record: BuildRecord) -> None:
-    """The pair is what duckdb takes, not a contract every backend honours:
-    sqlite, the backend this module probes, raises on it, and the probe reports
-    that as an unreachable backend."""
+def test_a_pair_namespace_is_what_duckdb_takes() -> None:
+    """The pair shape the probe passes through is pinned to a real backend's
+    contract, not to a stub."""
     con = xo.duckdb.connect()
     try:
         assert con.list_tables(database=("memory", "main")) == []
     finally:
         con.disconnect()
 
+
+def test_a_pair_a_backend_cannot_express_comes_back_unreachable(
+    record: BuildRecord,
+) -> None:
+    """The pair is not a contract every backend honours: sqlite reaches the
+    read and rejects it there, so the probe reports the backend's own cause."""
     (leaf,) = record.external_leaves
     report = probe_leaf(evolve(leaf, namespace=("cat", "main")), record)
     assert report.verdict is Verdict.UNREACHABLE
+    assert "OperationalError: row value misused" in report.error
 
 
 def test_a_catalog_without_a_database_raises(record: BuildRecord) -> None:
