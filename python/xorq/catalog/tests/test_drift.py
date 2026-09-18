@@ -241,3 +241,26 @@ def test_an_unchecked_leaf_is_reported_beside_a_checked_one(
     assert result.exit_code == 0
     assert "DatabaseTable t: equal" in result.output
     assert "1 external source not checkable (Read)" in result.output
+
+
+def test_a_sweep_shares_one_failed_connect_per_profile(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dead backend behind two leaves costs one connect attempt, and both
+    leaves still report unreachable."""
+    other_con = SqliteBackend().connect(str(world.db_path))
+    other_con.create_table("u", RECORDED.to_pandas())
+    other = world.catalog.add(other_con.table("u"))
+    attempts = []
+
+    def failing_get_con(self, *args, **kwargs):
+        attempts.append(self)
+        raise RuntimeError("backend is gone")
+
+    monkeypatch.setattr(Profile, "get_con", failing_get_con)
+
+    result = check_sources(runner, world, world.name, other.name)
+    assert result.exit_code == 2
+    assert len(attempts) == 1
+    assert "DatabaseTable t: unreachable" in result.output
+    assert "DatabaseTable u: unreachable" in result.output
