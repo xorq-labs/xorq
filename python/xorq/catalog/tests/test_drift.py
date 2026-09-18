@@ -24,14 +24,13 @@ from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.drift import (
     EntryReport,
-    Verdict,
     checkable_leaves,
     format_unchecked,
     iter_leaf_reports,
     make_profile,
     probe_leaf,
 )
-from xorq.catalog.enums import LeafKind
+from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord
 from xorq.vendor.ibis.backends.profiles import Profile
 

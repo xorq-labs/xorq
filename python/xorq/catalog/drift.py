@@ -17,9 +17,8 @@ from typing import TYPE_CHECKING, Any
 from attr import field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 
-from xorq.catalog.enums import LeafKind
+from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
-from xorq.common.compat import StrEnum
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -30,27 +29,6 @@ if TYPE_CHECKING:
 
 # `Read` joins in xorq-labs/xorq#2296; this is the `DatabaseTable` spine.
 CHECKABLE_KINDS = frozenset({LeafKind.DATABASE_TABLE})
-
-
-class Verdict(StrEnum):
-    """What a probe found. The exit code is a property of the verdict, not a
-    table maintained beside it, so the two cannot drift apart."""
-
-    EQUAL = "equal"
-    UNREACHABLE = "unreachable"
-    UNREADABLE = "unreadable"
-    CHANGED = "changed"
-    TABLE_MISSING = "table-missing"
-
-    @property
-    def exit_code(self) -> int:
-        match self:
-            case Verdict.EQUAL:
-                return 0
-            case Verdict.UNREACHABLE | Verdict.UNREADABLE:
-                return 2
-            case _:
-                return 3
 
 
 @frozen
