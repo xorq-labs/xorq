@@ -27,7 +27,9 @@ uv run pre-commit install
 git config --replace-all blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 > [!IMPORTANT]
-> Rename `.gitignore.template` to `.gitignore` 
+> Rename `.gitignore.template` to `.gitignore`. Nothing regenerates that copy,
+> so a clone made before an entry was added to the template keeps ignoring the
+> old set -- re-copy it when the template changes.
 
 ### git blame and bulk reformats
 
