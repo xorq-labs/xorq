@@ -135,14 +135,24 @@ def open_con(
     if con_cache is None:
         return profile.get_con()
     if (key := profile.content_hash) not in con_cache:
-        con_cache[key] = profile.get_con()
-    return con_cache[key]
+        try:
+            con_cache[key] = profile.get_con()
+        except Exception as e:
+            # A failed connect is cached too: a dead backend takes the full
+            # timeout to fail, and paying that once per leaf behind it is what
+            # the cache exists to avoid.
+            con_cache[key] = e
+    if isinstance(con := con_cache[key], Exception):
+        raise con
+    return con
 
 
 def close_cons(con_cache: dict) -> None:
     """Close what a sweep opened. A backend that cannot close is already gone,
     and a failure here is not evidence about any source."""
     for con in con_cache.values():
+        if isinstance(con, Exception):
+            continue
         try:
             con.disconnect()
         except Exception:
@@ -261,16 +271,22 @@ def format_no_external(record: BuildRecord) -> str:
     return f"  no external sources{detail}"
 
 
-def format_nothing_checked(record: BuildRecord) -> str:
-    """Why an entry produced no reports.
+def format_unchecked(record: BuildRecord) -> str | None:
+    """The external leaves of a kind outside ``CHECKABLE_KINDS``, or ``None``.
 
-    An external leaf of a kind outside ``CHECKABLE_KINDS`` is not the same as
-    no external leaf at all, and saying "no external sources" over one would be
-    a false negative stated as a positive claim.
+    Reported whatever else the entry produced: an entry whose other leaves are
+    equal still exits 0, and staying quiet about the leaf nobody probed would
+    make that a false negative stated as a positive claim.
     """
-    if not (external := record.external_leaves):
-        return format_no_external(record)
-    counts = Counter(str(leaf.kind) for leaf in external)
-    detail = ", ".join(f"{count} {kind}" for kind, count in sorted(counts.items()))
-    noun = "source" if len(external) == 1 else "sources"
-    return f"  {len(external)} external {noun} not checkable ({detail})"
+    unchecked = tuple(
+        leaf for leaf in record.external_leaves if leaf.kind not in CHECKABLE_KINDS
+    )
+    if not unchecked:
+        return None
+    counts = Counter(str(leaf.kind) for leaf in unchecked)
+    detail = ", ".join(
+        kind if len(counts) == 1 else f"{count} {kind}"
+        for kind, count in sorted(counts.items())
+    )
+    noun = "source" if len(unchecked) == 1 else "sources"
+    return f"  {len(unchecked)} external {noun} not checkable ({detail})"

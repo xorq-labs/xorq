@@ -19,9 +19,16 @@ import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.drift import EntryReport, Verdict, iter_leaf_reports, probe_leaf
+from xorq.catalog.drift import (
+    EntryReport,
+    Verdict,
+    format_unchecked,
+    iter_leaf_reports,
+    probe_leaf,
+)
 from xorq.catalog.enums import LeafKind
 from xorq.catalog.inspection import BuildRecord
+from xorq.vendor.ibis.backends.profiles import Profile
 
 
 RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
@@ -165,3 +172,54 @@ def test_unhandled_leaf_kind_raises(record: BuildRecord) -> None:
     read_leaf = evolve(leaf, kind=LeafKind.READ)
     with pytest.raises(ValueError, match="no probe for leaf kind"):
         probe_leaf(read_leaf, record)
+
+
+def test_leaf_without_a_profile_is_unreachable(record: BuildRecord) -> None:
+    """A leaf naming no profile is a record we cannot reach through, not a
+    connect against a `None` profile."""
+    (leaf,) = record.external_leaves
+    report = probe_leaf(evolve(leaf, profile=None), record)
+    assert report.verdict is Verdict.UNREACHABLE
+    assert "records no profile" in report.error
+
+
+def test_a_sweep_shares_one_connection_per_profile(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two entries over the same backend cost one connection for the sweep, and
+    the sweep closes what it opened."""
+    other_con = SqliteBackend().connect(str(world.db_path))
+    other_con.create_table("u", RECORDED.to_pandas())
+    other = world.catalog.add(other_con.table("u"))
+    cons, disconnected = [], []
+    get_con = Profile.get_con
+
+    def counting_get_con(self, *args, **kwargs):
+        con = get_con(self, *args, **kwargs)
+        disconnect = con.disconnect
+
+        def counting_disconnect(*a, **kw):
+            disconnected.append(con)
+            return disconnect(*a, **kw)
+
+        con.disconnect = counting_disconnect
+        cons.append(con)
+        return con
+
+    monkeypatch.setattr(Profile, "get_con", counting_get_con)
+
+    result = check_sources(runner, world, world.name, other.name)
+    assert result.exit_code == 0
+    assert len(cons) == 1
+    assert len(disconnected) == 1
+
+
+def test_unchecked_leaves_are_named_beside_the_checked_ones(
+    record: BuildRecord,
+) -> None:
+    """An entry whose other leaves are equal still has to say which external
+    leaf nobody probed."""
+    (leaf,) = record.external_leaves
+    assert format_unchecked(record) is None
+    mixed = SimpleNamespace(external_leaves=(leaf, evolve(leaf, kind=LeafKind.READ)))
+    assert format_unchecked(mixed) == "  1 external source not checkable (Read)"

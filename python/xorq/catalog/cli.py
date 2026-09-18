@@ -1031,7 +1031,8 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
     """Print one entry's leaf reports as they arrive; return its exit code."""
     from xorq.catalog.drift import (  # noqa: PLC0415
         format_leaf_report,
-        format_nothing_checked,
+        format_no_external,
+        format_unchecked,
         iter_leaf_reports,
     )
     from xorq.catalog.inspection import BuildRecord  # noqa: PLC0415
@@ -1051,8 +1052,10 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
         for line in format_leaf_report(report):
             click.echo(line)
         codes.append(report.exit_code)
-    if not codes:
-        click.echo(format_nothing_checked(record))
+    if (unchecked := format_unchecked(record)) is not None:
+        click.echo(unchecked)
+    elif not codes:
+        click.echo(format_no_external(record))
     return max(codes, default=0)
 
 
