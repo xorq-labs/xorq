@@ -128,21 +128,16 @@ def get_leaf_profile(leaf: SourceLeaf, record: BuildRecord) -> Profile:
     return make_profile(profile_dict)
 
 
-# The sqlite URI modes that open an existing database without creating one.
-# `rw` rather than `ro` for the mode this module supplies itself: recovering a
-# hot WAL needs write access to the sidecar files, and this connection issues no
-# writes of its own anyway. `ro` and `memory` are honoured when a profile
-# recorded them, because both already refuse to create.
+# sqlite URI modes that open an existing database without creating one. `rw`
+# rather than `ro` for the mode this module supplies: recovering a hot WAL needs
+# write access to the sidecar files. A recorded `ro` or `memory` is honoured.
 NO_CREATE_MODES = frozenset({"ro", "rw", "memory"})
 
 
 def is_sqlite_uri(profile: Profile, target: str) -> bool:
-    """Whether the driver will read ``target`` as a URI rather than a filename.
+    """Whether the driver reads ``target`` as a URI: needs ``uri=True`` and ``file:``.
 
-    Both halves are required: sqlite only parses a URI when the connection asks
-    for it *and* the string says ``file:``. Without ``uri=True`` a
-    ``file:...?mode=ro`` string is a literal filename, query string and all, and
-    the default `rwc` creates it -- so it is an ordinary path here too.
+    Without both, ``file:...?mode=ro`` is a literal filename and `rwc` creates it.
     """
     return bool(profile.kwargs_dict.get("uri")) and target.startswith("file:")
 
@@ -150,9 +145,8 @@ def is_sqlite_uri(profile: Profile, target: str) -> bool:
 def uri_modes(uri: str) -> tuple[str, ...]:
     """Every ``mode=`` a sqlite URI spells, in order.
 
-    Hand-split rather than parsed with ``urllib``: sqlite cuts the path at the
-    first `?` and the query at `#`, and ``urlunsplit`` would rewrite a relative
-    ``file:x.sqlite`` into an absolute path on the way back out.
+    Hand-split: sqlite cuts the path at `?` and the query at `#`, and
+    ``urlunsplit`` would make a relative ``file:x.sqlite`` absolute.
     """
     query = uri.partition("#")[0].partition("?")[2]
     return tuple(
@@ -165,20 +159,17 @@ def uri_modes(uri: str) -> tuple[str, ...]:
 def opens_without_creating(uri: str) -> bool:
     """Whether a recorded URI already refuses to create its database.
 
-    A URI with no ``mode=`` at all defaults to `rwc` and creates one, so an
-    unmoded URI is not exempt. Every mode present has to be a non-creating one:
-    sqlite takes the first of a repeated parameter, and disagreeing with it
-    about which that is would be a silent `rwc`.
+    No ``mode=`` means `rwc`. Every mode present has to be non-creating: sqlite
+    takes the first of a repeat, and disagreeing about which is a silent `rwc`.
     """
     modes = uri_modes(uri)
     return bool(modes) and set(modes) <= NO_CREATE_MODES
 
 
 def with_mode_rw(uri: str) -> str:
-    """``uri`` with every recorded ``mode=`` replaced by one `rw`.
+    """``uri`` with every ``mode=`` replaced by one `rw`.
 
-    The fragment goes with them; sqlite ignores it, and carrying it would put
-    the appended mode behind a `#` where the driver never reads it.
+    The fragment goes too: an appended mode behind `#` is never read.
     """
     path, _, query = uri.partition("#")[0].partition("?")
     params = [
@@ -187,22 +178,16 @@ def with_mode_rw(uri: str) -> str:
     return f"{path}?{'&'.join([*params, 'mode=rw'])}"
 
 
-# The kwarg both file-backed drivers name their database with, read where the
-# target is found and written where it is rewritten, so the name has one home.
+# The kwarg both file-backed drivers name their database with.
 DATABASE_KWARG = "database"
 
 
 def sqlite_no_create(profile: Profile, target: str) -> dict:
-    """Open an existing sqlite database, or fail; never create one.
+    """Kwargs that open an existing sqlite database, never creating one.
 
-    sqlite spells it as a URI mode, so a plain path becomes one. The path is
-    percent-encoded because sqlite splits a URI at the first `?`. An unescaped
-    one truncates the path, drops the mode with the rest of the garbled query,
-    and leaves the default `rwc` to create a database at the truncated path --
-    the very bug this guards against.
-
-    A profile that recorded a URI keeps it when it already spells a non-creating
-    mode; otherwise the mode is rewritten, since an unmoded URI is `rwc`.
+    A plain path becomes a URI, percent-encoded: sqlite cuts at the first `?`,
+    so an unescaped one truncates the path, loses the mode, and `rwc` creates a
+    database there. A recorded URI is kept when its mode already refuses.
     """
     if not is_sqlite_uri(profile, target):
         return {DATABASE_KWARG: f"file:{quote(target)}?mode=rw", "uri": True}
@@ -214,38 +199,34 @@ def sqlite_no_create(profile: Profile, target: str) -> dict:
 def no_create_kwargs(profile: Profile, target: str) -> dict:
     """The connect kwargs that open ``target`` without creating it.
 
-    Resolved before the connect, so a driver in ``FILE_BACKED_CONS`` with no arm
-    here raises a ``ValueError`` rather than quietly creating a database.
+    A driver in ``FILE_BACKED_CONS`` with no arm here raises rather than
+    quietly creating a database.
     """
     match profile.con_name:
         case "sqlite":
             return sqlite_no_create(profile, target)
         case "duckdb":
-            # A flag, and it blocks writes for the whole session as well.
+            # Blocks writes for the whole session too.
             return {"read_only": True}
         case _:
             raise ValueError(f"no non-creating open for {profile.con_name}")
 
 
-# Drivers that create their database file on open, each with an arm in
-# ``no_create_kwargs``. A read-only command must not bring a database into
-# existence, and the fresh empty one would be reported as `table-missing` when
-# the truth is that the database is gone.
+# Drivers that create their database on open, each with an arm above. A
+# read-only command must not create one, and the fresh empty database would
+# report `table-missing` when the truth is that it is gone.
 FILE_BACKED_CONS = frozenset({"sqlite", "duckdb"})
-# sqlite spells in-memory as `None`; duckdb as `:memory:`, optionally with a
-# name after it (`:memory:scratch`), which is why the prefixes carry it.
+# sqlite spells in-memory `None`, duckdb `:memory:` or `:memory:<name>`.
 IN_MEMORY_TARGETS = frozenset({None, ""})
-# Prefixes that name something other than a file the driver would create: an
-# in-memory database, and duckdb's MotherDuck handles.
+# Not a file the driver would create: in-memory, and MotherDuck handles.
 NON_FILE_PREFIXES = (":memory:", "md:", "motherduck:")
 
 
 def database_target(profile: Profile) -> str | None:
     """The database ``profile`` names, if the driver would create it.
 
-    ``None`` for a backend that does not create its target, and for the
-    in-memory and remote spellings, which name no file and take no mode: duckdb
-    refuses `:memory:` outright when asked for it read-only.
+    ``None`` for every other backend, and for targets that take no mode: duckdb
+    refuses `:memory:` read-only.
     """
     if profile.con_name not in FILE_BACKED_CONS:
         return None
@@ -258,32 +239,25 @@ def database_target(profile: Profile) -> str | None:
 def connect(profile: Profile) -> Any:
     """The connection ``profile`` names, or the error every leaf behind it gets.
 
-    One pass over the recorded target: it decides both whether the database is
-    already gone and how to open it without creating one, so the two cannot
-    disagree about the target they are talking about.
+    One pass over the target: it decides both whether the database is already
+    gone and how to open it without creating one.
     """
     kwargs = {}
     if (target := database_target(profile)) is not None:
-        # Checked before connecting, not in the failure handler: by the time the
-        # driver has raised it has already created the file. It is also what
-        # names the cause, since sqlite reports a missing database and an
-        # unreadable one with the same message. A recorded URI is left to the
-        # driver, since resolving one back to a path means undoing the
-        # percent-encoding and the optional `//localhost` authority, and a near
-        # miss there would report a live database as gone.
+        # Before the connect: once the driver has raised, the file exists. It
+        # also names the cause, which sqlite's message does not. A recorded URI
+        # is left to the driver rather than resolved back to a path.
         if not is_sqlite_uri(profile, target) and not Path(target).exists():
             return FileNotFoundError(
                 f"{profile.con_name} database {target} does not exist"
             )
-        # Belt to that check's braces: it can go stale between here and the
-        # connect, and only the driver can close that window.
+        # The check can go stale; only the driver closes that window.
         kwargs = no_create_kwargs(profile, target)
     try:
         return profile.get_con(**kwargs)
     except Exception as e:
-        # A failed connect is returned rather than raised so that it caches: a
-        # dead backend takes the full timeout to fail, and paying that once per
-        # leaf behind it is what the cache exists to avoid.
+        # Returned, not raised, so it caches: a dead backend costs one timeout,
+        # not one per leaf behind it.
         return e.with_traceback(None)
 
 

@@ -1,8 +1,8 @@
 """`check-sources` stays read-only and dials each profile once (xorq-labs/xorq#2297).
 
-The sqlite driver creates its database file on open, so a probe that just
-connects would both write to the user's filesystem and misreport a deleted
-database as `table-missing`: the fresh empty file lists no tables.
+The sqlite driver creates its database on open, so a probe that just connects
+would write to the user's filesystem and misreport a deleted database as
+`table-missing`.
 """
 
 from __future__ import annotations
@@ -30,10 +30,7 @@ TABLE = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
 
 @pytest.fixture
 def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
-    """One sqlite database holding two tables, joined into one entry.
-
-    Two leaves on one profile is what the connection cache has to collapse.
-    """
+    """Two tables in one sqlite database, joined: two leaves on one profile."""
     db_path = tmp_path / "live.sqlite"
     con = SqliteBackend().connect(str(db_path))
     con.create_table("t", TABLE.to_pandas())
@@ -58,10 +55,9 @@ def connects(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def stale_exists(monkeypatch: pytest.MonkeyPatch, path: Path) -> Callable:
-    """Make the pre-check see ``path`` as present, and hand back the real test.
+    """Make the pre-check see ``path`` as present; returns the real ``exists``.
 
-    Narrow on purpose: `Path.exists` carries the catalog's own resolution too,
-    and answering `True` for every path breaks it before the probe is reached.
+    Narrow on purpose: `Path.exists` carries the catalog's own resolution too.
     """
     exists = Path.exists
     monkeypatch.setattr(
@@ -85,7 +81,7 @@ def test_a_deleted_database_is_not_recreated(
     assert result.exit_code == 2
     assert "unreachable" in result.output
     assert not world.db_path.exists()
-    # The pre-check runs before any connect, not inside the failure handler.
+    # The pre-check runs before any connect.
     assert connects == []
 
 
@@ -104,7 +100,7 @@ def test_a_corrupt_database_names_the_leaf(
 def test_one_dead_profile_is_dialled_once(
     runner: CliRunner, world: SimpleNamespace, connects: list[str]
 ) -> None:
-    """The file exists, so the pre-check passes and the driver is the one to fail."""
+    """The file exists, so the pre-check passes and the driver fails instead."""
     world.db_path.write_bytes(b"not a database")
 
     result = check_sources(runner, world)
@@ -121,9 +117,8 @@ def test_one_live_profile_is_dialled_once(
     assert connects == ["sqlite"]
 
 
-# duckdb is exercised through `open_con` rather than the command: a duckdb table
-# serializes as a `Read` leaf, which `check-sources` only probes from
-# xorq-labs/xorq#2296 on. The connection policy under test is the same one.
+# duckdb goes through `open_con`, not the command: a duckdb table serializes as
+# a `Read` leaf, which `check-sources` only probes from xorq-labs/xorq#2296 on.
 
 
 @pytest.mark.parametrize(
@@ -162,9 +157,7 @@ def test_the_driver_refuses_to_create_when_the_pre_check_goes_stale(
     connects: list[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The file can go between the check and the connect, and only the driver
-    can close that window. With the pre-check neutered, the connect is the one
-    that has to refuse."""
+    """The file can go between the check and the connect; the driver refuses."""
     world.db_path.unlink()
     exists = stale_exists(monkeypatch, world.db_path)
 
@@ -172,14 +165,12 @@ def test_the_driver_refuses_to_create_when_the_pre_check_goes_stale(
     assert result.exit_code == 2
     assert "unreachable" in result.output
     assert not exists(world.db_path)
-    # The driver was dialled this time, and declined to create the database.
+    # Dialled this time, and the driver declined to create.
     assert connects == ["sqlite"]
 
 
 def test_a_question_mark_in_the_path_stays_in_the_path(tmp_path: Path) -> None:
-    """sqlite splits a URI at the first `?`. Unescaped, the path truncates, the
-    mode vanishes with the rest of the garbled query, and the default `rwc`
-    creates a database at the truncated path."""
+    """Unescaped, sqlite cuts at the `?`: `rwc` creates the truncated path."""
     db_path = tmp_path / "we?ird.sqlite"
     con = SqliteBackend().connect(str(db_path))
     con.create_table("t", TABLE.to_pandas())
@@ -193,8 +184,7 @@ def test_a_question_mark_in_the_path_stays_in_the_path(tmp_path: Path) -> None:
 
 
 def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
-    """The duckdb flag blocks writes for the whole session, which is the
-    stronger half of what a read-only command wants from it."""
+    """The duckdb flag blocks writes for the whole session."""
     db_path = tmp_path / "live.ddb"
     con = xo.duckdb.connect(str(db_path))
     con.create_table("t", TABLE.to_pandas())
@@ -227,14 +217,11 @@ def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
 def test_a_target_that_is_no_local_file_is_left_alone(
     con_name: str, kwargs_tuple: tuple, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only a target the driver would create is ours to check or to re-open.
-    duckdb refuses `:memory:` read-only outright and spells a named in-memory
-    database `:memory:<name>`, a MotherDuck handle is no path, and a URI that
-    already carries a non-creating mode is left as recorded.
+    """Nothing reaches the driver for a target it would not create.
 
-    Asserted on what reaches the driver, since the exemptions are reached by
-    different routes: a target that is no file at all, and one whose recorded
-    URI already refuses to create."""
+    Asserted there rather than on a predicate: a target that is no file and a
+    URI that already refuses are exempt by different routes.
+    """
     seen = []
     monkeypatch.setattr(Profile, "get_con", lambda self, **kwargs: seen.append(kwargs))
     profile = Profile(con_name=con_name, kwargs_tuple=kwargs_tuple)
@@ -251,8 +238,7 @@ def test_a_target_that_is_no_local_file_is_left_alone(
 def test_a_recorded_uri_that_would_create_gets_a_mode(
     tmp_path: Path, mode_part: str
 ) -> None:
-    """A URI with no `mode=` defaults to `rwc`, so being a URI is not by itself
-    evidence that the driver will refuse to create."""
+    """No `mode=` means `rwc`: being a URI is not itself a refusal to create."""
     db_path = tmp_path / "gone.sqlite"
     profile = Profile(
         con_name="sqlite",
@@ -269,8 +255,7 @@ def test_a_recorded_uri_that_would_create_gets_a_mode(
 
 
 def test_a_file_string_without_uri_is_an_ordinary_path(tmp_path: Path) -> None:
-    """Without `uri=True` sqlite reads `file:...?mode=ro` as a literal filename,
-    query string and all, and the default `rwc` creates it under that name."""
+    """Without `uri=True` the whole string is a filename, and `rwc` creates it."""
     target = f"file:{tmp_path / 'gone.sqlite'}?mode=ro"
     profile = Profile(con_name="sqlite", kwargs_tuple=(("database", target),))
 
@@ -284,8 +269,7 @@ def test_a_file_string_without_uri_is_an_ordinary_path(tmp_path: Path) -> None:
 
 
 def test_a_recorded_uri_still_reaches_its_tables(tmp_path: Path) -> None:
-    """Rewriting the mode must leave the rest of the URI -- and the path it
-    names -- exactly where it was."""
+    """Rewriting the mode leaves the rest of the URI, and its path, in place."""
     db_path = tmp_path / "live.sqlite"
     con = SqliteBackend().connect(str(db_path))
     con.create_table("t", TABLE.to_pandas())
