@@ -131,28 +131,20 @@ def get_leaf_profile(leaf: SourceLeaf, record: BuildRecord) -> Profile:
 def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
     """The path to check before connecting, and the kwargs that never create.
 
-    sqlite spells it as a URI mode: `rw` opens an existing database and fails
-    rather than creating one. `rw` and not `ro` because recovering a hot WAL
-    needs write access to the sidecar files, and this connection writes nothing.
-
-    A plain path is percent-encoded into a URI: sqlite cuts at the first `?`, so
-    an unescaped one truncates the path, loses the mode, and `rwc` creates a
-    database there. It is also the only case with a path worth checking, since a
-    recorded URI would have to be resolved back through the percent-encoding and
-    the optional `//localhost` authority, where a near miss reports a live
-    database as gone.
-
-    An in-memory database is ``None``. A recorded URI keeps its own mode, so
-    only an unmoded one, which is `rwc`, is rewritten.
+    sqlite spells it as a URI mode; `rw` not `ro`, since recovering a hot WAL
+    needs write access to the sidecars. A plain path is percent-encoded into
+    one: sqlite cuts at the first `?`, so an unescaped one truncates the path,
+    loses the mode, and `rwc` creates a database there. It is also the only
+    checkable case, since a recorded URI would have to be resolved back through
+    the encoding and the optional `//localhost` authority. In-memory is ``None``.
     """
 
     def opens_without_creating(uri: str) -> bool:
         """Whether ``uri`` already refuses to create its database.
 
-        No ``mode=`` at all means `rwc`. Every mode present has to be
-        non-creating: sqlite takes the first of a repeat, and disagreeing about
-        which is a silent `rwc`. Hand-split because sqlite cuts the path at `?`
-        and the query at `#`.
+        No ``mode=`` means `rwc`, and every mode present has to be non-creating:
+        sqlite takes the first of a repeat. Hand-split, since sqlite cuts the
+        path at `?` and the query at `#`.
         """
         query = uri.partition("#")[0].partition("?")[2]
         modes = {
@@ -163,10 +155,8 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
         return bool(modes) and modes <= {"ro", "rw", "memory"}
 
     def with_mode_rw(uri: str) -> str:
-        """``uri`` with every ``mode=`` replaced by one `rw`.
-
-        The fragment goes too: an appended mode behind `#` is never read.
-        """
+        """``uri`` with every ``mode=`` replaced by one `rw`; the fragment goes
+        too, since an appended mode behind `#` is never read."""
         path, _, query = uri.partition("#")[0].partition("?")
         params = [
             param
@@ -179,8 +169,7 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
     if target in (None, ""):
         return None, {}
     target = str(target)
-    # Both halves are required: without `uri=True` a `file:...?mode=ro` string
-    # is a literal filename, query string and all, and `rwc` creates it.
+    # Without `uri=True` the whole string is a filename, and `rwc` creates it.
     if not profile.kwargs_dict.get("uri") or not target.startswith("file:"):
         return target, {"database": f"file:{quote(target)}?mode=rw", "uri": True}
     if opens_without_creating(target):
@@ -191,10 +180,9 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
 def duckdb_no_create(profile: Profile) -> tuple[str | None, dict]:
     """The path to check before connecting, and the kwargs that never create.
 
-    `read_only=True` fails on a database that is not there, and blocks writes
-    for the whole session besides. duckdb refuses it for an in-memory database,
-    spelled `:memory:` or `:memory:<name>`, and a MotherDuck handle is no local
-    file, so both are left as recorded.
+    `read_only=True` fails on a missing database and blocks writes besides. Not
+    for an in-memory one (`:memory:`, optionally named), which duckdb refuses
+    read-only, nor a MotherDuck handle, which is no local file.
     """
     target = profile.kwargs_dict.get("database")
     if target is None or str(target).startswith((":memory:", "md:", "motherduck:")):
@@ -205,9 +193,8 @@ def duckdb_no_create(profile: Profile) -> tuple[str | None, dict]:
 def connect(profile: Profile) -> Any:
     """The connection ``profile`` names, or the error every leaf behind it gets.
 
-    Only sqlite and duckdb create their database on open. A read-only command
-    must not, and the fresh empty database would report `table-missing` when the
-    truth is that it is gone.
+    Only sqlite and duckdb create their database on open, and a read-only
+    command must not: the fresh empty database would report `table-missing`.
     """
     match profile.con_name:
         case "sqlite":
@@ -216,16 +203,15 @@ def connect(profile: Profile) -> Any:
             path, kwargs = duckdb_no_create(profile)
         case _:
             path, kwargs = None, {}
-    # Checked before the connect: once the driver has raised, the file exists.
-    # It also names the cause, which sqlite's message does not.
+    # Before the connect: once the driver has raised, the file exists. It also
+    # names the cause, which sqlite's message does not.
     if path is not None and not Path(path).exists():
         return FileNotFoundError(f"{profile.con_name} database {path} does not exist")
     try:
         # The check can go stale; the kwargs are what close that window.
         return profile.get_con(**kwargs)
     except Exception as e:
-        # Returned, not raised, so it caches: a dead backend costs one timeout,
-        # not one per leaf behind it.
+        # Returned, not raised, so it caches: one timeout per dead backend.
         return e.with_traceback(None)
 
 
