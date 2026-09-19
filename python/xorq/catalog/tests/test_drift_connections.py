@@ -7,6 +7,7 @@ database as `table-missing`: the fresh empty file lists no tables.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -20,12 +21,7 @@ from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.catalog import drift
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.drift import (
-    duckdb_no_create,
-    missing_database_file,
-    open_con,
-    sqlite_no_create,
-)
+from xorq.catalog.drift import no_create_kwargs, open_con, sqlite_no_create
 from xorq.vendor.ibis.backends.profiles import Profile
 
 
@@ -59,6 +55,19 @@ def connects(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr(Profile, "get_con", counted)
     return calls
+
+
+def stale_exists(monkeypatch: pytest.MonkeyPatch, path: Path) -> Callable:
+    """Make the pre-check see ``path`` as present, and hand back the real test.
+
+    Narrow on purpose: `Path.exists` carries the catalog's own resolution too,
+    and answering `True` for every path breaks it before the probe is reached.
+    """
+    exists = Path.exists
+    monkeypatch.setattr(
+        drift.Path, "exists", lambda self: True if self == path else exists(self)
+    )
+    return exists
 
 
 def check_sources(runner: CliRunner, world: SimpleNamespace):
@@ -138,13 +147,13 @@ def test_the_driver_refuses_to_create_when_the_pre_check_goes_stale_either_way(
     tmp_path: Path, con_name: str, suffix: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With the pre-check neutered, the driver is the one that has to refuse."""
-    monkeypatch.setattr(drift, "missing_database_file", lambda profile, target: None)
     db_path = tmp_path / f"gone{suffix}"
+    exists = stale_exists(monkeypatch, db_path)
     profile = Profile(con_name=con_name, kwargs_tuple=(("database", str(db_path)),))
 
     with pytest.raises(Exception, match="unable to open|does not exist"):
         open_con(profile, {})
-    assert not db_path.exists()
+    assert not exists(db_path)
 
 
 def test_the_driver_refuses_to_create_when_the_pre_check_goes_stale(
@@ -156,13 +165,13 @@ def test_the_driver_refuses_to_create_when_the_pre_check_goes_stale(
     """The file can go between the check and the connect, and only the driver
     can close that window. With the pre-check neutered, the connect is the one
     that has to refuse."""
-    monkeypatch.setattr(drift, "missing_database_file", lambda profile, target: None)
     world.db_path.unlink()
+    exists = stale_exists(monkeypatch, world.db_path)
 
     result = check_sources(runner, world)
     assert result.exit_code == 2
     assert "unreachable" in result.output
-    assert not world.db_path.exists()
+    assert not exists(world.db_path)
     # The driver was dialled this time, and declined to create the database.
     assert connects == ["sqlite"]
 
@@ -192,7 +201,7 @@ def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
     con.disconnect()
     profile = Profile(con_name="duckdb", kwargs_tuple=(("database", str(db_path)),))
 
-    con = profile.get_con(**duckdb_no_create(profile, str(db_path)))
+    con = profile.get_con(**no_create_kwargs(profile, str(db_path)))
     assert con.list_tables() == ["t"]
     with pytest.raises(Exception, match="read-only|Cannot execute"):
         con.create_table("u", TABLE.to_pandas())
@@ -265,7 +274,6 @@ def test_a_file_string_without_uri_is_an_ordinary_path(tmp_path: Path) -> None:
     target = f"file:{tmp_path / 'gone.sqlite'}?mode=ro"
     profile = Profile(con_name="sqlite", kwargs_tuple=(("database", target),))
 
-    assert missing_database_file(profile, target) == target
     assert sqlite_no_create(profile, target) == {
         "database": f"file:{quote(target)}?mode=rw",
         "uri": True,

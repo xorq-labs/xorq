@@ -211,21 +211,27 @@ def sqlite_no_create(profile: Profile, target: str) -> dict:
     return {DATABASE_KWARG: with_mode_rw(target), "uri": True}
 
 
-def duckdb_no_create(_profile: Profile, _target: str) -> dict:
-    """Open an existing duckdb database, or fail; never create one.
+def no_create_kwargs(profile: Profile, target: str) -> dict:
+    """The connect kwargs that open ``target`` without creating it.
 
-    duckdb has a flag, and it blocks writes for the whole session as well. It
-    takes neither argument; the signature is the one every arm of
-    ``FILE_BACKED_CONS`` shares.
+    Resolved before the connect, so a driver in ``FILE_BACKED_CONS`` with no arm
+    here raises a ``ValueError`` rather than quietly creating a database.
     """
-    return {"read_only": True}
+    match profile.con_name:
+        case "sqlite":
+            return sqlite_no_create(profile, target)
+        case "duckdb":
+            # A flag, and it blocks writes for the whole session as well.
+            return {"read_only": True}
+        case _:
+            raise ValueError(f"no non-creating open for {profile.con_name}")
 
 
-# Drivers that create their database file on open, and how each is told to open
-# one without creating it. A read-only command must not bring a database into
+# Drivers that create their database file on open, each with an arm in
+# ``no_create_kwargs``. A read-only command must not bring a database into
 # existence, and the fresh empty one would be reported as `table-missing` when
 # the truth is that the database is gone.
-FILE_BACKED_CONS = {"sqlite": sqlite_no_create, "duckdb": duckdb_no_create}
+FILE_BACKED_CONS = frozenset({"sqlite", "duckdb"})
 # sqlite spells in-memory as `None`; duckdb as `:memory:`, optionally with a
 # name after it (`:memory:scratch`), which is why the prefixes carry it.
 IN_MEMORY_TARGETS = frozenset({None, ""})
@@ -249,40 +255,29 @@ def database_target(profile: Profile) -> str | None:
     return str(target)
 
 
-def missing_database_file(profile: Profile, target: str) -> str | None:
-    """``target`` if the database it names is already gone, else ``None``.
-
-    Checked before connecting, not in the failure handler: by the time the
-    driver has raised it has already created the file. It is also what names the
-    cause, since sqlite reports a missing database and an unreadable one with
-    the same message.
-
-    A recorded sqlite URI is left to the driver. Resolving one back to a path
-    means undoing the percent-encoding and the optional ``//localhost``
-    authority, and a near miss there reports a live database as gone; the
-    ``mode`` the connect carries is what keeps that case safe.
-    """
-    if is_sqlite_uri(profile, target):
-        return None
-    return None if Path(target).exists() else target
-
-
 def connect(profile: Profile) -> Any:
     """The connection ``profile`` names, or the error every leaf behind it gets.
 
     One pass over the recorded target: it decides both whether the database is
     already gone and how to open it without creating one, so the two cannot
-    disagree about the target they are talking about. The kwargs are belt to the
-    check's braces, closing the window in which the database goes away between
-    the two.
+    disagree about the target they are talking about.
     """
     kwargs = {}
     if (target := database_target(profile)) is not None:
-        if (path := missing_database_file(profile, target)) is not None:
+        # Checked before connecting, not in the failure handler: by the time the
+        # driver has raised it has already created the file. It is also what
+        # names the cause, since sqlite reports a missing database and an
+        # unreadable one with the same message. A recorded URI is left to the
+        # driver, since resolving one back to a path means undoing the
+        # percent-encoding and the optional `//localhost` authority, and a near
+        # miss there would report a live database as gone.
+        if not is_sqlite_uri(profile, target) and not Path(target).exists():
             return FileNotFoundError(
-                f"{profile.con_name} database {path} does not exist"
+                f"{profile.con_name} database {target} does not exist"
             )
-        kwargs = FILE_BACKED_CONS[profile.con_name](profile, target)
+        # Belt to that check's braces: it can go stale between here and the
+        # connect, and only the driver can close that window.
+        kwargs = no_create_kwargs(profile, target)
     try:
         return profile.get_con(**kwargs)
     except Exception as e:
