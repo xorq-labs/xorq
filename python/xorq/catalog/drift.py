@@ -249,60 +249,60 @@ def database_target(profile: Profile) -> str | None:
     return str(target)
 
 
-def missing_database_file(profile: Profile) -> str | None:
-    """The database file ``profile`` names but that does not exist, if any.
+def missing_database_file(profile: Profile, target: str) -> str | None:
+    """``target`` if the database it names is already gone, else ``None``.
 
     Checked before connecting, not in the failure handler: by the time the
-    driver has raised it has already created the file.
+    driver has raised it has already created the file. It is also what names the
+    cause, since sqlite reports a missing database and an unreadable one with
+    the same message.
 
     A recorded sqlite URI is left to the driver. Resolving one back to a path
     means undoing the percent-encoding and the optional ``//localhost``
     authority, and a near miss there reports a live database as gone; the
     ``mode`` the connect carries is what keeps that case safe.
     """
-    if (target := database_target(profile)) is None:
-        return None
     if is_sqlite_uri(profile, target):
         return None
     return None if Path(target).exists() else target
 
 
-def no_create_kwargs(profile: Profile) -> dict:
-    """The connect kwargs that keep the driver from creating ``profile``'s file.
+def connect(profile: Profile) -> Any:
+    """The connection ``profile`` names, or the error every leaf behind it gets.
 
-    Belt to ``missing_database_file``'s braces: the check above can go stale
-    between the check and the connect, and only the driver can close that
-    window. It also names the honest cause -- sqlite reports a missing file and
-    an unreadable one with the same message, so the pre-check is what turns one
-    of them into `does not exist`.
+    One pass over the recorded target: it decides both whether the database is
+    already gone and how to open it without creating one, so the two cannot
+    disagree about the target they are talking about. The kwargs are belt to the
+    check's braces, closing the window in which the database goes away between
+    the two.
     """
-    if (target := database_target(profile)) is None:
-        return {}
-    return FILE_BACKED_CONS[profile.con_name](profile, target)
+    kwargs = {}
+    if (target := database_target(profile)) is not None:
+        if (path := missing_database_file(profile, target)) is not None:
+            return FileNotFoundError(
+                f"{profile.con_name} database {path} does not exist"
+            )
+        kwargs = FILE_BACKED_CONS[profile.con_name](profile, target)
+    try:
+        return profile.get_con(**kwargs)
+    except Exception as e:
+        # A failed connect is returned rather than raised so that it caches: a
+        # dead backend takes the full timeout to fail, and paying that once per
+        # leaf behind it is what the cache exists to avoid.
+        return e.with_traceback(None)
 
 
 def open_con(profile: Profile, con_cache: dict) -> Any:
-    """The backend connection ``profile`` names.
+    """The backend connection ``profile`` names, dialled at most once.
 
-    Its own function so that connection policy has one place to live.
-    ``con_cache`` is required and the caller owns closing it, so every
-    connection this module opens is one ``close_cons`` can reach.
+    Its own function so that the cache has one place to live. ``con_cache`` is
+    required and the caller owns closing it, so every connection this module
+    opens is one ``close_cons`` can reach.
     """
     from xorq.ibis_yaml.compiler import profile_content_key  # noqa: PLC0415
 
     if (key := profile_content_key(profile)) not in con_cache:
-        if (path := missing_database_file(profile)) is not None:
-            con_cache[key] = FileNotFoundError(
-                f"{profile.con_name} database {path} does not exist"
-            )
-        else:
-            try:
-                con_cache[key] = profile.get_con(**no_create_kwargs(profile))
-            except Exception as e:
-                # A failed connect is cached too: a dead backend takes the full
-                # timeout to fail, and paying that once per leaf behind it is
-                # what the cache exists to avoid.
-                con_cache[key] = e.with_traceback(None)
+        con_cache[key] = connect(profile)
     if isinstance(con := con_cache[key], Exception):
         # Cleared on the way out as well: re-raising one instance appends the
         # raising frame to its traceback, so a profile behind N leaves would

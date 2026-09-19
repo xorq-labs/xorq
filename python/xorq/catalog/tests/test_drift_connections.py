@@ -21,9 +21,10 @@ from xorq.catalog import drift
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.drift import (
+    duckdb_no_create,
     missing_database_file,
-    no_create_kwargs,
     open_con,
+    sqlite_no_create,
 )
 from xorq.vendor.ibis.backends.profiles import Profile
 
@@ -137,7 +138,7 @@ def test_the_driver_refuses_to_create_when_the_pre_check_goes_stale_either_way(
     tmp_path: Path, con_name: str, suffix: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With the pre-check neutered, the driver is the one that has to refuse."""
-    monkeypatch.setattr(drift, "missing_database_file", lambda profile: None)
+    monkeypatch.setattr(drift, "missing_database_file", lambda profile, target: None)
     db_path = tmp_path / f"gone{suffix}"
     profile = Profile(con_name=con_name, kwargs_tuple=(("database", str(db_path)),))
 
@@ -155,7 +156,7 @@ def test_the_driver_refuses_to_create_when_the_pre_check_goes_stale(
     """The file can go between the check and the connect, and only the driver
     can close that window. With the pre-check neutered, the connect is the one
     that has to refuse."""
-    monkeypatch.setattr(drift, "missing_database_file", lambda profile: None)
+    monkeypatch.setattr(drift, "missing_database_file", lambda profile, target: None)
     world.db_path.unlink()
 
     result = check_sources(runner, world)
@@ -176,7 +177,9 @@ def test_a_question_mark_in_the_path_stays_in_the_path(tmp_path: Path) -> None:
     con.disconnect()
     profile = Profile(con_name="sqlite", kwargs_tuple=(("database", str(db_path)),))
 
-    assert profile.get_con(**no_create_kwargs(profile)).list_tables() == ["t"]
+    kwargs = sqlite_no_create(profile, str(db_path))
+
+    assert profile.get_con(**kwargs).list_tables() == ["t"]
     assert not (tmp_path / "we").exists()
 
 
@@ -189,7 +192,7 @@ def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
     con.disconnect()
     profile = Profile(con_name="duckdb", kwargs_tuple=(("database", str(db_path)),))
 
-    con = profile.get_con(**no_create_kwargs(profile))
+    con = profile.get_con(**duckdb_no_create(profile, str(db_path)))
     assert con.list_tables() == ["t"]
     with pytest.raises(Exception, match="read-only|Cannot execute"):
         con.create_table("u", TABLE.to_pandas())
@@ -213,16 +216,23 @@ def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
     ],
 )
 def test_a_target_that_is_no_local_file_is_left_alone(
-    con_name: str, kwargs_tuple: tuple
+    con_name: str, kwargs_tuple: tuple, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Only a target the driver would create is ours to check or to re-open.
     duckdb refuses `:memory:` read-only outright and spells a named in-memory
     database `:memory:<name>`, a MotherDuck handle is no path, and a URI that
-    already carries a non-creating mode is left as recorded."""
+    already carries a non-creating mode is left as recorded.
+
+    Asserted on what reaches the driver, since the exemptions are reached by
+    different routes: a target that is no file at all, and one whose recorded
+    URI already refuses to create."""
+    seen = []
+    monkeypatch.setattr(Profile, "get_con", lambda self, **kwargs: seen.append(kwargs))
     profile = Profile(con_name=con_name, kwargs_tuple=kwargs_tuple)
 
-    assert missing_database_file(profile) is None
-    assert no_create_kwargs(profile) == {}
+    drift.connect(profile)
+
+    assert seen == [{}]
 
 
 @pytest.mark.parametrize(
@@ -240,7 +250,7 @@ def test_a_recorded_uri_that_would_create_gets_a_mode(
         kwargs_tuple=(("database", f"file:{db_path}{mode_part}"), ("uri", True)),
     )
 
-    assert no_create_kwargs(profile) == {
+    assert sqlite_no_create(profile, f"file:{db_path}{mode_part}") == {
         "database": f"file:{db_path}?mode=rw",
         "uri": True,
     }
@@ -255,8 +265,8 @@ def test_a_file_string_without_uri_is_an_ordinary_path(tmp_path: Path) -> None:
     target = f"file:{tmp_path / 'gone.sqlite'}?mode=ro"
     profile = Profile(con_name="sqlite", kwargs_tuple=(("database", target),))
 
-    assert missing_database_file(profile) == target
-    assert no_create_kwargs(profile) == {
+    assert missing_database_file(profile, target) == target
+    assert sqlite_no_create(profile, target) == {
         "database": f"file:{quote(target)}?mode=rw",
         "uri": True,
     }
