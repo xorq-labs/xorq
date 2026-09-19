@@ -21,7 +21,7 @@ from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.catalog import drift
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.drift import no_create_kwargs, open_con, sqlite_no_create
+from xorq.catalog.drift import open_con, sqlite_no_create
 from xorq.vendor.ibis.backends.profiles import Profile
 
 
@@ -191,7 +191,7 @@ def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
     con.disconnect()
     profile = Profile(con_name="duckdb", kwargs_tuple=(("database", str(db_path)),))
 
-    con = profile.get_con(**no_create_kwargs(profile, str(db_path)))
+    con = drift.connect(profile)
     assert con.list_tables() == ["t"]
     with pytest.raises(Exception, match="read-only|Cannot execute"):
         con.create_table("u", TABLE.to_pandas())

@@ -196,65 +196,46 @@ def sqlite_no_create(profile: Profile, target: str) -> dict:
     return {DATABASE_KWARG: with_mode_rw(target), "uri": True}
 
 
-def no_create_kwargs(profile: Profile, target: str) -> dict:
-    """The connect kwargs that open ``target`` without creating it.
-
-    A driver in ``FILE_BACKED_CONS`` with no arm here raises rather than
-    quietly creating a database.
-    """
-    match profile.con_name:
-        case "sqlite":
-            return sqlite_no_create(profile, target)
-        case "duckdb":
-            # Blocks writes for the whole session too.
-            return {"read_only": True}
-        case _:
-            raise ValueError(f"no non-creating open for {profile.con_name}")
-
-
-# Drivers that create their database on open, each with an arm above. A
-# read-only command must not create one, and the fresh empty database would
-# report `table-missing` when the truth is that it is gone.
-FILE_BACKED_CONS = frozenset({"sqlite", "duckdb"})
 # sqlite spells in-memory `None`, duckdb `:memory:` or `:memory:<name>`.
 IN_MEMORY_TARGETS = frozenset({None, ""})
 # Not a file the driver would create: in-memory, and MotherDuck handles.
 NON_FILE_PREFIXES = (":memory:", "md:", "motherduck:")
 
 
-def database_target(profile: Profile) -> str | None:
-    """The database ``profile`` names, if the driver would create it.
-
-    ``None`` for every other backend, and for targets that take no mode: duckdb
-    refuses `:memory:` read-only.
-    """
-    if profile.con_name not in FILE_BACKED_CONS:
-        return None
-    target = profile.kwargs_dict.get(DATABASE_KWARG)
-    if target in IN_MEMORY_TARGETS or str(target).startswith(NON_FILE_PREFIXES):
-        return None
-    return str(target)
-
-
 def connect(profile: Profile) -> Any:
     """The connection ``profile`` names, or the error every leaf behind it gets.
 
-    One pass over the target: it decides both whether the database is already
-    gone and how to open it without creating one.
+    One pass over the recorded target: it decides both whether the database is
+    already gone and how to open it without creating one. Only sqlite and duckdb
+    create theirs on open; a read-only command must not, and the fresh empty
+    database would report `table-missing` when the truth is that it is gone.
     """
-    kwargs = {}
-    if (target := database_target(profile)) is not None:
-        # Before the connect: once the driver has raised, the file exists. It
-        # also names the cause, which sqlite's message does not. A recorded URI
-        # is left to the driver rather than resolved back to a path.
-        if not is_sqlite_uri(profile, target) and not Path(target).exists():
-            return FileNotFoundError(
-                f"{profile.con_name} database {target} does not exist"
-            )
-        # The check can go stale; only the driver closes that window.
-        kwargs = no_create_kwargs(profile, target)
+    target = profile.kwargs_dict.get(DATABASE_KWARG)
+    # A target the driver would create: not in-memory, not a MotherDuck handle.
+    creatable = target not in IN_MEMORY_TARGETS and not str(target).startswith(
+        NON_FILE_PREFIXES
+    )
+    # `None` rather than `{}`: no arm fired, so this is not a driver that
+    # creates its database, and the check below has nothing to check.
+    kwargs = None
+    match profile.con_name:
+        case "sqlite" if creatable:
+            kwargs = sqlite_no_create(profile, str(target))
+        case "duckdb" if creatable:
+            # Blocks writes for the whole session too.
+            kwargs = {"read_only": True}
+    # Before the connect: once the driver has raised, the file exists. It also
+    # names the cause, which sqlite's message does not. A recorded URI is left
+    # to the driver rather than resolved back to a path.
+    if (
+        kwargs is not None
+        and not is_sqlite_uri(profile, str(target))
+        and not Path(target).exists()
+    ):
+        return FileNotFoundError(f"{profile.con_name} database {target} does not exist")
     try:
-        return profile.get_con(**kwargs)
+        # The check can go stale; the kwargs are what close that window.
+        return profile.get_con(**(kwargs or {}))
     except Exception as e:
         # Returned, not raised, so it caches: a dead backend costs one timeout,
         # not one per leaf behind it.
