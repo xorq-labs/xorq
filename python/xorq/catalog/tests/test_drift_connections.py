@@ -177,7 +177,7 @@ def test_a_question_mark_in_the_path_stays_in_the_path(tmp_path: Path) -> None:
     con.disconnect()
     profile = Profile(con_name="sqlite", kwargs_tuple=(("database", str(db_path)),))
 
-    kwargs = sqlite_no_create(profile, str(db_path))
+    _, kwargs = sqlite_no_create(profile)
 
     assert profile.get_con(**kwargs).list_tables() == ["t"]
     assert not (tmp_path / "we").exists()
@@ -211,6 +211,7 @@ def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
             (("database", "file:/tmp/x.sqlite?mode=ro"), ("uri", True)),
             id="sqlite-uri-with-a-mode",
         ),
+        pytest.param("duckdb", (), id="duckdb-no-database-recorded"),
         pytest.param("postgres", (("database", "analytics"),), id="not-file-backed"),
     ],
 )
@@ -245,10 +246,11 @@ def test_a_recorded_uri_that_would_create_gets_a_mode(
         kwargs_tuple=(("database", f"file:{db_path}{mode_part}"), ("uri", True)),
     )
 
-    assert sqlite_no_create(profile, f"file:{db_path}{mode_part}") == {
-        "database": f"file:{db_path}?mode=rw",
-        "uri": True,
-    }
+    assert sqlite_no_create(profile) == (
+        # No path to check: a recorded URI is left to the driver.
+        None,
+        {"database": f"file:{db_path}?mode=rw", "uri": True},
+    )
     with pytest.raises(Exception, match="unable to open"):
         open_con(profile, {})
     assert not db_path.exists()
@@ -259,10 +261,10 @@ def test_a_file_string_without_uri_is_an_ordinary_path(tmp_path: Path) -> None:
     target = f"file:{tmp_path / 'gone.sqlite'}?mode=ro"
     profile = Profile(con_name="sqlite", kwargs_tuple=(("database", target),))
 
-    assert sqlite_no_create(profile, target) == {
-        "database": f"file:{quote(target)}?mode=rw",
-        "uri": True,
-    }
+    assert sqlite_no_create(profile) == (
+        target,
+        {"database": f"file:{quote(target)}?mode=rw", "uri": True},
+    )
     with pytest.raises(FileNotFoundError, match="does not exist"):
         open_con(profile, {})
     assert not Path(target).exists()
