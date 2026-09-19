@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from attr import field, frozen
@@ -187,6 +187,11 @@ def with_mode_rw(uri: str) -> str:
     return f"{path}?{'&'.join([*params, 'mode=rw'])}"
 
 
+# The kwarg both file-backed drivers name their database with, read where the
+# target is found and written where it is rewritten, so the name has one home.
+DATABASE_KWARG = "database"
+
+
 def sqlite_no_create(profile: Profile, target: str) -> dict:
     """Open an existing sqlite database, or fail; never create one.
 
@@ -200,10 +205,10 @@ def sqlite_no_create(profile: Profile, target: str) -> dict:
     mode; otherwise the mode is rewritten, since an unmoded URI is `rwc`.
     """
     if not is_sqlite_uri(profile, target):
-        return {"database": f"file:{quote(target)}?mode=rw", "uri": True}
+        return {DATABASE_KWARG: f"file:{quote(target)}?mode=rw", "uri": True}
     if opens_without_creating(target):
         return {}
-    return {"database": with_mode_rw(target), "uri": True}
+    return {DATABASE_KWARG: with_mode_rw(target), "uri": True}
 
 
 def duckdb_no_create(_profile: Profile, _target: str) -> dict:
@@ -216,20 +221,11 @@ def duckdb_no_create(_profile: Profile, _target: str) -> dict:
     return {"read_only": True}
 
 
-class NoCreateCon(NamedTuple):
-    """How one driver names its database, and how to open it without creating it."""
-
-    kwarg: str
-    no_create: Callable[[Profile, str], dict]
-
-
-# Drivers that create their database file on open. A read-only command must not
-# bring a database into existence, and the fresh empty one would be reported as
-# `table-missing` when the truth is that the database is gone.
-FILE_BACKED_CONS = {
-    "sqlite": NoCreateCon("database", sqlite_no_create),
-    "duckdb": NoCreateCon("database", duckdb_no_create),
-}
+# Drivers that create their database file on open, and how each is told to open
+# one without creating it. A read-only command must not bring a database into
+# existence, and the fresh empty one would be reported as `table-missing` when
+# the truth is that the database is gone.
+FILE_BACKED_CONS = {"sqlite": sqlite_no_create, "duckdb": duckdb_no_create}
 # sqlite spells in-memory as `None`; duckdb as `:memory:`, optionally with a
 # name after it (`:memory:scratch`), which is why the prefixes carry it.
 IN_MEMORY_TARGETS = frozenset({None, ""})
@@ -245,9 +241,9 @@ def database_target(profile: Profile) -> str | None:
     in-memory and remote spellings, which name no file and take no mode: duckdb
     refuses `:memory:` outright when asked for it read-only.
     """
-    if (entry := FILE_BACKED_CONS.get(profile.con_name)) is None:
+    if profile.con_name not in FILE_BACKED_CONS:
         return None
-    target = profile.kwargs_dict.get(entry.kwarg)
+    target = profile.kwargs_dict.get(DATABASE_KWARG)
     if target in IN_MEMORY_TARGETS or str(target).startswith(NON_FILE_PREFIXES):
         return None
     return str(target)
@@ -282,7 +278,7 @@ def no_create_kwargs(profile: Profile) -> dict:
     """
     if (target := database_target(profile)) is None:
         return {}
-    return FILE_BACKED_CONS[profile.con_name].no_create(profile, target)
+    return FILE_BACKED_CONS[profile.con_name](profile, target)
 
 
 def open_con(profile: Profile, con_cache: dict) -> Any:
