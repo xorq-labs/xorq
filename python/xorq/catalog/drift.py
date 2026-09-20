@@ -136,7 +136,8 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
     one: sqlite cuts at the first `?`, so an unescaped one truncates the path,
     loses the mode, and `rwc` creates a database there. It is also the only
     checkable case, since a recorded URI would have to be resolved back through
-    the encoding and the optional `//localhost` authority. In-memory is ``None``.
+    the encoding and the optional `//localhost` authority. In-memory is ``None``
+    or `:memory:`.
     """
 
     def opens_without_creating(uri: str) -> bool:
@@ -166,12 +167,18 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
         return f"{path}?{'&'.join([*params, 'mode=rw'])}"
 
     target = profile.kwargs_dict.get("database")
-    if target in (None, ""):
+    if target in (None, "", ":memory:"):
         return None, {}
     target = str(target)
     # Without `uri=True` the whole string is a filename, and `rwc` creates it.
     if not profile.kwargs_dict.get("uri") or not target.startswith("file:"):
-        return target, {"database": f"file:{quote(target)}?mode=rw", "uri": True}
+        # An absolute path takes the empty authority: without the `//`, sqlite
+        # reads the first segment of a `//`-prefixed path as one and refuses.
+        authority = "//" if target.startswith("/") else ""
+        return target, {
+            "database": f"file:{authority}{quote(target)}?mode=rw",
+            "uri": True,
+        }
     if opens_without_creating(target):
         return None, {}
     return None, {"database": with_mode_rw(target), "uri": True}

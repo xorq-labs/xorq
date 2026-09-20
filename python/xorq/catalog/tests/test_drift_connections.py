@@ -205,6 +205,9 @@ def test_a_read_only_duckdb_connection_cannot_write(tmp_path: Path) -> None:
             "duckdb", (("database", ":memory:scratch"),), id="duckdb-named-in-memory"
         ),
         pytest.param("sqlite", (("database", None),), id="sqlite-in-memory"),
+        pytest.param(
+            "sqlite", (("database", ":memory:"),), id="sqlite-in-memory-spelled-out"
+        ),
         pytest.param("duckdb", (("database", "md:analytics"),), id="motherduck-handle"),
         pytest.param(
             "sqlite",
@@ -268,6 +271,20 @@ def test_a_file_string_without_uri_is_an_ordinary_path(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="does not exist"):
         open_con(profile, {})
     assert not Path(target).exists()
+
+
+def test_a_doubled_leading_slash_is_not_an_authority(tmp_path: Path) -> None:
+    """sqlite reads what follows `file://` up to the next `/` as an authority,
+    and takes only an empty one or `localhost`, so an absolute path needs the
+    empty authority spelled out."""
+    db_path = tmp_path / "live.sqlite"
+    con = SqliteBackend().connect(str(db_path))
+    con.create_table("t", TABLE.to_pandas())
+    con.disconnect()
+    # A valid spelling of the same path, and the one that would lose its head.
+    profile = Profile(con_name="sqlite", kwargs_tuple=(("database", f"/{db_path}"),))
+
+    assert open_con(profile, {}).list_tables() == ["t"]
 
 
 def test_a_recorded_uri_still_reaches_its_tables(tmp_path: Path) -> None:
