@@ -667,16 +667,21 @@ def document_keys(doc: dict) -> dict[str, set[str]]:
 
 
 def merge_keys(*keyings: dict[str, set[str]]) -> dict[str, set[str]]:
-    """The levels of several documents' keys, unioned level by level."""
+    """The levels of several documents' keys, unioned level by level.
+
+    The levels are read off the keyings themselves, so a level added to
+    `document_keys` is carried through here rather than silently dropped out of
+    the comparison.
+    """
     return {
-        level: set().union(*(keys[level] for keys in keyings))
-        for level in ("root", "entry", "leaf")
+        level: set().union(*(keys[level] for keys in keyings)) for level in keyings[0]
     }
 
 
-def pooled(keys: dict[str, set[str]]) -> set[str]:
-    """The levels flattened, for the one key whose level is not pinned."""
-    return set().union(*keys.values())
+def levels_carrying(keys: dict[str, set[str]], name: str) -> set[str]:
+    """The levels `name` sits at, for a key that sits at different levels in
+    the documents being compared."""
+    return {level for level, names in keys.items() if name in names}
 
 
 def documented_document() -> dict:
@@ -715,10 +720,12 @@ def test_every_document_key_is_documented(
 
     Level by level, because a key that moved between levels -- off the entry
     and onto its leaves, say -- keeps a pooled union intact while breaking
-    every consumer reading it where it used to sit. `error` is the one key
-    compared pooled instead: the example carries it on a leaf and the third run
-    carries it on an entry, so pinning its level would demand an example
-    unreadable entry the docstring documents in prose.
+    every consumer reading it where it used to sit. `error` is the one key the
+    two documents place differently: the example carries it on a leaf and the
+    third run carries it on an entry as well, so it is held out of the
+    level-by-level comparison and its levels are stated for each side instead,
+    rather than demanding an example unreadable entry the docstring documents
+    in prose.
     """
     keys = document_keys(document(runner, world))
     world.db_path.write_bytes(b"not a database")
@@ -731,9 +738,8 @@ def test_every_document_key_is_documented(
 
     assert {"state", "exit_code", "entries"} <= keys["root"]
     assert "leaves" in keys["entry"]
-    assert "error" in keys["leaf"] & documented["leaf"]
-    assert "error" in keys["entry"]
+    assert levels_carrying(keys, "error") == {"entry", "leaf"}
+    assert levels_carrying(documented, "error") == {"leaf"}
     assert {level: names - {"error"} for level, names in keys.items()} == {
         level: names - {"error"} for level, names in documented.items()
     }
-    assert pooled(keys) == pooled(documented)
