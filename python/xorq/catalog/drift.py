@@ -21,10 +21,11 @@ from attr.validators import deep_iterable, in_, instance_of, optional
 
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
-from xorq.common.constants import READ_EXCLUDE_KEYS, REMOTE_SCHEMES
+from xorq.common.constants import READ_EXCLUDE_KEYS
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.expr.schema import Schema
+from xorq.vendor.ibis.util import normalize_filenames, promote_list
 
 
 if TYPE_CHECKING:
@@ -32,9 +33,16 @@ if TYPE_CHECKING:
 
 
 # Both leaf kinds are probed. What is exempt was already dropped by
-# `drift_exempt`: a bundled leaf's bytes are in the archive, under a filename
-# that *is* their content hash, so the comparison could only return `equal`.
+# `drift_exempt`, and that filter is load-bearing rather than an optimization: a
+# bundled read's `hash_path` was rewritten to the archive-relative `read_path`,
+# so probing one would resolve `reads/<hash>.parquet` against the process cwd
+# and report `table-missing`, not the `equal` its bytes deserve.
 CHECKABLE_KINDS = frozenset(LeafKind)
+
+# The prefix every backend read method carries. `get_schema_reader` dispatches
+# on a name that came out of the archive, so it is checked against this rather
+# than handed to `getattr` on a live connection.
+READ_METHOD_PREFIX = "read_"
 
 
 @frozen
@@ -286,29 +294,48 @@ def read_call(leaf: SourceLeaf) -> tuple[tuple, dict]:
     return args, kwargs
 
 
+def path_resolves(path: Any) -> bool:
+    """Whether ``path`` still names something to read.
+
+    ``normalize_filenames`` is the read's own resolver, so the probe asks the
+    question the same way the read will answer it: a glob is expanded, a
+    ``scheme://`` URI is left alone rather than paying for the fetch, and only a
+    path that resolves to nothing raises. A bare ``Path.exists()`` cannot say
+    any of that -- it reads a glob, an `az://` URI and a `file://` URI alike as
+    files that are not there.
+
+    Only the "nothing resolves" ``ValueError`` is read as absence. A path that
+    is not a path at all is a damaged record, and it keeps raising rather than
+    being answered with a positive claim that the source is gone.
+    """
+    try:
+        return bool(normalize_filenames([path]))
+    except ValueError:
+        return False
+
+
 def get_read_schema(
     con: Any, leaf: SourceLeaf, location: tuple[str, str] | str | None
 ) -> Schema | None:
-    """``leaf``'s live schema, or ``None`` when a local path no longer exists.
+    """``leaf``'s live schema, or ``None`` when its paths no longer resolve.
 
     A moved file is the file analogue of a renamed table. Nothing else is
     classified: every other read failure collapses to a bare error whose message
     does not even name the file, so there is nothing to classify on.
 
-    The read routes to a session-scoped view on the connection this command
-    opened, so it leaves nothing durable behind. ``location`` is unused: a read
-    names its source by path, not by namespace.
+    `is_checkable` has already kept this to the backends whose read registers a
+    session-scoped table, so it leaves nothing durable behind. ``location`` is
+    unused: a read names its source by path, not by namespace.
     """
     args, kwargs = read_call(leaf)
-    paths = tuple(
-        path for arg in args for path in (arg if isinstance(arg, tuple) else (arg,))
-    )
-    # A remote URI is left to the read to resolve: only a local path can be
-    # checked for existence without paying for the fetch.
-    if any(
-        not str(path).startswith(REMOTE_SCHEMES) and not Path(path).exists()
-        for path in paths
-    ):
+    # The recorded name is a *destination*, not part of the source's identity.
+    # Replaying it registers the probe's own table over whatever already carries
+    # that name on the sweep-wide `con_cache` connection -- and `list_tables`,
+    # which `get_table_schema` treats as the only positive evidence of absence,
+    # would then be reading this probe's own work. The backend generates one.
+    kwargs.pop(ReadKwarg.table_name, None)
+    paths = tuple(path for arg in args for path in promote_list(arg))
+    if not all(map(path_resolves, paths)):
         return None
     return getattr(con, leaf.method_name)(*args, **kwargs).schema()
 
@@ -325,10 +352,70 @@ def get_schema_reader(
         case LeafKind.DATABASE_TABLE:
             return get_table_schema
         case LeafKind.READ:
+            # The archive names the method the probe dispatches on, so it is
+            # checked here, beside the other record defects, rather than
+            # reaching `getattr` on a live connection: a record naming
+            # `drop_table` must not be able to call it.
+            if not str(leaf.method_name or "").startswith(READ_METHOD_PREFIX):
+                raise ValueError(
+                    f"node {leaf.node_ref!r} names no read method: {leaf.method_name!r}"
+                )
+            # `from_node_def` tolerates a read with no recorded path, naming it
+            # after the node instead. There is nothing to replay for one, and
+            # left to the probe it would call the read method with no argument
+            # and rank the record's defect as an unreachable backend.
+            if not any(key == ReadKwarg.hash_path for key, _ in leaf.read_kwargs):
+                raise ValueError(f"node {leaf.node_ref!r} records no read path")
             return get_read_schema
         # Unreachable while `LeafKind` has exactly the two members above.
         case _:
             raise ValueError(f"no probe for leaf kind {leaf.kind}")
+
+
+def read_is_session_scoped(con_name: str) -> bool:
+    """Whether ``con_name``'s ``read_*`` registers a table in the session only.
+
+    The memory backends hold their tables in the process rather than in a
+    database, so replaying a read on one writes nothing that outlives the
+    connection. Every other backend ingests: sqlite, postgres and databricks go
+    through ADBC, and `deferred_read_*` records ``mode="replace"`` for them, so
+    a replay would drop and overwrite whatever the recorded ``table_name``
+    names. An unknown backend is assumed to ingest -- the cost of being wrong
+    the other way is the user's data.
+    """
+    from xorq.ibis_yaml.compiler import memory_backends  # noqa: PLC0415
+
+    return con_name in memory_backends
+
+
+def leaf_con_name(leaf: SourceLeaf, record: BuildRecord) -> str | None:
+    """The backend ``leaf`` would be probed on, or ``None`` when it cannot say.
+
+    Never raises: a leaf naming no profile, or a dangling one, stays checkable
+    so ``get_leaf_profile`` reports it as the record defect it is instead of
+    being dropped from the report as an unprobeable kind.
+    """
+    try:
+        profile_dict = record.get_profile_dict(leaf)
+    except ValueError:
+        return None
+    return None if profile_dict is None else profile_dict.get("con_name")
+
+
+def is_checkable(leaf: SourceLeaf, record: BuildRecord) -> bool:
+    """Whether this command can probe ``leaf`` without writing to its backend.
+
+    A ``Read`` is replayed against the connection it recorded, and on an
+    ingesting backend that replay is a write, in a command whose whole contract
+    is that it never repairs. Such a leaf is left unprobed and named by
+    ``format_unchecked`` rather than probed destructively.
+    """
+    if leaf.kind not in CHECKABLE_KINDS:
+        return False
+    if leaf.kind != LeafKind.READ:
+        return True
+    con_name = leaf_con_name(leaf, record)
+    return con_name is None or read_is_session_scoped(con_name)
 
 
 def format_error(e: Exception) -> str:
@@ -348,10 +435,20 @@ def probe_leaf(
     starts: all three are properties of the record, not evidence about a
     backend.
 
+    A leaf ``is_checkable`` rules out raises here too rather than being probed
+    anyway. ``iter_leaf_reports`` never hands one over, so this is what makes
+    "the probe never writes" a property of the probe instead of a property of
+    every caller that filters first.
+
     Without a caller-owned ``con_cache`` the probe closes what it opened.
     """
     read_schema = get_schema_reader(leaf)
     location = table_location(leaf)
+    if not is_checkable(leaf, record):
+        raise ValueError(
+            f"node {leaf.node_ref!r} cannot be probed without writing to "
+            f"{leaf_con_name(leaf, record)!r}"
+        )
     profile = get_leaf_profile(leaf, record)
     owned = con_cache is None
     con_cache = {} if owned else con_cache
@@ -370,10 +467,12 @@ def probe_leaf(
 
 
 def checkable_leaves(record: BuildRecord) -> tuple[SourceLeaf, ...]:
-    """The leaves this command probes: external, and of a kind it can reach."""
-    return tuple(
-        leaf for leaf in record.external_leaves if leaf.kind in CHECKABLE_KINDS
-    )
+    """The leaves this command probes: external, and reachable without writing.
+
+    Same predicate as ``format_unchecked``'s, so what is probed and what is
+    named as unprobed cannot disagree and leave a source in neither column.
+    """
+    return tuple(leaf for leaf in record.external_leaves if is_checkable(leaf, record))
 
 
 def iter_leaf_reports(
@@ -452,7 +551,7 @@ def format_unchecked(record: BuildRecord) -> str | None:
     make that a false negative stated as a positive claim.
     """
     unchecked = tuple(
-        leaf for leaf in record.external_leaves if leaf.kind not in CHECKABLE_KINDS
+        leaf for leaf in record.external_leaves if not is_checkable(leaf, record)
     )
     if not unchecked:
         return None
