@@ -334,7 +334,8 @@ def get_read_inference(method_name: str | None) -> Callable[[Any], Schema] | Non
     nested variants). Either would report `changed` on an untouched file.
 
     The map is `defer_utils.DEFAULT_READ_INFERENCE`, the same object the
-    deferred reads take their own defaults from, so the two cannot drift apart.
+    deferred reads take their own defaults from -- read-only, so neither side
+    can rebind an entry out from under the other and the two cannot drift apart.
     A method with no entry infers nothing at build time, and there the backend's
     read *is* the record.
     """
@@ -352,16 +353,18 @@ def get_read_schema(
     classified: every other read failure collapses to a bare error whose message
     does not even name the file, so there is nothing to classify on.
 
-    `is_checkable` has already kept this to the backends whose read registers a
-    session-scoped table, so it leaves nothing durable behind. ``location`` is
-    unused: a read names its source by path, not by namespace.
+    Nothing durable is left behind either way: a read `get_read_inference`
+    answers for never touches ``con``, and `is_checkable` has kept the replay
+    arm below to the backends whose read registers a session-scoped table.
+    ``location`` is unused: a read names its source by path, not by namespace.
 
-    A schema the build *declared* rather than inferred -- `deferred_read_csv`'s
-    ``schema=``, or a custom ``infer_schema=`` -- is the one thing this cannot
+    A schema the build *declared* rather than inferred -- the ``schema=`` of
+    either `deferred_read_csv` or `deferred_read_parquet`, or a custom
+    `deferred_read_csv` ``infer_schema=`` -- is the one thing this cannot
     answer. The archive records the declaration and nothing that says it was
     one, so the probe reports the file's own inference against it, and an
     override that disagreed with inference at build time still disagrees now: an
-    untouched file reads as `changed`. Pinned by
+    untouched file reads as `changed`. Pinned for both readers by
     `test_a_declared_schema_is_compared_against_inference`.
 
     A read `get_read_inference` answers for reaches its source the way the
@@ -464,17 +467,35 @@ def leaf_con_name(leaf: SourceLeaf, record: BuildRecord) -> str | None:
     return None if profile_dict is None else profile_dict.get("con_name")
 
 
+def read_needs_con(leaf: SourceLeaf) -> bool:
+    """Whether probing ``leaf`` has to dial the backend it recorded at all.
+
+    A read `get_read_inference` answers for is read out of the file by the
+    inference itself and never touches ``con``, so the recorded profile has no
+    part in the answer. Dialling it anyway would report a parquet leaf whose
+    duckdb file has since moved as `unreachable` on a question the file alone
+    settles.
+    """
+    return not (
+        leaf.kind == LeafKind.READ and get_read_inference(leaf.method_name) is not None
+    )
+
+
 def is_checkable(leaf: SourceLeaf, record: BuildRecord) -> bool:
     """Whether this command can probe ``leaf`` without writing to its backend.
 
-    A ``Read`` is replayed against the connection it recorded, and on an
-    ingesting backend that replay is a write, in a command whose whole contract
-    is that it never repairs. Such a leaf is left unprobed and named by
-    ``format_unchecked`` rather than probed destructively.
+    A ``Read`` with no registered inference is replayed against the connection
+    it recorded, and on an ingesting backend that replay is a write, in a
+    command whose whole contract is that it never repairs. Such a leaf is left
+    unprobed and named by ``format_unchecked`` rather than probed destructively.
+
+    A read `get_read_inference` answers for is checkable wherever it is bound:
+    the inference reads the file and writes nothing, so a postgres- or
+    sqlite-bound `deferred_read_parquet` is probed like any other.
     """
     if leaf.kind not in CHECKABLE_KINDS:
         return False
-    if leaf.kind != LeafKind.READ:
+    if leaf.kind != LeafKind.READ or not read_needs_con(leaf):
         return True
     con_name = leaf_con_name(leaf, record)
     return con_name is None or read_is_session_scoped(con_name)
@@ -502,6 +523,10 @@ def probe_leaf(
     "the probe never writes" a property of the probe instead of a property of
     every caller that filters first.
 
+    The connection is opened only for a reader that uses one: a read answered
+    by its own inference is handed ``None``, so an unopenable profile is not
+    reported as drift evidence about a file the probe can still read.
+
     Without a caller-owned ``con_cache`` the probe closes what it opened.
     """
     read_schema = get_schema_reader(leaf)
@@ -515,7 +540,7 @@ def probe_leaf(
     owned = con_cache is None
     con_cache = {} if owned else con_cache
     try:
-        con = open_con(profile, con_cache)
+        con = open_con(profile, con_cache) if read_needs_con(leaf) else None
         live = read_schema(con, leaf, location)
     except Exception as e:
         return LeafReport(leaf, Verdict.UNREACHABLE, error=format_error(e))

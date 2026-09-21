@@ -5,9 +5,12 @@ archive, so the *default* build of a local read is bundled and exempt. What is
 left to check is a read built with relocation off, and a read whose path is a
 remote URI, which relocation refuses and leaves untouched.
 
-Of those, only the reads bound to a memory backend are probed: everywhere else
-the backend's own ``read_*`` ingests, so replaying one would write to the user's
-database rather than read from it.
+A csv or parquet read is answered by the inference that recorded it, so it is
+probed wherever it is bound -- the file is read, the backend is not. A read with
+no registered inference is replayed against its connection instead, and there
+only a memory backend is probed: everywhere else the backend's own ``read_*``
+ingests, so replaying one would write to the user's database rather than read
+from it.
 """
 
 from __future__ import annotations
@@ -27,7 +30,9 @@ from xorq.catalog.cli import cli
 from xorq.catalog.drift import (
     checkable_leaves,
     close_cons,
+    get_read_schema,
     get_schema_reader,
+    is_checkable,
     iter_leaf_reports,
     path_resolves,
     read_call,
@@ -141,16 +146,12 @@ def test_the_relocation_keys_are_not_replayed() -> None:
     assert read_call(leaf) == (("/data/src.parquet",), {"table_name": "src"})
 
 
-def test_probing_does_not_take_the_recorded_table_name(
-    world: SimpleNamespace,
-) -> None:
-    """The probe registers under a generated name, not the recorded one.
+def test_probing_a_parquet_read_dials_nothing(world: SimpleNamespace) -> None:
+    """The inference reads the file, so the recorded backend is never opened.
 
-    Asserted on the connection the probe actually used -- a fresh one from the
-    profile would be empty whatever the probe did, which is no evidence at all.
-    The recorded name is a destination in the live catalog, and taking it would
-    shadow whatever already holds it for every later leaf of the sweep, starting
-    with `get_table_schema`'s `list_tables` check.
+    Asserted on the sweep's own cache: nothing was dialled, so nothing was
+    registered anywhere either, and a profile that can no longer be opened
+    cannot turn an answerable file into `unreachable`.
     """
     record = BuildRecord.from_catalog_entry(
         world.catalog.get_catalog_entry(world.external)
@@ -159,20 +160,48 @@ def test_probing_does_not_take_the_recorded_table_name(
     try:
         (report,) = iter_leaf_reports(record, con_cache)
         assert report.verdict == Verdict.EQUAL
-        (con,) = con_cache.values()
-        assert "src" not in con.list_tables()
+        assert con_cache == {}
     finally:
         close_cons(con_cache)
 
 
-def test_a_read_on_an_ingesting_backend_is_not_probed(
+def test_the_replay_arm_drops_the_destination_and_the_record(tmp_path: Path) -> None:
+    """What a read with no registered inference is asked, exactly.
+
+    The recorded ``table_name`` is a destination in the live catalog, and taking
+    it would shadow whatever already holds it for every later leaf of the sweep,
+    starting with `get_table_schema`'s `list_tables` check. The recorded schema
+    is an instruction, and replaying it would derive `live` from `recorded`.
+    """
+    calls = []
+
+    class Con:
+        def read_json(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace(schema=lambda: xo.schema({"a": "int64"}))
+
+    src = tmp_path / "src.json"
+    src.write_text("{}\n")
+    (leaf,) = iter_source_leaves(
+        read_doc(str(src), extra=(["schema", {"a": "int64"}],))
+    )
+    schema = get_read_schema(Con(), evolve(leaf, method_name="read_json"), None)
+
+    assert schema == xo.schema({"a": "int64"})
+    assert calls == [((str(src),), {})]
+
+
+def test_a_read_on_an_ingesting_backend_is_checked_without_writing(
     runner: CliRunner, tmp_path: Path, catalog_path: str
 ) -> None:
-    """sqlite's `read_parquet` ingests, so the probe would write, not read.
+    """sqlite's `read_parquet` ingests, but the probe never runs it.
 
-    `mode="replace"` rides along in the recorded kwargs, so replaying it would
-    drop whatever now holds the recorded table name. The leaf is named as
-    unchecked instead, and the database is left exactly as it was.
+    The recorded schema came from datafusion's inference, so the probe re-reads
+    the file with datafusion and the sqlite connection has no part in the
+    answer -- including the `mode="replace"` riding along in the recorded
+    kwargs, which a replay would have used to drop whatever now holds the
+    recorded table name. The leaf is checked and the database is left exactly
+    as it was.
     """
     src = tmp_path / "src.parquet"
     pq.write_table(RECORDED, src)
@@ -186,8 +215,44 @@ def test_a_read_on_an_ingesting_backend_is_not_probed(
 
     result = check_sources(runner, catalog_path, name)
     assert result.exit_code == 0
-    assert "1 external source not checkable (Read)" in result.output
+    assert f"Read {src}: equal" in result.output
     assert xo.sqlite.connect(str(db_path)).table("precious").to_pyarrow() == before
+
+
+def test_a_read_with_no_inference_on_an_ingesting_backend_is_unchecked() -> None:
+    """The replay arm is what the memory-backend test still guards.
+
+    A method `get_read_inference` does not answer for is replayed against the
+    connection it recorded, and on sqlite that replay ingests.
+    """
+    record = BuildRecord(read_doc("/data/src.parquet"), {"p0": {"con_name": "sqlite"}})
+    (leaf,) = record.external_leaves
+    assert is_checkable(leaf, record)
+    assert not is_checkable(evolve(leaf, method_name="read_json"), record)
+
+
+def test_a_parquet_read_outlives_its_profile(
+    runner: CliRunner, tmp_path: Path, catalog_path: str
+) -> None:
+    """The file answers, so an unopenable backend is not evidence about it.
+
+    The recorded duckdb database is gone, which `connect` reports as a
+    `FileNotFoundError` rather than creating. Opening it before dispatching
+    would rank an intact source `unreachable` on a question the file settles.
+    """
+    src = tmp_path / "src.parquet"
+    pq.write_table(RECORDED, src)
+    db_path = tmp_path / "live.ddb"
+    con = xo.duckdb.connect(str(db_path))
+    read = xo.deferred_read_parquet(src, con, table_name="src")
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    name = catalog.add(read.filter(read.a > 1), relocate_reads=False).name
+    con.disconnect()
+    db_path.unlink()
+
+    result = check_sources(runner, catalog_path, name)
+    assert result.exit_code == 0
+    assert f"Read {src}: equal" in result.output
 
 
 def test_a_glob_read_is_checked_by_path(
@@ -309,24 +374,29 @@ def test_a_date_column_is_not_drift(
     assert "equal" in result.output
 
 
+@pytest.mark.parametrize("suffix", ["csv", "parquet"])
 def test_a_declared_schema_is_compared_against_inference(
-    runner: CliRunner, tmp_path: Path, catalog_path: str
+    runner: CliRunner, tmp_path: Path, catalog_path: str, suffix: str
 ) -> None:
     """The known limitation, pinned rather than discovered.
 
-    A `schema=` handed to `deferred_read_csv` is recorded exactly the way an
+    A `schema=` handed to either deferred read is recorded exactly the way an
     inferred one is, and nothing in the archive says which it was. The probe
     reports the file's own inference against it, so an override that disagreed
     with inference at build time reads as `changed` on an untouched file.
     """
-    csv_path = tmp_path / "src.csv"
-    csv_path.write_text("a,b\n1,x\n2,y\n")
-    read = xo.deferred_read_csv(
-        csv_path,
-        xo.connect(),
-        table_name="src",
-        schema=xo.schema({"a": "string", "b": "string"}),
-    )
+    declared = xo.schema({"a": "string", "b": "string"})
+    src = tmp_path / f"src.{suffix}"
+    if suffix == "csv":
+        src.write_text("a,b\n1,x\n2,y\n")
+        read = xo.deferred_read_csv(
+            src, xo.connect(), table_name="src", schema=declared
+        )
+    else:
+        pq.write_table(RECORDED, src)
+        read = xo.deferred_read_parquet(
+            src, xo.connect(), table_name="src", schema=declared
+        )
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     name = catalog.add(read.filter(read.b == "x"), relocate_reads=False).name
 
