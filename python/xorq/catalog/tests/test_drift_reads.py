@@ -279,3 +279,58 @@ def test_the_recorded_schema_is_not_replayed(
     result = check_sources(runner, catalog_path, name)
     assert result.exit_code == 3
     assert "live:     a int64, b string, c int64" in result.output
+
+
+def test_a_date_column_is_not_drift(
+    runner: CliRunner, tmp_path: Path, catalog_path: str
+) -> None:
+    """`recorded` is pandas' inference, so `live` has to be pandas' too.
+
+    duckdb and datafusion read `2024-01-01` as a date, and an all-empty column
+    as text, where pandas leaves the first a string and the second a float.
+    Probing with the backend's own read would compare two inference engines and
+    report `changed` for a file nobody touched.
+    """
+    csv_path = tmp_path / "src.csv"
+    csv_path.write_text("d,b,e\n2024-01-01,x,\n2024-01-02,y,\n")
+    con = xo.duckdb.connect()
+    read = xo.deferred_read_csv(csv_path, con, table_name="src")
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    name = catalog.add(read.filter(read.b == "x"), relocate_reads=False).name
+    (leaf,) = BuildRecord.from_catalog_entry(
+        catalog.get_catalog_entry(name)
+    ).external_leaves
+    assert leaf.recorded == xo.schema({"d": "string", "b": "string", "e": "float64"})
+    # The premise: the two engines really do disagree about this file.
+    assert con.read_csv(csv_path).schema() != leaf.recorded
+
+    result = check_sources(runner, catalog_path, name)
+    assert result.exit_code == 0
+    assert "equal" in result.output
+
+
+def test_a_declared_schema_is_compared_against_inference(
+    runner: CliRunner, tmp_path: Path, catalog_path: str
+) -> None:
+    """The known limitation, pinned rather than discovered.
+
+    A `schema=` handed to `deferred_read_csv` is recorded exactly the way an
+    inferred one is, and nothing in the archive says which it was. The probe
+    reports the file's own inference against it, so an override that disagreed
+    with inference at build time reads as `changed` on an untouched file.
+    """
+    csv_path = tmp_path / "src.csv"
+    csv_path.write_text("a,b\n1,x\n2,y\n")
+    read = xo.deferred_read_csv(
+        csv_path,
+        xo.connect(),
+        table_name="src",
+        schema=xo.schema({"a": "string", "b": "string"}),
+    )
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    name = catalog.add(read.filter(read.b == "x"), relocate_reads=False).name
+
+    result = check_sources(runner, catalog_path, name)
+    assert result.exit_code == 3
+    assert "recorded: a string, b string" in result.output
+    assert "live:     a int64, b string" in result.output

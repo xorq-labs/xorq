@@ -47,7 +47,7 @@ READ_METHOD_PREFIX = "read_"
 # The recorded schema, under the two spellings `deferred_read_csv` gives it
 # (`columns` for duckdb, `schema` for the rest) and duckdb's per-column
 # override beside it. Never replayed: see `get_read_schema`.
-RECORDED_SCHEMA_KEYS = frozenset({ReadKwarg.schema, "columns", "types"})
+RECORDED_SCHEMA_KEYS = frozenset({ReadKwarg.schema, ReadKwarg.columns, ReadKwarg.types})
 
 
 @frozen
@@ -319,6 +319,25 @@ def path_resolves(path: Any) -> bool:
         return False
 
 
+def get_read_inference(method_name: str | None) -> Callable[[Any], Schema] | None:
+    """The inference ``method_name``'s deferred read ran at build time, if any.
+
+    ``deferred_read_csv`` infers the schema with pandas and records what it got,
+    so ``recorded`` is pandas' answer and ``live`` has to be pandas' too.
+    Reading the file with the backend instead compares two inference engines:
+    duckdb and datafusion type `2024-01-01` as a date and an all-empty column as
+    text where pandas leaves the first a string and the second a float, and a
+    file nobody touched would report `changed`.
+
+    A method with no entry infers nothing at build time -- `read_parquet`
+    records no schema, and the file carries its own -- so there the backend's
+    read *is* the record.
+    """
+    from xorq.common.utils.defer_utils import infer_csv_schema_pandas  # noqa: PLC0415
+
+    return {"read_csv": infer_csv_schema_pandas}.get(method_name)
+
+
 def get_read_schema(
     con: Any, leaf: SourceLeaf, location: tuple[str, str] | str | None
 ) -> Schema | None:
@@ -332,10 +351,23 @@ def get_read_schema(
     session-scoped table, so it leaves nothing durable behind. ``location`` is
     unused: a read names its source by path, not by namespace.
 
-    Two recorded kwargs are build-time intent rather than part of the source's
-    identity, and neither is replayed.
+    A schema the build *declared* rather than inferred -- `deferred_read_csv`'s
+    ``schema=``, or a custom ``infer_schema=`` -- is the one thing this cannot
+    answer. The archive records the declaration and nothing that says it was
+    one, so the probe reports the file's own inference against it, and an
+    override that disagreed with inference at build time still disagrees now: an
+    untouched file reads as `changed`. Pinned by
+    `test_a_declared_schema_is_compared_against_inference`.
     """
     args, kwargs = read_call(leaf)
+    paths = tuple(path for arg in args for path in promote_list(arg))
+    if not all(map(path_resolves, paths)):
+        return None
+    if (infer := get_read_inference(leaf.method_name)) is not None:
+        # The path parameter unsplit, glob and all: `deferred_read_csv` hands
+        # its own to the inference the same way, and the two answers are only
+        # comparable if the input was.
+        return infer(args[0])
     # The recorded name is a *destination*. Replaying it registers the probe's
     # own table over whatever already carries that name on the sweep-wide
     # `con_cache` connection -- and `list_tables`, which `get_table_schema`
@@ -347,12 +379,11 @@ def get_read_schema(
     # `recorded` and every comparison would be `equal`. Dropped rather than
     # rehydrated -- the serialized form is a plain mapping, and handing that
     # over raises instead, which is the same bug reported as an unreachable
-    # backend. The read infers from the file, which is the question being asked.
+    # backend. Unreached by the methods `get_read_inference` knows, which answer
+    # above; it is what keeps a read that records a schema without a registered
+    # inference from being asked to confirm its own record.
     for key in RECORDED_SCHEMA_KEYS:
         kwargs.pop(key, None)
-    paths = tuple(path for arg in args for path in promote_list(arg))
-    if not all(map(path_resolves, paths)):
-        return None
     return getattr(con, leaf.method_name)(*args, **kwargs).schema()
 
 
