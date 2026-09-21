@@ -665,14 +665,32 @@ def test_severity_refines_the_exit_code() -> None:
     assert roll_up(Verdict).exit_code == max(v.exit_code for v in Verdict)
 
 
-def document_keys(doc: dict) -> set[str]:
-    """Every key `doc` defines, at every level, entry names excluded."""
-    keys = set(doc)
+def document_keys(doc: dict) -> dict[str, set[str]]:
+    """Every key `doc` defines, by the level it sits at, entry names excluded.
+
+    By level rather than pooled, so a key that moves between levels -- `pinned`
+    migrating off the entry and onto a leaf, say -- is a change to the
+    published shape here rather than a union that still adds up.
+    """
+    keys = {"root": set(doc), "entry": set(), "leaf": set()}
     for entry in doc["entries"].values():
-        keys |= set(entry)
+        keys["entry"] |= set(entry)
         for leaf in (*entry["leaves"], *entry["unchecked"]):
-            keys |= set(leaf)
+            keys["leaf"] |= set(leaf)
     return keys
+
+
+def merge_keys(*keyings: dict[str, set[str]]) -> dict[str, set[str]]:
+    """The levels of several documents' keys, unioned level by level."""
+    return {
+        level: set().union(*(keys[level] for keys in keyings))
+        for level in ("root", "entry", "leaf")
+    }
+
+
+def pooled(keys: dict[str, set[str]]) -> set[str]:
+    """The levels flattened, for the one key whose level is not pinned."""
+    return set().union(*keys.values())
 
 
 def documented_document() -> dict:
@@ -683,7 +701,12 @@ def documented_document() -> dict:
     test answers yes to a key named anywhere in the prose, and cannot notice a
     key the example still carries that the sweep has stopped emitting.
     """
-    block = re.search(r"\n(    \{\n.*?\n    \})\n", drift.__doc__, re.DOTALL).group(1)
+    match = re.search(r"\n(    \{\n.*?\n    \})\n", drift.__doc__, re.DOTALL)
+    assert match is not None, (
+        "no example document in the module docstring: expected a block opening "
+        "on a line of `    {` and closing on a line of `    }`"
+    )
+    block = match.group(1)
     # Comments annotate the example and are not part of the document. No `#`
     # appears inside its strings, and one added later fails loudly here rather
     # than silently dropping a key from the comparison.
@@ -704,17 +727,27 @@ def test_every_document_key_is_documented(
     Three runs, because `error` appears on a leaf and on an entry only when
     each has one.
 
-    Flat across the levels, because the example carries `error` on a leaf and
-    the third run carries it on an entry: the docstring documents both in
-    prose, and pinning the level here would demand an example case for each.
+    Level by level, because a key that moved between levels -- off the entry
+    and onto its leaves, say -- keeps a pooled union intact while breaking
+    every consumer reading it where it used to sit. `error` is the one key
+    compared pooled instead: the example carries it on a leaf and the third run
+    carries it on an entry, so pinning its level would demand an example
+    unreadable entry the docstring documents in prose.
     """
     keys = document_keys(document(runner, world))
     world.db_path.write_bytes(b"not a database")
-    keys |= document_keys(document(runner, world))
+    keys = merge_keys(keys, document_keys(document(runner, world)))
     archive = world.catalog.get_catalog_entry(world.name).catalog_path
     archive.unlink()
     archive.write_bytes(b"not a zip")
-    keys |= document_keys(document(runner, world))
+    keys = merge_keys(keys, document_keys(document(runner, world)))
+    documented = document_keys(documented_document())
 
-    assert {"state", "exit_code", "entries", "leaves", "error"} <= keys
-    assert keys == document_keys(documented_document())
+    assert {"state", "exit_code", "entries"} <= keys["root"]
+    assert "leaves" in keys["entry"]
+    assert "error" in keys["leaf"] & documented["leaf"]
+    assert "error" in keys["entry"]
+    assert {level: names - {"error"} for level, names in keys.items()} == {
+        level: names - {"error"} for level, names in documented.items()
+    }
+    assert pooled(keys) == pooled(documented)
