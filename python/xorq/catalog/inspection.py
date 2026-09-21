@@ -455,6 +455,15 @@ class BuildRecord:
         kinds = Counter(leaf.bundle_kind for leaf in self.source_leaves if leaf.bundled)
         return tuple(sorted(kinds.items(), key=lambda kv: (kv[0] is None, kv[0] or "")))
 
+    @property
+    def pinned_count(self) -> int:
+        """Pinned leaves the bundle counts did not already claim.
+
+        A pin whose frozen read was also bundled is one leaf, and counting it in
+        both columns would report more sources than the entry has.
+        """
+        return sum(leaf.pinned and not leaf.bundled for leaf in self.source_leaves)
+
     def get_profile_dict(self, leaf: SourceLeaf) -> dict[str, Any] | None:
         """The serialized profile ``leaf`` needs to be reached, if it names one.
 

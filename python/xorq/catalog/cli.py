@@ -1035,27 +1035,22 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
         format_no_external,
         format_unchecked,
         iter_leaf_reports,
+        read_record,
     )
     from xorq.catalog.enums import Verdict  # noqa: PLC0415
-    from xorq.catalog.inspection import BuildRecord  # noqa: PLC0415
 
-    codes = []
-    try:
-        record = BuildRecord.from_catalog_entry(catalog_entry)
-        # Leaf extraction is a `cached_property`, so it runs here rather than
-        # inside `iter_leaf_reports` below: a record we cannot read is not
-        # evidence of drift, and it must not raise a traceback over the other
-        # entries. It is a defect in what we read rather than evidence about a
-        # backend, so it ranks `unreadable` and leaves `unreachable` to the
-        # probes, which are the only thing here that reached a source. A defect
-        # in a single leaf stays with that leaf: `iter_leaf_reports` reports it
-        # `unreadable` and goes on probing the rest.
-        record.source_leaves
-    except Exception as e:
-        click.echo(f"  unreadable: {format_error(e)}")
+    # A record we cannot read is a defect in what we read rather than evidence
+    # about a backend, so it ranks `unreadable` and leaves `unreachable` to the
+    # probes, which are the only thing here that reached a source. A defect in a
+    # single leaf stays with that leaf: `iter_leaf_reports` reports it
+    # `unreadable` and goes on probing the rest.
+    record = read_record(catalog_entry)
+    if isinstance(record, Exception):
+        click.echo(f"  unreadable: {format_error(record)}")
         # The same verdict a leaf-level defect ranks, so the entry-level and
         # leaf-level codes cannot drift apart.
         return Verdict.UNREADABLE.exit_code
+    codes = []
     for report in iter_leaf_reports(record, con_cache):
         for line in format_leaf_report(report):
             click.echo(line)
@@ -1071,8 +1066,9 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
 @click.argument(
     "names", nargs=-1, required=True, shell_complete=_complete_entry_or_alias_names
 )
+@json_option
 @click.pass_context
-def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
+def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> None:
     """Compare each entry's recorded source schemas against the live ones.
 
     Reports; never repairs and never infers. Bundled and pinned sources are
@@ -1086,6 +1082,10 @@ def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
          unreadable
       3  a source changed, or its table is missing
 
+    With --json the whole sweep is buffered and printed once as a single
+    document, so a consumer parses a complete report or none at all. Its shape
+    is documented in `xorq.catalog.drift`; the exit code is the same either way.
+
     \b
     Arguments:
       NAMES  One or more entry names or aliases.
@@ -1093,28 +1093,37 @@ def check_sources(ctx: click.Context, names: tuple[str, ...]) -> None:
     \b
     Examples:
       xorq catalog check-sources prod-matches staging
+      xorq catalog check-sources prod-matches --json
     """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         entries = tuple(_get_catalog_entry(catalog, name) for name in names)
 
-    from xorq.catalog.drift import close_cons  # noqa: PLC0415
+    from xorq.catalog.drift import close_cons, drift_document  # noqa: PLC0415
     from xorq.catalog.enums import Verdict  # noqa: PLC0415
 
     # Probing runs outside the handler above, which funnels every exception into
     # a ClickException and would collapse every exit code to 1.
-    codes = []
     con_cache = {}
     try:
-        for name, catalog_entry in zip(names, entries):
-            click.echo(name)
-            codes.append(_echo_entry_sources(catalog_entry, con_cache))
+        if as_json:
+            # Printed after the sweep, not during it: a document cut short by a
+            # backend that never answers is worse than no document at all.
+            document = drift_document(tuple(zip(names, entries)), con_cache)
+            click.echo(json.dumps(document, indent=2))
+            exit_code = document["exit_code"]
+        else:
+            codes = []
+            for name, catalog_entry in zip(names, entries):
+                click.echo(name)
+                codes.append(_echo_entry_sources(catalog_entry, con_cache))
+            drifted = sum(code == Verdict.CHANGED.exit_code for code in codes)
+            click.echo()
+            click.echo(f"{len(codes)} entries, {drifted} drifted")
+            exit_code = max(codes, default=0)
     finally:
         close_cons(con_cache)
-    drifted = sum(code == Verdict.CHANGED.exit_code for code in codes)
-    click.echo()
-    click.echo(f"{len(codes)} entries, {drifted} drifted")
-    ctx.exit(max(codes, default=0))
+    ctx.exit(exit_code)
 
 
 def _resolve_lineage(dag: LineageDAG, handle: str, name: str) -> tuple[dict, ...]:

@@ -6,12 +6,56 @@ nothing is editorialized.
 
 The leaves come from ``inspection``, which reads them straight out of the
 archive, so an entry whose expression can no longer load is still checkable.
+
+The JSON document (``drift_document``, behind ``check-sources --json``) is the
+machine-readable form of the same sweep, buffered and emitted once so a consumer
+gets a complete document or none at all::
+
+    {
+      "state": "changed",              # the worst entry's state
+      "exit_code": 3,                  # what the command exits with
+      "entries": {
+        "prod-matches": {
+          "state": "changed",          # the worst leaf's state
+          "exit_code": 3,
+          "leaves": [
+            {
+              "kind": "DatabaseTable", # LeafKind
+              "name": "public.matches",
+              "state": "changed",      # Verdict
+              "recorded": {"home_score": "int64", "city": "string"},
+              "live": {"home_team_score": "int64", "city": "string"}
+            },
+            {
+              "kind": "Read",
+              "name": "/data/teams.parquet",
+              "state": "unreachable",
+              "recorded": {"team": "string"},
+              "live": null,
+              "error": "FileNotFoundError: ..."
+            }
+          ],
+          "unchecked": [{"kind": "Read", "name": "/data/audit.json"}],
+          "bundled": {"memtables": 1, "reads": 1},
+          "pinned": 0
+        }
+      }
+    }
+
+``state`` and ``exit_code`` sit at the root, beside ``entries`` rather than among
+the entry names, so an entry named `state` cannot shadow the roll-up. Schemas are
+column-name-to-dtype objects; there is deliberately no delta field, because the
+delta is one line of set arithmetic on the consumer's side and publishing it
+would be permanent API surface. ``live`` is ``null`` for every verdict that read
+no schema (`table-missing`, `unreachable`, `unreadable`), and ``error`` is
+present only when there is one. An entry whose record cannot be read carries
+``error`` itself and no leaves.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -501,6 +545,35 @@ def is_checkable(leaf: SourceLeaf, record: BuildRecord) -> bool:
     return con_name is None or read_is_session_scoped(con_name)
 
 
+def read_record(catalog_entry: CatalogEntry) -> BuildRecord | Exception:
+    """``catalog_entry``'s record, or the error that makes it ``unreadable``.
+
+    Leaf extraction is a ``cached_property``, so it is forced here rather than
+    left to the first probe: a record that cannot be read is not evidence about
+    any backend, and it must rank the same verdict whichever output the caller
+    asked for. Returned rather than raised so both formatters branch on one
+    value instead of each growing its own handler.
+    """
+    try:
+        record = BuildRecord.from_catalog_entry(catalog_entry)
+        record.source_leaves
+        return record
+    except Exception as e:
+        return e
+
+
+def roll_up(verdicts: Iterable[Verdict]) -> Verdict:
+    """The verdict a set of them rolls up to: the worst, earliest breaking a tie.
+
+    Not derivable from the exit code, which is why it is computed over the
+    verdicts themselves: `unreachable` shares 2 with `unreadable` and `changed`
+    shares 3 with `table-missing`, so a consumer handed only the code would have
+    to guess which of the pair it is looking at. Nothing to roll up is `equal`,
+    the same 0 an entry with no external sources exits with.
+    """
+    return max(verdicts, key=lambda verdict: verdict.exit_code, default=Verdict.EQUAL)
+
+
 def format_error(e: Exception) -> str:
     """The one shape an error takes in this command's output."""
     return f"{type(e).__name__}: {e}"
@@ -621,13 +694,21 @@ def format_no_external(record: BuildRecord) -> str:
     read like a broken command.
     """
     counts = [f"{count} {kind or 'unknown'}" for kind, count in record.bundled_counts]
-    # `bundled` already claimed the leaves it counted: a pin whose frozen read
-    # was also bundled is one leaf, and counting it in both columns would make
-    # the detail add up to more sources than the entry has.
-    if pinned := sum(leaf.pinned and not leaf.bundled for leaf in record.source_leaves):
+    if pinned := record.pinned_count:
         counts.append(f"{pinned} pinned")
     detail = f" ({', '.join(counts)})" if counts else ""
     return f"  no external sources{detail}"
+
+
+def unchecked_leaves(record: BuildRecord) -> tuple[SourceLeaf, ...]:
+    """The external leaves ``checkable_leaves`` left out.
+
+    Its complement over the same predicate, so no external source can fall into
+    neither column and go unmentioned by either output.
+    """
+    return tuple(
+        leaf for leaf in record.external_leaves if not is_checkable(leaf, record)
+    )
 
 
 def format_unchecked(record: BuildRecord) -> str | None:
@@ -637,9 +718,7 @@ def format_unchecked(record: BuildRecord) -> str | None:
     equal still exits 0, and staying quiet about the leaf nobody probed would
     make that a false negative stated as a positive claim.
     """
-    unchecked = tuple(
-        leaf for leaf in record.external_leaves if not is_checkable(leaf, record)
-    )
+    unchecked = unchecked_leaves(record)
     if not unchecked:
         return None
     counts = Counter(str(leaf.kind) for leaf in unchecked)
@@ -649,3 +728,104 @@ def format_unchecked(record: BuildRecord) -> str | None:
     )
     noun = "source" if len(unchecked) == 1 else "sources"
     return f"  {len(unchecked)} external {noun} not checkable ({detail})"
+
+
+def schema_document(schema: Schema | None) -> dict[str, str] | None:
+    """``{column: dtype}``, or ``None`` when there is no schema to report.
+
+    Dtypes as strings: the question a consumer asks of two schemas is whether
+    they differ, and a structured dtype would publish this command's view of a
+    type system it does not own.
+    """
+    if schema is None:
+        return None
+    return {name: str(dtype) for name, dtype in schema.items()}
+
+
+def leaf_document(report: LeafReport) -> dict:
+    """One leaf report, as the JSON document carries it.
+
+    ``live`` is absent as a schema for every verdict that read none, which
+    `probe_leaf` already encodes, so `table-missing` and `unreachable` fall out
+    of the report rather than being special-cased here. ``error`` appears only
+    when there is one: a null on an `equal` leaf would read as a claim that the
+    probe looked for an error and found none.
+    """
+    document = {
+        "kind": str(report.leaf.kind),
+        "name": report.leaf.name,
+        "state": str(report.verdict),
+        "recorded": schema_document(report.leaf.recorded),
+        "live": schema_document(report.live),
+    }
+    if report.error is not None:
+        document["error"] = report.error
+    return document
+
+
+def record_document(record: BuildRecord, con_cache: dict | None = None) -> dict:
+    """One readable record's whole probe, as the JSON document carries it.
+
+    Buffered by construction: `iter_leaf_reports` is drained before anything is
+    returned, so a consumer gets a complete entry or none at all.
+    """
+    reports = tuple(iter_leaf_reports(record, con_cache))
+    return {
+        "state": str(roll_up(report.verdict for report in reports)),
+        "exit_code": max((report.exit_code for report in reports), default=0),
+        "leaves": [leaf_document(report) for report in reports],
+        # Named rather than omitted: an entry that exits 0 while a source went
+        # unprobed is a false negative unless the document says which source.
+        "unchecked": [
+            {"kind": str(leaf.kind), "name": leaf.name}
+            for leaf in unchecked_leaves(record)
+        ],
+        "bundled": {
+            str(kind or "unknown"): count for kind, count in record.bundled_counts
+        },
+        "pinned": record.pinned_count,
+    }
+
+
+def entry_document(catalog_entry: CatalogEntry, con_cache: dict | None = None) -> dict:
+    """One entry's probe, or the error that kept it from being probed at all.
+
+    An unreadable record carries that error itself, with no leaves and none of
+    the counts it could not read. Its state and exit code are the ones the human
+    output prints for the same entry, since both come from ``Verdict``.
+    """
+    record = read_record(catalog_entry)
+    if isinstance(record, Exception):
+        return {
+            "state": str(Verdict.UNREADABLE),
+            "exit_code": Verdict.UNREADABLE.exit_code,
+            "error": format_error(record),
+            "leaves": [],
+            "unchecked": [],
+            "bundled": {},
+            "pinned": 0,
+        }
+    return record_document(record, con_cache)
+
+
+def drift_document(
+    named_entries: Iterable[tuple[str, CatalogEntry]], con_cache: dict | None = None
+) -> dict:
+    """The whole sweep, entries keyed by the name they were asked for under.
+
+    ``state`` and ``exit_code`` sit beside ``entries`` rather than among the
+    entry names: an entry can be called anything, and at the root one called
+    `state` would shadow the roll-up the document exists to carry.
+
+    ``con_cache`` is the caller's, same as the human path, so one dead profile
+    costs the sweep one timeout rather than one per entry.
+    """
+    entries = {
+        name: entry_document(catalog_entry, con_cache)
+        for name, catalog_entry in named_entries
+    }
+    return {
+        "state": str(roll_up(Verdict(entry["state"]) for entry in entries.values())),
+        "exit_code": max((entry["exit_code"] for entry in entries.values()), default=0),
+        "entries": entries,
+    }
