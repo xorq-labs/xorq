@@ -244,3 +244,38 @@ def test_a_read_without_a_path_raises() -> None:
     (leaf,) = iter_source_leaves(read_doc("/data/src.parquet"))
     with pytest.raises(ValueError, match="records no read path"):
         get_schema_reader(evolve(leaf, read_kwargs=(("table_name", "src"),)))
+
+
+@pytest.mark.parametrize(
+    ("con_name", "key"),
+    [
+        pytest.param("duckdb", "columns", id="duckdb"),
+        pytest.param(None, "schema", id="datafusion"),
+    ],
+)
+def test_the_recorded_schema_is_not_replayed(
+    runner: CliRunner, tmp_path: Path, catalog_path: str, con_name: str | None, key: str
+) -> None:
+    """`deferred_read_csv` records the schema it read with, under one of two
+    spellings. Replaying it makes the read answer with what it was told, so
+    `live` would come from `recorded` and drift could only ever be `equal`.
+    """
+    csv_path = tmp_path / "src.csv"
+    csv_path.write_text("a,b\n1,x\n2,y\n")
+    con = xo.duckdb.connect() if con_name == "duckdb" else xo.connect()
+    read = xo.deferred_read_csv(csv_path, con, table_name="src")
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    name = catalog.add(read.filter(read.a > 1), relocate_reads=False).name
+    (leaf,) = BuildRecord.from_catalog_entry(
+        catalog.get_catalog_entry(name)
+    ).external_leaves
+    assert key in dict(leaf.read_kwargs)
+
+    # Unchanged: the serialized schema is a plain mapping, and handing one back
+    # to the read raises -- which would rank an intact source `unreachable`.
+    assert check_sources(runner, catalog_path, name).exit_code == 0
+
+    csv_path.write_text("a,b,c\n1,x,9\n2,y,8\n")
+    result = check_sources(runner, catalog_path, name)
+    assert result.exit_code == 3
+    assert "live:     a int64, b string, c int64" in result.output

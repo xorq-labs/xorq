@@ -44,6 +44,11 @@ CHECKABLE_KINDS = frozenset(LeafKind)
 # than handed to `getattr` on a live connection.
 READ_METHOD_PREFIX = "read_"
 
+# The recorded schema, under the two spellings `deferred_read_csv` gives it
+# (`columns` for duckdb, `schema` for the rest) and duckdb's per-column
+# override beside it. Never replayed: see `get_read_schema`.
+RECORDED_SCHEMA_KEYS = frozenset({ReadKwarg.schema, "columns", "types"})
+
 
 @frozen
 class LeafReport:
@@ -326,14 +331,25 @@ def get_read_schema(
     `is_checkable` has already kept this to the backends whose read registers a
     session-scoped table, so it leaves nothing durable behind. ``location`` is
     unused: a read names its source by path, not by namespace.
+
+    Two recorded kwargs are build-time intent rather than part of the source's
+    identity, and neither is replayed.
     """
     args, kwargs = read_call(leaf)
-    # The recorded name is a *destination*, not part of the source's identity.
-    # Replaying it registers the probe's own table over whatever already carries
-    # that name on the sweep-wide `con_cache` connection -- and `list_tables`,
-    # which `get_table_schema` treats as the only positive evidence of absence,
-    # would then be reading this probe's own work. The backend generates one.
+    # The recorded name is a *destination*. Replaying it registers the probe's
+    # own table over whatever already carries that name on the sweep-wide
+    # `con_cache` connection -- and `list_tables`, which `get_table_schema`
+    # treats as the only positive evidence of absence, would then be reading
+    # this probe's own work. The backend generates one.
     kwargs.pop(ReadKwarg.table_name, None)
+    # The recorded schema is an *instruction*: a read told what its columns are
+    # returns them whatever the file now holds, so `live` would be derived from
+    # `recorded` and every comparison would be `equal`. Dropped rather than
+    # rehydrated -- the serialized form is a plain mapping, and handing that
+    # over raises instead, which is the same bug reported as an unreachable
+    # backend. The read infers from the file, which is the question being asked.
+    for key in RECORDED_SCHEMA_KEYS:
+        kwargs.pop(key, None)
     paths = tuple(path for arg in args for path in promote_list(arg))
     if not all(map(path_resolves, paths)):
         return None
