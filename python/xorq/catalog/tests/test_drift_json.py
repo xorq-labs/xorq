@@ -258,7 +258,13 @@ def test_a_pinned_leaf_is_counted_in_one_column_only(
 def test_an_unreadable_entry_carries_its_error_and_no_leaves(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    """A record that will not parse is the entry's own defect, not a leaf's."""
+    """A record that will not parse is the entry's own defect, not a leaf's.
+
+    It enumerates nothing either, so the external sources it really has go
+    unnamed and ``unchecked_count`` adds nothing for them. What reports the
+    entry is its `unreadable` state and the exit code the root takes from it --
+    never a green root, so that zero cannot be read as "everything was probed".
+    """
     # Unlinked first: this module pins `git`, but under the annex backend the
     # path is a symlink to a read-only object and writing through it is denied,
     # so it is the one pattern that works on every backend.
@@ -267,12 +273,15 @@ def test_an_unreadable_entry_carries_its_error_and_no_leaves(
     archive.write_bytes(b"not a zip")
 
     result = check_sources(runner, world)
-    entry = parse(result)["entries"][world.name]
+    doc = parse(result)
+    entry = doc["entries"][world.name]
     assert result.exit_code == 2
     assert entry["state"] == Verdict.UNREADABLE
     assert entry["exit_code"] == 2
     assert entry["leaves"] == []
     assert entry["error"].startswith("BadZipFile")
+    assert entry["unchecked"] == []
+    assert doc["unchecked_count"] == 0
 
 
 def test_a_record_whose_leaves_will_not_extract_is_still_one_entry(
@@ -405,29 +414,6 @@ def test_an_alias_and_its_name_count_their_shared_unprobed_source_twice(
     assert tuple(doc["entries"]) == (world.name, "live")
     assert [len(entry["unchecked"]) for entry in doc["entries"].values()] == [1, 1]
     assert doc["unchecked_count"] == 2
-
-
-def test_an_unreadable_entry_counts_no_unprobed_sources(
-    runner: CliRunner, world: SimpleNamespace
-) -> None:
-    """Nothing was enumerated, so there is nothing for the count to add.
-
-    The entry's external sources are real, but a record that will not parse
-    never named them: the count is added off what the document carries, and
-    this entry carries an empty list. What reports it is the `unreadable` state
-    and the exit code the root takes from it -- never a green root, so the
-    count's zero cannot be read as "everything was probed".
-    """
-    # Unlinked first, for the same reason as the corrupt-archive test above.
-    archive = world.catalog.get_catalog_entry(world.name).catalog_path
-    archive.unlink()
-    archive.write_bytes(b"not a zip")
-
-    doc = document(runner, world)
-    assert doc["state"] == Verdict.UNREADABLE
-    assert doc["exit_code"] == 2
-    assert doc["entries"][world.name]["unchecked"] == []
-    assert doc["unchecked_count"] == 0
 
 
 def test_a_repeated_name_is_swept_once(

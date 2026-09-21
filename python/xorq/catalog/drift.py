@@ -14,7 +14,7 @@ gets a complete document or none at all::
     {
       "state": "changed",              # the worst entry's state
       "exit_code": 3,                  # what the command exits with
-      "unchecked_count": 1,            # external sources no entry compared
+      "unchecked_count": 1,            # unprobed sources; gate on zero, not size
       "entries": {
         "prod-matches": {
           "state": "changed",          # the worst leaf's state
@@ -86,9 +86,12 @@ into silence about every entry beside it. A root `equal` therefore does not say
 every entry was compared. What says that is ``unchecked_count``, the unprobed
 external sources of every entry the document carries, added up -- a count rather
 than the entry's list, and named apart from ``unchecked`` because the two shapes
-are not interchangeable. It is added off those lists rather than off the entries
-behind them, so an entry asked for under both its name and an alias owes the
-document two keys and counts its unprobed sources once per key; and an entry
+are not interchangeable. It is a gate and not a quantity: what it is for is
+whether it is zero, and the two ways it departs from a strict tally of unprobed
+sources are why a consumer must not display or threshold its magnitude. It is
+added off those lists rather than off the entries behind them, so an entry
+asked for under both its name and an alias owes the document two keys and
+counts its unprobed sources once per key; and an entry
 whose record could not be read counts nothing, having enumerated nothing --
 what reports that one is its own `unreadable` state and the exit code the root
 takes from it. Zero therefore says every source of every readable entry was
@@ -936,7 +939,9 @@ def drift_document(
     as the partial answer it is. Off the lists and not the entries behind them:
     a name and its alias owe two keys and are counted twice, and an unreadable
     entry enumerated nothing and is counted not at all, which its own state and
-    the exit code it forces are what report.
+    the exit code it forces are what report. Both departures are why the key is
+    a gate rather than a quantity: zero or not zero is what it answers, and its
+    magnitude is not a number of sources a consumer can size a fix by.
 
     The roll-up runs over ``Verdict`` values rather than the ``state`` strings
     beside them: re-parsing what was just serialized would make any future
