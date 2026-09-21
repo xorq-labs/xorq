@@ -388,6 +388,48 @@ def test_a_mixed_sweep_keeps_the_verdict_it_reached_and_counts_what_it_did_not(
     assert doc["unchecked_count"] == 1
 
 
+def test_an_alias_and_its_name_count_their_shared_unprobed_source_twice(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One entry, two keys, and the count added off the keys.
+
+    The document owes a key per requested name, so the entry behind an alias is
+    carried twice, and ``unchecked_count`` -- added off the ``unchecked`` lists
+    the document already carries -- counts its one unprobed source once per
+    key. The count is what a consumer gates on, not what it sizes a fix by: it
+    is zero when everything was probed and non-zero when something was not.
+    """
+    monkeypatch.setattr(drift, "read_record", lambda catalog_entry: unchecked_record())
+
+    doc = document(runner, world, world.name, "live")
+    assert tuple(doc["entries"]) == (world.name, "live")
+    assert [len(entry["unchecked"]) for entry in doc["entries"].values()] == [1, 1]
+    assert doc["unchecked_count"] == 2
+
+
+def test_an_unreadable_entry_counts_no_unprobed_sources(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """Nothing was enumerated, so there is nothing for the count to add.
+
+    The entry's external sources are real, but a record that will not parse
+    never named them: the count is added off what the document carries, and
+    this entry carries an empty list. What reports it is the `unreadable` state
+    and the exit code the root takes from it -- never a green root, so the
+    count's zero cannot be read as "everything was probed".
+    """
+    # Unlinked first, for the same reason as the corrupt-archive test above.
+    archive = world.catalog.get_catalog_entry(world.name).catalog_path
+    archive.unlink()
+    archive.write_bytes(b"not a zip")
+
+    doc = document(runner, world)
+    assert doc["state"] == Verdict.UNREADABLE
+    assert doc["exit_code"] == 2
+    assert doc["entries"][world.name]["unchecked"] == []
+    assert doc["unchecked_count"] == 0
+
+
 def test_a_repeated_name_is_swept_once(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

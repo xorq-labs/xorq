@@ -83,11 +83,16 @@ The root rolls up only the entries that reached a verdict, so a sweep mixing a
 null entry with an `equal` one still publishes `equal`: dropping the whole sweep
 to null would bury a verdict that was reached, and would turn one unprobed source
 into silence about every entry beside it. A root `equal` therefore does not say
-every entry was compared. What says that is ``unchecked_count``, the number of
-external sources the whole sweep left unprobed -- a count rather than the entry's
-list, and named apart from ``unchecked`` because the two shapes are not
-interchangeable. A consumer gating on green reads ``state`` and
-``unchecked_count`` together.
+every entry was compared. What says that is ``unchecked_count``, the unprobed
+external sources of every entry the document carries, added up -- a count rather
+than the entry's list, and named apart from ``unchecked`` because the two shapes
+are not interchangeable. It is added off those lists rather than off the entries
+behind them, so an entry asked for under both its name and an alias owes the
+document two keys and counts its unprobed sources once per key; and an entry
+whose record could not be read counts nothing, having enumerated nothing --
+what reports that one is its own `unreadable` state and the exit code the root
+takes from it. Zero therefore says every source of every readable entry was
+probed, which is what a consumer gating on green reads beside ``state``.
 
 The roll-up ranks on ``Verdict.severity``, a total order, so the state a sweep
 publishes does not depend on the order its names were given.
@@ -926,9 +931,12 @@ def drift_document(
     the leaves it never had. Where one entry did, that verdict is the root's:
     null is not propagated, because a single unprobed source must not erase
     what every other entry established. ``unchecked_count`` is what keeps that
-    honest -- the external sources the whole sweep left unprobed, counted off
-    the entries the document already carries, so a root `equal` beside a
-    non-zero count reads as the partial answer it is.
+    honest -- the unprobed sources of the entries the document already carries,
+    added off their own lists, so a root `equal` beside a non-zero count reads
+    as the partial answer it is. Off the lists and not the entries behind them:
+    a name and its alias owe two keys and are counted twice, and an unreadable
+    entry enumerated nothing and is counted not at all, which its own state and
+    the exit code it forces are what report.
 
     The roll-up runs over ``Verdict`` values rather than the ``state`` strings
     beside them: re-parsing what was just serialized would make any future
