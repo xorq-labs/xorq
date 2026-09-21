@@ -91,11 +91,11 @@ whether it is zero, and the two ways it departs from a strict tally of unprobed
 sources are why a consumer must not display or threshold its magnitude. It is
 added off those lists rather than off the entries behind them, so an entry
 asked for under both its name and an alias owes the document two keys and
-counts its unprobed sources once per key; and an entry
-whose record could not be read counts nothing, having enumerated nothing --
-what reports that one is its own `unreadable` state and the exit code the root
-takes from it. Zero therefore says every source of every readable entry was
-probed, which is what a consumer gating on green reads beside ``state``.
+counts its unprobed sources once per key; and an entry whose record could not
+be read counts nothing, having enumerated nothing -- what reports that one is
+its own `unreadable` state and the exit code the root takes from it. Zero
+therefore says every source of every readable entry was probed, which is what a
+consumer gating on green reads beside ``state``.
 
 The roll-up ranks on ``Verdict.severity``, a total order, so the state a sweep
 publishes does not depend on the order its names were given.

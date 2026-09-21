@@ -281,6 +281,8 @@ def test_an_unreadable_entry_carries_its_error_and_no_leaves(
     assert entry["leaves"] == []
     assert entry["error"].startswith("BadZipFile")
     assert entry["unchecked"] == []
+    assert doc["state"] == Verdict.UNREADABLE
+    assert doc["exit_code"] == 2
     assert doc["unchecked_count"] == 0
 
 
