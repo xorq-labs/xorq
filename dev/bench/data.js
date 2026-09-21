@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789980629230,
+  "lastUpdate": 1789998779913,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -39378,6 +39378,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.13828791386544334",
             "extra": "mean: 1.2166518822000056 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2afdcdf5c11c9e7386ade66ad77433e93f962a5",
+          "message": "feat(catalog): check-sources reports drift for file and object-store reads (#2307)\n\nCloses #2296\n\n## What\n\n`check-sources` now computes drift for file reads, not just database\ntables. A `Read`\nleaf gets the same comparison, the same verdicts, and the same exit\ncodes as a\n`DatabaseTable` leaf.\n\nTwo kinds of read are checkable: one whose recorded path is a remote\nURI, which\nrelocation refuses and leaves alone, and one built with\n`--no-relocate-reads`, which\nkeeps its absolute local path. Everything else is bundled. Its bytes are\nin the\narchive under a filename that is their content hash, so it cannot drift\nand is never\nprobed.\n\nThe probe re-runs the inference the build ran (pandas for `read_csv`,\ndatafusion for\n`read_parquet`) instead of asking the leaf's backend, so recorded and\nlive come from\none engine. Reads with no registered inference replay the recorded call\ninstead, and\nonly where that read stays in the session. On SQLite or Postgres, the\nreplay would\ningest and overwrite the recorded table, so those leaves are named as\nunchecked in the\noutput rather than probed.\n\nA local path that no longer resolves is `table-missing`, which is the\nfile version of\na renamed table. No other failure is classified.\n\n## Why\n\ncheck-sources only covered database tables. A build that reads a parquet\nor csv file\nhad no drift check at all, and with relocation off, that covers most\nlocal builds.\n\n## Verification\n\nManual run, step by step, checking the exit value at each step:\n\n| Step | Verdict | Exit |\n|---|---|---|\n| csv unchanged | `equal` | 0 |\n| column added to the csv | `changed` | 3 |\n| csv moved away | `table-missing` | 3 |\n| default build, relocation on | no external sources | 0 |\n| parquet read bound to sqlite | `equal`, sqlite table untouched | 0 |\n| recorded sqlite database deleted | `equal`, database not recreated | 0\n|\n\nThe csv has a date column on purpose. pandas reads `2024-01-01` as a\nstring where\nduckdb and datafusion read it as a date, so the first step coming back\n`equal` is what\nshows the probe used the build's own inference and not the backend's.\n\n157 automated tests across `test_drift.py`, `test_drift_reads.py` and\n`test_drift_connections.py`.\n\n## Not addressed\n\nThe summary footer counts a `table-missing` entry as drifted, since both\nverdicts map\nto exit 3 and the footer counts codes rather than verdicts. That one is\npre-existing\nfrom #2304 and is filed as #2310.\n\nTwo smaller gaps. A read with no registered inference still compares two\nengines,\nbecause `recorded` came from the build's inference either way. That is\nunreachable\ntoday, given those reads are only probed on session-scoped backends, and\nit is filed\nas #2311. Separately, a schema the build declared through `schema=`\ninstead of\ninferring is compared against the file's inference, so an override that\nalready\ndisagreed at build time will read as `changed` on a file nobody touched.\n\nRemote paths are reachable but not equivalent: the read goes through the\ninference's\nfilesystem stack rather than the recorded profile's backend, so it can\ncome back as a\nbare error where that stack is not installed.\n\n## Post-merge\n\nKeep the work of the other PRs. Rebase them onto main once this lands.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-21T15:46:28+02:00",
+          "tree_id": "9047bcb5b35c4460dd26fb93dbc9e00ed3d5b660",
+          "url": "https://github.com/xorq-labs/xorq/commit/d2afdcdf5c11c9e7386ade66ad77433e93f962a5"
+        },
+        "date": 1789998775422,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.014404923106367,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010500079045564898",
+            "extra": "mean: 124.77532762499877 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2425501167623287,
+            "unit": "iter/sec",
+            "range": "stddev: 0.044216697945488805",
+            "extra": "mean: 445.92091499999356 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7233485351658684,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2846098891728856",
+            "extra": "mean: 1.3824594250000017 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.0079894184226412,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01720522808530199",
+            "extra": "mean: 332.447977999999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.144078652447615,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010980799621690641",
+            "extra": "mean: 318.0582010000023 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.111506262726205,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01607946028817607",
+            "extra": "mean: 321.38775100000316 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 146.9815030826657,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013139451002107675",
+            "extra": "mean: 6.803577178262882 msec\nrounds: 230"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.6183657901875446,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11970496352378796",
+            "extra": "mean: 276.3678572000231 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 13.665285975228198,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011433646517742754",
+            "extra": "mean: 73.17812461537606 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.536216270922225,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018042481526370325",
+            "extra": "mean: 104.86339357143086 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.627592117739633,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014757266422193932",
+            "extra": "mean: 131.1029725454618 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.87752072454743,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04186373321465393",
+            "extra": "mean: 170.1397658750068 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.938221438299003,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008042059709900634",
+            "extra": "mean: 202.50205716664973 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.755039028980166,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008227090766136017",
+            "extra": "mean: 210.30321599999033 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.2787566681411424,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05859642245909515",
+            "extra": "mean: 438.83579759998383 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.504052097057993,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011402599672537787",
+            "extra": "mean: 285.38388480000094 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7975875369324603,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13202614661065049",
+            "extra": "mean: 556.3011421999931 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.9243969313254417,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06996219187327032",
+            "extra": "mean: 519.643314599989 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4100637114557728,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1286845240088947",
+            "extra": "mean: 709.1878132000033 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.612035727500121,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10066034549175476",
+            "extra": "mean: 620.3336457999967 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2705834151132076,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1410161804046266",
+            "extra": "mean: 787.0400227999994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.125805375807089,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14214223241680085",
+            "extra": "mean: 888.252997799998 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9850165924813775,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1818047506001529",
+            "extra": "mean: 1.0152113249999957 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5817748287872331,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15997093931114856",
+            "extra": "mean: 1.718878078800003 sec\nrounds: 5"
           }
         ]
       }
