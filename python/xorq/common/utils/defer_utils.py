@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import itertools
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable
 
 import toolz
@@ -102,6 +103,56 @@ def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
     return schema
 
 
+@cache
+def parquet_inference_con():
+    """The one datafusion session parquet inference reads through.
+
+    Memoized because a `check-sources` sweep infers once per parquet leaf and a
+    build once per `deferred_read_parquet`, and a session costs more to build
+    than the read costs to run.
+    """
+    from xorq.backends.xorq_datafusion import connect  # noqa: PLC0415
+
+    return connect()
+
+
+def infer_parquet_schema_datafusion(path):
+    """The inference ``deferred_read_parquet`` records for a parquet file.
+
+    Always datafusion's, whatever backend the read is bound to: a parquet file
+    carries its own schema, but the arrow type each engine maps a given logical
+    type onto is not the same everywhere, so the recorded schema is pinned to
+    one engine and re-read with that same one.
+
+    The session is shared, so the registration is not: a generated name keeps
+    two concurrent inferences from reading each other's file, and dropping it
+    afterwards keeps a process that infers N files from holding N tables.
+    """
+    con = parquet_inference_con()
+    table_name = gen_name("infer_parquet")
+    try:
+        return con.read_parquet(path, table_name=table_name).schema()
+    finally:
+        con.con.deregister_table(table_name)
+
+
+# The inference each deferred read runs at build time, and so the one that has
+# to be re-run to get a schema comparable with what it recorded. Read from here
+# by `deferred_read_csv`/`deferred_read_parquet` *and* by the catalog's
+# `check-sources` probe (`xorq.catalog.drift.get_read_inference`), so a change
+# of default cannot leave the probe comparing two engines about a file nobody
+# touched.
+# Read-only: one mutated entry would change both what a build records and what
+# the probe compares it against, which is the drift this constant exists to
+# make impossible.
+DEFAULT_READ_INFERENCE = MappingProxyType(
+    {
+        "read_csv": infer_csv_schema_pandas,
+        "read_parquet": infer_parquet_schema_datafusion,
+    }
+)
+
+
 def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **kwargs):
     """Deferred and streaming csv reading via pandas"""
     import pandas as pd  # noqa: PLC0415
@@ -196,8 +247,8 @@ def deferred_read_csv(
         An expression representing the deferred read operation.
     """
 
-    infer_schema = kwargs.pop("infer_schema", infer_csv_schema_pandas)
     method_name = "read_csv"
+    infer_schema = kwargs.pop("infer_schema", DEFAULT_READ_INFERENCE[method_name])
 
     if con is None:
         con = default_backend()
@@ -290,9 +341,7 @@ def deferred_read_parquet(
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
     if not schema:
-        from xorq.backends.xorq_datafusion import connect  # noqa: PLC0415
-
-        schema = schema or connect().read_parquet(path).schema()
+        schema = DEFAULT_READ_INFERENCE[method_name](path)
     if con.name in _ADBC_BACKENDS:
         kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)

@@ -95,6 +95,12 @@ class ReadKwarg(StrEnum):
     is a filesystem path), so these members belong on the mapping only, never
     at a ``Read(... schema=..., source=...)`` call site.
 
+    ``columns`` and ``types`` are duckdb's spellings of the same recorded
+    schema: ``deferred_read_csv`` writes ``columns`` on duckdb where it writes
+    ``schema`` everywhere else, and ``types`` is duckdb's per-column override
+    riding in on ``**kwargs``. They are members here rather than literals
+    because ``catalog.drift`` matches on all three together.
+
     ``ibis_yaml`` is deliberately the only migrated consumer: the producers in
     ``xorq.common`` (``defer_utils.make_read_kwargs``,
     ``node_utils.change_read_table_name``, ``constants.READ_*_KEYS``) and the
@@ -107,6 +113,8 @@ class ReadKwarg(StrEnum):
     table_name = "table_name"
     relocatable = "relocatable"
     schema = "schema"
+    columns = "columns"
+    types = "types"
     source = "source"
 
 
