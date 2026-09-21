@@ -13,6 +13,7 @@ archive and have nothing to drift against.
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,30 +26,38 @@ from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.catalog import drift
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.drift import record_document, roll_up
+from xorq.catalog.drift import drift_document, record_document, roll_up
 from xorq.catalog.enums import Verdict
 from xorq.catalog.inspection import BuildRecord
+from xorq.catalog.zip_utils import write_zip
+from xorq.ibis_yaml.enums import DumpFiles
+from xorq.vendor.ibis.backends.profiles import Profile
 
 
 RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
 
-# Every key the document defines, by the level it appears at. The docstring is
-# the published shape, so a key added without a line about it fails here rather
-# than reaching a consumer undocumented.
-DOCUMENTED_KEYS = (
-    ("state", "exit_code", "entries"),
-    ("leaves", "unchecked", "bundled", "pinned"),
-    ("kind", "name", "recorded", "live", "error"),
-)
+UNEXTRACTABLE_EXPR = """\
+definitions:
+  dtypes: {}
+  schemas: {}
+  nodes:
+    "@databasetable_0":
+      op: DatabaseTable
+      profile: p0
+expression:
+  node_ref: "@databasetable_0"
+"""
 
 
 @pytest.fixture
 def backend_type() -> str:
     """One content-store backend, not the conftest's three.
 
-    The document is built from a parsed record and never touches the store, so
-    the other two parametrizations would buy nothing and cost a full catalog
-    each. `test_drift` still sweeps `check-sources` over all three.
+    What this module pins is the document, which is built from the parsed
+    record. The one place a sweep does touch the store is the `fetch` inside
+    `BuildRecord.from_catalog_entry`, and `test_drift` already sweeps
+    `check-sources` over all three backends; running the document tests over
+    them too would cost a full catalog each and pin nothing new.
     """
     return "git"
 
@@ -91,15 +100,21 @@ def check_sources(runner: CliRunner, world: SimpleNamespace, *names: str):
     )
 
 
-def document(runner: CliRunner, world: SimpleNamespace, *names: str) -> dict:
-    """The parsed document, asserting the whole output is that document.
+def parse(result) -> dict:
+    """The document a run printed, asserting the whole of stdout is that document.
 
-    `json.loads` over the entire stdout is also what pins "nothing else is
+    `json.loads` over the entire stream is also what pins "nothing else is
     printed": a progress line or a summary would leave trailing text and fail to
-    parse.
+    parse. `result.stdout`, not `result.output`, which since click 8.2
+    interleaves stderr -- a document written to the wrong stream is not
+    pipeable, and the parse is what has to notice.
     """
-    result = check_sources(runner, world, *names)
-    return json.loads(result.output)
+    return json.loads(result.stdout)
+
+
+def document(runner: CliRunner, world: SimpleNamespace, *names: str) -> dict:
+    """The parsed document of one `--json` run over `names`."""
+    return parse(check_sources(runner, world, *names))
 
 
 def test_the_root_carries_the_roll_up_beside_the_entries(
@@ -140,7 +155,7 @@ def test_a_changed_leaf_reports_the_two_schemas_and_no_delta(
     recreate(world, "t", pa.table({"a": pa.array(["1"], pa.string()), "b": ["x"]}))
 
     result = check_sources(runner, world)
-    doc = json.loads(result.output)
+    doc = parse(result)
     (leaf,) = doc["entries"][world.name]["leaves"]
     assert result.exit_code == 3
     assert doc["state"] == Verdict.CHANGED
@@ -169,7 +184,7 @@ def test_an_unreachable_leaf_reports_a_null_live_and_its_error(
     world.db_path.write_bytes(b"not a database")
 
     result = check_sources(runner, world)
-    doc = json.loads(result.output)
+    doc = parse(result)
     (leaf,) = doc["entries"][world.name]["leaves"]
     assert result.exit_code == 2
     assert leaf["state"] == Verdict.UNREACHABLE
@@ -195,19 +210,50 @@ def test_an_unreadable_entry_carries_its_error_and_no_leaves(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     """A record that will not parse is the entry's own defect, not a leaf's."""
-    # Unlinked first: under the annex backend the path is a symlink to a
-    # read-only object, so writing through it is denied.
+    # Unlinked first: this module pins `git`, but under the annex backend the
+    # path is a symlink to a read-only object and writing through it is denied,
+    # so it is the one pattern that works on every backend.
     archive = world.catalog.get_catalog_entry(world.name).catalog_path
     archive.unlink()
     archive.write_bytes(b"not a zip")
 
     result = check_sources(runner, world)
-    entry = json.loads(result.output)["entries"][world.name]
+    entry = parse(result)["entries"][world.name]
     assert result.exit_code == 2
     assert entry["state"] == Verdict.UNREADABLE
     assert entry["exit_code"] == 2
     assert entry["leaves"] == []
     assert entry["error"].startswith("BadZipFile")
+
+
+def test_a_record_whose_leaves_will_not_extract_is_still_one_entry(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The other half of `unreadable`: an archive that opens but will not parse.
+
+    Every other unreadable case breaks the zip, which fails inside
+    `BuildRecord.from_catalog_entry`. This one leaves both members readable and
+    breaks leaf extraction, which is a `cached_property`: unforced it would
+    first run in `iter_leaf_reports`'s `for` header, outside the per-leaf
+    handler, and escape `record_document` and `drift_document` alike -- so the
+    sweep would print no document at all, for this entry or any other. That
+    forcing is the line `read_record` exists to own.
+    """
+    archive = world.catalog.get_catalog_entry(world.name).catalog_path
+    with zipfile.ZipFile(archive) as zf:
+        members = {name: zf.read(name) for name in zf.namelist()}
+    (expr_member,) = (n for n in members if n.endswith(str(DumpFiles.expr)))
+    members[expr_member] = UNEXTRACTABLE_EXPR.encode()
+    # Unlinked first, for the same reason as the corrupt-archive test above.
+    archive.unlink()
+    write_zip(archive, members)
+
+    result = check_sources(runner, world)
+    entry = parse(result)["entries"][world.name]
+    assert result.exit_code == 2
+    assert entry["state"] == Verdict.UNREADABLE
+    assert entry["leaves"] == []
+    assert entry["error"]
 
 
 def test_the_worst_entry_decides_the_root(
@@ -226,6 +272,66 @@ def test_the_worst_entry_decides_the_root(
     assert doc["exit_code"] == 3
     assert doc["entries"][world.name]["state"] == Verdict.CHANGED
     assert doc["entries"][other]["state"] == Verdict.UNREACHABLE
+
+
+def test_a_repeated_name_is_swept_once(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keying by name already collapses a repeat, so probing it twice buys nothing.
+
+    It also costs: the second sweep's verdict would replace the first, so a
+    source that changed between the two probes could drop out of the document
+    the exit code was owed for.
+    """
+    read = drift.read_record
+    reads = []
+
+    def counting_read(catalog_entry):
+        reads.append(catalog_entry)
+        return read(catalog_entry)
+
+    monkeypatch.setattr(drift, "read_record", counting_read)
+
+    doc = document(runner, world, world.name, world.name)
+    assert len(reads) == 1
+    assert tuple(doc["entries"]) == (world.name,)
+
+
+def test_a_sweep_owns_a_connection_cache_when_it_is_given_none(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller that passes no cache still pays one dial per profile.
+
+    Threading its ``None`` down would hand every entry a private cache, which is
+    the per-entry timeout on a dead backend that the cache exists to remove. The
+    CLI happens to pass one, so nothing else here would notice.
+    """
+    world.con.create_table("u", RECORDED.to_pandas())
+    other = world.catalog.add(world.con.table("u")).name
+    cons, disconnected = [], []
+    get_con = Profile.get_con
+
+    def counting_get_con(self, *args, **kwargs):
+        con = get_con(self, *args, **kwargs)
+        disconnect = con.disconnect
+
+        def counting_disconnect(*a, **kw):
+            disconnected.append(con)
+            return disconnect(*a, **kw)
+
+        con.disconnect = counting_disconnect
+        cons.append(con)
+        return con
+
+    # Installed in the body, so the entry the test adds above is not counted.
+    monkeypatch.setattr(Profile, "get_con", counting_get_con)
+
+    doc = drift_document(
+        (name, world.catalog.get_catalog_entry(name)) for name in (world.name, other)
+    )
+    assert doc["exit_code"] == 0
+    assert len(cons) == 1
+    assert len(disconnected) == 1
 
 
 @pytest.mark.parametrize(
@@ -249,7 +355,7 @@ def test_the_exit_code_matches_the_human_run(
 
     result = check_sources(runner, world)
     assert result.exit_code == human.exit_code
-    assert json.loads(result.output)["exit_code"] == human.exit_code
+    assert parse(result)["exit_code"] == human.exit_code
 
 
 def test_nothing_is_printed_before_the_sweep_finishes(
@@ -283,7 +389,7 @@ def test_nothing_is_printed_before_the_sweep_finishes(
     # click turns the interrupt into its own abort, so the exception is gone by
     # the time the runner sees it. What matters is what reached stdout: no
     # document at all, rather than the first entry's leaves and a truncated tail.
-    assert "entries" not in result.output
+    assert "entries" not in result.stdout
 
 
 def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
@@ -346,8 +452,33 @@ def test_the_roll_up_names_a_state_the_exit_code_cannot(
     assert roll_up(verdicts) is expected
 
 
-def test_every_document_key_is_documented() -> None:
-    """The module docstring is the published shape of the document."""
-    for level in DOCUMENTED_KEYS:
-        for key in level:
-            assert f'"{key}"' in drift.__doc__
+def document_keys(doc: dict) -> set[str]:
+    """Every key `doc` defines, at every level, entry names excluded."""
+    keys = set(doc)
+    for entry in doc["entries"].values():
+        keys |= set(entry)
+        for leaf in (*entry["leaves"], *entry["unchecked"]):
+            keys |= set(leaf)
+    return keys
+
+
+def test_every_document_key_is_documented(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The module docstring is the published shape of the document.
+
+    Read off documents the sweep really emits rather than a list kept beside
+    them, which can only restate what someone already wrote down. Three runs,
+    because `error` appears on a leaf and on an entry only when each has one.
+    """
+    keys = document_keys(document(runner, world))
+    world.db_path.write_bytes(b"not a database")
+    keys |= document_keys(document(runner, world))
+    archive = world.catalog.get_catalog_entry(world.name).catalog_path
+    archive.unlink()
+    archive.write_bytes(b"not a zip")
+    keys |= document_keys(document(runner, world))
+
+    assert {"state", "exit_code", "entries", "leaves", "error"} <= keys
+    for key in keys:
+        assert f'"{key}"' in drift.__doc__, key

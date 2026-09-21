@@ -29,10 +29,17 @@ gets a complete document or none at all::
             {
               "kind": "Read",
               "name": "/data/teams.parquet",
+              "state": "table-missing",
+              "recorded": {"team": "string"},
+              "live": null
+            },
+            {
+              "kind": "DatabaseTable",
+              "name": "public.teams",
               "state": "unreachable",
               "recorded": {"team": "string"},
               "live": null,
-              "error": "FileNotFoundError: ..."
+              "error": "OperationalError: ..."
             }
           ],
           "unchecked": [{"kind": "Read", "name": "/data/audit.json"}],
@@ -46,10 +53,17 @@ gets a complete document or none at all::
 the entry names, so an entry named `state` cannot shadow the roll-up. Schemas are
 column-name-to-dtype objects; there is deliberately no delta field, because the
 delta is one line of set arithmetic on the consumer's side and publishing it
-would be permanent API surface. ``live`` is ``null`` for every verdict that read
-no schema (`table-missing`, `unreachable`, `unreadable`), and ``error`` is
-present only when there is one. An entry whose record cannot be read carries
-``error`` itself and no leaves.
+would be permanent API surface. Column *order* is part of what the probe
+compares, so a table whose columns were only reordered reads `changed` while its
+two objects still hold the same names and dtypes: a consumer that wants to see
+why compares the two key sequences, which the document preserves, and not only
+the sets. ``live`` is ``null`` for every verdict that read no schema
+(`table-missing`, `unreachable`, `unreadable`), and ``error`` is present only
+when there is one. A read path that no longer resolves is `table-missing`, the
+file analogue of a renamed table, and carries no error; `unreachable` is what
+the connection or the read raised, and is the verdict that carries one. An entry whose record cannot be read carries ``error`` itself,
+no leaves, and empty counts -- nothing was read, and the ``error`` beside them is
+what says those zeros are not evidence.
 """
 
 from __future__ import annotations
@@ -66,7 +80,7 @@ from attr.validators import deep_iterable, in_, instance_of, optional
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
 from xorq.common.constants import READ_EXCLUDE_KEYS
-from xorq.ibis_yaml.enums import ReadKwarg
+from xorq.ibis_yaml.enums import BundledSourceTypes, ReadKwarg
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.expr.schema import Schema
 from xorq.vendor.ibis.util import normalize_filenames, promote_list
@@ -687,13 +701,23 @@ def format_leaf_report(report: LeafReport) -> Iterator[str]:
             pass
 
 
+def bundle_label(kind: BundledSourceTypes | None) -> str:
+    """The one name a bundle kind takes in this command's output.
+
+    Both renderings read it from here: a bundle written by a version this one
+    does not recognize must not be called one thing by the human output and
+    another by the document.
+    """
+    return str(kind or "unknown")
+
+
 def format_no_external(record: BuildRecord) -> str:
     """Why an entry has nothing to check, counted by exempt kind.
 
     Under the default build rules most entries land here, so a bare string would
     read like a broken command.
     """
-    counts = [f"{count} {kind or 'unknown'}" for kind, count in record.bundled_counts]
+    counts = [f"{count} {bundle_label(kind)}" for kind, count in record.bundled_counts]
     if pinned := record.pinned_count:
         counts.append(f"{pinned} pinned")
     detail = f" ({', '.join(counts)})" if counts else ""
@@ -763,6 +787,34 @@ def leaf_document(report: LeafReport) -> dict:
     return document
 
 
+def make_entry_document(
+    verdict: Verdict,
+    *,
+    error: str | None = None,
+    leaves: Iterable[dict] = (),
+    unchecked: Iterable[dict] = (),
+    bundled: Iterable[tuple[BundledSourceTypes | None, int]] = (),
+    pinned: int = 0,
+) -> dict:
+    """The keys every entry carries, built in one place.
+
+    Both the probed entry and the unreadable one come through here, so the key
+    set cannot grow on one and not the other. ``exit_code`` is read off
+    ``verdict`` rather than reduced a second way over the same reports: the
+    enum owns that mapping, and a second derivation of it is exactly the drift
+    ``Verdict.exit_code`` exists to prevent.
+    """
+    document = {"state": str(verdict), "exit_code": verdict.exit_code}
+    if error is not None:
+        document["error"] = error
+    return document | {
+        "leaves": list(leaves),
+        "unchecked": list(unchecked),
+        "bundled": {bundle_label(kind): count for kind, count in bundled},
+        "pinned": pinned,
+    }
+
+
 def record_document(record: BuildRecord, con_cache: dict | None = None) -> dict:
     """One readable record's whole probe, as the JSON document carries it.
 
@@ -770,41 +822,32 @@ def record_document(record: BuildRecord, con_cache: dict | None = None) -> dict:
     returned, so a consumer gets a complete entry or none at all.
     """
     reports = tuple(iter_leaf_reports(record, con_cache))
-    return {
-        "state": str(roll_up(report.verdict for report in reports)),
-        "exit_code": max((report.exit_code for report in reports), default=0),
-        "leaves": [leaf_document(report) for report in reports],
+    return make_entry_document(
+        roll_up(report.verdict for report in reports),
+        leaves=(leaf_document(report) for report in reports),
         # Named rather than omitted: an entry that exits 0 while a source went
         # unprobed is a false negative unless the document says which source.
-        "unchecked": [
+        unchecked=(
             {"kind": str(leaf.kind), "name": leaf.name}
             for leaf in unchecked_leaves(record)
-        ],
-        "bundled": {
-            str(kind or "unknown"): count for kind, count in record.bundled_counts
-        },
-        "pinned": record.pinned_count,
-    }
+        ),
+        bundled=record.bundled_counts,
+        pinned=record.pinned_count,
+    )
 
 
 def entry_document(catalog_entry: CatalogEntry, con_cache: dict | None = None) -> dict:
     """One entry's probe, or the error that kept it from being probed at all.
 
-    An unreadable record carries that error itself, with no leaves and none of
-    the counts it could not read. Its state and exit code are the ones the human
-    output prints for the same entry, since both come from ``Verdict``.
+    An unreadable record carries that error itself and no leaves. Its counts
+    read empty because nothing was read, not because the record holds none --
+    the ``error`` key beside them is what says which. Its state and exit code
+    are the ones the human output prints for the same entry, since both come
+    from ``Verdict``.
     """
     record = read_record(catalog_entry)
     if isinstance(record, Exception):
-        return {
-            "state": str(Verdict.UNREADABLE),
-            "exit_code": Verdict.UNREADABLE.exit_code,
-            "error": format_error(record),
-            "leaves": [],
-            "unchecked": [],
-            "bundled": {},
-            "pinned": 0,
-        }
+        return make_entry_document(Verdict.UNREADABLE, error=format_error(record))
     return record_document(record, con_cache)
 
 
@@ -817,15 +860,30 @@ def drift_document(
     entry names: an entry can be called anything, and at the root one called
     `state` would shadow the roll-up the document exists to carry.
 
+    A name is swept once however many times it was asked for. Keying the sweep
+    by name already collapses a repeat into one entry, and probing it twice
+    besides would pay the probe twice and let the second verdict quietly
+    replace the first -- so a source that changed between the two probes could
+    drop out of the document the exit code was owed for.
+
     ``con_cache`` is the caller's, same as the human path, so one dead profile
-    costs the sweep one timeout rather than one per entry.
+    costs the sweep one timeout rather than one per entry. Without one the
+    sweep owns a cache for its whole run, since threading ``None`` down would
+    give every entry a private cache and put that timeout back per entry.
     """
-    entries = {
-        name: entry_document(catalog_entry, con_cache)
-        for name, catalog_entry in named_entries
-    }
-    return {
-        "state": str(roll_up(Verdict(entry["state"]) for entry in entries.values())),
-        "exit_code": max((entry["exit_code"] for entry in entries.values()), default=0),
-        "entries": entries,
-    }
+    owned = con_cache is None
+    con_cache = {} if owned else con_cache
+    entries = {}
+    verdicts = []
+    try:
+        for name, catalog_entry in named_entries:
+            if name in entries:
+                continue
+            entry = entry_document(catalog_entry, con_cache)
+            entries[name] = entry
+            verdicts.append(Verdict(entry["state"]))
+    finally:
+        if owned:
+            close_cons(con_cache)
+    state = roll_up(verdicts)
+    return {"state": str(state), "exit_code": state.exit_code, "entries": entries}

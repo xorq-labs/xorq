@@ -1082,6 +1082,11 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
          unreadable
       3  a source changed, or its table is missing
 
+    A sweep that never started is not a verdict about any source: a name that
+    does not resolve, or a catalog that cannot be opened, exits 1, and a usage
+    error exits click's own 2. Neither prints a document, so a consumer reads
+    the sweep's verdict off the document rather than off a bare 2.
+
     With --json the whole sweep is buffered and printed once as a single
     document, so a consumer parses a complete report or none at all. Its shape
     is documented in `xorq.catalog.drift`; the exit code is the same either way.
