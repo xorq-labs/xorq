@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from attr import field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
@@ -126,23 +128,111 @@ def get_leaf_profile(leaf: SourceLeaf, record: BuildRecord) -> Profile:
     return make_profile(profile_dict)
 
 
-def open_con(profile: Profile, con_cache: dict) -> Any:
-    """The backend connection ``profile`` names.
+def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
+    """The path to check before connecting, and the kwargs that never create.
 
-    Its own function so that connection policy has one place to live.
-    ``con_cache`` is required and the caller owns closing it, so every
-    connection this module opens is one ``close_cons`` can reach.
+    sqlite spells it as a URI mode; `rw` not `ro`, since recovering a hot WAL
+    needs write access to the sidecars. A plain path is percent-encoded into
+    one: sqlite cuts at the first `?`, so an unescaped one truncates the path,
+    loses the mode, and `rwc` creates a database there. It is also the only
+    checkable case, since a recorded URI would have to be resolved back through
+    the encoding and the optional `//localhost` authority. In-memory is ``None``
+    or `:memory:`.
+    """
+
+    def opens_without_creating(uri: str) -> bool:
+        """Whether ``uri`` already refuses to create its database.
+
+        No ``mode=`` means `rwc`, and every mode present has to be non-creating:
+        sqlite takes the first of a repeat. Hand-split, since sqlite cuts the
+        path at `?` and the query at `#`.
+        """
+        query = uri.partition("#")[0].partition("?")[2]
+        modes = {
+            param.removeprefix("mode=")
+            for param in query.split("&")
+            if param.startswith("mode=")
+        }
+        return bool(modes) and modes <= {"ro", "rw", "memory"}
+
+    def with_mode_rw(uri: str) -> str:
+        """``uri`` with every ``mode=`` replaced by one `rw`; the fragment goes
+        too, since an appended mode behind `#` is never read."""
+        path, _, query = uri.partition("#")[0].partition("?")
+        params = [
+            param
+            for param in query.split("&")
+            if param and not param.startswith("mode=")
+        ]
+        return f"{path}?{'&'.join([*params, 'mode=rw'])}"
+
+    target = profile.kwargs_dict.get("database")
+    if target in (None, "", ":memory:"):
+        return None, {}
+    target = str(target)
+    # Without `uri=True` the whole string is a filename, and `rwc` creates it.
+    if not profile.kwargs_dict.get("uri") or not target.startswith("file:"):
+        # An absolute path takes the empty authority: without the `//`, sqlite
+        # reads the first segment of a `//`-prefixed path as one and refuses.
+        authority = "//" if target.startswith("/") else ""
+        return target, {
+            "database": f"file:{authority}{quote(target)}?mode=rw",
+            "uri": True,
+        }
+    if opens_without_creating(target):
+        return None, {}
+    return None, {"database": with_mode_rw(target), "uri": True}
+
+
+def duckdb_no_create(profile: Profile) -> tuple[str | None, dict]:
+    """The path to check before connecting, and the kwargs that never create.
+
+    `read_only=True` fails on a missing database and blocks writes besides. Not
+    for an in-memory one (`:memory:`, optionally named), which duckdb refuses
+    read-only, nor a MotherDuck handle, which is no local file.
+    """
+    target = profile.kwargs_dict.get("database")
+    if target is None or str(target).startswith((":memory:", "md:", "motherduck:")):
+        return None, {}
+    return str(target), {"read_only": True}
+
+
+def connect(profile: Profile) -> Any:
+    """The connection ``profile`` names, or the error every leaf behind it gets.
+
+    Only sqlite and duckdb create their database on open, and a read-only
+    command must not: the fresh empty database would report `table-missing`.
+    """
+    match profile.con_name:
+        case "sqlite":
+            path, kwargs = sqlite_no_create(profile)
+        case "duckdb":
+            path, kwargs = duckdb_no_create(profile)
+        case _:
+            path, kwargs = None, {}
+    # Before the connect: once the driver has raised, the file exists. It also
+    # names the cause, which sqlite's message does not.
+    if path is not None and not Path(path).exists():
+        return FileNotFoundError(f"{profile.con_name} database {path} does not exist")
+    try:
+        # The check can go stale; the kwargs are what close that window.
+        return profile.get_con(**kwargs)
+    except Exception as e:
+        # Returned, not raised, so it caches: one timeout per dead backend.
+        return e.with_traceback(None)
+
+
+def open_con(profile: Profile, con_cache: dict) -> Any:
+    """The backend connection ``profile`` names, dialled at most once.
+
+    Its own function so that the cache has one place to live. ``con_cache`` is
+    required and the caller owns closing it, so every connection this module
+    opens is one ``close_cons`` can reach.
     """
     from xorq.ibis_yaml.compiler import profile_content_key  # noqa: PLC0415
 
     if (key := profile_content_key(profile)) not in con_cache:
-        try:
-            con_cache[key] = profile.get_con()
-        except Exception as e:
-            # A failed connect is cached too: a dead backend takes the full
-            # timeout to fail, and paying that once per leaf behind it is what
-            # the cache exists to avoid.
-            con_cache[key] = e.with_traceback(None)
+        con_cache[key] = connect(profile)
     if isinstance(con := con_cache[key], Exception):
         # Cleared on the way out as well: re-raising one instance appends the
         # raising frame to its traceback, so a profile behind N leaves would
