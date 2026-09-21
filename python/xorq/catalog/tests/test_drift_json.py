@@ -727,7 +727,10 @@ def test_every_document_key_is_documented(
     third run carries it on an entry as well, so it is held out of the
     level-by-level comparison and its levels are stated for each side instead,
     rather than demanding an example unreadable entry the docstring documents
-    in prose.
+    in prose. The example is held to carrying `error` on a leaf and to no level
+    the sweep does not emit it at, so it still fails on a move -- `error`
+    leaving the leaf, or reaching the root -- while leaving room for an example
+    unreadable entry to be added later.
     """
     keys = document_keys(document(runner, world))
     world.db_path.write_bytes(b"not a database")
@@ -741,7 +744,8 @@ def test_every_document_key_is_documented(
     assert {"state", "exit_code", "entries"} <= keys["root"]
     assert "leaves" in keys["entry"]
     assert levels_carrying(keys, "error") == {"entry", "leaf"}
-    assert levels_carrying(documented, "error") == {"leaf"}
+    assert "leaf" in levels_carrying(documented, "error")
+    assert levels_carrying(documented, "error") <= levels_carrying(keys, "error")
     assert {level: names - {"error"} for level, names in keys.items()} == {
         level: names - {"error"} for level, names in documented.items()
     }
