@@ -334,3 +334,40 @@ def test_a_declared_schema_is_compared_against_inference(
     assert result.exit_code == 3
     assert "recorded: a string, b string" in result.output
     assert "live:     a int64, b string" in result.output
+
+
+def test_a_float16_parquet_column_is_not_drift(
+    runner: CliRunner, tmp_path: Path, catalog_path: str
+) -> None:
+    """`recorded` is datafusion's inference for parquet, whatever `con` is.
+
+    `deferred_read_parquet` derives the node schema from a datafusion session
+    no matter which backend the read is bound to, so the probe has to re-read
+    with datafusion too. duckdb maps a parquet `float16` to `float32` and drops
+    the millisecond timestamp precision, so probing with the bound backend
+    would report `changed` for a file nobody touched.
+    """
+    src = tmp_path / "src.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "f": pa.array([1.0, 2.0], pa.float16()),
+                "t": pa.array([0, 1], pa.timestamp("ms")),
+            }
+        ),
+        src,
+    )
+    con = xo.duckdb.connect()
+    read = xo.deferred_read_parquet(src, con, table_name="src")
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    name = catalog.add(read.filter(read.f > 1), relocate_reads=False).name
+    (leaf,) = BuildRecord.from_catalog_entry(
+        catalog.get_catalog_entry(name)
+    ).external_leaves
+    assert leaf.recorded == xo.schema({"f": "float16", "t": "timestamp(3)"})
+    # The premise: the two engines really do disagree about this file.
+    assert con.read_parquet(src).schema() != leaf.recorded
+
+    result = check_sources(runner, catalog_path, name)
+    assert result.exit_code == 0
+    assert "equal" in result.output

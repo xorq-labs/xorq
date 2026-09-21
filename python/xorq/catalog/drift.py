@@ -322,20 +322,25 @@ def path_resolves(path: Any) -> bool:
 def get_read_inference(method_name: str | None) -> Callable[[Any], Schema] | None:
     """The inference ``method_name``'s deferred read ran at build time, if any.
 
-    ``deferred_read_csv`` infers the schema with pandas and records what it got,
-    so ``recorded`` is pandas' answer and ``live`` has to be pandas' too.
-    Reading the file with the backend instead compares two inference engines:
-    duckdb and datafusion type `2024-01-01` as a date and an all-empty column as
-    text where pandas leaves the first a string and the second a float, and a
-    file nobody touched would report `changed`.
+    A deferred read records the schema *its own* inference produced, not the
+    one the bound backend would produce, so ``live`` has to come from that same
+    inference. `deferred_read_csv` infers with pandas and `deferred_read_parquet`
+    with datafusion -- both regardless of ``con`` -- and reading the file with
+    the backend instead compares two inference engines about a file nobody
+    touched: duckdb and datafusion type `2024-01-01` as a date and an all-empty
+    csv column as text where pandas leaves the first a string and the second a
+    float, and the engines disagree on parquet logical types too (float16,
+    timestamp and time precision, unsigned and interval types, the large and
+    nested variants). Either would report `changed` on an untouched file.
 
-    A method with no entry infers nothing at build time -- `read_parquet`
-    records no schema, and the file carries its own -- so there the backend's
+    The map is `defer_utils.DEFAULT_READ_INFERENCE`, the same object the
+    deferred reads take their own defaults from, so the two cannot drift apart.
+    A method with no entry infers nothing at build time, and there the backend's
     read *is* the record.
     """
-    from xorq.common.utils.defer_utils import infer_csv_schema_pandas  # noqa: PLC0415
+    from xorq.common.utils.defer_utils import DEFAULT_READ_INFERENCE  # noqa: PLC0415
 
-    return {"read_csv": infer_csv_schema_pandas}.get(method_name)
+    return DEFAULT_READ_INFERENCE.get(method_name)
 
 
 def get_read_schema(
@@ -358,14 +363,24 @@ def get_read_schema(
     override that disagreed with inference at build time still disagrees now: an
     untouched file reads as `changed`. Pinned by
     `test_a_declared_schema_is_compared_against_inference`.
+
+    A read `get_read_inference` answers for reaches its source the way the
+    *inference* does, not the way the profile's backend would: pandas' csv
+    reader for `read_csv`, a fresh datafusion session for `read_parquet`. On a
+    remote path that is a different filesystem stack from the one the build's
+    backend used -- fsspec plus the scheme's driver (s3fs/adlfs/gcsfs) and their
+    own credential resolution -- so a remote read the recorded backend could
+    still reach reports as a bare error where that stack is missing. That is the
+    price of a comparable answer: the build inferred through the same stack, so
+    a schema fetched any other way would not be one.
     """
     args, kwargs = read_call(leaf)
     paths = tuple(path for arg in args for path in promote_list(arg))
     if not all(map(path_resolves, paths)):
         return None
     if (infer := get_read_inference(leaf.method_name)) is not None:
-        # The path parameter unsplit, glob and all: `deferred_read_csv` hands
-        # its own to the inference the same way, and the two answers are only
+        # The path parameter unsplit, glob and all: the deferred read hands its
+        # own to the inference the same way, and the two answers are only
         # comparable if the input was.
         return infer(args[0])
     # The recorded name is a *destination*. Replaying it registers the probe's
