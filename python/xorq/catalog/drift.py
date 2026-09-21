@@ -64,9 +64,10 @@ leaf whose schema the record does not hold makes that whole record `unreadable`
 rather than a leaf with nothing to compare against. ``error`` is present only
 when there is one. A read path that no longer resolves is `table-missing`, the
 file analogue of a renamed table, and carries no error; `unreachable` is what
-the connection or the read raised, and is the verdict that carries one. An entry whose record cannot be read carries ``error`` itself,
-no leaves, and empty counts -- nothing was read, and the ``error`` beside them is
-what says those zeros are not evidence.
+the connection or the read raised, and is the verdict that carries one. An
+entry whose record cannot be read carries ``error`` itself, no leaves, and empty
+counts -- nothing was read, and the ``error`` beside them is what says those
+zeros are not evidence.
 
 A ``state`` of ``null`` is not a verdict spelled differently: it says the sweep
 compared nothing there. An entry gets it when every external source it has went
@@ -937,7 +938,10 @@ def drift_document(
     by name already collapses a repeat into one entry, and probing it twice
     besides would pay the probe twice and let the second verdict quietly
     replace the first -- so a source that changed between the two probes could
-    drop out of the document the exit code was owed for.
+    drop out of the document the exit code was owed for. The skip is by
+    requested name, not by the entry the name resolves to: one entry asked for
+    under both its name and an alias owes the document two keys, and is swept
+    once per key rather than once per entry.
 
     ``con_cache`` is the caller's, same as the human path, so one dead profile
     costs the sweep one timeout rather than one per entry. Without one the

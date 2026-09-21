@@ -13,6 +13,7 @@ archive and have nothing to drift against.
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -410,6 +411,27 @@ def test_a_repeated_name_is_swept_once(
     assert tuple(doc["entries"]) == (world.name,)
 
 
+def test_a_repeated_name_is_swept_once_by_either_rendering(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The one case where the two renderings could disagree about a repeat.
+
+    Both sweep the same names or neither's exit code is the other's: a source
+    that changed between a second probe the human path pays and the JSON path
+    does not would answer 0 in one rendering and 3 in the other.
+    """
+    human = runner.invoke(
+        cli,
+        ["--path", world.catalog_path, "check-sources", world.name, world.name],
+    )
+    result = check_sources(runner, world, world.name, world.name)
+
+    assert human.output.count(world.name) == 1
+    assert "1 entries, 0 drifted" in human.output
+    assert result.exit_code == human.exit_code
+    assert tuple(parse(result)["entries"]) == (world.name,)
+
+
 def test_a_sweep_owns_a_connection_cache_when_it_is_given_none(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -611,14 +633,38 @@ def document_keys(doc: dict) -> set[str]:
     return keys
 
 
+def documented_document() -> dict:
+    """The example document the module docstring publishes, parsed.
+
+    The docstring's example is the published shape, so it is read as the
+    document it claims to be rather than grepped for quoted words: a substring
+    test answers yes to a key named anywhere in the prose, and cannot notice a
+    key the example still carries that the sweep has stopped emitting.
+    """
+    block = re.search(r"\n(    \{\n.*?\n    \})\n", drift.__doc__, re.DOTALL).group(1)
+    # Comments annotate the example and are not part of the document. No `#`
+    # appears inside its strings, and one added later fails loudly here rather
+    # than silently dropping a key from the comparison.
+    return json.loads(re.sub(r"#.*", "", block))
+
+
+@pytest.mark.skipif(drift.__doc__ is None, reason="docstrings stripped under -OO")
 def test_every_document_key_is_documented(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     """The module docstring is the published shape of the document.
 
-    Read off documents the sweep really emits rather than a list kept beside
-    them, which can only restate what someone already wrote down. Three runs,
-    because `error` appears on a leaf and on an entry only when each has one.
+    Both directions, over the same reader: a key the sweep emits and the
+    docstring does not is undocumented API, and a key the docstring shows and
+    the sweep no longer emits is a consumer reading for something that will
+    never arrive. Read off documents the sweep really emits rather than a list
+    kept beside them, which can only restate what someone already wrote down.
+    Three runs, because `error` appears on a leaf and on an entry only when
+    each has one.
+
+    Flat across the levels, because the example carries `error` on a leaf and
+    the third run carries it on an entry: the docstring documents both in
+    prose, and pinning the level here would demand an example case for each.
     """
     keys = document_keys(document(runner, world))
     world.db_path.write_bytes(b"not a database")
@@ -629,5 +675,4 @@ def test_every_document_key_is_documented(
     keys |= document_keys(document(runner, world))
 
     assert {"state", "exit_code", "entries", "leaves", "error"} <= keys
-    for key in keys:
-        assert f'"{key}"' in drift.__doc__, key
+    assert keys == document_keys(documented_document())

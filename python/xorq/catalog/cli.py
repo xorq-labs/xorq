@@ -1100,6 +1100,13 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
       xorq catalog check-sources prod-matches staging
       xorq catalog check-sources prod-matches --json
     """
+    # One sweep per name, however many times it was asked for, and before
+    # either rendering picks it up: probing a repeat twice pays the probe twice
+    # and lets the second verdict replace the first, so a source that changed
+    # between the two probes could drop out of the answer the exit code was
+    # owed for. Deduped here rather than in `drift_document` alone, or the two
+    # renderings would not be sweeping the same names.
+    names = tuple(dict.fromkeys(names))
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         entries = tuple(_get_catalog_entry(catalog, name) for name in names)
