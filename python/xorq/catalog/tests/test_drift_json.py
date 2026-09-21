@@ -18,11 +18,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
 
 import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
+from xorq.caching import ParquetCache
 from xorq.catalog import drift
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
@@ -121,9 +123,10 @@ def test_the_root_carries_the_roll_up_beside_the_entries(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     doc = document(runner, world)
-    assert tuple(doc) == ("state", "exit_code", "entries")
+    assert tuple(doc) == ("state", "exit_code", "unchecked_count", "entries")
     assert doc["state"] == Verdict.EQUAL
     assert doc["exit_code"] == 0
+    assert doc["unchecked_count"] == 0
     assert tuple(doc["entries"]) == (world.name,)
 
 
@@ -207,6 +210,48 @@ def test_a_bundled_only_entry_reports_no_leaves_and_its_counts(
     assert entry["unchecked"] == []
     assert entry["bundled"] == {"memtables": 1}
     assert entry["pinned"] == 0
+
+
+@pytest.mark.parametrize(
+    "relocate_reads, bundled, pinned",
+    [(False, {}, 1), (True, {"reads": 1}, 0)],
+    ids=["pinned", "pinned-and-bundled"],
+)
+def test_a_pinned_leaf_is_counted_in_one_column_only(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    tmp_path: Path,
+    relocate_reads: bool,
+    bundled: dict,
+    pinned: int,
+) -> None:
+    """The pin's frozen read of its cache artifact, bundled and not.
+
+    One leaf either way, so the two columns must add to one: counting it in
+    both would report a source the entry does not have. Which column it lands
+    in is `relocate_reads`, the flag that decides whether the artifact's bytes
+    were copied into the archive.
+    """
+    src = tmp_path / "src.parquet"
+    pq.write_table(RECORDED, src)
+    read = xo.deferred_read_parquet(src, xo.connect(), table_name="src")
+    cache = ParquetCache.from_kwargs(source=xo.connect(), base_path=tmp_path / "cache")
+    expr = read.filter(read.a > 1).cache(cache=cache).ls.pin(ensure_materialized=True)
+    name = world.catalog.add(expr, relocate_reads=relocate_reads).name
+
+    entry = document(runner, world, name)["entries"][name]
+    assert entry["state"] == Verdict.EQUAL
+    assert entry["bundled"] == bundled
+    assert entry["pinned"] == pinned
+
+    human = runner.invoke(cli, ["--path", world.catalog_path, "check-sources", name])
+    detail = ", ".join(
+        [
+            *(f"{count} {label}" for label, count in bundled.items()),
+            *([f"{pinned} pinned"] if pinned else []),
+        ]
+    )
+    assert f"no external sources ({detail})" in human.output
 
 
 def test_an_unreadable_entry_carries_its_error_and_no_leaves(
@@ -308,6 +353,38 @@ def test_a_sweep_that_compared_nothing_reaches_no_verdict(
     assert doc["state"] is None
     assert doc["exit_code"] == 0
     assert doc["entries"][world.name]["state"] is None
+
+
+def test_a_mixed_sweep_keeps_the_verdict_it_reached_and_counts_what_it_did_not(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One entry that compared nothing beside one that came back `equal`.
+
+    The root keeps the `equal`: null is for a sweep that reached no verdict at
+    all, and propagating it here would let one unprobed source erase what the
+    other entry established. The count is what stops that `equal` from reading
+    as "every source was compared", which no entry-level key can say at the
+    root.
+    """
+    world.con.create_table("u", RECORDED.to_pandas())
+    other = world.catalog.add(world.con.table("u")).name
+    read = drift.read_record
+
+    def read_one_unchecked(catalog_entry):
+        if catalog_entry.name == other:
+            return unchecked_record()
+        return read(catalog_entry)
+
+    monkeypatch.setattr(drift, "read_record", read_one_unchecked)
+
+    doc = drift_document(
+        (name, world.catalog.get_catalog_entry(name)) for name in (world.name, other)
+    )
+    assert doc["entries"][world.name]["state"] == Verdict.EQUAL
+    assert doc["entries"][other]["state"] is None
+    assert doc["state"] == Verdict.EQUAL
+    assert doc["exit_code"] == 0
+    assert doc["unchecked_count"] == 1
 
 
 def test_a_repeated_name_is_swept_once(
@@ -465,7 +542,7 @@ def unchecked_record() -> BuildRecord:
 
 def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
     """An entry that exits 0 while a source went unprobed has to say which one."""
-    entry = record_document(unchecked_record())
+    _, entry = record_document(unchecked_record())
     assert entry["exit_code"] == 0
     assert entry["leaves"] == []
     assert entry["unchecked"] == [{"kind": "Read", "name": "/data/src.json"}]
@@ -474,7 +551,9 @@ def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
 def test_an_entry_that_compared_nothing_reaches_no_verdict() -> None:
     """`equal` over zero comparisons is the strongest claim on the weakest
     evidence, and a consumer gating on it would go green having checked nothing."""
-    assert record_document(unchecked_record())["state"] is None
+    verdict, entry = record_document(unchecked_record())
+    assert verdict is None
+    assert entry["state"] is None
 
 
 @pytest.mark.parametrize(

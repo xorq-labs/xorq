@@ -14,6 +14,7 @@ gets a complete document or none at all::
     {
       "state": "changed",              # the worst entry's state
       "exit_code": 3,                  # what the command exits with
+      "unchecked_count": 1,            # external sources no entry compared
       "entries": {
         "prod-matches": {
           "state": "changed",          # the worst leaf's state
@@ -58,7 +59,9 @@ compares, so a table whose columns were only reordered reads `changed` while its
 two objects still hold the same names and dtypes: a consumer that wants to see
 why compares the two key sequences, which the document preserves, and not only
 the sets. ``live`` is ``null`` for every verdict that read no schema
-(`table-missing`, `unreachable`, `unreadable`), and ``error`` is present only
+(`table-missing`, `unreachable`, `unreadable`); ``recorded`` never is, because a
+leaf whose schema the record does not hold makes that whole record `unreadable`
+rather than a leaf with nothing to compare against. ``error`` is present only
 when there is one. A read path that no longer resolves is `table-missing`, the
 file analogue of a renamed table, and carries no error; `unreachable` is what
 the connection or the read raised, and is the verdict that carries one. An entry whose record cannot be read carries ``error`` itself,
@@ -72,8 +75,18 @@ gets it when no entry reached a verdict. It still exits 0, because finding
 nothing to compare is not a finding about a source. An entry whose sources are
 all bundled keeps ``equal``: nothing outside the archive is a reason it cannot
 drift, not a reason the question went unanswered. ``state`` describes the leaves
-that were probed, so a consumer that needs every source accounted for checks
-``unchecked`` is empty rather than reading ``state`` alone.
+that were probed, so a consumer that needs every entry's sources accounted for
+checks that entry's ``unchecked`` is empty rather than reading ``state`` alone.
+
+The root rolls up only the entries that reached a verdict, so a sweep mixing a
+null entry with an `equal` one still publishes `equal`: dropping the whole sweep
+to null would bury a verdict that was reached, and would turn one unprobed source
+into silence about every entry beside it. A root `equal` therefore does not say
+every entry was compared. What says that is ``unchecked_count``, the number of
+external sources the whole sweep left unprobed -- a count rather than the entry's
+list, and named apart from ``unchecked`` because the two shapes are not
+interchangeable. A consumer gating on green reads ``state`` and
+``unchecked_count`` together.
 
 The roll-up ranks on ``Verdict.severity``, a total order, so the state a sweep
 publishes does not depend on the order its names were given.
@@ -843,23 +856,32 @@ def make_entry_document(
     }
 
 
-def record_document(record: BuildRecord, con_cache: dict | None = None) -> dict:
+def record_document(
+    record: BuildRecord, con_cache: dict | None = None
+) -> tuple[Verdict | None, dict]:
     """One readable record's whole probe, as the JSON document carries it.
 
     Buffered by construction: `iter_leaf_reports` is drained before anything is
     returned, so a consumer gets a complete entry or none at all.
+
+    The verdict comes back beside the document rather than only inside it, so
+    the sweep rolls up enum values and the string is written once, where the
+    document is built. Parsing ``state`` back out would make every future
+    writer of that key a source of ``ValueError`` -- raised after the whole
+    sweep has been probed, discarding a complete document.
     """
     reports = tuple(iter_leaf_reports(record, con_cache))
     unchecked = unchecked_leaves(record)
-    return make_entry_document(
-        # No verdict at all where nothing was probed and a source was left
-        # unprobed: rolling those up to `equal` would state the strongest
-        # positive claim the document can make on the weakest evidence it has,
-        # and a consumer gating on `state == "equal"` would go green over an
-        # entry this command never compared. An entry with no external sources
-        # keeps `equal`: nothing outside the archive is a reason it cannot
-        # drift, not a reason the question went unanswered.
-        None if unchecked and not reports else roll_up(r.verdict for r in reports),
+    # No verdict at all where nothing was probed and a source was left
+    # unprobed: rolling those up to `equal` would state the strongest positive
+    # claim the document can make on the weakest evidence it has, and a
+    # consumer gating on `state == "equal"` would go green over an entry this
+    # command never compared. An entry with no external sources keeps `equal`:
+    # nothing outside the archive is a reason it cannot drift, not a reason the
+    # question went unanswered.
+    verdict = None if unchecked and not reports else roll_up(r.verdict for r in reports)
+    return verdict, make_entry_document(
+        verdict,
         leaves=(leaf_document(report) for report in reports),
         # Named rather than omitted: an entry that exits 0 while a source went
         # unprobed is a false negative unless the document says which source.
@@ -869,18 +891,23 @@ def record_document(record: BuildRecord, con_cache: dict | None = None) -> dict:
     )
 
 
-def entry_document(catalog_entry: CatalogEntry, con_cache: dict | None = None) -> dict:
+def entry_document(
+    catalog_entry: CatalogEntry, con_cache: dict | None = None
+) -> tuple[Verdict | None, dict]:
     """One entry's probe, or the error that kept it from being probed at all.
 
     An unreadable record carries that error itself and no leaves. Its counts
     read empty because nothing was read, not because the record holds none --
     the ``error`` key beside them is what says which. Its state and exit code
     are the ones the human output prints for the same entry, since both come
-    from ``Verdict``.
+    from ``Verdict``. The verdict is returned beside the document, same as
+    ``record_document``.
     """
     record = read_record(catalog_entry)
     if isinstance(record, Exception):
-        return make_entry_document(Verdict.UNREADABLE, error=format_error(record))
+        return Verdict.UNREADABLE, make_entry_document(
+            Verdict.UNREADABLE, error=format_error(record)
+        )
     return record_document(record, con_cache)
 
 
@@ -895,7 +922,16 @@ def drift_document(
 
     An entry that reached no verdict is carried but not rolled up, so a sweep
     where none did says so at the root too rather than reporting the `equal` of
-    the leaves it never had.
+    the leaves it never had. Where one entry did, that verdict is the root's:
+    null is not propagated, because a single unprobed source must not erase
+    what every other entry established. ``unchecked_count`` is what keeps that
+    honest -- the external sources the whole sweep left unprobed, counted off
+    the entries the document already carries, so a root `equal` beside a
+    non-zero count reads as the partial answer it is.
+
+    The roll-up runs over ``Verdict`` values rather than the ``state`` strings
+    beside them: re-parsing what was just serialized would make any future
+    writer of that key raise after the sweep is already paid for.
 
     A name is swept once however many times it was asked for. Keying the sweep
     by name already collapses a repeat into one entry, and probing it twice
@@ -916,13 +952,14 @@ def drift_document(
         for name, catalog_entry in named_entries:
             if name in entries:
                 continue
-            entry = entry_document(catalog_entry, con_cache)
+            verdict, entry = entry_document(catalog_entry, con_cache)
             entries[name] = entry
-            if entry["state"] is not None:
-                verdicts.append(Verdict(entry["state"]))
+            if verdict is not None:
+                verdicts.append(verdict)
     finally:
         if owned:
             close_cons(con_cache)
     return state_and_code(roll_up(verdicts) if verdicts else None) | {
-        "entries": entries
+        "unchecked_count": sum(len(entry["unchecked"]) for entry in entries.values()),
+        "entries": entries,
     }
