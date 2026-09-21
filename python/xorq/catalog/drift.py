@@ -64,6 +64,19 @@ file analogue of a renamed table, and carries no error; `unreachable` is what
 the connection or the read raised, and is the verdict that carries one. An entry whose record cannot be read carries ``error`` itself,
 no leaves, and empty counts -- nothing was read, and the ``error`` beside them is
 what says those zeros are not evidence.
+
+A ``state`` of ``null`` is not a verdict spelled differently: it says the sweep
+compared nothing there. An entry gets it when every external source it has went
+unprobed, so ``leaves`` is empty and ``unchecked`` names them all, and the root
+gets it when no entry reached a verdict. It still exits 0, because finding
+nothing to compare is not a finding about a source. An entry whose sources are
+all bundled keeps ``equal``: nothing outside the archive is a reason it cannot
+drift, not a reason the question went unanswered. ``state`` describes the leaves
+that were probed, so a consumer that needs every source accounted for checks
+``unchecked`` is empty rather than reading ``state`` alone.
+
+The roll-up ranks on ``Verdict.severity``, a total order, so the state a sweep
+publishes does not depend on the order its names were given.
 """
 
 from __future__ import annotations
@@ -577,15 +590,18 @@ def read_record(catalog_entry: CatalogEntry) -> BuildRecord | Exception:
 
 
 def roll_up(verdicts: Iterable[Verdict]) -> Verdict:
-    """The verdict a set of them rolls up to: the worst, earliest breaking a tie.
+    """The verdict a set of them rolls up to: the worst by ``Verdict.severity``.
 
     Not derivable from the exit code, which is why it is computed over the
     verdicts themselves: `unreachable` shares 2 with `unreadable` and `changed`
     shares 3 with `table-missing`, so a consumer handed only the code would have
-    to guess which of the pair it is looking at. Nothing to roll up is `equal`,
-    the same 0 an entry with no external sources exits with.
+    to guess which of the pair it is looking at. Ranked on ``severity`` rather
+    than the code for the same reason one step on -- a tie left to `max` would
+    be broken by arrival order, so the same catalog would publish a different
+    state depending on which name was typed first. Nothing to roll up is
+    `equal`, the same 0 an entry with no external sources exits with.
     """
-    return max(verdicts, key=lambda verdict: verdict.exit_code, default=Verdict.EQUAL)
+    return max(verdicts, key=lambda verdict: verdict.severity, default=Verdict.EQUAL)
 
 
 def format_error(e: Exception) -> str:
@@ -787,8 +803,20 @@ def leaf_document(report: LeafReport) -> dict:
     return document
 
 
+def state_and_code(verdict: Verdict | None) -> dict:
+    """The two keys a verdict decides, or the pair that says none was reached.
+
+    ``None`` is not a verdict spelled differently: it says this sweep compared
+    nothing here, so there is no state to report. It still exits 0, since
+    finding nothing to compare is not a finding about a source.
+    """
+    if verdict is None:
+        return {"state": None, "exit_code": 0}
+    return {"state": str(verdict), "exit_code": verdict.exit_code}
+
+
 def make_entry_document(
-    verdict: Verdict,
+    verdict: Verdict | None,
     *,
     error: str | None = None,
     leaves: Iterable[dict] = (),
@@ -804,7 +832,7 @@ def make_entry_document(
     enum owns that mapping, and a second derivation of it is exactly the drift
     ``Verdict.exit_code`` exists to prevent.
     """
-    document = {"state": str(verdict), "exit_code": verdict.exit_code}
+    document = state_and_code(verdict)
     if error is not None:
         document["error"] = error
     return document | {
@@ -822,15 +850,20 @@ def record_document(record: BuildRecord, con_cache: dict | None = None) -> dict:
     returned, so a consumer gets a complete entry or none at all.
     """
     reports = tuple(iter_leaf_reports(record, con_cache))
+    unchecked = unchecked_leaves(record)
     return make_entry_document(
-        roll_up(report.verdict for report in reports),
+        # No verdict at all where nothing was probed and a source was left
+        # unprobed: rolling those up to `equal` would state the strongest
+        # positive claim the document can make on the weakest evidence it has,
+        # and a consumer gating on `state == "equal"` would go green over an
+        # entry this command never compared. An entry with no external sources
+        # keeps `equal`: nothing outside the archive is a reason it cannot
+        # drift, not a reason the question went unanswered.
+        None if unchecked and not reports else roll_up(r.verdict for r in reports),
         leaves=(leaf_document(report) for report in reports),
         # Named rather than omitted: an entry that exits 0 while a source went
         # unprobed is a false negative unless the document says which source.
-        unchecked=(
-            {"kind": str(leaf.kind), "name": leaf.name}
-            for leaf in unchecked_leaves(record)
-        ),
+        unchecked=({"kind": str(leaf.kind), "name": leaf.name} for leaf in unchecked),
         bundled=record.bundled_counts,
         pinned=record.pinned_count,
     )
@@ -860,6 +893,10 @@ def drift_document(
     entry names: an entry can be called anything, and at the root one called
     `state` would shadow the roll-up the document exists to carry.
 
+    An entry that reached no verdict is carried but not rolled up, so a sweep
+    where none did says so at the root too rather than reporting the `equal` of
+    the leaves it never had.
+
     A name is swept once however many times it was asked for. Keying the sweep
     by name already collapses a repeat into one entry, and probing it twice
     besides would pay the probe twice and let the second verdict quietly
@@ -881,9 +918,11 @@ def drift_document(
                 continue
             entry = entry_document(catalog_entry, con_cache)
             entries[name] = entry
-            verdicts.append(Verdict(entry["state"]))
+            if entry["state"] is not None:
+                verdicts.append(Verdict(entry["state"]))
     finally:
         if owned:
             close_cons(con_cache)
-    state = roll_up(verdicts)
-    return {"state": str(state), "exit_code": state.exit_code, "entries": entries}
+    return state_and_code(roll_up(verdicts) if verdicts else None) | {
+        "entries": entries
+    }

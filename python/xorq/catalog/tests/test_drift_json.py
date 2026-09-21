@@ -198,6 +198,9 @@ def test_a_bundled_only_entry_reports_no_leaves_and_its_counts(
     name = world.catalog.add(xo.memtable({"z": [1]})).name
 
     entry = document(runner, world, name)["entries"][name]
+    # `equal`, not the null an entry that compared nothing gets: having no
+    # source outside the archive is a reason this one cannot drift, not a
+    # reason the question went unanswered.
     assert entry["state"] == Verdict.EQUAL
     assert entry["exit_code"] == 0
     assert entry["leaves"] == []
@@ -272,6 +275,39 @@ def test_the_worst_entry_decides_the_root(
     assert doc["exit_code"] == 3
     assert doc["entries"][world.name]["state"] == Verdict.CHANGED
     assert doc["entries"][other]["state"] == Verdict.UNREACHABLE
+
+
+def test_the_root_state_does_not_depend_on_the_order_of_the_names(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """One `changed` entry and one `table-missing` entry both exit 3, so which
+    of the two the root reports is a tie -- and a tie broken by arrival order
+    would publish a different state for the same catalog depending on which name
+    was typed first."""
+    world.con.create_table("u", RECORDED.to_pandas())
+    other = world.catalog.add(world.con.table("u")).name
+    recreate(world, "t", pa.table({"a": pa.array([1], pa.int64())}))
+    world.con.drop_table("u", force=True)
+
+    forwards = document(runner, world, world.name, other)
+    backwards = document(runner, world, other, world.name)
+    assert forwards["entries"][world.name]["state"] == Verdict.CHANGED
+    assert forwards["entries"][other]["state"] == Verdict.TABLE_MISSING
+    assert forwards["state"] == backwards["state"] == Verdict.TABLE_MISSING
+    assert forwards["exit_code"] == backwards["exit_code"] == 3
+
+
+def test_a_sweep_that_compared_nothing_reaches_no_verdict(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The root says it too: an entry carrying no verdict is not rolled up, so a
+    sweep where none did must not report the `equal` of leaves it never had."""
+    monkeypatch.setattr(drift, "read_record", lambda catalog_entry: unchecked_record())
+
+    doc = drift_document(((world.name, world.catalog.get_catalog_entry(world.name)),))
+    assert doc["state"] is None
+    assert doc["exit_code"] == 0
+    assert doc["entries"][world.name]["state"] is None
 
 
 def test_a_repeated_name_is_swept_once(
@@ -392,13 +428,13 @@ def test_nothing_is_printed_before_the_sweep_finishes(
     assert "entries" not in result.stdout
 
 
-def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
-    """An entry that exits 0 while a source went unprobed has to say which one.
+def unchecked_record() -> BuildRecord:
+    """A record whose one external source this command refuses to probe.
 
     A read whose method has no registered inference is replayed against its
-    connection, and on sqlite that replay ingests, so the probe refuses it.
+    connection, and on sqlite that replay ingests, so `is_checkable` refuses it.
     """
-    record = BuildRecord(
+    return BuildRecord(
         {
             "definitions": {
                 "dtypes": {},
@@ -426,11 +462,19 @@ def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
         {"p0": {"con_name": "sqlite"}},
     )
 
-    entry = record_document(record)
-    assert entry["state"] == Verdict.EQUAL
+
+def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
+    """An entry that exits 0 while a source went unprobed has to say which one."""
+    entry = record_document(unchecked_record())
     assert entry["exit_code"] == 0
     assert entry["leaves"] == []
     assert entry["unchecked"] == [{"kind": "Read", "name": "/data/src.json"}]
+
+
+def test_an_entry_that_compared_nothing_reaches_no_verdict() -> None:
+    """`equal` over zero comparisons is the strongest claim on the weakest
+    evidence, and a consumer gating on it would go green having checked nothing."""
+    assert record_document(unchecked_record())["state"] is None
 
 
 @pytest.mark.parametrize(
@@ -440,16 +484,42 @@ def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
         ((Verdict.EQUAL, Verdict.UNREACHABLE), Verdict.UNREACHABLE),
         ((Verdict.CHANGED, Verdict.UNREACHABLE), Verdict.CHANGED),
         ((Verdict.TABLE_MISSING, Verdict.CHANGED), Verdict.TABLE_MISSING),
+        ((Verdict.CHANGED, Verdict.TABLE_MISSING), Verdict.TABLE_MISSING),
         ((Verdict.UNREADABLE, Verdict.UNREACHABLE), Verdict.UNREADABLE),
+        ((Verdict.UNREACHABLE, Verdict.UNREADABLE), Verdict.UNREADABLE),
     ],
-    ids=["empty", "worst", "worst-across-codes", "tie-3", "tie-2"],
+    ids=[
+        "empty",
+        "worst",
+        "worst-across-codes",
+        "tie-3",
+        "tie-3-reversed",
+        "tie-2",
+        "tie-2-reversed",
+    ],
 )
 def test_the_roll_up_names_a_state_the_exit_code_cannot(
     verdicts: tuple[Verdict, ...], expected: Verdict
 ) -> None:
     """Two verdicts share each non-zero code, so the state is rolled up over the
-    verdicts themselves and a tie keeps the first."""
+    verdicts themselves -- and on a total order, so each tie answers the same
+    whichever way round it arrives."""
     assert roll_up(verdicts) is expected
+
+
+def test_severity_refines_the_exit_code() -> None:
+    """A total order over the verdicts that does not reorder their codes.
+
+    The root reports `state.exit_code` for the whole sweep, so the worst verdict
+    and the worst exit code have to be the same leaf. A member declared out of
+    place would break that here rather than in a consumer's report.
+    """
+    by_severity = sorted(Verdict, key=lambda verdict: verdict.severity)
+    assert len({verdict.severity for verdict in Verdict}) == len(tuple(Verdict))
+    assert [verdict.exit_code for verdict in by_severity] == sorted(
+        verdict.exit_code for verdict in Verdict
+    )
+    assert roll_up(Verdict).exit_code == max(v.exit_code for v in Verdict)
 
 
 def document_keys(doc: dict) -> set[str]:
