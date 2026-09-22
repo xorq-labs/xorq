@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Details
+
+## [0.4.4] - 2026-09-22
+### Details
+#### Added
+- Add check-sources for database-table drift by @mesejo in [#2304](https://github.com/xorq-labs/xorq/pull/2304)
+
+#### Changed
+- Check-sources reports drift for file and object-store reads by @mesejo in [#2307](https://github.com/xorq-labs/xorq/pull/2307)
+- Check-sources --json emits a machine-readable drift report by @mesejo in [#2312](https://github.com/xorq-labs/xorq/pull/2312)
+- Read a source-drift report by @mesejo in [#2317](https://github.com/xorq-labs/xorq/pull/2317)
+
+#### Fixed
+- Reattach the one dead style pragma and gate style on the merge path by @mesejo in [#2278](https://github.com/xorq-labs/xorq/pull/2278)
+- Keep check-sources from creating a database file by @mesejo in [#2306](https://github.com/xorq-labs/xorq/pull/2306)
+
 ## [0.4.3] - 2026-09-17
 ### Details
 #### Added
@@ -19,9 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Fixed
 - Drop pandas schema metadata on registration by @mesejo in [#2277](https://github.com/xorq-labs/xorq/pull/2277)
 - Fix vale prose findings by @mesejo in [#2292](https://github.com/xorq-labs/xorq/pull/2292)
-
-## [Unreleased]
-### Details
 
 ## [0.4.2] - 2026-09-10
 ### Details
