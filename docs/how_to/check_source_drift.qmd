@@ -1,0 +1,409 @@
+---
+title: 'Check catalog entries for source drift'
+description: "Compare the source schemas a build recorded against the sources as they are now, and act on each verdict"
+---
+
+A build records the schema of every source its expression reads. Those sources keep moving afterwards: a column gets added, a table gets renamed, a database goes away. `xorq catalog check-sources` compares what an entry recorded against what is there now and prints the two schemas side by side.
+
+The command reports and never repairs. It also never infers. It won't tell you a column was renamed, because two schemas can't show that, so you get the pair and the verdict and you decide what it means.
+
+Reach for it before running a cataloged entry you didn't build yourself, and on a schedule in CI, where the exit code is the whole answer.
+
+The commands below use plain `xorq`. Inside a uv-managed project, prefix each one with `uv run`.
+
+## Prerequisites
+
+- Xorq installed with the `sqlite` extra ([Install Xorq](install_xorq.qmd)): `uv add "xorq[sqlite]"`
+- A project directory with a `pyproject.toml`, since `xorq catalog add` packages your project as a wheel
+- `jq`, for the last step only
+
+## Steps
+
+### 1. Build entries that read an external source
+
+Later steps break sources on purpose: they drop tables, delete a database file and corrupt an archive. Everything lives under one throwaway directory, so point it somewhere disposable.
+
+```bash
+export DEMO=/tmp/drift-demo
+mkdir -p $DEMO
+```
+
+Save this as `$DEMO/pipe.py`. It creates two sqlite databases and names three expressions: two read a database table, the third reads a `memtable` whose rows travel inside the build.
+
+```python
+# pipe.py
+from pathlib import Path
+
+import pandas as pd
+
+import xorq.api as xo
+
+HERE = Path(__file__).parent
+
+con = xo.sqlite.connect(str(HERE / "orders.sqlite"))
+con.create_table(
+    "orders",
+    pd.DataFrame({"id": [1, 2], "region": ["north", "south"]}),
+    overwrite=True,
+)
+orders = con.table("orders").filter(xo._.id > 0)
+
+audit_con = xo.sqlite.connect(str(HERE / "audit.sqlite"))
+audit_con.create_table(
+    "audit", pd.DataFrame({"id": [1], "who": ["ana"]}), overwrite=True
+)
+audit = audit_con.table("audit").filter(xo._.id > 0)
+
+bundled = xo.memtable({"z": [1, 2]}).filter(xo._.z > 0)
+```
+
+Initialize a catalog and add one entry per expression. `xorq build` prints its build directory as the last line, which is what `tail -1` picks up; the alias keeps the rest of the guide free of build hashes.
+
+```bash
+xorq catalog -p $DEMO/cat init
+for e in orders audit bundled; do
+  d=$(xorq build $DEMO/pipe.py -e $e --builds-dir $DEMO/builds | tail -1)
+  xorq catalog -p $DEMO/cat add "$d" --alias $e
+done
+```
+
+```
+Initialized catalog at /tmp/drift-demo/cat
+Added 58640a8e8eff
+Added b55c2daa6398
+Added 50d78e23807a
+```
+
+Your three hashes differ from these. Each `add` also prints wheel-build output, which isn't an error.
+
+### 2. Run the check
+
+```bash
+xorq catalog -p $DEMO/cat check-sources orders
+```
+
+```
+orders
+  DatabaseTable orders: equal
+
+1 entries, 0 drifted
+```
+
+One line per external source: its kind, its name, and the verdict. Nothing has moved yet, so the verdict is `equal` and the command exits 0.
+
+Pass as many names or aliases as you like. Each gets its own block, and the summary counts them:
+
+```bash
+xorq catalog -p $DEMO/cat check-sources orders audit
+```
+
+```
+orders
+  DatabaseTable orders: equal
+audit
+  DatabaseTable audit: equal
+
+2 entries, 0 drifted
+```
+
+### 3. Read a changed source
+
+Add a column to the table the `orders` entry reads:
+
+```bash
+python -c "
+import pandas as pd, xorq.api as xo
+c = xo.sqlite.connect('$DEMO/orders.sqlite')
+c.drop_table('orders', force=True)
+c.create_table('orders', pd.DataFrame({'id':[1],'region':['north'],'total':[9.5]}))
+"
+xorq catalog -p $DEMO/cat check-sources orders
+```
+
+```
+orders
+  DatabaseTable orders: changed
+    recorded: id int64, region string
+    live:     id int64, region string, total float64
+
+1 entries, 1 drifted
+```
+
+The command exits 3. Both schemas print in full, in column order, with no delta line between them.
+
+Now rename a column instead:
+
+```bash
+python -c "
+import pandas as pd, xorq.api as xo
+c = xo.sqlite.connect('$DEMO/orders.sqlite')
+c.drop_table('orders', force=True)
+c.create_table('orders', pd.DataFrame({'id':[1],'area':['north']}))
+"
+xorq catalog -p $DEMO/cat check-sources orders
+```
+
+```
+orders
+  DatabaseTable orders: changed
+    recorded: id int64, region string
+    live:     id int64, area string
+
+1 entries, 1 drifted
+```
+
+And change one column's type:
+
+```bash
+python -c "
+import pandas as pd, xorq.api as xo
+c = xo.sqlite.connect('$DEMO/orders.sqlite')
+c.drop_table('orders', force=True)
+c.create_table('orders', pd.DataFrame({'id':['1'],'region':['north']}))
+"
+xorq catalog -p $DEMO/cat check-sources orders
+```
+
+```
+orders
+  DatabaseTable orders: changed
+    recorded: id int64, region string
+    live:     id string, region string
+
+1 entries, 1 drifted
+```
+
+Adding a column, dropping one, renaming one and retyping one all report as `changed`. That collapse is deliberate. A rename is a drop plus an add as far as two schemas go: nothing in the pair says the values moved from the old name to the new one, and a command that guessed would be confidently wrong exactly when it matters most. So it prints both schemas in full and leaves the reading to you, or to a column diff in your own script.
+
+### 4. Understand an entry with no external sources
+
+A freshly built entry often reports nothing to check at all:
+
+```bash
+xorq catalog -p $DEMO/cat check-sources bundled
+```
+
+```
+bundled
+  no external sources (1 memtables)
+
+1 entries, 0 drifted
+```
+
+That is what bundling looks like. The `memtable` rows were serialized into the build, so they travel with the entry and can't drift. The same holds for tables in a memory backend and, by default, for local file reads: `xorq build` relocates them, copying the bytes into the archive so the build runs anywhere.
+
+Watch both halves of that. Save this as `$DEMO/feed.py`:
+
+```python
+# feed.py
+from pathlib import Path
+
+import xorq.api as xo
+
+HERE = Path(__file__).parent
+csv = HERE / "feed.csv"
+csv.write_text("id,region\n1,north\n")
+
+feed = xo.deferred_read_csv(csv, con=xo.connect(), table_name="feed").filter(xo._.id > 0)
+```
+
+Build it twice, once with the default and once with `--no-relocate-reads`:
+
+```bash
+d=$(xorq build $DEMO/feed.py -e feed --builds-dir $DEMO/builds | tail -1)
+xorq catalog -p $DEMO/cat add "$d" --alias feed-bundled
+d=$(xorq build $DEMO/feed.py -e feed --no-relocate-reads --builds-dir $DEMO/builds | tail -1)
+xorq catalog -p $DEMO/cat add "$d" --alias feed-external
+```
+
+The second build warns that the read points at a local filesystem path and may not run elsewhere. That warning is the trade-off, stated at build time. Check both entries:
+
+```bash
+xorq catalog -p $DEMO/cat check-sources feed-bundled feed-external
+```
+
+```
+feed-bundled
+  no external sources (1 reads)
+feed-external
+  Read /tmp/drift-demo/feed.csv: equal
+
+2 entries, 0 drifted
+```
+
+Only the second entry has anything to check. Add a column to the file and the difference shows:
+
+```bash
+printf 'id,region,total\n1,north,9.5\n' > $DEMO/feed.csv
+xorq catalog -p $DEMO/cat check-sources feed-external feed-bundled
+```
+
+```
+feed-external
+  Read /tmp/drift-demo/feed.csv: changed
+    recorded: id int64, region string
+    live:     id int64, region string, total float64
+feed-bundled
+  no external sources (1 reads)
+
+2 entries, 1 drifted
+```
+
+So if you want a local file watched, build it with `--no-relocate-reads` and know what you traded away: the build is no longer self-contained. `xorq run` now needs that file, at that path, on whatever machine runs it. Relocation buys portability at the cost of drift detection over the bytes it copied, which is the right default for a build you ship and the wrong one for a file that keeps changing under you.
+
+### 5. Read the verdicts where nothing was compared
+
+Rename the table the `audit` entry reads:
+
+```bash
+python -c "
+import pandas as pd, xorq.api as xo
+c = xo.sqlite.connect('$DEMO/audit.sqlite')
+c.drop_table('audit', force=True)
+c.create_table('audit_v2', pd.DataFrame({'id':[1],'who':['ana']}))
+"
+xorq catalog -p $DEMO/cat check-sources audit
+```
+
+```
+audit
+  DatabaseTable audit: table-missing
+    recorded: id int64, who string
+    live:     -
+
+1 entries, 1 drifted
+```
+
+`table-missing` is positive evidence, not a shrug: the backend answered and listed no table under that name. A read whose path no longer resolves reports the same verdict, a missing file being the file analogue of a renamed table. It exits 3, like `changed`.
+
+Delete the database file and the answer changes:
+
+```bash
+rm -f $DEMO/audit.sqlite
+xorq catalog -p $DEMO/cat check-sources audit
+```
+
+```
+audit
+  DatabaseTable audit: unreachable
+    FileNotFoundError: sqlite database /tmp/drift-demo/audit.sqlite does not exist
+
+1 entries, 0 drifted
+```
+
+`unreachable` means the probe never got an answer, so the line under it is the error that was raised rather than a guess at a cause. It exits 2, and the summary doesn't count it as drift, because nothing was compared.
+
+:::{.callout-note}
+### The probe never writes
+Sqlite's driver creates a database file the moment you connect to a missing path. Had the probe dialled first, it would have left an empty database behind and then reported the table as missing from it. Check for yourself: `test -e $DEMO/audit.sqlite` still fails after the preceding run.
+:::
+
+One verdict sits on the entry rather than on any of its sources. If the archive itself can't be read, there are no recorded schemas to compare:
+
+```bash
+printf 'not a zip' > $(readlink -f $DEMO/cat/aliases/feed-bundled.zip)
+xorq catalog -p $DEMO/cat check-sources feed-bundled
+```
+
+```
+feed-bundled
+  unreadable: BadZipFile: File is not a zip file
+
+1 entries, 0 drifted
+```
+
+`unreadable` is a defect in what was read, not evidence about any backend, which is what keeps it distinct from `unreachable` even though both exit 2.
+
+### 6. Gate CI on the exit code
+
+The worst source decides its entry, and the worst entry decides the run. Drift outranks a source nobody could reach:
+
+```bash
+xorq catalog -p $DEMO/cat check-sources orders audit
+```
+
+```
+orders
+  DatabaseTable orders: changed
+    recorded: id int64, region string
+    live:     id string, region string
+audit
+  DatabaseTable audit: unreachable
+    FileNotFoundError: sqlite database /tmp/drift-demo/audit.sqlite does not exist
+
+2 entries, 1 drifted
+```
+
+One entry changed, one was unreachable, and the run exits 3. The ranking is a total order, so the same catalog gives the same exit code whatever order you list the names in.
+
+| Exit | Meaning | What a CI job should do |
+|---|---|---|
+| 0 | every checked source matched what the entry recorded | pass |
+| 2 | a source was unreachable, or a source or an entry was unreadable | treat as infrastructure: retry, then alert an owner |
+| 3 | a source changed, or its table or path is gone | fail the build and rebuild the entry against the new schema |
+| 1 | the sweep never started: a name didn't resolve, or the catalog wouldn't open | fix the invocation, since this is not a verdict about any source |
+
+Exit 2 is also click's code for a usage error, such as a misspelled flag. The two are easy to tell apart on stdout: a sweep that ran prints a report, a usage error prints none.
+
+### 7. Read the report from a script
+
+`--json` prints the same sweep as one document, buffered and emitted after every probe has finished, so a consumer parses a complete report or none at all:
+
+```bash
+xorq catalog -p $DEMO/cat check-sources orders --json
+```
+
+```json
+{
+  "state": "changed",
+  "exit_code": 3,
+  "unchecked_count": 0,
+  "entries": {
+    "orders": {
+      "state": "changed",
+      "exit_code": 3,
+      "leaves": [
+        {
+          "kind": "DatabaseTable",
+          "name": "orders",
+          "state": "changed",
+          "recorded": {
+            "id": "int64",
+            "region": "string"
+          },
+          "live": {
+            "id": "string",
+            "region": "string"
+          }
+        }
+      ],
+      "unchecked": [],
+      "bundled": {},
+      "pinned": 0
+    }
+  }
+}
+```
+
+The exit code is the same either way. Schemas come back as column-to-dtype objects, so comparing them is set arithmetic on your side rather than string parsing.
+
+Gate on two keys, not one:
+
+```bash
+xorq catalog -p $DEMO/cat check-sources orders --json > $DEMO/report.json
+jq -e '.state == "equal" and .unchecked_count == 0' $DEMO/report.json
+```
+
+```
+false
+```
+
+`jq -e` exits 1 on a false result, so that one line is the whole gate. `unchecked_count` counts the sources this version of the command declined to probe, added up across every entry in the document. A sweep can report `equal` while a source went unlooked at, so green means both keys agree. The rest of the document's shape, including the `null` state a sweep that compared nothing reports, is specified in the `xorq.catalog.drift` module docstring.
+
+When you're done, `rm -rf $DEMO` removes everything this guide created.
+
+## See also
+
+- [`catalog check-sources` command-line reference](../api_reference/cli/catalog/check-sources.qmd): every flag, argument, and exit code
+- [Compose catalog entries](compose_catalog_entries.qmd): build a new entry on top of one already in the catalog
+- [Working with the catalog](../tutorials/core_tutorials/working_with_the_catalog.qmd): the publish, clone and review loop a drift check runs against
