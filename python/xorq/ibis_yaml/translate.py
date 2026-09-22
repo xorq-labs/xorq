@@ -807,10 +807,11 @@ def refreshed_read(read_op: Read) -> Read:
 
     A schema the build *declared* rather than inferred -- the ``schema=`` of
     either deferred read, a custom ``deferred_read_csv`` ``infer_schema=``, or
-    a duckdb per-column ``types=`` override -- is replaced like any other. The archive records the declaration and
-    nothing that says it was one (``catalog.drift`` has the same blind spot), so
-    a refreshed load reads the file by inference, not by the override: a column
-    pinned to ``string`` comes back ``int64``. Pinned by
+    a duckdb per-column ``types=`` override -- is replaced like any other. The
+    archive records the declaration and nothing that says it was one
+    (``catalog.drift`` has the same blind spot), so a refreshed load reads the
+    file by inference, not by the override: a column pinned to ``string``
+    comes back ``int64``. Pinned by
     `test_refresh_replaces_a_declared_schema_with_inference`.
 
     Stays a ``Read``: ``make_dt`` would return a ``DatabaseTable``, dropping
