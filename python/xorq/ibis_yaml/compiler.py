@@ -977,9 +977,11 @@ class ExprLoader:
         ``Read`` re-runs the inference the deferred read ran at build time
         (``refreshed_read``), so nothing is registered or ingested into a live
         backend. What it adds over an ordinary load is a metadata round-trip per
-        recorded table -- the connections themselves are opened either way, by
-        ``hydrate_cons`` -- so a caller with connections of its own to use passes
-        them through ``con_cache``.
+        recorded table. Under ``lazy=False`` the connections are opened either
+        way, by ``hydrate_cons``; under ``lazy=True`` the refresh forces
+        connections an ordinary lazy load would leave deferred -- for sqlite
+        that brings a database file into existence -- so a caller that must not
+        create one passes its own connections through ``con_cache``.
         """
         profiles = hydrate_cons(
             self.artifact_store.load_yaml(DumpFiles.profiles),

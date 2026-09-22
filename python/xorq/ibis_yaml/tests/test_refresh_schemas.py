@@ -24,7 +24,9 @@ from xorq.expr.relations import CachedNode, Read, Tag, TeeNode, pin_cache
 from xorq.ibis_yaml.common import TranslationContext
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.ibis_yaml.enums import ReadKwarg
+from xorq.ibis_yaml.translate import refreshed_read
 from xorq.ibis_yaml.utils import namespace_to_database
+from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.writes import ParquetWriteThrough
 
 
@@ -258,6 +260,54 @@ def test_a_csv_read_refreshes(tmp_path: Path, builds_dir: Path) -> None:
     (read,) = walk_nodes(Read, expr)
     assert "c" in expr.schema()
     assert "c" in dict(read.read_kwargs)[ReadKwarg.schema]
+
+
+def test_refresh_replaces_a_declared_schema_with_inference(
+    tmp_path: Path, builds_dir: Path
+) -> None:
+    """The known limitation, pinned rather than discovered.
+
+    A `schema=` handed to a deferred read is recorded exactly the way an
+    inferred one is, so the refresh cannot tell it was a declaration and
+    replaces it -- on the node and on the instruction -- with what inference
+    reads from the file. `catalog.drift` has the same blind spot.
+    """
+    path = tmp_path / "t.csv"
+    RECORDED.to_pandas().to_csv(path, index=False)
+    declared = xo.schema({"a": "string", "b": "string"})
+    build_path = build_expr(
+        deferred_read_csv(path, xo.connect(), table_name="t", schema=declared),
+        builds_dir=builds_dir,
+        relocate_reads=False,
+    )
+
+    assert str(load_expr(build_path).schema()["a"]) == "string"
+    expr = load_expr(build_path, refresh_schemas=True)
+    (read,) = walk_nodes(Read, expr)
+    assert str(expr.schema()["a"]) == "int64"
+    assert str(dict(read.read_kwargs)[ReadKwarg.schema]["a"]) == "int64"
+
+
+def test_a_refresh_drops_a_stale_types_override(tmp_path: Path) -> None:
+    """duckdb's per-column `types=` is the third recorded-schema spelling.
+    Inference cannot reproduce an override, so the refresh drops it rather than
+    let it contradict the rewritten `columns`."""
+    path = tmp_path / "t.csv"
+    RECORDED.to_pandas().to_csv(path, index=False)
+    (read,) = walk_nodes(
+        Read,
+        deferred_read_csv(
+            path,
+            xo.duckdb.connect(),
+            table_name="t",
+            schema=xo.schema({"a": "string", "b": "string"}),
+            types=FrozenDict({"a": "VARCHAR"}),
+        ),
+    )
+
+    kwargs = dict(refreshed_read(read).read_kwargs)
+    assert ReadKwarg.types not in kwargs
+    assert str(kwargs[ReadKwarg.columns]["a"]) == "int64"
 
 
 def test_a_refresh_does_not_write_to_the_source(

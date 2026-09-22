@@ -524,14 +524,18 @@ def _namespace_to_database(namespace: ops.Namespace) -> tuple[str, str] | str | 
 
     Delegates so the mapping has one implementation: `catalog.drift`'s probe
     and `ibis_yaml`'s refreshing loader ask the same question, and a third
-    answer here is how the three drift apart. A catalog with no database under
-    it now raises rather than silently probing without one; the sole caller
-    reads that as "not there", which is what probing the wrong place amounted
-    to anyway.
+    answer here is how the three drift apart. The one place this caller parts
+    ways is a catalog with no database under it: the shared mapping raises, but
+    here that would read as "not there" and turn into a materialize-and-copy
+    (or, with ``transfer_tables=False``, a refusal), so the probe falls back to
+    the backend's default database as it always did.
     """
     from xorq.ibis_yaml.utils import namespace_to_database  # noqa: PLC0415
 
-    return namespace_to_database(namespace.catalog, namespace.database)
+    try:
+        return namespace_to_database(namespace.catalog, namespace.database)
+    except ValueError:
+        return None
 
 
 def _find_missing_tables(tables_to_transfer):
