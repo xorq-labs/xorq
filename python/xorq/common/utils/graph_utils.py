@@ -519,13 +519,19 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
     return result
 
 
-def _namespace_to_database(namespace):
-    """Convert a Namespace to the ``database`` kwarg accepted by backend methods."""
-    if namespace.catalog and namespace.database:
-        return (namespace.catalog, namespace.database)
-    if namespace.database:
-        return namespace.database
-    return None
+def _namespace_to_database(namespace: ops.Namespace) -> tuple[str, str] | str | None:
+    """Convert a Namespace to the ``database`` kwarg accepted by backend methods.
+
+    Delegates so the mapping has one implementation: `catalog.drift`'s probe
+    and `ibis_yaml`'s refreshing loader ask the same question, and a third
+    answer here is how the three drift apart. A catalog with no database under
+    it now raises rather than silently probing without one; the sole caller
+    reads that as "not there", which is what probing the wrong place amounted
+    to anyway.
+    """
+    from xorq.ibis_yaml.utils import namespace_to_database  # noqa: PLC0415
+
+    return namespace_to_database(namespace.catalog, namespace.database)
 
 
 def _find_missing_tables(tables_to_transfer):
