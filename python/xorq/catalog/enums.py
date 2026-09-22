@@ -69,13 +69,36 @@ class PinKey(StrEnum):
 
 class Verdict(StrEnum):
     """What a probe found. The exit code is a property of the verdict, not a
-    table maintained beside it, so the two cannot drift apart."""
+    table maintained beside it, so the two cannot drift apart.
+
+    Declared worst-last: ``severity`` reads the order off this list, so a member
+    added in the wrong place changes how a sweep rolls up and is caught by
+    ``test_severity_refines_the_exit_code`` rather than by a consumer.
+    """
 
     EQUAL = "equal"
     UNREACHABLE = "unreachable"
     UNREADABLE = "unreadable"
     CHANGED = "changed"
     TABLE_MISSING = "table-missing"
+
+    @property
+    def severity(self) -> int:
+        """Where this verdict sorts when several roll up into one.
+
+        A total order, which the exit code is not: `unreachable` shares 2 with
+        `unreadable` and `changed` shares 3 with `table-missing`, so rolling up
+        on the code alone leaves each tie to be broken by whatever order the
+        verdicts happened to arrive in -- which for a sweep is the order the
+        names were typed on the command line.
+
+        It refines the code rather than reordering it, so the worst verdict and
+        the worst exit code are always the same leaf. Within a code the more
+        durable finding wins: `unreadable` over `unreachable`, because a record
+        that will not parse is not fixed by retrying, and `table-missing` over
+        `changed`, because the source is gone rather than different.
+        """
+        return tuple(type(self)).index(self)
 
     @property
     def exit_code(self) -> int:

@@ -6,12 +6,105 @@ nothing is editorialized.
 
 The leaves come from ``inspection``, which reads them straight out of the
 archive, so an entry whose expression can no longer load is still checkable.
+
+The JSON document (``drift_document``, behind ``check-sources --json``) is the
+machine-readable form of the same sweep, buffered and emitted once so a consumer
+gets a complete document or none at all::
+
+    {
+      "state": "changed",              # the worst entry's state
+      "exit_code": 3,                  # what the command exits with
+      "unchecked_count": 1,            # unprobed sources; gate on zero, not size
+      "entries": {
+        "prod-matches": {
+          "state": "changed",          # the worst leaf's state
+          "exit_code": 3,
+          "leaves": [
+            {
+              "kind": "DatabaseTable", # LeafKind
+              "name": "public.matches",
+              "state": "changed",      # Verdict
+              "recorded": {"home_score": "int64", "city": "string"},
+              "live": {"home_team_score": "int64", "city": "string"}
+            },
+            {
+              "kind": "Read",
+              "name": "/data/teams.parquet",
+              "state": "table-missing",
+              "recorded": {"team": "string"},
+              "live": null
+            },
+            {
+              "kind": "DatabaseTable",
+              "name": "public.teams",
+              "state": "unreachable",
+              "recorded": {"team": "string"},
+              "live": null,
+              "error": "OperationalError: ..."
+            }
+          ],
+          "unchecked": [{"kind": "Read", "name": "/data/audit.json"}],
+          "bundled": {"memtables": 1, "reads": 1},
+          "pinned": 0
+        }
+      }
+    }
+
+``state`` and ``exit_code`` sit at the root, beside ``entries`` rather than among
+the entry names, so an entry named `state` cannot shadow the roll-up. Schemas are
+column-name-to-dtype objects; there is deliberately no delta field, because the
+delta is one line of set arithmetic on the consumer's side and publishing it
+would be permanent API surface. Column *order* is part of what the probe
+compares, so a table whose columns were only reordered reads `changed` while its
+two objects still hold the same names and dtypes: a consumer that wants to see
+why compares the two key sequences, which the document preserves, and not only
+the sets. ``live`` is ``null`` for every verdict that read no schema
+(`table-missing`, `unreachable`, `unreadable`); ``recorded`` never is, because a
+leaf whose schema the record does not hold makes that whole record `unreadable`
+rather than a leaf with nothing to compare against. ``error`` is present only
+when there is one. A read path that no longer resolves is `table-missing`, the
+file analogue of a renamed table, and carries no error; `unreachable` is what
+the connection or the read raised, and is the verdict that carries one. An
+entry whose record cannot be read carries ``error`` itself, no leaves, and empty
+counts -- nothing was read, and the ``error`` beside them is what says those
+zeros are not evidence.
+
+A ``state`` of ``null`` is not a verdict spelled differently: it says the sweep
+compared nothing there. An entry gets it when every external source it has went
+unprobed, so ``leaves`` is empty and ``unchecked`` names them all, and the root
+gets it when no entry reached a verdict. It still exits 0, because finding
+nothing to compare is not a finding about a source. An entry whose sources are
+all bundled keeps ``equal``: nothing outside the archive is a reason it cannot
+drift, not a reason the question went unanswered. ``state`` describes the leaves
+that were probed, so a consumer that needs every entry's sources accounted for
+checks that entry's ``unchecked`` is empty rather than reading ``state`` alone.
+
+The root rolls up only the entries that reached a verdict, so a sweep mixing a
+null entry with an `equal` one still publishes `equal`: dropping the whole sweep
+to null would bury a verdict that was reached, and would turn one unprobed source
+into silence about every entry beside it. A root `equal` therefore does not say
+every entry was compared. What says that is ``unchecked_count``, the unprobed
+external sources of every entry the document carries, added up -- a count rather
+than the entry's list, and named apart from ``unchecked`` because the two shapes
+are not interchangeable. It is a gate and not a quantity: what it is for is
+whether it is zero, and the two ways it departs from a strict tally of unprobed
+sources are why a consumer must not display or threshold its magnitude. It is
+added off those lists rather than off the entries behind them, so an entry
+asked for under both its name and an alias owes the document two keys and
+counts its unprobed sources once per key; and an entry whose record could not
+be read counts nothing, having enumerated nothing -- what reports that one is
+its own `unreadable` state and the exit code the root takes from it. Zero
+therefore says every source of every readable entry was probed, which is what a
+consumer gating on green reads beside ``state``.
+
+The roll-up ranks on ``Verdict.severity``, a total order, so the state a sweep
+publishes does not depend on the order its names were given.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -22,7 +115,7 @@ from attr.validators import deep_iterable, in_, instance_of, optional
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
 from xorq.common.constants import READ_EXCLUDE_KEYS
-from xorq.ibis_yaml.enums import ReadKwarg
+from xorq.ibis_yaml.enums import BundledSourceTypes, ReadKwarg
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.expr.schema import Schema
 from xorq.vendor.ibis.util import normalize_filenames, promote_list
@@ -501,6 +594,38 @@ def is_checkable(leaf: SourceLeaf, record: BuildRecord) -> bool:
     return con_name is None or read_is_session_scoped(con_name)
 
 
+def read_record(catalog_entry: CatalogEntry) -> BuildRecord | Exception:
+    """``catalog_entry``'s record, or the error that makes it ``unreadable``.
+
+    Leaf extraction is a ``cached_property``, so it is forced here rather than
+    left to the first probe: a record that cannot be read is not evidence about
+    any backend, and it must rank the same verdict whichever output the caller
+    asked for. Returned rather than raised so both formatters branch on one
+    value instead of each growing its own handler.
+    """
+    try:
+        record = BuildRecord.from_catalog_entry(catalog_entry)
+        record.source_leaves
+        return record
+    except Exception as e:
+        return e
+
+
+def roll_up(verdicts: Iterable[Verdict]) -> Verdict:
+    """The verdict a set of them rolls up to: the worst by ``Verdict.severity``.
+
+    Not derivable from the exit code, which is why it is computed over the
+    verdicts themselves: `unreachable` shares 2 with `unreadable` and `changed`
+    shares 3 with `table-missing`, so a consumer handed only the code would have
+    to guess which of the pair it is looking at. Ranked on ``severity`` rather
+    than the code for the same reason one step on -- a tie left to `max` would
+    be broken by arrival order, so the same catalog would publish a different
+    state depending on which name was typed first. Nothing to roll up is
+    `equal`, the same 0 an entry with no external sources exits with.
+    """
+    return max(verdicts, key=lambda verdict: verdict.severity, default=Verdict.EQUAL)
+
+
 def format_error(e: Exception) -> str:
     """The one shape an error takes in this command's output."""
     return f"{type(e).__name__}: {e}"
@@ -614,20 +739,38 @@ def format_leaf_report(report: LeafReport) -> Iterator[str]:
             pass
 
 
+def bundle_label(kind: BundledSourceTypes | None) -> str:
+    """The one name a bundle kind takes in this command's output.
+
+    Both renderings read it from here: a bundle written by a version this one
+    does not recognize must not be called one thing by the human output and
+    another by the document.
+    """
+    return str(kind or "unknown")
+
+
 def format_no_external(record: BuildRecord) -> str:
     """Why an entry has nothing to check, counted by exempt kind.
 
     Under the default build rules most entries land here, so a bare string would
     read like a broken command.
     """
-    counts = [f"{count} {kind or 'unknown'}" for kind, count in record.bundled_counts]
-    # `bundled` already claimed the leaves it counted: a pin whose frozen read
-    # was also bundled is one leaf, and counting it in both columns would make
-    # the detail add up to more sources than the entry has.
-    if pinned := sum(leaf.pinned and not leaf.bundled for leaf in record.source_leaves):
+    counts = [f"{count} {bundle_label(kind)}" for kind, count in record.bundled_counts]
+    if pinned := record.pinned_count:
         counts.append(f"{pinned} pinned")
     detail = f" ({', '.join(counts)})" if counts else ""
     return f"  no external sources{detail}"
+
+
+def unchecked_leaves(record: BuildRecord) -> tuple[SourceLeaf, ...]:
+    """The external leaves ``checkable_leaves`` left out.
+
+    Its complement over the same predicate, so no external source can fall into
+    neither column and go unmentioned by either output.
+    """
+    return tuple(
+        leaf for leaf in record.external_leaves if not is_checkable(leaf, record)
+    )
 
 
 def format_unchecked(record: BuildRecord) -> str | None:
@@ -637,9 +780,7 @@ def format_unchecked(record: BuildRecord) -> str | None:
     equal still exits 0, and staying quiet about the leaf nobody probed would
     make that a false negative stated as a positive claim.
     """
-    unchecked = tuple(
-        leaf for leaf in record.external_leaves if not is_checkable(leaf, record)
-    )
+    unchecked = unchecked_leaves(record)
     if not unchecked:
         return None
     counts = Counter(str(leaf.kind) for leaf in unchecked)
@@ -649,3 +790,193 @@ def format_unchecked(record: BuildRecord) -> str | None:
     )
     noun = "source" if len(unchecked) == 1 else "sources"
     return f"  {len(unchecked)} external {noun} not checkable ({detail})"
+
+
+def schema_document(schema: Schema | None) -> dict[str, str] | None:
+    """``{column: dtype}``, or ``None`` when there is no schema to report.
+
+    Dtypes as strings: the question a consumer asks of two schemas is whether
+    they differ, and a structured dtype would publish this command's view of a
+    type system it does not own.
+    """
+    if schema is None:
+        return None
+    return {name: str(dtype) for name, dtype in schema.items()}
+
+
+def leaf_document(report: LeafReport) -> dict:
+    """One leaf report, as the JSON document carries it.
+
+    ``live`` is absent as a schema for every verdict that read none, which
+    `probe_leaf` already encodes, so `table-missing` and `unreachable` fall out
+    of the report rather than being special-cased here. ``error`` appears only
+    when there is one: a null on an `equal` leaf would read as a claim that the
+    probe looked for an error and found none.
+    """
+    document = {
+        "kind": str(report.leaf.kind),
+        "name": report.leaf.name,
+        "state": str(report.verdict),
+        "recorded": schema_document(report.leaf.recorded),
+        "live": schema_document(report.live),
+    }
+    if report.error is not None:
+        document["error"] = report.error
+    return document
+
+
+def state_and_code(verdict: Verdict | None) -> dict:
+    """The two keys a verdict decides, or the pair that says none was reached.
+
+    ``None`` is not a verdict spelled differently: it says this sweep compared
+    nothing here, so there is no state to report. It still exits 0, since
+    finding nothing to compare is not a finding about a source.
+    """
+    if verdict is None:
+        return {"state": None, "exit_code": 0}
+    return {"state": str(verdict), "exit_code": verdict.exit_code}
+
+
+def make_entry_document(
+    verdict: Verdict | None,
+    *,
+    error: str | None = None,
+    leaves: Iterable[dict] = (),
+    unchecked: Iterable[dict] = (),
+    bundled: Iterable[tuple[BundledSourceTypes | None, int]] = (),
+    pinned: int = 0,
+) -> dict:
+    """The keys every entry carries, built in one place.
+
+    Both the probed entry and the unreadable one come through here, so the key
+    set cannot grow on one and not the other. ``exit_code`` is read off
+    ``verdict`` rather than reduced a second way over the same reports: the
+    enum owns that mapping, and a second derivation of it is exactly the drift
+    ``Verdict.exit_code`` exists to prevent.
+    """
+    document = state_and_code(verdict)
+    if error is not None:
+        document["error"] = error
+    return document | {
+        "leaves": list(leaves),
+        "unchecked": list(unchecked),
+        "bundled": {bundle_label(kind): count for kind, count in bundled},
+        "pinned": pinned,
+    }
+
+
+def record_document(
+    record: BuildRecord, con_cache: dict | None = None
+) -> tuple[Verdict | None, dict]:
+    """One readable record's whole probe, as the JSON document carries it.
+
+    Buffered by construction: `iter_leaf_reports` is drained before anything is
+    returned, so a consumer gets a complete entry or none at all.
+
+    The verdict comes back beside the document rather than only inside it, so
+    the sweep rolls up enum values and the string is written once, where the
+    document is built. Parsing ``state`` back out would make every future
+    writer of that key a source of ``ValueError`` -- raised after the whole
+    sweep has been probed, discarding a complete document.
+    """
+    reports = tuple(iter_leaf_reports(record, con_cache))
+    unchecked = unchecked_leaves(record)
+    # No verdict at all where nothing was probed and a source was left
+    # unprobed: rolling those up to `equal` would state the strongest positive
+    # claim the document can make on the weakest evidence it has, and a
+    # consumer gating on `state == "equal"` would go green over an entry this
+    # command never compared. An entry with no external sources keeps `equal`:
+    # nothing outside the archive is a reason it cannot drift, not a reason the
+    # question went unanswered.
+    verdict = None if unchecked and not reports else roll_up(r.verdict for r in reports)
+    return verdict, make_entry_document(
+        verdict,
+        leaves=(leaf_document(report) for report in reports),
+        # Named rather than omitted: an entry that exits 0 while a source went
+        # unprobed is a false negative unless the document says which source.
+        unchecked=({"kind": str(leaf.kind), "name": leaf.name} for leaf in unchecked),
+        bundled=record.bundled_counts,
+        pinned=record.pinned_count,
+    )
+
+
+def entry_document(
+    catalog_entry: CatalogEntry, con_cache: dict | None = None
+) -> tuple[Verdict | None, dict]:
+    """One entry's probe, or the error that kept it from being probed at all.
+
+    An unreadable record carries that error itself and no leaves. Its counts
+    read empty because nothing was read, not because the record holds none --
+    the ``error`` key beside them is what says which. Its state and exit code
+    are the ones the human output prints for the same entry, since both come
+    from ``Verdict``. The verdict is returned beside the document, same as
+    ``record_document``.
+    """
+    record = read_record(catalog_entry)
+    if isinstance(record, Exception):
+        return Verdict.UNREADABLE, make_entry_document(
+            Verdict.UNREADABLE, error=format_error(record)
+        )
+    return record_document(record, con_cache)
+
+
+def drift_document(
+    named_entries: Iterable[tuple[str, CatalogEntry]], con_cache: dict | None = None
+) -> dict:
+    """The whole sweep, entries keyed by the name they were asked for under.
+
+    ``state`` and ``exit_code`` sit beside ``entries`` rather than among the
+    entry names: an entry can be called anything, and at the root one called
+    `state` would shadow the roll-up the document exists to carry.
+
+    An entry that reached no verdict is carried but not rolled up, so a sweep
+    where none did says so at the root too rather than reporting the `equal` of
+    the leaves it never had. Where one entry did, that verdict is the root's:
+    null is not propagated, because a single unprobed source must not erase
+    what every other entry established. ``unchecked_count`` is what keeps that
+    honest -- the unprobed sources of the entries the document already carries,
+    added off their own lists, so a root `equal` beside a non-zero count reads
+    as the partial answer it is. Off the lists and not the entries behind them:
+    a name and its alias owe two keys and are counted twice, and an unreadable
+    entry enumerated nothing and is counted not at all, which its own state and
+    the exit code it forces are what report. Both departures are why the key is
+    a gate rather than a quantity: zero or not zero is what it answers, and its
+    magnitude is not a number of sources a consumer can size a fix by.
+
+    The roll-up runs over ``Verdict`` values rather than the ``state`` strings
+    beside them: re-parsing what was just serialized would make any future
+    writer of that key raise after the sweep is already paid for.
+
+    A name is swept once however many times it was asked for. Keying the sweep
+    by name already collapses a repeat into one entry, and probing it twice
+    besides would pay the probe twice and let the second verdict quietly
+    replace the first -- so a source that changed between the two probes could
+    drop out of the document the exit code was owed for. The skip is by
+    requested name, not by the entry the name resolves to: one entry asked for
+    under both its name and an alias owes the document two keys, and is swept
+    once per key rather than once per entry.
+
+    ``con_cache`` is the caller's, same as the human path, so one dead profile
+    costs the sweep one timeout rather than one per entry. Without one the
+    sweep owns a cache for its whole run, since threading ``None`` down would
+    give every entry a private cache and put that timeout back per entry.
+    """
+    owned = con_cache is None
+    con_cache = {} if owned else con_cache
+    entries = {}
+    verdicts = []
+    try:
+        for name, catalog_entry in named_entries:
+            if name in entries:
+                continue
+            verdict, entry = entry_document(catalog_entry, con_cache)
+            entries[name] = entry
+            if verdict is not None:
+                verdicts.append(verdict)
+    finally:
+        if owned:
+            close_cons(con_cache)
+    return state_and_code(roll_up(verdicts) if verdicts else None) | {
+        "unchecked_count": sum(len(entry["unchecked"]) for entry in entries.values()),
+        "entries": entries,
+    }

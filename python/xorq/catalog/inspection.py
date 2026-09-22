@@ -270,10 +270,13 @@ def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
 class SourceLeaf:
     """One source as the build record describes it.
 
-    ``recorded`` is the schema frozen at build time. ``bundled`` says the bytes
-    already live inside the archive (a relocated read, a materialized
-    memory-backend table, a memtable), so there is nothing outside to drift, and
-    ``bundle_kind`` names which bundle holds them. ``pinned`` says the leaf is a
+    ``recorded`` is the schema frozen at build time, and every leaf has one: a
+    node whose ``schema_ref`` is missing or dangles fails ``from_node_def``, so
+    the record is unreadable rather than yielding a leaf with nothing to compare
+    against. ``bundled`` says the bytes already live inside the archive (a
+    relocated read, a materialized memory-backend table, a memtable), so there
+    is nothing outside to drift, and ``bundle_kind`` names which bundle holds
+    them. ``pinned`` says the leaf is a
     ``CacheTag``'s frozen read of its cache artifact, a machine-local cache path
     rather than a user source, so equally nothing to check. Both are
     ``drift_exempt``.
@@ -286,7 +289,7 @@ class SourceLeaf:
     bundled = field(validator=instance_of(bool))
     bundle_kind = field(validator=optional(in_(tuple(BundledSourceTypes))))
     pinned = field(validator=instance_of(bool))
-    recorded = field(validator=optional(instance_of(Schema)))
+    recorded = field(validator=instance_of(Schema))
     table = field(validator=optional(instance_of(str)))
     namespace = field(
         validator=deep_iterable(optional(instance_of(str)), instance_of(tuple)),
@@ -454,6 +457,15 @@ class BuildRecord:
         """
         kinds = Counter(leaf.bundle_kind for leaf in self.source_leaves if leaf.bundled)
         return tuple(sorted(kinds.items(), key=lambda kv: (kv[0] is None, kv[0] or "")))
+
+    @property
+    def pinned_count(self) -> int:
+        """Pinned leaves the bundle counts did not already claim.
+
+        A pin whose frozen read was also bundled is one leaf, and counting it in
+        both columns would report more sources than the entry has.
+        """
+        return sum(leaf.pinned and not leaf.bundled for leaf in self.source_leaves)
 
     def get_profile_dict(self, leaf: SourceLeaf) -> dict[str, Any] | None:
         """The serialized profile ``leaf`` needs to be reached, if it names one.
