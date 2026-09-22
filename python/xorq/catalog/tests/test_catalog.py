@@ -43,6 +43,8 @@ from xorq.catalog.content_store import (
     ContentStoreConfig,
     DirectoryContentStore,
     DirectoryContentStoreConfig,
+    PresignedContentStore,
+    PresignedContentStoreConfig,
     S3ContentStoreConfig,
     _coerce_port,
     compute_content_key,
@@ -54,6 +56,7 @@ from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import (
     CatalogConfigurationError,
     CatalogPushError,
+    ContentStoreError,
 )
 from xorq.catalog.expr_utils import (
     _live_extract_dirs,
@@ -148,6 +151,70 @@ def test_catalog_addition_from_expr_tmpfile_lifecycle(catalog):
     assert zip_path.exists()
     del catalog_addition
     assert not zip_path.exists()
+
+
+@pytest.mark.parametrize("preexisting_dirs", (False, True))
+def test_catalog_add_upload_failure_preserves_repo_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    preexisting_dirs: bool,
+) -> None:
+    service_url = "http://127.0.0.1:8765/"
+    repo_path = tmp_path / "repo"
+    config = PresignedContentStoreConfig(
+        catalog_id=str(uuid.uuid4()), service_url=service_url
+    )
+    repo = Catalog.init_repo_path(repo_path, content_store_config=config)
+    repo.create_remote("origin", f"{service_url}alice/demo.git")
+    backend = GitPointerBackend.from_repo(
+        repo,
+        cache=ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9),
+    )
+    catalog = Catalog(backend=backend)
+
+    gitignore = repo_path / ".gitignore"
+    gitignore.write_text(gitignore.read_text() + "# staged before add\n")
+    repo.index.add([str(gitignore)])
+    gitignore.write_text(gitignore.read_text() + "# unstaged before add\n")
+
+    def fail_upload(*args, **kwargs):
+        raise ContentStoreError("catalog service unavailable")
+
+    monkeypatch.setattr(PresignedContentStore, "ensure_present", fail_upload)
+
+    with build_expr_context_zip(xo.memtable({"failed-upload": [1]})) as zip_path:
+        addition = CatalogAddition(BuildZip(zip_path), catalog)
+        entry = addition.catalog_entry
+        if preexisting_dirs:
+            entry.catalog_path.parent.mkdir()
+            entry.metadata_path.parent.mkdir()
+        pointer_path = backend.entry_tracked_path(entry.catalog_path)
+        before = {
+            "head": repo.head.commit.hexsha,
+            "index": repo.index.write_tree().hexsha,
+            "staged": repo.git.diff("--cached", "--binary"),
+            "unstaged": repo.git.diff("--binary"),
+            "untracked": tuple(repo.untracked_files),
+            "catalog_yaml": catalog.catalog_yaml.yaml_path.read_bytes(),
+            "entry_dir": entry.catalog_path.parent.exists(),
+            "metadata_dir": entry.metadata_path.parent.exists(),
+        }
+
+        with pytest.raises(ContentStoreError, match="catalog service unavailable"):
+            addition.add()
+
+    assert repo.head.commit.hexsha == before["head"]
+    assert repo.index.write_tree().hexsha == before["index"]
+    assert repo.git.diff("--cached", "--binary") == before["staged"]
+    assert repo.git.diff("--binary") == before["unstaged"]
+    assert tuple(repo.untracked_files) == before["untracked"]
+    assert catalog.catalog_yaml.yaml_path.read_bytes() == before["catalog_yaml"]
+    assert not catalog.catalog_yaml.contains(addition.name)
+    assert not entry.metadata_path.exists()
+    assert not entry.catalog_path.exists()
+    assert not pointer_path.exists()
+    assert entry.catalog_path.parent.exists() == before["entry_dir"]
+    assert entry.metadata_path.parent.exists() == before["metadata_dir"]
 
 
 def test_catalog_rm(catalog, data_dict):
@@ -1521,6 +1588,17 @@ def test_add_alias(catalog_populated):
     assert catalog_alias.alias_path.parent.name == CatalogInfix.ALIAS
     assert catalog_alias.target == Path("..") / CatalogInfix.ENTRY / (name + ".zip")
     catalog_populated.assert_consistency()
+
+
+@pytest.mark.parametrize(
+    "alias",
+    ("", "..", "nested/alias", r"nested\alias"),
+)
+def test_add_alias_rejects_unsafe_path_components(catalog_populated, alias):
+    name = catalog_populated.list()[0]
+
+    with pytest.raises(ValueError, match="safe path component"):
+        catalog_populated.add_alias(name, alias)
 
 
 def test_add_alias_unknown_name_raises(catalog_populated):

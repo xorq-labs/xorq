@@ -75,6 +75,7 @@ website:
         - href: how_to/cache_by_backend.qmd
         - href: how_to/switch_backends.qmd
         - href: how_to/compose_catalog_entries.qmd
+        - href: how_to/use_hosted_catalogs.qmd
 
     - id: tutorials
       title: "Tutorials"
