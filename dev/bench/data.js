@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789998779913,
+  "lastUpdate": 1790069509559,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -39570,6 +39570,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.15997093931114856",
             "extra": "mean: 1.718878078800003 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a68b3b97b531ecb3fbd0559ffec6df9d2636ad3b",
+          "message": "feat(catalog): check-sources --json emits a machine-readable drift report (#2312)\n\nCloses #2298\n\n## What\n\nAdds `--json` to `check-sources`. Same sweep as the human output,\nemitted as one buffered\ndocument so a script gets a complete report or none at all.\n\n```json\n{\n  \"state\": \"changed\",\n  \"exit_code\": 3,\n  \"unchecked_count\": 1,\n  \"entries\": {\n    \"prod-matches\": {\n      \"state\": \"changed\",\n      \"exit_code\": 3,\n      \"leaves\": [\n        {\n          \"kind\": \"DatabaseTable\",\n          \"name\": \"public.matches\",\n          \"state\": \"changed\",\n          \"recorded\": {\"home_score\": \"int64\", \"city\": \"string\"},\n          \"live\": {\"home_team_score\": \"int64\", \"city\": \"string\"}\n        }\n      ],\n      \"unchecked\": [{\"kind\": \"Read\", \"name\": \"/data/audit.json\"}],\n      \"bundled\": {\"memtables\": 1, \"reads\": 1},\n      \"pinned\": 0\n    }\n  }\n}\n```\n\nEvery entry you asked for gets a key, and every probed leaf gets an\nelement. Nothing is\nfiltered, so an `equal` leaf still carries both schemas.\n\n| Key | Level | Meaning |\n|---|---|---|\n| `state` | all | Worst verdict at that level: `equal`, `changed`,\n`table-missing`, `unreachable`, `unreadable`, or `null`. |\n| `exit_code` | root, entry | What the command exits with. Read off\n`state`, never derived separately. |\n| `unchecked_count` | root | Unprobed sources across every entry, added\nup. |\n| `entries` | root | One key per name you asked for. |\n| `leaves` | entry | One element per probed leaf, `equal` ones included.\n|\n| `unchecked` | entry | External sources the probe refused, as `{kind,\nname}`. |\n| `bundled` | entry | Bundle kind to count, for leaves whose bytes are\nin the archive. |\n| `pinned` | entry | Count of leaves exempt because they sit under a\ncache pin. |\n| `kind` | leaf | `DatabaseTable` or `Read`. |\n| `name` | leaf | Display label: the table name, or the read's path. |\n| `recorded` | leaf | Schema the build froze, column to dtype. |\n| `live` | leaf | Schema now, or `null` when the probe read none. |\n| `error` | entry, leaf | Present only when something raised. |\n\nFive things the table cannot say in one line:\n\n- `null` is not `equal`. It means nothing was compared there, and it\nexits 0. An entry gets\nit when every external source it has went unprobed; an entry whose\nsources are all bundled\nkeeps `equal`, since having nothing outside the archive is a reason it\ncannot drift.\n- `unchecked_count` is a gate, not a quantity. It is summed off the\nentry keys, so a name and\nits alias count the same source twice, and an unreadable entry\nenumerated nothing and\ncounts zero. Read whether it is zero: `jq -e '.state == \"equal\" and\n.unchecked_count == 0'`.\n- The roll-up ranks on a total order (`Verdict.severity`), because\n`unreachable` shares exit\n2 with `unreadable` and `changed` shares 3 with `table-missing`.\nOtherwise a tie would be\n  settled by whichever name you typed first.\n- There is no delta field, deliberately: it is set arithmetic on the\nconsumer's side and\nwould be permanent API surface. Column order counts in the comparison,\nso a pure reorder\n  reads `changed` while both objects hold the same names and dtypes.\n- `pinned`, not `cached`: the leaf is a `Read` of a `CacheTag`'s frozen\nartifact, not a\n`CachedNode`, which subclasses `DatabaseTable` and is never a source.\nName follows the\n  existing `xorq catalog pin`.\n\nThe full shape is documented in the `xorq.catalog.drift` module\ndocstring.\n\n## Why\n\nThe human output streams, prints a summary line, and buries a verdict in\nindentation. A CI\nstep had nothing to consume.\n\n`--json` follows the flag `catalog schema`, `catalog show` and `catalog\nlog` already use,\nthrough the same shared `json_option`.\n\n## Verification\n\n35 tests in the new `test_drift_json.py`, one per acceptance criterion\nplus the roll-up, the\nshared helpers and the review fixes. 244 tests pass across\n`test_drift_json.py`,\n`test_drift.py`, `test_drift_reads.py`, `test_drift_connections.py` and\n`test_inspection.py`\nat `be088882`.\n\nThree fixes that changed behaviour have positive controls, since each\ncould otherwise pass\nvacuously. Reverting the connection-cache fix fails its test at 2 dials\nagainst 1. Reverting\neither roll-up fix fails 5 tests across the two.\n\nManually walked through every state on a throwaway catalog, including\nthat the probe leaves\na deleted sqlite file absent rather than recreating it, and that both\nrenderings exit the\nsame on the same sweep:\n\nhttps://claude.ai/artifact/Jch1Pmx4kvr38azYxLGyVg?sk=2YwWyJeZCLPQEVkskrwTGQ\n\n## Not addressed\n\n- Filed from review: #2313 (a leaf has no stable identity, and a\nmulti-path read's name\ncannot be split back), #2314 (no output on either stream until the sweep\nfinishes),\n#2315 (`EntryReport` raises where both renderings report `unreadable`).\n- Pre-existing and untouched: #2310, #2311.\n- Unfiled: an `equal` leaf repeats its schema in `recorded` and `live`.\nFilter client-side\n  for now.\n- `test_drift_json.py` pins `backend_type` to `git`. The document is\nbuilt from a parsed\nrecord and never touches the content store, and `test_drift.py` still\nsweeps all three.\n\n## Post-merge\n\n#2299 documents source drift detection in a how-to guide and can now\ncover both outputs.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-22T11:25:40+02:00",
+          "tree_id": "10a4c6c179969ed2735a207be8d96e91b08a857e",
+          "url": "https://github.com/xorq-labs/xorq/commit/a68b3b97b531ecb3fbd0559ffec6df9d2636ad3b"
+        },
+        "date": 1790069504190,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.264574526815933,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00414421571156106",
+            "extra": "mean: 120.99836437499789 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.445980661405707,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07150347060917826",
+            "extra": "mean: 408.8339764000011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7076902960009844,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12262944181688241",
+            "extra": "mean: 1.4130474950000007 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.795329577653613,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04851069682016821",
+            "extra": "mean: 357.7395696000167 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.715897840981514,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07659775932957268",
+            "extra": "mean: 368.20236199996543 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.4652668771554533,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0989929937368322",
+            "extra": "mean: 405.6355963999522 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 171.25702158594473,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007265603357922905",
+            "extra": "mean: 5.8391766406970556 msec\nrounds: 231"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.8518291044894335,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09218391553090537",
+            "extra": "mean: 259.61691780003093 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 13.794702587280042,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010955821827312154",
+            "extra": "mean: 72.49159550000665 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.13063585310818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013984620133384858",
+            "extra": "mean: 109.52139764281453 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.258144717030876,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009696710814734723",
+            "extra": "mean: 137.77625536365372 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.527607056848196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030340630272384466",
+            "extra": "mean: 180.91010987495793 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.383057890786795,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04789298454650494",
+            "extra": "mean: 228.15121883331813 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.535578969597956,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015641479952865116",
+            "extra": "mean: 220.47901860005368 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.357347182600965,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06637995418118685",
+            "extra": "mean: 424.2056525999942 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.3339487847232387,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030887952620025198",
+            "extra": "mean: 299.94461960009176 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.706871416953706,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13762395914869163",
+            "extra": "mean: 585.8672129999832 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.807070802845856,
+            "unit": "iter/sec",
+            "range": "stddev: 0.116030286421207",
+            "extra": "mean: 553.3817481999904 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4375225219349281,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1456934407969813",
+            "extra": "mean: 695.6412749999799 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5225718966321504,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10274432201786403",
+            "extra": "mean: 656.7834347999906 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2206126113301232,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15020315128435724",
+            "extra": "mean: 819.2607471999509 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1415532555102725,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12922363318748958",
+            "extra": "mean: 875.9994289999213 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9734390885476822,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14654669713427712",
+            "extra": "mean: 1.0272856429999593 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5662627050984353,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1955762885344588",
+            "extra": "mean: 1.7659647915999812 sec\nrounds: 5"
           }
         ]
       }
