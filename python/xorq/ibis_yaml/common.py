@@ -1,5 +1,6 @@
 import base64
 import functools
+from collections.abc import Callable
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -15,7 +16,7 @@ from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.exceptions import SchemaRefreshError
+from xorq.common.exceptions import SchemaRefreshError, TranslationError
 from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
 from xorq.expr.relations import Read
@@ -141,11 +142,14 @@ class TranslationContext:
         validator=instance_of(list), factory=list, eq=False
     )
     # Participates in equality, unlike `remote_table_stack`, and deliberately:
-    # `translate_from_yaml` is `lru_cache`d on (yaml_dict, context), so a
-    # context excluded from the key by `eq=False` would let a refreshed load
-    # collect a recorded-schema expression another load left in the cache. It
-    # never reaches expression identity -- nothing hashes a
-    # `TranslationContext` but that cache.
+    # `translate_from_yaml` is `lru_cache`d on (yaml_dict, context), and the
+    # refresh also translates a pinned cache's subtree under an `evolve`d
+    # context, so a field excluded from the key by `eq=False` would let those
+    # two collect each other's expressions. (Across loads the keys are already
+    # disjoint -- `Registry` is identity-compared and `from_yaml` builds a fresh
+    # one -- so this closes the within-load hole, not that one.) It never
+    # reaches expression identity: nothing hashes a `TranslationContext` but
+    # that cache.
     refresh_schemas: bool = field(validator=instance_of(bool), default=False)
 
     @property
@@ -192,10 +196,21 @@ class TranslationContext:
         node_def = self.get_definition(RegistryEnum.nodes, node_ref)
         return self.translate_from_yaml(node_def)
 
-    def get_schema(self, schema_ref):
+    def get_schema(self, schema_ref: str) -> Schema:
         schema_def = self.get_definition(RegistryEnum.schemas, schema_ref)
         schema = Schema(toolz.valmap(self.translate_from_yaml, schema_def))
         return schema
+
+    def resolve_schema(self, schema_ref: str, live: Callable[[], Schema]) -> Schema:
+        """The recorded schema, or under ``refresh_schemas`` the live one.
+
+        ``live`` is a zero-argument callable so an ordinary load never dials a
+        source or walks a parent. Every handler that can name a live answer --
+        a source it can ask, or a parent it is transparent to -- routes through
+        here, which is what keeps "which ops participate in the refresh" one
+        list instead of a ternary copied into each of them.
+        """
+        return live() if self.refresh_schemas else self.get_schema(schema_ref)
 
 
 def register_from_yaml_handler(*op_names: str):
@@ -246,14 +261,20 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
             return context.get_node(node_ref)
         case {"op": op_type}:
             handler = FROM_YAML_HANDLERS.get(op_type, default_handler)
-            if not context.refresh_schemas:
-                return handler(yaml_dict, context)
             try:
                 return handler(yaml_dict, context)
-            except SchemaRefreshError:
-                # Already attributed, and to a deeper op than this one.
+            except (TranslationError, ImportError, RecursionError, MemoryError):
+                # Not the refresh's to relabel. A `SchemaRefreshError` from a
+                # deeper op (renaming it would name the `Filter` instead of the
+                # `Field`); a typed record defect the refresh did not cause,
+                # like the `NormalizeMethodError` #2155 made callers catch by
+                # type; or an environment failure -- this arm also carries
+                # pure-data handlers (`Callable`, `SklearnEstimator`), whose
+                # `ModuleNotFoundError` has no source behind it to have drifted.
                 raise
             except Exception as e:
+                if not context.refresh_schemas:
+                    raise
                 raise SchemaRefreshError(op_type, e) from e
         case {RefEnum.schema_ref: schema_ref, **rest}:
             if rest:

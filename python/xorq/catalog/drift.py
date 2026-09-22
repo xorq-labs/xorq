@@ -204,10 +204,8 @@ def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
     """``leaf``'s namespace as ibis spells it: a pair, a bare name, or nothing;
     a catalog with no database raises.
 
-    The mapping itself is ``namespace_to_database``, shared with the refreshing
-    loader so that what the probe asks a backend for and what a rebase rebuilds
-    over are the same place by construction. This function is the leaf-shaped
-    door onto it.
+    The mapping is ``namespace_to_database``; this is the leaf-shaped door onto
+    it.
 
     A well-formed pair a backend cannot express is deliberately left alone: it
     is handed over as recorded and fails at the read, which the probe reports as

@@ -1449,11 +1449,12 @@ class CatalogEntry:
 
     def load_expr(
         self,
-        lazy=False,
-        read_only_parquet_metadata=False,
-        cache_dir=None,
-        con_cache=None,
-    ):
+        lazy: bool = False,
+        read_only_parquet_metadata: bool = False,
+        cache_dir: str | None = None,
+        con_cache: dict | None = None,
+        refresh_schemas: bool = False,
+    ) -> "Expr":
         if not self.is_content_local:
             self.fetch()
         return load_expr_from_zip(
@@ -1462,6 +1463,7 @@ class CatalogEntry:
             read_only_parquet_metadata=read_only_parquet_metadata,
             cache_dir=cache_dir,
             con_cache=con_cache,
+            refresh_schemas=refresh_schemas,
         )
 
     @property

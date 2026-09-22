@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import toolz
+from attr import evolve
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
@@ -19,8 +20,9 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.defer_utils import DEFAULT_READ_INFERENCE
 from xorq.common.utils.name_utils import get_uid_prefix
-from xorq.common.utils.node_utils import update_read_kwargs
+from xorq.common.utils.node_utils import recreate, update_read_kwargs
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     CachedNode,
@@ -496,12 +498,11 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
         ) from err
     # Under `refresh_schemas` the live table is the record; otherwise the
     # recorded schema is, and the table is never dialled.
-    schema = (
-        con.table(
+    schema = context.resolve_schema(
+        yaml_dict.get(RefEnum.schema_ref),
+        lambda: con.table(
             table_name, database=namespace_to_database(catalog, database)
-        ).schema()
-        if context.refresh_schemas
-        else context.get_schema(yaml_dict.get(RefEnum.schema_ref))
+        ).schema(),
     )
     return ops.DatabaseTable(
         schema=schema,
@@ -533,15 +534,13 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
 
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
     # A cache is its parent: under refresh it follows the parent rather than
-    # the schema it recorded, so the key the rebuilt node projects describes
-    # the computation it would actually perform. Nothing validates this pair,
-    # which is why a stale one survives a load and a cached run keeps serving
-    # rows the sources no longer have.
-    schema = (
-        parent_expr.schema()
-        if context.refresh_schemas
-        else context.get_schema(yaml_dict[RefEnum.schema_ref])
-    )
+    # the schema it recorded, so the columns it advertises to everything above
+    # it are the ones it would actually produce. Nothing validates this pair,
+    # which is why a stale one survives a load. (The cache *key* is not at
+    # stake: `set_default` derives it from `parent`, so it already followed a
+    # refreshed parent. It does move when the parent does, which is a cache
+    # miss and a second artifact.)
+    schema = context.resolve_schema(yaml_dict[RefEnum.schema_ref], parent_expr.schema)
     profile_name = yaml_dict.get("source")
     try:
         source = context.profiles[profile_name]
@@ -672,11 +671,7 @@ def _tee_node_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr
     # Transparent by contract -- `TeeNode.__init__` rejects a schema that is not
     # its parent's -- so under refresh it takes the parent's rather than raising
     # an integrity error over a source that merely gained a column.
-    schema = (
-        parent.schema()
-        if context.refresh_schemas
-        else context.get_schema(yaml_dict[RefEnum.schema_ref])
-    )
+    schema = context.resolve_schema(yaml_dict[RefEnum.schema_ref], parent.schema)
     writer = load_writer_from_yaml(yaml_dict["writer"], context)
     op = TeeNode(
         schema=schema,
@@ -781,6 +776,58 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
     )
 
 
+def refreshed_read(read_op: Read) -> Read:
+    """``read_op`` carrying the schema its file has now, or unchanged.
+
+    The file is read by the inference the deferred read ran at build time
+    (``defer_utils.DEFAULT_READ_INFERENCE``), never by replaying the read
+    against its connection. ``catalog.drift`` answers the same question the
+    same way, for three reasons that all apply here:
+
+    * the replay is a *write*. ``Read.make_dt`` strips only
+      ``READ_EXCLUDE_KEYS``, so it keeps the recorded ``table_name`` and the
+      ``mode="replace"`` ``deferred_read_*`` records for the ADBC backends --
+      a load would drop and re-ingest a table in the user's database.
+    * the replay is told its own answer. ``deferred_read_csv`` records the
+      inferred schema as ``schema=`` (``columns=`` on duckdb), which the read
+      method obeys, so the "live" schema would be the recorded one and the
+      refresh a silent no-op.
+    * the replay compares two engines. The build recorded pandas' or
+      datafusion's reading of the file, not the bound backend's, and the two
+      disagree about untouched files (see ``drift.get_read_inference``).
+
+    A read with no registered inference keeps its record rather than being
+    dialled: a bundled one, whose bytes are in the archive and whose
+    build-relative ``read_path`` ``ExprLoader`` resolves later (refreshing
+    those is xorq-labs/xorq#2322), and a path-less API-backed one, which has
+    no file to infer from. The general rule behind the ``read_path`` case: the
+    refresh runs during translation, so it must not resolve a path that a
+    later ``ExprLoader`` pass rewrites -- ``deferred_reads_to_memtables`` for a
+    bundled read, ``replace_base_path`` for a pinned cache's frozen read.
+
+    Stays a ``Read``: ``make_dt`` would return a ``DatabaseTable``, dropping
+    ``method_name``, ``read_kwargs`` and the relocation posture out of the
+    rebuilt record and leaving a session-scoped table name in their place.
+    """
+    kwargs = dict(read_op.read_kwargs)
+    inference = DEFAULT_READ_INFERENCE.get(read_op.method_name)
+    path = kwargs.get(ReadKwarg.hash_path)
+    if inference is None or path is None or ReadKwarg.read_path in kwargs:
+        return read_op
+    schema = inference(path)
+    # The recorded schema also rides in `read_kwargs`, as an instruction the
+    # read method obeys. Left stale, the rebuilt node would advertise the live
+    # columns and then read the recorded ones.
+    instructions = tuple(
+        (key, schema) for key in (ReadKwarg.schema, ReadKwarg.columns) if key in kwargs
+    )
+    return recreate(
+        read_op,
+        schema=schema,
+        read_kwargs=update_read_kwargs(read_op.read_kwargs, instructions),
+    )
+
+
 @register_from_yaml_handler("Read")
 def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
@@ -799,17 +846,8 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
             yaml_dict.get(NodeKey.normalize_method)
         ),
     )
-    if context.refresh_schemas and not any(
-        k == ReadKwarg.read_path for k, _ in read_kwargs
-    ):
-        # `make_dt` is the schema oracle, not the replacement: it returns a
-        # `DatabaseTable`, so swapping the node for it would drop the method,
-        # the kwargs and the relocation posture out of the rebuilt record and
-        # leave a session-scoped table name in their place. A read whose bytes
-        # are in the archive carries `read_path` and is resolved later, by
-        # `ExprLoader`, which is where its refresh belongs.
-        args = dict(zip(read_op.__argnames__, read_op.__args__))
-        read_op = read_op.__recreate__(args | {"schema": read_op.make_dt().schema})
+    if context.refresh_schemas:
+        read_op = refreshed_read(read_op)
 
     return read_op.to_expr()
 
@@ -1258,8 +1296,13 @@ _tag_classes = {"Tag": Tag, "HashingTag": HashingTag}
 @register_from_yaml_handler("Tag", "HashingTag")
 def _tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     cls = _tag_classes[yaml_dict["op"]]
-    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
+    # Transparent like `TeeNode`, but with nothing enforcing it: `Tag` has no
+    # parent/schema check, so a recorded schema over a refreshed parent builds
+    # a node that silently projects the old columns and swallows the
+    # `SchemaRefreshError` the dropped ones should have raised. Every catalog
+    # bind and every ML pipeline step carries one of these.
+    schema = context.resolve_schema(yaml_dict[RefEnum.schema_ref], parent_expr.schema)
     metadata = context.translate_from_yaml(yaml_dict["metadata"])
     return cls(
         schema=schema,
@@ -1284,9 +1327,15 @@ def _cache_tag_to_yaml(op: CacheTag, context: Any) -> dict:
 
 @register_from_yaml_handler("CacheTag")
 def _cache_tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
-    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
-    parent_expr = context.translate_from_yaml(yaml_dict["parent"])
-    uncached_expr = context.translate_from_yaml(yaml_dict["uncached"])
+    # A pin is drift-exempt, the way `SourceLeaf.drift_exempt` counts it: the
+    # frozen read is a machine-local cache artifact rather than a user source,
+    # and `uncached` is the discarded upstream a pinned build is documented to
+    # load without. Refreshing either would dial sources the pin exists to stop
+    # needing, so the whole subtree keeps its record even under refresh.
+    recorded = evolve(context, refresh_schemas=False)
+    schema = recorded.get_schema(yaml_dict[RefEnum.schema_ref])
+    parent_expr = recorded.translate_from_yaml(yaml_dict["parent"])
+    uncached_expr = recorded.translate_from_yaml(yaml_dict["uncached"])
     cache = load_cache_from_yaml(yaml_dict["cache"], context)
     return CacheTag(
         schema=schema,

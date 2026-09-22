@@ -119,6 +119,7 @@ def load_expr_from_zip(
     read_only_parquet_metadata: bool = False,
     cache_dir: str | None = None,
     con_cache: dict | None = None,
+    refresh_schemas: bool = False,
 ) -> "Expr":
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
@@ -137,6 +138,7 @@ def load_expr_from_zip(
             read_only_parquet_metadata=read_only_parquet_metadata,
             cache_dir=cache_dir,
             con_cache=con_cache,
+            refresh_schemas=refresh_schemas,
         )
     except BaseException:
         _cleanup_one(td)

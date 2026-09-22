@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import pathlib
 from collections.abc import Mapping, Sequence
@@ -23,7 +25,9 @@ def freeze(obj):
     return obj
 
 
-def namespace_to_database(catalog: str | None, database: str | None):
+def namespace_to_database(
+    catalog: str | None, database: str | None
+) -> tuple[str, str] | str | None:
     """A recorded ``(catalog, database)`` namespace as ibis spells ``database=``.
 
     A pair, a bare name, or nothing. The raw pair is what gets matched, not a

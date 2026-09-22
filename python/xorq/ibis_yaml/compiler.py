@@ -971,10 +971,15 @@ class ExprLoader:
         source is asked for its live schema and every operation above it is
         rebuilt through the builder API, so one that can no longer be
         reconstructed raises ``SchemaRefreshError`` naming itself. Off by
-        default, and the default path is unchanged. It dials every source, which
-        an ordinary load does not, so a caller that must not bring a database
-        file into existence by asking for one passes connections it opened
-        itself through ``con_cache``.
+        default, and the default path is unchanged.
+
+        It reads, never writes: a ``DatabaseTable`` is asked for its table and a
+        ``Read`` re-runs the inference the deferred read ran at build time
+        (``refreshed_read``), so nothing is registered or ingested into a live
+        backend. What it adds over an ordinary load is a metadata round-trip per
+        recorded table -- the connections themselves are opened either way, by
+        ``hydrate_cons`` -- so a caller with connections of its own to use passes
+        them through ``con_cache``.
         """
         profiles = hydrate_cons(
             self.artifact_store.load_yaml(DumpFiles.profiles),
