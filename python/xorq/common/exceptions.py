@@ -70,6 +70,28 @@ class NormalizeMethodError(TranslationError):
     """A Read's normalize_method could not be resolved by name (see #2155)."""
 
 
+class SchemaRefreshError(XorqError):
+    """An operation that could not be rebuilt against a refreshed source.
+
+    Raised by the ``from_yaml`` dispatch under ``refresh_schemas``, so it names
+    the op the record spells rather than whichever internal the builder API
+    tripped over. Only the innermost one survives: the dispatch re-raises a
+    ``SchemaRefreshError`` untouched, so an ancestor rebuilding over a failed
+    child does not relabel the failure with its own name. Since translation is
+    bottom-up, that innermost op is the deepest one that could not be
+    reconstructed -- a ``Field`` naming a column the source dropped, not the
+    ``Filter`` that happens to sit above it.
+    """
+
+    def __init__(self, op_name: str, cause: Exception):
+        self.op_name = op_name
+        self.cause = cause
+        super().__init__(
+            f"could not rebuild {op_name} against the refreshed sources: "
+            f"{type(cause).__name__}: {cause}"
+        )
+
+
 class XorqInputError(ValueError, XorqError):
     """IbisInputError."""
 

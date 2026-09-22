@@ -15,6 +15,7 @@ from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.exceptions import SchemaRefreshError
 from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
 from xorq.expr.relations import Read
@@ -139,6 +140,13 @@ class TranslationContext:
     remote_table_stack: list[str] = field(
         validator=instance_of(list), factory=list, eq=False
     )
+    # Participates in equality, unlike `remote_table_stack`, and deliberately:
+    # `translate_from_yaml` is `lru_cache`d on (yaml_dict, context), so a
+    # context excluded from the key by `eq=False` would let a refreshed load
+    # collect a recorded-schema expression another load left in the cache. It
+    # never reaches expression identity -- nothing hashes a
+    # `TranslationContext` but that cache.
+    refresh_schemas: bool = field(validator=instance_of(bool), default=False)
 
     @property
     def definitions(self):
@@ -237,7 +245,16 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
                 )
             return context.get_node(node_ref)
         case {"op": op_type}:
-            return FROM_YAML_HANDLERS.get(op_type, default_handler)(yaml_dict, context)
+            handler = FROM_YAML_HANDLERS.get(op_type, default_handler)
+            if not context.refresh_schemas:
+                return handler(yaml_dict, context)
+            try:
+                return handler(yaml_dict, context)
+            except SchemaRefreshError:
+                # Already attributed, and to a deeper op than this one.
+                raise
+            except Exception as e:
+                raise SchemaRefreshError(op_type, e) from e
         case {RefEnum.schema_ref: schema_ref, **rest}:
             if rest:
                 raise ValueError(

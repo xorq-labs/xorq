@@ -55,6 +55,7 @@ from xorq.ibis_yaml.udf import _scalar_udf_from_yaml, _scalar_udf_to_yaml  # noq
 from xorq.ibis_yaml.utils import (
     freeze,
     load_cache_from_yaml,
+    namespace_to_database,
     translate_cache,
 )
 from xorq.vendor.ibis.common.collections import FrozenDict, FrozenOrderedDict
@@ -486,8 +487,6 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
     namespace_dict = yaml_dict.get(NodeKey.namespace, {})
     catalog = namespace_dict.get(NamespaceKey.catalog)
     database = namespace_dict.get(NamespaceKey.database)
-    # we should validate that schema is the same
-    schema = context.get_schema(yaml_dict.get(RefEnum.schema_ref))
 
     try:
         con = context.profiles[profile_name]
@@ -495,6 +494,15 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
         raise ValueError(
             f"Profile {profile_name!r} not found in context.profiles"
         ) from err
+    # Under `refresh_schemas` the live table is the record; otherwise the
+    # recorded schema is, and the table is never dialled.
+    schema = (
+        con.table(
+            table_name, database=namespace_to_database(catalog, database)
+        ).schema()
+        if context.refresh_schemas
+        else context.get_schema(yaml_dict.get(RefEnum.schema_ref))
+    )
     return ops.DatabaseTable(
         schema=schema,
         source=con,
@@ -521,10 +529,19 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
 
 @register_from_yaml_handler("CachedNode")
 def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
-    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     name = yaml_dict["name"]
 
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
+    # A cache is its parent: under refresh it follows the parent rather than
+    # the schema it recorded, so the key the rebuilt node projects describes
+    # the computation it would actually perform. Nothing validates this pair,
+    # which is why a stale one survives a load and a cached run keeps serving
+    # rows the sources no longer have.
+    schema = (
+        parent_expr.schema()
+        if context.refresh_schemas
+        else context.get_schema(yaml_dict[RefEnum.schema_ref])
+    )
     profile_name = yaml_dict.get("source")
     try:
         source = context.profiles[profile_name]
@@ -651,8 +668,15 @@ def _tee_node_to_yaml(op: TeeNode, context: TranslationContext) -> dict:
 
 @register_from_yaml_handler("TeeNode")
 def _tee_node_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     parent = context.translate_from_yaml(yaml_dict["parent"])
+    # Transparent by contract -- `TeeNode.__init__` rejects a schema that is not
+    # its parent's -- so under refresh it takes the parent's rather than raising
+    # an integrity error over a source that merely gained a column.
+    schema = (
+        parent.schema()
+        if context.refresh_schemas
+        else context.get_schema(yaml_dict[RefEnum.schema_ref])
+    )
     writer = load_writer_from_yaml(yaml_dict["writer"], context)
     op = TeeNode(
         schema=schema,
@@ -775,6 +799,17 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
             yaml_dict.get(NodeKey.normalize_method)
         ),
     )
+    if context.refresh_schemas and not any(
+        k == ReadKwarg.read_path for k, _ in read_kwargs
+    ):
+        # `make_dt` is the schema oracle, not the replacement: it returns a
+        # `DatabaseTable`, so swapping the node for it would drop the method,
+        # the kwargs and the relocation posture out of the rebuilt record and
+        # leave a session-scoped table name in their place. A read whose bytes
+        # are in the archive carries `read_path` and is resolved later, by
+        # `ExprLoader`, which is where its refresh belongs.
+        args = dict(zip(read_op.__argnames__, read_op.__args__))
+        read_op = read_op.__recreate__(args | {"schema": read_op.make_dt().schema})
 
     return read_op.to_expr()
 
