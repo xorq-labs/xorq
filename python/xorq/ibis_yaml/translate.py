@@ -806,8 +806,8 @@ def refreshed_read(read_op: Read) -> Read:
     bundled read, ``replace_base_path`` for a pinned cache's frozen read.
 
     A schema the build *declared* rather than inferred -- the ``schema=`` of
-    either deferred read, or a custom ``deferred_read_csv`` ``infer_schema=``
-    -- is replaced like any other. The archive records the declaration and
+    either deferred read, a custom ``deferred_read_csv`` ``infer_schema=``, or
+    a duckdb per-column ``types=`` override -- is replaced like any other. The archive records the declaration and
     nothing that says it was one (``catalog.drift`` has the same blind spot), so
     a refreshed load reads the file by inference, not by the override: a column
     pinned to ``string`` comes back ``int64``. Pinned by
@@ -825,10 +825,11 @@ def refreshed_read(read_op: Read) -> Read:
     schema = inference(path)
     # The recorded schema also rides in `read_kwargs`, as an instruction the
     # read method obeys. Left stale, the rebuilt node would advertise the live
-    # columns and then read the recorded ones. duckdb's per-column `types`
-    # override is the third spelling (`drift.RECORDED_SCHEMA_KEYS`); inference
-    # cannot reproduce an override, so it is dropped and `columns` carries the
-    # refreshed schema alone.
+    # columns and then read the recorded ones. duckdb's per-column `types` is
+    # the third spelling (`drift.RECORDED_SCHEMA_KEYS`), but it is only ever
+    # user-supplied: `deferred_read_csv` never writes it. Inference cannot
+    # reproduce the override, so it is discarded -- even for an unchanged
+    # file -- and `columns` carries the refreshed schema alone.
     instructions = tuple(
         (key, schema) for key in (ReadKwarg.schema, ReadKwarg.columns) if key in kwargs
     )
