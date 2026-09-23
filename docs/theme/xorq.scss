@@ -157,7 +157,6 @@ h3 {
 
 // sidebar
 .sidebar-navigation .sidebar-item .sidebar-item-text {
-  font-family:"ALT Riviera",Georgia,serif;
   font-size:14px;
   color:$xq-ink-2;
   padding:5px 0 5px 10px;
@@ -185,13 +184,19 @@ h3 {
   padding-bottom:6px;
   border-bottom:1px dashed $xq-line-3;
 }
-// navbar.search: true puts the search box in the navbar (#quarto-search), not
-// the sidebar.
-#quarto-search .aa-Input, #quarto-search .aa-Form {
+// Default overlay search: #quarto-search in the navbar holds only the detached
+// button; the real form and input render in .aa-DetachedOverlay under <body>.
+#quarto-search .aa-DetachedSearchButton, .aa-DetachedOverlay .aa-Form {
   font-family:$font-family-monospace;
   background:$xq-bg-3;
   border:1px solid $xq-line-2;
   border-radius:10px;
+  color:$xq-ink;
+}
+// The input sits inside the boxed form; keep it flat so the border isn't drawn
+// twice.
+.aa-DetachedOverlay .aa-Input {
+  background:transparent;
   color:$xq-ink;
 }
 
