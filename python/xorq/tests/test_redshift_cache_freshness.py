@@ -36,6 +36,10 @@ import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.redshift import DEFAULT_PORT
 from xorq.backends.redshift import Backend as RedshiftBackend
 from xorq.common.utils.dasher._relations import _databasetable_dispatcher
+from xorq.common.utils.redshift_utils import (
+    RedshiftFreshnessUnavailable,
+    get_redshift_n_rows,
+)
 
 
 DDL_TOKENS = ("CHECKPOINT", "ANALYZE", "CREATE ", "DROP ", "VACUUM")
@@ -172,3 +176,91 @@ def test_the_postgres_probe_helpers_are_not_reachable_from_redshift(token):
     con = make_con()
     _databasetable_dispatcher(make_dt(con))
     assert not any(token in s.upper() for s in con.con.statements)
+
+
+class _DeniedCursor:
+    """Raises the way psycopg does when the view is not readable."""
+
+    def __init__(self, con):
+        self._con = con
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, *args, **kwargs):
+        self._con.statements.append(str(sql))
+        raise _InsufficientPrivilege("permission denied for relation svv_table_info")
+
+
+class _InsufficientPrivilege(Exception):
+    """Stands in for psycopg.errors.InsufficientPrivilege.
+
+    Matched by class NAME in redshift_utils, so a stand-in named the same thing
+    exercises the real code path without importing psycopg here.
+    """
+
+
+_InsufficientPrivilege.__name__ = "InsufficientPrivilege"
+
+
+class DenyingConnection(RecordingConnection):
+    def cursor(self):
+        return _DeniedCursor(self)
+
+
+def make_denying_dt():
+    con = RedshiftBackend()
+    type(con).__init__(con, host="example.invalid", port=DEFAULT_PORT)
+    con.con = DenyingConnection()
+    return make_dt(con)
+
+
+def test_a_read_only_user_gets_an_actionable_error_not_insufficient_privilege():
+    """Verified live 2026-09-23, and it is why this test exists.
+
+    A Redshift user with USAGE on the schema and SELECT on its tables -- the
+    shape of the rc16 reporter's user -- CANNOT read ``svv_table_info``:
+
+        InsufficientPrivilege: permission denied for relation svv_table_info
+
+    Offline tests could not have found this; the fix passed every one of them
+    while being unusable for the exact user the issue came from. Left alone, a
+    raw psycopg error surfaces from inside cache-key computation, which is the
+    same genre of unactionable failure as the CHECKPOINT syntax error this
+    issue is about.
+    """
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        get_redshift_n_rows(make_denying_dt())
+
+    message = str(excinfo.value)
+    assert "svv_table_info" in message
+    assert "GRANT SELECT" in message
+    assert "ParquetSnapshotCache" in message
+
+
+def test_the_error_warns_against_the_reltuples_workaround():
+    """The obvious workaround is readable by that user and silently wrong.
+
+    Measured live 2026-09-23: after inserting 5 rows with no ANALYZE, the real
+    count went 12 -> 17 and svv_table_info tracked it, while
+    ``pg_class.reltuples`` stayed at 12. Keying on it yields a cache that never
+    invalidates -- so the error names it explicitly rather than leaving the
+    next person to rediscover it.
+    """
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        get_redshift_n_rows(make_denying_dt())
+    assert "reltuples" in str(excinfo.value)
+
+
+def test_a_genuinely_absent_table_still_returns_none_rather_than_raising():
+    """Absence and unreadability must not be conflated.
+
+    Verified live: a table that exists but has had no data written does not
+    appear in svv_table_info at all. That is a legitimate empty table, not a
+    privilege problem, and a cache key is the wrong place to fail on it.
+    """
+    con = make_con(rows=())
+    assert get_redshift_n_rows(make_dt(con)) is None

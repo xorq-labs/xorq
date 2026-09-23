@@ -36,30 +36,93 @@ WHERE "table" = %(name)s
 """
 
 
+class RedshiftFreshnessUnavailable(Exception):
+    """``svv_table_info`` could not be read, so no freshness key can be built.
+
+    Deliberately its own type, and deliberately raised rather than swallowed.
+    See ``get_redshift_n_rows`` for why silently degrading is the one option
+    that is worse than failing.
+    """
+
+
 def get_redshift_n_rows(dt):
     """Row count for a Redshift table, issuing no DDL.
 
-    Returns ``None`` when the table is absent from ``svv_table_info`` rather
-    than raising. That is not defensive padding -- it is the documented
-    behaviour of the view, which only lists tables that are visible to the
-    current user AND have had data written to them. An empty or
-    freshly-created table legitimately does not appear, and a cache key is the
-    wrong place to turn that into a hard failure.
+    Returns ``None`` when the table is simply absent from ``svv_table_info``.
+    Verified against a live Redshift 2026-09-23: a table that exists but has
+    had no data written to it does not appear, so ``None`` is the honest answer
+    for an empty table and a cache key is the wrong place to turn that into a
+    hard failure.
 
-    The cost of ``None`` is a key that cannot distinguish "empty" from
-    "invisible", so a table that stays empty keeps a stable key. That is
-    correct for the empty case and conservative for the invisible one.
+    Raises ``RedshiftFreshnessUnavailable`` when the view cannot be *read*,
+    which is a different thing entirely and must not be conflated with absence.
+    A read-only warehouse user gets ``InsufficientPrivilege: permission denied
+    for relation svv_table_info`` -- verified live against a user with
+    ``USAGE`` on the schema and ``SELECT`` on its tables, which is exactly the
+    shape of the rc16 reporter's user.
+
+    Why this raises instead of falling back:
+
+    * ``pg_class.reltuples`` is readable by that user, and is the trap. Measured
+      live: inserting 5 rows without an ``ANALYZE`` moved the real count 12 ->
+      17 and ``svv_table_info`` 12 -> 17, while ``reltuples`` stayed at **12**.
+      Keying on it would produce a cache that silently never invalidates.
+    * ``SELECT count(*)`` is readable and correct, but it is a full scan on
+      every cache-key computation. On the reporter's 2.1M-row fact that is not
+      a freshness probe, it is the query.
+    * Returning ``None`` would make the key stable-but-meaningless, i.e. the
+      same silent staleness as ``reltuples``, with no error to notice.
+
+    So the honest outcome is a loud, actionable failure. ``ParquetSnapshotCache``
+    needs no freshness probe at all and is the supported path for a user who
+    cannot be granted this -- which the rc16 reporter found by trial (:5222)
+    because nothing said so.
     """
     con = dt.source
     schema = dt.namespace.database or "public"
-    with con.con.cursor() as cursor:
-        rows = cursor.execute(
-            N_ROWS_SQL, {"name": dt.name, "schema": schema}
-        ).fetchall()
+    try:
+        with con.con.cursor() as cursor:
+            rows = cursor.execute(
+                N_ROWS_SQL, {"name": dt.name, "schema": schema}
+            ).fetchall()
+    except Exception as e:
+        if not _is_permission_error(e):
+            raise
+        raise RedshiftFreshnessUnavailable(
+            f"cannot read svv_table_info to compute a cache key for "
+            f"{schema}.{dt.name!r}: {e}. The default cache strategy needs a "
+            f"row count to detect upstream changes, and this connection's user "
+            f"cannot read that view. Either grant it "
+            f"(`GRANT SELECT ON svv_table_info TO <user>`) or use a cache that "
+            f"needs no freshness probe, e.g. "
+            f"`.cache(ParquetSnapshotCache.from_kwargs())`. Do not work around "
+            f"this with pg_class.reltuples: on Redshift it does not track "
+            f"writes without an ANALYZE, so the cache would go stale silently."
+        ) from e
     if not rows:
         return None
     ((n_rows, *_),) = rows
     return n_rows
+
+
+def _is_permission_error(exc) -> bool:
+    """Match a privilege failure without importing psycopg at module scope.
+
+    Checked on the class name rather than by catching
+    ``psycopg.errors.InsufficientPrivilege`` directly: this module is imported
+    on the cache-key path for every expression hash, and psycopg is an optional
+    extra (the ``postgres`` one), so importing it here would break installs that
+    do not have it -- the same trap that caught the introspection work.
+    """
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if type(exc).__name__ == "InsufficientPrivilege":
+            return True
+        if "permission denied" in str(exc).lower():
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def normalize_redshift_databasetable(dt):
