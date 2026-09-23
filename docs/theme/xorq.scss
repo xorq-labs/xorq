@@ -122,6 +122,13 @@ h3 {
 }
 
 // navbar (Quarto's top bar)
+// Quarto wraps it in #quarto-header.fixed-top, which has no background of its
+// own; with $navbar-bg transparent the page would scroll visibly through the
+// bar. Paint the header with the body gradient's top stop: identical at
+// scroll-top, opaque once the page moves.
+#quarto-header {
+  background:$xq-bg;
+}
 .navbar {
   border-bottom:1px solid $xq-line;
   padding:.75rem 0;
@@ -140,7 +147,9 @@ h3 {
   color:#c1f0ff;
   border-color:rgba(193,240,255,.2);
 }
-.navbar .nav-link::before {
+// Text items only — the GitHub item is icon-only and would render "./" next to
+// the glyph.
+.navbar .nav-link:not(:has(i.bi))::before {
   content:"./";
 }
 
@@ -181,11 +190,15 @@ h3 {
 }
 
 // on-this-page
+// The toc title is an <h2>, so it inherits the section rule above; undo it.
 #TOC .toc-title, #quarto-margin-sidebar h2 {
   font-size:10px;
   letter-spacing:.14em;
   text-transform:uppercase;
   color:$xq-ink-4;
+  margin-top:0;
+  padding-top:0;
+  border-top:0;
 }
 #TOC a, #quarto-margin-sidebar a {
   font-size:12.5px;
@@ -205,6 +218,18 @@ pre, div.sourceCode {
   padding:14px 18px;
   font-size:12.5px;
   line-height:1.7;
+}
+// Quarto nests pre.sourceCode inside div.sourceCode; box the wrapper only, or
+// the border, radius and padding are drawn twice. Padding stays on the pre so
+// the horizontal scroll region (code-overflow: scroll) spans the whole box.
+div.sourceCode {
+  padding:0;
+}
+div.sourceCode > pre {
+  margin:0;
+  background:transparent;
+  border:0;
+  border-radius:0;
 }
 pre code {
   color:$xq-ink-2;
@@ -320,6 +345,14 @@ tbody td {
 }
 .nav-footer a {
   color:$xq-ink-3;
+}
+
+// include-after-body drops theme/footer.html inside #quarto-content, which is a
+// CSS grid on every non-custom page layout. Without a column it falls back to
+// `.page-columns > *` and is squeezed into the article column instead of
+// spanning the page, as it does on the custom-layout homepage.
+.page-columns > .xq-foot {
+  grid-column:screen-start/screen-end;
 }
 
 // hide quarto's light/dark toggle (site is dark only)
