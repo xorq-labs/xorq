@@ -6,6 +6,18 @@ on:
     types:
       - labeled
 
+# Every run that writes to the shared `expr-cache` bucket serialises here.
+# The cache key is input-addressed, so each run of a given expression
+# targets the SAME object name -- two overlapping runs race on publish and
+# drop, and one deletes the object the other is still asserting on.
+# Shared with any other workflow that touches the bucket (an RC gate, say):
+# the group name is what serialises them, not the workflow.
+# cancel-in-progress is false -- cancelling mid-sequence leaves a published
+# object undropped, which breaks the next run's opening assertion.
+concurrency:
+  group: gcs-bucket
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
