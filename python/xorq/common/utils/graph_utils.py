@@ -523,43 +523,28 @@ def _namespace_to_database(namespace):
 
 
 def _database_kwargs(namespace):
-    """``{"database": ...}`` for a qualified namespace, nothing for a bare one.
+    """Kwargs for ``table``/``list_tables``/``create_table``.
 
-    Not every backend's ``table``/``list_tables``/``create_table`` accepts a
-    ``database`` kwarg at all -- the pandas backend's takes none -- so a node
-    that names no schema has to ask the way it always did rather than hand
-    over a ``database=None`` those backends reject.
+    Empty for a bare namespace: the pandas backend's ``table`` has no
+    ``database`` parameter, so ``database=None`` must not be passed either.
     """
     database = _namespace_to_database(namespace)
     return {"database": database} if database is not None else {}
 
 
 def _probe_key(new_backend, table_name, namespace):
-    """Identity of one presence question: which table, in which namespace, on whom.
-
-    The bare name is not the question.  The same ``events`` can be absent from
-    one backend and merely unseeable on another, and answering both with one
-    key lets the backend we could not introspect speak for the one we could.
-    """
+    """Per-backend key, so a failed probe on one backend cannot answer for another."""
     return (id(new_backend), table_name, namespace.catalog, namespace.database)
 
 
 def _qualify(table_name, namespace):
-    """``catalog.database.table``, dropping whatever the namespace leaves out."""
     return ".".join(
         part for part in (namespace.catalog, namespace.database, table_name) if part
     )
 
 
 def _missing_tables_message(missing, probe_errors):
-    """Say what the rewrite would need -- or that we could not find out.
-
-    A table whose own probe raised is *unverified*; a table absent from a
-    backend we did introspect is a real "no".  Keeping the two apart per
-    table, rather than per name, is what stops an unverified copy of a name
-    from hiding another backend's copy that really is missing -- the one the
-    user can actually act on.
-    """
+    """ValueError text for *missing*, separating unverified tables from absent ones."""
     names = sorted({name for _, _, name, _ in missing})
     unverified = []
     for _, new_backend, table_name, namespace in missing:
@@ -572,11 +557,8 @@ def _missing_tables_message(missing, probe_errors):
     )
 
     if len(unverified) == len(missing):
-        # Nothing was shown to be absent -- every one of these was reported
-        # missing only because the probe raised.  Telling the user to
-        # materialize and transfer would be wrong advice, since the data may
-        # well be on the target already, so say what actually happened
-        # instead -- and that forcing the transfer is how that goes wrong.
+        # Nothing was shown absent, so do not advise a transfer; and
+        # _transfer_tables does not handle a table that turns out to exist.
         return (
             f"Could not determine whether DatabaseTable nodes {names} exist "
             f"on the new backend: introspecting it raised. Fix the "
@@ -603,19 +585,14 @@ def _missing_tables_message(missing, probe_errors):
 
 
 def _is_rebind_clone(old_backend, new_backend):
-    """True when *new_backend* is a clone of *old_backend* over one connection.
+    """True when *new_backend* is a copy of *old_backend* sharing its live ``con``.
 
-    ``normalize_profiles`` clones a backend for the sole purpose of
-    canonicalizing ``Profile.idx``, and ``_clone_backend_with_profile``
-    assigns ``cloned.con = backend.con`` -- so the two objects drive the very
-    same session.  A ``DatabaseTable`` rebound across such a pair needs no
-    data moved, and asking the server to confirm that is both a wasted
-    round-trip and, on a backend whose introspection we cannot run, an answer
-    we would misread as "absent".
+    ``normalize_profiles`` makes such pairs (``_clone_backend_with_profile``
+    sets ``cloned.con = backend.con``) to canonicalize ``Profile.idx``; a
+    rebind across them moves no data, so there is nothing to probe.
 
-    A backend mapped to *itself* is deliberately not treated as a rebind: that
-    is not something ``normalize_profiles`` produces, and a caller who asks
-    about ``(con, con)`` is asking the probe a real question.
+    A backend mapped to itself is excluded: ``normalize_profiles`` never
+    produces that pair, and callers passing ``(con, con)`` want a real probe.
     """
     if old_backend is new_backend:
         return False
@@ -624,24 +601,15 @@ def _is_rebind_clone(old_backend, new_backend):
 
 
 def _find_missing_tables(tables_to_transfer, errors=None):
-    """Return the subset of tables that don't exist on the target backend.
+    """Return the subset of tables not present on the target backend.
 
-    Entries come back as ``(old_backend, new_backend, table_name, namespace)``
-    -- the namespace carried through because a transfer has to read and write
-    the very schema the rebound node goes on naming.
-
-    *errors*, when given, is a dict that receives ``{_probe_key(...):
-    exception}`` for every table whose presence could not be determined
-    because introspection is unavailable on that backend.  Those tables are
-    still reported missing -- we cannot prove otherwise -- but the caller can
-    tell a table that is genuinely absent from one we simply failed to ask
-    about, which are very different things to tell a user.
+    *errors*, if given, receives ``{_probe_key(...): exception}`` for each
+    table on which both ``table()`` and ``list_tables()`` raised.  Such tables
+    are still returned as missing; the mapping tells "absent" from "unknown".
     """
     missing = []
     seen = set()
     for old_backend, new_backend, table_name, namespace in tables_to_transfer:
-        # Rebinding onto the same live connection moves no data, whatever the
-        # server would say about it.
         if _is_rebind_clone(old_backend, new_backend):
             continue
         key = _probe_key(new_backend, table_name, namespace)
@@ -655,17 +623,12 @@ def _find_missing_tables(tables_to_transfer, errors=None):
         except Exception as e:
             probe_error = e
 
-        # ``.table()`` did not resolve, which on its own does not say whether
-        # the table is absent or whether we simply cannot see it: backends
-        # raise a bare XorqError for a missing table, so the exception type
-        # discriminates nothing.  ``list_tables`` answers presence outright,
-        # and answers it over a different catalog read: ibis touches
-        # ``pg_catalog.pg_enum`` only to build a schema, which is the read
-        # Redshift refuses, so a table there lists perfectly well and only
-        # ``.table()`` explodes.  A listing that names the table settles it --
-        # the data is already on the target, whatever ``.table()`` said.  A
-        # listing that raises too means introspection is unavailable and we do
-        # not know, rather than "no".
+        # A raise from .table() does not mean absent: the exception type is
+        # no help (duckdb raises a bare XorqError for a missing table), and
+        # .table() builds a schema -- on postgres via pg_catalog.pg_enum,
+        # which Redshift lacks, so there it raises for a table that exists.
+        # list_tables reads information_schema and answers presence directly.
+        # If it raises too, we do not know, which is not "no".
         try:
             listed = new_backend.list_tables(**db_kwargs)
         except Exception:
@@ -679,12 +642,7 @@ def _find_missing_tables(tables_to_transfer, errors=None):
 
 
 def _transfer_tables(tables_to_transfer):
-    """Materialize and register table data on new backends.
-
-    Both halves are namespace-qualified: the rebound node keeps the namespace
-    it was built with, so a table read out of ``s`` has to land in ``s`` on
-    the target or the expression will not find what we just moved.
-    """
+    """Copy each table across, into the namespace the rebound node still names."""
     for old_backend, new_backend, table_name, namespace in tables_to_transfer:
         db_kwargs = _database_kwargs(namespace)
         table = old_backend.table(table_name, **db_kwargs).to_pyarrow()

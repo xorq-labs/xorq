@@ -513,7 +513,6 @@ def _clone_sharing_con(con):
 
 
 def test_rebind_onto_clone_sharing_connection_transfers_nothing():
-    """A clone sharing the live connection needs no transfer, probe or not."""
     con = xo.duckdb.connect()
     con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
     ns = ops.Namespace(catalog=None, database=None)
@@ -522,13 +521,7 @@ def test_rebind_onto_clone_sharing_connection_transfers_nothing():
 
 
 def test_rebind_onto_clone_survives_broken_introspection():
-    """The clone short-circuit must not depend on ``.table()`` answering.
-
-    This is the Redshift failure: ``_find_missing_tables`` probed the cloned
-    backend with ``con.table(...)``, Redshift raised on ``pg_catalog.pg_enum``,
-    the bare ``except`` read that as "absent", and ``.cache()`` and
-    ``run-cached`` refused a table sitting on the very same connection.
-    """
+    """The short-circuit must fire before any probe; ``explode`` mimics Redshift."""
     con = xo.duckdb.connect()
     con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
     clone = _clone_sharing_con(con)
@@ -543,7 +536,6 @@ def test_rebind_onto_clone_survives_broken_introspection():
 
 
 def test_wholly_unintrospectable_backend_names_the_probe_failure():
-    """Both probes down: we do not know, and must not claim the table is absent."""
     from_con, to_con = xo.duckdb.connect(), xo.duckdb.connect()
     from_con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
     t = from_con.table("t")
@@ -561,20 +553,12 @@ def test_wholly_unintrospectable_backend_names_the_probe_failure():
     assert "Could not determine whether" in message
     assert "pg_catalog.pg_enum" in message
     assert "would need to be materialized" not in message
-    # Forcing the transfer is advice, not a promise: create_table has no say
-    # over a table that turns out to be there.
+    # _transfer_tables does not handle a table that turns out to exist.
     assert "fails outright if a table is in fact already there" in message
 
 
 def test_listed_table_survives_a_pg_enum_probe_failure():
-    """The reported incident: ``.table()`` explodes, ``list_tables`` answers.
-
-    Redshift refuses the ``pg_catalog.pg_enum`` read ibis issues to build a
-    schema -- the ``.table()`` path, and only that path.  ``list_tables``
-    runs fine and names the table.  Probing liveness instead of presence read
-    that as "cannot tell" and still sent the user off to transfer data that
-    was already sitting on the target.
-    """
+    """Redshift's shape: only ``.table()`` raises; ``list_tables`` still lists ``t``."""
     from_con, to_con = xo.duckdb.connect(), xo.duckdb.connect()
     from_con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
     to_con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
@@ -587,20 +571,11 @@ def test_listed_table_survives_a_pg_enum_probe_failure():
     ns = ops.Namespace(catalog=None, database=None)
 
     assert _find_missing_tables([(from_con, to_con, "t", ns)]) == []
-    # And end to end: no error at all, since nothing needs moving.
     result = replace_sources({id(from_con): to_con}, t)
     assert find_all_sources(result) == (to_con,)
 
 
 def test_absent_table_is_not_hidden_by_another_backends_broken_probe():
-    """One name, two backends: a real absence must survive the other's silence.
-
-    ``events`` on the backend we cannot introspect says nothing about
-    ``events`` on the backend we can -- which really is missing, and is the
-    one the user can do something about.  Keyed by bare name, the unverified
-    copy spoke for both and the message became "could not determine",
-    burying the actionable half.
-    """
     broken, healthy = xo.duckdb.connect(), xo.duckdb.connect()
     from_con = xo.duckdb.connect()
     ns = ops.Namespace(catalog=None, database=None)
@@ -628,7 +603,6 @@ def test_absent_table_is_not_hidden_by_another_backends_broken_probe():
 
 
 def test_probe_errors_are_reported_to_the_caller():
-    """``errors`` distinguishes a failed probe from a genuinely absent table."""
     from_con, to_con = xo.duckdb.connect(), xo.duckdb.connect()
     ns = ops.Namespace(catalog=None, database=None)
 
@@ -644,8 +618,6 @@ def test_probe_errors_are_reported_to_the_caller():
     assert len(missing) == 1
     assert key in errors and "introspection is unavailable" in str(errors[key])
 
-    # A genuinely absent table on a backend whose introspection WORKS records
-    # no probe error -- that is a real "no", not a "cannot see".
     other = xo.duckdb.connect()
     errors = {}
     _find_missing_tables([(from_con, other, "no_such_table", ns)], errors=errors)
@@ -653,12 +625,6 @@ def test_probe_errors_are_reported_to_the_caller():
 
 
 def test_transfer_lands_in_the_nodes_namespace():
-    """A schema-qualified table has to be read from -- and written to -- that schema.
-
-    The rebound ``DatabaseTable`` keeps its namespace, so a transfer that
-    drops it reads the wrong table (or none) and writes where the rewritten
-    expression will not look.
-    """
     src_con, dst_con = xo.duckdb.connect(), xo.duckdb.connect()
     src_con.raw_sql("CREATE SCHEMA s")
     src_con.raw_sql("CREATE TABLE s.t AS SELECT 42 AS val")
