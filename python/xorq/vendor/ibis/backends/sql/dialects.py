@@ -23,6 +23,7 @@ from sqlglot.dialects import (
 
 __all__ = ["Databricks"]
 from sqlglot.dialects import ClickHouse as _ClickHouse
+from sqlglot.dialects import Redshift as _Redshift
 from sqlglot.dialects.dialect import rename_func
 from sqlglot.helper import find_new_name, seq_get
 
@@ -428,6 +429,42 @@ Postgres.Generator.TRANSFORMS |= {
     sge.ArraySize: rename_func("cardinality"),
     sge.Pow: rename_func("pow"),
 }
+
+
+class Redshift(_Redshift):
+    """Redshift, with TRANSFORMS pinned rather than inherited.
+
+    sqlglot's own ``Redshift.Generator`` builds its TRANSFORMS as
+    ``{**Postgres.Generator.TRANSFORMS, ...}`` at class-creation time, while the
+    ``Postgres.Generator.TRANSFORMS |= ...`` block in this module mutates that
+    same dict *in place*. Whichever runs first wins, so sqlglot's Redshift
+    behaves differently depending on which module Python imported first --
+    measured 2026-09-23 on the base branch as 190 transforms with sqlglot's
+    redshift imported first against 195 with it imported second, in one process,
+    and visible in emitted SQL (``DATE_FROM_PARTS`` against ``MAKE_DATE``).
+
+    What makes *this* class deterministic is the ``from sqlglot.dialects import
+    Redshift as _Redshift`` at the top of this module: it forces sqlglot's class
+    creation before the mutation runs, unconditionally, so the dict copied below
+    is always the pre-mutation one. The class's position in the file is
+    incidental -- an earlier version of this docstring claimed the placement was
+    load-bearing, which measurement did not support.
+    ``test_redshift_dialect.py::test_transforms_do_not_depend_on_import_order``
+    is what actually holds the property.
+
+    The overrides below are the Redshift spellings of the three functions the
+    Postgres block above renames to Postgres-only names. ``DateFromParts`` is
+    deliberately absent: Redshift has no ``make_date`` and no single-function
+    equivalent, so it is lowered in ``RedshiftCompiler.visit_DateFromYMD``
+    rather than renamed here.
+    """
+
+    class Generator(_Redshift.Generator):
+        TRANSFORMS = _Redshift.Generator.TRANSFORMS.copy() | {
+            sge.Split: rename_func("split_to_array"),
+            sge.ArraySize: rename_func("get_array_length"),
+            sge.Pow: rename_func("power"),
+        }
 
 
 class PySpark(Spark):
