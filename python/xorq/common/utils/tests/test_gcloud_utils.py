@@ -31,6 +31,13 @@ import xorq.common.utils.gcloud_utils as gcloud_utils  # noqa: E402
 from xorq.common.utils.gcloud_utils import GCStorage  # noqa: E402
 
 
+# GCS tests are reserved for marked runs: the repo keeps the whole category
+# off the default PR path. These particular ones need no credentials and no
+# network -- they drive GCStorage against an in-memory filesystem -- but the
+# rule is about where GCS-shaped tests belong, not what any one of them costs.
+pytestmark = pytest.mark.gcs
+
+
 SCHEMA = pa.schema([("i", pa.int64()), ("s", pa.string())])
 
 
