@@ -14,7 +14,7 @@
   margin: 0 auto;
 
   h1 {
-    font-family: "ALT Riviera", system-ui, sans-serif;
+    font-family: "ALT Riviera", Georgia, serif;
     font-size: clamp(56px, 12vw, 132px);
     line-height: 1;
     letter-spacing: -0.02em;
@@ -91,6 +91,7 @@
   > h2:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 
   h2 {
+    font-family: $font-family-monospace;
     font-size: 10px;
     letter-spacing: 0.18em;
     text-transform: uppercase;

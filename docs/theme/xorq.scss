@@ -2,9 +2,13 @@
 // Xorq docs theme · matches the marketing site
 // Drop this file + the two includes into the docs repo and reference them from _quarto.yml.
 
-$font-family-sans-serif: "FK Grotesk Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+// xorq.dev sets both --bs-body-font-family and $headings-font-family to
+// "ALT Riviera", Georgia, serif. Matching it makes ALT Riviera the default
+// everywhere; the UI chrome that must stay monospace is pinned in the rules
+// section below.
+$font-family-sans-serif: "ALT Riviera", Georgia, serif;
 $font-family-monospace: "FK Grotesk Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-$headings-font-family: "ALT Riviera", system-ui, sans-serif;
+$headings-font-family: "ALT Riviera", Georgia, serif;
 $headings-font-weight: 400;
 $font-size-base: 0.9375rem;
 
@@ -321,4 +325,27 @@ tbody td {
 // hide quarto's light/dark toggle (site is dark only)
 .quarto-color-scheme-toggle {
   display:none;
+}
+
+// UI chrome stays monospace. These selectors carried no font-family of their
+// own and inherited it from the base, which was FK Grotesk Mono before the
+// base became ALT Riviera; pin them so nav, TOC, tabs, table headers and the
+// uppercase kicker labels keep the mono treatment the design calls for.
+.navbar .nav-link,
+.sidebar-title,
+.sidebar-search .aa-Input,
+.sidebar-search .aa-Form,
+#TOC .toc-title,
+#quarto-margin-sidebar h2,
+#TOC a,
+#quarto-margin-sidebar a,
+.quarto-title-block .quarto-categories .quarto-category,
+.quarto-title-meta-heading,
+.quarto-title-meta-contents,
+.panel-tabset .nav-link,
+thead th,
+.callout .callout-header,
+.page-navigation .nav-page a,
+.nav-footer {
+  font-family:$font-family-monospace;
 }
