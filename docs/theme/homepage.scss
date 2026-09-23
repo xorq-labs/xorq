@@ -1,0 +1,135 @@
+/*-- scss:rules --*/
+// Homepage (index.qmd, page-layout: custom). The classes below are authored in
+// index.qmd's fenced divs; the palette variables come from theme/xorq.scss.
+
+.hero-section {
+  padding: 5.5rem 2rem 3rem;
+  text-align: center;
+
+  @media (max-width: 768px) { padding: 3rem 1rem 2rem; }
+}
+
+.hero-content {
+  max-width: 900px;
+  margin: 0 auto;
+
+  h1 {
+    font-family: "ALT Riviera", system-ui, sans-serif;
+    font-size: clamp(56px, 12vw, 132px);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: $xq-ink;
+    margin-bottom: 1rem;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  p {
+    font-family: "ALT Riviera", Georgia, serif;
+    font-size: 1.05rem;
+    line-height: 1.7;
+    color: $xq-ink-2;
+    max-width: 640px;
+    margin: 0 auto 1.75rem;
+  }
+}
+
+// The install pill and the CTA sit inside a paragraph, so opt them out of the
+// dashed prose-link underline from xorq.scss.
+.content p a.install-cmd,
+.content p a.hero-btn,
+.install-cmd,
+.hero-btn { border-bottom: 0; text-decoration: none; }
+
+.install-cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0.5rem;
+  padding: 10px 16px;
+  font-family: $font-family-monospace;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: $xq-ink;
+  background: $xq-bg-3;
+  border: 1px solid $xq-line-2;
+
+  .install-prompt { color: $xq-teal; user-select: none; }
+
+  &:hover { border-color: #c1f0ff; color: #c1f0ff; }
+}
+
+.hero-btn {
+  display: inline-flex;
+  align-items: center;
+  margin: 0.5rem;
+  padding: 10px 16px;
+  font-family: $font-family-monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid $xq-line-2;
+  color: $xq-ink;
+
+  &.hero-btn-primary {
+    background: rgba(91, 192, 214, 0.12);
+    border-color: $xq-teal;
+  }
+
+  &.hero-btn-secondary { background: transparent; }
+
+  &:hover { border-color: #c1f0ff; color: #c1f0ff; }
+}
+
+.content-section {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 clamp(1rem, 2vw, 2rem) clamp(2rem, 4vw, 4rem);
+
+  // xorq.scss gives every h2 a top rule; the first one here would sit right
+  // under the hero.
+  > h2:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+  h2 {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: $xq-ink-3;
+    border-top: 0;
+    padding-top: 0;
+    margin-top: 3rem;
+  }
+
+  > p { color: $xq-ink-2; }
+}
+
+.docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.doc-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 1.25rem 1.5rem;
+  background: $xq-bg-2;
+  border: 1px solid $xq-line;
+  border-radius: 12px;
+
+  i.bi { color: $xq-teal; font-size: 1.1rem; }
+
+  a { color: $xq-ink; border-bottom: 0; }
+
+  p {
+    font-family: "ALT Riviera", Georgia, serif;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: $xq-ink-2;
+    margin: 0.5rem 0 0;
+  }
+
+  &:hover { border-color: $xq-teal; }
+}
