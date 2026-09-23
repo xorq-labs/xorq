@@ -20,6 +20,7 @@ class BackendName(StrEnum):
     XORQ_DATAFUSION = "xorq_datafusion"
     SQLITE = "sqlite"
     BIGQUERY = "bigquery"
+    REDSHIFT = "redshift"
 
 
 class RunLogFile(StrEnum):
