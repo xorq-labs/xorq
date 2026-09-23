@@ -1,3 +1,5 @@
+from copy import copy
+
 import pandas as pd
 import pyarrow.compute as pc
 import pytest
@@ -492,3 +494,92 @@ def test_replace_sources_catalog_and_schema():
 
     result = replace_sources({id(con): con2}, t)
     assert result.execute()["val"].tolist() == [42]
+
+
+# ---------------------------------------------------------------------------
+# Rebinding onto a clone that shares one connection (xorq#5pcd)
+# ---------------------------------------------------------------------------
+
+
+def _clone_sharing_con(con):
+    """Mimic normalize_profiles: copy the backend, keep the same live ``con``."""
+    cloned = copy(con)
+    cloned._profile = con._profile.clone(idx=con._profile.idx + 1)
+    if hasattr(con, "con"):
+        cloned.con = con.con
+    return cloned
+
+
+def test_rebind_onto_clone_sharing_connection_transfers_nothing():
+    """A clone sharing the live connection needs no transfer, probe or not."""
+    con = xo.duckdb.connect()
+    con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
+    ns = ops.Namespace(catalog=None, database=None)
+
+    assert _find_missing_tables([(con, _clone_sharing_con(con), "t", ns)]) == []
+
+
+def test_rebind_onto_clone_survives_broken_introspection():
+    """The clone short-circuit must not depend on ``.table()`` answering.
+
+    This is the Redshift failure: ``_find_missing_tables`` probed the cloned
+    backend with ``con.table(...)``, Redshift raised on ``pg_catalog.pg_enum``,
+    the bare ``except`` read that as "absent", and ``.cache()`` and
+    ``run-cached`` refused a table sitting on the very same connection.
+    """
+    con = xo.duckdb.connect()
+    con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
+    clone = _clone_sharing_con(con)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError('relation "pg_catalog.pg_enum" does not exist')
+
+    clone.table = explode
+    ns = ops.Namespace(catalog=None, database=None)
+
+    assert _find_missing_tables([(con, clone, "t", ns)]) == []
+
+
+def test_unverifiable_table_error_names_the_probe_failure():
+    """A probe that raises must not be reported as "needs transferring"."""
+    from_con, to_con = xo.duckdb.connect(), xo.duckdb.connect()
+    from_con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
+    t = from_con.table("t")
+
+    def explode(*args, **kwargs):
+        raise RuntimeError('relation "pg_catalog.pg_enum" does not exist')
+
+    to_con.table = explode
+    to_con.list_tables = explode
+
+    with pytest.raises(ValueError) as excinfo:
+        replace_sources({id(from_con): to_con}, t)
+
+    message = str(excinfo.value)
+    assert "Could not determine whether" in message
+    assert "pg_catalog.pg_enum" in message
+    assert "would need to be materialized" not in message
+
+
+def test_probe_errors_are_reported_to_the_caller():
+    """``errors`` distinguishes a failed probe from a genuinely absent table."""
+    from_con, to_con = xo.duckdb.connect(), xo.duckdb.connect()
+    ns = ops.Namespace(catalog=None, database=None)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("introspection is unavailable")
+
+    to_con.table = explode
+    to_con.list_tables = explode
+    errors = {}
+    missing = _find_missing_tables([(from_con, to_con, "t", ns)], errors=errors)
+
+    assert len(missing) == 1
+    assert "t" in errors and "introspection is unavailable" in str(errors["t"])
+
+    # A genuinely absent table on a backend whose introspection WORKS records
+    # no probe error -- that is a real "no", not a "cannot see".
+    other = xo.duckdb.connect()
+    errors = {}
+    _find_missing_tables([(from_con, other, "no_such_table", ns)], errors=errors)
+    assert errors == {}

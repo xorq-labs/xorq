@@ -503,17 +503,42 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
     if tables_to_transfer:
         # Filter out tables that already exist on the target backend
         # (e.g. cloned backends that share the same underlying connection).
-        missing = _find_missing_tables(tables_to_transfer)
+        probe_errors = {}
+        missing = _find_missing_tables(tables_to_transfer, errors=probe_errors)
         if missing:
             if not transfer_tables:
                 names = sorted({name for _, _, name in missing})
-                raise ValueError(
+                unverified = sorted(n for n in names if n in probe_errors)
+                detail = "\n".join(
+                    f"  {n}: {type(probe_errors[n]).__name__}: {probe_errors[n]}"
+                    for n in unverified
+                )
+                if unverified == names:
+                    # Nothing was shown to be absent -- every one of these was
+                    # reported missing only because the probe raised.  Telling
+                    # the user to materialize and transfer would be wrong
+                    # advice, since the data may well be on the target
+                    # already, so say what actually happened instead.
+                    raise ValueError(
+                        f"Could not determine whether DatabaseTable nodes "
+                        f"{names} exist on the new backend: introspecting it "
+                        f"raised. Fix the introspection error, or pass "
+                        f"transfer_tables=True to materialize them "
+                        f"regardless.\n{detail}"
+                    )
+                message = (
                     f"Expression contains DatabaseTable nodes {names} whose "
                     f"data would need to be materialized and transferred to "
                     f"the new backend. Use deferred reads (e.g. "
                     f"deferred_read_parquet) to avoid this, or pass "
                     f"transfer_tables=True to materialize."
                 )
+                if unverified:
+                    message += (
+                        f"\n\nPresence could not be confirmed for "
+                        f"{unverified} -- introspection raised:\n{detail}"
+                    )
+                raise ValueError(message)
             _transfer_tables(missing)
 
     return result
@@ -528,21 +553,68 @@ def _namespace_to_database(namespace):
     return None
 
 
-def _find_missing_tables(tables_to_transfer):
-    """Return the subset of tables that don't exist on the target backend."""
+def _is_rebind_clone(old_backend, new_backend):
+    """True when *new_backend* is a clone of *old_backend* over one connection.
+
+    ``normalize_profiles`` clones a backend for the sole purpose of
+    canonicalizing ``Profile.idx``, and ``_clone_backend_with_profile``
+    assigns ``cloned.con = backend.con`` -- so the two objects drive the very
+    same session.  A ``DatabaseTable`` rebound across such a pair needs no
+    data moved, and asking the server to confirm that is both a wasted
+    round-trip and, on a backend whose introspection we cannot run, an answer
+    we would misread as "absent".
+
+    A backend mapped to *itself* is deliberately not treated as a rebind: that
+    is not something ``normalize_profiles`` produces, and a caller who asks
+    about ``(con, con)`` is asking the probe a real question.
+    """
+    if old_backend is new_backend:
+        return False
+    old_con = getattr(old_backend, "con", None)
+    return old_con is not None and old_con is getattr(new_backend, "con", None)
+
+
+def _find_missing_tables(tables_to_transfer, errors=None):
+    """Return the subset of tables that don't exist on the target backend.
+
+    *errors*, when given, is a dict that receives ``{table_name: exception}``
+    for every table whose presence could not be determined because the
+    introspection probe itself raised.  Those tables are still reported
+    missing -- we cannot prove otherwise -- but the caller can tell a table
+    that is genuinely absent from one we simply failed to ask about, which
+    are very different things to tell a user.
+    """
     missing = []
     seen = set()
     for old_backend, new_backend, table_name, namespace in tables_to_transfer:
+        # Rebinding onto the same live connection moves no data, whatever the
+        # server would say about it.
+        if _is_rebind_clone(old_backend, new_backend):
+            continue
         key = (id(new_backend), table_name, namespace.catalog, namespace.database)
         if key in seen:
             continue
         seen.add(key)
+        database = _namespace_to_database(namespace)
         try:
-            database = _namespace_to_database(namespace)
             new_backend.table(table_name, database=database)
             continue
-        except Exception:
-            pass
+        except Exception as e:
+            probe_error = e
+
+        # ``.table()`` did not resolve, which on its own does not say whether
+        # the table is absent or whether we simply cannot see it: backends
+        # raise a bare XorqError for a missing table, so the exception type
+        # discriminates nothing.  Ask a second question that only introspection
+        # health can answer -- ``list_tables`` returns an empty list for a
+        # database that does not exist, and raises only when introspection is
+        # itself unavailable (Redshift cannot serve the ``pg_catalog`` reads
+        # ibis issues).  A raise here means we do not know, rather than "no".
+        if errors is not None:
+            try:
+                new_backend.list_tables(database=database)
+            except Exception:
+                errors[table_name] = probe_error
         missing.append((old_backend, new_backend, table_name))
     return missing
 
