@@ -12,12 +12,23 @@ Exercised against an in-memory fsspec filesystem -- what is under test is how
 
 import pyarrow as pa
 import pytest
-from fsspec.implementations.memory import MemoryFileSystem
 
 import xorq.api as xo
-import xorq.common.utils.gcloud_utils as gcloud_utils
 from xorq.common.exceptions import CacheIntegrityError
-from xorq.common.utils.gcloud_utils import GCStorage
+
+
+# fsspec, gcsfs and google-cloud-storage reach a test env only through the
+# `examples` extra (via pins[gcs]), and `gcloud_utils` imports all three at
+# module level. Without this, every job that collects this file -- including
+# the ones that deselect it by marker -- dies during collection.
+pytest.importorskip("fsspec")
+pytest.importorskip("gcsfs")
+pytest.importorskip("google.cloud.storage")
+
+from fsspec.implementations.memory import MemoryFileSystem  # noqa: E402
+
+import xorq.common.utils.gcloud_utils as gcloud_utils  # noqa: E402
+from xorq.common.utils.gcloud_utils import GCStorage  # noqa: E402
 
 
 SCHEMA = pa.schema([("i", pa.int64()), ("s", pa.string())])
