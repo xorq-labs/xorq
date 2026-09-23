@@ -29,8 +29,9 @@ if __name__ == "__pytest_main__":
     assert not expr.ls.cache_exists()
     df = expr.execute()
     assert expr.ls.cache_exists()
-    listing = cache.cache.cache.fs.ls(cache.get_path(expr), detail=True)
+    key = cache.calc_key(expr)
+    listing = cache.storage.fs.ls(cache.storage.get_path(key), detail=True)
     print(listing)
-    cache.cache.drop(expr)
+    cache.drop(expr)
     assert not expr.ls.cache_exists()
     pytest_examples_passed = True
