@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import datetime
+import os
+import uuid
 from abc import abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from attr import field, frozen
 from attr.validators import instance_of, optional
+
+from xorq.common.exceptions import CacheIntegrityError
 
 
 if TYPE_CHECKING:
@@ -81,6 +85,13 @@ class CacheStorage:
 
 
 def _write_parquet(path, batch_reader, parquet_metadata=None):
+    """Stream *batch_reader* to *path*; return the number of rows written.
+
+    The row count is the caller's only independent handle on what actually
+    landed: ``pq.ParquetWriter.__exit__`` calls ``close()`` unconditionally, so
+    a footer is finalized even when the batch loop raises, and the resulting
+    file looks structurally plausible on its own.
+    """
     import pyarrow.parquet as pq  # noqa: PLC0415
 
     schema = batch_reader.schema
@@ -90,9 +101,64 @@ def _write_parquet(path, batch_reader, parquet_metadata=None):
         )
 
         schema = inject_metadata_into_schema(schema, parquet_metadata)
+    n_rows = 0
     with pq.ParquetWriter(str(path), schema) as writer:
         for batch in batch_reader:
             writer.write_batch(batch)
+            n_rows += batch.num_rows
+    return n_rows
+
+
+def _verify_parquet(path, expected_rows):
+    """Raise unless every row group of *path* decodes and the count matches.
+
+    This is a full read, not a footer peek, and deliberately so. The corruption
+    this guards against presents as an intact footer over an undecodable body
+    -- the footer reports the right row count while the pages beneath it fail
+    with "Couldn't deserialize thrift" or "Unexpected end of stream". Only
+    decoding the pages distinguishes that from a good file, and a cache write
+    has already paid for a full upstream scan by the time we get here.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    try:
+        pf = pq.ParquetFile(path)
+        claimed = pf.metadata.num_rows
+        read = sum(batch.num_rows for batch in pf.iter_batches())
+    except Exception as e:
+        raise CacheIntegrityError(
+            f"cache write to {path} could not be read back: {type(e).__name__}: {e}"
+        ) from e
+    if not (claimed == read == expected_rows):
+        raise CacheIntegrityError(
+            f"cache write to {path} is inconsistent: streamed {expected_rows} rows, "
+            f"footer claims {claimed}, {read} readable"
+        )
+
+
+def _reap_stale_tmp(directory, max_age=datetime.timedelta(days=1)):
+    """Delete abandoned ``*.tmp`` cache writes older than *max_age*.
+
+    A failed write leaves its temp file behind by design -- the rename is
+    skipped, so nothing corrupt is ever published -- but nothing has ever
+    removed them, and they are full-size. The customer report that prompted
+    this carried a 359,893,078-byte orphan that had sat for hours.
+
+    Age-gated rather than unconditional: a temp file younger than max_age may
+    belong to a write that is still streaming. Best-effort throughout; reaping
+    must never be the reason a cache write fails.
+    """
+    cutoff = datetime.datetime.now() - max_age
+    try:
+        candidates = list(directory.glob("*.tmp"))
+    except OSError:
+        return
+    for stale in candidates:
+        try:
+            if datetime.datetime.fromtimestamp(stale.stat().st_mtime) < cutoff:
+                stale.unlink()
+        except OSError:
+            continue
 
 
 @frozen
@@ -131,7 +197,22 @@ class ParquetStorage(CacheStorage):
         return resolve_parquet_cache_path(self.relative_path, key, self.base_path)
 
     def exists(self, key):
-        return self.get_path(key).exists()
+        path = self.get_path(key)
+        if not path.exists():
+            return False
+        # A published artifact is verified at write time, so this is only a
+        # backstop for files written by an older xorq (or damaged since). It
+        # opens the footer and nothing more: catching truncation and footer
+        # damage cheaply on a path taken for every cache-hit decision. It does
+        # NOT prove the pages decode -- verify-on-write is what guarantees
+        # that -- so treat a True here as "plausible", not "checked".
+        import pyarrow.parquet as pq  # noqa: PLC0415
+
+        try:
+            pq.ParquetFile(path).metadata
+        except Exception:
+            return False
+        return True
 
     def get(self, key: str, schema: Schema | None = None) -> Node:
         from xorq.common.utils.defer_utils import deferred_read_parquet  # noqa: PLC0415
@@ -153,11 +234,35 @@ class ParquetStorage(CacheStorage):
         # base_path on load) must stay free of filesystem side effects.
         self._ensure_dir()
         path = self.get_path(key)
-        # move from temp location upon success to prevent empty files on failure
-        tmp_path = path.with_name(path.name + ".tmp")
-        with value.to_expr().to_pyarrow_batches() as batch_reader:
-            _write_parquet(tmp_path, batch_reader, parquet_metadata=parquet_metadata)
-        tmp_path.rename(path)
+        _reap_stale_tmp(path.parent)
+        # The temp name must be unique per writer, not just per key. Two
+        # processes caching the same expression derive the same key and so, on
+        # a key-only temp name, open and truncate the SAME file: their writes
+        # interleave, the later finisher renames its footer over the mixed
+        # body and returns successfully, and the earlier one's rename fails
+        # because its temp file has been renamed away. The survivor is a valid
+        # footer over an undecodable body -- which `exists` then reports as a
+        # cache hit forever. Reproduced 5 times in 8 runs before this change.
+        tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        try:
+            with value.to_expr().to_pyarrow_batches() as batch_reader:
+                n_rows = _write_parquet(
+                    tmp_path, batch_reader, parquet_metadata=parquet_metadata
+                )
+            # Verify before publishing, never after. Once the rename lands the
+            # artifact is indistinguishable from a good one and every later run
+            # is a hit on it.
+            _verify_parquet(tmp_path, n_rows)
+            tmp_path.rename(path)
+        except BaseException:
+            # Leave nothing half-written behind. The rename above is the only
+            # thing that publishes; anything still at tmp_path is ours alone
+            # and safe to remove.
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
         return self.get(key)
 
     def drop(self, key):
