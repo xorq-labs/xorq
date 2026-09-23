@@ -8,21 +8,28 @@ successfully; `exists()` then reported that artifact as a cache hit forever.
 """
 
 import datetime
+import errno
 import multiprocessing as mp
 import os
+import uuid
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import xorq.api as xo
 import xorq.caching.storage as storage_module
+from xorq.caching import ParquetSnapshotCache
 from xorq.caching.storage import (
     ParquetStorage,
+    ParquetTTLStorage,
     _reap_stale_tmp,
-    _verify_parquet,
+    _reap_stale_tmp_once,
+    verify_parquet,
 )
 from xorq.common.exceptions import CacheIntegrityError
+from xorq.config import options
 
 
 SCHEMA = pa.schema([("i", pa.int64()), ("s", pa.string())])
@@ -73,6 +80,29 @@ class _Node:
 
 def _storage(base):
     return ParquetStorage(relative_path=Path("."), base_path=Path(base))
+
+
+def _tmp_name(key="xorq_cache-x"):
+    """A temp name of the shape put() writes, for the reaper to recognize."""
+    return f"{key}.parquet.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+
+
+def _make_stale(path):
+    path.write_bytes(b"x")
+    old = (datetime.datetime.now() - datetime.timedelta(days=3)).timestamp()
+    os.utime(path, (old, old))
+    return path
+
+
+def _lie_about_rows(monkeypatch):
+    """Make _write_parquet claim more rows than it wrote."""
+    real = storage_module._write_parquet
+
+    def lying_write(path, batch_reader, parquet_metadata=None):
+        real(path, batch_reader, parquet_metadata=parquet_metadata)
+        return 10**9
+
+    monkeypatch.setattr("xorq.caching.storage._write_parquet", lying_write)
 
 
 def _write_one(base, key, n_batches, rows_per_batch, width, tag):
@@ -143,14 +173,7 @@ def test_put_refuses_to_publish_a_short_write(tmp_path, monkeypatch):
     """If what landed disagrees with what was streamed, nothing is published."""
     storage = _storage(tmp_path)
     key = "xorq_cache-shortwrite"
-
-    real = storage_module._write_parquet
-
-    def lying_write(path, batch_reader, parquet_metadata=None):
-        real(path, batch_reader, parquet_metadata=parquet_metadata)
-        return 10**9  # claim far more than was actually written
-
-    monkeypatch.setattr("xorq.caching.storage._write_parquet", lying_write)
+    _lie_about_rows(monkeypatch)
 
     with pytest.raises(CacheIntegrityError, match="inconsistent"):
         storage.put(key, _Node(n_batches=3, rows_per_batch=100, width=16, tag="x"))
@@ -167,7 +190,7 @@ def test_verify_parquet_rejects_a_truncated_body(tmp_path):
     path.write_bytes(full[: len(full) // 3] + full[-2048:])
 
     with pytest.raises(CacheIntegrityError):
-        _verify_parquet(path, 5000)
+        verify_parquet(path, 5000)
 
 
 def test_exists_rejects_an_unreadable_artifact(tmp_path):
@@ -179,14 +202,123 @@ def test_exists_rejects_an_unreadable_artifact(tmp_path):
 
 
 def test_reap_stale_tmp_spares_recent_writes(tmp_path):
-    fresh = tmp_path / "a.parquet.tmp"
-    stale = tmp_path / "b.parquet.tmp"
-    for f in (fresh, stale):
-        f.write_bytes(b"x")
-    old = (datetime.datetime.now() - datetime.timedelta(days=3)).timestamp()
-    os.utime(stale, (old, old))
+    fresh = tmp_path / _tmp_name("xorq_cache-fresh")
+    fresh.write_bytes(b"x")
+    stale = _make_stale(tmp_path / _tmp_name("xorq_cache-stale"))
 
     _reap_stale_tmp(tmp_path)
 
     assert fresh.exists(), "a temp file may belong to a write still streaming"
     assert not stale.exists()
+
+
+def test_reap_stale_tmp_spares_temp_files_that_are_not_ours(tmp_path):
+    """A cache directory is an ordinary directory other writers stage into.
+
+    ``ParquetWriteThrough`` puts ``<name>.parquet.<random>.tmp`` beside its
+    target; deleting one because it sits in the cache directory and ends in
+    ``.tmp`` would destroy a write we know nothing about.
+    """
+    foreign = _make_stale(tmp_path / "out.parquet.a1b2c3d4.tmp")
+    ours = _make_stale(tmp_path / _tmp_name())
+
+    _reap_stale_tmp(tmp_path)
+
+    assert foreign.exists()
+    assert not ours.exists()
+
+
+def test_reap_scans_a_directory_only_once_per_process(tmp_path):
+    """put() is on the miss path of every query; the scan is not worth repeating."""
+    first = _make_stale(tmp_path / _tmp_name("xorq_cache-first"))
+    _reap_stale_tmp_once(tmp_path)
+    assert not first.exists()
+
+    second = _make_stale(tmp_path / _tmp_name("xorq_cache-second"))
+    _reap_stale_tmp_once(tmp_path)
+    assert second.exists()
+
+
+def test_a_rejected_write_is_kept_for_inspection(tmp_path, monkeypatch):
+    """The error names a file, so the file has to still be there to look at."""
+    storage = _storage(tmp_path)
+    key = "xorq_cache-evidence"
+    _lie_about_rows(monkeypatch)
+
+    with pytest.raises(CacheIntegrityError) as excinfo:
+        storage.put(key, _Node(n_batches=3, rows_per_batch=100, width=16, tag="x"))
+
+    (preserved,) = tmp_path.glob("*.corrupt")
+    assert str(preserved) in str(excinfo.value)
+    assert not storage.get_path(key).exists(), "nothing may be published"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_verification_can_be_turned_off(tmp_path, monkeypatch):
+    """The read-back doubles the cost of a write; a deployment may decline it."""
+    storage = _storage(tmp_path)
+    key = "xorq_cache-unverified"
+    _lie_about_rows(monkeypatch)
+    monkeypatch.setattr(options.cache, "verify_writes", False)
+
+    storage.put(key, _Node(n_batches=3, rows_per_batch=100, width=16, tag="x"))
+
+    assert storage.exists(key)
+
+
+def test_ttl_storage_refuses_an_unreadable_artifact(tmp_path):
+    """A TTL hit is still a hit: it must not serve a corrupt file for a whole day."""
+    storage = ParquetTTLStorage(relative_path=Path("."), base_path=tmp_path)
+    key = "xorq_cache-ttl-garbage"
+    storage._ensure_dir()
+    storage.get_path(key).write_bytes(b"not a parquet file")
+
+    assert storage.is_present(key) is True
+    assert storage.exists(key) is False
+
+
+def test_exists_does_not_report_an_os_failure_as_a_miss(tmp_path, monkeypatch):
+    """EMFILE says nothing about the artifact.
+
+    A miss here would recompute the expression and then overwrite a file that
+    was never bad -- silently, since a miss is the ordinary case.
+    """
+    storage = _storage(tmp_path)
+    key = "xorq_cache-emfile"
+    storage._ensure_dir()
+    pq.write_table(pa.table({"i": [1, 2, 3]}), storage.get_path(key))
+    assert storage.exists(key) is True
+
+    def too_many_open_files(*args, **kwargs):
+        raise OSError(errno.EMFILE, "Too many open files")
+
+    monkeypatch.setattr(pq, "ParquetFile", too_many_open_files)
+
+    with pytest.raises(OSError) as excinfo:
+        storage.exists(key)
+    assert excinfo.value.errno == errno.EMFILE
+
+
+def test_a_corrupt_artifact_names_itself_and_can_be_dropped(tmp_path):
+    """The two ways out of a corrupt artifact, through the public API.
+
+    `exists` refuses it, so neither may be gated on `exists`: a diagnosis that
+    said only KeyError would send the user looking for a missing key, and a
+    drop that refused would leave `rm` as the only way to clear it.
+    """
+    cache = ParquetSnapshotCache.from_kwargs(
+        relative_path=Path("."), base_path=tmp_path
+    )
+    expr = xo.memtable({"i": [1, 2, 3]})
+    key = cache.calc_key(expr)
+    cache.storage._ensure_dir()
+    cache.storage.get_path(key).write_bytes(b"not a parquet file")
+
+    with pytest.raises(CacheIntegrityError, match="could not be read"):
+        cache.get(expr)
+
+    cache.drop(expr)
+    assert not cache.storage.get_path(key).exists()
+
+    with pytest.raises(KeyError):
+        cache.drop(expr)

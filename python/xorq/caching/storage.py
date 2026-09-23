@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import uuid
 from abc import abstractmethod
 from pathlib import Path
@@ -71,6 +72,23 @@ class CacheStorage:
     def exists(self, key):
         pass
 
+    def is_present(self, key):
+        """Whether anything occupies *key*, sound or not.
+
+        `exists` answers "is there a hit here to serve"; this answers "is there
+        anything here to drop". They part company over an artifact `exists`
+        refuses -- corrupt, or past its TTL -- which still has to be droppable.
+        Storages that cannot hold such an artifact need no override.
+        """
+        return self.exists(key)
+
+    def check_integrity(self, key):
+        """Raise CacheIntegrityError if the artifact at *key* cannot be read.
+
+        Silent for a key that holds nothing: absence is a miss, not damage.
+        Storages with no notion of a damaged artifact need no override.
+        """
+
     @abstractmethod
     def get(self, key: str, schema: Schema | None = None) -> Node:
         pass
@@ -109,8 +127,51 @@ def _write_parquet(path, batch_reader, parquet_metadata=None):
     return n_rows
 
 
-def _verify_parquet(path, expected_rows):
-    """Raise unless every row group of *path* decodes and the count matches.
+# Verification must not need more memory than the write it checks.
+# `iter_batches` defaults to 65536 rows over every column, far wider than the
+# batches a backend streams, so a blob-heavy table that wrote in ~8k-row
+# batches could fail its own read-back.
+_VERIFY_BATCH_SIZE = 8192
+
+
+def _reraise_read_failure(e, message):
+    """Re-raise *e* as CacheIntegrityError, unless it is an OS-level failure.
+
+    pyarrow reports both through the same channel. A corrupt artifact raises an
+    ArrowException ("Parquet magic bytes not found in footer") or a bare,
+    errno-less OSError ("Invalid column metadata (corrupt file?)"). A real OS
+    failure -- EMFILE, a stale NFS handle, a permission change -- raises an
+    OSError subclass carrying an errno, and says nothing about the artifact.
+    Only the first kind may be called corruption: callers turn corruption into
+    a cache miss, and a miss recomputes the expression and then overwrites a
+    file that was never bad.
+    """
+    import pyarrow as pa  # noqa: PLC0415
+
+    is_corrupt = isinstance(e, pa.ArrowException) or (
+        type(e) is OSError and e.errno is None
+    )
+    if not is_corrupt:
+        raise e
+    raise CacheIntegrityError(f"{message}: {type(e).__name__}: {e}") from e
+
+
+def read_parquet_metadata(source, name=None):
+    """Return *source*'s parquet metadata; raise CacheIntegrityError if unreadable.
+
+    *source* is a path or an open binary file -- remote storages hand us the
+    latter -- and *name* is what an error message should call it.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    try:
+        return pq.ParquetFile(source).metadata
+    except Exception as e:
+        _reraise_read_failure(e, f"cache artifact {name or source} could not be read")
+
+
+def verify_parquet(source, expected_rows, name=None):
+    """Raise unless every row group of *source* decodes and the count matches.
 
     This is a full read, not a footer peek, and deliberately so. The corruption
     this guards against presents as an intact footer over an undecodable body
@@ -121,28 +182,88 @@ def _verify_parquet(path, expected_rows):
     """
     import pyarrow.parquet as pq  # noqa: PLC0415
 
+    name = source if name is None else name
     try:
-        pf = pq.ParquetFile(path)
+        pf = pq.ParquetFile(source)
         claimed = pf.metadata.num_rows
-        read = sum(batch.num_rows for batch in pf.iter_batches())
+        read = sum(
+            batch.num_rows for batch in pf.iter_batches(batch_size=_VERIFY_BATCH_SIZE)
+        )
     except Exception as e:
-        raise CacheIntegrityError(
-            f"cache write to {path} could not be read back: {type(e).__name__}: {e}"
-        ) from e
+        _reraise_read_failure(e, f"cache write to {name} could not be read back")
     if not (claimed == read == expected_rows):
         raise CacheIntegrityError(
-            f"cache write to {path} is inconsistent: streamed {expected_rows} rows, "
+            f"cache write to {name} is inconsistent: streamed {expected_rows} rows, "
             f"footer claims {claimed}, {read} readable"
         )
 
 
+def verify_writes_enabled():
+    """Whether to read a cache write back before publishing it.
+
+    On by default: an unverified write is how the reported corruption reached
+    disk in the first place. It costs a second full read of what was just
+    written, so a deployment that would rather carry the risk than pay the read
+    can turn it off with ``options.cache.verify_writes = False``
+    (``XORQ_CACHE_VERIFY_WRITES=False``).
+    """
+    from xorq.config import options  # noqa: PLC0415
+
+    return options.get("cache.verify_writes")
+
+
+def quarantine(error, tmp_path, move):
+    """Restate *error* with where the write it rejected was left.
+
+    The error names the file it rejected, so that file has to still be there
+    when someone goes looking -- this is the one failure whose artifact is
+    worth reading. ``.corrupt`` puts it out of reach of both the cache
+    (``<key>.parquet``) and the reaper. *move* is best-effort: failing to set
+    the evidence aside must not replace the error that found it.
+    """
+    target = f"{str(tmp_path)[: -len('.tmp')]}.corrupt"
+    try:
+        move(tmp_path, target)
+    except Exception:  # noqa: BLE001 - preserving evidence is best-effort
+        return CacheIntegrityError(f"{error}; artifact left at {tmp_path}")
+    return CacheIntegrityError(f"{error}; artifact preserved at {target}")
+
+
+# `<key>.parquet.<pid>.<uuid4 hex>.tmp`, the shape `_tmp_path_for` builds.
+_tmp_name_pattern = re.compile(r"\.parquet\.\d+\.[0-9a-f]{32}\.tmp\Z")
+_reaped_dirs = set()
+
+
+def _tmp_path_for(path):
+    """Return a temp path for *path* that is unique to this writer.
+
+    The temp name must be unique per writer, not just per key. Two processes
+    caching the same expression derive the same key and so, on a key-only temp
+    name, open and truncate the SAME file: their writes interleave, the later
+    finisher renames its footer over the mixed body and returns successfully,
+    and the earlier one's rename fails because its temp file has been renamed
+    away. The survivor is a valid footer over an undecodable body -- which
+    `exists` then reports as a cache hit forever. Reproduced 5 times in 8 runs
+    before this change.
+
+    The shape is also what the reaper matches on, so this and
+    `_tmp_name_pattern` have to stay in step.
+    """
+    return path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+
+
 def _reap_stale_tmp(directory, max_age=datetime.timedelta(days=1)):
-    """Delete abandoned ``*.tmp`` cache writes older than *max_age*.
+    """Delete abandoned cache writes of ours in *directory* older than *max_age*.
 
     A failed write leaves its temp file behind by design -- the rename is
     skipped, so nothing corrupt is ever published -- but nothing has ever
     removed them, and they are full-size. The customer report that prompted
     this carried a 359,893,078-byte orphan that had sat for hours.
+
+    Matched on our own temp shape rather than on ``*.tmp``: a cache directory
+    is an ordinary directory, and other writers stage files in it --
+    ``ParquetWriteThrough`` puts ``<name>.parquet.<random>.tmp`` beside its
+    target -- which are none of our business to delete.
 
     Age-gated rather than unconditional: a temp file younger than max_age may
     belong to a write that is still streaming. Best-effort throughout; reaping
@@ -150,7 +271,11 @@ def _reap_stale_tmp(directory, max_age=datetime.timedelta(days=1)):
     """
     cutoff = datetime.datetime.now() - max_age
     try:
-        candidates = list(directory.glob("*.tmp"))
+        candidates = [
+            path
+            for path in directory.glob("*.tmp")
+            if _tmp_name_pattern.search(path.name)
+        ]
     except OSError:
         return
     for stale in candidates:
@@ -159,6 +284,19 @@ def _reap_stale_tmp(directory, max_age=datetime.timedelta(days=1)):
                 stale.unlink()
         except OSError:
             continue
+
+
+def _reap_stale_tmp_once(directory):
+    """Reap *directory*, at most once per process.
+
+    Reaping scans the whole cache directory, and `put` is on the miss path of
+    every query. A directory holding tens of thousands of artifacts would pay
+    that scan on every write, to collect orphans that accumulate over hours.
+    """
+    if directory in _reaped_dirs:
+        return
+    _reaped_dirs.add(directory)
+    _reap_stale_tmp(directory)
 
 
 @frozen
@@ -196,21 +334,29 @@ class ParquetStorage(CacheStorage):
     def get_path(self, key):
         return resolve_parquet_cache_path(self.relative_path, key, self.base_path)
 
-    def exists(self, key):
-        path = self.get_path(key)
-        if not path.exists():
-            return False
+    def is_present(self, key):
+        return self.get_path(key).exists()
+
+    def check_integrity(self, key):
         # A published artifact is verified at write time, so this is only a
         # backstop for files written by an older xorq (or damaged since). It
         # opens the footer and nothing more: catching truncation and footer
         # damage cheaply on a path taken for every cache-hit decision. It does
         # NOT prove the pages decode -- verify-on-write is what guarantees
-        # that -- so treat a True here as "plausible", not "checked".
-        import pyarrow.parquet as pq  # noqa: PLC0415
+        # that -- so treat silence here as "plausible", not "checked".
+        path = self.get_path(key)
+        if path.exists():
+            read_parquet_metadata(path)
 
+    def exists(self, key):
+        if not self.is_present(key):
+            return False
         try:
-            pq.ParquetFile(path).metadata
-        except Exception:
+            self.check_integrity(key)
+        except CacheIntegrityError:
+            return False
+        except FileNotFoundError:
+            # dropped between the two checks: a miss, not a failure
             return False
         return True
 
@@ -220,6 +366,8 @@ class ParquetStorage(CacheStorage):
         # When the caller already knows the schema (e.g. pinning a CachedNode
         # whose schema is on hand), forward it so deferred_read_parquet does not
         # open the parquet footer just to re-infer a schema we already have.
+        # `exists` opens the footer too now, for its integrity backstop, so
+        # this saves the second of the two opens rather than the only one.
         op = deferred_read_parquet(
             path=self.get_path(key),
             con=self.source,
@@ -234,16 +382,8 @@ class ParquetStorage(CacheStorage):
         # base_path on load) must stay free of filesystem side effects.
         self._ensure_dir()
         path = self.get_path(key)
-        _reap_stale_tmp(path.parent)
-        # The temp name must be unique per writer, not just per key. Two
-        # processes caching the same expression derive the same key and so, on
-        # a key-only temp name, open and truncate the SAME file: their writes
-        # interleave, the later finisher renames its footer over the mixed
-        # body and returns successfully, and the earlier one's rename fails
-        # because its temp file has been renamed away. The survivor is a valid
-        # footer over an undecodable body -- which `exists` then reports as a
-        # cache hit forever. Reproduced 5 times in 8 runs before this change.
-        tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        _reap_stale_tmp_once(path.parent)
+        tmp_path = _tmp_path_for(path)
         try:
             with value.to_expr().to_pyarrow_batches() as batch_reader:
                 n_rows = _write_parquet(
@@ -252,8 +392,11 @@ class ParquetStorage(CacheStorage):
             # Verify before publishing, never after. Once the rename lands the
             # artifact is indistinguishable from a good one and every later run
             # is a hit on it.
-            _verify_parquet(tmp_path, n_rows)
+            if verify_writes_enabled():
+                verify_parquet(tmp_path, n_rows)
             tmp_path.rename(path)
+        except CacheIntegrityError as e:
+            raise quarantine(e, tmp_path, os.rename) from e
         except BaseException:
             # Leave nothing half-written behind. The rename above is the only
             # thing that publishes; anything still at tmp_path is ours alone
@@ -286,8 +429,9 @@ class ParquetTTLStorage(ParquetStorage):
         )
 
     def exists(self, key):
-        path = self.get_path(key)
-        return path.exists() and self.satisfies_ttl(path)
+        # via super(), so the integrity backstop applies here too: a TTL cache
+        # must not serve a corrupt artifact for the rest of its window.
+        return super().exists(key) and self.satisfies_ttl(self.get_path(key))
 
     def satisfies_ttl(self, path):
         delta = datetime.datetime.now() - datetime.datetime.fromtimestamp(

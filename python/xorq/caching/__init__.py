@@ -68,6 +68,9 @@ class Cache:
     def get(self, expr):
         key = self.calc_key(expr)
         if not self.key_exists(key):
+            # A corrupt artifact is not an absent one: say which it is, rather
+            # than reporting a key that is sitting right there as missing.
+            self.storage.check_integrity(key)
             raise KeyError(key)
         else:
             return self.storage.get(key)
@@ -97,7 +100,9 @@ class Cache:
 
     def drop(self, expr):
         key = self.calc_key(expr)
-        if not self.key_exists(key):
+        # is_present, not key_exists: dropping is how a corrupt or expired
+        # artifact gets cleared, and `exists` refuses to acknowledge both.
+        if not self.storage.is_present(key):
             raise KeyError(key)
         else:
             self.storage.drop(key)
