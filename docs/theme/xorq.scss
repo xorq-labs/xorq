@@ -4,9 +4,10 @@
 
 // xorq.dev sets both --bs-body-font-family and $headings-font-family to
 // "ALT Riviera", Georgia, serif. Matching it makes ALT Riviera the default
-// everywhere; the UI chrome that must stay monospace is pinned in the rules
-// section below.
-$font-family-sans-serif: "ALT Riviera", Georgia, serif;
+// everywhere; each UI chrome rule below that must stay monospace sets
+// font-family:$font-family-monospace itself. $font-family-sans-serif keeps
+// Bootstrap's sans stack so --bs-font-sans-serif still means sans.
+$font-family-base: "ALT Riviera", Georgia, serif;
 $font-family-monospace: "FK Grotesk Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 $headings-font-family: "ALT Riviera", Georgia, serif;
 $headings-font-weight: 400;
@@ -75,7 +76,6 @@ body {
 
 // prose in the serif, UI in the mono — same split as the site
 .content p, .content li, .content td, .content dd, .callout-body, .quarto-title-block .description {
-  font-family:"ALT Riviera",Georgia,serif;
   font-size:1rem;
   line-height:1.75;
   color:$xq-ink-2;
@@ -115,6 +115,7 @@ h3 {
 
 // kicker above titles — mirrors the site's mono labels
 .quarto-title-block .quarto-categories .quarto-category, .quarto-title-meta-heading {
+  font-family:$font-family-monospace;
   font-size:10px;
   letter-spacing:.18em;
   text-transform:uppercase;
@@ -137,6 +138,7 @@ h3 {
   height:32px;
 }
 .navbar .nav-link {
+  font-family:$font-family-monospace;
   font-size:14px;
   letter-spacing:.02em;
   color:$xq-ink-2;
@@ -175,6 +177,7 @@ h3 {
   padding-left:0;
 }
 .sidebar-title {
+  font-family:$font-family-monospace;
   font-size:10px;
   letter-spacing:.18em;
   text-transform:uppercase;
@@ -182,7 +185,10 @@ h3 {
   padding-bottom:6px;
   border-bottom:1px dashed $xq-line-3;
 }
-.sidebar-search .aa-Input, .sidebar-search .aa-Form {
+// navbar.search: true puts the search box in the navbar (#quarto-search), not
+// the sidebar.
+#quarto-search .aa-Input, #quarto-search .aa-Form {
+  font-family:$font-family-monospace;
   background:$xq-bg-3;
   border:1px solid $xq-line-2;
   border-radius:10px;
@@ -192,6 +198,7 @@ h3 {
 // on-this-page
 // The toc title is an <h2>, so it inherits the section rule above; undo it.
 #TOC .toc-title, #quarto-margin-sidebar h2 {
+  font-family:$font-family-monospace;
   font-size:10px;
   letter-spacing:.14em;
   text-transform:uppercase;
@@ -201,6 +208,7 @@ h3 {
   border-top:0;
 }
 #TOC a, #quarto-margin-sidebar a {
+  font-family:$font-family-monospace;
   font-size:12.5px;
   color:$xq-ink-3;
   border-left:1px solid $xq-line;
@@ -243,6 +251,9 @@ code:not(pre code) {
 .code-copy-button {
   color:$xq-ink-4;
 }
+.code-copy-button-tooltip {
+  font-family:$font-family-monospace;
+}
 .code-annotation-anchor {
   color:$xq-mint;
   border-color:$xq-mint;
@@ -268,6 +279,7 @@ code:not(pre code) {
   border-bottom:1px dashed $xq-line-3;
 }
 .panel-tabset .nav-link {
+  font-family:$font-family-monospace;
   font-size:12px;
   letter-spacing:.04em;
   color:$xq-ink-2;
@@ -287,6 +299,7 @@ table {
   font-size:13px;
 }
 thead th {
+  font-family:$font-family-monospace;
   font-size:10px;
   letter-spacing:.14em;
   text-transform:uppercase;
@@ -307,6 +320,7 @@ tbody td {
   border-radius:12px;
 }
 .callout .callout-header {
+  font-family:$font-family-monospace;
   background:transparent;
   font-size:10px;
   letter-spacing:.14em;
@@ -328,6 +342,7 @@ tbody td {
 
 // pagination + footer
 .page-navigation .nav-page a {
+  font-family:$font-family-monospace;
   color:$xq-ink-2;
   border:1px solid $xq-line;
   border-radius:12px;
@@ -337,6 +352,7 @@ tbody td {
   border-color:#c1f0ff;
 }
 .nav-footer {
+  font-family:$font-family-monospace;
   border-top:1px solid $xq-line;
   font-size:11px;
   letter-spacing:.06em;
@@ -360,25 +376,16 @@ tbody td {
   display:none;
 }
 
-// UI chrome stays monospace. These selectors carried no font-family of their
-// own and inherited it from the base, which was FK Grotesk Mono before the
-// base became ALT Riviera; pin them so nav, TOC, tabs, table headers and the
-// uppercase kicker labels keep the mono treatment the design calls for.
-.navbar .nav-link,
-.sidebar-title,
-.sidebar-search .aa-Input,
-.sidebar-search .aa-Form,
-#TOC .toc-title,
-#quarto-margin-sidebar h2,
-#TOC a,
-#quarto-margin-sidebar a,
-.quarto-title-block .quarto-categories .quarto-category,
-.quarto-title-meta-heading,
+// Chrome with no rule of its own above. It inherited mono from the base before
+// the base became ALT Riviera: title metadata values, the search results panel
+// (appended to <body>), and the mobile secondary nav, breadcrumbs and collapsed
+// navbar menu shown below collapse-below: lg.
 .quarto-title-meta-contents,
-.panel-tabset .nav-link,
-thead th,
-.callout .callout-header,
-.page-navigation .nav-page a,
-.nav-footer {
+.aa-Panel,
+.aa-DetachedOverlay,
+.quarto-secondary-nav,
+.quarto-page-breadcrumbs,
+.navbar-toggler,
+.navbar-collapse {
   font-family:$font-family-monospace;
 }
