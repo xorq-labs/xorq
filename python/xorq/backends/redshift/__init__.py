@@ -7,6 +7,7 @@ import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+import xorq.common.exceptions as exc
 import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.redshift.compiler import compiler
@@ -29,6 +30,12 @@ DEFAULT_PORT = 5439
 # exactly the same set: whichever branch runs must be an implementation detail,
 # and it stops being one the moment the two disagree about what ``mode`` means.
 INGEST_MODES = ("create", "append", "replace", "create_append")
+
+# Alias for the derived table that ``_get_schema_using_query`` probes through.
+# Fixed rather than generated: it names a subquery, which is scoped to the
+# statement and cannot collide with anything in the catalog, and a deterministic
+# alias makes the emitted SQL assertable.
+PROBE_ALIAS = "redshift_probe"
 
 
 class Backend(PostgresBackend):
@@ -127,6 +134,235 @@ class Backend(PostgresBackend):
         with con.cursor() as cursor, con.transaction():
             [(schema,)] = cursor.execute(sql).fetchall()
         return schema
+
+    # ------------------------------------------------------------------
+    # Introspection.
+    #
+    # Both inherited implementations are PostgreSQL-only in ways that stay
+    # invisible until a statement reaches the server: each compiles cleanly
+    # under the postgres dialect and then fails on Redshift.
+    # ------------------------------------------------------------------
+
+    # ``svv_all_columns`` is Redshift's own union of native, datashare and
+    # external columns. Its ``data_type`` is the *unparameterised* SQL name
+    # (``numeric``, ``character varying``), with the modifiers split out into
+    # ``numeric_precision``/``numeric_scale`` and ``character_maximum_length``,
+    # so the type string has to be reassembled -- see ``_type_string``.
+    #
+    # Predicates are appended rather than written inline because the catalog
+    # one is conditional, and every value is bound rather than interpolated.
+    # Notably this is *not* ``schema_name = ANY(%(dbs)s)``, which is the form
+    # the inherited query uses: Redshift has no array type.
+    _SVV_ALL_COLUMNS_SELECT = """\
+SELECT
+  column_name,
+  data_type,
+  is_nullable,
+  character_maximum_length,
+  numeric_precision,
+  numeric_scale
+FROM svv_all_columns
+WHERE """
+
+    # Types whose ``svv_all_columns`` row carries a meaningful modifier. The
+    # exclusions matter more than the inclusions: the reference's own worked
+    # example shows ``numeric_precision`` populated as 32 for an ``integer``
+    # and 16 for a ``smallint``, so appending the precision unconditionally
+    # would build ``integer(32)``, which is not a type.
+    _DECIMAL_TYPES = frozenset({"numeric", "decimal"})
+    _SIZED_CHAR_TYPES = frozenset(
+        {
+            "character varying",
+            "varchar",
+            "character",
+            "char",
+            "bpchar",
+            "nchar",
+            "nvarchar",
+        }
+    )
+
+    @classmethod
+    def _type_string(cls, data_type, char_length, precision, scale) -> str:
+        """Reassemble a type string from one ``svv_all_columns`` row."""
+        base = (data_type or "").strip()
+        lowered = base.lower()
+        if lowered in cls._DECIMAL_TYPES and precision is not None:
+            return f"{base}({precision},{scale or 0})"
+        if lowered in cls._SIZED_CHAR_TYPES and char_length is not None:
+            return f"{base}({char_length})"
+        return base
+
+    @staticmethod
+    def _is_nullable(flag) -> bool:
+        """``is_nullable`` is a ``varchar(3)``, not a boolean.
+
+        The reference documents the values as ``yes``/``no`` and prints them as
+        ``YES``/``NO`` in its own worked example, so neither case is worth
+        betting on. Passing the string straight through as ``nullable=`` would
+        mark every column nullable, because both spellings are truthy.
+        """
+        if isinstance(flag, bool):
+            return flag
+        return str(flag).strip().lower() == "yes"
+
+    def get_schema(
+        self,
+        name: str,
+        *,
+        catalog: str | None = None,
+        database: str | None = None,
+    ) -> sch.Schema:
+        """Read a table's schema from Redshift's own catalog.
+
+        The inherited implementation reads ``pg_catalog`` and, purely to label
+        enum columns, joins ``pg_catalog.pg_enum`` -- which Redshift does not
+        have. Every ``con.table`` therefore fails with ``UndefinedTable``,
+        including a plain single-schema ``con.table("t", database="s")``; this
+        is not only a three-part-naming problem.
+
+        Dropping just the enum arm would not be enough. The rest of that query
+        reads ``pg_attribute``/``pg_class``/``pg_namespace`` and filters with
+        ``= ANY(<array>)``, and Redshift has no array type. ``svv_all_columns``
+        is the view Redshift documents for this, and the one the customer's own
+        workaround used.
+
+        Unlike the inherited version this does *not* fold in the session temp
+        schema. That would mean calling ``_session_temp_db``, which asks for
+        ``pg_my_temp_schema()``, and ``svv_all_columns`` is documented as a
+        union of ``SVV_REDSHIFT_COLUMNS`` and external columns -- neither is
+        documented to include temporary tables. Both points need a live
+        warehouse to settle, so the narrower query is the honest one; the
+        consequence is that binding a *temporary* table by name is not
+        supported here.
+        """
+        predicates = ["schema_name = %(schema)s", "table_name = %(table)s"]
+        params: dict[str, Any] = {
+            "schema": database or self.current_database,
+            "table": name,
+        }
+        if catalog is not None:
+            # svv_all_columns spans databases, so an unscoped lookup could
+            # match a same-named table in another one.
+            predicates.append("database_name = %(catalog)s")
+            params["catalog"] = catalog
+
+        query = (
+            self._SVV_ALL_COLUMNS_SELECT
+            + "\n  AND ".join(predicates)
+            + "\nORDER BY ordinal_position ASC"
+        )
+
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            rows = cursor.execute(query, params).fetchall()
+
+        if not rows:
+            raise exc.TableNotFound(name)
+
+        type_mapper = self.compiler.type_mapper
+        return sch.Schema(
+            {
+                column_name: type_mapper.from_string(
+                    self._type_string(data_type, char_length, precision, scale),
+                    nullable=self._is_nullable(is_nullable),
+                )
+                for (
+                    column_name,
+                    data_type,
+                    is_nullable,
+                    char_length,
+                    precision,
+                    scale,
+                ) in rows
+            }
+        )
+
+    @classmethod
+    def _type_string_from_column(cls, column) -> str:
+        """The type name for one ``psycopg.Column`` of a result description.
+
+        ``type_code`` is a PostgreSQL type OID. Redshift is a PostgreSQL 8.0
+        derivative and reports the standard OIDs, which psycopg's builtin
+        registry resolves without a round trip.
+
+        An OID the registry does not know -- Redshift's own ``SUPER``,
+        ``VARBYTE`` and ``GEOMETRY`` are the expected cases -- raises rather
+        than degrading to ``unknown``. A schema that is quietly wrong is the
+        failure mode this backend's tests exist to prevent, and the OID goes in
+        the message so a live session can map it.
+
+        ``psycopg`` is imported here rather than at module level because it is
+        an optional extra: this module is imported when the backend entry point
+        is resolved, and a module-level import would make that fail wherever
+        the postgres extra is not installed. ``test_core_module_imports_are_
+        declared`` enforces exactly this.
+        """
+        import psycopg  # noqa: PLC0415
+
+        info = psycopg.postgres.types.get(column.type_code)
+        if info is None:
+            raise exc.UnsupportedBackendType(
+                f"{cls.name} returned column {column.name!r} with type OID "
+                f"{column.type_code}, which psycopg cannot name; it is most "
+                f"likely a Redshift-specific type (SUPER, VARBYTE, GEOMETRY)"
+            )
+        name = info.name
+        if name in cls._DECIMAL_TYPES and column.precision is not None:
+            return f"{name}({column.precision},{column.scale or 0})"
+        return name
+
+    def _get_schema_using_query(self, query: str) -> sch.Schema:
+        """Infer a query's schema from the result description, issuing no DDL.
+
+        The inherited implementation wraps the query in a
+        ``CREATE TEMPORARY VIEW`` and introspects that. Redshift has temporary
+        *tables* but not temporary *views*, so ``con.sql`` dies with a syntax
+        error at ``VIEW``.
+
+        The obvious repair -- swap the temporary view for a temporary table
+        created ``LIMIT 0`` and dropped in a ``finally`` -- was rejected rather
+        than merely passed over. It would have to be introspected back through
+        ``get_schema`` above, and ``svv_all_columns`` is not documented to list
+        temporary tables; that repair would trade a syntax error for a
+        ``TableNotFound`` while looking like a fix in every offline test.
+        Reading ``cursor.description`` consults no catalog at all, so it does
+        not depend on that unsettled question. It also needs no create
+        privilege and leaves nothing behind, so there is no cleanup path to get
+        wrong.
+
+        The query is *wrapped* rather than suffixed with ``LIMIT 0``: a query
+        that already ends in a ``LIMIT`` would become a syntax error, and one
+        ending in a ``UNION`` branch would bind the limit to that branch alone.
+        The bound is not cosmetic -- psycopg buffers the whole result client
+        side, so an unbounded probe would read the table it selects from.
+
+        Every column comes back nullable, because a result description carries
+        no nullability. Whether that differs from what the inherited path
+        reported for the same query is not measured here -- it would depend on
+        what Redshift records for a temporary view's columns, which needs a
+        live warehouse.
+        """
+        probe = (
+            sg.select(sge.Star())
+            .from_(sg.parse_one(query, read=self.dialect).subquery(PROBE_ALIAS))
+            .limit(0)
+            .sql(self.dialect)
+        )
+
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            description = list(cursor.execute(probe).description)
+
+        type_mapper = self.compiler.type_mapper
+        return sch.Schema(
+            {
+                column.name: type_mapper.from_string(
+                    self._type_string_from_column(column), nullable=True
+                )
+                for column in description
+            }
+        )
 
     def _adbc_unavailable_reason(self) -> str | None:
         """Why the ADBC accelerator cannot be used, or ``None`` if it can.
