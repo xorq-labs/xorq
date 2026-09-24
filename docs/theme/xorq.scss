@@ -137,22 +137,34 @@ h3 {
 .navbar .navbar-brand img {
   height:32px;
 }
-// Center the navbar to match xorq.dev. Quarto lays the nav out with the brand
-// on the left, the link group pushed left by `me-auto`, and the right group by
-// `ms-auto`. Neutralise those auto-margins and center the flex row so the whole
-// header (logo + links + search/github) sits centered like the marketing site.
+// Header layout — match the target docs design (and xorq.dev nav):
+//   [ logo hard-left ] ......... [ nav links centered ] ......... [ github right ]
+// Quarto centres the brand with `.navbar-brand-container.mx-auto` and pushes the
+// link group with `me-auto` / the tools with `ms-auto`. Left as-is the whole row
+// drifts to the middle and the header looks stretched. We pin the brand to the
+// left, let the collapse fill the remaining width, and centre the link <ul>
+// inside it so the links sit in the middle of the bar while GitHub stays right.
 .navbar > .container-fluid,
 .navbar > .container {
-  justify-content:center;
+  justify-content:flex-start;
 }
-.navbar .navbar-collapse {
-  flex-grow:0;
-  justify-content:center;
-}
-.navbar .navbar-nav.me-auto,
-.navbar .navbar-nav.ms-auto {
+// brand: cancel Quarto's mx-auto so the logo sits hard-left
+.navbar .navbar-brand-container.mx-auto {
   margin-left:0 !important;
   margin-right:0 !important;
+}
+// collapse fills the space to the right of the brand
+.navbar .navbar-collapse {
+  flex-grow:1;
+}
+// centre the primary link group; neutralise me-auto so it doesn't hug the left.
+// ms-auto (right group / tools) keeps GitHub pinned to the far right.
+.navbar .navbar-nav.me-auto {
+  margin-left:auto !important;
+  margin-right:auto !important;
+}
+.navbar .navbar-nav.ms-auto {
+  margin-left:0 !important;
 }
 .navbar .nav-link {
   font-family:$font-family-monospace;
