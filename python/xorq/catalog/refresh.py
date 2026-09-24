@@ -93,13 +93,12 @@ def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
     )
 
 
-def op_key(node: Node) -> tuple | None:
-    """``node``'s ``leaf_key``, or ``None`` when it is not a source.
+def source_identity(node: Node) -> tuple | None:
+    """``node``'s ``op_key`` without the profile, or ``None`` when not a source.
 
     Matched on the exact type name, because `CachedNode` and `RemoteTable` are
-    `DatabaseTable` subclasses that are not sources. The profile name is not
-    usable: it carries a session-local index, so a loaded source never spells
-    the one its record does. Its content hash is: it excludes that index.
+    `DatabaseTable` subclasses that are not sources. Cheap: it never touches
+    ``node.source``, so it can screen every node before a profile is resolved.
     """
     match type(node).__name__:
         case LeafKind.DATABASE_TABLE:
@@ -112,8 +111,23 @@ def op_key(node: Node) -> tuple | None:
             name = join_read_path(path)
         case _:
             return None
-    profile_key = Profile.from_con(node.source).content_hash
-    return (type(node).__name__, profile_key, name, node.schema)
+    return (type(node).__name__, name, node.schema)
+
+
+def op_key(node: Node) -> tuple | None:
+    """``node``'s ``leaf_key``, or ``None`` when it is not a source.
+
+    The profile name is not usable: it carries a session-local index, so a
+    loaded source never spells the one its record does. Its content hash is: it
+    excludes that index. A connection with no profile (a flight backend) keys as
+    ``None``, as ``leaf_key`` does for a leaf that records none.
+    """
+    if (identity := source_identity(node)) is None:
+        return None
+    (kind, name, schema) = identity
+    profile = Profile.from_con(node.source)
+    profile_key = None if profile is None else profile.content_hash
+    return (kind, profile_key, name, schema)
 
 
 def with_live_schema(node: Node, schema: Schema) -> Node:
@@ -204,6 +218,10 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
         return expr
     memo: dict[Node, Node] = {}
     matched: set[tuple] = set()
+    # Screens nodes before `op_key` resolves a profile: that touches
+    # `node.source`, which connects a lazily loaded backend and tokenizes its
+    # profile, for every source in the graph rather than only the drifted ones.
+    candidates = {(kind, name, schema) for (kind, _, name, schema) in live}
 
     def rewrite(node: Node) -> Node:
         if node not in memo:
@@ -213,7 +231,7 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
     def replacer(node: Node, kwargs: dict | None) -> Node:
         if isinstance(node, CacheTag):
             return node
-        if (key := op_key(node)) is not None and key in live:
+        if source_identity(node) in candidates and (key := op_key(node)) in live:
             matched.add(key)
             return rebuild(node, lambda: with_live_schema(node, live[key]))
         overrides = dict(kwargs or {})
