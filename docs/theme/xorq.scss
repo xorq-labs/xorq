@@ -122,21 +122,27 @@ h3 {
   color:$xq-ink-3;
 }
 
-// navbar (Quarto's top bar)
-// Quarto wraps it in #quarto-header.fixed-top, which has no background of its
-// own; with $navbar-bg transparent the page would scroll visibly through the
-// bar. Paint the full-width wrapper with the page bg so nothing scrolls through
-// the gutters — but the VISIBLE bordered bar is drawn on the capped inner
-// container below, so the header reads as a boxed bar inside the content column
-// (matching the target), not a full-bleed band.
+// navbar (Quarto's top bar) — matched to the xorq.dev marketing header spec
+// (its `.xq-chrome` wrapper + `.xq-header` box), so the docs header has the SAME
+// height, width, gutters and logo sizing as the live site:
+//   .xq-chrome  = max-width:1320px; margin:0 auto; padding:12px 20px 0
+//   .xq-header  = padding:22px 36px; border:1px solid var(--xq-line-2)
+//   logo        = brandmark 34px + wordmark 20px, gap 14px
+// #quarto-header is the full-width fixed-top wrapper: paint it with the page bg
+// (so nothing scrolls through the gutters) and give it the chrome's top gap +
+// side padding. The VISIBLE bordered box is the capped .navbar-container below.
 #quarto-header {
   background:$xq-bg;
+  padding:12px 20px 0;   // xorq.dev .xq-chrome: 12px top gap, 20px side gutters
 }
 .navbar {
-  padding:.75rem 0;
+  padding:0;             // height comes from the box padding below, not here
 }
+// Logo: match xorq.dev — brandmark 34px tall. Our combined lockup SVG keeps the
+// 34:20 mark:word ratio, so a 34px height renders the wordmark at 20px, exactly
+// like the marketing lockup.
 .navbar .navbar-brand img {
-  height:32px;
+  height:34px;
 }
 // Header layout — match the target docs design (and xorq.dev nav):
 //   [ logo hard-left ] ......... [ nav links centered ] ......... [ github right ]
@@ -146,22 +152,18 @@ h3 {
 // left, let the collapse fill the remaining width, and centre the link <ul>
 // inside it so the links sit in the middle of the bar while GitHub stays right.
 //
-// Width + box: Quarto's `.navbar-container` is width:100% and spans the full
-// viewport, and the header background/border used to sit on the full-width
-// #quarto-header wrapper — so the bar ran edge-to-edge while the content and
-// footer sit in a centred column with gutters. The target header is a BORDERED
-// BOX constrained to the content width, with the page bg showing in the side
-// gutters. So cap the inner container to the content width, centre it, and draw
-// the border (all four sides) HERE — not on the full-width wrapper.
+// Width + box: the visible bordered box = xorq.dev's `.xq-header`. Cap it to
+// 1320px (the marketing chrome width), centre it, pad it 22px/36px (this sets
+// the header HEIGHT, matching the live site), and border it with $xq-line-2 (the
+// exact marketing border colour). The page bg shows in the side gutters.
 .navbar > .container-fluid,
 .navbar > .container {
   justify-content:flex-start;
-  max-width:1180px;
+  max-width:1320px;
   margin-left:auto;
   margin-right:auto;
-  padding-left:1.5em;
-  padding-right:1.5em;
-  border:1px solid $xq-line;
+  padding:22px 36px;     // xorq.dev .xq-header — controls the header height
+  border:1px solid $xq-line-2;
 }
 // brand: cancel Quarto's mx-auto so the logo sits hard-left
 .navbar .navbar-brand-container.mx-auto {
