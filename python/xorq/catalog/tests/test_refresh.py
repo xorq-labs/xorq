@@ -263,6 +263,17 @@ def test_every_missing_source_is_named(con: SqliteBackend, builds_dir: Path) -> 
     assert "u is table-missing" in str(excinfo.value)
 
 
+def test_a_deleted_database_is_not_recreated(world: tuple, tmp_path: Path) -> None:
+    """The sweep's guarded connection is what finds it gone."""
+    _, build_path = world
+    db = tmp_path / "live.sqlite"
+    db.unlink()
+
+    with pytest.raises(SchemaRefreshError):
+        refresh_build(build_path)
+    assert not db.exists()
+
+
 @pytest.mark.parametrize("error", (AttributeError, InternalError))
 def test_a_bug_in_the_rewrite_is_not_labeled_as_drift(
     world: tuple, monkeypatch: pytest.MonkeyPatch, error: type
@@ -345,6 +356,16 @@ def test_a_stored_schema_follows_its_parent(
     (node,) = walk_nodes(op_type, expr)
     assert dict(node.schema) == dict(con.table("t").schema())
     assert "c" in expr.schema()
+
+
+def test_a_refreshed_remote_table_executes(
+    con: SqliteBackend, builds_dir: Path
+) -> None:
+    moved = con.table("t").into_backend(xo.connect(), "moved")
+    build_path = build_expr(moved.filter(moved.a > 1), builds_dir=builds_dir)
+    replace_table(con, GROWN)
+
+    assert list(refresh_build(build_path).execute()["c"]) == [2.5]
 
 
 def test_a_tee_node_follows_its_parent(tmp_path: Path, builds_dir: Path) -> None:
