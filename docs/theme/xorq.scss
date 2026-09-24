@@ -411,6 +411,29 @@ tbody td {
   // it fill the span; max-width:1180px then caps it and the auto margins
   // centre it, exactly as on xorq.dev.
   width:100%;
+  // Own grid-row below the content so the footer occupies its own band and
+  // cannot share vertical space with the sticky sidebars. The grid row lines
+  // are [content-top] … [content-bottom] … [page-bottom]; the footer belongs in
+  // the last row (content-bottom → page-bottom). NB: `page-end` is a COLUMN
+  // line, not a row line — using it here would spawn an implicit extra row.
+  grid-row:content-bottom/page-bottom;
+}
+
+// Short-page fix: the left nav sidebar and right TOC are sticky with
+// `grid-row: content-top / page-bottom`, so on pages whose article content is
+// SHORTER than the sidebar, the sidebar's box extends down to the grid's
+// page-bottom line — i.e. right up against the footer band. The opaque footer
+// (z-index:3) covers them, but any sub-pixel/rounding gap let the sidebar tail
+// peek through near the footer's top edge on short pages (quickstart etc. were
+// tall enough to hide it; api_reference/reference index were not). Ending the
+// sidebars at `content-bottom` instead of `page-bottom` stops them well above
+// the footer band so there is nothing left to overlap on any page length.
+body.floating {
+  #quarto-sidebar,
+  .sidebar-navigation.floating,
+  #quarto-margin-sidebar {
+    grid-row:content-top/content-bottom;
+  }
 }
 
 // hide quarto's light/dark toggle (site is dark only)
