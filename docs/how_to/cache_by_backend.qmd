@@ -127,17 +127,17 @@ If your backend's signal is too coarse for your use case, a Snapshot variant plu
 
 #### Redshift, and why it needs no grant
 
-The Redshift probe reads three counters — visible rows, inserts, and deletes — from `pg_statistic_indicator`, the catalog that `svv_table_info.estimated_visible_rows` is itself computed from. Reading it directly rather than through the view matters for who can use the cache at all: `svv_table_info` is superuser-only, while the indicator carries a `PUBLIC` grant. A connection holding only `USAGE` on the schema and `SELECT` on its tables can compute Redshift cache keys with no grant of any kind.
+The Redshift probe reads three counters (visible rows, inserts, and deletes) from `pg_statistic_indicator`, the catalog that `svv_table_info.estimated_visible_rows` is itself computed from. Reading it directly rather than through the view matters for who can use the cache at all: `svv_table_info` is superuser-only, while the indicator carries a `PUBLIC` grant. A connection holding only `USAGE` on the schema and `SELECT` on its tables can compute Redshift cache keys with no grant of any kind.
 
 Two consequences worth knowing about.
 
-An in-place `UPDATE` invalidates the cache. Redshift implements `UPDATE` as delete-plus-insert, so it moves the insert and delete counters while leaving the row count unchanged — a change a row count alone cannot see.
+An in-place `UPDATE` invalidates the cache. Redshift implements `UPDATE` as delete-plus-insert, so it moves the insert and delete counters while leaving the row count unchanged, which a row count alone cannot see.
 
-An `ANALYZE` may invalidate it spuriously. `ANALYZE` — including the background auto-analyze on Redshift Serverless — resets the insert and delete counters while updating the row count, so the key can change when your data did not. That costs a recompute, never a stale result.
+An `ANALYZE` may invalidate it spuriously. `ANALYZE`, including the background auto-analyze on Redshift Serverless, resets the insert and delete counters while updating the row count, so the key can change when your data did not. That costs a recompute, never a stale result.
 
-Caching a view, a late-binding view, a Spectrum external table or a session-temporary table raises `RedshiftFreshnessUnavailable`: those carry no statistics row, so any key built for them could never change. Cache the query that defines them instead, or use [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd), which needs no freshness probe at all. A table that merely has no rows yet is not one of those — it reports zeroes, and the key moves as soon as data lands.
+Caching a view, a late-binding view, a Spectrum external table or a session-temporary table raises `RedshiftFreshnessUnavailable`: those carry no statistics row, so any key built for them could never change. Cache the query that defines them instead, or use [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd), which needs no freshness probe at all. A table that merely has no rows yet is not one of those: it reports zeroes, and the key moves as soon as data lands.
 
-Finally, do not substitute `pg_class.reltuples`. It is readable without any grant and looks like a row count, but Redshift does not maintain it on write: measured on a live warehouse, it sat at `0.001` while a table reached five rows. A cache keyed on it would never invalidate. For the same reason, ignore the PostgreSQL row's advice to run `ANALYZE` — the Redshift probe issues no DDL and needs no write privilege.
+Finally, do not substitute `pg_class.reltuples`. It is readable without any grant and looks like a row count, but Redshift does not maintain it on write: measured on a live warehouse, it sat at `0.001` while a table reached five rows. A cache keyed on it would never invalidate. For the same reason, ignore the PostgreSQL row's advice to run `ANALYZE`: the Redshift probe issues no DDL and needs no write privilege.
 
 ## See also
 
