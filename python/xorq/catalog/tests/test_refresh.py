@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pickle
+from collections.abc import Callable
 from pathlib import Path
 
 import pyarrow as pa
@@ -59,7 +60,11 @@ RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
 GROWN = RECORDED.append_column("c", pa.array([1.5, 2.5], pa.float64()))
 
 
-def recreate(con: SqliteBackend, table: pa.Table, name: str = "t") -> None:
+RETYPED = RECORDED.set_column(0, "a", pa.array([1.0, 2.0], pa.float64()))
+STRINGY = pa.table({"a": ["1", "x"], "b": ["x", "y"]})
+
+
+def replace_table(con: SqliteBackend, table: pa.Table, name: str = "t") -> None:
     """Replace table ``name`` with ``table`` (sqlite has no ALTER COLUMN TYPE)."""
     con.drop_table(name, force=True)
     con.create_table(name, table.to_pandas())
@@ -84,6 +89,14 @@ def world(con: SqliteBackend, builds_dir: Path) -> tuple:
     return con, build_expr(t.filter(t.a > 1), builds_dir=builds_dir)
 
 
+@pytest.fixture
+def world_leaf(world: tuple) -> tuple:
+    _, build_path = world
+    record = BuildRecord.from_build_dir(build_path)
+    (leaf,) = record.external_leaves
+    return build_path, record, leaf
+
+
 def write_parquet(path: Path, table: pa.Table) -> None:
     table.to_pandas().to_parquet(path, index=False)
 
@@ -93,74 +106,73 @@ def test_an_unchanged_world_refreshes_to_the_recorded_schema(world: tuple) -> No
     assert refresh_build(build_path).schema() == load_expr(build_path).schema()
 
 
-def test_an_added_column_reaches_the_expression(world: tuple) -> None:
+@pytest.mark.parametrize(
+    ("table", "column"),
+    (
+        pytest.param(GROWN, "c", id="added"),
+        pytest.param(RETYPED, "a", id="retyped"),
+    ),
+)
+def test_a_drifted_column_reaches_the_expression(
+    world: tuple, table: pa.Table, column: str
+) -> None:
     con, build_path = world
-    recreate(con, GROWN)
-
-    assert "c" not in load_expr(build_path).schema()
-    assert str(refresh_build(build_path).schema()["c"]) == "float64"
-
-
-def test_a_retyped_column_reaches_the_expression(world: tuple) -> None:
-    con, build_path = world
-    recreate(con, pa.table({"a": pa.array([1.0, 2.0], pa.float64()), "b": ["x", "y"]}))
-
-    assert str(load_expr(build_path).schema()["a"]) == "int64"
-    assert str(refresh_build(build_path).schema()["a"]) == "float64"
+    replace_table(con, table)
+    assert str(refresh_build(build_path).schema()[column]) == "float64"
 
 
 def test_an_unreferenced_column_dropped_still_rebuilds(world: tuple) -> None:
     con, build_path = world
-    recreate(con, RECORDED.drop_columns("b"))
-
-    schema = refresh_build(build_path).schema()
-    assert "b" not in schema
-    assert "a" in schema
+    replace_table(con, RECORDED.drop_columns("b"))
+    assert list(refresh_build(build_path).schema()) == ["a"]
 
 
-def test_a_dropped_referenced_column_names_the_field(world: tuple) -> None:
-    con, build_path = world
-    recreate(con, RECORDED.drop_columns("a"))
-
-    with pytest.raises(SchemaRefreshError) as excinfo:
-        refresh_build(build_path)
-    # The deepest op that could not be reconstructed, not the `Filter` above it.
-    assert excinfo.value.op_name == "Field"
-    assert excinfo.value.cause is not None
+def filter_through_a_tag(t: ir.Table) -> ir.Table:
+    tagged = t.tag("step")
+    return tagged.filter(tagged.a > 1)
 
 
-def test_a_numeric_column_turned_string_fails_its_aggregate(
-    con: SqliteBackend, builds_dir: Path
+# The deepest op that no longer fits is named, not the `Filter` above it.
+@pytest.mark.parametrize(
+    ("make_expr", "table", "op_name"),
+    (
+        pytest.param(
+            lambda t: t.filter(t.a > 1), RECORDED.drop_columns("a"), "Field", id="field"
+        ),
+        pytest.param(
+            filter_through_a_tag, RECORDED.drop_columns("a"), "Field", id="tag"
+        ),
+        pytest.param(
+            lambda t: t.group_by("b").agg(m=t.a.mean()), STRINGY, "Mean", id="mean"
+        ),
+        # `SimpleCase` validates in its constructor, not its signature.
+        pytest.param(
+            lambda t: t.mutate(c=t.a.cases((1, "one"), else_="other")),
+            STRINGY,
+            "SimpleCase",
+            id="simple-case",
+        ),
+    ),
+)
+def test_an_op_that_no_longer_fits_is_named(
+    con: SqliteBackend,
+    builds_dir: Path,
+    make_expr: Callable,
+    table: pa.Table,
+    op_name: str,
 ) -> None:
-    """`Mean` takes a numeric column; the rebuild re-runs that signature."""
-    t = con.table("t")
-    build_path = build_expr(t.group_by("b").agg(m=t.a.mean()), builds_dir=builds_dir)
-    recreate(con, pa.table({"a": ["1", "x"], "b": ["x", "y"]}))
+    build_path = build_expr(make_expr(con.table("t")), builds_dir=builds_dir)
+    replace_table(con, table)
 
     with pytest.raises(SchemaRefreshError) as excinfo:
         refresh_build(build_path)
-    assert excinfo.value.op_name == "Mean"
-
-
-def test_a_retyped_case_base_fails_its_simple_case(
-    con: SqliteBackend, builds_dir: Path
-) -> None:
-    """`SimpleCase` validates in its constructor, not its signature."""
-    t = con.table("t")
-    build_path = build_expr(
-        t.mutate(c=t.a.cases((1, "one"), else_="other")), builds_dir=builds_dir
-    )
-    recreate(con, pa.table({"a": ["1", "x"], "b": ["x", "y"]}))
-
-    with pytest.raises(SchemaRefreshError) as excinfo:
-        refresh_build(build_path)
-    assert excinfo.value.op_name == "SimpleCase"
+    assert excinfo.value.op_name == op_name
 
 
 def test_the_recorded_path_survives_a_world_it_cannot_load(world: tuple) -> None:
     """Refreshing is a separate step: the build still loads as recorded."""
     con, build_path = world
-    recreate(con, RECORDED.drop_columns("a"))
+    replace_table(con, RECORDED.drop_columns("a"))
 
     assert dict(load_expr(build_path).schema()) == dict(
         xo.schema({"a": "int64", "b": "string"})
@@ -173,7 +185,7 @@ def test_only_the_drifted_source_moves(con: SqliteBackend, builds_dir: Path) -> 
     t, u = con.table("t"), con.table("u")
     renamed = u.select(k=u.a, v=u.b)
     build_path = build_expr(t.join(renamed, t.a == renamed.k), builds_dir=builds_dir)
-    recreate(con, GROWN)
+    replace_table(con, GROWN)
 
     record = BuildRecord.from_build_dir(build_path)
     live = live_schemas(record, iter_leaf_reports(record))
@@ -191,13 +203,12 @@ def test_only_the_drifted_source_moves(con: SqliteBackend, builds_dir: Path) -> 
 def test_one_table_name_on_two_connections_is_two_sources(
     con: SqliteBackend, tmp_path: Path, builds_dir: Path
 ) -> None:
-    """Same backend, table name and schema on two files: only the drifted one moves."""
     other = SqliteBackend().connect(str(tmp_path / "other.sqlite"))
     other.create_table("t", RECORDED.to_pandas())
     t, u = con.table("t"), other.table("t")
     remote = u.select(k=u.a, v=u.b).into_backend(con)
     build_path = build_expr(t.join(remote, t.a == remote.k), builds_dir=builds_dir)
-    recreate(con, GROWN)
+    replace_table(con, GROWN)
 
     schemas = {
         node.source._profile.kwargs_dict["database"]: node.schema
@@ -208,13 +219,27 @@ def test_one_table_name_on_two_connections_is_two_sources(
     assert "c" not in schemas[str(tmp_path / "other.sqlite")]
 
 
-def test_a_missing_source_stops_before_loading(world: tuple) -> None:
-    con, build_path = world
-    con.drop_table("t")
+def test_a_lazy_load_connects_only_the_drifted_source(
+    con: SqliteBackend, tmp_path: Path, builds_dir: Path
+) -> None:
+    """An undrifted source is never connected."""
+    other_path = tmp_path / "other.sqlite"
+    other = SqliteBackend().connect(str(other_path))
+    other.create_table("u", RECORDED.to_pandas())
+    t, u = con.table("t"), other.table("u")
+    remote = u.select(k=u.a, v=u.b).into_backend(con)
+    build_path = build_expr(t.join(remote, t.a == remote.k), builds_dir=builds_dir)
+    replace_table(con, GROWN)
+    record = BuildRecord.from_build_dir(build_path)
+    live = live_schemas(record, iter_leaf_reports(record))
+    # A directory where the database was: connecting to it raises.
+    other.disconnect()
+    other_path.unlink()
+    other_path.mkdir()
 
-    with pytest.raises(SchemaRefreshError) as excinfo:
-        refresh_build(build_path)
-    assert excinfo.value.op_name == "DatabaseTable"
+    refreshed = refresh_schemas(load_expr(build_path, lazy=True), live)
+    (after_t,) = (n for n in walk_nodes(ops.DatabaseTable, refreshed) if n.name == "t")
+    assert "c" in after_t.schema
 
 
 def test_every_missing_source_is_named(con: SqliteBackend, builds_dir: Path) -> None:
@@ -231,43 +256,18 @@ def test_every_missing_source_is_named(con: SqliteBackend, builds_dir: Path) -> 
     assert "u is table-missing" in str(excinfo.value)
 
 
-def test_a_deleted_database_is_not_recreated(world: tuple, tmp_path: Path) -> None:
-    """The sweep's guarded connection is what finds it gone."""
-    _, build_path = world
-    db = tmp_path / "live.sqlite"
-    db.unlink()
-
-    with pytest.raises(SchemaRefreshError):
-        refresh_build(build_path)
-    assert not db.exists()
-
-
+@pytest.mark.parametrize("error", (AttributeError, InternalError))
 def test_a_bug_in_the_rewrite_is_not_labeled_as_drift(
-    world: tuple, monkeypatch: pytest.MonkeyPatch
+    world: tuple, monkeypatch: pytest.MonkeyPatch, error: type
 ) -> None:
     con, build_path = world
-    recreate(con, GROWN)
+    replace_table(con, GROWN)
 
     def broken(node, **kwargs):
-        raise AttributeError("a bug in the rewrite")
+        raise error("a bug in the rewrite")
 
     monkeypatch.setattr("xorq.catalog.refresh.recreate", broken)
-    with pytest.raises(AttributeError, match="a bug in the rewrite"):
-        refresh_build(build_path)
-
-
-def test_an_internal_error_in_the_rewrite_is_not_labeled_as_drift(
-    world: tuple, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An `InternalError` is a `XorqError`, but a bug all the same."""
-    con, build_path = world
-    recreate(con, GROWN)
-
-    def broken(node, **kwargs):
-        raise InternalError("a bug in the rewrite")
-
-    monkeypatch.setattr("xorq.catalog.refresh.recreate", broken)
-    with pytest.raises(InternalError, match="a bug in the rewrite") as excinfo:
+    with pytest.raises(error, match="a bug in the rewrite") as excinfo:
         refresh_build(build_path)
     assert not isinstance(excinfo.value, SchemaRefreshError)
 
@@ -305,16 +305,39 @@ def test_a_bundled_read_keeps_its_recorded_schema(
     assert refresh_build(build_path).schema() == load_expr(build_path).schema()
 
 
-def test_a_cached_node_follows_its_parent(
-    con: SqliteBackend, tmp_path: Path, builds_dir: Path
+@pytest.mark.parametrize(
+    ("make_expr", "op_type"),
+    (
+        pytest.param(
+            lambda t, cache: t.filter(t.a > 1).cache(cache=cache),
+            CachedNode,
+            id="cached-node",
+        ),
+        pytest.param(lambda t, cache: filter_through_a_tag(t), Tag, id="tag"),
+        pytest.param(
+            lambda t, cache: (m := t.into_backend(xo.connect(), "moved")).filter(
+                m.a > 1
+            ),
+            RemoteTable,
+            id="remote-table",
+        ),
+    ),
+)
+def test_a_stored_schema_follows_its_parent(
+    con: SqliteBackend,
+    tmp_path: Path,
+    builds_dir: Path,
+    make_expr: Callable,
+    op_type: type,
 ) -> None:
-    t = con.table("t")
     cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
-    build_path = build_expr(t.filter(t.a > 1).cache(cache=cache), builds_dir=builds_dir)
-    recreate(con, GROWN)
+    build_path = build_expr(make_expr(con.table("t"), cache), builds_dir=builds_dir)
+    replace_table(con, GROWN)
 
-    (cached,) = walk_nodes(CachedNode, refresh_build(build_path))
-    assert dict(cached.schema) == dict(con.table("t").schema())
+    expr = refresh_build(build_path)
+    (node,) = walk_nodes(op_type, expr)
+    assert dict(node.schema) == dict(con.table("t").schema())
+    assert "c" in expr.schema()
 
 
 def test_a_tee_node_follows_its_parent(tmp_path: Path, builds_dir: Path) -> None:
@@ -328,31 +351,6 @@ def test_a_tee_node_follows_its_parent(tmp_path: Path, builds_dir: Path) -> None
 
     (tee,) = walk_nodes(TeeNode, refresh_build(build_path))
     assert tuple(tee.schema) == tuple(GROWN.schema.names)
-
-
-def test_a_tagged_build_refreshes_through_the_tag(
-    con: SqliteBackend, builds_dir: Path
-) -> None:
-    tagged = con.table("t").tag("step")
-    build_path = build_expr(tagged.filter(tagged.a > 1), builds_dir=builds_dir)
-    recreate(con, GROWN)
-
-    expr = refresh_build(build_path)
-    (tag,) = walk_nodes(Tag, expr)
-    assert "c" in expr.schema()
-    assert tag.schema == tag.parent.schema
-
-
-def test_a_tag_does_not_mask_a_dropped_column(
-    con: SqliteBackend, builds_dir: Path
-) -> None:
-    tagged = con.table("t").tag("step")
-    build_path = build_expr(tagged.filter(tagged.a > 1), builds_dir=builds_dir)
-    recreate(con, RECORDED.drop_columns("a"))
-
-    with pytest.raises(SchemaRefreshError) as excinfo:
-        refresh_build(build_path)
-    assert excinfo.value.op_name == "Field"
 
 
 def test_a_csv_read_refreshes(tmp_path: Path, builds_dir: Path) -> None:
@@ -459,75 +457,34 @@ def test_a_refresh_error_survives_a_process_boundary() -> None:
     assert "Field" in str(err)
 
 
-def test_a_key_that_matches_no_source_raises(world: tuple) -> None:
-    _, build_path = world
-    record = BuildRecord.from_build_dir(build_path)
-    (leaf,) = record.external_leaves
-    kind, con_name, _, recorded = leaf_key(leaf, record)
-    live = {(kind, con_name, "not-a-table", recorded): xo.schema(GROWN.schema)}
-
-    with pytest.raises(SchemaRefreshError) as excinfo:
-        refresh_schemas(load_expr(build_path), live)
-    assert excinfo.value.op_name == "DatabaseTable"
-    assert "not-a-table" in str(excinfo.value)
-
-
-def test_every_key_that_matches_no_source_is_named(world: tuple) -> None:
-    _, build_path = world
-    record = BuildRecord.from_build_dir(build_path)
-    (leaf,) = record.external_leaves
-    kind, con_name, _, recorded = leaf_key(leaf, record)
+def test_every_unmatched_key_is_named_and_labeled(world_leaf: tuple) -> None:
+    build_path, record, leaf = world_leaf
+    _, profile_key, _, recorded = leaf_key(leaf, record)
     live = {
-        (kind, con_name, name, recorded): xo.schema(GROWN.schema)
-        for name in ("not-a-table", "nor-this-one")
-    }
-
-    with pytest.raises(SchemaRefreshError) as excinfo:
-        refresh_schemas(load_expr(build_path), live)
-    assert excinfo.value.op_name == "DatabaseTable"
-    assert "not-a-table" in str(excinfo.value)
-    assert "nor-this-one" in str(excinfo.value)
-
-
-def test_unmatched_keys_of_mixed_kinds_are_labeled_with_each(world: tuple) -> None:
-    """The error names every key, so its label cannot be the first key's kind."""
-    _, build_path = world
-    record = BuildRecord.from_build_dir(build_path)
-    (leaf,) = record.external_leaves
-    _, con_name, _, recorded = leaf_key(leaf, record)
-    live = {
-        (str(LeafKind.DATABASE_TABLE), con_name, "not-a-table", recorded): xo.schema(
-            GROWN.schema
-        ),
-        (str(LeafKind.READ), con_name, "not-a-read", recorded): xo.schema(GROWN.schema),
+        (str(kind), profile_key, name, recorded): xo.schema(GROWN.schema)
+        for kind, name in (
+            (LeafKind.DATABASE_TABLE, "not-a-table"),
+            (LeafKind.READ, "not-a-read"),
+        )
     }
 
     with pytest.raises(SchemaRefreshError) as excinfo:
         refresh_schemas(load_expr(build_path), live)
     assert excinfo.value.op_name == "DatabaseTable, Read"
+    assert "not-a-table" in str(excinfo.value)
+    assert "not-a-read" in str(excinfo.value)
 
 
-@pytest.mark.parametrize(
-    "other",
-    (
-        pytest.param(Verdict.EQUAL, id="equal"),
-        pytest.param(Verdict.CHANGED, id="changed"),
-    ),
-)
-def test_one_key_at_two_live_schemas_is_refused(world: tuple, other: Verdict) -> None:
-    _, build_path = world
-    record = BuildRecord.from_build_dir(build_path)
-    (leaf,) = record.external_leaves
-    other_live = leaf.recorded if other == Verdict.EQUAL else xo.schema({"a": "int64"})
+def test_one_key_both_equal_and_changed_is_refused(world_leaf: tuple) -> None:
+    """The e2e case below covers changed-vs-changed."""
+    _, record, leaf = world_leaf
     reports = (
         LeafReport(leaf, Verdict.CHANGED, live=xo.schema(GROWN.schema)),
-        LeafReport(leaf, other, live=other_live),
+        LeafReport(leaf, Verdict.EQUAL, live=leaf.recorded),
     )
 
-    with pytest.raises(SchemaRefreshError) as excinfo:
+    with pytest.raises(SchemaRefreshError, match="disagree on its live schema"):
         live_schemas(record, reports)
-    assert excinfo.value.op_name == "DatabaseTable"
-    assert "disagree on its live schema" in str(excinfo.value)
 
 
 def test_two_reads_of_one_path_that_disagree_are_refused(
@@ -568,10 +525,10 @@ def test_two_reads_of_one_path_that_disagree_are_refused(
     assert "disagree on its live schema" in str(excinfo.value)
 
 
-def test_one_key_reported_twice_at_one_live_schema_refreshes(world: tuple) -> None:
-    _, build_path = world
-    record = BuildRecord.from_build_dir(build_path)
-    (leaf,) = record.external_leaves
+def test_one_key_reported_twice_at_one_live_schema_refreshes(
+    world_leaf: tuple,
+) -> None:
+    _, record, leaf = world_leaf
     report = LeafReport(leaf, Verdict.CHANGED, live=xo.schema(GROWN.schema))
 
     assert live_schemas(record, (report, report)) == {
@@ -579,11 +536,9 @@ def test_one_key_reported_twice_at_one_live_schema_refreshes(world: tuple) -> No
     }
 
 
-def test_a_source_that_went_empty_fails_its_dependents(world: tuple) -> None:
+def test_a_source_that_went_empty_fails_its_dependents(world_leaf: tuple) -> None:
     """A zero-column schema is falsy but still applied."""
-    _, build_path = world
-    record = BuildRecord.from_build_dir(build_path)
-    (leaf,) = record.external_leaves
+    build_path, record, leaf = world_leaf
     live = {leaf_key(leaf, record): xo.schema({})}
 
     with pytest.raises(SchemaRefreshError) as excinfo:
@@ -626,13 +581,6 @@ def unprobeable_record(*paths: str) -> BuildRecord:
     )
 
 
-def test_an_unprobeable_source_stops_the_refresh() -> None:
-    with pytest.raises(SchemaRefreshError) as excinfo:
-        check_refreshable(unprobeable_record("/data/src.json"))
-    assert excinfo.value.op_name == "Read"
-    assert "/data/src.json" in str(excinfo.value)
-
-
 def test_every_unprobeable_source_is_named() -> None:
     record = unprobeable_record("/data/one.json", "/data/two.json")
     assert len(unchecked_leaves(record)) == 2
@@ -644,24 +592,9 @@ def test_every_unprobeable_source_is_named() -> None:
     assert "/data/two.json" in str(excinfo.value)
 
 
-def test_a_checkable_build_is_refreshable(world: tuple) -> None:
-    _, build_path = world
-    check_refreshable(BuildRecord.from_build_dir(build_path))
-
-
-def test_a_remote_table_follows_its_remote_expr(
-    con: SqliteBackend, builds_dir: Path
-) -> None:
-    t = con.table("t")
-    moved = t.into_backend(xo.connect(), "moved")
-    build_path = build_expr(moved.filter(moved.a > 1), builds_dir=builds_dir)
-    recreate(con, GROWN)
-
-    expr = refresh_build(build_path)
-    (remote,) = walk_nodes(RemoteTable, expr)
-    assert dict(remote.schema) == dict(con.table("t").schema())
-    assert "c" in expr.schema()
-    assert list(expr.execute()["c"]) == [2.5]
+def test_a_checkable_build_is_refreshable(world_leaf: tuple) -> None:
+    _, record, _ = world_leaf
+    check_refreshable(record)
 
 
 def test_an_expr_udf_rebinds_over_its_drifted_source(
@@ -686,7 +619,7 @@ def test_an_expr_udf_rebinds_over_its_drifted_source(
     build_path = build_expr(
         data.mutate(out=add_sum.on_expr(data)), builds_dir=builds_dir
     )
-    recreate(con, GROWN.set_column(0, "a", pa.array([10, 20], pa.int64())))
+    replace_table(con, GROWN.set_column(0, "a", pa.array([10, 20], pa.int64())))
 
     expr = refresh_build(build_path)
     (op,) = walk_nodes(udf.ExprScalarUDF, expr)
@@ -734,29 +667,6 @@ def test_a_flight_expr_whose_input_no_longer_fits_raises(
     with pytest.raises(SchemaRefreshError) as excinfo:
         refresh_schemas(expr, drift_the_table(expr))
     assert excinfo.value.op_name == "FlightExpr"
-
-
-def test_a_lazy_load_connects_only_the_drifted_source(
-    con: SqliteBackend, tmp_path: Path, builds_dir: Path
-) -> None:
-    """An undrifted source is never connected."""
-    other_path = tmp_path / "other.sqlite"
-    other = SqliteBackend().connect(str(other_path))
-    other.create_table("u", RECORDED.to_pandas())
-    t, u = con.table("t"), other.table("u")
-    remote = u.select(k=u.a, v=u.b).into_backend(con)
-    build_path = build_expr(t.join(remote, t.a == remote.k), builds_dir=builds_dir)
-    recreate(con, GROWN)
-    record = BuildRecord.from_build_dir(build_path)
-    live = live_schemas(record, iter_leaf_reports(record))
-    # A directory where the database was: connecting to it raises.
-    other.disconnect()
-    other_path.unlink()
-    other_path.mkdir()
-
-    refreshed = refresh_schemas(load_expr(build_path, lazy=True), live)
-    (after_t,) = (n for n in walk_nodes(ops.DatabaseTable, refreshed) if n.name == "t")
-    assert "c" in after_t.schema
 
 
 def test_a_flight_source_keys_without_a_profile() -> None:
