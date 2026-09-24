@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pickle
-import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -331,21 +330,22 @@ def test_a_refreshed_build_hashes_like_a_fresh_build(world: tuple) -> None:
     assert get_expr_hash(refresh_build(build_path)) == get_expr_hash(t.filter(t.a > 1))
 
 
-@pytest.mark.postgres
-def test_a_schema_qualified_table_refreshes(pg, builds_dir: Path) -> None:
-    """The recorded and loaded spellings of a namespaced name must agree."""
-    schema = f"refresh_{uuid.uuid4().hex[:8]}"
-    pg.raw_sql(f"CREATE SCHEMA {schema}").close()
-    try:
-        pg.create_table("t", RECORDED.to_pandas(), database=schema)
-        t = pg.table("t", database=schema)
-        build_path = build_expr(t.filter(t.a > 1), builds_dir=builds_dir)
-        pg.drop_table("t", database=schema)
-        pg.create_table("t", GROWN.to_pandas(), database=schema)
+def test_a_namespaced_table_keys_like_its_leaf(
+    con: SqliteBackend, builds_dir: Path
+) -> None:
+    """The recorded and loaded spellings of a dotted name must agree."""
+    table = recreate(con.table("t").op(), namespace=ops.Namespace(database="s"))
+    build_path = build_expr(table.to_expr(), builds_dir=builds_dir)
+    record = BuildRecord.from_build_dir(build_path)
+    (leaf,) = record.external_leaves
+    (loaded,) = (
+        node
+        for node in walk_nodes(ops.DatabaseTable, load_expr(build_path))
+        if type(node) is ops.DatabaseTable
+    )
 
-        assert list(refresh_build(build_path).execute()["c"]) == [2.5]
-    finally:
-        pg.raw_sql(f"DROP SCHEMA {schema} CASCADE").close()
+    assert leaf.name == "s.t"
+    assert op_key(loaded) == leaf_key(leaf, record)
 
 
 def test_a_caller_owned_con_cache_is_left_open(world: tuple) -> None:
