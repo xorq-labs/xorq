@@ -113,7 +113,7 @@ class SchemaRefreshError(TranslationError):
             pickle.loads(pickle.dumps(cause))
         except Exception:
             cause = RefreshCause(type(cause).__name__, str(cause))
-        return (type(self), (op_name, cause))
+        return (type(self), (op_name, cause), self.__dict__ or None)
 
     def __str__(self) -> str:
         op_name, cause = self.args

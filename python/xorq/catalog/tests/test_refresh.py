@@ -31,7 +31,7 @@ from xorq.catalog.refresh import (
     refresh_schemas,
     with_live_schema,
 )
-from xorq.common.exceptions import InternalError, SchemaRefreshError
+from xorq.common.exceptions import InternalError, RefreshCause, SchemaRefreshError
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
@@ -41,6 +41,7 @@ from xorq.common.utils.defer_utils import (
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import (
     CachedNode,
+    FlightExpr,
     FlightUDXF,
     Read,
     RemoteTable,
@@ -56,6 +57,7 @@ from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.collections import FrozenDict
+from xorq.vendor.ibis.expr.types import Expr
 from xorq.writes import ParquetWriteThrough
 
 
@@ -527,8 +529,54 @@ def test_a_refresh_error_over_a_validation_error_survives_a_process_boundary() -
     with pytest.raises(ValidationError) as excinfo:
         ops.Mean(ops.Literal("x", dt.string))
     error = SchemaRefreshError("Mean", excinfo.value)
+    error.add_note("while refreshing")
 
-    assert str(pickle.loads(pickle.dumps(error))) == str(error)
+    restored = pickle.loads(pickle.dumps(error))
+    assert isinstance(restored, SchemaRefreshError)
+    assert restored.op_name == "Mean"
+    assert isinstance(restored.cause, RefreshCause)
+    assert restored.cause.type_name == type(excinfo.value).__name__
+    assert restored.__notes__ == ["while refreshing"]
+    assert str(restored) == str(error)
+
+
+def test_an_unregistered_expr_bearing_op_is_refused(world_leaf: tuple) -> None:
+    """`replace_nodes`'s tripwire: its drifted payload would stay stale."""
+
+    class UnregisteredExprHolder(ops.Node):
+        payload: Expr
+
+    build_path, record, leaf = world_leaf
+    live = {leaf_key(leaf, record): xo.schema(GROWN.schema)}
+    node = UnregisteredExprHolder(payload=load_expr(build_path))
+
+    with pytest.raises(ValueError, match="not registered in OPAQUE_SPECS"):
+        refresh_schemas(node, live)
+
+
+def test_an_unrecorded_expr_arg_of_a_registered_op_is_refused(
+    world_leaf: tuple,
+) -> None:
+    class SneakyFlightExpr(FlightExpr):
+        payload: Expr = None
+
+    build_path, record, leaf = world_leaf
+    live = {leaf_key(leaf, record): xo.schema(GROWN.schema)}
+    con = xo.connect()
+    t = con.register(RECORDED, "t")
+    node = SneakyFlightExpr(
+        name="sneaky",
+        schema=t.schema(),
+        source=con,
+        input_expr=t,
+        unbound_expr=xo.table(t.schema(), name="u"),
+        make_server=toolz.identity,
+        make_connection=toolz.identity,
+        payload=load_expr(build_path),
+    )
+
+    with pytest.raises(ValueError, match="NON_EDGE_EXPR_FIELDS"):
+        refresh_schemas(node, live)
 
 
 def test_every_unmatched_key_is_named_and_labeled(world_leaf: tuple) -> None:
