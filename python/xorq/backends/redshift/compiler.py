@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from functools import partial
 
+import sqlglot as sg
 import sqlglot.expressions as sge
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.postgres.compiler import PostgresCompiler
-from xorq.vendor.ibis.backends.sql.compilers.base import NULL, AggGen
+from xorq.vendor.ibis.backends.sql.compilers.base import NULL, STAR, AggGen
+from xorq.vendor.ibis.backends.sql.datatypes import RedshiftType
 from xorq.vendor.ibis.backends.sql.dialects import Redshift
 
 
@@ -25,6 +27,24 @@ _RANKING_OPS = (
     ops.CumeDist,
     ops.NTile,
 )
+
+# ``LAG``/``LEAD`` are *offset* functions, not ranking ones, and Redshift
+# documents their syntax with no frame clause at all -- unlike ``FIRST_VALUE``,
+# ``LAST_VALUE`` and ``NTH_VALUE``, whose documented syntax does include one.
+# Suppressing the frame here cannot change a result: an offset function reads a
+# row at a fixed displacement from the current one and is frame-insensitive in
+# every engine that accepts the clause, PostgreSQL included.
+#
+# UNVERIFIED against a live warehouse. This one rests on AWS's documented
+# grammar rather than on an observed rejection, which is weaker evidence than
+# the rest of this module carries; the frame it removes is one no user asked
+# for, so the downside of being wrong is bounded.
+_OFFSET_OPS = (
+    ops.Lag,
+    ops.Lead,
+)
+
+_NO_FRAME_OPS = _RANKING_OPS + _OFFSET_OPS
 
 
 class RedshiftCompiler(PostgresCompiler):
@@ -52,6 +72,25 @@ class RedshiftCompiler(PostgresCompiler):
     __slots__ = ()
 
     dialect = Redshift
+
+    # ``TYPE_MAPPERS`` is keyed by dialect name, so retargeting ``dialect``
+    # above also retargets which mapper ``Schema.to_sqlglot`` reaches. The
+    # compiler's own ``type_mapper`` is a *separate* binding, inherited as
+    # ``PostgresType`` from the vendored postgres compiler, and it is the one
+    # ``Backend.get_schema`` / ``_get_schema_using_query`` use to parse type
+    # strings coming back from the warehouse. Setting only the first left the
+    # read path on PostgreSQL's vocabulary: ``PostgresType.from_string(
+    # "varbyte")`` is ``unknown`` where ``RedshiftType.from_string("varbyte")``
+    # is ``binary``, so a ``VARBYTE`` column round-tripped as ``unknown``.
+    type_mapper = RedshiftType
+
+    # ``first`` is PostgreSQL's spelling and Redshift has no such aggregate --
+    # ``visit_First`` below raises on exactly that. Inheriting this entry meant
+    # ``.arbitrary()`` compiled to ``FIRST(x)`` anyway, because
+    # ``__init_subclass__`` generates ``visit_Arbitrary`` from ``SIMPLE_OPS``
+    # and that generation happens whether or not a sibling method raises.
+    # Redshift does support ``ANY_VALUE``.
+    SIMPLE_OPS = PostgresCompiler.SIMPLE_OPS | {ops.Arbitrary: "any_value"}
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
     # fallback: with supports_filter=False it rewrites `agg(x, where=c)` to
@@ -92,6 +131,144 @@ class RedshiftCompiler(PostgresCompiler):
             arg = self.if_(where, arg, NULL)
         return self.f.count(sge.Distinct(expressions=[arg]))
 
+    def visit_CountStar(self, op, *, arg, where):
+        """``COUNT(CASE WHEN c THEN 1 END)``, not ``COUNT(CASE WHEN c THEN *)``.
+
+        The same ``supports_filter=False`` fallback that ``visit_CountDistinct``
+        works around also wraps ``STAR``, and ``THEN *`` is not a legal ``CASE``
+        branch in any dialect. This one is worse than the ``DISTINCT`` case
+        because ``count(where=...)`` is the single most common ``where=`` idiom
+        in the codebase, and because the pre-change spelling
+        (``COUNT(*) FILTER (WHERE c)``) was at least *parseable* -- so the
+        ``AggGen`` flip turned a Redshift-specific rejection into a universal
+        syntax error.
+
+        Counting a non-NULL constant is equivalent: ``COUNT(expr)`` skips NULLs,
+        so the rows surviving the predicate are exactly the rows counted.
+        """
+        if where is None:
+            return self.f.count(STAR)
+        return self.f.count(self.if_(where, 1, NULL))
+
+    def visit_CountDistinctStar(self, op, *, arg, where):
+        """``Table.nunique(where=...)``, which reaches the same trap as
+        ``visit_CountDistinct`` through a door that override does not cover.
+
+        The postgres implementation (``compilers/postgres.py:226``) builds a row
+        constructor and hands ``sge.Distinct`` to ``AggGen``, so with
+        ``supports_filter=False`` the ``DISTINCT`` lands inside a ``CASE`` --
+        the exact construct ``visit_CountDistinct``'s docstring explains is
+        invalid everywhere. Fixed the same way: the conditional goes *inside*
+        the ``DISTINCT``.
+
+        The row-constructor spelling itself is inherited from PostgreSQL and is
+        not claimed here to run on Redshift; that question predates this module
+        and is unchanged by this override. What is fixed is that the emitted
+        string is now structurally valid rather than unparsable.
+        """
+        row = sge.Tuple(
+            expressions=list(
+                map(partial(sg.column, quoted=self.quoted), op.arg.schema.keys())
+            )
+        )
+        if where is not None:
+            row = self.if_(where, row, NULL)
+        return self.f.count(sge.Distinct(expressions=[row]))
+
+    def visit_Quantile(self, op, *, arg, quantile, where):
+        """Ordered-set aggregates never reach ``AggGen``, so ``supports_filter``
+        does not reach them either.
+
+        ``visit_Quantile``, ``visit_Median``, ``visit_ApproxMedian`` and the
+        multi/approx aliases all build ``sge.Filter`` by hand
+        (``compilers/postgres.py:245``), which is why flipping ``AggGen`` left
+        ``PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY x) FILTER (WHERE c)``
+        emitting byte-identical PostgreSQL. The predicate folds into the
+        ordered argument instead: ``PERCENTILE_CONT`` ignores NULLs, so
+        nulling-out the filtered rows removes them from the ordering set
+        exactly as ``FILTER`` removed them from the input.
+        """
+        suffix = "cont" if op.arg.dtype.is_numeric() else "disc"
+        if where is not None:
+            arg = self.if_(where, arg, NULL)
+        return sge.WithinGroup(
+            this=self.f[f"percentile_{suffix}"](quantile),
+            expression=sge.Order(expressions=[sge.Ordered(this=arg)]),
+        )
+
+    # Rebound rather than inherited: the postgres aliases bind to *that* class's
+    # function object at class-creation time, so they would keep the
+    # ``sge.Filter`` version even with the override above in place.
+    visit_MultiQuantile = visit_Quantile
+    visit_ApproxQuantile = visit_Quantile
+    visit_ApproxMultiQuantile = visit_Quantile
+
+    def visit_Mode(self, op, *, arg, where):
+        """``visit_Quantile``'s problem, in the other ordered-set aggregate.
+
+        Whether Redshift has ``MODE() WITHIN GROUP`` at all is a separate and
+        still-open question -- it is not in AWS's documented aggregate list.
+        This override deliberately does not answer it: it removes the
+        ``FILTER (WHERE ...)`` clause that is known-rejected, and leaves the
+        function name exactly as inherited.
+        """
+        if where is not None:
+            arg = self.if_(where, arg, NULL)
+        return sge.WithinGroup(
+            this=self.f.mode(),
+            expression=sge.Order(expressions=[sge.Ordered(this=arg)]),
+        )
+
+    def visit_ArgMinMax(self, op, *, arg, key, where, desc: bool):
+        """``argmin``/``argmax`` have no Redshift lowering at all.
+
+        The postgres construction is ``(ARRAY_AGG(x ORDER BY k DESC))[1]``, and
+        Redshift has no ``ARRAY_AGG`` -- its only aggregate-to-many function is
+        ``LISTAGG``, which returns a string. So the inherited lowering was
+        already unrunnable here.
+
+        The ``AggGen`` flip then made it unparsable as well, and this is the
+        clearest demonstration of why that flag is not a local change:
+        ``visit_ArgMinMax`` synthesizes its own non-``None`` ``where`` for the
+        null-guards, so *every* ``argmax`` -- with or without a user predicate
+        -- took the fallback, which wrapped an ``sge.Ordered`` in a ``CASE`` and
+        produced ``CASE WHEN ... THEN x ORDER BY k DESC ELSE NULL END``.
+
+        Raising is consistent with ``visit_First``: a construct with no
+        lowering fails at compile time, where the message can name the
+        alternative, rather than at execution time in the warehouse.
+        """
+        raise com.UnsupportedOperationError(
+            "Redshift has no `array_agg`, so `argmin`/`argmax` cannot be "
+            "lowered into the aggregate position this construction requires. "
+            "Express the intent as an explicit `row_number()` window ordered "
+            "by the key and filtered to 1 instead."
+        )
+
+    def visit_GroupConcat(self, op, *, arg, sep, order_by, where):
+        """``LISTAGG``, with the predicate on the value and the ordering outside.
+
+        Two defects, both from the generated ``SIMPLE_OPS`` reduction impl
+        (``compilers/base.py:446``) handing *every* argument to ``AggGen``:
+
+        * ``where=`` CASE-wrapped the **separator** as well as the value, and
+          Redshift requires ``LISTAGG``'s delimiter to be a constant.
+        * ``order_by=`` went inside the argument list as PostgreSQL's
+          ``string_agg(x, sep ORDER BY k)``. Redshift spells this
+          ``LISTAGG(x, sep) WITHIN GROUP (ORDER BY k)``.
+
+        Only the value is conditional; the separator is passed through
+        untouched.
+        """
+        if where is not None:
+            arg = self.if_(where, arg, NULL)
+        out = self.f.group_concat(arg, sep)
+        if order_by:
+            out = sge.WithinGroup(
+                this=out, expression=sge.Order(expressions=list(order_by))
+            )
+        return out
+
     def visit_DateFromYMD(self, op, *, year, month, day):
         """Redshift has no ``make_date``.
 
@@ -114,16 +291,18 @@ class RedshiftCompiler(PostgresCompiler):
         )
 
     def visit_WindowFunction(self, op, *, how, func, start, end, group_by, order_by):
-        """Drop the frame clause for ranking functions only.
+        """Drop the frame clause where Redshift's grammar has no slot for one.
 
         :5475 in the transcript records that both the windowed and the
         unwindowed spellings emitted ``ROWS BETWEEN UNBOUNDED PRECEDING AND
         UNBOUNDED FOLLOWING``, so there was no API-level way for a user to avoid
         this -- it had to be fixed in the compiler.
 
-        Scoped to ranking functions deliberately. Suppressing the frame
-        everywhere would silently change the result of every cumulative
-        aggregate, turning a loud error into wrong numbers.
+        Scoped deliberately to the ranking family plus ``LAG``/``LEAD``.
+        Suppressing the frame everywhere would silently change the result of
+        every cumulative aggregate, turning a loud error into wrong numbers.
+        Every op in ``_NO_FRAME_OPS`` is one whose value cannot depend on the
+        frame, so removing it is observable only in the emitted string.
         """
         window = super().visit_WindowFunction(
             op,
@@ -134,7 +313,7 @@ class RedshiftCompiler(PostgresCompiler):
             group_by=group_by,
             order_by=order_by,
         )
-        if isinstance(op.func, _RANKING_OPS):
+        if isinstance(op.func, _NO_FRAME_OPS):
             window.set("spec", None)
         return window
 

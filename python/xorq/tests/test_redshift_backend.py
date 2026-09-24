@@ -505,7 +505,7 @@ def test_ingest_modes_are_the_adbc_ingest_modes():
 def test_ingest_ddl_pins_two_unverified_redshift_type_widths(monkeypatch):
     """Not a passing feature -- a tripwire on a live-session checklist item.
 
-    The ``CREATE`` is rendered under the postgres dialect, and two of its types
+    The ``CREATE`` is rendered under the Redshift dialect, and two of its types
     are documented Redshift divergences that no offline test can settle:
 
     * bare ``VARCHAR`` is unbounded in PostgreSQL but documented as

@@ -27,10 +27,12 @@ import sys
 import textwrap
 
 import pytest
+import sqlglot
 
 import xorq.api as xo
 import xorq.common.exceptions as com
 from xorq.backends.redshift.compiler import compiler as redshift_compiler
+from xorq.vendor.ibis.backends.sql.datatypes import PostgresType, RedshiftType
 
 
 def to_sql(expr):
@@ -152,52 +154,201 @@ def test_distinct_on_raises_rather_than_emitting_first(t):
         to_sql(t.distinct(on=["grp"], keep="first"))
 
 
-def test_transforms_do_not_depend_on_import_order():
-    """The hazard the ``RedshiftCompiler`` docstring named, pinned as a test.
+def test_sqlglot_redshift_is_built_before_the_postgres_transforms_mutation():
+    """The eager import in ``dialects.py`` is the whole of the protection.
 
-    Verified 2026-09-23: sqlglot's ``Redshift.Generator`` copies
-    ``Postgres.Generator.TRANSFORMS`` at class-creation time, while
-    ``xorq.vendor.ibis.backends.sql.dialects`` mutates that same dict in place
-    afterwards. Importing sqlglot's Redshift *before* xorq's dialects yielded
-    190 transforms; importing it *after* yielded 195. Same process, same
-    versions, different dialect behaviour -- decided purely by which module
-    loaded first.
+    sqlglot's ``Redshift.Generator`` copies ``Postgres.Generator.TRANSFORMS`` at
+    class-creation time; ``dialects.py`` mutates that same dict in place at
+    module level. Whichever runs first wins. ``dialects.py`` therefore imports
+    sqlglot's Redshift at the top of the file -- *above* the mutation -- which
+    forces the copy to be taken from the pre-mutation dict no matter what any
+    other module does.
 
-    xorq's dialect is order-independent because ``dialects.py`` imports
-    sqlglot's Redshift at module top, forcing that class to be built before the
-    mutation runs, and then copies the dict explicitly. This test runs the two
-    orders in separate subprocesses and asserts they agree; it fails if anyone
-    reintroduces a dialect that inherits TRANSFORMS lazily.
+    The predecessor of this test ran the two import orders in subprocesses and
+    compared them. It could not fail: both arms imported
+    ``xorq.vendor.ibis.backends.sql.dialects``, whose top-level import forces
+    sqlglot's class in *both* orders, so the two arms were the same experiment
+    run twice. Measured against the unfixed compiler it was green.
 
-    It must import the *compiler*, not ``xorq.api``: importing ``xorq.api``
-    alone does not trigger the in-place mutation, so a version of this test
-    written against it would get the same answer in both arms and pass
-    vacuously.
+    This asserts the protective property directly instead. Remove the eager
+    import from ``dialects.py`` and the first assertion fails; move the
+    mutation above it and the second does. Counterfactual confirmed by
+    mutating ``Postgres.Generator.TRANSFORMS`` before importing
+    ``sqlglot.dialects.redshift`` in a scratch process: all five names leak.
     """
     probe = textwrap.dedent(
         """
         import sys
-        order = sys.argv[1]
-        if order == "sqlglot-first":
-            import sqlglot.dialects.redshift  # noqa: F401
-            import xorq.vendor.ibis.backends.sql.dialects  # noqa: F401
-        else:
-            import xorq.vendor.ibis.backends.sql.dialects  # noqa: F401
-            import sqlglot.dialects.redshift  # noqa: F401
-        from xorq.backends.redshift.compiler import compiler
-        names = sorted(k.__name__ for k in compiler.dialect.Generator.TRANSFORMS)
-        print(len(names))
-        print(",".join(names))
+
+        import sqlglot.expressions as sge
+
+        import xorq.vendor.ibis.backends.sql.dialects  # noqa: F401
+
+        assert "sqlglot.dialects.redshift" in sys.modules, "eager-import-gone"
+
+        from sqlglot.dialects.redshift import Redshift as SqlglotRedshift
+
+        postgres_only = (
+            sge.Split,
+            sge.RegexpSplit,
+            sge.DateFromParts,
+            sge.ArraySize,
+            sge.Pow,
+        )
+        print(
+            ",".join(
+                sorted(
+                    k.__name__
+                    for k in postgres_only
+                    if k in SqlglotRedshift.Generator.TRANSFORMS
+                )
+            )
+        )
         """
     )
+    out = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "", (
+        "postgres-only renames leaked into sqlglot's own Redshift generator: "
+        f"{out.stdout.strip()}"
+    )
 
-    def transforms_under(order):
-        out = subprocess.run(
-            [sys.executable, "-c", probe, order],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return out.stdout.strip()
 
-    assert transforms_under("sqlglot-first") == transforms_under("xorq-first")
+def test_count_where_does_not_put_star_inside_a_case(t):
+    """``COUNT(CASE WHEN c THEN * ELSE NULL END)`` is not valid anywhere.
+
+    ``supports_filter=False`` makes ``AggGen`` wrap every argument in a
+    ``CASE``, and ``visit_CountStar``'s argument is ``STAR``. This is the most
+    frequently reached ``where=`` path in the codebase, and unlike the
+    ``FILTER`` spelling it replaced, it does not even parse.
+    """
+    sql = to_sql(t.group_by("grp").agg(n=t.count(where=t.flag)))
+    assert "THEN *" not in sql
+    assert "FILTER(" not in sql
+    assert "COUNT(CASE WHEN" in sql
+    sqlglot.parse_one(sql, dialect="redshift")
+
+
+def test_count_star_without_a_predicate_stays_count_star(t):
+    """The fix above must not cost the unfiltered spelling its ``COUNT(*)``."""
+    assert "COUNT(*)" in to_sql(t.group_by("grp").agg(n=t.count()))
+
+
+def test_table_nunique_where_keeps_distinct_outside_the_case(t):
+    """``Table.nunique(where=...)`` reaches ``visit_CountDistinctStar``.
+
+    That is a *different* method from ``visit_CountDistinct``, inherited
+    unchanged from the postgres compiler, and it hit the identical
+    ``DISTINCT``-inside-``CASE`` trap the column-level override exists to
+    prevent.
+    """
+    sql = to_sql(t.aggregate(n=t.nunique(where=t.flag)))
+    assert "COUNT(DISTINCT CASE WHEN" in sql
+    assert "THEN DISTINCT" not in sql
+    sqlglot.parse_one(sql, dialect="redshift")
+
+
+def test_arbitrary_emits_any_value_not_first(t):
+    """``ops.Arbitrary: "first"`` is inherited from the postgres ``SIMPLE_OPS``.
+
+    ``__init_subclass__`` generates ``visit_Arbitrary`` from that mapping, so
+    ``.arbitrary()`` emitted the very ``FIRST()`` that ``visit_First`` raises
+    on -- a method raising does not stop a sibling being generated.
+    """
+    sql = to_sql(t.group_by("grp").agg(a=t.amt.arbitrary()))
+    assert "ANY_VALUE(" in sql
+    assert "FIRST(" not in sql
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.amt.median(where=t.flag), id="median"),
+        pytest.param(lambda t: t.amt.quantile(0.9, where=t.flag), id="quantile"),
+        pytest.param(lambda t: t.amt.approx_median(where=t.flag), id="approx_median"),
+        pytest.param(lambda t: t.grp.mode(where=t.flag), id="mode"),
+    ],
+)
+def test_ordered_set_aggregates_emit_no_filter_clause(t, build):
+    """Ordered-set aggregates build ``sge.Filter`` by hand and never see AggGen.
+
+    So ``supports_filter=False`` does not reach them: these four kept emitting
+    byte-identical PostgreSQL after the flag flip. The predicate belongs inside
+    the ``WITHIN GROUP`` ordering instead, where NULL-skipping makes it
+    equivalent.
+    """
+    sql = to_sql(t.group_by("grp").agg(q=build(t)))
+    assert "FILTER(" not in sql
+    assert "WITHIN GROUP (ORDER BY CASE WHEN" in sql
+    sqlglot.parse_one(sql, dialect="redshift")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.amt.argmax(t.id), id="argmax"),
+        pytest.param(lambda t: t.amt.argmin(t.id), id="argmin"),
+        pytest.param(lambda t: t.amt.argmax(t.id, where=t.flag), id="argmax_where"),
+    ],
+)
+def test_argminmax_raises_rather_than_emitting_array_agg(t, build):
+    """Redshift has no ``ARRAY_AGG``, so the postgres lowering has no target.
+
+    ``visit_ArgMinMax`` also synthesizes a non-``None`` ``where`` for its null
+    guards, so with ``supports_filter=False`` *every* call -- predicate or not
+    -- produced ``CASE WHEN ... THEN x ORDER BY k DESC ELSE NULL END``, which
+    does not parse. Raising names the ``row_number()`` alternative instead.
+    """
+    with pytest.raises(com.UnsupportedOperationError, match="(?i)array_agg"):
+        to_sql(t.group_by("grp").agg(a=build(t)))
+
+
+def test_group_concat_where_leaves_the_separator_alone(t):
+    """Redshift requires ``LISTAGG``'s delimiter to be a constant.
+
+    The generated ``SIMPLE_OPS`` reduction impl passes every argument to
+    ``AggGen``, which CASE-wrapped the separator alongside the value.
+    """
+    sql = to_sql(t.group_by("grp").agg(g=t.grp.group_concat(",", where=t.flag)))
+    assert "LISTAGG(CASE WHEN" in sql
+    assert "', '" not in sql
+    assert sql.count("CASE WHEN") == 1, sql
+    sqlglot.parse_one(sql, dialect="redshift")
+
+
+def test_group_concat_order_by_uses_within_group(t):
+    """PostgreSQL spells this ``string_agg(x, sep ORDER BY k)``; Redshift does
+    not accept an ``ORDER BY`` inside the argument list."""
+    sql = to_sql(t.group_by("grp").agg(g=t.grp.group_concat(",", order_by=t.id)))
+    assert "WITHIN GROUP (ORDER BY" in sql
+    assert 'LISTAGG("t0"."grp", \',\')' in sql
+    sqlglot.parse_one(sql, dialect="redshift")
+
+
+@pytest.mark.parametrize("method", ["lag", "lead"])
+def test_offset_window_functions_emit_no_frame_clause(t, method):
+    """AWS documents ``LAG``/``LEAD`` with no frame clause slot.
+
+    Unlike the ranking family this is documentation-derived rather than an
+    observed rejection, but it is safe on its own terms: an offset function
+    reads a row at a fixed displacement and cannot depend on the frame, so
+    removing the clause is observable only in the emitted string.
+    """
+    w = xo.window(group_by=t.grp, order_by=t.id)
+    sql = to_sql(t.mutate(out=getattr(t.amt, method)().over(w)))
+    assert "ROWS BETWEEN" not in sql
+    assert f"{method.upper()}(" in sql
+
+
+def test_compiler_type_mapper_is_redshifts(t):
+    """``TYPE_MAPPERS[dialect_name]`` and ``compiler.type_mapper`` are two
+    separate bindings, and only the first was set.
+
+    The second is what ``Backend.get_schema`` and ``_get_schema_using_query``
+    use to parse type strings coming back from the warehouse, so a ``VARBYTE``
+    column was read back as ``unknown``.
+    """
+    assert redshift_compiler.type_mapper is RedshiftType
+    assert str(RedshiftType.from_string("varbyte")) == "binary"
+    assert str(PostgresType.from_string("varbyte")) == "unknown"

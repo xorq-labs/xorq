@@ -484,9 +484,14 @@ class RedshiftType(PostgresType):
     Required purely because ``TYPE_MAPPERS`` is keyed by dialect name and
     sqlglot's metaclass makes a dialect class hash equal to its name: the moment
     the Redshift compiler stopped reporting ``"postgres"`` as its dialect,
-    ``Schema.to_sqlglot_column_defs`` raised ``KeyError: Redshift`` for every
+    ``Schema.to_sqlglot`` raised ``KeyError: Redshift`` for every
     ``CREATE TABLE`` the backend emits. Retargeting the dialect without adding
     this would break ingest while leaving all the SQL-generation tests green.
+
+    Note this mapper is reached by dialect *name*. The compiler's own
+    ``type_mapper`` attribute is a separate binding and must be set on
+    ``RedshiftCompiler`` as well, or the warehouse-to-ibis read path keeps
+    parsing type strings as PostgreSQL.
 
     Subclassing rather than aliasing keeps the two documented Redshift
     divergences -- unbounded ``VARCHAR`` and the ``TIMESTAMP(6)`` precision
