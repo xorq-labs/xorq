@@ -478,6 +478,33 @@ class PostgresType(SqlglotType):
         return super().from_string(text, nullable=nullable)
 
 
+class RedshiftType(PostgresType):
+    """Redshift's type mapping, which is PostgreSQL's.
+
+    Required purely because ``TYPE_MAPPERS`` is keyed by dialect name and
+    sqlglot's metaclass makes a dialect class hash equal to its name: the moment
+    the Redshift compiler stopped reporting ``"postgres"`` as its dialect,
+    ``Schema.to_sqlglot`` raised ``KeyError: Redshift`` for every
+    ``CREATE TABLE`` the backend emits. Retargeting the dialect without adding
+    this would break ingest while leaving all the SQL-generation tests green.
+
+    Note this mapper is reached by dialect *name*. The compiler's own
+    ``type_mapper`` attribute is a separate binding and must be set on
+    ``RedshiftCompiler`` as well, or the warehouse-to-ibis read path keeps
+    parsing type strings as PostgreSQL.
+
+    Subclassing rather than aliasing keeps the two documented Redshift
+    divergences -- unbounded ``VARCHAR`` and the ``TIMESTAMP(6)`` precision
+    modifier, both pinned by
+    ``test_ingest_ddl_pins_two_unverified_redshift_type_widths`` -- in one place
+    to correct once a live warehouse settles them. They are deliberately left
+    at the PostgreSQL spelling here: unverified, and changing them on
+    documentation alone would swap a suspected bug for an unsuspected one.
+    """
+
+    dialect = "redshift"
+
+
 class RisingWaveType(PostgresType):
     dialect = "risingwave"
 

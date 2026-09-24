@@ -23,6 +23,7 @@ from sqlglot.dialects import (
 
 __all__ = ["Databricks"]
 from sqlglot.dialects import ClickHouse as _ClickHouse
+from sqlglot.dialects import Redshift as _Redshift
 from sqlglot.dialects.dialect import rename_func
 from sqlglot.helper import find_new_name, seq_get
 
@@ -428,6 +429,52 @@ Postgres.Generator.TRANSFORMS |= {
     sge.ArraySize: rename_func("cardinality"),
     sge.Pow: rename_func("pow"),
 }
+
+
+class Redshift(_Redshift):
+    """Redshift, with TRANSFORMS pinned rather than inherited.
+
+    sqlglot's own ``Redshift.Generator`` builds its TRANSFORMS as
+    ``{**Postgres.Generator.TRANSFORMS, ...}`` at class-creation time, while the
+    ``Postgres.Generator.TRANSFORMS |= ...`` block in this module mutates that
+    same dict *in place*. Whichever runs first wins, so sqlglot's Redshift
+    behaves differently depending on which module Python imported first --
+    measured 2026-09-23 on the base branch as 190 transforms with sqlglot's
+    redshift imported first against 195 with it imported second, in one process,
+    and visible in emitted SQL (``DATE_FROM_PARTS`` against ``MAKE_DATE``).
+
+    What makes *this* class deterministic is the ``from sqlglot.dialects import
+    Redshift as _Redshift`` at the top of this module: it forces sqlglot's class
+    creation before the mutation runs, unconditionally, so the dict copied below
+    is always the pre-mutation one. The class's position in the file is
+    incidental -- an earlier version of this docstring claimed the placement was
+    load-bearing, which measurement did not support.
+    ``test_redshift_dialect.py::test_transforms_do_not_depend_on_import_order``
+    is what actually holds the property.
+
+    The Postgres block above renames five functions to Postgres-only names.
+    Two of them get their Redshift spelling below. The other three do not, each
+    for its own reason:
+
+    * ``DateFromParts`` -- Redshift has no ``make_date`` and no single-function
+      equivalent, so it is lowered in ``RedshiftCompiler.visit_DateFromYMD``
+      rather than renamed here.
+    * ``RegexpSplit`` -- Redshift has no regex-split-to-array under any name, so
+      there is nothing to rename it *to*. Declining the postgres rename would
+      only move it from ``REGEXP_SPLIT_TO_ARRAY`` to ``REGEXP_SPLIT``, and no
+      engine has that either. ``ops.RegexSplit`` is in the compiler's
+      ``UNSUPPORTED_OPS`` instead, so it raises rather than emitting a name
+      that looks plausible.
+    * ``Pow`` -- sqlglot's own Redshift generator already renders ``sge.Pow`` as
+      ``POWER(...)``. An override here was byte-for-byte identical to no
+      override, i.e. dead code, and has been removed.
+    """
+
+    class Generator(_Redshift.Generator):
+        TRANSFORMS = _Redshift.Generator.TRANSFORMS.copy() | {
+            sge.Split: rename_func("split_to_array"),
+            sge.ArraySize: rename_func("get_array_length"),
+        }
 
 
 class PySpark(Spark):
