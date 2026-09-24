@@ -764,7 +764,7 @@ def test_unparsable_expr_member_names_the_file(
 def test_a_build_dir_expr_that_is_not_a_mapping_names_the_file(
     tmp_path: Path, world: SimpleNamespace, text: str
 ) -> None:
-    """`from_build_dir` shares `read_document`'s check, not just the zip path."""
+    """`from_build_dir` shares `from_reader`'s check, not just the zip path."""
     build_dir = build_expr(
         world.con.table("t").filter(xo._.a > 1), builds_dir=tmp_path / "builds"
     )
