@@ -44,6 +44,7 @@ import xorq.api as xo
 import xorq.common.utils.dasher as dasher
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
+from xorq.backends.redshift import Backend as RedshiftBackend
 from xorq.caching import ParquetCache
 from xorq.common.utils.dasher import (
     _EXTRA_RULES,
@@ -1077,6 +1078,7 @@ def test_extra_rules_fqn_strings() -> None:
         "operator.methodcaller": operator.methodcaller,
         "xorq.vendor.ibis.expr.operations.relations.DatabaseTable": DatabaseTable,
         "xorq.expr.relations.Read": rel.Read,
+        "xorq.backends.redshift.Backend": RedshiftBackend,
         "xorq.vendor.ibis.expr.types.core.Expr": Expr,
         "xorq.vendor.ibis.expr.schema.Schema": Schema,
         "xorq.vendor.ibis.expr.operations.udf.ScalarUDF": ScalarUDF,
