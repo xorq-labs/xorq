@@ -125,13 +125,14 @@ h3 {
 // navbar (Quarto's top bar)
 // Quarto wraps it in #quarto-header.fixed-top, which has no background of its
 // own; with $navbar-bg transparent the page would scroll visibly through the
-// bar. Paint the header with the body gradient's top stop: identical at
-// scroll-top, opaque once the page moves.
+// bar. Paint the full-width wrapper with the page bg so nothing scrolls through
+// the gutters — but the VISIBLE bordered bar is drawn on the capped inner
+// container below, so the header reads as a boxed bar inside the content column
+// (matching the target), not a full-bleed band.
 #quarto-header {
   background:$xq-bg;
 }
 .navbar {
-  border-bottom:1px solid $xq-line;
   padding:.75rem 0;
 }
 .navbar .navbar-brand img {
@@ -145,13 +146,13 @@ h3 {
 // left, let the collapse fill the remaining width, and centre the link <ul>
 // inside it so the links sit in the middle of the bar while GitHub stays right.
 //
-// Width: Quarto's `.navbar-container` is width:100% and spans the full viewport
-// (full-bleed), but the page content block (sidebar + article + TOC) is capped
-// and centred with side gutters. Left full-bleed the header edges don't line up
-// with the content — the target design has the header edges flush with the
-// content column. Cap the navbar container to the content width and centre it so
-// the logo's left edge aligns with the sidebar and GitHub's right edge with the
-// TOC. 1180px matches the footer's inner max-width for a consistent page frame.
+// Width + box: Quarto's `.navbar-container` is width:100% and spans the full
+// viewport, and the header background/border used to sit on the full-width
+// #quarto-header wrapper — so the bar ran edge-to-edge while the content and
+// footer sit in a centred column with gutters. The target header is a BORDERED
+// BOX constrained to the content width, with the page bg showing in the side
+// gutters. So cap the inner container to the content width, centre it, and draw
+// the border (all four sides) HERE — not on the full-width wrapper.
 .navbar > .container-fluid,
 .navbar > .container {
   justify-content:flex-start;
@@ -160,6 +161,7 @@ h3 {
   margin-right:auto;
   padding-left:1.5em;
   padding-right:1.5em;
+  border:1px solid $xq-line;
 }
 // brand: cancel Quarto's mx-auto so the logo sits hard-left
 .navbar .navbar-brand-container.mx-auto {
