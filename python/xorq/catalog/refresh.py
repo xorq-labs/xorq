@@ -184,9 +184,9 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
 
     refreshed = rewrite(to_node(expr)).to_expr()
     if unmatched := [key for key in live if key not in matched]:
-        (kind, _, name, _) = unmatched[0]
-        cause = LookupError(f"{name} matched no source of the loaded expression")
-        raise SchemaRefreshError(kind, cause)
+        names = ", ".join(name for (_, _, name, _) in unmatched)
+        cause = LookupError(f"{names} matched no source of the loaded expression")
+        raise SchemaRefreshError(unmatched[0][0], cause)
     return refreshed
 
 
@@ -217,12 +217,13 @@ def check_refreshable(record: BuildRecord) -> None:
     leaves out -- a read with no registered inference, bound to an ingesting
     backend -- would keep its recorded schema while the refresh reports
     success. ``check-sources`` names such a leaf as unchecked; a refresh cannot
-    stand behind a schema it never looked at, so it refuses instead.
+    stand behind a schema it never looked at, so it refuses the whole build,
+    naming every such leaf at once.
     """
     if unchecked := unchecked_leaves(record):
-        leaf = unchecked[0]
-        cause = LookupError(f"{leaf.name} cannot be probed without writing to it")
-        raise SchemaRefreshError(str(leaf.kind), cause)
+        names = ", ".join(leaf.name for leaf in unchecked)
+        cause = LookupError(f"{names} cannot be probed without writing to them")
+        raise SchemaRefreshError(str(unchecked[0].kind), cause)
 
 
 def refresh_build(

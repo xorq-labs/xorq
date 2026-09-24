@@ -391,8 +391,9 @@ def test_a_key_that_matches_no_source_raises(world: tuple) -> None:
     assert "not-a-table" in str(excinfo.value)
 
 
-def test_a_source_that_went_empty_is_refreshed(world: tuple) -> None:
-    """A zero-column schema is falsy; it still has to reach its dependents."""
+def test_a_source_that_went_empty_fails_its_dependents(world: tuple) -> None:
+    """A zero-column schema is falsy; it still has to reach its dependents,
+    and the Field that loses its column is the evidence that it did."""
     _, build_path = world
     record = BuildRecord.from_build_dir(build_path)
     (leaf,) = record.external_leaves
