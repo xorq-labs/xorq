@@ -9,7 +9,6 @@ from public import public
 import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.rules as rlz
-from xorq.common.exceptions import XorqTypeError
 from xorq.vendor.ibis.common.annotations import attribute
 from xorq.vendor.ibis.common.typing import VarTuple  # noqa: TCH001
 from xorq.vendor.ibis.expr.operations.core import Column, Value
@@ -178,7 +177,7 @@ class Sum(Filterable, Reduction):
                 scale=max(dtype.scale, 2) if dtype.scale is not None else None,
             )
         else:
-            raise XorqTypeError(f"Cannot compute sum of {dtype} values")
+            raise TypeError(f"Cannot compute sum of {dtype} values")
 
 
 @public
