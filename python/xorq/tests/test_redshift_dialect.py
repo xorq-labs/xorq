@@ -91,9 +91,23 @@ import sqlglot
 #     psycopg                 blocked -> 2 skipped             REQUIRED
 #     adbc_driver_postgresql  blocked -> 59 passed             NOT required
 #
-# The third name is deliberately absent. It is reached only through
-# ``common/utils/postgres_utils.py:1``, a chain these modules never take, and
-# guarding it would skip this whole file in jobs that can run every test in it.
+# The third name is deliberately absent, and the reason is structural rather
+# than situational: it is reached only through
+# ``common/utils/postgres_utils.py:1``, a chain these two modules never take.
+# The two names above ARE requirements of the chain they do take, which is why
+# guarding them costs nothing.
+#
+# Calibrated honestly, because today the distinction is latent rather than
+# visible: psycopg ships only in the ``postgres`` and ``redshift`` extras, both
+# of which also ship adbc-driver-postgresql, which in turn depends on
+# adbc-driver-manager. So in every configuration that exists right now all three
+# names are satisfied together, the guard fires as a unit, and a third name
+# would be redundant rather than actively over-skipping. What makes leaving it
+# out worth doing is ``pyproject.toml`` inside the redshift extra -- "whether a
+# psycopg-only extra should exist is open". If that lands, a three-name guard
+# skips this entire file, every dialect and inventory test and none of them
+# touching ADBC, in exactly the configuration that extra exists to create.
+#
 # An earlier version of this guard named psycopg alone, reasoning from one CI
 # job's traceback -- that job happened to have adbc_driver_manager installed, so
 # the traceback could not show the dependency. A traceback reports the
