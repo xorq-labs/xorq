@@ -392,16 +392,24 @@ def test_a_multi_path_read_refreshes(tmp_path: Path, builds_dir: Path) -> None:
     assert list(refresh_build(build_path).execute()["c"]) == [1.5, 2.5, 1.5, 2.5]
 
 
-def bundled_shapes(path: Path) -> dict[str, ir.Table]:
-    """Each shape a bundled source takes, plus all three in one build."""
+@pytest.fixture
+def duckdb_con() -> Iterator[Any]:
     con = xo.duckdb.connect()
+    yield con
+    con.disconnect()
+
+
+def bundled_shape(shape: str, path: Path, con: Any) -> ir.Table:
+    """One shape a bundled source takes, or all three in one build."""
     con.create_table("dt", RECORDED)
     shapes = {
-        "memtable": xo.memtable(RECORDED.to_pandas(), name="mt"),
-        "memory-backend-table": con.table("dt"),
-        "relocated-read": deferred_read_parquet(path, con, table_name="r"),
+        "memtable": lambda: xo.memtable(RECORDED.to_pandas(), name="mt"),
+        "memory-backend-table": lambda: con.table("dt"),
+        "relocated-read": lambda: deferred_read_parquet(path, con, table_name="r"),
     }
-    return shapes | {"all": toolz.reduce(ir.Table.union, shapes.values())}
+    if shape == "all":
+        return toolz.reduce(ir.Table.union, (make() for make in shapes.values()))
+    return shapes[shape]()
 
 
 @pytest.mark.parametrize(
@@ -412,7 +420,11 @@ def bundled_shapes(path: Path) -> dict[str, ir.Table]:
     ),
 )
 def test_a_bundled_only_build_refreshes_like_a_plain_load(
-    shape: str, tmp_path: Path, builds_dir: Path, monkeypatch: pytest.MonkeyPatch
+    shape: str,
+    tmp_path: Path,
+    builds_dir: Path,
+    duckdb_con: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Drift-exempt: never probed, so neither the cwd nor the original path is read.
 
@@ -421,7 +433,9 @@ def test_a_bundled_only_build_refreshes_like_a_plain_load(
     """
     path = tmp_path / "t.parquet"
     write_parquet(path, RECORDED)
-    build_path = build_expr(bundled_shapes(path)[shape], builds_dir=builds_dir)
+    build_path = build_expr(
+        bundled_shape(shape, path, duckdb_con), builds_dir=builds_dir
+    )
     path.unlink()
     decoy = tmp_path / "decoy"
     for bundled in build_path.glob("*/*.parquet"):
@@ -432,8 +446,9 @@ def test_a_bundled_only_build_refreshes_like_a_plain_load(
     record = BuildRecord.from_build_dir(build_path)
     assert record.source_leaves and record.external_leaves == ()
     (refreshed, loaded) = (refresh_build(build_path), load_expr(build_path))
-    assert refreshed.schema() == loaded.schema()
+    assert refreshed.schema() == loaded.schema() == xo.schema(RECORDED.schema)
     assert get_expr_hash(refreshed) == get_expr_hash(loaded)
+    assert set(refreshed.execute().columns) == set(RECORDED.column_names)
 
 
 def test_a_refresh_leaves_bundled_sources_as_loaded(
