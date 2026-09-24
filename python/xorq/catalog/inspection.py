@@ -267,6 +267,16 @@ def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
     return tuple(map(tuple, entries))
 
 
+def dotted_name(*parts: str | None) -> str:
+    """A table's qualified name: its non-empty namespace parts and name, dotted."""
+    return ".".join(part for part in parts if part)
+
+
+def join_read_path(path: Any) -> str:
+    """A read's recorded path as one string: a multi-path read joined by commas."""
+    return ", ".join(map(str, path)) if isinstance(path, (list, tuple)) else str(path)
+
+
 @frozen
 class SourceLeaf:
     """One source as the build record describes it.
@@ -330,7 +340,7 @@ class SourceLeaf:
         match kind:
             case LeafKind.DATABASE_TABLE:
                 table = get_node_key(node_ref, node_def, NodeKey.table)
-                name = ".".join(p for p in (catalog, database, table) if p)
+                name = dotted_name(catalog, database, table)
             case LeafKind.READ:
                 # `read_kwargs["table_name"]` is not the reliable spelling:
                 # `make_read_kwargs` fills it by binding the backend method's
@@ -352,11 +362,7 @@ class SourceLeaf:
                 path = kw.get(ReadKwarg.hash_path) or get_node_key(
                     node_ref, node_def, NodeKey.name
                 )
-                name = (
-                    ", ".join(map(str, path))
-                    if isinstance(path, (list, tuple))
-                    else str(path)
-                )
+                name = join_read_path(path)
             # Unreachable while `LeafKind` has exactly the two members matched
             # above: `LeafKind(...)` on `op` already rejected anything else. It
             # fires only once `LeafKind` grows a member this match forgot, which
@@ -395,6 +401,17 @@ def iter_source_leaves(doc: dict) -> tuple[SourceLeaf, ...]:
     )
 
 
+def check_document(doc: Any, dump_file: DumpFiles, empty_ok: bool = False) -> dict:
+    """``doc``, a parsed ``dump_file``, checked to be a document."""
+    if doc is None and empty_ok:
+        return {}
+    if not isinstance(doc, dict):
+        raise ValueError(
+            f"{dump_file} did not parse to a document, got {type(doc).__name__}"
+        )
+    return doc
+
+
 def read_document(
     build_zip: BuildZip, dump_file: DumpFiles, empty_ok: bool = False
 ) -> dict:
@@ -404,14 +421,9 @@ def read_document(
     validators as an unnamed ``TypeError``. ``empty_ok`` allows the one member
     that is legitimately empty, a record with no profiles.
     """
-    doc = build_zip.read_dump_file(dump_file, yaml12.parse_yaml)
-    if doc is None and empty_ok:
-        return {}
-    if not isinstance(doc, dict):
-        raise ValueError(
-            f"{dump_file} did not parse to a document, got {type(doc).__name__}"
-        )
-    return doc
+    return check_document(
+        build_zip.read_dump_file(dump_file, yaml12.parse_yaml), dump_file, empty_ok
+    )
 
 
 @frozen
@@ -498,10 +510,14 @@ class BuildRecord:
     def from_build_dir(cls, build_dir: str | Path) -> BuildRecord:
         """The record of an unzipped build, as ``build_expr`` leaves it."""
         (expr_doc, profiles) = (
-            yaml12.parse_yaml((Path(build_dir) / dump_file).read_text())
+            check_document(
+                yaml12.parse_yaml((Path(build_dir) / dump_file).read_text()),
+                dump_file,
+                empty_ok=dump_file == DumpFiles.profiles,
+            )
             for dump_file in (DumpFiles.expr, DumpFiles.profiles)
         )
-        return cls(expr_doc=expr_doc, profiles=profiles or {})
+        return cls(expr_doc=expr_doc, profiles=profiles)
 
     @classmethod
     def from_catalog_entry(cls, catalog_entry: CatalogEntry) -> BuildRecord:

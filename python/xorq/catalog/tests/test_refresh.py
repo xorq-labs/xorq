@@ -168,6 +168,26 @@ def test_only_the_drifted_source_moves(con: SqliteBackend, builds_dir: Path) -> 
     assert refreshed.schema() == loaded.schema()
 
 
+def test_one_table_name_on_two_connections_is_two_sources(
+    con: SqliteBackend, tmp_path: Path, builds_dir: Path
+) -> None:
+    """Same backend, table name and schema on two files: only the drifted one moves."""
+    other = SqliteBackend().connect(str(tmp_path / "other.sqlite"))
+    other.create_table("t", RECORDED.to_pandas())
+    t, u = con.table("t"), other.table("t")
+    remote = u.select(k=u.a, v=u.b).into_backend(con)
+    build_path = build_expr(t.join(remote, t.a == remote.k), builds_dir=builds_dir)
+    recreate(con, GROWN)
+
+    schemas = {
+        node.source._profile.kwargs_dict["database"]: node.schema
+        for node in walk_nodes(ops.DatabaseTable, refresh_build(build_path))
+        if type(node) is ops.DatabaseTable
+    }
+    assert "c" in schemas[str(tmp_path / "live.sqlite")]
+    assert "c" not in schemas[str(tmp_path / "other.sqlite")]
+
+
 def test_a_missing_source_stops_before_loading(world: tuple) -> None:
     con, build_path = world
     con.drop_table("t")
@@ -175,6 +195,20 @@ def test_a_missing_source_stops_before_loading(world: tuple) -> None:
     with pytest.raises(SchemaRefreshError) as excinfo:
         refresh_build(build_path)
     assert excinfo.value.op_name == "DatabaseTable"
+
+
+def test_every_missing_source_is_named(con: SqliteBackend, builds_dir: Path) -> None:
+    con.create_table("u", RECORDED.to_pandas())
+    t, u = con.table("t"), con.table("u")
+    build_path = build_expr(t.union(u), builds_dir=builds_dir)
+    con.drop_table("t")
+    con.drop_table("u")
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_build(build_path)
+    assert excinfo.value.op_name == "DatabaseTable"
+    assert "t is table-missing" in str(excinfo.value)
+    assert "u is table-missing" in str(excinfo.value)
 
 
 def test_a_deleted_database_is_not_recreated(world: tuple, tmp_path: Path) -> None:

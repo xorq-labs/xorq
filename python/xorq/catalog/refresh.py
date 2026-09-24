@@ -29,16 +29,31 @@ from typing import Any
 from xorq.catalog.drift import (
     LeafReport,
     iter_leaf_reports,
-    leaf_con_name,
+    make_profile,
     unchecked_leaves,
 )
 from xorq.catalog.enums import LeafKind, Verdict
-from xorq.catalog.inspection import BuildRecord, SourceLeaf
+from xorq.catalog.inspection import (
+    BuildRecord,
+    SourceLeaf,
+    dotted_name,
+    join_read_path,
+)
 from xorq.common.exceptions import SchemaRefreshError
 from xorq.common.utils.graph_utils import OPAQUE_SPECS, _opaque_lookup, to_node
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
-from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable, Tag, TeeNode
+from xorq.expr.relations import (
+    CachedNode,
+    CacheTag,
+    FlightExpr,
+    FlightUDXF,
+    Read,
+    RemoteTable,
+    Tag,
+    TeeNode,
+)
 from xorq.ibis_yaml.enums import ReadKwarg
+from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.graph import Node
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -55,18 +70,27 @@ SCHEMA_FOLLOWS_PARENT = {
 }
 
 
-def join_path(path: Any) -> str:
-    """A read path spelled the way ``SourceLeaf.name`` spells it."""
-    return ", ".join(map(str, path)) if isinstance(path, (list, tuple)) else str(path)
+def leaf_profile_key(leaf: SourceLeaf, record: BuildRecord) -> str | None:
+    """The content hash of the profile ``leaf`` records, or ``None`` if none."""
+    profile_dict = record.get_profile_dict(leaf)
+    return None if profile_dict is None else make_profile(profile_dict).content_hash
 
 
 def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
     """What identifies ``leaf`` among the loaded expression's sources.
 
-    Matched against ``op_key``. The recorded schema is part of it, so a node
-    already rebuilt over its live schema can never match a second time.
+    Matched against ``op_key``. The profile's content hash, not its backend
+    name, so the same table name on two connections of one backend (a prod and
+    a staging postgres, two sqlite files) are two sources. The recorded schema
+    is part of it, so a node already rebuilt over its live schema can never
+    match a second time.
     """
-    return (str(leaf.kind), leaf_con_name(leaf, record), leaf.name, leaf.recorded)
+    return (
+        str(leaf.kind),
+        leaf_profile_key(leaf, record),
+        leaf.name,
+        leaf.recorded,
+    )
 
 
 def op_key(node: Node) -> tuple | None:
@@ -75,21 +99,21 @@ def op_key(node: Node) -> tuple | None:
     Matched on the exact type name, because `CachedNode` and `RemoteTable` are
     `DatabaseTable` subclasses that are not sources. The profile name is not
     usable: it carries a session-local index, so a loaded source never spells
-    the one its record does.
+    the one its record does. Its content hash is: it excludes that index.
     """
     match type(node).__name__:
         case LeafKind.DATABASE_TABLE:
             namespace = node.namespace
-            parts = (namespace.catalog, namespace.database, node.name)
-            name = ".".join(part for part in parts if part)
+            name = dotted_name(namespace.catalog, namespace.database, node.name)
         case LeafKind.READ:
             # `SourceLeaf`'s fallback, so a read without a `hash_path` still
             # spells the name its record does.
             path = dict(node.read_kwargs).get(ReadKwarg.hash_path) or node.name
-            name = join_path(path)
+            name = join_read_path(path)
         case _:
             return None
-    return (type(node).__name__, node.source.name, name, node.schema)
+    profile_key = Profile.from_con(node.source).content_hash
+    return (type(node).__name__, profile_key, name, node.schema)
 
 
 def with_live_schema(node: Node, schema: Schema) -> Node:
@@ -130,12 +154,31 @@ def rebuild(node: Node, build: Callable[[], Node]) -> Node:
         raise SchemaRefreshError(type(node).__name__, e) from e
 
 
+def revalidate_flight(node: Node, overrides: dict) -> dict:
+    """``overrides`` for a flight op, its schema checked against a moved input.
+
+    Neither ``FlightExpr`` nor ``FlightUDXF`` validates in its constructor, only
+    in ``from_exprs`` / ``from_expr``, so a plain ``recreate`` would keep an
+    ``unbound_expr`` or an output schema derived from the recorded input.
+    """
+    if (input_expr := overrides.get("input_expr")) is None:
+        return overrides
+    match node:
+        case FlightUDXF():
+            return overrides | {
+                "schema": FlightUDXF.validate_schema(input_expr, node.udxf)
+            }
+        case FlightExpr():
+            FlightExpr.validate_schema(input_expr, node.unbound_expr)
+    return overrides
+
+
 def recreate_over(node: Node, overrides: dict) -> Node:
     """``node`` rebuilt with ``overrides``, its stored schema following its parent."""
     if (attr := _opaque_lookup(node, SCHEMA_FOLLOWS_PARENT)) is not None:
         parent = overrides.get(attr, getattr(node, attr))
         overrides = overrides | {"schema": to_node(parent).schema}
-    return recreate(node, **overrides)
+    return recreate(node, **revalidate_flight(node, overrides))
 
 
 def kinds_label(kinds: Iterable[str]) -> str:
@@ -201,19 +244,29 @@ def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
     """The ``refresh_schemas`` mapping for the leaves ``reports`` found changed.
 
     A source that could not be compared is not something to rebuild over, so
-    every verdict but ``equal`` and ``changed`` raises, named after its kind.
+    any verdict but ``equal`` and ``changed`` raises. The sweep runs to the
+    end first, so one error names every such source, labeled with their kinds.
     """
     live = {}
+    uncomparable = []
     for report in reports:
         match report.verdict:
             case Verdict.EQUAL:
                 continue
             case Verdict.CHANGED:
                 live[leaf_key(report.leaf, record)] = report.live
-            case verdict:
-                detail = f": {report.error}" if report.error else ""
-                cause = LookupError(f"{report.leaf.name} is {verdict}{detail}")
-                raise SchemaRefreshError(str(report.leaf.kind), cause)
+            case _:
+                uncomparable.append(report)
+    if uncomparable:
+        details = "; ".join(
+            f"{report.leaf.name} is {report.verdict}"
+            + (f": {report.error}" if report.error else "")
+            for report in uncomparable
+        )
+        cause = LookupError(details)
+        raise SchemaRefreshError(
+            kinds_label(report.leaf.kind for report in uncomparable), cause
+        )
     return live
 
 
