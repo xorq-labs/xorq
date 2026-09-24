@@ -52,6 +52,14 @@ import pytest
 # is deliberately sited outside them (see the docstring above), so the guard has
 # to be here. The E402s are that guard running first, not import sloppiness.
 #
+# DO NOT "FIX" THIS WITH ``ruff check --fix``. The two blank lines above this
+# comment are load-bearing: isort's ``lines-after-imports = 2`` is what makes
+# this shape lint clean. With one blank line ruff reports I001 on the whole
+# block, and ``--fix`` then "organises" the imports back ABOVE the guard --
+# silently, and the tests still pass locally, because anyone running them has
+# psycopg installed. The breakage appears only in a CI job without the extra,
+# which is the job this guard exists for.
+#
 # TWO names, and which two is measured per-name rather than inferred. Blocking
 # each candidate independently against these modules:
 #
