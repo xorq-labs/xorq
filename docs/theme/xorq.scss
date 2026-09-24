@@ -256,6 +256,19 @@ code:not(pre code) {
 .code-copy-button {
   color:$xq-ink-4;
 }
+// Annotated blocks: Quarto zeroes the padding (pre.sourceCode.code-annotation-code
+// drops padding-right, pre.code-annotation-code drops top and bottom), so they
+// lose this theme's 14px/18px box and sit flush against the border. It also
+// floats a gutter of numbered anchors at the right edge, and the anchors cascade
+// down and to the left, so the line-1 anchor lands under the copy button.
+// Quarto's own guard, `.code-annotated .code-copy-button`, never fires here:
+// code-annotated is on the <pre> while the button is its sibling inside
+// .code-copy-outer-scaffold. Restore the padding and reserve the top-right
+// corner instead, which clears the whole cascade rather than one anchor.
+// The extra class beats Quarto's two-class selectors.
+pre.sourceCode.code-annotated.code-annotation-code {
+  padding:34px 18px 14px;
+}
 .code-copy-button-tooltip {
   font-family:$font-family-monospace;
 }
