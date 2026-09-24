@@ -114,3 +114,10 @@ class Verdict(StrEnum):
             # property exists to prevent.
             case _:
                 raise ValueError(f"no exit code for verdict {self}")
+
+
+class RebaseStatus(StrEnum):
+    """How a ``rebase_entry`` that wrote nothing it should not have ended."""
+
+    NOOP = "noop"
+    REBASED = "rebased"
