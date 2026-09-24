@@ -47,6 +47,8 @@ from xorq.expr.relations import (
     flight_udxf,
     pin_cache,
 )
+from xorq.flight import FlightServer
+from xorq.flight.tests.test_server import make_flight_url
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.common.collections import FrozenDict
@@ -679,3 +681,38 @@ def test_a_flight_expr_whose_input_no_longer_fits_raises(
     with pytest.raises(SchemaRefreshError) as excinfo:
         refresh_schemas(expr, drift_the_table(expr))
     assert excinfo.value.op_name == "FlightExpr"
+
+
+def test_a_lazy_load_connects_only_the_drifted_source(
+    con: SqliteBackend, tmp_path: Path, builds_dir: Path
+) -> None:
+    """A source that did not drift is never connected, so one that can no
+    longer connect does not stop the refresh."""
+    other_path = tmp_path / "other.sqlite"
+    other = SqliteBackend().connect(str(other_path))
+    other.create_table("u", RECORDED.to_pandas())
+    t, u = con.table("t"), other.table("u")
+    remote = u.select(k=u.a, v=u.b).into_backend(con)
+    build_path = build_expr(t.join(remote, t.a == remote.k), builds_dir=builds_dir)
+    recreate(con, GROWN)
+    record = BuildRecord.from_build_dir(build_path)
+    live = live_schemas(record, iter_leaf_reports(record))
+    # A directory where the database was: connecting to it raises.
+    other_path.unlink()
+    other_path.mkdir()
+
+    refreshed = refresh_schemas(load_expr(build_path, lazy=True), live)
+    (after_t,) = (n for n in walk_nodes(ops.DatabaseTable, refreshed) if n.name == "t")
+    assert "c" in after_t.schema
+
+
+def test_a_flight_source_keys_without_a_profile() -> None:
+
+    with FlightServer(
+        flight_url=make_flight_url(None),
+        verify_client=False,
+        make_connection=xo.duckdb.connect,
+    ) as server:
+        table = server.con.create_table("t", RECORDED)
+        (kind, profile_key, name, _) = op_key(table.op())
+    assert (kind, profile_key, name) == (LeafKind.DATABASE_TABLE, None, "t")
