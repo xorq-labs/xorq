@@ -32,7 +32,8 @@ website:
   # Quarto's schema (the field must be a string), so the key is omitted instead.
 
   navbar:
-    logo: "images/xorq-dark-mode-logo.png"
+    logo: "images/xorq-header-logo.svg"
+    logo-href: "https://www.xorq.dev"
     background: transparent
     align: center
     title: false

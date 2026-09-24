@@ -137,6 +137,23 @@ h3 {
 .navbar .navbar-brand img {
   height:32px;
 }
+// Center the navbar to match xorq.dev. Quarto lays the nav out with the brand
+// on the left, the link group pushed left by `me-auto`, and the right group by
+// `ms-auto`. Neutralise those auto-margins and center the flex row so the whole
+// header (logo + links + search/github) sits centered like the marketing site.
+.navbar > .container-fluid,
+.navbar > .container {
+  justify-content:center;
+}
+.navbar .navbar-collapse {
+  flex-grow:0;
+  justify-content:center;
+}
+.navbar .navbar-nav.me-auto,
+.navbar .navbar-nav.ms-auto {
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
 .navbar .nav-link {
   font-family:$font-family-monospace;
   font-size:14px;
