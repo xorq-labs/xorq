@@ -1,9 +1,7 @@
-import importlib.util
 import pathlib
 import runpy
 import types
 
-import fsspec.implementations.memory
 import pytest
 from pytest import param
 
@@ -83,13 +81,11 @@ def gcs_cache_stays_in_memory(script, monkeypatch):
     """
     if script.stem not in GCS_SCRIPTS:
         return
-    if importlib.util.find_spec("gcsfs") is None:
-        pytest.skip("gcsfs is not installed")
+    memory = pytest.importorskip("fsspec.implementations.memory")
+    pytest.importorskip("gcsfs")
     monkeypatch.setattr(
         "xorq.common.utils.gcloud_utils.gcsfs",
-        types.SimpleNamespace(
-            GCSFileSystem=fsspec.implementations.memory.MemoryFileSystem
-        ),
+        types.SimpleNamespace(GCSFileSystem=memory.MemoryFileSystem),
     )
 
 
