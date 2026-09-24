@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 import zipfile
+from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +18,7 @@ import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog import drift
+from xorq.catalog import rebase as rebase_module
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.enums import RebaseStatus
@@ -261,6 +265,58 @@ def test_a_failed_alias_move_restores_the_extra_alias(
     assert alias_target_hash(catalog, "live") == world.name
 
 
+def pull_then(
+    monkeypatch: pytest.MonkeyPatch, change: Callable[[Catalog], object]
+) -> None:
+    """Stand in for a sync whose pull applies ``change`` to the catalog."""
+
+    @contextmanager
+    def pulling(self, sync):
+        if sync:
+            change(self)
+        yield
+
+    monkeypatch.setattr(Catalog, "maybe_synchronizing", pulling)
+
+
+def test_a_rollback_keeps_an_entry_the_pull_brought_in(
+    world: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    pushed = rebase_entry(world.catalog.get_catalog_entry(world.name)).new_entry
+    archive = Path(shutil.copy(pushed.catalog_path, tmp_path))
+    catalog = reopen(world)
+    catalog.remove(pushed.name)
+    for alias in ("live", "staging"):
+        catalog.add_alias(world.name, alias)
+
+    pull_then(monkeypatch, lambda c: c.add(archive, sync=False))
+    fail_nth_add_alias(monkeypatch, 2)
+    with pytest.raises(RuntimeError, match="alias move failed"):
+        rebase_entry(catalog.get_catalog_entry(world.name))
+    monkeypatch.undo()
+
+    assert set(reopen(world).list()) == {world.name, pushed.name}
+
+
+def test_a_rollback_restores_an_alias_to_where_the_pull_moved_it(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    t = world.con.table("t")
+    other = world.catalog.add(t.filter(t.a > 0)).name
+    replace_t(world, GROWN)
+
+    pull_then(monkeypatch, lambda c: c.add_alias(other, "live", sync=False))
+    fail_nth_add_alias(monkeypatch, 3)
+    with pytest.raises(RuntimeError, match="alias move failed"):
+        rebase_entry(world.catalog.get_catalog_entry(world.name))
+    monkeypatch.undo()
+
+    catalog = reopen(world)
+    assert alias_target_hash(catalog, "live") == other
+    assert alias_target_hash(catalog, "staging") == world.name
+
+
 def test_a_failed_alias_move_exits_one_from_the_cli(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -317,6 +373,34 @@ def test_an_unreadable_archive_or_profile_exits_two(
     result = rebase(runner, world)
     assert result.exit_code == 2, result.output
     assert f"{world.name} is unreadable: ValueError: corrupt" in result.stderr
+    assert_nothing_written(world, commits)
+
+
+@pytest.mark.parametrize(
+    "dropped",
+    (
+        pytest.param(".whl", id="wheel"),
+        pytest.param(DumpFiles.requirements, id="requirements"),
+    ),
+)
+def test_an_archive_missing_its_bundle_exits_two(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    dropped: str,
+) -> None:
+    replace_t(world, GROWN)
+    members = rebase_module.bundle_members
+    monkeypatch.setattr(
+        rebase_module,
+        "bundle_members",
+        lambda entry: tuple(m for m in members(entry) if not m.endswith(dropped)),
+    )
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world)
+    assert result.exit_code == 2, result.output
+    assert "for the rebased entry" in result.stderr
     assert_nothing_written(world, commits)
 
 

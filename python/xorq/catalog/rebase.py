@@ -149,6 +149,11 @@ def preflight(
         moving = tuple(dict.fromkeys(move_aliases))
     if not any(Path(m).name.endswith(WHEEL_SUFFIX) for m in members):
         raise RebaseError(f"{name} carries no wheel for the rebased entry", 2)
+    # Without it, `catalog.add` would package the cwd's project requirements.
+    if not any(Path(m).name == DumpFiles.requirements for m in members):
+        raise RebaseError(
+            f"{name} carries no {DumpFiles.requirements} for the rebased entry", 2
+        )
     return record, moving
 
 
@@ -205,17 +210,20 @@ def add_rebased(
 ) -> tuple[CatalogEntry, tuple[str, ...]]:
     """Catalog ``build_path`` and move ``moving`` onto it, all or nothing."""
     catalog = old_entry.catalog
-    # A rebase can land on an entry that already exists (an earlier rebase of
-    # the same entry); a rollback must not remove that one.
-    added = not catalog.contains(build_path.name)
-    # `catalog.add` overwrites an alias, so its prior target is kept to restore.
-    prior = alias_targets(catalog, (alias,) if alias else ())
+    added_aliases = (alias,) if alias else ()
     moved = []
     with catalog.maybe_synchronizing(sync):
+        # Read after the pull, which can bring in the entry or retarget an
+        # alias. A rebase can land on an entry that already exists (an earlier
+        # rebase of the same entry); a rollback must not remove that one.
+        added = not catalog.contains(build_path.name)
+        # `catalog.add` and `add_alias` overwrite an alias, so each prior
+        # target is kept to restore.
+        prior = alias_targets(catalog, (*added_aliases, *moving))
         new_entry = catalog.add(
             build_path,
             sync=False,
-            aliases=(alias,) if alias else (),
+            aliases=added_aliases,
             exist_ok=True,
         )
         try:
@@ -223,9 +231,8 @@ def add_rebased(
                 catalog.add_alias(new_entry.name, name, sync=False)
                 moved.append(name)
         except Exception:
-            roll_back(
-                new_entry, {**prior, **dict.fromkeys(moved, old_entry.name)}, added
-            )
+            touched = (*added_aliases, *moved)
+            roll_back(new_entry, {name: prior[name] for name in touched}, added)
             raise
     return new_entry, tuple(moved)
 

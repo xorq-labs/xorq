@@ -1193,8 +1193,9 @@ def rebase(
       0  no drift, or the rebase succeeded
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, a source cannot be probed, the
-         entry was built on another Python minor, or a write failed (it
-         is rolled back, and a failed rollback is logged)
+         entry was built on another Python minor, or a write failed (an
+         alias move is rolled back locally, a failed rollback is logged;
+         a failed push is not)
       2  a source was unreachable or the record unreadable; nothing
          written
 
