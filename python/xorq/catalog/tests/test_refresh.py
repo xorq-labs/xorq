@@ -28,6 +28,7 @@ from xorq.catalog.refresh import (
     check_refreshable,
     leaf_key,
     live_schemas,
+    op_key,
     refresh_build,
     refresh_schemas,
     with_live_schema,
@@ -37,10 +38,13 @@ from xorq.common.utils.defer_utils import deferred_read_csv, deferred_read_parqu
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import (
     CachedNode,
+    FlightUDXF,
     Read,
     RemoteTable,
     Tag,
     TeeNode,
+    flight_expr,
+    flight_udxf,
     pin_cache,
 )
 from xorq.ibis_yaml.compiler import build_expr, load_expr
@@ -581,3 +585,45 @@ def test_an_expr_udf_rebinds_over_its_drifted_source(
     (remote,) = walk_nodes(RemoteTable, op.computed_kwargs_expr)
     assert "c" in remote.schema
     assert list(expr.execute()["out"]) == [31.0, 32.0]
+
+
+def drift_the_table(expr: xo.Expr) -> dict:
+    """The `refresh_schemas` mapping that grows `expr`'s one sqlite table."""
+    (table,) = (
+        node
+        for node in walk_nodes(ops.DatabaseTable, expr)
+        if type(node) is ops.DatabaseTable
+    )
+    return {op_key(table): xo.schema(GROWN.schema)}
+
+
+def test_a_flight_udxf_takes_the_schema_of_its_moved_input(
+    con: SqliteBackend,
+) -> None:
+    """`FlightUDXF.__init__` does not derive its output schema; a plain
+    recreate would keep the one computed over the recorded input."""
+    expr = flight_udxf(
+        con.table("t"),
+        process_df=toolz.identity,
+        maybe_schema_in=lambda schema: True,
+        maybe_schema_out=lambda schema: xo.schema(dict(schema) | {"n": dt.int64}),
+        con=xo.connect(),
+    )
+
+    refreshed = refresh_schemas(expr, drift_the_table(expr))
+    (node,) = walk_nodes(FlightUDXF, refreshed)
+    assert node.schema == node.udxf.calc_schema_out(node.input_expr.schema())
+    assert "c" in node.schema
+    assert "c" in refreshed.schema()
+
+
+def test_a_flight_expr_whose_input_no_longer_fits_raises(
+    con: SqliteBackend,
+) -> None:
+    """`FlightExpr.__init__` skips the `unbound_expr` check `from_exprs` runs."""
+    t = con.table("t")
+    expr = flight_expr(t, xo.table(t.schema()).select("a"), con=xo.connect())
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_schemas(expr, drift_the_table(expr))
+    assert excinfo.value.op_name == "FlightExpr"

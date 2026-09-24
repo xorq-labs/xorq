@@ -34,6 +34,7 @@ from xorq.catalog.inspection import (
     walk_node_refs,
 )
 from xorq.catalog.zip_utils import BuildZip
+from xorq.ibis_yaml.compiler import build_expr
 from xorq.ibis_yaml.enums import BundledSourceTypes, DumpFiles
 
 
@@ -754,3 +755,32 @@ def test_unparsable_expr_member_names_the_file(
     rewrite_member(entry.catalog_path, DumpFiles.expr, lambda data: b"")
     with pytest.raises(ValueError, match=DumpFiles.expr):
         get_source_leaves(entry)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [pytest.param("", id="empty"), pytest.param("- a\n- b\n", id="list")],
+)
+def test_a_build_dir_expr_that_is_not_a_mapping_names_the_file(
+    tmp_path: Path, world: SimpleNamespace, text: str
+) -> None:
+    """`from_build_dir` shares `read_document`'s check, not just the zip path."""
+    build_dir = build_expr(
+        world.con.table("t").filter(xo._.a > 1), builds_dir=tmp_path / "builds"
+    )
+    (build_dir / DumpFiles.expr).write_text(text)
+    with pytest.raises(ValueError, match=DumpFiles.expr):
+        BuildRecord.from_build_dir(build_dir)
+
+
+def test_a_build_dir_with_empty_profiles_still_loads(
+    tmp_path: Path, world: SimpleNamespace
+) -> None:
+    build_dir = build_expr(
+        world.con.table("t").filter(xo._.a > 1), builds_dir=tmp_path / "builds"
+    )
+    (build_dir / DumpFiles.profiles).write_text("")
+    record = BuildRecord.from_build_dir(build_dir)
+    assert record.profiles == {}
+    (leaf,) = record.source_leaves
+    assert (leaf.kind, leaf.name) == (LeafKind.DATABASE_TABLE, "t")
