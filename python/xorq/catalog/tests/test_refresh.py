@@ -19,6 +19,7 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
+import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog.drift import LeafReport, iter_leaf_reports, unchecked_leaves
@@ -34,7 +35,12 @@ from xorq.catalog.refresh import (
     with_live_schema,
 )
 from xorq.common.exceptions import SchemaRefreshError
-from xorq.common.utils.defer_utils import deferred_read_csv, deferred_read_parquet
+from xorq.common.utils.defer_utils import (
+    deferred_read_csv,
+    deferred_read_parquet,
+    make_read_kwargs,
+    normalize_read_path_stat,
+)
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import (
     CachedNode,
@@ -490,7 +496,7 @@ def test_unmatched_keys_of_mixed_kinds_are_labeled_with_each(world: tuple) -> No
         pytest.param(Verdict.CHANGED, id="changed"),
     ),
 )
-def test_one_key_at_two_live_schemas_is_refused(world: tuple, other: str) -> None:
+def test_one_key_at_two_live_schemas_is_refused(world: tuple, other: Verdict) -> None:
     """Two reads of one path with different options share a `leaf_key`; a
     mapping holding one of their live schemas would rebuild both over it."""
     _, build_path = world
@@ -499,12 +505,53 @@ def test_one_key_at_two_live_schemas_is_refused(world: tuple, other: str) -> Non
     other_live = leaf.recorded if other == Verdict.EQUAL else xo.schema({"a": "int64"})
     reports = (
         LeafReport(leaf, Verdict.CHANGED, live=xo.schema(GROWN.schema)),
-        LeafReport(leaf, Verdict(other), live=other_live),
+        LeafReport(leaf, other, live=other_live),
     )
 
     with pytest.raises(SchemaRefreshError) as excinfo:
         live_schemas(record, reports)
     assert excinfo.value.op_name == "DatabaseTable"
+    assert "disagree on its live schema" in str(excinfo.value)
+
+
+def test_two_reads_of_one_path_that_disagree_are_refused(
+    tmp_path: Path, builds_dir: Path
+) -> None:
+    """The sweep end to end: two reads of one file that differ only in their
+    options share a `leaf_key` and are probed as two leaves. `read_json` because
+    csv and parquet are probed by an inference that ignores the read's options,
+    so only a replayed read can come back at two schemas."""
+    path = tmp_path / "t.json"
+    path.write_text('{"a": 1}\n')
+    con = xo.duckdb.connect()
+    recorded = xo.schema({"a": "int64"})
+
+    def read_json(name: str, **kwargs) -> ir.Table:
+        return Read(
+            method_name="read_json",
+            name=name,
+            schema=recorded,
+            source=con,
+            read_kwargs=make_read_kwargs(
+                con.read_json, str(path), table_name=name, **kwargs
+            ),
+            normalize_method=normalize_read_path_stat,
+        ).to_expr()
+
+    build_path = build_expr(
+        read_json("nested").union(read_json("flat", maximum_depth=1)),
+        builds_dir=builds_dir,
+        relocate_reads=False,
+    )
+    path.write_text('{"a": {"x": 1}}\n')
+    record = BuildRecord.from_build_dir(build_path)
+    reports = tuple(iter_leaf_reports(record))
+    assert len(reports) == 2
+    assert len({leaf_key(report.leaf, record) for report in reports}) == 1
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        live_schemas(record, reports)
+    assert excinfo.value.op_name == "Read"
     assert "disagree on its live schema" in str(excinfo.value)
 
 
