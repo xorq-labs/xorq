@@ -39,6 +39,7 @@ from xorq.common.utils.defer_utils import (
     normalize_read_path_stat,
 )
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.node_utils import recreate
 from xorq.expr.relations import (
     CachedNode,
     FlightExpr,
@@ -797,6 +798,20 @@ def test_a_flight_expr_over_a_dropped_column_names_the_field(
     with pytest.raises(SchemaRefreshError) as excinfo:
         refresh_schemas(expr, drift_the_table(expr, pa.schema({"b": pa.string()})))
     assert excinfo.value.op_name == "Field"
+
+
+def test_a_flight_expr_without_an_unbound_table_is_named(
+    con: SqliteBackend,
+) -> None:
+    t = con.table("t")
+    expr = flight_expr(t, xo.table(t.schema()), con=xo.connect())
+    (node,) = walk_nodes(FlightExpr, expr)
+    unbound = recreate(node, unbound_expr=xo.memtable({"a": [1]})).to_expr()
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_schemas(unbound, drift_the_table(unbound))
+    assert excinfo.value.op_name == "FlightExpr"
+    assert "no UnboundTable" in str(excinfo.value)
 
 
 def test_a_flight_source_keys_without_a_profile() -> None:

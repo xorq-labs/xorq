@@ -148,7 +148,9 @@ def rebind_unbound(unbound_expr: Any, schema: Schema) -> Any:
     Each op above is recreated, so one that no longer fits is named.
     Found via ``__children__``, the edges ``replace`` follows.
     """
-    (table, *_) = to_node(unbound_expr).find(ops.UnboundTable)
+    if not (tables := to_node(unbound_expr).find(ops.UnboundTable)):
+        raise ValueError("unbound_expr has no UnboundTable reachable via __children__")
+    (table, *_) = tables
     moved = recreate(table, schema=schema)
 
     def replacer(node: Node, kwargs: dict | None) -> Node:
