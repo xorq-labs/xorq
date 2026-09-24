@@ -153,20 +153,24 @@ def test_an_unknown_alias_to_move_writes_nothing(
     assert_nothing_written(world, commits)
 
 
-def test_a_failed_alias_move_rolls_back_the_new_entry(
-    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    replace_t(world, GROWN)
+def fail_nth_add_alias(monkeypatch: pytest.MonkeyPatch, n: int) -> None:
     add_alias = Catalog.add_alias
     calls = []
 
     def failing_add_alias(self, name, alias, sync=True):
         calls.append(alias)
-        if len(calls) == 2:
+        if len(calls) == n:
             raise RuntimeError("alias move failed")
         return add_alias(self, name, alias, sync=sync)
 
     monkeypatch.setattr(Catalog, "add_alias", failing_add_alias)
+
+
+def test_a_failed_alias_move_rolls_back_the_new_entry(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    fail_nth_add_alias(monkeypatch, 2)
     with pytest.raises(RuntimeError, match="alias move failed"):
         rebase_entry(world.catalog.get_catalog_entry(world.name))
     monkeypatch.undo()
@@ -175,6 +179,91 @@ def test_a_failed_alias_move_rolls_back_the_new_entry(
     assert catalog.list() == [world.name]
     assert alias_target_hash(catalog, "live") == world.name
     assert alias_target_hash(catalog, "staging") == world.name
+
+
+def test_a_failed_alias_move_keeps_an_entry_that_already_existed(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    earlier = rebase_entry(world.catalog.get_catalog_entry(world.name)).new_entry.name
+    catalog = reopen(world)
+    for alias in ("live", "staging"):
+        catalog.add_alias(world.name, alias)
+
+    fail_nth_add_alias(monkeypatch, 2)
+    with pytest.raises(RuntimeError, match="alias move failed"):
+        rebase_entry(catalog.get_catalog_entry(world.name))
+    monkeypatch.undo()
+
+    catalog = reopen(world)
+    assert set(catalog.list()) == {world.name, earlier}
+    assert alias_target_hash(catalog, "live") == world.name
+    assert alias_target_hash(catalog, "staging") == world.name
+
+
+def test_a_failed_alias_move_restores_the_extra_alias(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    t = world.con.table("t")
+    other = world.catalog.add(t.filter(t.a > 0), aliases=("v2",)).name
+    replace_t(world, GROWN)
+
+    fail_nth_add_alias(monkeypatch, 1)
+    with pytest.raises(RuntimeError, match="alias move failed"):
+        rebase_entry(world.catalog.get_catalog_entry(world.name), alias="v2")
+    monkeypatch.undo()
+
+    catalog = reopen(world)
+    assert set(catalog.list()) == {world.name, other}
+    assert alias_target_hash(catalog, "v2") == other
+    assert alias_target_hash(catalog, "live") == world.name
+
+
+def test_a_failed_rollback_surfaces_the_error_that_caused_it(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    fail_nth_add_alias(monkeypatch, 2)
+
+    def failing_remove(self, name, sync=True):
+        raise OSError("rollback failed")
+
+    monkeypatch.setattr(Catalog, "remove", failing_remove)
+    with pytest.raises(RuntimeError, match="alias move failed"):
+        rebase_entry(world.catalog.get_catalog_entry(world.name))
+
+
+def test_a_str_cache_dir_rebases(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path
+) -> None:
+    replace_t(world, GROWN)
+
+    result = rebase(runner, world, world.name, "--cache-dir", str(tmp_path / "c"))
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() != world.name
+
+
+@pytest.mark.parametrize(
+    "target", ("recorded_python_minor", "bundle_members", "make_profile")
+)
+def test_an_unreadable_archive_or_profile_exits_two(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+) -> None:
+    replace_t(world, GROWN)
+
+    def unreadable(*_):
+        raise ValueError("corrupt")
+
+    monkeypatch.setattr(f"xorq.catalog.rebase.{target}", unreadable)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world)
+    assert result.exit_code == 2, result.output
+    assert f"{world.name} is unreadable: ValueError: corrupt" in result.stderr
+    assert_nothing_written(world, commits)
 
 
 def test_a_pinned_entry_exits_one_and_names_unpin(

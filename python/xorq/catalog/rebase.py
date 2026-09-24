@@ -12,13 +12,13 @@ import json
 import sys
 import tempfile
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from attr import field, frozen
 from attr.validators import deep_iterable, in_, instance_of
 
-from xorq.catalog.catalog import CatalogEntry
+from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.drift import (
     LeafReport,
     duckdb_no_create,
@@ -27,7 +27,6 @@ from xorq.catalog.drift import (
     make_profile,
     read_record,
     sqlite_no_create,
-    unchecked_leaves,
 )
 from xorq.catalog.enums import RebaseStatus, Verdict
 from xorq.catalog.exceptions import RebaseError
@@ -128,7 +127,11 @@ def preflight(
         check_refreshable(record)
     except SchemaRefreshError as e:
         raise RebaseError(f"{name} cannot be rebased: {e.cause}", 1) from e
-    recorded = recorded_python_minor(catalog_entry)
+    try:
+        recorded = recorded_python_minor(catalog_entry)
+        members = bundle_members(catalog_entry)
+    except Exception as e:
+        raise RebaseError(f"{name} is unreadable: {format_error(e)}", 2) from e
     running = tuple(sys.version_info[:2])
     if recorded not in (None, running) and not ignore_mismatch:
         raise RebaseError(
@@ -144,33 +147,49 @@ def preflight(
         raise RebaseError(f"{name} has no alias {', '.join(unknown)}", 1)
     else:
         moving = tuple(dict.fromkeys(move_aliases))
-    if not any(
-        Path(m).name.endswith(WHEEL_SUFFIX) for m in bundle_members(catalog_entry)
-    ):
+    if not any(Path(m).name.endswith(WHEEL_SUFFIX) for m in members):
         raise RebaseError(f"{name} carries no wheel for the rebased entry", 2)
     return record, moving
 
 
-def sweep_proves_noop(record: BuildRecord, reports: Iterable[LeafReport]) -> bool:
-    """Whether the sweep alone settles it: every source probed, and equal."""
-    return not unchecked_leaves(record) and all(
-        report.verdict == Verdict.EQUAL for report in reports
-    )
+def sweep_proves_noop(reports: Iterable[LeafReport]) -> bool:
+    """Whether the sweep alone settles it: every source equal.
+
+    That every source was probed is ``preflight``'s ``check_refreshable``.
+    """
+    return all(report.verdict == Verdict.EQUAL for report in reports)
+
+
+def alias_targets(catalog: Catalog, aliases: Iterable[str]) -> dict[str, str | None]:
+    """The entry each of ``aliases`` points at, ``None`` for an unregistered one."""
+    registered = set(catalog.list_aliases())
+    return {
+        alias: CatalogAlias.from_name(alias, catalog).catalog_entry.name
+        if alias in registered
+        else None
+        for alias in aliases
+    }
 
 
 def roll_back(
-    old_entry: CatalogEntry, new_entry: CatalogEntry, moved: Iterable[str], added: bool
+    new_entry: CatalogEntry, prior: Mapping[str, str | None], added: bool
 ) -> None:
-    """Put ``moved`` back on ``old_entry`` and remove ``new_entry`` if ``added``.
+    """Remove ``new_entry`` if ``added``, and point each alias back at ``prior``.
 
-    Logged, not raised, so the error that caused it is the one that surfaces.
+    An alias ``prior`` maps to ``None`` did not exist, and is removed. Logged,
+    not raised, so the error that caused it is the one that surfaces.
     """
-    catalog = old_entry.catalog
+    catalog = new_entry.catalog
     try:
-        for alias in moved:
-            catalog.add_alias(old_entry.name, alias, sync=False)
+        # First: removing the entry takes the aliases on it along.
         if added:
             catalog.remove(new_entry.name, sync=False)
+        for alias, target in prior.items():
+            if target is not None:
+                if target != new_entry.name:
+                    catalog.add_alias(target, alias, sync=False)
+            elif alias in catalog.list_aliases():
+                catalog.remove_alias(alias, sync=False)
     except Exception:
         from xorq.common.utils.logging_utils import get_logger  # noqa: PLC0415
 
@@ -189,6 +208,8 @@ def add_rebased(
     # A rebase can land on an entry that already exists (an earlier rebase of
     # the same entry); a rollback must not remove that one.
     added = not catalog.contains(build_path.name)
+    # `catalog.add` overwrites an alias, so its prior target is kept to restore.
+    prior = alias_targets(catalog, (alias,) if alias else ())
     moved = []
     with catalog.maybe_synchronizing(sync):
         new_entry = catalog.add(
@@ -202,7 +223,9 @@ def add_rebased(
                 catalog.add_alias(new_entry.name, name, sync=False)
                 moved.append(name)
         except Exception:
-            roll_back(old_entry, new_entry, moved, added)
+            roll_back(
+                new_entry, {**prior, **dict.fromkeys(moved, old_entry.name)}, added
+            )
             raise
     return new_entry, tuple(moved)
 
@@ -225,15 +248,23 @@ def rebase_entry(
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
+    # `ExprDumper` validates `cache_dir` as a `Path`.
+    cache_dir = Path(cache_dir) if cache_dir is not None else None
     record, moving = preflight(catalog_entry, move_aliases, ignore_mismatch)
     reports = tuple(iter_leaf_reports(record))
-    if sweep_proves_noop(record, reports):
+    if sweep_proves_noop(reports):
         return RebaseResult(RebaseStatus.NOOP, catalog_entry, catalog_entry, reports)
     try:
         live = live_schemas(record, reports)
     except SchemaRefreshError as e:
         raise RebaseError(f"{catalog_entry.name}: {e.cause}", 2) from e
-    if missing := missing_databases(record):
+    try:
+        missing = missing_databases(record)
+    except Exception as e:
+        raise RebaseError(
+            f"{catalog_entry.name} is unreadable: {format_error(e)}", 2
+        ) from e
+    if missing:
         raise RebaseError(
             f"{catalog_entry.name}: database {', '.join(missing)} does not exist", 2
         )
