@@ -772,16 +772,33 @@ def test_a_flight_udxf_takes_the_schema_of_its_moved_input(
     assert "c" in refreshed.schema()
 
 
-def test_a_flight_expr_whose_input_no_longer_fits_raises(
-    con: SqliteBackend,
-) -> None:
+def test_a_flight_expr_follows_an_added_column(con: SqliteBackend) -> None:
     """`FlightExpr.__init__` skips the `unbound_expr` check `from_exprs` runs."""
     t = con.table("t")
+    expr = flight_expr(t, xo.table(t.schema()), con=xo.connect())
+
+    refreshed = refresh_schemas(expr, drift_the_table(expr))
+    (node,) = walk_nodes(FlightExpr, refreshed)
+    (unbound,) = walk_nodes(ops.UnboundTable, node.unbound_expr)
+    assert unbound.schema == node.input_expr.schema()
+    assert "c" in node.schema
+    assert "c" in refreshed.schema()
+
+
+def test_a_flight_expr_over_a_dropped_column_names_the_field(
+    con: SqliteBackend,
+) -> None:
+    t = con.table("t")
     expr = flight_expr(t, xo.table(t.schema()).select("a"), con=xo.connect())
+    (table,) = (
+        node
+        for node in walk_nodes(ops.DatabaseTable, expr)
+        if type(node) is ops.DatabaseTable
+    )
 
     with pytest.raises(SchemaRefreshError) as excinfo:
-        refresh_schemas(expr, drift_the_table(expr))
-    assert excinfo.value.op_name == "FlightExpr"
+        refresh_schemas(expr, {op_key(table): xo.schema({"b": "string"})})
+    assert excinfo.value.op_name == "Field"
 
 
 def test_a_flight_source_keys_without_a_profile() -> None:

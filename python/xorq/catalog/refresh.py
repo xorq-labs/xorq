@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.catalog.drift import (
     RECORDED_SCHEMA_KEYS,
     LeafReport,
@@ -27,6 +28,7 @@ from xorq.common.utils.graph_utils import (
     _require_expr_args_recorded,
     _require_registered_if_expr_bearing,
     to_node,
+    walk_nodes,
 )
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
 from xorq.expr.relations import (
@@ -141,10 +143,29 @@ def rebuild(node: Node, build: Callable[[], Node]) -> Node:
         raise SchemaRefreshError(type(node).__name__, e) from e
 
 
+def rebind_unbound(unbound_expr: Any, schema: Schema) -> Any:
+    """``unbound_expr`` rebuilt over its one ``UnboundTable`` carrying ``schema``.
+
+    Each op above is recreated, so one that no longer fits is named.
+    """
+    (table, *_) = walk_nodes(ops.UnboundTable, unbound_expr)
+    moved = recreate(table, schema=schema)
+
+    def replacer(node: Node, kwargs: dict | None) -> Node:
+        if node == table:
+            return moved
+        if kwargs is None:
+            return node
+        return rebuild(node, lambda: node.__recreate__(kwargs))
+
+    return to_node(unbound_expr).replace(replacer).to_expr()
+
+
 def revalidate_flight(node: Node, overrides: dict) -> dict:
     """``overrides`` checked against a moved ``input_expr``.
 
     Flight ops validate only in ``from_expr``/``from_exprs``, not ``__init__``.
+    A ``FlightExpr``'s ``unbound_expr`` is rebuilt over the new input schema.
     """
     if (input_expr := overrides.get("input_expr")) is None:
         return overrides
@@ -156,7 +177,12 @@ def revalidate_flight(node: Node, overrides: dict) -> dict:
                     "schema": FlightUDXF.validate_schema(input_expr, node.udxf)
                 }
             case FlightExpr():
-                FlightExpr.validate_schema(input_expr, node.unbound_expr)
+                unbound_expr = rebind_unbound(node.unbound_expr, input_expr.schema())
+                FlightExpr.validate_schema(input_expr, unbound_expr)
+                return overrides | {
+                    "unbound_expr": unbound_expr,
+                    "schema": unbound_expr.schema(),
+                }
     except ValueError as e:
         raise SchemaRefreshError(type(node).__name__, e) from e
     return overrides
