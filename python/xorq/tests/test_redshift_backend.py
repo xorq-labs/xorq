@@ -18,6 +18,7 @@ import contextlib
 import importlib.util
 import inspect
 import sys
+from types import ModuleType
 
 import pyarrow as pa
 import pytest
@@ -58,7 +59,6 @@ import xorq.backends.postgres as postgres_module  # noqa: E402
 import xorq.backends.redshift as redshift_module  # noqa: E402
 import xorq.common.exceptions as exc  # noqa: E402
 from xorq.backends.postgres import Backend as PostgresBackend  # noqa: E402
-from xorq.backends.redshift import DEFAULT_PORT, INGEST_MODES  # noqa: E402
 from xorq.backends.redshift import Backend as RedshiftBackend  # noqa: E402
 from xorq.vendor.ibis.backends.profiles import (  # noqa: E402
     Profile,
@@ -208,7 +208,7 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
 
     # Reached the driver ...
     assert recorded["client_encoding"] == "utf8"
-    assert recorded["port"] == DEFAULT_PORT
+    assert recorded["port"] == redshift_module.DEFAULT_PORT
     # ... and did not reach the build hash.
     assert "client_encoding" not in con._con_kwargs
 
@@ -235,19 +235,19 @@ def test_client_encoding_is_not_inherited_from_postgres(
 
 
 def test_default_port_is_redshifts():
-    assert DEFAULT_PORT == 5439
+    assert redshift_module.DEFAULT_PORT == 5439
     defaults = dict(
         zip(
             RedshiftBackend.do_connect.__code__.co_varnames[1:],
             RedshiftBackend.do_connect.__defaults__,
         )
     )
-    assert defaults["port"] == DEFAULT_PORT
+    assert defaults["port"] == redshift_module.DEFAULT_PORT
 
 
 def test_profile_roundtrips():
     con = RedshiftBackend()
-    type(con).__init__(con, host="example.invalid", port=DEFAULT_PORT)
+    type(con).__init__(con, host="example.invalid", port=redshift_module.DEFAULT_PORT)
     restored = Profile(**con._profile.as_dict())
     assert restored.con_name == "redshift"
     assert restored.hash_name == con._profile.hash_name
@@ -267,7 +267,7 @@ def test_profile_roundtrips():
 class _FakeCursor:
     """Records executed SQL. Mimics psycopg3's chaining ``execute``."""
 
-    def __init__(self, log, rows=()):
+    def __init__(self, log: list, rows: tuple = ()) -> None:
         self.log = log
         self.rows = rows
 
@@ -285,13 +285,13 @@ class _FakeCursor:
         self.log.append(("executemany", sql, list(rows)))
         return self
 
-    def fetchall(self):
+    def fetchall(self) -> list:
         return list(self.rows)
 
 
 class _FakeConnection:
-    def __init__(self, rows=()):
-        self.log = []
+    def __init__(self, rows: tuple = ()) -> None:
+        self.log: list = []
         self.rows = rows
 
     def cursor(self, *args, **kwargs):
@@ -309,7 +309,9 @@ def make_offline_con(**con_kwargs):
     the profile, without ``do_connect``.
     """
     con = RedshiftBackend()
-    type(con).__init__(con, host="example.invalid", port=DEFAULT_PORT, **con_kwargs)
+    type(con).__init__(
+        con, host="example.invalid", port=redshift_module.DEFAULT_PORT, **con_kwargs
+    )
     con.con = _FakeConnection()
     con.table = lambda name: ("table", name)
     return con
@@ -511,7 +513,7 @@ def test_ingest_validates_mode_before_choosing_a_branch(monkeypatch):
 
 
 @pytest.fixture
-def postgres_utils():
+def postgres_utils() -> ModuleType:
     """``xorq.common.utils.postgres_utils``, imported per test rather than at
     module scope.
 
@@ -568,7 +570,9 @@ def test_adbc_is_available_when_installed_and_credentialed():
     assert con._adbc_unavailable_reason() is None
 
 
-def test_auth_failure_is_not_swallowed_as_a_missing_driver(monkeypatch, postgres_utils):
+def test_auth_failure_is_not_swallowed_as_a_missing_driver(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
     """The discrimination the inherited ``except Exception`` cannot make.
 
     A rejected temporary credential and an absent driver arrive at the probe as
@@ -585,7 +589,9 @@ def test_auth_failure_is_not_swallowed_as_a_missing_driver(monkeypatch, postgres
         con._open_adbc_conn_or_none()
 
 
-def test_an_unavailable_driver_is_not_dialled_at_all(monkeypatch, postgres_utils):
+def test_an_unavailable_driver_is_not_dialled_at_all(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
     """Availability is decided from local facts *before* connecting, which is
     what makes the test above possible: every exception from the connect is
     then a real failure."""
@@ -596,7 +602,9 @@ def test_an_unavailable_driver_is_not_dialled_at_all(monkeypatch, postgres_utils
     assert con._open_adbc_conn_or_none() is None
 
 
-def test_the_postgres_seam_keeps_swallowing(monkeypatch, postgres_utils):
+def test_the_postgres_seam_keeps_swallowing(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
     """The probe was extracted from ``to_pyarrow_batches`` so Redshift could
     override it. Postgres's own behaviour must be unchanged by that -- its
     catch-all is deliberate, and users connecting without a password in
@@ -609,7 +617,12 @@ def test_the_postgres_seam_keeps_swallowing(monkeypatch, postgres_utils):
 
 
 def test_ingest_modes_are_the_adbc_ingest_modes():
-    assert INGEST_MODES == ("create", "append", "replace", "create_append")
+    assert redshift_module.INGEST_MODES == (
+        "create",
+        "append",
+        "replace",
+        "create_append",
+    )
 
 
 def test_ingest_ddl_pins_two_unverified_redshift_type_widths(monkeypatch):
