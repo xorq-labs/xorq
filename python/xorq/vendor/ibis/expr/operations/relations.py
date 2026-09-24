@@ -169,10 +169,11 @@ class DropColumns(Relation):
 
     @attribute
     def values(self):
-        fields = self.parent.fields.copy()
-        for column in self.columns_to_drop:
-            del fields[column]
-        return fields
+        return {
+            name: field
+            for name, field in self.parent.fields.items()
+            if name not in self.columns_to_drop
+        }
 
 
 @public
