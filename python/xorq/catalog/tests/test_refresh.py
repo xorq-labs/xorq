@@ -21,8 +21,8 @@ import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
-from xorq.catalog.drift import iter_leaf_reports, unchecked_leaves
-from xorq.catalog.enums import LeafKind
+from xorq.catalog.drift import LeafReport, iter_leaf_reports, unchecked_leaves
+from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import (
     check_refreshable,
@@ -463,6 +463,42 @@ def test_unmatched_keys_of_mixed_kinds_are_labeled_with_each(world: tuple) -> No
     with pytest.raises(SchemaRefreshError) as excinfo:
         refresh_schemas(load_expr(build_path), live)
     assert excinfo.value.op_name == "DatabaseTable, Read"
+
+
+@pytest.mark.parametrize(
+    "other",
+    (
+        pytest.param(Verdict.EQUAL, id="equal"),
+        pytest.param(Verdict.CHANGED, id="changed"),
+    ),
+)
+def test_one_key_at_two_live_schemas_is_refused(world: tuple, other: str) -> None:
+    """Two reads of one path with different options share a `leaf_key`; a
+    mapping holding one of their live schemas would rebuild both over it."""
+    _, build_path = world
+    record = BuildRecord.from_build_dir(build_path)
+    (leaf,) = record.external_leaves
+    other_live = leaf.recorded if other == Verdict.EQUAL else xo.schema({"a": "int64"})
+    reports = (
+        LeafReport(leaf, Verdict.CHANGED, live=xo.schema(GROWN.schema)),
+        LeafReport(leaf, Verdict(other), live=other_live),
+    )
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        live_schemas(record, reports)
+    assert excinfo.value.op_name == "DatabaseTable"
+    assert "disagree on its live schema" in str(excinfo.value)
+
+
+def test_one_key_reported_twice_at_one_live_schema_refreshes(world: tuple) -> None:
+    _, build_path = world
+    record = BuildRecord.from_build_dir(build_path)
+    (leaf,) = record.external_leaves
+    report = LeafReport(leaf, Verdict.CHANGED, live=xo.schema(GROWN.schema))
+
+    assert live_schemas(record, (report, report)) == {
+        leaf_key(leaf, record): xo.schema(GROWN.schema)
+    }
 
 
 def test_a_source_that_went_empty_fails_its_dependents(world: tuple) -> None:

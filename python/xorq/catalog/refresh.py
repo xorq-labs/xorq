@@ -262,30 +262,48 @@ def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
     """The ``refresh_schemas`` mapping for the leaves ``reports`` found changed.
 
     A source that could not be compared is not something to rebuild over, so
-    any verdict but ``equal`` and ``changed`` raises. The sweep runs to the
-    end first, so one error names every such source, labeled with their kinds.
+    any verdict but ``equal`` and ``changed`` raises. So does a key the sweep
+    found at two schemas: two reads of one path with different options share a
+    ``leaf_key``, and ``refresh_schemas`` would rebuild both over whichever
+    report came last. The sweep runs to the end first, so one error names every
+    such source, labeled with their kinds.
     """
-    live = {}
+    found: dict[tuple, dict[Schema, LeafReport]] = {}
     uncomparable = []
     for report in reports:
         match report.verdict:
-            case Verdict.EQUAL:
-                continue
-            case Verdict.CHANGED:
-                live[leaf_key(report.leaf, record)] = report.live
+            case Verdict.EQUAL | Verdict.CHANGED:
+                key = leaf_key(report.leaf, record)
+                found.setdefault(key, {})[report.live] = report
             case _:
                 uncomparable.append(report)
-    if uncomparable:
+    ambiguous = [
+        next(iter(by_live.values())) for by_live in found.values() if len(by_live) > 1
+    ]
+    if uncomparable or ambiguous:
         details = "; ".join(
-            f"{report.leaf.name} is {report.verdict}"
-            + (f": {report.error}" if report.error else "")
-            for report in uncomparable
+            [
+                f"{report.leaf.name} is {report.verdict}"
+                + (f": {report.error}" if report.error else "")
+                for report in uncomparable
+            ]
+            + [
+                f"{report.leaf.name} is read more than once, and its reads "
+                "disagree on its live schema"
+                for report in ambiguous
+            ]
         )
         cause = LookupError(details)
         raise SchemaRefreshError(
-            kinds_label(report.leaf.kind for report in uncomparable), cause
+            kinds_label(report.leaf.kind for report in (*uncomparable, *ambiguous)),
+            cause,
         )
-    return live
+    return {
+        key: live
+        for key, by_live in found.items()
+        for (live, report) in by_live.items()
+        if report.verdict == Verdict.CHANGED
+    }
 
 
 def check_refreshable(record: BuildRecord) -> None:
