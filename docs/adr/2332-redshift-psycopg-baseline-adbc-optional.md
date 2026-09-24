@@ -1,7 +1,10 @@
-# ADR-2332: Make the Columnar Redshift driver optional via a psycopg baseline, and ship it as a repackaged wheel
+# ADR-2332: Make the Redshift ADBC accelerator optional over a psycopg baseline
 
-- **Status:** Proposed — its central alternative was tested on 2026-09-24 and
-  passed, so the decision below is under review; see kata xorq#nw8d
+- **Status:** Proposed — **revised 2026-09-24 by kata xorq#nw8d**, which replaced
+  the repackaged Columnar wheel with `adbc_driver_postgresql` as the accelerator
+  of record. The wheel is not built. Passages arguing for it are kept below,
+  struck or marked superseded, because the reasoning is the record of why the
+  decision moved
 - **Date:** 2026-09-03
 - **Revised:** 2026-09-24, against a live Redshift endpoint
 - **Deciders:** dlovell
@@ -75,18 +78,45 @@ Two parts, and the second only makes sense because of the first.
 **1. psycopg is the baseline.** Connect, DDL, introspection and query all work
 with psycopg alone. Every driver-backed path degrades to it.
 
-**2. The accelerator ships as a repackaged platform wheel**, not as an
-out-of-band `dbc install`. xorq builds `xorq-adbc-driver-redshift` wheels that
-bundle the unmodified Columnar shared library and resolve its absolute path at
-import, for the platforms upstream builds.
+**2. The accelerator is `adbc_driver_postgresql`.** It is already declared in the
+`postgres` and `redshift` extras (`pyproject.toml`), already in the lockfile,
+already what the inherited `to_pyarrow_batches` reaches for, and measured on
+2026-09-24 to work against live Redshift for every read path. It publishes wheels
+for more platforms than Columnar, Intel Mac included, so the accelerator is an
+ordinary declared dependency with no packaging work behind it.
+
+> **Superseded 2026-09-24 (kata xorq#nw8d).** This part originally read: *"The
+> accelerator ships as a repackaged platform wheel, not as an out-of-band `dbc
+> install`. xorq builds `xorq-adbc-driver-redshift` wheels that bundle the
+> unmodified Columnar shared library and resolve its absolute path at import, for
+> the platforms upstream builds."* The wheel is **not built**. Every cost it
+> carried — see *Negative* — was being paid in advance for its only remaining
+> advantage over `adbc_driver_postgresql`, speed, which this ADR never measured.
+> That comparison is filed and parked as kata xorq#1z6k; a margin measured there
+> is an input to a **new** decision, not a trigger that resumes the wheel.
+>
+> **What this decision buys, recorded as a cost.** `adbc_driver_postgresql`
+> targets PostgreSQL, and Redshift's wire compatibility is a courtesy, so a
+> release could regress against Redshift with nobody upstream treating it as a
+> bug. Both extras pin `adbc-driver-postgresql>=1.4.0` with **no ceiling**, and
+> no live-Redshift CI job exists, so such a release would install automatically
+> and go uncaught. An upper pin and that job are the mitigation; **neither
+> exists today**.
 
 | Path | Driver | Role |
 |---|---|---|
 | connect, DDL, introspection, query | psycopg | baseline, PyPI-installable |
-| `to_pyarrow_batches` | Columnar ADBC | accelerator, degrades |
+| `to_pyarrow_batches` | `adbc_driver_postgresql` | accelerator, degrades |
 | `read_record_batches` (ingest) | psycopg | baseline, dispatching on driver availability |
 
-### Why a wheel rather than `dbc install`
+### Why a wheel rather than `dbc install` — superseded, kept as reasoning
+
+> **Superseded 2026-09-24 (kata xorq#nw8d).** This section answers "if the
+> accelerator must be the Columnar driver, how is it installed". It never
+> answered "must it be", and once `adbc_driver_postgresql` was measured working
+> the answer was no. Retained because it is why `dbc install` is a fallback and
+> not the primary mechanism — which still holds should the wheel ever be
+> revisited, and which the *Alternatives* section leans on.
 
 The wheel is what makes the accelerator a *declarable, lockable* dependency
 instead of a machine-global side effect. It is also not a novel mechanism:
@@ -115,6 +145,9 @@ permits redistribution, but publishing another company's binary under an
 `xorq-*` name is a courtesy call at minimum, and the better outcome is that they
 publish it themselves. Until that conversation happens, the wheels are built and
 consumed privately. This ADR decides the *mechanism*, not the publication.
+**Moot as of 2026-09-24:** no wheel is built, so there is nothing to publish and
+the courtesy call is not owed. It becomes owed again only if kata xorq#1z6k leads
+to a new decision that resumes the wheel.
 
 If the wheel path is ever abandoned, the fallback is already precedented in this
 repo: `dbc install <driver>` plus `driver="<name>"`, exactly as the bigquery
@@ -196,9 +229,14 @@ authenticating is what made it a choice.
 ### Declare the upstream driver in `[project.optional-dependencies]`
 
 Rejected because no requirement string resolves — the driver payload is not on
-any index. This is the alternative the repackaged wheel exists to synthesise.
+any index. ~~This is the alternative the repackaged wheel exists to synthesise.~~
+**Revised 2026-09-24 (kata xorq#nw8d):** it is what the *next* alternative turned
+out to satisfy directly. `adbc_driver_postgresql` is a declarable, resolvable
+requirement that is already in `pyproject.toml`, so the accelerator is an ordinary
+optional dependency after all — the outcome this section was rejected for being
+unable to reach, arrived at without synthesising anything.
 
-### Use `adbc_driver_postgresql` as the accelerator — **TESTED 2026-09-24, and it supersedes most of this decision**
+### Use `adbc_driver_postgresql` as the accelerator — **ADOPTED 2026-09-24; this is the decision now**
 
 Redshift speaks the PostgreSQL wire protocol, and `adbc-driver-postgresql` is
 already declared in the `postgres` extra, is already what the inherited
@@ -241,18 +279,40 @@ dependency — the "strictly better outcome" this section was written to hold op
 What the measurement does **not** settle is whether the Columnar driver is
 materially *faster* than `adbc_driver_postgresql` on Redshift, which is the only
 thing the wheel would still buy; this ADR asserts the Arrow-native path is a win
-against *psycopg*, and never against the other ADBC driver. Whether that retires
-the wheel outright or demotes it to a documented fallback is filed as a decision
-rather than taken here: **kata xorq#nw8d**.
+against *psycopg*, and never against the other ADBC driver.
+
+**Decided 2026-09-24 (kata xorq#nw8d): it retires the wheel outright.** The wheel
+is not built, and `dbc install redshift` remains the documented fallback it
+already was. The call rests on the costs being one-sided — `adbc_driver_postgresql`
+is already declared and already in the lockfile, while the wheel carries every
+item in *Negative* — and on the wheel's sole remaining advantage never having been
+measured. Migration back stays cheap by this ADR's own constraint 1: dispatch is
+on driver availability, so swapping accelerators changes
+`_adbc_unavailable_reason()` and the extras, not the Arrow paths. The missing
+head-to-head is kata xorq#1z6k, parked; it needs only `dbc install redshift` on
+one Linux box, so the condition attached to this decision is evaluable without
+doing any of the packaging work the decision avoids.
+
+**One measured caveat, and it probably does not favour either driver.** The ADBC
+read path raises `ValueError` when an expression carries an **auto-generated**
+alias containing upper case — `t.count().execute()` is the minimal case — because
+Redshift folds identifiers to lower case and the per-batch cast rejects the
+mismatch. The folding is *server*-side, so the Columnar driver would very likely
+meet it identically through the same cast; that is **unverified**, and it was
+unverified when this decision was taken. Filed as kata xorq#g7n7 with the question
+stated, because the answer decides whether it was ever evidence about drivers at
+all rather than about xorq's cast.
 
 For **ingest** it changes nothing, because neither ADBC driver can ingest into
 Redshift at all — see the section above.
 
 ### Do not offer an accelerator at all
 
-Rejected. The Arrow-native path is a genuine performance win, and the wheel
-makes it available without compromising installability on any platform that has
-a build.
+Rejected. The Arrow-native path is a genuine performance win over psycopg, and
+~~the wheel~~ **revised 2026-09-24 (kata xorq#nw8d):** `adbc_driver_postgresql`
+makes it available without compromising installability on any supported platform.
+The rejection stands and is now stronger: the accelerator arrives with no
+packaging work and no platform gap, so nothing is traded away for it.
 
 ## Implementation status
 
@@ -271,7 +331,8 @@ rows that read "implemented" did not survive contact with one.
 | `redshift` extra so the backend installs with `uv sync` | **partially implemented** — the extra exists and mirrors `postgres`; `boto3` still undeclared |
 | psycopg `read_record_batches` (the ingest baseline) | **implemented, and not reached** — the `CREATE TABLE` + parameterised `INSERT` works live, but the dispatch selects ADBC on every credentialed install and ADBC ingest cannot run on Redshift. kata xorq#v68a |
 | `to_pyarrow_batches` discriminating driver-absent from auth-failed | **implemented** — availability is decided before connecting, so a rejected credential propagates. Verified live over both branches: 12 rows each, agreeing on values including `numeric` |
-| `xorq-adbc-driver-redshift` wheels and the CI that asserts payload presence | **not implemented** — referenced nowhere in `pyproject.toml` or the workflows |
+| ~~`xorq-adbc-driver-redshift` wheels and the CI that asserts payload presence~~ | **not to be implemented** — retired 2026-09-24 by kata xorq#nw8d; `adbc_driver_postgresql` is the accelerator. Resuming it requires a new decision, not this row |
+| `adbc_driver_postgresql` as the accelerator | **implemented by construction** — already declared in the `postgres` and `redshift` extras and already what the inherited `to_pyarrow_batches` reaches for. What is **not** implemented is its safety net: no upper pin on `adbc-driver-postgresql`, and no live-Redshift CI job |
 
 The first caveat is now discharged, and it is worth keeping the question
 visible because the answer split. Dispatch is on the driver being *installed and
@@ -316,10 +377,20 @@ ingest must not consult that seam at all (kata xorq#v68a).
 
 ### Negative
 
-- **xorq becomes a redistributor of a third party's binary**, with the
+- ~~**xorq becomes a redistributor of a third party's binary**, with the
   maintenance tail that implies: a wheel per platform, a version-drift watcher,
   and signature verification at build time. This is the real cost of the
-  decision and it is ongoing.
+  decision and it is ongoing.~~ **Struck 2026-09-24 (kata xorq#nw8d):** no wheel
+  is built, so none of this is incurred. Not paying it is the largest single
+  effect of that decision, and it is why the decision was taken with the
+  head-to-head benchmark still un-run.
+- **The accelerator is now a bet on wire-protocol compatibility, and the bet is
+  unhedged.** `adbc_driver_postgresql` targets PostgreSQL; Redshift's
+  compatibility is a courtesy, so a release could regress against Redshift with
+  nobody upstream treating it as a bug. Both extras pin `>=1.4.0` with no
+  ceiling, so it would install automatically, and no live-Redshift CI job would
+  catch it. This is the cost the 2026-09-24 decision buys in exchange for the
+  bullet above, and unlike that one it is **not yet mitigated**.
 - Two read paths exist, so both need testing and the boundary between them is a
   real source of bugs — which is why the blanket `except` is not inherited.
 - Ingest is row-oriented `INSERT` in v1, slower than `COPY`-from-S3 for large
@@ -331,8 +402,10 @@ ingest must not consult that seam at all (kata xorq#v68a).
   reverse, so an arm64 dylib cannot be loaded either way. **Revised 2026-09-24:**
   this consequence followed from the Columnar driver being the only accelerator.
   `adbc_driver_postgresql` builds for `darwin x86_64` and is now shown to work
-  against Redshift, so on the read path it does not follow. It returns only if
-  xorq#nw8d keeps the Columnar wheel as the accelerator of record.
+  against Redshift, so on the read path it does not follow. **Settled 2026-09-24
+  (kata xorq#nw8d):** that driver *is* the accelerator of record, so this
+  consequence is withdrawn outright rather than held open. It returns only if a
+  future decision resumes the Columnar wheel.
 - Performance depends on platform, so two users on identical code can see
   materially different throughput.
 
@@ -348,9 +421,15 @@ ingest must not consult that seam at all (kata xorq#v68a).
   dependency optional behind an abstraction
 - kata xorq#v68a — ingest dispatches to an ADBC `COPY` Redshift cannot run;
   its body carries the 2026-09-24 measurement for the ingest paths
-- kata xorq#nw8d — the open decision this revision creates: does the tested
-  alternative retire the repackaged wheel; its body carries the 2026-09-24
-  measurement for the read paths
+- kata xorq#nw8d — the decision this revision records: the tested alternative
+  **does** retire the repackaged wheel. Discharged 2026-09-24; the 2026-09-24
+  measurement for the read paths and both columns of the argument are preserved
+  in its `[CONTEXT-ONLY]` comment
+- kata xorq#1z6k — the un-run Columnar-vs-`adbc_driver_postgresql` head-to-head,
+  parked. The only measurement that could motivate a new decision on the wheel
+- kata xorq#g7n7 — the ADBC read path's `ValueError` on Redshift-folded
+  auto-generated aliases, and the open question of whether the Columnar driver
+  folds identically
 - kata xorq#1szn — the psycopg introspection failures that make `con.table()`
   unreachable on Redshift
 - kata xorq#df8e — the endpoint this revision was measured against, and its
