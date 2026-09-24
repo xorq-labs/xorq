@@ -39,7 +39,7 @@ from xorq.catalog.inspection import (
     dotted_name,
     join_read_path,
 )
-from xorq.common.exceptions import SchemaRefreshError
+from xorq.common.exceptions import InternalError, SchemaRefreshError, XorqError
 from xorq.common.utils.graph_utils import OPAQUE_SPECS, _opaque_lookup, to_node
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
 from xorq.expr.relations import (
@@ -54,6 +54,7 @@ from xorq.expr.relations import (
 )
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.backends.profiles import Profile
+from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.graph import Node
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -158,13 +159,17 @@ def rebuild(node: Node, build: Callable[[], Node]) -> Node:
     """``build()``, with a failure named after ``node``.
 
     A ``SchemaRefreshError`` from deeper down passes through untouched, so the
-    name that survives is the deepest op that could not be rebuilt.
+    name that survives is the deepest op that could not be rebuilt. Only what
+    an op raises when its inputs no longer fit is relabeled: a signature that
+    rejects them, or an ibis error over them (a column that is gone). Anything
+    else, an ``InternalError`` included, is a bug in the rewrite rather than
+    drift in the data, and propagates as itself.
     """
     try:
         return build()
-    except SchemaRefreshError:
+    except (SchemaRefreshError, InternalError):
         raise
-    except Exception as e:
+    except (ValidationError, XorqError) as e:
         raise SchemaRefreshError(type(node).__name__, e) from e
 
 
@@ -177,13 +182,18 @@ def revalidate_flight(node: Node, overrides: dict) -> dict:
     """
     if (input_expr := overrides.get("input_expr")) is None:
         return overrides
-    match node:
-        case FlightUDXF():
-            return overrides | {
-                "schema": FlightUDXF.validate_schema(input_expr, node.udxf)
-            }
-        case FlightExpr():
-            FlightExpr.validate_schema(input_expr, node.unbound_expr)
+    # Both raise a bare `ValueError` for an input that no longer fits, too
+    # broad for `rebuild` to catch, so it is named here.
+    try:
+        match node:
+            case FlightUDXF():
+                return overrides | {
+                    "schema": FlightUDXF.validate_schema(input_expr, node.udxf)
+                }
+            case FlightExpr():
+                FlightExpr.validate_schema(input_expr, node.unbound_expr)
+    except ValueError as e:
+        raise SchemaRefreshError(type(node).__name__, e) from e
     return overrides
 
 

@@ -226,6 +226,22 @@ def test_a_deleted_database_is_not_recreated(world: tuple, tmp_path: Path) -> No
     assert not db.exists()
 
 
+def test_a_bug_in_the_rewrite_is_not_labeled_as_drift(
+    world: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only an op rejecting its new inputs becomes a `SchemaRefreshError`; a
+    failure of the rewrite itself would otherwise send the user to their data."""
+    con, build_path = world
+    recreate(con, GROWN)
+
+    def broken(node, **kwargs):
+        raise AttributeError("a bug in the rewrite")
+
+    monkeypatch.setattr("xorq.catalog.refresh.recreate", broken)
+    with pytest.raises(AttributeError, match="a bug in the rewrite"):
+        refresh_build(build_path)
+
+
 def test_a_refreshed_read_is_still_a_read(tmp_path: Path, builds_dir: Path) -> None:
     path = tmp_path / "t.parquet"
     write_parquet(path, RECORDED)
