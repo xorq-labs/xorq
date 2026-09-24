@@ -529,7 +529,8 @@ def test_a_refresh_error_over_a_validation_error_survives_a_process_boundary() -
     with pytest.raises(ValidationError) as excinfo:
         ops.Mean(ops.Literal("x", dt.string))
     error = SchemaRefreshError("Mean", excinfo.value)
-    error.add_note("while refreshing")
+    error.__notes__ = ["while refreshing"]
+    error.unpicklable = lambda: None
 
     restored = pickle.loads(pickle.dumps(error))
     assert isinstance(restored, SchemaRefreshError)
@@ -537,6 +538,7 @@ def test_a_refresh_error_over_a_validation_error_survives_a_process_boundary() -
     assert isinstance(restored.cause, RefreshCause)
     assert restored.cause.type_name == type(excinfo.value).__name__
     assert restored.__notes__ == ["while refreshing"]
+    assert not hasattr(restored, "unpicklable")
     assert str(restored) == str(error)
 
 

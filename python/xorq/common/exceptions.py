@@ -89,11 +89,20 @@ class RefreshCause(XorqError):
         return self.args[1]
 
 
+def _round_trips(value: object) -> bool:
+    try:
+        pickle.loads(pickle.dumps(value))
+    except Exception:
+        return False
+    return True
+
+
 class SchemaRefreshError(TranslationError):
     """An op that could not be rebuilt over a refreshed source (``catalog.refresh``).
 
     Names the deepest failing op. Message built in ``__str__`` so it pickles; a
-    cause that does not round-trip is carried as a ``RefreshCause``.
+    cause that does not round-trip is carried as a ``RefreshCause``, and
+    attributes (e.g. ``__notes__``) that do not round-trip are dropped.
     """
 
     def __init__(self, op_name: str, cause: Exception) -> None:
@@ -109,11 +118,10 @@ class SchemaRefreshError(TranslationError):
 
     def __reduce__(self) -> tuple:
         op_name, cause = self.args
-        try:
-            pickle.loads(pickle.dumps(cause))
-        except Exception:
+        if not _round_trips(cause):
             cause = RefreshCause(type(cause).__name__, str(cause))
-        return (type(self), (op_name, cause), self.__dict__ or None)
+        state = {k: v for k, v in self.__dict__.items() if _round_trips(v)}
+        return (type(self), (op_name, cause), state or None)
 
     def __str__(self) -> str:
         op_name, cause = self.args
