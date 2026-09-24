@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from collections import Counter
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml12
@@ -492,6 +493,15 @@ class BuildRecord:
             for dump_file in (DumpFiles.expr, DumpFiles.profiles)
         )
         return cls(expr_doc=expr_doc, profiles=profiles)
+
+    @classmethod
+    def from_build_dir(cls, build_dir: str | Path) -> BuildRecord:
+        """The record of an unzipped build, as ``build_expr`` leaves it."""
+        (expr_doc, profiles) = (
+            yaml12.parse_yaml((Path(build_dir) / dump_file).read_text())
+            for dump_file in (DumpFiles.expr, DumpFiles.profiles)
+        )
+        return cls(expr_doc=expr_doc, profiles=profiles or {})
 
     @classmethod
     def from_catalog_entry(cls, catalog_entry: CatalogEntry) -> BuildRecord:
