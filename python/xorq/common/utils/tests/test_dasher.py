@@ -44,7 +44,6 @@ import xorq.api as xo
 import xorq.common.utils.dasher as dasher
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
-from xorq.backends.redshift import Backend as RedshiftBackend
 from xorq.caching import ParquetCache
 from xorq.common.utils.dasher import (
     _EXTRA_RULES,
@@ -74,6 +73,10 @@ from xorq.common.utils.dasher._relations import (
     _normalize_bigquery_databasetable_xorq,
 )
 from xorq.common.utils.file_utils import normalize_read_path_stat
+from xorq.common.utils.tests._optional_backends import (
+    REDSHIFT_BACKEND_FQN,
+    redshift_backend,
+)
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.common.utils.toolz_utils import curry as xo_curry
 from xorq.expr import api
@@ -1078,7 +1081,6 @@ def test_extra_rules_fqn_strings() -> None:
         "operator.methodcaller": operator.methodcaller,
         "xorq.vendor.ibis.expr.operations.relations.DatabaseTable": DatabaseTable,
         "xorq.expr.relations.Read": rel.Read,
-        "xorq.backends.redshift.Backend": RedshiftBackend,
         "xorq.vendor.ibis.expr.types.core.Expr": Expr,
         "xorq.vendor.ibis.expr.schema.Schema": Schema,
         "xorq.vendor.ibis.expr.operations.udf.ScalarUDF": ScalarUDF,
@@ -1090,6 +1092,12 @@ def test_extra_rules_fqn_strings() -> None:
         "sklearn.utils._param_validation._Constraint": _SklearnConstraint,
         "sklearn.utils._param_validation.Hidden": _SklearnHidden,
     }
+    # Checked only where its driver extra is installed. Keyed on a string so
+    # that the fqn is still compared against production below in every job,
+    # and only the class-identity half is conditional.
+    if (redshift_cls := redshift_backend()) is not None:
+        expected[REDSHIFT_BACKEND_FQN] = redshift_cls
+
     for literal, cls in expected.items():
         assert fqn(cls) == literal, (
             f"FQN drift: {cls!r} moved from {literal!r} to {fqn(cls)!r}; "
@@ -1097,8 +1105,12 @@ def test_extra_rules_fqn_strings() -> None:
         )
 
     production_fqns = {fqn_str for fqn_str, _ in _EXTRA_RULES}
-    assert production_fqns == set(expected), (
+    unchecked = production_fqns - set(expected)
+    assert unchecked <= {REDSHIFT_BACKEND_FQN}, (
         f"test/production mismatch: {production_fqns.symmetric_difference(set(expected))}"
+    )
+    assert not (set(expected) - production_fqns), (
+        f"test names rules production does not register: {set(expected) - production_fqns}"
     )
 
 

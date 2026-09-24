@@ -53,9 +53,12 @@ INSUFFICIENT_PRIVILEGE = "42501"
 #   not yet vacuumed*, so it moves on INSERT but not on DELETE.
 # * ``estimated_visible_rows`` excludes those rows, so it moves on DELETE.
 #
-# Keying on the pair means any movement in either invalidates. The failure mode
-# that costs is a spurious invalidation (a recompute — correct, just slower),
-# never a missed one (a stale answer served as fresh).
+# Keying on the pair means any movement in EITHER invalidates, so the common
+# failure is a spurious invalidation (a recompute -- correct, just slower).
+# It is not a guarantee against missed ones: a cardinality-preserving mutation
+# (an UPDATE in place, or a delete-and-reinsert followed by the automatic
+# vacuum) returns both counts to a value some retained entry is already keyed
+# on. Row counts are a cheap freshness signal, not a content hash.
 #
 # Deliberately not ``pg_class``: Redshift exposes a pg_class, but its reltuples
 # is not maintained the way PostgreSQL's is, so reading it would look like it
@@ -66,6 +69,31 @@ FROM svv_table_info
 WHERE "table" = %(name)s
   AND "schema" = %(schema)s
 """
+
+
+# Read only when svv_table_info returns nothing, to tell the two causes apart.
+# That view lists user tables and materialized views WITH AT LEAST ONE ROW, so
+# an empty answer means either "an ordinary table with no rows yet" -- honest,
+# and ``None`` is the right key component -- or "a relation this view never
+# tracks": a plain view, a late-binding view, a Spectrum external table, or a
+# session-temp table. Without this second read those are one case, and the
+# second silently yields a key that can never change.
+#
+# Measured on a live Redshift: relkind is 'r' for both a populated and an empty
+# ordinary table, and no row comes back for a name that does not resolve in the
+# schema. pg_class is readable by a least-privilege user (unlike
+# svv_table_info), so this runs on the path where the probe is most constrained.
+RELKIND_SQL = """
+SELECT c.relkind
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relname = %(name)s
+  AND n.nspname = %(schema)s
+"""
+
+# pg_class.relkind for an ordinary table. Every other value is a relation
+# svv_table_info does not track row counts for.
+RELKIND_ORDINARY_TABLE = "r"
 
 
 def resolve_redshift_schema(dt: ops.DatabaseTable) -> str:
@@ -83,11 +111,13 @@ def resolve_redshift_schema(dt: ops.DatabaseTable) -> str:
     ``current_database`` on this backend is ``SELECT current_schema()`` (the
     Redshift override), which is a read and issues no DDL.
 
-    Known limitation, shared with the postgres probe's own ``FIXME``: a
-    ``search_path`` with several entries resolves here to the first one, and a
-    session-temporary table is not in ``svv_table_info`` under any schema. Both
-    fall back to the ``None`` return below, which is honest about the count but
-    cannot distinguish "empty" from "not visible to this probe".
+    A multi-entry ``search_path`` is NOT a hazard here, though an earlier
+    version of this docstring claimed it was. ``get_schema``
+    (``vendor/ibis/backends/postgres/__init__.py``) resolves an unqualified name
+    through ``database or self.current_database`` -- the same expression -- so
+    any table ``table()`` accepted lives in the schema this reads. A table
+    reachable only via a later ``search_path`` entry raises ``TableNotFound`` at
+    ``table()`` time; it never becomes a stale key.
     """
     if (database := dt.namespace.database) is not None:
         return database
@@ -99,10 +129,13 @@ def get_redshift_row_counts(
 ) -> tuple[int | None, int | None] | None:
     """``(tbl_rows, estimated_visible_rows)`` for a Redshift table, issuing no DDL.
 
-    Returns ``None`` when the table is simply absent from ``svv_table_info``.
-    Verified against a live Redshift: a table that exists but has had no data
-    written to it does not appear, so ``None`` is the honest answer for an empty
-    table and a cache key is the wrong place to turn that into a hard failure.
+    Returns ``None`` for an ordinary table that is absent from
+    ``svv_table_info``. Verified against a live Redshift: a table that exists but
+    has had no data written to it does not appear, so ``None`` is the honest
+    answer for an empty table and a cache key is the wrong place to turn that
+    into a hard failure. A relation the view does not track at all -- a view, an
+    external table, a temp table -- is NOT that case and raises; see
+    ``_absent_row_counts``.
 
     Raises ``RedshiftFreshnessUnavailable`` when the view cannot be *read*,
     which is a different thing entirely and must not be conflated with absence.
@@ -129,8 +162,25 @@ def get_redshift_row_counts(
     nothing said so.
     """
     raw = dt.source.con
-    schema = resolve_redshift_schema(dt) if schema is None else schema
+    # svv_table_info covers the CONNECTED database only, and the probe's WHERE
+    # cannot reach past it. A catalog-qualified table would therefore be scored
+    # against a same-named table in this database, or against nothing at all --
+    # a wrong freshness signal or a frozen key, both silent. Refuse instead.
+    if (catalog := dt.namespace.catalog) is not None:
+        raise RedshiftFreshnessUnavailable(
+            f"cannot compute a freshness key for catalog {catalog!r}, table "
+            f"{dt.name!r}: svv_table_info describes only the connected database, "
+            f"so a table qualified with another catalog would be scored against "
+            f"a same-named table here, or against nothing at all -- a wrong "
+            f"signal or a frozen key, and both are silent. Connect to that "
+            f"database directly, or use a cache that needs no freshness probe, "
+            f"e.g. `.cache(ParquetSnapshotCache.from_kwargs())`."
+        )
+    # Resolution is INSIDE the try: for an unqualified table it is itself a
+    # round trip, and a privilege failure there deserves the same actionable
+    # error a qualified table gets rather than a raw driver traceback.
     try:
+        schema = resolve_redshift_schema(dt) if schema is None else schema
         # ``transaction()`` alongside the cursor is the idiom every other
         # cursor use in the postgres/redshift family follows. Without it, under
         # ``autocommit=False`` this read opens a snapshot that is never
@@ -142,13 +192,13 @@ def get_redshift_row_counts(
     except Exception as e:
         if not _is_permission_error(e):
             raise
+        where = f"{schema}.{dt.name}" if schema is not None else dt.name
         raise RedshiftFreshnessUnavailable(
-            f"cannot read svv_table_info to compute a cache key for "
-            f"{schema}.{dt.name!r}: {e}. The default cache strategy needs a "
-            f"row count to detect upstream changes, and this connection's user "
-            f"cannot read that view. Either grant it "
-            f"(`GRANT SELECT ON svv_table_info TO <user>`) or use a cache that "
-            f"needs no freshness probe, e.g. "
+            f"cannot read the Redshift catalog to compute a cache key for "
+            f"{where}: {e}. The default cache strategy needs a row count to "
+            f"detect upstream changes, and this connection's user cannot read "
+            f"it. Either grant it (`GRANT SELECT ON svv_table_info TO <user>`) "
+            f"or use a cache that needs no freshness probe, e.g. "
             f"`.cache(ParquetSnapshotCache.from_kwargs())`. Do not work around "
             f"this with pg_class.reltuples: on Redshift it does not track "
             f"writes without an ANALYZE, so the cache would go stale silently. "
@@ -156,17 +206,56 @@ def get_redshift_row_counts(
             f"`xorq.common.exceptions.RedshiftFreshnessUnavailable`."
         ) from e
     if not rows:
-        return None
+        return _absent_row_counts(raw, dt, schema)
     if len(rows) > 1:
         raise RedshiftFreshnessUnavailable(
-            f"svv_table_info returned {len(rows)} rows for {schema}.{dt.name!r}, "
-            f"so the row count to key on is ambiguous. This happens when more "
-            f"than one database on the cluster exposes that schema and table "
-            f"name, e.g. across a datashare. Qualify the table explicitly "
-            f"(`con.table(name, database=...)`) so exactly one row matches."
+            f"svv_table_info returned {len(rows)} rows for {schema}.{dt.name}, "
+            f"so the row count to key on would be a guess. The view describes "
+            f"one database and one row per relation, so this should not be "
+            f"reachable; treat it as a bug in this probe rather than something "
+            f"to work around, and use `.cache(ParquetSnapshotCache.from_kwargs())` "
+            f"meanwhile."
         )
     ((tbl_rows, estimated_visible_rows),) = rows
     return (_as_int(tbl_rows), _as_int(estimated_visible_rows))
+
+
+def _absent_row_counts(
+    raw: Any, dt: ops.DatabaseTable, schema: str
+) -> tuple[int | None, int | None] | None:
+    """Decide what an empty ``svv_table_info`` answer means.
+
+    Two very different conditions produce it, and conflating them is how a
+    cache goes quietly stale:
+
+    * an ordinary table with no rows written yet -- the view tracks only
+      relations with at least one row, so absence is the honest answer and
+      ``None`` is a sound key component: it changes as soon as data lands;
+    * a relation the view never tracks at all -- a view, a late-binding view, a
+      Spectrum external table, or a session-temp table (which this backend's own
+      psycopg ingest creates). For those, ``None`` is not "empty", it is
+      "unknowable", and returning it yields a key that can never change no
+      matter what the underlying data does.
+
+    Only the first may return ``None``. ``relkind`` separates them for one
+    extra read, taken only on this path, against a catalog a least-privilege
+    user can read.
+    """
+    with raw.cursor() as cursor, raw.transaction():
+        found = cursor.execute(
+            RELKIND_SQL, {"name": dt.name, "schema": schema}
+        ).fetchall()
+    if found and found[0][0] == RELKIND_ORDINARY_TABLE:
+        return None
+    kind = f"relkind {found[0][0]!r}" if found else "not present in pg_class"
+    raise RedshiftFreshnessUnavailable(
+        f"{schema}.{dt.name} is absent from svv_table_info and is {kind}, so it "
+        f"is not an ordinary table this probe can measure -- a view, an external "
+        f"table or a session-temporary table, depending. Returning no row count "
+        f"for it would produce a cache key that never changes, which is worse "
+        f"than this error. Cache the query that defines it instead, or use "
+        f"`.cache(ParquetSnapshotCache.from_kwargs())`, which needs no probe."
+    )
 
 
 def _as_int(value: Any) -> int | None:

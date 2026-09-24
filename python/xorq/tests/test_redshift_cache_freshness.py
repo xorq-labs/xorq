@@ -42,15 +42,27 @@ from decimal import Decimal
 
 import pytest
 
-import xorq.vendor.ibis.expr.operations as ops
-import xorq.vendor.ibis.expr.schema as sch
-from xorq.backends.redshift import DEFAULT_PORT
-from xorq.backends.redshift import Backend as RedshiftBackend
-from xorq.caching.strategy import SnapshotStrategy
-from xorq.common.exceptions import RedshiftFreshnessUnavailable
-from xorq.common.utils.dasher import HASHER
-from xorq.common.utils.dasher._relations import _databasetable_dispatcher
-from xorq.common.utils.redshift_utils import (
+
+# Must run BEFORE the xorq.backends.redshift import below. That module reaches
+# vendor/ibis/backends/postgres, which imports psycopg unguarded, and psycopg
+# ships in the ``postgres`` extra rather than in the core dependencies. CI runs
+# ``pytest -m <backend>`` with no path filter, so every job COLLECTS this file,
+# and the nine matrix jobs without that extra failed collection outright rather
+# than deselecting -- a red build that says ModuleNotFoundError, not a skip.
+# ``backends/conftest.py`` guards ``backends/<name>/`` paths only, and this file
+# is deliberately sited outside them (see the docstring above), so the guard has
+# to be here. The E402s are that guard running first, not import sloppiness.
+pytest.importorskip("psycopg")
+
+import xorq.vendor.ibis.expr.operations as ops  # noqa: E402
+import xorq.vendor.ibis.expr.schema as sch  # noqa: E402
+from xorq.backends.redshift import DEFAULT_PORT  # noqa: E402
+from xorq.backends.redshift import Backend as RedshiftBackend  # noqa: E402
+from xorq.caching.strategy import SnapshotStrategy  # noqa: E402
+from xorq.common.exceptions import RedshiftFreshnessUnavailable  # noqa: E402
+from xorq.common.utils.dasher import HASHER  # noqa: E402
+from xorq.common.utils.dasher._relations import _databasetable_dispatcher  # noqa: E402
+from xorq.common.utils.redshift_utils import (  # noqa: E402
     get_redshift_row_counts,
     resolve_redshift_schema,
 )
@@ -95,12 +107,30 @@ class RecordingConnection:
     """
 
     def __init__(
-        self, rows: tuple = ((12345, 12345),), current_schema: str = SESSION_SCHEMA
+        self,
+        rows: tuple = ((12345, 12345),),
+        current_schema: str = SESSION_SCHEMA,
+        relkind: tuple = (("r",),),
     ) -> None:
-        self.statements = []
+        # (sql, params) rather than sql alone. Recording only the statement
+        # meant the schema and name actually BOUND were asserted nowhere, so a
+        # probe that ignored its schema argument -- or swapped name and schema
+        # -- passed every test in this file.
+        self.calls: list[tuple[str, object]] = []
         self.info = _ConnectionInfo()
         self._rows = rows
         self._current_schema = current_schema
+        self._relkind = relkind
+
+    @property
+    def statements(self) -> list[str]:
+        return [sql for sql, _ in self.calls]
+
+    def params_for(self, fragment: str) -> object:
+        """The parameters bound to the one statement containing ``fragment``."""
+        matches = [params for sql, params in self.calls if fragment in sql]
+        assert len(matches) == 1, f"{fragment!r} matched {len(matches)} statements"
+        return matches[0]
 
     def cursor(self) -> _RecordingCursor:
         return _RecordingCursor(self)
@@ -123,29 +153,35 @@ class _RecordingCursor:
 
     def execute(self, sql: object, *args: object, **kwargs: object) -> _RecordingCursor:
         self._last = str(sql)
-        self._con.statements.append(self._last)
+        self._con.calls.append((self._last, args[0] if args else kwargs.get("params")))
         return self
 
     def fetchall(self) -> list[tuple]:
-        # ``current_database`` on this backend is a ``current_schema()`` read;
-        # it goes through the same cursor as the probe, so the fake has to tell
-        # the two apart or the probe gets handed a schema name as a row count.
-        if "current_schema" in self._last.lower():
+        # Three statement shapes reach this cursor and they must not be
+        # conflated: ``current_database`` on this backend is a
+        # ``current_schema()`` read, the probe reads svv_table_info, and the
+        # absent-row disambiguation reads pg_class. Serving the row counts to
+        # all three would hand the probe a schema name as a row count.
+        lowered = self._last.lower()
+        if "current_schema" in lowered:
             return [(self._con._current_schema,)]
+        if "pg_class" in lowered:
+            return list(self._con._relkind)
         return list(self._con._rows)
 
 
 def make_con(
-    rows: tuple = ((12345, 12345),), current_schema: str = SESSION_SCHEMA
+    rows: tuple = ((12345, 12345),),
+    current_schema: str = SESSION_SCHEMA,
+    relkind: tuple = (("r",),),
 ) -> RedshiftBackend:
-    con = RedshiftBackend()
-    type(con).__init__(con, host="example.invalid", port=DEFAULT_PORT)
-    con.con = RecordingConnection(rows, current_schema=current_schema)
+    con = RedshiftBackend(host="example.invalid", port=DEFAULT_PORT)
+    con.con = RecordingConnection(rows, current_schema=current_schema, relkind=relkind)
     return con
 
 
 def make_dt(
-    con: RedshiftBackend, name: str = "offers", database: str | None = "xorq_test"
+    con: RedshiftBackend, name: str = "offers", database: str | None = "sales"
 ) -> ops.DatabaseTable:
     return ops.DatabaseTable(
         name=name,
@@ -343,10 +379,9 @@ def make_insufficient_privilege() -> Exception:
 
 
 def make_raising_dt(
-    exc: BaseException, database: str | None = "xorq_test"
+    exc: BaseException, database: str | None = "sales"
 ) -> ops.DatabaseTable:
-    con = RedshiftBackend()
-    type(con).__init__(con, host="example.invalid", port=DEFAULT_PORT)
+    con = RedshiftBackend(host="example.invalid", port=DEFAULT_PORT)
     con.con = RaisingConnection(exc)
     return make_dt(con, database=database)
 
@@ -399,8 +434,14 @@ def test_a_non_privilege_failure_propagates_unchanged() -> None:
     relabel every driver failure, however unrelated, as a missing GRANT.
     """
     boom = Exception("connection is closed")
-    with pytest.raises(Exception, match="connection is closed"):
+    with pytest.raises(Exception) as excinfo:
         get_redshift_row_counts(make_raising_dt(boom))
+    # Identity, not a message match: RedshiftFreshnessUnavailable subclasses
+    # Exception and interpolates the original into its own text, so
+    # `pytest.raises(Exception, match=...)` was satisfied by the WRAPPER and
+    # passed even with _is_permission_error stubbed to always return True --
+    # the precise regression this test claims to guard.
+    assert excinfo.value is boom
 
 
 def test_a_filesystem_permission_error_is_not_relabelled_as_a_missing_grant() -> None:
@@ -428,7 +469,7 @@ def test_an_ambiguous_catalog_answer_names_the_table() -> None:
         get_redshift_row_counts(make_dt(con))
     message = str(excinfo.value)
     assert "offers" in message
-    assert "datashare" in message
+    assert "should not be reachable" in message
 
 
 def test_a_genuinely_absent_table_still_returns_none_rather_than_raising() -> None:
@@ -440,3 +481,78 @@ def test_a_genuinely_absent_table_still_returns_none_rather_than_raising() -> No
     """
     con = make_con(rows=())
     assert get_redshift_row_counts(make_dt(con)) is None
+
+
+def test_the_probe_binds_the_resolved_schema_and_name() -> None:
+    """Asserting on the emitted SQL is not asserting on what was BOUND.
+
+    The statement text is a constant, so a probe that ignored its ``schema``
+    argument, or that swapped ``name`` and ``schema``, emitted exactly the same
+    SQL and passed every other test here. Only the parameters distinguish them.
+    """
+    con = make_con(current_schema=SESSION_SCHEMA)
+    get_redshift_row_counts(make_dt(con, database=None))
+    assert con.con.params_for("svv_table_info") == {
+        "name": "offers",
+        "schema": SESSION_SCHEMA,
+    }
+
+
+def test_a_relation_svv_table_info_never_tracks_raises_rather_than_freezing() -> None:
+    """A view or external table is absent from the view for a different reason.
+
+    ``svv_table_info`` lists tables and materialized views holding at least one
+    row, so a plain view, a late-binding view, a Spectrum external table and a
+    session-temp table are all permanently absent. Returning ``None`` for those
+    is not "empty", it is "unknowable" -- and it yields a key that can never
+    change no matter what the data does, which is the silent staleness this
+    module exists to prevent.
+    """
+    con = make_con(rows=(), relkind=(("v",),))
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        get_redshift_row_counts(make_dt(con))
+    message = str(excinfo.value)
+    assert "offers" in message
+    assert "ParquetSnapshotCache" in message
+
+
+def test_a_name_absent_from_pg_class_also_raises() -> None:
+    """No relkind row at all: dropped, or not visible in the probed schema.
+
+    Distinguished from the empty-table case by the same read, and it must not
+    be allowed to masquerade as one.
+    """
+    con = make_con(rows=(), relkind=())
+    with pytest.raises(RedshiftFreshnessUnavailable):
+        get_redshift_row_counts(make_dt(con))
+
+
+def test_an_empty_ordinary_table_is_still_none_after_the_relkind_check() -> None:
+    """The disambiguation must not turn the legitimate empty case into an error.
+
+    Measured live: an ordinary table with no rows written is absent from
+    svv_table_info and reports ``relkind='r'``. ``None`` is the honest key
+    component for it -- it changes as soon as data lands.
+    """
+    con = make_con(rows=(), relkind=(("r",),))
+    assert get_redshift_row_counts(make_dt(con)) is None
+
+
+def test_a_catalog_qualified_table_is_refused_rather_than_mismeasured() -> None:
+    """svv_table_info describes the connected database only.
+
+    Probing ``otherdb.sales.t`` from this connection would silently score the
+    local ``sales.t``, or nothing at all. Both are wrong answers with no error,
+    so the probe refuses instead.
+    """
+    con = make_con()
+    dt = ops.DatabaseTable(
+        name="offers",
+        schema=sch.Schema({"id": "int64"}),
+        source=con,
+        namespace=ops.Namespace(catalog="otherdb", database="sales"),
+    )
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        get_redshift_row_counts(dt)
+    assert "otherdb" in str(excinfo.value)
+    assert not con.con.calls, "refusal must come before any statement is issued"
