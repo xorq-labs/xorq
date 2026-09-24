@@ -22,7 +22,6 @@ import sys
 import pyarrow as pa
 import pytest
 import sqlglot as sg
-import sqlglot.expressions as sge
 
 
 # Must run BEFORE the xorq imports below. Neither driver named here is a core
@@ -142,18 +141,32 @@ def test_plain_xorq_import_does_not_expose_the_backend():
 def test_current_schema_is_called_with_parentheses():
     """Redshift rejects bare ``CURRENT_SCHEMA`` with ``UndefinedColumn``.
 
-    Asserted on the rendered string rather than by executing, because the
-    failure is a *server-side* error on SQL that compiles cleanly. The bare
-    form is what both the postgres and redshift sqlglot dialects produce, so
-    this also pins that no dialect swap silently reintroduces it.
-    """
-    dialect = RedshiftBackend.compiler.dialect
+    Asserted on emitted SQL rather than by executing, because the failure is a
+    *server-side* error on SQL that compiles cleanly -- and on the SQL *this
+    override* emits rather than on how sqlglot renders
+    ``sg.func("current_schema")``. That rendering is third-party behaviour and
+    it changed inside the range this project declares it supports: measured,
+    ``sg.func("current_schema")`` renders ``SELECT CURRENT_SCHEMA()`` at
+    sqlglot 23.6.3 -- the floor ``uv lock --resolution lowest-direct`` picks
+    under ``sqlglot>=23.4`` -- and ``SELECT CURRENT_SCHEMA`` at 28.6.0, under
+    the Postgres and Redshift dialects alike. Asserting the bare form pinned
+    the whole lowest-direct matrix to one sqlglot. ``Anonymous`` parenthesises
+    at both versions and under every dialect measured, so the property below
+    is version-independent.
 
-    assert sg.select(sg.func("current_schema")).sql(dialect) == "SELECT CURRENT_SCHEMA"
-    assert (
-        sg.select(sge.Anonymous(this="current_schema")).sql(dialect)
-        == "SELECT CURRENT_SCHEMA()"
-    )
+    Still the negative control it was written to be, and on the version that
+    matters: delete the override and the inherited implementation at
+    ``vendor/ibis/backends/postgres/__init__.py:401`` runs, emitting
+    ``SELECT CURRENT_SCHEMA`` under any sqlglot new enough to have dropped the
+    parentheses, and this fails. Under one old enough to keep them it does not
+    -- because there the override is genuinely redundant and there is nothing
+    for a test to detect.
+    """
+    con = make_offline_con()
+    con.con = _FakeConnection(rows=[("public",)])
+
+    assert con.current_database == "public"
+    assert executed(con) == ["SELECT CURRENT_SCHEMA()"]
 
 
 def test_current_catalog_needs_no_override():
@@ -254,8 +267,9 @@ def test_profile_roundtrips():
 class _FakeCursor:
     """Records executed SQL. Mimics psycopg3's chaining ``execute``."""
 
-    def __init__(self, log):
+    def __init__(self, log, rows=()):
         self.log = log
+        self.rows = rows
 
     def __enter__(self):
         return self
@@ -271,13 +285,17 @@ class _FakeCursor:
         self.log.append(("executemany", sql, list(rows)))
         return self
 
+    def fetchall(self):
+        return list(self.rows)
+
 
 class _FakeConnection:
-    def __init__(self):
+    def __init__(self, rows=()):
         self.log = []
+        self.rows = rows
 
     def cursor(self, *args, **kwargs):
-        return _FakeCursor(self.log)
+        return _FakeCursor(self.log, self.rows)
 
     def transaction(self):
         return contextlib.nullcontext()
