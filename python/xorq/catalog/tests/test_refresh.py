@@ -777,6 +777,7 @@ def test_a_lazy_load_connects_only_the_drifted_source(
     record = BuildRecord.from_build_dir(build_path)
     live = live_schemas(record, iter_leaf_reports(record))
     # A directory where the database was: connecting to it raises.
+    other.con.close()
     other_path.unlink()
     other_path.mkdir()
 
@@ -786,7 +787,6 @@ def test_a_lazy_load_connects_only_the_drifted_source(
 
 
 def test_a_flight_source_keys_without_a_profile() -> None:
-
     with FlightServer(
         flight_url=make_flight_url(None),
         verify_client=False,
