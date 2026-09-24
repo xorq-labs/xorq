@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pickle
+import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -19,7 +20,12 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
-from xorq.catalog.drift import LeafReport, iter_leaf_reports, unchecked_leaves
+from xorq.catalog.drift import (
+    LeafReport,
+    close_cons,
+    iter_leaf_reports,
+    unchecked_leaves,
+)
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import (
@@ -40,6 +46,7 @@ from xorq.common.utils.defer_utils import (
 )
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.node_utils import recreate
+from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.relations import (
     CachedNode,
     FlightExpr,
@@ -315,6 +322,67 @@ def test_a_bug_in_the_rewrite_is_not_labeled_as_drift(
     assert not isinstance(excinfo.value, SchemaRefreshError)
 
 
+def test_a_refreshed_build_hashes_like_a_fresh_build(world: tuple) -> None:
+    """What a rebase's no-op check compares: the refresh is the live build."""
+    con, build_path = world
+    replace_table(con, GROWN)
+
+    t = con.table("t")
+    assert get_expr_hash(refresh_build(build_path)) == get_expr_hash(t.filter(t.a > 1))
+
+
+@pytest.mark.postgres
+def test_a_schema_qualified_table_refreshes(pg, builds_dir: Path) -> None:
+    """The recorded and loaded spellings of a namespaced name must agree."""
+    schema = f"refresh_{uuid.uuid4().hex[:8]}"
+    pg.raw_sql(f"CREATE SCHEMA {schema}").close()
+    try:
+        pg.create_table("t", RECORDED.to_pandas(), database=schema)
+        t = pg.table("t", database=schema)
+        build_path = build_expr(t.filter(t.a > 1), builds_dir=builds_dir)
+        pg.drop_table("t", database=schema)
+        pg.create_table("t", GROWN.to_pandas(), database=schema)
+
+        assert list(refresh_build(build_path).execute()["c"]) == [2.5]
+    finally:
+        pg.raw_sql(f"DROP SCHEMA {schema} CASCADE").close()
+
+
+def test_a_caller_owned_con_cache_is_left_open(world: tuple) -> None:
+    con, build_path = world
+    replace_table(con, GROWN)
+    con_cache: dict = {}
+    try:
+        assert "c" in refresh_build(build_path, con_cache=con_cache).schema()
+        (sweep_con,) = con_cache.values()
+        assert sweep_con.list_tables() == ["t"]
+    finally:
+        close_cons(con_cache)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="the sweep's read-only duckdb connection stays in a caller-owned "
+    "con_cache, so the load cannot open the same file read-write",
+)
+def test_a_caller_owned_con_cache_over_a_duckdb_file_refreshes(
+    tmp_path: Path, builds_dir: Path
+) -> None:
+    path = tmp_path / "t.json"
+    path.write_text('{"a": 1}\n')
+    con = xo.duckdb.connect(str(tmp_path / "db.ddb"))
+    build_path = build_expr(
+        read_json(con, path, "t"), builds_dir=builds_dir, relocate_reads=False
+    )
+    con.disconnect()
+    path.write_text('{"a": 1, "c": 2.5}\n')
+    con_cache: dict = {}
+    try:
+        assert "c" in refresh_build(build_path, con_cache=con_cache).schema()
+    finally:
+        close_cons(con_cache)
+
+
 def test_a_refreshed_read_is_still_a_read(tmp_path: Path, builds_dir: Path) -> None:
     path = tmp_path / "t.parquet"
     write_parquet(path, RECORDED)
@@ -330,6 +398,21 @@ def test_a_refreshed_read_is_still_a_read(tmp_path: Path, builds_dir: Path) -> N
     assert read.method_name == "read_parquet"
     assert "c" in read.schema
     assert str(expr.schema()["c"]) == "float64"
+
+
+def test_a_multi_path_read_refreshes(tmp_path: Path, builds_dir: Path) -> None:
+    paths = (tmp_path / "1.parquet", tmp_path / "2.parquet")
+    for path in paths:
+        write_parquet(path, RECORDED)
+    build_path = build_expr(
+        deferred_read_parquet(tuple(map(str, paths)), xo.connect(), table_name="t"),
+        builds_dir=builds_dir,
+        relocate_reads=False,
+    )
+    for path in paths:
+        write_parquet(path, GROWN)
+
+    assert list(refresh_build(build_path).execute()["c"]) == [1.5, 2.5, 1.5, 2.5]
 
 
 def test_a_bundled_read_keeps_its_recorded_schema(
