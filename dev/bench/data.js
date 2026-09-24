@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790255855290,
+  "lastUpdate": 1790256086997,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -40722,6 +40722,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.0988927842572979",
             "extra": "mean: 1.625845388399989 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "000090abe68f44dc0fae661e239ef590b55373e1",
+          "message": "fix(graph_utils): don't treat a failed introspection probe as a missing table (#2330)\n\nFixes the transfer-check refusal that made `.cache()` and `xorq catalog\nrun-cached` fail against a warehouse xorq cannot introspect. Reported by\na user on xorq 0.4.2 against Redshift; reproduces on `main`.\n\n## The bug\n\n`replace_sources(..., transfer_tables=False)` rebinds `DatabaseTable`\nnodes to a new backend and refuses if a table is not already there.\n`_find_missing_tables` decided \"already there\" by calling\n`new_backend.table(name)` in a bare `try/except: pass`, so any exception\nmeant \"absent\".\n\n`normalize_profiles` clones each backend to canonicalize `Profile.idx`,\nand `_clone_backend_with_profile`\n(`python/xorq/ibis_yaml/compiler.py:343-358`) sets `cloned.con =\nbackend.con`: the clone drives the same session. On Redshift, the\npostgres backend's `get_schema` reads `pg_catalog.pg_enum`, which\nRedshift reports as not existing, so `.table()` raised for a table\nsitting on the very connection being probed, and the call refused:\n\n```\nValueError: Expression contains DatabaseTable nodes ['events'] whose data would\nneed to be materialized and transferred to the new backend. Use deferred reads (e.g.\ndeferred_read_parquet) to avoid this, or pass transfer_tables=True to materialize.\n```\n\nBoth remedies are wrong for a warehouse-bound source. It surfaced as\nbuild, `.cache()` and `catalog run-cached` failures.\n\n## The fix\n\n1. **Skip the probe when the answer is structural**\n(`_is_rebind_clone`). Distinct backend objects sharing one live `con`\nneed no data moved. A backend mapped to itself still goes to the probe:\n`normalize_profiles` never produces that pair, and two existing tests\n(`test_find_missing_tables_respects_namespace`,\n`test_find_missing_tables_detects_truly_missing`) call\n`_find_missing_tables` with `(con, con)` and expect a real answer.\n\n2. **Probe for presence, not liveness.** For distinct backends, a\n`.table()` raise falls through to `list_tables()`, which reads\n`information_schema` rather than `pg_enum`. The exception type could not\ncarry the distinction: duckdb raises a bare `XorqError` for a missing\ntable, postgres `TableNotFound`. If the listing names the table, nothing\nmoves. If `list_tables` raises too, introspection is unavailable and the\nfailure is recorded in an optional `errors` map keyed by `(backend,\nname, catalog, database)`, the same key `missing` uses, so an unverified\nname on one backend cannot answer for the same name on another.\n\n3. **Say the right thing** (`_missing_tables_message`). All-unverified\ngets \"could not determine ... introspection raised\" plus the exception\ntext, and warns that `transfer_tables=True` fails if the table is in\nfact there, since `_transfer_tables` does not handle that. A mixed set\nkeeps the original message and appends the unverified tables.\n\nAlso: the namespace now rides through to `_transfer_tables`, which\npreviously re-read by bare name, so a schema-qualified table transferred\nwrongly or not at all. It is passed as a kwarg only when non-empty,\nbecause the pandas backend's `table` has no `database` parameter.\n\n## Boundaries\n\n- **A third notion of backend identity.** `con is con` now decides \"same\nbackend\" here, alongside `__eq__` (`Profile.hash_name`, which includes\n`idx`) and `__hash__`/`db_identity`. Measured on `main` for a backend\nand its `normalize_profiles`-style clone: `clone.con is con.con` is\nTrue, `clone == con` is False, and `db_identity` differs -- despite its\ndocstring (`python/xorq/vendor/ibis/backends/__init__.py:892-895`)\npromising equality for connections to the same database -- because\n`__getstate__` (`:878-879`) returns only `_con_args`/`_con_kwargs` and\n`copy()` drops the cached value. Which notion is authoritative is filed\nseparately.\n- **The short-circuit needs a `.con`.** `xo.pandas.connect()` has none,\nso it falls through to the probe as before; `duckdb` and\n`xorq_datafusion` have one. No audit of which backends lack `.con`\nexists.\n- **`Profile.idx` still comes from a process-global\n`itertools.count()`** (`profiles.py:182`), which is why the clone\nexists. Not changed here. Two things a reviewer might otherwise\nre-litigate: defaulting `idx` to `0` is not a fix, since\n`python/xorq/tests/test_profile.py:141` requires identical-content\nprofiles to get different `idx`; and build hashes are already\n`idx`-independent, because `canonicalize_expr` (`compiler.py:406-416`)\nruns `normalize_profiles` before hashing and `content_hash` dissocs\n`idx` (`profiles.py:213`). The clone can still change a dasher cache\ntoken for backends keyed on instance state -- measured for\n`xo.pandas.connect()` with no arguments, where `copy()` rebuilds\n`dictionary` -- which is tracked in the follow-up issue.\n\n## Evidence\n\n`python/xorq/common/utils/tests/test_replace_sources.py`: 79 passed, 10\nskipped. Adjacent suites (`test_graph_utils`, `common/tests/test_cache`,\n`catalog/test_bind`, `expr/test_cache_pin`, `ibis_yaml/test_compiler`):\n221 passed, 1 skipped. Against Postgres (`ibis-postgres` compose\nservice), `test_lazy_load_expr.py` + `test_sql.py` + `test_profile.py`:\n119 passed, 35 skipped, 1 xfailed, including the cross-backend rebinding\ntest `test_into_backend_from_xorq_lazy_postgres`.\n\nBefore/after control at the two commits on this branch:\n\n| | at `4a2a0cf0` | at `4f7d09e1` |\n|---|---|---|\n| distinct backends, only `.table()` raises | \"would need to be\nmaterialized and transferred\" | nothing to transfer |\n| one name, two backends, one broken probe | \"Could not determine...\" --\nreal absence hidden | transfer advice + unconfirmed note |\n| schema-qualified transfer | `XorqError: Table not found` | lands in\n`s`, returns 42 |\n| forced-transfer caveat in message | absent | present |\n\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_012xbqTE7SK8G8ZEEs8t4xMi\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-24T09:15:17-04:00",
+          "tree_id": "c6d84ffaeb1ac991d25a160ef2fc059973a9c8ce",
+          "url": "https://github.com/xorq-labs/xorq/commit/000090abe68f44dc0fae661e239ef590b55373e1"
+        },
+        "date": 1790256082546,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.105043799149918,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005905726683783266",
+            "extra": "mean: 123.37996250000316 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2121870006587674,
+            "unit": "iter/sec",
+            "range": "stddev: 0.058385138310325047",
+            "extra": "mean: 452.0413508000047 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7256009460703244,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2073344895186989",
+            "extra": "mean: 1.3781679935999989 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.0215795835445776,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01733352384271427",
+            "extra": "mean: 330.9527259999925 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.0690155685039944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010300067035459692",
+            "extra": "mean: 325.83738260000246 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.046497810154774,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012511691922471051",
+            "extra": "mean: 328.24576360000606 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 129.49362838917193,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018279553121601788",
+            "extra": "mean: 7.722387676053554 msec\nrounds: 213"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.310625676775519,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1043506665866618",
+            "extra": "mean: 302.0577067999966 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 13.392144337695866,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012311101387015643",
+            "extra": "mean: 74.67064084615825 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.532882993177362,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01674084263522463",
+            "extra": "mean: 104.90006021428096 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.501191976911042,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023326550060344627",
+            "extra": "mean: 133.3121460000009 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.536315176355141,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034622601147269144",
+            "extra": "mean: 180.62555475000153 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.1367451409149405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.052950068665227557",
+            "extra": "mean: 241.7359460000057 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.580827726308012,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014876191907939026",
+            "extra": "mean: 218.30115859999069 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.3985508316617086,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05784129019680571",
+            "extra": "mean: 416.918410400001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.2059144577039183,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02483801732048052",
+            "extra": "mean: 311.9234818000109 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7139202935512525,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09497227507704062",
+            "extra": "mean: 583.4577044000071 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8549984231567684,
+            "unit": "iter/sec",
+            "range": "stddev: 0.062334694285168954",
+            "extra": "mean: 539.0840161999904 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.407775049133709,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13477677396253052",
+            "extra": "mean: 710.3407611999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5449044894300117,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11074639919369302",
+            "extra": "mean: 647.2892057999957 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.1774207837071942,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1329142633461971",
+            "extra": "mean: 849.3140378000021 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.0679006574862522,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13065974278300307",
+            "extra": "mean: 936.4166909999994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0060504584844965,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14061997908003368",
+            "extra": "mean: 993.9859293999916 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.564155650478074,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1384194344518095",
+            "extra": "mean: 1.7725604611999983 sec\nrounds: 5"
           }
         ]
       }
