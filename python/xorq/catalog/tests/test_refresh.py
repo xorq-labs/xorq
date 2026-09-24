@@ -142,6 +142,13 @@ def filter_through_a_tag(t: ir.Table) -> ir.Table:
         pytest.param(
             filter_through_a_tag, RECORDED.drop_columns("a"), "Field", id="tag"
         ),
+        # `DropColumns` checks its columns in its `schema` attribute.
+        pytest.param(
+            lambda t: t.drop("b"),
+            RECORDED.drop_columns("b"),
+            "DropColumns",
+            id="drop-columns",
+        ),
         pytest.param(
             lambda t: t.group_by("b").agg(m=t.a.mean()), STRINGY, "Mean", id="mean"
         ),
