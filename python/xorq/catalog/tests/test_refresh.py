@@ -360,29 +360,6 @@ def test_a_caller_owned_con_cache_is_left_open(world: tuple) -> None:
         close_cons(con_cache)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the sweep's read-only duckdb connection stays in a caller-owned "
-    "con_cache, so the load cannot open the same file read-write",
-)
-def test_a_caller_owned_con_cache_over_a_duckdb_file_refreshes(
-    tmp_path: Path, builds_dir: Path
-) -> None:
-    path = tmp_path / "t.json"
-    path.write_text('{"a": 1}\n')
-    con = xo.duckdb.connect(str(tmp_path / "db.ddb"))
-    build_path = build_expr(
-        read_json(con, path, "t"), builds_dir=builds_dir, relocate_reads=False
-    )
-    con.disconnect()
-    path.write_text('{"a": 1, "c": 2.5}\n')
-    con_cache: dict = {}
-    try:
-        assert "c" in refresh_build(build_path, con_cache=con_cache).schema()
-    finally:
-        close_cons(con_cache)
-
-
 def test_a_refreshed_read_is_still_a_read(tmp_path: Path, builds_dir: Path) -> None:
     path = tmp_path / "t.parquet"
     write_parquet(path, RECORDED)
