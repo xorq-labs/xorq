@@ -777,7 +777,7 @@ def test_a_lazy_load_connects_only_the_drifted_source(
     record = BuildRecord.from_build_dir(build_path)
     live = live_schemas(record, iter_leaf_reports(record))
     # A directory where the database was: connecting to it raises.
-    other.con.close()
+    other.disconnect()
     other_path.unlink()
     other_path.mkdir()
 
