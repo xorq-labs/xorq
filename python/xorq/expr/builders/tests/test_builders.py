@@ -11,6 +11,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.catalog.zip_utils import test_zip as validate_zip
+from xorq.common.exceptions import XorqInputError
 from xorq.expr.builders import (
     _FROM_TAG_NODE_REGISTRY,
     TagHandler,
@@ -328,7 +329,7 @@ def test_zip_rejects_invalid():
         zip_path = Path(tmp) / "invalid.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("random.txt", "nope")
-        with pytest.raises(AssertionError, match="not a valid expression"):
+        with pytest.raises(XorqInputError, match="not a valid expression"):
             validate_zip(zip_path)
 
 

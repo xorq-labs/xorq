@@ -4,12 +4,14 @@ from shutil import move
 from tempfile import TemporaryDirectory
 from urllib.request import urlretrieve
 
+from xorq.common.exceptions import XorqInputError
 from xorq.init_templates import InitTemplates
 
 
 def download_github_archive(org, repo, branch, suffix=".zip", target=None):
     target = Path(target or f"{branch}{suffix}")
-    assert not target.exists()
+    if target.exists():
+        raise FileExistsError(f"refusing to overwrite {target}")
     archive_url = f"https://github.com/{org}/{repo}/archive/{branch}.zip"
     _, _ = urlretrieve(archive_url, target)
     return target
@@ -17,13 +19,18 @@ def download_github_archive(org, repo, branch, suffix=".zip", target=None):
 
 def extract_zip(source, target):
     (source, target) = map(Path, (source, target))
-    assert not target.exists()
+    if target.exists():
+        raise FileExistsError(f"refusing to overwrite {target}")
     with zipfile.ZipFile(source, "r") as zf:
         names = zf.namelist()
         (first, *rest) = names
         # strip trailing slash from directory entry
         first = first.rstrip("/")
-        assert all(member.startswith(first) for member in rest)
+        if not all(member.startswith(first) for member in rest):
+            raise XorqInputError(
+                f"archive {source} must hold a single top-level directory, "
+                f"found members outside {first!r}"
+            )
         with TemporaryDirectory() as td:
             zf.extractall(td)
             move(Path(td).joinpath(first), target)
