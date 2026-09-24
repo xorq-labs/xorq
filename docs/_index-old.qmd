@@ -1,0 +1,62 @@
+---
+pagetitle: "Xorq documentation"
+description: "Official Xorq documentation. Learn how to build portable, multi-engine data pipelines with deferred execution, caching, lineage tracking, and deployment-ready artifacts."
+toc: false
+page-layout: custom
+classes: homepage
+---
+
+::: {.hero-section}
+::: {.hero-content}
+# Xorq
+
+Xorq is an open source engine for portable, multi-engine data pipelines, with built-in deferred execution, caching, lineage tracking, and a git-backed catalog to publish, discover, and reuse them.
+
+<!-- vale Xorq.Terms = NO -->
+[[$]{.install-prompt} pip install xorq](how_to/install_xorq.qmd){.install-cmd title="Installation guide"}
+<!-- vale Xorq.Terms = YES -->
+[GET STARTED →](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
+:::
+:::
+
+::: {.content-section}
+
+## <i class="bi bi-signpost-split"></i> Find your path
+
+Not sure where to start? Pick the card that matches what you're trying to do.
+
+::: {.docs-grid}
+::: {.doc-card}
+<i class="bi bi-mortarboard"></i>
+
+[**Tutorials**](tutorials/core_tutorials/get-started-with-xorq-init.qmd)
+
+Learn the basics by following a worked example
+:::
+
+::: {.doc-card}
+<i class="bi bi-list-check"></i>
+
+[**How-to guides**](how_to/install_xorq.qmd)
+
+Get a specific task done with a focused recipe
+:::
+
+::: {.doc-card}
+<i class="bi bi-lightbulb"></i>
+
+[**Concepts**](concepts/understanding_xorq/what_is_xorq.qmd)
+
+Understand why Xorq works the way it does
+:::
+
+::: {.doc-card}
+<i class="bi bi-code-square"></i>
+
+[**Reference**](reference/)
+
+Look up the [Python API](reference/) or the
+[command-line reference](api_reference/cli/)
+:::
+:::
+:::

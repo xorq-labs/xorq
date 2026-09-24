@@ -135,6 +135,13 @@ h3 {
   background:$xq-bg;
   padding:12px 20px 0;   // xorq.dev .xq-chrome: 12px top gap, 20px side gutters
 }
+// Our header is taller than Quarto's default 64px (chrome 12 + box border/pad
+// 22+34+22 + border = ~92px). Quarto's fixed-top navbar makes body.nav-fixed
+// pad the body by only 64px, so content tucks under the taller header. Bump the
+// offset to clear it on every page (most visible on the custom-layout home page).
+body.nav-fixed {
+  padding-top:96px;
+}
 .navbar {
   padding:0;             // height comes from the box padding below, not here
 }
