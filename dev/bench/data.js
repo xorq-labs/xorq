@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790234257149,
+  "lastUpdate": 1790254642094,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -40338,6 +40338,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.19554694054873836",
             "extra": "mean: 1.7679904452000073 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "923398f3ea5c1cdc3030cdce15286b1d470b1918",
+          "message": "fix: the GCS example and its CI path were never exercised (#2334)\n\nThe GCS example and the GCS CI job were both broken, and **two\nindependent faults** kept that invisible for nine months. Found while\ndebugging #2329; the underlying breakage predates it.\n\nA dispatch of `ci-test-gcs` on this branch ([run\n35997902419](https://github.com/xorq-labs/xorq/actions/runs/35997902419))\nsurfaced the second fault, which was not visible from reading the code.\n\n## The two faults\n\n**1. The workflow pointed at a file that doesn't exist.**\n`python/xorq/tests/test_register.py::test_deferred_read_parquet_from_gcs`\n— there is no `test_register.py`; the test lives in\n`test_register_read.py:157`. pytest exits 4 on a bad path without\nrunning anything, so the job's only real step has never tested anything.\n\n**2. CI's credentials cannot run the example test anyway.** The dispatch\nfailed with:\n\n```\ngithub-gcs-reader@letsql-oss.iam.gserviceaccount.com does not have\nstorage.objects.list access to ... buckets/expr-cache\n```\n\nThe service account is a *reader*. The example died at its first\nstatement — the `cache_exists()` check — with a 403, never reaching a\nwrite. So even with a correct path, the `AttributeError` below was\nunreachable in CI. Fixing the node id alone would not have caught this.\n\n## What was broken\n\n`examples/gcstorage_example.py` used a `GCSCache` API that doesn't\nexist:\n\n```python\nlisting = cache.cache.cache.fs.ls(cache.get_path(expr), detail=True)\nprint(listing)\ncache.cache.drop(expr)\n```\n\nThree separate errors: `cache.cache` (`GCSCache` has no `.cache` — the\nvisible `AttributeError`); `cache.get_path` (hidden behind it — not on\n`Cache`/`GCSCache` at all, it's on `GCStorage`); and `get_path(expr)`\n(even reached correctly, `GCStorage.get_path(self, key)` takes a\n**key**, not an expression). Broken since #1455. Because the error fired\n*before* the drop, every run leaked a cached object into the shared\nbucket.\n\n## The changes\n\n| Commit | |\n|---|---|\n| `f04dc165` | Use the real API: `cache.calc_key(expr)`,\n`cache.storage.get_path(key)` / `cache.storage.fs`, `cache.drop(expr)`.\n|\n| `001643c9` | Point the workflow at `test_register_read.py`. |\n| `fea55103` | `concurrency: group: gcs-bucket`, `cancel-in-progress:\nfalse` — the key is input-addressed, so overlapping runs race on\npublish/drop of the *same* object; cancelling mid-sequence would strand\none. |\n| `09431919` | The example clears a pre-existing object before\nasserting, so a run that died between write and drop can't poison every\nlater run. |\n| `8d7441db` | Select by `-m gcs python/xorq/` instead of a pinned node\nid — a rename is exactly how this rotted. Matches `ci-test-s3.yml:53`. |\n| `a8bfad6b` | Run the GCS example against an in-memory filesystem, so\nfault 2 stops blocking it. |\n\nOn `09431919`, two alternatives were rejected (reasoning in the commit):\n**`try/finally`** only covers exceptions raised inside the block, not\nthe timeouts, SIGKILLs and cancelled jobs a shared bucket actually sees;\n**a per-run unique key** would end the interference but contradicts the\ndemo — input-addressing is the property `GCSCache` exists to show — and\ntrades one visible stranded object for unbounded silent accumulation.\n\nOn `a8bfad6b`, only `gcloud_utils`' `gcsfs` reference is swapped, for\n`GCS_SCRIPTS` only. That is the single place `GCStorage` builds its\nfilesystem, and it leaves the GCS-backed pins board on real `gcsfs`,\nwhich it needs to download the example's input. The target is a string\nso the test module doesn't import `gcloud_utils` (not re-exported from\n`xorq.common.utils`), and `find_spec` skips when the optional `gcsfs` is\nabsent rather than failing collection of every example test.\n\n## Verification\n\nLocal runs used a harness swapping **only** `gcloud_utils`' `gcsfs` for\nfsspec's `MemoryFileSystem`. Patching `gcsfs` globally does *not* work:\nxorq's pins board is itself GCS-backed and `get_path(\"bank-marketing\")`\nthen dies with `PinsError` before the cache block is reached.\n\n- **The example round-trips** — execute, write, `ls`, drop — with the\nclosing assertion passing. The listed object matches the key and size a\nreal-GCS run produced.\n- **The self-healing fix works**, tested by the failure it's for: four\nruns in one process (clean, clean, failure injected between write and\ndrop, clean). *Before* the change the fourth run died with\n`AssertionError` and left the object stranded; *after*, it passes and\nleaves the bucket empty.\n- **The in-memory fixture genuinely runs in memory**, proved with an\nobserver plugin that patches nothing and reports what `GCStorage`\nreceived: `MemoryFileSystem`. A local pass alone wouldn't show this,\nsince developer credentials *do* have write access.\n- **It still catches the original bug** — against the pre-fix example it\nreproduces `AttributeError: 'GCSCache' object has no attribute 'cache'`\nat line 32.\n- **No regressions**: the full example suite is 33 passed, 1 skipped\n(this test, `GCS_ENABLED` unset), plus one unrelated S3 failure from\nlocally expired credentials.\n- **Selection is 3 tests**, confirmed both locally and by the CI\ndispatch's verbose listing (33%/66%/100%). It grows as more tests are\nmarked — the 5 in `test_gcloud_utils.py` arrive with #2329.\n\nIn the dispatch, the two read-only tests (which read the public\n`cloud-samples-data` bucket) **passed against real GCS**; only the\nexample failed, on the 403 above. Nothing was written to `expr-cache`.\n\n## Known gap\n\n`GCStorage` against **real** GCS is now exercised by nothing — the\nexample is the only thing in the tree that constructs `GCSCache`, and\nits block only runs under `__pytest_main__`. This is not a regression:\nthat coverage was already effectively zero, since the test could never\npass under a read-only account. The in-memory fixture buys bug-catching,\nnot integration coverage. Closing the gap requires granting the CI\nservice account write access to `expr-cache` — a deliberate IAM\ndecision, deliberately not made here.\n\nThe example test also keeps its `gcs` marker, so it still runs only on\nmarked/dispatch runs. Now that it needs no credentials, promoting it to\nthe default suite is defensible and would be a one-line change.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_014H2mXM9UzfLv75U4nvoHFZ\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-24T08:51:46-04:00",
+          "tree_id": "81eee7a830b69646b3b6b5f0d64e4be938da19a7",
+          "url": "https://github.com/xorq-labs/xorq/commit/923398f3ea5c1cdc3030cdce15286b1d470b1918"
+        },
+        "date": 1790254636797,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.761423204417273,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007953255139927038",
+            "extra": "mean: 114.13670777777598 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.8239881183343134,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05329770402595009",
+            "extra": "mean: 354.1091386000005 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.8174652849788607,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17368357488584782",
+            "extra": "mean: 1.2232935372000042 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.883684037854351,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055480942869034246",
+            "extra": "mean: 346.77863 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.393584627532962,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019423516918706422",
+            "extra": "mean: 294.6736591999979 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.4228699521361636,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007538328098288258",
+            "extra": "mean: 292.1524960000056 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 190.16463932757395,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005567138840129437",
+            "extra": "mean: 5.258601197026011 msec\nrounds: 269"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.381485096793516,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07155096535038015",
+            "extra": "mean: 228.23311683333714 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 16.557882372949315,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009974290054521396",
+            "extra": "mean: 60.394196400000055 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 11.02069267886555,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013893115090246957",
+            "extra": "mean: 90.73839813333204 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 9.409110923339307,
+            "unit": "iter/sec",
+            "range": "stddev: 0.028409465764549488",
+            "extra": "mean: 106.27996716666388 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.057554188159475,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02876226926558681",
+            "extra": "mean: 141.6921462222294 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 5.03746785472146,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008305536754158306",
+            "extra": "mean: 198.51243299999055 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.365306040941917,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006186429300984467",
+            "extra": "mean: 186.38265783333452 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.535994531876402,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05703471387582706",
+            "extra": "mean: 394.3226168000024 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.5299478242437483,
+            "unit": "iter/sec",
+            "range": "stddev: 0.048100263392048016",
+            "extra": "mean: 283.29030619999 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.8437895929961363,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08597731672799697",
+            "extra": "mean: 542.3612345999913 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.86707208867469,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06959840144777772",
+            "extra": "mean: 535.5979589999833 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6243881483355544,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12718066078611354",
+            "extra": "mean: 615.6164097999977 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.8144236927782358,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07968189791386111",
+            "extra": "mean: 551.1391876000062 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.3694901743135037,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09528235274379834",
+            "extra": "mean: 730.1987402000009 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.2553170125788995,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10401500656536597",
+            "extra": "mean: 796.6115252000122 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0550109333336084,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10388307244427114",
+            "extra": "mean: 947.8574756000057 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6552324542702561,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14185488041473293",
+            "extra": "mean: 1.5261759296000037 sec\nrounds: 5"
           }
         ]
       }
