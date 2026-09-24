@@ -306,10 +306,18 @@ class Backend(IbisPostgresBackend):
             },
             **kwargs,
         }
-        return connect(**dct)
+        # ``self.connect``, not the module-level ``connect``: the inherited
+        # ``BaseBackend.connect`` instantiates ``self.__class__``, so a
+        # subclass clones into its own class rather than into this one.
+        return self.connect(**dct)
 
 
-def connect(**kwargs):
-    con = Backend()
-    Backend.connect(**kwargs)
-    return con
+def connect(**kwargs: Any) -> Backend:
+    """Connect to postgres.
+
+    Retained as public API; the loader builds ``xo.postgres.connect`` from the
+    bound ``Backend.connect`` and does not come through here.
+    """
+    # Was ``Backend.connect(**kwargs)``: an unbound call that raised
+    # ``TypeError`` and discarded its result. ``clone`` was the only caller.
+    return Backend().connect(**kwargs)
