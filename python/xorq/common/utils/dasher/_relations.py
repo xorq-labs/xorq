@@ -43,6 +43,7 @@ from xorq.common.utils.dasher._paths import (
     _normalize_path_stat,
     _stat_or_canonical,
 )
+from xorq.common.utils.redshift_utils import normalize_redshift_databasetable
 
 
 if TYPE_CHECKING:
@@ -477,6 +478,14 @@ def _dispatch_databasetable(dt: ops.DatabaseTable) -> tuple:
     # xorq_dasher's dispatch hashes the IPC bytes of their
     # ``to_pyarrow_batches()`` stream, which is pyarrow-version-coupled
     # (issue #2191) — route them to the canonical form instead.
+    # Redshift is absent from dasher's dispatch dict, which is a bare lookup
+    # with no default -- so without this it raises KeyError: 'redshift' before
+    # any SQL is sent. It must not fall through to the postgres normalizer
+    # either: that one calls get_postgres_n_reltuples, which issues CHECKPOINT
+    # (not Redshift syntax) and ANALYZE (a write-privileged operation Redshift
+    # does accept). See redshift_utils for why svv_table_info is read instead.
+    if dt.source.name == BackendName.REDSHIFT:
+        return normalize_redshift_databasetable(dt)
     if dt.source.name == BackendName.PANDAS:
         return normalize_memory_databasetable_canonical(dt)
     if dt.source.name == BackendName.SQLITE and dt.source.is_in_memory():
