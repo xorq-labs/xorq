@@ -12,6 +12,7 @@ from typing_extensions import TypeVar
 import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.rules as rlz
+from xorq.common.exceptions import XorqTypeError
 from xorq.vendor.ibis.common.annotations import attribute
 from xorq.vendor.ibis.common.deferred import Deferred  # noqa: TCH001
 from xorq.vendor.ibis.common.grounds import Singleton
@@ -297,7 +298,7 @@ class SimpleCase(Value):
         assert len(cases) == len(results)
         for case in cases:
             if not rlz.comparable(base, case):
-                raise TypeError(
+                raise XorqTypeError(
                     f"Base expression {rlz.arg_type_error_format(base)} and "
                     f"case {rlz.arg_type_error_format(case)} are not comparable"
                 )

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import pickle
 from typing import TYPE_CHECKING, Any
 
 
@@ -77,6 +78,69 @@ class BuildVersionMismatchError(ValueError, XorqError):
 
 class NormalizeMethodError(TranslationError):
     """A Read's normalize_method could not be resolved by name (see #2155)."""
+
+
+class RefreshCause(XorqError):
+    """A ``SchemaRefreshError`` cause that cannot be rebuilt from its ``args``.
+
+    ibis's ``ValidationError``s overwrite ``args`` with the op's arguments, so
+    unpickling one raises; its type name and text are what cross instead.
+    """
+
+    def __init__(self, type_name: str, text: str) -> None:
+        super().__init__(type_name, text)
+
+    @property
+    def type_name(self) -> str:
+        return self.args[0]
+
+    def __str__(self) -> str:
+        return self.args[1]
+
+
+def _round_trips(value: object) -> bool:
+    try:
+        pickle.loads(pickle.dumps(value))
+    except Exception:
+        return False
+    return True
+
+
+class SchemaRefreshError(TranslationError):
+    """An op that could not be rebuilt over a refreshed source (``catalog.refresh``).
+
+    Names the deepest failing op. Message built in ``__str__`` so it pickles; a
+    cause that does not round-trip is carried as a ``RefreshCause``, and
+    attributes (e.g. ``__notes__``) that do not round-trip are dropped.
+    """
+
+    def __init__(self, op_name: str, cause: Exception) -> None:
+        super().__init__(op_name, cause)
+
+    @property
+    def op_name(self) -> str:
+        return self.args[0]
+
+    @property
+    def cause(self) -> Exception:
+        return self.args[1]
+
+    def __reduce__(self) -> tuple:
+        op_name, cause = self.args
+        if not _round_trips(cause):
+            cause = RefreshCause(type(cause).__name__, str(cause))
+        state = {k: v for k, v in self.__dict__.items() if _round_trips(v)}
+        return (type(self), (op_name, cause), state or None)
+
+    def __str__(self) -> str:
+        op_name, cause = self.args
+        type_name = (
+            cause.type_name if isinstance(cause, RefreshCause) else type(cause).__name__
+        )
+        return (
+            f"could not rebuild {op_name} against the refreshed sources: "
+            f"{type_name}: {cause}"
+        )
 
 
 class XorqInputError(ValueError, XorqError):

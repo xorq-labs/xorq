@@ -158,16 +158,22 @@ class DropColumns(Relation):
     @attribute
     def schema(self):
         schema = self.parent.schema.fields.copy()
+        if missing := sorted(self.columns_to_drop - schema.keys()):
+            raise XorqTypeError(
+                f"Columns {', '.join(map(repr, missing))} are not found in table. "
+                f"Existing columns: {', '.join(map(repr, schema))}."
+            )
         for column in self.columns_to_drop:
             del schema[column]
         return Schema(schema)
 
     @attribute
     def values(self):
-        fields = self.parent.fields.copy()
-        for column in self.columns_to_drop:
-            del fields[column]
-        return fields
+        return {
+            name: field
+            for name, field in self.parent.fields.items()
+            if name not in self.columns_to_drop
+        }
 
 
 @public
