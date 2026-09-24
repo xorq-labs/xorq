@@ -1,6 +1,11 @@
 <!-- include-after-body: site footer. Same structure as the marketing pages; edit links in one place. -->
 <style>
-.xq-foot{max-width:1180px;margin:0 auto;padding:64px 24px 28px;border-top:1px solid #1f3437;display:grid;gap:44px;font-family:"FK Grotesk Mono",ui-monospace,monospace}
+/* Full-bleed band: opaque page-coloured background sitting ABOVE Quarto's
+   sticky sidebars (which have z-index:1 and grid-rows that run to page-bottom),
+   so at the end of the page the footer cleanly covers the sidebar tails instead
+   of overlapping them. The inner .xq-foot-inner carries the centred max-width. */
+.xq-foot{position:relative;z-index:3;background:#091b1d;border-top:1px solid #1f3437;font-family:"FK Grotesk Mono",ui-monospace,monospace}
+.xq-foot-inner{max-width:1180px;margin:0 auto;padding:64px 24px 28px;display:grid;gap:44px}
 .xq-foot-top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:22px 48px;align-items:end}
 .xq-foot-top p{font-family:"ALT Riviera",Georgia,serif;font-size:14px;line-height:1.6;color:#9ec9d5;max-width:520px;margin:0}
 .xq-foot-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:32px 24px}
@@ -13,7 +18,9 @@
 .xq-hello:hover{border-color:#c1f0ff;color:#c1f0ff}
 </style>
 <footer class="xq-foot">
+  <div class="xq-foot-inner">
   <div class="xq-foot-top">
+
     <a href="https://xorq.dev/"><img src="https://xorq.dev/assets/Xorq_WordMark_RGB_BlueSky.svg" alt="Xorq" style="height:22px"></a>
     <a class="xq-hello" href="https://xorq.dev/contact">./say hello</a>
     <p>Verification for AI on your data. Run any model, verify every number, trace the lineage, spend fewer tokens.</p>
@@ -26,4 +33,5 @@
     <div><h4>company</h4><a href="https://xorq.dev/about">./about</a><a href="https://xorq.dev/blog/">./blog</a><a href="https://xorq.dev/privacy">./privacy</a></div>
   </div>
   <div class="xq-foot-bottom"><span>© 2026 xorq labs inc. · all rights reserved</span><span>built with <a href="https://quarto.org/" style="color:inherit">quarto</a></span></div>
+  </div>
 </footer>
