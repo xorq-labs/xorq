@@ -1155,6 +1155,12 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
         "every alias moves."
     ),
 )
+@click.option(
+    "--no-move-aliases",
+    is_flag=True,
+    default=False,
+    help="Leave every alias on the old entry.",
+)
 @sync_option
 @cache_dir_option
 @ignore_venv_mismatch_option
@@ -1164,6 +1170,7 @@ def rebase(
     entry: str,
     alias: str | None,
     move_aliases: tuple[str, ...],
+    no_move_aliases: bool,
     sync: bool,
     cache_dir: str | None,
     ignore_venv_mismatch: bool,
@@ -1173,18 +1180,21 @@ def rebase(
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. Every alias moves to the new entry
-    unless --move-alias names the ones that should. The new entry keeps the
-    old one's wheels and requirements.
+    unless --move-alias names the ones that should, or --no-move-aliases
+    keeps them all on the old one. The new entry keeps the old one's wheels
+    and requirements.
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
-    no drift that name is the entry's own, and nothing is committed.
+    no drift that name is the entry's own, and nothing is committed: not even
+    the --alias, which stderr says was not added.
 
     \b
     Exit codes:
       0  no drift, or the rebase succeeded
-      1  never started: the name does not resolve, the catalog does not
-         open, the entry is pinned, a source cannot be probed, or the
-         entry was built on another Python minor
+      1  refused, or failed: the name does not resolve, the catalog does
+         not open, the entry is pinned, a source cannot be probed, the
+         entry was built on another Python minor, or a write failed (it
+         is rolled back, and a failed rollback is logged)
       2  a source was unreachable or the record unreadable; nothing
          written
 
@@ -1196,7 +1206,12 @@ def rebase(
     Examples:
       xorq catalog rebase prod-matches
       xorq catalog rebase prod-matches --move-alias prod -a matches-v2
+      xorq catalog rebase prod-matches --no-move-aliases -a matches-trial
     """
+    if no_move_aliases and move_aliases:
+        raise click.UsageError(
+            "--no-move-aliases and --move-alias are mutually exclusive"
+        )
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
@@ -1211,7 +1226,7 @@ def rebase(
             result = rebase_entry(
                 catalog_entry,
                 alias=alias,
-                move_aliases=move_aliases or None,
+                move_aliases=() if no_move_aliases else move_aliases or None,
                 sync=sync,
                 ignore_mismatch=ignore_venv_mismatch,
                 cache_dir=_get_cache_dir(cache_dir),
@@ -1229,6 +1244,8 @@ def rebase(
     old, new = result.old_entry.name, result.new_entry.name
     if result.status == RebaseStatus.NOOP:
         click.echo(f"{old}: no drift", err=True)
+        if alias:
+            click.echo(f"Alias {alias!r} not added: nothing to rebase", err=True)
     else:
         click.echo(f"Rebased {old} -> {new}", err=True)
         for moved in result.moved_aliases:

@@ -141,6 +141,48 @@ def test_move_alias_narrows_and_alias_adds(
     assert alias_target_hash(catalog, "staging") == world.name
 
 
+def test_no_move_aliases_leaves_every_alias_on_the_old_entry(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, GROWN)
+
+    result = rebase(runner, world, world.name, "--no-move-aliases", "-a", "trial")
+    assert result.exit_code == 0, result.output
+    new = result.stdout.strip()
+    assert new != world.name
+    assert "Moved alias" not in result.stderr
+    catalog = reopen(world)
+    assert alias_target_hash(catalog, "live") == world.name
+    assert alias_target_hash(catalog, "staging") == world.name
+    assert alias_target_hash(catalog, "trial") == new
+
+
+def test_no_move_aliases_and_move_alias_are_exclusive(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    commits = commit_count(world.catalog)
+
+    result = rebase(
+        runner, world, world.name, "--no-move-aliases", "--move-alias", "live"
+    )
+    assert result.exit_code == 2
+    assert "mutually exclusive" in result.stderr
+    assert_nothing_written(world, commits)
+
+
+def test_no_drift_says_the_alias_was_not_added(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, "-a", "v2")
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{world.name}\n"
+    assert "Alias 'v2' not added" in result.stderr
+    assert "v2" not in reopen(world).list_aliases()
+    assert_nothing_written(world, commits)
+
+
 def test_an_unknown_alias_to_move_writes_nothing(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
@@ -217,6 +259,18 @@ def test_a_failed_alias_move_restores_the_extra_alias(
     assert set(catalog.list()) == {world.name, other}
     assert alias_target_hash(catalog, "v2") == other
     assert alias_target_hash(catalog, "live") == world.name
+
+
+def test_a_failed_alias_move_exits_one_from_the_cli(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    fail_nth_add_alias(monkeypatch, 2)
+
+    result = rebase(runner, world)
+    assert result.exit_code == 1
+    assert "alias move failed" in result.stderr
+    assert reopen(world).list() == [world.name]
 
 
 def test_a_failed_rollback_surfaces_the_error_that_caused_it(
