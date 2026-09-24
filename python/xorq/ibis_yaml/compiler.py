@@ -330,11 +330,13 @@ class YamlExpressionTranslator:
     def from_yaml(
         yaml_dict: Dict[str, Any],
         profiles=(),
+        refresh_schemas: bool = False,
     ) -> ir.Expr:
         _ensure_translate_registered()
         context = TranslationContext(
             registry=Registry(**yaml_dict.get(DocKey.definitions, {})),
             profiles=freeze(dict(profiles)),
+            refresh_schemas=refresh_schemas,
         )
         expr_dict = freeze(yaml_dict[DocKey.expression])
         return translate_from_yaml(expr_dict, context)
@@ -960,7 +962,27 @@ class ExprLoader:
         raise_on_unbound: bool = True,
         lazy: bool = False,
         read_only_parquet_metadata: bool = False,
+        refresh_schemas: bool = False,
     ):
+        """Deserialize the build at ``expr_path``.
+
+        ``refresh_schemas`` re-derives the expression against the sources as
+        they are *now* instead of the schemas the build recorded: each external
+        source is asked for its live schema and every operation above it is
+        rebuilt through the builder API, so one that can no longer be
+        reconstructed raises ``SchemaRefreshError`` naming itself. Off by
+        default, and the default path is unchanged.
+
+        It reads, never writes: a ``DatabaseTable`` is asked for its table and a
+        ``Read`` re-runs the inference the deferred read ran at build time
+        (``refreshed_read``), so nothing is registered or ingested into a live
+        backend. What it adds over an ordinary load is a metadata round-trip per
+        recorded table. Under ``lazy=False`` the connections are opened either
+        way, by ``hydrate_cons``; under ``lazy=True`` the refresh forces
+        connections an ordinary lazy load would leave deferred -- for sqlite
+        that brings a database file into existence -- so a caller that must not
+        create one passes its own connections through ``con_cache``.
+        """
         profiles = hydrate_cons(
             self.artifact_store.load_yaml(DumpFiles.profiles),
             lazy=lazy,
@@ -972,7 +994,9 @@ class ExprLoader:
             raise UnboundExpressionError(
                 "expression is unbound; pass raise_on_unbound=False to load anyway"
             )
-        expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
+        expr = YamlExpressionTranslator.from_yaml(
+            yaml_dict, profiles=profiles, refresh_schemas=refresh_schemas
+        )
         expr = self.deferred_reads_to_memtables(
             expr, self.expr_path, read_only_parquet_metadata=read_only_parquet_metadata
         )
@@ -1049,11 +1073,13 @@ def load_expr(expr_path, **kwargs):
     raise_on_unbound = kwargs.pop("raise_on_unbound", False)
     lazy = kwargs.pop("lazy", False)
     read_only_parquet_metadata = kwargs.pop("read_only_parquet_metadata", False)
+    refresh_schemas = kwargs.pop("refresh_schemas", False)
     expr_loader = ExprLoader(expr_path, **kwargs)
     return expr_loader.load_expr(
         raise_on_unbound=raise_on_unbound,
         lazy=lazy,
         read_only_parquet_metadata=read_only_parquet_metadata,
+        refresh_schemas=refresh_schemas,
     )
 
 

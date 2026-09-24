@@ -453,3 +453,15 @@ def test_a_leaf_defect_leaves_the_other_leaves_probed(
     assert f"DatabaseTable {first.name}: unreadable" in result.output
     assert "    ValueError: catalog 'cat' without a database" in result.output
     assert f"DatabaseTable {second.name}: changed" in result.output
+
+
+def test_an_entry_loads_against_its_live_source(world: SimpleNamespace) -> None:
+    """`CatalogEntry.load_expr` forwards `refresh_schemas` down to the loader:
+    a column added to the source reaches a refreshed load and only that one."""
+    recreate(
+        world, "t", RECORDED.append_column("c", pa.array([1.5, 2.5], pa.float64()))
+    )
+    entry = world.catalog.get_catalog_entry(world.name)
+
+    assert "c" not in entry.load_expr().schema()
+    assert str(entry.load_expr(refresh_schemas=True).schema()["c"]) == "float64"

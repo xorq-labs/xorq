@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import pathlib
 from collections.abc import Mapping, Sequence
@@ -21,6 +23,34 @@ def freeze(obj):
     elif isinstance(obj, tuple):
         return tuple(freeze(x) for x in obj)
     return obj
+
+
+def namespace_to_database(
+    catalog: str | None, database: str | None
+) -> tuple[str, str] | str | None:
+    """A recorded ``(catalog, database)`` namespace as ibis spells ``database=``.
+
+    A pair, a bare name, or nothing. The raw pair is what gets matched, not a
+    compacted one: ibis reads a lone string as a database, so demoting a catalog
+    into that slot would name somewhere the record never did. A catalog with
+    nothing under it is malformed, and raising is what keeps it from reaching a
+    backend at all.
+
+    Lives here rather than beside either caller because both the drift probe
+    (which asks a backend for a table's live schema) and the refreshing loader
+    (which asks for the same thing to rebuild an expression over it) need the
+    identical mapping, and two copies of it would be two answers to one
+    question.
+    """
+    match (catalog, database):
+        case (None | "", None | ""):
+            return None
+        case (None | "", database):
+            return database
+        case (catalog, None | ""):
+            raise ValueError(f"catalog {catalog!r} without a database")
+        case pair:
+            return pair
 
 
 class MissingValue:

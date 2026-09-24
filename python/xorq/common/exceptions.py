@@ -70,6 +70,44 @@ class NormalizeMethodError(TranslationError):
     """A Read's normalize_method could not be resolved by name (see #2155)."""
 
 
+class SchemaRefreshError(TranslationError):
+    """An operation that could not be rebuilt against a refreshed source.
+
+    Raised by the ``from_yaml`` dispatch under ``refresh_schemas``, so it names
+    the op the record spells rather than whichever internal the builder API
+    tripped over. Only the innermost one survives: the dispatch re-raises a
+    ``SchemaRefreshError`` untouched, so an ancestor rebuilding over a failed
+    child does not relabel the failure with its own name. Since translation is
+    bottom-up, that innermost op is the deepest one that could not be
+    reconstructed -- a ``Field`` naming a column the source dropped, not the
+    ``Filter`` that happens to sit above it.
+
+    Raw args into ``super().__init__`` with the message built in ``__str__``,
+    like every other formatting exception here: ``BaseException.__reduce__``
+    reconstructs from ``args``, so a pre-formatted single arg would make this
+    unpicklable and uncopyable -- and a refresh failure crossing a Flight or
+    subprocess boundary would surface as a ``TypeError`` from the unpickler.
+    """
+
+    def __init__(self, op_name: str, cause: Exception) -> None:
+        super().__init__(op_name, cause)
+
+    @property
+    def op_name(self) -> str:
+        return self.args[0]
+
+    @property
+    def cause(self) -> Exception:
+        return self.args[1]
+
+    def __str__(self) -> str:
+        op_name, cause = self.args
+        return (
+            f"could not rebuild {op_name} against the refreshed sources: "
+            f"{type(cause).__name__}: {cause}"
+        )
+
+
 class XorqInputError(ValueError, XorqError):
     """IbisInputError."""
 

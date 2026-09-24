@@ -429,6 +429,11 @@ def test_namespace_to_database_empty():
     assert _namespace_to_database(ns) is None
 
 
+def test_namespace_to_database_catalog_only():
+    ns = ops.Namespace(catalog="my_cat", database=None)
+    assert _namespace_to_database(ns) is None
+
+
 # ---------------------------------------------------------------------------
 # _find_missing_tables with namespace
 # ---------------------------------------------------------------------------

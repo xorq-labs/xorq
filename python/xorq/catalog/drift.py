@@ -116,6 +116,7 @@ from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
 from xorq.common.constants import READ_EXCLUDE_KEYS
 from xorq.ibis_yaml.enums import BundledSourceTypes, ReadKwarg
+from xorq.ibis_yaml.utils import namespace_to_database
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.expr.schema import Schema
 from xorq.vendor.ibis.util import normalize_filenames, promote_list
@@ -203,11 +204,8 @@ def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
     """``leaf``'s namespace as ibis spells it: a pair, a bare name, or nothing;
     a catalog with no database raises.
 
-    The raw ``(catalog, database)`` pair is what gets matched, not a compacted
-    one: ibis reads a lone string as a database, so demoting a catalog into that
-    slot would probe somewhere the leaf never named. A catalog with nothing
-    under it is malformed, and raising is what keeps it from being probed
-    anywhere at all.
+    The mapping is ``namespace_to_database``; this is the leaf-shaped door onto
+    it.
 
     A well-formed pair a backend cannot express is deliberately left alone: it
     is handed over as recorded and fails at the read, which the probe reports as
@@ -215,15 +213,7 @@ def table_location(leaf: SourceLeaf) -> tuple[str, str] | str | None:
     backend declares on ``list_tables`` would be the honest verdict; it is out
     of scope here and has no ticket yet, only the xorq-labs/xorq#2293 epic.
     """
-    match leaf.namespace:
-        case (None | "", None | ""):
-            return None
-        case (None | "", database):
-            return database
-        case (catalog, None | ""):
-            raise ValueError(f"catalog {catalog!r} without a database")
-        case pair:
-            return pair
+    return namespace_to_database(*leaf.namespace)
 
 
 def get_leaf_profile(leaf: SourceLeaf, record: BuildRecord) -> Profile:

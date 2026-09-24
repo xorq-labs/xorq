@@ -519,13 +519,23 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
     return result
 
 
-def _namespace_to_database(namespace):
-    """Convert a Namespace to the ``database`` kwarg accepted by backend methods."""
-    if namespace.catalog and namespace.database:
-        return (namespace.catalog, namespace.database)
-    if namespace.database:
-        return namespace.database
-    return None
+def _namespace_to_database(namespace: ops.Namespace) -> tuple[str, str] | str | None:
+    """Convert a Namespace to the ``database`` kwarg accepted by backend methods.
+
+    Delegates so the mapping has one implementation: `catalog.drift`'s probe
+    and `ibis_yaml`'s refreshing loader ask the same question, and a third
+    answer here is how the three drift apart. The one place this caller parts
+    ways is a catalog with no database under it: the shared mapping raises, but
+    here that would read as "not there" and turn into a materialize-and-copy
+    (or, with ``transfer_tables=False``, a refusal), so the probe falls back to
+    the backend's default database as it always did.
+    """
+    from xorq.ibis_yaml.utils import namespace_to_database  # noqa: PLC0415
+
+    try:
+        return namespace_to_database(namespace.catalog, namespace.database)
+    except ValueError:
+        return None
 
 
 def _find_missing_tables(tables_to_transfer):
