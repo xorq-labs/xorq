@@ -1138,6 +1138,104 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     ctx.exit(exit_code)
 
 
+@cli.command("rebase")
+@click.argument("entry", shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "-a",
+    "--alias",
+    default=None,
+    help="Also register this alias for the new entry.",
+)
+@click.option(
+    "--move-alias",
+    "move_aliases",
+    multiple=True,
+    help=(
+        "Move only this alias onto the new entry (repeatable); by default "
+        "every alias moves."
+    ),
+)
+@sync_option
+@cache_dir_option
+@ignore_venv_mismatch_option
+@click.pass_context
+def rebase(
+    ctx: click.Context,
+    entry: str,
+    alias: str | None,
+    move_aliases: tuple[str, ...],
+    sync: bool,
+    cache_dir: str | None,
+    ignore_venv_mismatch: bool,
+) -> None:
+    """Re-derive an entry over its live sources and catalog it as a new entry.
+
+    Run it once `xorq catalog check-sources` reports a changed source. The
+    recorded expression is rebuilt over the schemas the sources have now; the
+    old entry is never edited or removed. Every alias moves to the new entry
+    unless --move-alias names the ones that should. The new entry keeps the
+    old one's wheels and requirements.
+
+    Prints the resulting entry name on stdout, and the detail on stderr. With
+    no drift that name is the entry's own, and nothing is committed.
+
+    \b
+    Exit codes:
+      0  no drift, or the rebase succeeded
+      1  never started: the name does not resolve, the catalog does not
+         open, the entry is pinned, a source cannot be probed, or the
+         entry was built on another Python minor
+      2  a source was unreachable or the record unreadable; nothing
+         written
+
+    \b
+    Arguments:
+      ENTRY  An entry name or alias.
+
+    \b
+    Examples:
+      xorq catalog rebase prod-matches
+      xorq catalog rebase prod-matches --move-alias prod -a matches-v2
+    """
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        catalog_entry = _get_catalog_entry(catalog, entry)
+
+    from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
+    from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
+
+    with click_context_catalog(ctx):
+        try:
+            result = rebase_entry(
+                catalog_entry,
+                alias=alias,
+                move_aliases=move_aliases or None,
+                sync=sync,
+                ignore_mismatch=ignore_venv_mismatch,
+                cache_dir=_get_cache_dir(cache_dir),
+            )
+        except RebaseError as e:
+            # Kept from the handler, which collapses every error to exit 1.
+            result = e
+    if isinstance(result, RebaseError):
+        click.echo(str(result), err=True)
+        ctx.exit(result.exit_code)
+    for report in result.reports:
+        if report.verdict == Verdict.CHANGED:
+            for line in format_leaf_report(report):
+                click.echo(line, err=True)
+    old, new = result.old_entry.name, result.new_entry.name
+    if result.status == RebaseStatus.NOOP:
+        click.echo(f"{old}: no drift", err=True)
+    else:
+        click.echo(f"Rebased {old} -> {new}", err=True)
+        for moved in result.moved_aliases:
+            click.echo(f"Moved alias {moved!r} -> {new}", err=True)
+    click.echo(new)
+
+
 def _resolve_lineage(dag: LineageDAG, handle: str, name: str) -> tuple[dict, ...]:
     """Nodes a `--node`/`--expand` handle names, or a pointer to the listing."""
     if matches := dag.resolve(handle):
