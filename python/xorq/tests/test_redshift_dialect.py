@@ -19,35 +19,46 @@ fully checkable property -- that the specific construct Redshift is documented
 and observed to reject is no longer emitted, and that anything we cannot lower
 raises instead of compiling to something structurally invalid.
 
-OPEN WAREHOUSE QUESTIONS
-------------------------
+SETTLED AGAINST A LIVE WAREHOUSE, 2026-09-24
+--------------------------------------------
 
-Three claims in this backend rest on AWS's documented grammar rather than on an
-observed rejection, and no offline test can settle any of them. They are
-collected here, each with the query that answers it, so that a live session
-discharges them in an afternoon rather than re-deriving them. Each is also
-marked UNVERIFIED at its own site.
+Three claims in this module once rested on AWS's documented grammar rather than
+on an observed rejection. All three were settled against the xorq-test
+warehouse (Redshift Serverless, us-east-2) on 2026-09-24, and all three came
+back confirming the behaviour this module already had. The queries live in
+``scripts/2026-09-24-redshift-settle-open-questions.sh`` and its round-2
+companion, so the answers are reproducible rather than remembered.
 
-1. Does Redshift decode ``\t`` in a plain string literal?
-   ``SELECT LENGTH('\t'), TRIM(' \t' FROM 'x\tt');``
-   LENGTH 1 = decoded, and everything in
-   ``test_string_literal_escaping_is_pinned_pending_a_live_warehouse`` is
-   correct as it stands. LENGTH 2 = the ``TRIM`` literal ``.strip()`` emits is
-   wrong. Read that test before acting on the answer: the regex half of the
-   same mechanism has the opposite sign and must not be reverted along with it.
+1. **Does Redshift decode ``\t`` in a plain string literal? YES.**
+   ``SELECT LENGTH('\t')`` is 1 and ``'\t' = CHR(9)`` is true. So the escape
+   rules that came with the dialect are correct, ``.strip()``'s TRIM literal is
+   right, and -- the part nobody expected -- the regex change is a REAL BUG FIX
+   rather than a risk: ``'1' ~ '\\d'`` matches and ``'1' ~ '\d'`` does not,
+   while ``'d' ~ '\d'`` does. Under the old Postgres dialect this backend was
+   emitting ``'\d'``, i.e. sending the regex "literal letter d" every time a
+   user wrote ``\d``, silently, against a live warehouse.
 
-2. Do ``LAG``/``LEAD`` reject a frame clause, as their documented grammar
-   implies? Cheapest check: run any ``.lag().over(window(order_by=...))`` from
-   before ``_OFFSET_OPS`` existed and see whether it errors.
-   ``SELECT LAG(x) OVER (ORDER BY x ROWS BETWEEN UNBOUNDED PRECEDING AND
-   UNBOUNDED FOLLOWING) FROM (SELECT 1 AS x);``
+2. **Do LAG/LEAD reject a frame clause? YES.** "Frame clause should not be
+   specified for window function lag". ``_OFFSET_OPS`` is necessary, not
+   defensive.
 
-3. Do ``LISTAGG``/``PERCENTILE_CONT``/``PERCENTILE_DISC``/``MEDIAN`` in window
-   position reject ``ORDER BY`` and a frame, per ``_PARTITION_ONLY_OPS``?
-   ``SELECT MEDIAN(x) OVER (PARTITION BY x ORDER BY x) FROM (SELECT 1 AS x);``
+3. **Do LISTAGG/PERCENTILE_CONT/MEDIAN reject ORDER BY and a frame in window
+   position? YES.** "window specification should not contain frame clause and
+   order-by for window function median". ``_PARTITION_ONLY_OPS`` is necessary.
+   ``ANY_VALUE`` is separately "Window function any_value not supported",
+   which is why it raises in window position.
 
-A fourth, older one lives in ``test_redshift_backend.py``: the two unverified
-type widths (unbounded ``VARCHAR``, the ``TIMESTAMP(6)`` precision modifier).
+The same session settled four things that were NOT open questions, because
+nobody had thought to ask -- each is now a raise in the compiler:
+``Table.nunique()`` (no multi-column COUNT DISTINCT and no record equality),
+``.mode()`` (no MODE in any spelling), ``.quantile()`` over a non-numeric
+column (PERCENTILE_DISC unsupported outright), and confirmation that
+``ARRAY_AGG``, ``FIRST``, ``STARTS_WITH``, ``MAKE_DATE`` and
+``DATE_FROM_PARTS`` are all absent, as the compiler already assumed.
+
+One item remains open and is NOT a dialect question: the two unverified type
+widths in ``test_redshift_backend.py`` (unbounded ``VARCHAR``, the
+``TIMESTAMP(6)`` precision modifier).
 """
 
 from __future__ import annotations
@@ -271,17 +282,30 @@ def test_count_star_without_a_predicate_stays_count_star(t):
     assert "COUNT(*)" in to_sql(t.group_by("grp").agg(n=t.count()))
 
 
-def test_table_nunique_where_keeps_distinct_outside_the_case(t):
-    """``Table.nunique(where=...)`` reaches ``visit_CountDistinctStar``.
+def test_table_nunique_raises_in_either_spelling(t):
+    """``Table.nunique()`` has no Redshift lowering at all.
 
-    That is a *different* method from ``visit_CountDistinct``, inherited
-    unchanged from the postgres compiler, and it hit the identical
-    ``DISTINCT``-inside-``CASE`` trap the column-level override exists to
-    prevent.
+    VERIFIED on the xorq-test warehouse 2026-09-24: ``COUNT(DISTINCT a, b)``
+    is "function count(bigint, varchar) does not exist" and
+    ``COUNT(DISTINCT (a, b))`` is "could not identify an equality operator for
+    type record". sqlglot's ``MULTI_ARG_DISTINCT = True`` for Redshift claims
+    the first; the warehouse disagrees.
+
+    This test replaces one that asserted the emitted string kept ``DISTINCT``
+    outside the ``CASE``. That assertion was true, and the SQL it described
+    parsed cleanly, and it could never have run. It is the sharpest example in
+    this module of how far a parse oracle gets you: it proved the string was
+    well-formed and said nothing about whether Redshift would accept it.
     """
-    sql = to_sql(t.aggregate(n=t.nunique(where=t.flag)))
+    for expr in (t.aggregate(n=t.nunique()), t.aggregate(n=t.nunique(where=t.flag))):
+        with pytest.raises(com.UnsupportedOperationError, match="(?i)nunique"):
+            to_sql(expr)
+
+
+def test_single_column_nunique_still_works(t):
+    """The blanket above is scoped to the whole-table form."""
+    sql = to_sql(t.group_by("grp").agg(n=t.id.nunique(where=t.flag)))
     assert "COUNT(DISTINCT CASE WHEN" in sql
-    assert "THEN DISTINCT" not in sql
     sqlglot.parse_one(sql, dialect="redshift")
 
 
@@ -303,7 +327,6 @@ def test_arbitrary_emits_any_value_not_first(t):
         pytest.param(lambda t: t.amt.median(where=t.flag), id="median"),
         pytest.param(lambda t: t.amt.quantile(0.9, where=t.flag), id="quantile"),
         pytest.param(lambda t: t.amt.approx_median(where=t.flag), id="approx_median"),
-        pytest.param(lambda t: t.grp.mode(where=t.flag), id="mode"),
     ],
 )
 def test_ordered_set_aggregates_emit_no_filter_clause(t, build):
@@ -318,6 +341,36 @@ def test_ordered_set_aggregates_emit_no_filter_clause(t, build):
     assert "FILTER(" not in sql
     assert "WITHIN GROUP (ORDER BY CASE WHEN" in sql
     sqlglot.parse_one(sql, dialect="redshift")
+
+
+def test_mode_raises(t):
+    """Redshift has no ``MODE`` in any spelling.
+
+    VERIFIED on the xorq-test warehouse 2026-09-24: ``MODE() WITHIN GROUP`` is
+    a syntax error at "WITHIN", and ``MODE(title)`` is "function mode(varchar)
+    does not exist".
+
+    An earlier round fixed this method's ``FILTER (WHERE ...)`` clause and
+    deliberately declined to say whether the function existed, on the grounds
+    that the narrower fix asserted less. With a warehouse, the answer is that
+    the whole method had no target.
+    """
+    with pytest.raises(com.UnsupportedOperationError, match="(?i)mode"):
+        to_sql(t.group_by("grp").agg(m=t.grp.mode(where=t.flag)))
+
+
+def test_quantile_over_a_non_numeric_column_raises(t):
+    """``percentile_disc`` is rejected outright, and ``percentile_cont``
+    refuses a non-numeric ordering expression.
+
+    VERIFIED on the xorq-test warehouse 2026-09-24: PERCENTILE_DISC gives
+    'Aggregate function "percentile_disc" is not supported; use approximate
+    percentile_disc or percentile_cont instead', and PERCENTILE_CONT over a
+    varchar gives 'Non supported data-type in order-by expression'. So the
+    ``disc`` branch of ``visit_Quantile`` had no valid target either way.
+    """
+    with pytest.raises(com.UnsupportedOperationError, match="(?i)percentile_disc"):
+        to_sql(t.group_by("grp").agg(q=t.grp.quantile(0.5)))
 
 
 @pytest.mark.parametrize(
@@ -527,8 +580,9 @@ def test_cumulative_aggregates_keep_their_frame(t):
 @pytest.mark.parametrize(
     "build",
     [
-        pytest.param(lambda t: t.aggregate(n=t.nunique()), id="nunique"),
-        pytest.param(lambda t: t.group_by("grp").agg(m=t.grp.mode()), id="mode"),
+        pytest.param(
+            lambda t: t.group_by("grp").agg(n=t.id.nunique()), id="nunique_col"
+        ),
         pytest.param(lambda t: t.group_by("grp").agg(q=t.amt.median()), id="median"),
         pytest.param(
             lambda t: t.group_by("grp").agg(g=t.grp.group_concat(",")), id="gc"
@@ -601,53 +655,35 @@ def test_every_filtered_reduction_parses(t):
     assert not failures, "unparsable SQL emitted:\n" + "\n".join(failures)
 
 
-def test_string_literal_escaping_is_pinned_pending_a_live_warehouse():
-    """THE ONE OPEN QUESTION IN THIS MODULE. Not a passing feature.
+def test_string_literal_escaping_matches_what_the_warehouse_decodes():
+    """VERIFIED 2026-09-24. This was the most severe open finding; it resolved
+    in the PR's favour, and one half of it turned out to be a silent bug fix.
 
-    Retargeting the dialect also swapped sqlglot's escape rules:
-    ``Redshift.Tokenizer.STRING_ESCAPES`` is ``["\\\\", "'"]`` where Postgres's
-    is ``["'"]``. Every string literal the backend emits is affected.
+    Retargeting the dialect swapped sqlglot's escape rules:
+    ``Redshift.Tokenizer.STRING_ESCAPES`` is ``["\\\\", "'"]`` where
+    Postgres's is ``["'"]``. Every string literal the backend emits changed. On
+    the warehouse, ``LENGTH('\\t')`` is 1 and ``'\\t' = CHR(9)`` is true:
+    Redshift decodes backslash escapes, so the new spelling is the correct one.
 
-    This cuts BOTH WAYS, and the two halves have opposite signs -- which is why
-    the fix is not simply "put the old escaping back":
+    The consequence nobody predicted is on the regex operations. Measured::
 
-    * The regex operations are backslash-dense by construction, and there the
-      change is very likely a **fix this PR shipped without noticing**. If
-      Redshift decodes backslash escapes -- which is what sqlglot's tokenizer
-      asserts and what AWS documents -- then ``'\\\\d+'`` is the correct way to
-      send the regex ``\\d+``, and the previous postgres-dialect output
-      ``'\\d+'`` was sending the regex ``d+``: matching literal letter "d",
-      silently, against a live warehouse.
-    * ``.strip()`` is the open risk. It lowers to a ``TRIM`` of a whitespace
-      literal and now spells its characters as backslash escapes. If Redshift
-      does NOT decode ``\\t`` specifically, ``.strip()`` trims the literal
-      characters ``\\``, ``t``, ``n``, ``r``, ``v``, ``f`` off the ends of
-      strings -- letters, with no error.
+        '1' ~ '\\\\d'  -> MATCH      (what this backend emits now)
+        '1' ~ '\\d'   -> NO MATCH   (what it emitted under the Postgres dialect)
+        'd' ~ '\\d'   -> MATCH      (i.e. it meant the literal letter d)
 
-    So the question the warehouse has to answer is narrower than "is the
-    escaping right": it is *does Redshift decode ``\\t`` in a plain string
-    literal*. One query settles it::
-
-        SELECT LENGTH('\\t'), TRIM(' \\t' FROM 'x\\tt');
-
-    LENGTH 1 means the escapes are decoded, both halves above are correct as
-    they stand, and the regex half is a real improvement. LENGTH 2 means the
-    ``TRIM`` literal is wrong and the Redshift generator needs its escape
-    settings overridden alongside the TRANSFORMS in ``dialects.py`` -- while
-    the regex half must NOT be reverted with it.
-
-    No offline test can settle it: sqlglot's Redshift parser preserves the
-    escape sequence as text, so the round-trip is self-consistent either way.
-    This pins the current bytes so the answer, when it arrives, lands as a
-    deliberate edit to a failing assertion rather than as drift nobody notices.
+    So every ``re_search``/``re_replace``/``re_extract``/``like`` carrying a
+    backslash class was quietly wrong before this change and is right after it.
+    That is a wrong-answer bug fixed by accident, which is the strongest
+    argument in this module for auditing a dialect swap along every axis rather
+    than only the constructs that prompted it.
     """
     t = xo.table({"s": "string"}, name="t")
     # user literals
     assert to_sql(t.filter(t.s == "a'b").select("s")).endswith("= 'a\\'b'")
     assert to_sql(t.filter(t.s == "a\\b").select("s")).endswith("= 'a\\\\b'")
-    # the open risk: a literal no user wrote
+    # the whitespace literal .strip() emits, which no user wrote
     assert "TRIM(' \\t\\n\\r\\v\\f' FROM" in to_sql(t.select(o=t.s.strip()))
-    # the probable fix: regex operands, all four of them
+    # the four regex operands -- doubled, which is what the warehouse decodes
     assert "'\\\\d+'" in to_sql(t.select(o=t.s.re_search(r"\d+")))
     assert "'\\\\s'" in to_sql(t.select(o=t.s.re_replace(r"\s", "")))
     assert "'(\\\\w+)'" in to_sql(t.select(o=t.s.re_extract(r"(\w+)", 1)))

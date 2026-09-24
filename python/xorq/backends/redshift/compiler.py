@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from functools import partial
 
-import sqlglot as sg
 import sqlglot.expressions as sge
 
 import xorq.common.exceptions as com
@@ -208,33 +207,48 @@ class RedshiftCompiler(PostgresCompiler):
         return self.f.count(self.if_(where, 1, NULL))
 
     def visit_CountDistinctStar(self, op, *, arg, where):
-        """``Table.nunique(where=...)``, which reaches the same trap as
-        ``visit_CountDistinct`` through a door that override does not cover.
+        """``Table.nunique()`` has no Redshift lowering in any spelling.
 
-        The postgres implementation (``compilers/postgres.py:226``) builds a row
-        constructor and hands ``sge.Distinct`` to ``AggGen``, so with
-        ``supports_filter=False`` the ``DISTINCT`` lands inside a ``CASE`` --
-        the exact construct ``visit_CountDistinct``'s docstring explains is
-        invalid everywhere. Fixed the same way: the conditional goes *inside*
-        the ``DISTINCT``.
+        VERIFIED on the xorq-test warehouse 2026-09-24. Both candidates are
+        rejected at execution:
 
-        The row-constructor spelling itself is inherited from PostgreSQL and is
-        not claimed here to run on Redshift; that question predates this module
-        and is unchanged by this override. What is fixed is that the emitted
-        string is now structurally valid rather than unparsable.
+            COUNT(DISTINCT id, title)    -> function count(bigint, varchar)
+                                            does not exist
+            COUNT(DISTINCT (id, title))  -> could not identify an equality
+                                            operator for type record
+
+        sqlglot's ``MULTI_ARG_DISTINCT = True`` for Redshift says the first
+        form is available; the warehouse says otherwise. The postgres
+        row-constructor form is the second, and Redshift has no comparable
+        record type.
+
+        This is the one place where an earlier round of this work made things
+        *look* better without making them work: the filtered variant used to
+        emit ``DISTINCT`` inside a ``CASE``, which does not parse, and was
+        fixed into a form that parses cleanly and still cannot run. Parseable
+        was the strongest offline oracle available; it was not enough.
+
+        ``MD5(a || b)`` over the concatenated columns does run and is the usual
+        Redshift idiom, but it is a different computation -- it counts distinct
+        *digests*, collisions included -- so it is named here rather than
+        emitted silently.
         """
-        row = sge.Tuple(
-            expressions=list(
-                map(partial(sg.column, quoted=self.quoted), op.arg.schema.keys())
-            )
+        raise com.UnsupportedOperationError(
+            "Redshift supports neither `COUNT(DISTINCT a, b, ...)` nor a row "
+            "constructor, so `Table.nunique()` cannot be lowered for this "
+            "backend. Count distinct values of a single column, or aggregate "
+            "over an explicit digest such as `md5` of the concatenated "
+            "columns, accepting that digest collisions undercount."
         )
-        if where is not None:
-            row = self.if_(where, row, NULL)
-        return self.f.count(sge.Distinct(expressions=[row]))
 
     def visit_Quantile(self, op, *, arg, quantile, where):
         """Ordered-set aggregates never reach ``AggGen``, so ``supports_filter``
         does not reach them either.
+
+        VERIFIED on the xorq-test warehouse 2026-09-24: the emitted form
+        runs and the predicate changes the answer (0.02750 filtered against
+        0.02875 unfiltered over ``xorq_test.offers``), and the ``FILTER``
+        spelling it replaced is rejected.
 
         ``visit_Quantile``, ``visit_Median``, ``visit_ApproxMedian`` and the
         multi/approx aliases all build ``sge.Filter`` by hand
@@ -245,11 +259,19 @@ class RedshiftCompiler(PostgresCompiler):
         nulling-out the filtered rows removes them from the ordering set
         exactly as ``FILTER`` removed them from the input.
         """
-        suffix = "cont" if op.arg.dtype.is_numeric() else "disc"
+        if not op.arg.dtype.is_numeric():
+            raise com.UnsupportedOperationError(
+                "Redshift has no `percentile_disc` -- it rejects the function "
+                "outright and directs callers to `percentile_cont`, which in "
+                "turn refuses a non-numeric ordering expression. So a quantile "
+                "over a non-numeric column has no lowering on this backend. "
+                "Rank the values explicitly with a `row_number()` window if "
+                "you need the discrete percentile."
+            )
         if where is not None:
             arg = self.if_(where, arg, NULL)
         return sge.WithinGroup(
-            this=self.f[f"percentile_{suffix}"](quantile),
+            this=self.f.percentile_cont(quantile),
             expression=sge.Order(expressions=[sge.Ordered(this=arg)]),
         )
 
@@ -261,19 +283,27 @@ class RedshiftCompiler(PostgresCompiler):
     visit_ApproxMultiQuantile = visit_Quantile
 
     def visit_Mode(self, op, *, arg, where):
-        """``visit_Quantile``'s problem, in the other ordered-set aggregate.
+        """Redshift has no ``MODE`` in any spelling.
 
-        Whether Redshift has ``MODE() WITHIN GROUP`` at all is a separate and
-        still-open question -- it is not in AWS's documented aggregate list.
-        This override deliberately does not answer it: it removes the
-        ``FILTER (WHERE ...)`` clause that is known-rejected, and leaves the
-        function name exactly as inherited.
+        VERIFIED on the xorq-test warehouse 2026-09-24::
+
+            MODE() WITHIN GROUP (ORDER BY x)  -> syntax error at or near
+                                                 "WITHIN"
+            MODE(title)                       -> function mode(varchar) does
+                                                 not exist
+
+        An earlier round of this work fixed the ``FILTER (WHERE ...)`` clause on
+        this method and deliberately declined to answer whether the function
+        existed, on the grounds that the narrower fix asserted less. That was
+        the right call with no warehouse; with one, the answer is that the
+        whole method had no target and the careful fix was polish on a
+        construct that could never run.
         """
-        if where is not None:
-            arg = self.if_(where, arg, NULL)
-        return sge.WithinGroup(
-            this=self.f.mode(),
-            expression=sge.Order(expressions=[sge.Ordered(this=arg)]),
+        raise com.UnsupportedOperationError(
+            "Redshift has no `mode` aggregate and no `MODE() WITHIN GROUP` "
+            "syntax, so `.mode()` cannot be compiled for this backend. Express "
+            "it as a `group_by` on the value with a count, ordered descending "
+            "and limited to 1."
         )
 
     def visit_ArgMinMax(self, op, *, arg, key, where, desc: bool):
