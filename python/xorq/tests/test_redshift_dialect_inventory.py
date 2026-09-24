@@ -52,10 +52,21 @@ import pytest
 # is deliberately sited outside them (see the docstring above), so the guard has
 # to be here. The E402s are that guard running first, not import sloppiness.
 #
-# psycopg is the only name guarded, and that is measured rather than assumed:
-# the failing job reached ``backends/postgres/__init__.py:22``, so line 12's
-# ``adbc_driver_manager`` import had already succeeded there. Guarding the adbc
-# drivers as well would skip these tests in jobs that can run them.
+# TWO names, and which two is measured per-name rather than inferred. Blocking
+# each candidate independently against these modules:
+#
+#     adbc_driver_manager     blocked -> 2 collection errors   REQUIRED
+#     psycopg                 blocked -> 2 skipped             REQUIRED
+#     adbc_driver_postgresql  blocked -> 59 passed             NOT required
+#
+# The third name is deliberately absent. It is reached only through
+# ``common/utils/postgres_utils.py:1``, a chain these modules never take, and
+# guarding it would skip this whole file in jobs that can run every test in it.
+# An earlier version of this guard named psycopg alone, reasoning from one CI
+# job's traceback -- that job happened to have adbc_driver_manager installed, so
+# the traceback could not show the dependency. A traceback reports the
+# environment it ran in, not the requirement.
+pytest.importorskip("adbc_driver_manager")
 pytest.importorskip("psycopg")
 
 from xorq.backends.postgres.compiler import PostgresCompiler  # noqa: E402
