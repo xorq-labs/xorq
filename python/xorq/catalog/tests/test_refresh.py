@@ -5,7 +5,7 @@ from __future__ import annotations
 import pickle
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import pytest
@@ -16,7 +16,6 @@ import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
-from xorq.backends.duckdb import Backend as DuckDBBackend
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog.drift import LeafReport, iter_leaf_reports, unchecked_leaves
@@ -59,6 +58,10 @@ from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.vendor.ibis.expr.types import Expr
 from xorq.writes import ParquetWriteThrough
+
+
+if TYPE_CHECKING:
+    from xorq.backends.duckdb import Backend as DuckDBBackend
 
 
 RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
