@@ -1,23 +1,8 @@
-"""Re-derive a loaded expression onto the sources a drift report says moved.
+"""Rebuild a loaded build over the sources a drift report found changed.
 
-The loader is not involved. A build loads exactly as it always has, against the
-schemas it recorded, and ``refresh_schemas`` rewrites the loaded graph
-afterwards: every source ``check-sources`` reported ``changed`` is rebuilt with
-the schema it has now, and every op above it is rebuilt through
-``__recreate__``, which re-runs its signature validation. An op that can no
-longer be constructed over its new inputs raises ``SchemaRefreshError`` naming
-itself -- a ``Field`` over a dropped column, a ``Mean`` over a column that is
-now a string.
-
-Only drifted sources move. A source the report found ``equal`` keeps its node,
-so the subtrees above it rebuild to equal ops and their cache keys stay put.
-The live schemas come from the report rather than from a second probe, so what
-``check-sources`` said and what the rewrite rebuilt over are one snapshot, and
-every question about which sources may be probed without writing to them stays
-in ``catalog.drift``.
-
-A pin is drift-exempt: a ``CacheTag`` is returned as recorded, whatever its
-subtree would have become.
+Runs after ``load_expr``: changed sources get their live schema and every op
+above them is recreated, so signature validation re-runs. A ``CacheTag`` pin
+is kept as recorded.
 """
 
 from __future__ import annotations
@@ -59,10 +44,7 @@ from xorq.vendor.ibis.common.graph import Node
 from xorq.vendor.ibis.expr.schema import Schema
 
 
-# Ops that store a schema their parent determines, and the field holding that
-# parent. Rebuilt over a moved parent they take its schema, or they would
-# advertise columns they no longer produce (`Tag`, `CachedNode`) or fail an
-# integrity check over a source that merely gained a column (`TeeNode`).
+# Ops storing a schema their parent determines -> the parent field.
 SCHEMA_FOLLOWS_PARENT = {
     CachedNode: "parent",
     RemoteTable: "remote_expr",
@@ -78,13 +60,10 @@ def leaf_profile_key(leaf: SourceLeaf, record: BuildRecord) -> str | None:
 
 
 def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
-    """What identifies ``leaf`` among the loaded expression's sources.
+    """``leaf``'s identity, matched against ``op_key``.
 
-    Matched against ``op_key``. The profile's content hash, not its backend
-    name, so the same table name on two connections of one backend (a prod and
-    a staging postgres, two sqlite files) are two sources. The recorded schema
-    is part of it, so a node already rebuilt over its live schema can never
-    match a second time.
+    Profile content hash, not backend name, so one table name on two
+    connections is two sources.
     """
     return (
         str(leaf.kind),
@@ -95,19 +74,16 @@ def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
 
 
 def source_identity(node: Node) -> tuple | None:
-    """``node``'s ``op_key`` without the profile, or ``None`` when not a source.
+    """``op_key`` minus the profile; never touches ``node.source``.
 
-    Matched on the exact type name, because `CachedNode` and `RemoteTable` are
-    `DatabaseTable` subclasses that are not sources. Cheap: it never touches
-    ``node.source``, so it can screen every node before a profile is resolved.
+    Exact type name: ``CachedNode``/``RemoteTable`` subclass ``DatabaseTable``.
     """
     match type(node).__name__:
         case LeafKind.DATABASE_TABLE:
             namespace = node.namespace
             name = dotted_name(namespace.catalog, namespace.database, node.name)
         case LeafKind.READ:
-            # `SourceLeaf`'s fallback, so a read without a `hash_path` still
-            # spells the name its record does.
+            # Same fallback as `SourceLeaf`.
             path = dict(node.read_kwargs).get(ReadKwarg.hash_path) or node.name
             name = join_read_path(path)
         case _:
@@ -118,10 +94,7 @@ def source_identity(node: Node) -> tuple | None:
 def op_key(node: Node) -> tuple | None:
     """``node``'s ``leaf_key``, or ``None`` when it is not a source.
 
-    The profile name is not usable: it carries a session-local index, so a
-    loaded source never spells the one its record does. Its content hash is: it
-    excludes that index. A connection with no profile (a flight backend) keys as
-    ``None``, as ``leaf_key`` does for a leaf that records none.
+    Profile name carries a session-local index; content hash does not.
     """
     if (identity := source_identity(node)) is None:
         return None
@@ -132,12 +105,9 @@ def op_key(node: Node) -> tuple | None:
 
 
 def with_live_schema(node: Node, schema: Schema) -> Node:
-    """``node`` carrying ``schema``.
+    """``node`` carrying ``schema``, including a read's schema ``read_kwargs``.
 
-    A read also records its schema in ``read_kwargs``, as an instruction the
-    read method obeys; left stale, the node would advertise the live columns
-    and then read the recorded ones. duckdb's per-column ``types`` override
-    cannot be reproduced from a schema, so it is dropped.
+    duckdb's ``types`` override can't be derived from a schema, so it is dropped.
     """
     if not isinstance(node, Read):
         return recreate(node, schema=schema)
@@ -156,14 +126,9 @@ def with_live_schema(node: Node, schema: Schema) -> Node:
 
 
 def rebuild(node: Node, build: Callable[[], Node]) -> Node:
-    """``build()``, with a failure named after ``node``.
+    """``build()``, an op rejecting its new inputs named after ``node``.
 
-    A ``SchemaRefreshError`` from deeper down passes through untouched, so the
-    name that survives is the deepest op that could not be rebuilt. Only what
-    an op raises when its inputs no longer fit is relabeled: a signature that
-    rejects them, or an ibis error over them (a column that is gone). Anything
-    else, an ``InternalError`` included, is a bug in the rewrite rather than
-    drift in the data, and propagates as itself.
+    Other errors are rewrite bugs, not drift, and propagate unchanged.
     """
     try:
         return build()
@@ -174,16 +139,13 @@ def rebuild(node: Node, build: Callable[[], Node]) -> Node:
 
 
 def revalidate_flight(node: Node, overrides: dict) -> dict:
-    """``overrides`` for a flight op, its schema checked against a moved input.
+    """``overrides`` checked against a moved ``input_expr``.
 
-    Neither ``FlightExpr`` nor ``FlightUDXF`` validates in its constructor, only
-    in ``from_exprs`` / ``from_expr``, so a plain ``recreate`` would keep an
-    ``unbound_expr`` or an output schema derived from the recorded input.
+    Flight ops validate only in ``from_expr``/``from_exprs``, not ``__init__``.
     """
     if (input_expr := overrides.get("input_expr")) is None:
         return overrides
-    # Both raise a bare `ValueError` for an input that no longer fits, too
-    # broad for `rebuild` to catch, so it is named here.
+    # Bare `ValueError`: too broad for `rebuild` to catch.
     try:
         match node:
             case FlightUDXF():
@@ -198,7 +160,7 @@ def revalidate_flight(node: Node, overrides: dict) -> dict:
 
 
 def recreate_over(node: Node, overrides: dict) -> Node:
-    """``node`` rebuilt with ``overrides``, its stored schema following its parent."""
+    """``node`` recreated with ``overrides``; a stored schema follows its parent."""
     if (attr := _opaque_lookup(node, SCHEMA_FOLLOWS_PARENT)) is not None:
         parent = overrides.get(attr, getattr(node, attr))
         overrides = overrides | {"schema": to_node(parent).schema}
@@ -206,31 +168,20 @@ def recreate_over(node: Node, overrides: dict) -> Node:
 
 
 def kinds_label(kinds: Iterable[str]) -> str:
-    """The ``op_name`` for an error that names several leaves: their distinct
-    kinds in order, so a mixed batch is not labeled after its first leaf."""
+    """Distinct ``kinds``, in order, as one ``op_name``."""
     return ", ".join(dict.fromkeys(str(kind) for kind in kinds))
 
 
 def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
-    """``expr`` rebuilt over ``live``, a ``leaf_key`` -> live schema mapping.
+    """``expr`` rebuilt over ``live`` (``leaf_key`` -> live schema).
 
-    Bottom-up through ``Node.replace``, descending the opaque edges
-    ``OPAQUE_SPECS`` names on its write side. A replacer that returned an
-    untouched op as-is would discard the rebuilt children ``replace`` hands it,
-    so every op a change reached is recreated from them.
-
-    Every key in ``live`` has to match a source: one that matched nothing would
-    leave its source on the recorded schema, and the result would look
-    refreshed without being so. It raises instead, naming every such key and
-    labeled with their kinds.
+    Raises if a key matches no source: that source would stay stale silently.
     """
     if not live:
         return expr
     memo: dict[Node, Node] = {}
     matched: set[tuple] = set()
-    # Screens nodes before `op_key` resolves a profile: that touches
-    # `node.source`, which connects a lazily loaded backend and tokenizes its
-    # profile, for every source in the graph rather than only the drifted ones.
+    # Screen before `op_key`: resolving a profile connects a lazy backend.
     candidates = {(kind, name, schema) for (kind, _, name, schema) in live}
 
     def rewrite(node: Node) -> Node:
@@ -269,14 +220,10 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
 
 
 def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
-    """The ``refresh_schemas`` mapping for the leaves ``reports`` found changed.
+    """The ``refresh_schemas`` mapping for the changed leaves in ``reports``.
 
-    A source that could not be compared is not something to rebuild over, so
-    any verdict but ``equal`` and ``changed`` raises. So does a key the sweep
-    found at two schemas: two reads of one path with different options share a
-    ``leaf_key``, and ``refresh_schemas`` would rebuild both over whichever
-    report came last. The sweep runs to the end first, so one error names every
-    such source, labeled with their kinds.
+    Raises, naming every offender, on an uncomparable source or on a key seen
+    at two schemas (two reads of one path with different options).
     """
     found: dict[tuple, dict[Schema, LeafReport]] = {}
     uncomparable = []
@@ -317,15 +264,7 @@ def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
 
 
 def check_refreshable(record: BuildRecord) -> None:
-    """Raise when ``record`` has an external source the sweep will not probe.
-
-    ``iter_leaf_reports`` covers ``checkable_leaves`` only, so a source it
-    leaves out -- a read with no registered inference, bound to an ingesting
-    backend -- would keep its recorded schema while the refresh reports
-    success. ``check-sources`` names such a leaf as unchecked; a refresh cannot
-    stand behind a schema it never looked at, so it refuses the whole build,
-    naming every such leaf at once.
-    """
+    """Raise, naming each, if ``record`` has external sources the sweep skips."""
     if unchecked := unchecked_leaves(record):
         names = ", ".join(leaf.name for leaf in unchecked)
         cause = LookupError(f"{names} cannot be probed without writing to them")
@@ -335,12 +274,7 @@ def check_refreshable(record: BuildRecord) -> None:
 def refresh_build(
     build_path: str | Path, con_cache: dict | None = None, **kwargs: Any
 ) -> Any:
-    """Load the build at ``build_path`` and rebuild it over its drifted sources.
-
-    The sweep runs first, on the guarded connections ``catalog.drift`` opens,
-    and a source it cannot compare, or will not probe, stops the refresh
-    before anything loads.
-    """
+    """Load ``build_path`` rebuilt over its drifted sources; sweeps before loading."""
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     record = BuildRecord.from_build_dir(build_path)

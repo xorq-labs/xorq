@@ -71,18 +71,9 @@ class NormalizeMethodError(TranslationError):
 
 
 class SchemaRefreshError(TranslationError):
-    """An operation that could not be rebuilt over a refreshed source.
+    """An op that could not be rebuilt over a refreshed source (``catalog.refresh``).
 
-    Raised by ``catalog.refresh`` while it rebuilds a loaded expression over the
-    live schemas a drift report found. Only the innermost one survives: the
-    rewrite re-raises a ``SchemaRefreshError`` untouched, so an ancestor does
-    not relabel a failed child with its own name. The rebuild runs bottom-up,
-    so that innermost op is the deepest one that could not be reconstructed --
-    a ``Field`` naming a column the source dropped, not the ``Filter`` above it.
-
-    Raw args into ``super().__init__`` with the message built in ``__str__``:
-    ``BaseException.__reduce__`` reconstructs from ``args``, so a pre-formatted
-    single arg would make this unpicklable.
+    Names the deepest failing op. Message built in ``__str__`` so it pickles.
     """
 
     def __init__(self, op_name: str, cause: Exception) -> None:

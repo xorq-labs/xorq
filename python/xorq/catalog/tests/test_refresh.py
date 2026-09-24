@@ -1,10 +1,4 @@
-"""``catalog.refresh``: re-derive a loaded build over its drifted sources (#2320).
-
-The cases are #2327's, ported from ``load_expr(..., refresh_schemas=True)`` to
-``refresh_build``, plus the ones only a post-load rewrite can get wrong. sqlite
-for the reason ``test_drift.py`` uses it: it survives a build as a real
-``DatabaseTable`` with a live source behind it.
-"""
+"""``catalog.refresh`` (#2320). sqlite: it builds to a real ``DatabaseTable``."""
 
 from __future__ import annotations
 
@@ -66,8 +60,7 @@ GROWN = RECORDED.append_column("c", pa.array([1.5, 2.5], pa.float64()))
 
 
 def recreate(con: SqliteBackend, table: pa.Table, name: str = "t") -> None:
-    """Put a differently shaped table where the build's was. sqlite has no
-    ALTER COLUMN TYPE, so a retype is a drop and recreate like everything else."""
+    """Replace table ``name`` with ``table`` (sqlite has no ALTER COLUMN TYPE)."""
     con.drop_table(name, force=True)
     con.create_table(name, table.to_pandas())
 
@@ -152,8 +145,7 @@ def test_a_numeric_column_turned_string_fails_its_aggregate(
 def test_a_retyped_case_base_fails_its_simple_case(
     con: SqliteBackend, builds_dir: Path
 ) -> None:
-    """`SimpleCase` checks its base against each case in its constructor, not
-    its signature; that rejection is drift too."""
+    """`SimpleCase` validates in its constructor, not its signature."""
     t = con.table("t")
     build_path = build_expr(
         t.mutate(c=t.a.cases((1, "one"), else_="other")), builds_dir=builds_dir
@@ -253,8 +245,6 @@ def test_a_deleted_database_is_not_recreated(world: tuple, tmp_path: Path) -> No
 def test_a_bug_in_the_rewrite_is_not_labeled_as_drift(
     world: tuple, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only an op rejecting its new inputs becomes a `SchemaRefreshError`; a
-    failure of the rewrite itself would otherwise send the user to their data."""
     con, build_path = world
     recreate(con, GROWN)
 
@@ -366,8 +356,7 @@ def test_a_tag_does_not_mask_a_dropped_column(
 
 
 def test_a_csv_read_refreshes(tmp_path: Path, builds_dir: Path) -> None:
-    """The recorded schema is also a `read_kwargs` instruction, and is rewritten
-    so the node does not advertise columns it would then decline to read."""
+    """The schema `read_kwargs` instruction is rewritten too."""
     path = tmp_path / "t.csv"
     RECORDED.to_pandas().to_csv(path, index=False)
     build_path = build_expr(
@@ -386,8 +375,7 @@ def test_a_csv_read_refreshes(tmp_path: Path, builds_dir: Path) -> None:
 def test_refresh_replaces_a_declared_schema_with_inference(
     tmp_path: Path, builds_dir: Path
 ) -> None:
-    """The known limitation, shared with `catalog.drift`: a declared schema is
-    recorded like an inferred one, so it reads as drift and is replaced."""
+    """Known limitation: a declared schema reads as drift."""
     path = tmp_path / "t.csv"
     RECORDED.to_pandas().to_csv(path, index=False)
     declared = xo.schema({"a": "string", "b": "string"})
@@ -472,8 +460,6 @@ def test_a_refresh_error_survives_a_process_boundary() -> None:
 
 
 def test_a_key_that_matches_no_source_raises(world: tuple) -> None:
-    """A drifted source the rewrite cannot find would otherwise keep its
-    recorded schema while the refresh reports success."""
     _, build_path = world
     record = BuildRecord.from_build_dir(build_path)
     (leaf,) = record.external_leaves
@@ -529,8 +515,6 @@ def test_unmatched_keys_of_mixed_kinds_are_labeled_with_each(world: tuple) -> No
     ),
 )
 def test_one_key_at_two_live_schemas_is_refused(world: tuple, other: Verdict) -> None:
-    """Two reads of one path with different options share a `leaf_key`; a
-    mapping holding one of their live schemas would rebuild both over it."""
     _, build_path = world
     record = BuildRecord.from_build_dir(build_path)
     (leaf,) = record.external_leaves
@@ -549,10 +533,7 @@ def test_one_key_at_two_live_schemas_is_refused(world: tuple, other: Verdict) ->
 def test_two_reads_of_one_path_that_disagree_are_refused(
     tmp_path: Path, builds_dir: Path
 ) -> None:
-    """The sweep end to end: two reads of one file that differ only in their
-    options share a `leaf_key` and are probed as two leaves. `read_json` because
-    csv and parquet are probed by an inference that ignores the read's options,
-    so only a replayed read can come back at two schemas."""
+    """`read_json`: csv/parquet inference ignores read options."""
     path = tmp_path / "t.json"
     path.write_text('{"a": 1}\n')
     con = xo.duckdb.connect()
@@ -599,8 +580,7 @@ def test_one_key_reported_twice_at_one_live_schema_refreshes(world: tuple) -> No
 
 
 def test_a_source_that_went_empty_fails_its_dependents(world: tuple) -> None:
-    """A zero-column schema is falsy; it still has to reach its dependents,
-    and the Field that loses its column is the evidence that it did."""
+    """A zero-column schema is falsy but still applied."""
     _, build_path = world
     record = BuildRecord.from_build_dir(build_path)
     (leaf,) = record.external_leaves
@@ -612,9 +592,7 @@ def test_a_source_that_went_empty_fails_its_dependents(world: tuple) -> None:
 
 
 def unprobeable_record(*paths: str) -> BuildRecord:
-    """A build unioning one ``read_json`` per path, bound to sqlite: reads with
-    no registered inference on an ingesting backend, so none is ever probed.
-    Only the walk from ``expression`` reads the union, so its args are minimal."""
+    """A union of sqlite-bound ``read_json`` reads: none is probeable."""
     nodes = {
         f"@read_{i}": {
             "op": "Read",
@@ -649,8 +627,6 @@ def unprobeable_record(*paths: str) -> BuildRecord:
 
 
 def test_an_unprobeable_source_stops_the_refresh() -> None:
-    """A read with no registered inference, bound to an ingesting backend, is
-    never probed, so a refresh cannot vouch for its schema."""
     with pytest.raises(SchemaRefreshError) as excinfo:
         check_refreshable(unprobeable_record("/data/src.json"))
     assert excinfo.value.op_name == "Read"
@@ -691,8 +667,7 @@ def test_a_remote_table_follows_its_remote_expr(
 def test_an_expr_udf_rebinds_over_its_drifted_source(
     con: SqliteBackend, builds_dir: Path
 ) -> None:
-    """`computed_kwargs_expr` sits in `__config__`, so it is rebound by method
-    rather than recreated as a kwarg."""
+    """`computed_kwargs_expr` is rebound by method, not recreated."""
 
     @udf.agg.pandas_df(schema=xo.schema({"a": "int64"}), return_type=dt.float64)
     def a_sum(frame):
@@ -733,8 +708,7 @@ def drift_the_table(expr: xo.Expr) -> dict:
 def test_a_flight_udxf_takes_the_schema_of_its_moved_input(
     con: SqliteBackend,
 ) -> None:
-    """`FlightUDXF.__init__` does not derive its output schema; a plain
-    recreate would keep the one computed over the recorded input."""
+    """`FlightUDXF.__init__` does not derive its output schema."""
     expr = flight_udxf(
         con.table("t"),
         process_df=toolz.identity,
@@ -765,8 +739,7 @@ def test_a_flight_expr_whose_input_no_longer_fits_raises(
 def test_a_lazy_load_connects_only_the_drifted_source(
     con: SqliteBackend, tmp_path: Path, builds_dir: Path
 ) -> None:
-    """A source that did not drift is never connected, so one that can no
-    longer connect does not stop the refresh."""
+    """An undrifted source is never connected."""
     other_path = tmp_path / "other.sqlite"
     other = SqliteBackend().connect(str(other_path))
     other.create_table("u", RECORDED.to_pandas())
