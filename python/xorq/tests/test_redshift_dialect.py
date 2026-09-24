@@ -33,10 +33,10 @@ companion, so the answers are reproducible rather than remembered.
    ``SELECT LENGTH('\t')`` is 1 and ``'\t' = CHR(9)`` is true. So the escape
    rules that came with the dialect are correct, ``.strip()``'s TRIM literal is
    right, and -- the part nobody expected -- the regex change is a REAL BUG FIX
-   rather than a risk: ``'1' ~ '\\d'`` matches and ``'1' ~ '\d'`` does not,
-   while ``'d' ~ '\d'`` does. Under the old Postgres dialect this backend was
-   emitting ``'\d'``, i.e. sending the regex "literal letter d" every time a
-   user wrote ``\d``, silently, against a live warehouse.
+   rather than a risk: ``'1' ~ '\\\\d'`` matches and ``'1' ~ '\\d'`` does not,
+   while ``'d' ~ '\\d'`` does. Under the old Postgres dialect this backend was
+   emitting ``'\\d'``, i.e. sending the regex "literal letter d" every time a
+   user wrote ``\\d``, silently, against a live warehouse.
 
 2. **Do LAG/LEAD reject a frame clause? YES.** "Frame clause should not be
    specified for window function lag". ``_OFFSET_OPS`` is necessary, not
@@ -73,11 +73,33 @@ import textwrap
 import pytest
 import sqlglot
 
-import xorq.api as xo
-import xorq.common.exceptions as com
-from xorq.backends.redshift.compiler import RedshiftCompiler
-from xorq.backends.redshift.compiler import compiler as redshift_compiler
-from xorq.vendor.ibis.backends.sql.datatypes import PostgresType, RedshiftType
+
+# Must run BEFORE the xorq.backends.redshift import below. That module reaches
+# vendor/ibis/backends/postgres, which imports psycopg unguarded, and psycopg
+# ships in the ``postgres`` extra rather than in the core dependencies. CI runs
+# ``pytest -m <backend>`` with no path filter, so every job COLLECTS this file,
+# and the jobs without that extra failed collection outright rather than
+# deselecting -- a red build that says ModuleNotFoundError, not a skip.
+# ``backends/conftest.py`` guards ``backends/<name>/`` paths only, and this file
+# is deliberately sited outside them (see the docstring above), so the guard has
+# to be here. The E402s are that guard running first, not import sloppiness.
+#
+# psycopg is the only name guarded, and that is measured rather than assumed:
+# the failing job reached ``backends/postgres/__init__.py:22``, so line 12's
+# ``adbc_driver_manager`` import had already succeeded there. Guarding the adbc
+# drivers as well would skip these tests in jobs that can run them.
+pytest.importorskip("psycopg")
+
+import xorq.api as xo  # noqa: E402
+import xorq.common.exceptions as com  # noqa: E402
+from xorq.backends.redshift.compiler import RedshiftCompiler  # noqa: E402
+from xorq.backends.redshift.compiler import (  # noqa: E402
+    compiler as redshift_compiler,
+)
+from xorq.vendor.ibis.backends.sql.datatypes import (  # noqa: E402
+    PostgresType,
+    RedshiftType,
+)
 
 
 def to_sql(expr):

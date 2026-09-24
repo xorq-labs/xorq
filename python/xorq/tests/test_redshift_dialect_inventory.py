@@ -41,8 +41,25 @@ from __future__ import annotations
 
 import pytest
 
-from xorq.backends.postgres.compiler import PostgresCompiler
-from xorq.backends.redshift.compiler import RedshiftCompiler
+
+# Must run BEFORE the xorq.backends.redshift import below. That module reaches
+# vendor/ibis/backends/postgres, which imports psycopg unguarded, and psycopg
+# ships in the ``postgres`` extra rather than in the core dependencies. CI runs
+# ``pytest -m <backend>`` with no path filter, so every job COLLECTS this file,
+# and the jobs without that extra failed collection outright rather than
+# deselecting -- a red build that says ModuleNotFoundError, not a skip.
+# ``backends/conftest.py`` guards ``backends/<name>/`` paths only, and this file
+# is deliberately sited outside them (see the docstring above), so the guard has
+# to be here. The E402s are that guard running first, not import sloppiness.
+#
+# psycopg is the only name guarded, and that is measured rather than assumed:
+# the failing job reached ``backends/postgres/__init__.py:22``, so line 12's
+# ``adbc_driver_manager`` import had already succeeded there. Guarding the adbc
+# drivers as well would skip these tests in jobs that can run them.
+pytest.importorskip("psycopg")
+
+from xorq.backends.postgres.compiler import PostgresCompiler  # noqa: E402
+from xorq.backends.redshift.compiler import RedshiftCompiler  # noqa: E402
 
 
 ACCEPTED = "accepted"
