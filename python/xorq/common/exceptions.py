@@ -185,7 +185,7 @@ class TableNotFound(XorqError):
 
 
 class RedshiftFreshnessUnavailable(XorqError):
-    """``svv_table_info`` could not be read, so no freshness key can be built.
+    """No freshness key can be built for a Redshift relation.
 
     Defined here rather than beside the probe so that a user told to catch it
     can import it from the module every other xorq exception lives in. See

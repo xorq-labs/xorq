@@ -69,8 +69,9 @@ from xorq.common.utils.redshift_utils import (  # noqa: E402
 
 
 # Anything that writes, not merely anything that says CREATE. The probe is
-# allowed exactly two shapes of statement: the svv_table_info read and the
-# current_schema() resolution.
+# allowed exactly two shapes of statement: the statistics-catalog read and
+# the current_schema() resolution. A third, the pg_class relkind read, is
+# reached only on the error path.
 DDL_TOKENS = (
     "CHECKPOINT",
     "ANALYZE",
@@ -108,7 +109,7 @@ class RecordingConnection:
 
     def __init__(
         self,
-        rows: tuple = ((12345, 12345),),
+        rows: tuple = ((12345, 7, 3),),
         current_schema: str = SESSION_SCHEMA,
         relkind: tuple = (("r",),),
     ) -> None:
@@ -159,19 +160,26 @@ class _RecordingCursor:
     def fetchall(self) -> list[tuple]:
         # Three statement shapes reach this cursor and they must not be
         # conflated: ``current_database`` on this backend is a
-        # ``current_schema()`` read, the probe reads svv_table_info, and the
-        # absent-row disambiguation reads pg_class. Serving the row counts to
-        # all three would hand the probe a schema name as a row count.
+        # ``current_schema()`` read, the probe reads pg_statistic_indicator, and
+        # the error path reads pg_class for relkind. Serving the counters to all
+        # three would hand the probe a schema name as a row count.
+        #
+        # Routed on the DISTINGUISHING token, not on ``pg_class``: the probe
+        # JOINs pg_class to resolve the name, so a ``"pg_class" in lowered``
+        # test -- which is what this was -- hands the probe the relkind answer
+        # and every counter assertion below silently measures nothing.
         lowered = self._last.lower()
         if "current_schema" in lowered:
             return [(self._con._current_schema,)]
-        if "pg_class" in lowered:
+        if "pg_statistic_indicator" in lowered:
+            return list(self._con._rows)
+        if "relkind" in lowered:
             return list(self._con._relkind)
         return list(self._con._rows)
 
 
 def make_con(
-    rows: tuple = ((12345, 12345),),
+    rows: tuple = ((12345, 7, 3),),
     current_schema: str = SESSION_SCHEMA,
     relkind: tuple = (("r",),),
 ) -> RedshiftBackend:
@@ -227,18 +235,20 @@ def test_the_no_probe_fallback_the_error_recommends_also_tokenizes() -> None:
 
 
 def test_catalog_counts_are_coerced_from_decimal() -> None:
-    """``tbl_rows`` is ``numeric(38,0)``, which psycopg returns as ``Decimal``.
+    """The counters are ``numeric``, which psycopg returns as ``Decimal``.
 
     dasher's encoder takes only str/int/float/bool/bytes/None, so an
     un-coerced ``Decimal`` raises at tokenize time -- after the probe has
     already succeeded. A fake serving Python ``int`` cannot show this, so the
     fake serves what the driver actually serves.
     """
-    con = make_con(rows=((Decimal(12345), Decimal(12000)),))
+    con = make_con(rows=((Decimal(12345), Decimal(7), Decimal(3)),))
     counts = get_redshift_row_counts(make_dt(con))
-    assert counts == (12345, 12000)
+    assert counts == (12345, 7, 3)
     assert all(type(count) is int for count in counts)
-    assert HASHER.tokenize(make_dt(make_con(rows=((Decimal(1), Decimal(1)),))))
+    assert HASHER.tokenize(
+        make_dt(make_con(rows=((Decimal(1), Decimal(1), Decimal(1)),)))
+    )
 
 
 def test_the_key_carries_a_freshness_component() -> None:
@@ -250,8 +260,8 @@ def test_the_key_carries_a_freshness_component() -> None:
     cache serve stale numbers forever, converting a loud failure into a quiet
     wrong answer.
     """
-    before = HASHER.tokenize(make_dt(make_con(rows=((100, 100),))))
-    after = HASHER.tokenize(make_dt(make_con(rows=((200, 200),))))
+    before = HASHER.tokenize(make_dt(make_con(rows=((100, 0, 0),))))
+    after = HASHER.tokenize(make_dt(make_con(rows=((200, 100, 0),))))
     assert before != after, (
         "cache key is insensitive to the source row count, so a cached "
         "result would never be invalidated by upstream changes"
@@ -259,19 +269,36 @@ def test_the_key_carries_a_freshness_component() -> None:
 
 
 def test_the_key_moves_when_rows_are_deleted_but_not_vacuumed() -> None:
-    """``tbl_rows`` alone cannot see a DELETE.
+    """A DELETE moves ``stairows`` down and ``staidels`` up, before any vacuum.
 
-    AWS documents it as including rows marked for deletion but not yet
-    vacuumed, so a delete leaves it where it was; ``estimated_visible_rows``
-    drops. Keying on only the first would serve a cache that a DELETE never
-    invalidates -- the same silent staleness as ``reltuples``, reached by a
-    different route.
+    Measured live on 2026-09-24, no ANALYZE and no VACUUM: deleting one row of
+    five moved ``stairows`` 5 -> 4 and ``staidels`` 0 -> 1. (The same run
+    settled a claim this file previously took from AWS documentation and
+    covered only against a fake: ``estimated_visible_rows`` does drop on a
+    delete before a vacuum, and ``stairows`` IS that column.)
     """
-    before = HASHER.tokenize(make_dt(make_con(rows=((100, 100),))))
-    after = HASHER.tokenize(make_dt(make_con(rows=((100, 60),))))
+    before = HASHER.tokenize(make_dt(make_con(rows=((5, 5, 0),))))
+    after = HASHER.tokenize(make_dt(make_con(rows=((4, 5, 1),))))
     assert before != after, (
-        "cache key ignores estimated_visible_rows, so rows deleted but not "
-        "yet vacuumed would never invalidate a cached result"
+        "cache key does not move on a delete, so rows deleted but not yet "
+        "vacuumed would never invalidate a cached result"
+    )
+
+
+def test_the_key_moves_on_a_cardinality_preserving_update() -> None:
+    """The capability the row-count-only key did not have.
+
+    Redshift implements UPDATE as delete-plus-insert, so an in-place update
+    leaves the visible row count exactly where it was while moving ``staiins``
+    and ``staidels`` together. A key on counts alone cannot see it, and would
+    serve a stale result for data that genuinely changed -- silently, which is
+    the failure mode this module exists to avoid.
+    """
+    before = HASHER.tokenize(make_dt(make_con(rows=((100, 0, 0),))))
+    after = HASHER.tokenize(make_dt(make_con(rows=((100, 3, 3),))))
+    assert before != after, (
+        "cache key ignores staiins/staidels, so an in-place UPDATE -- which "
+        "preserves the row count -- would never invalidate a cached result"
     )
 
 
@@ -288,7 +315,7 @@ def test_an_unqualified_table_probes_the_session_schema_not_public() -> None:
     dt = make_dt(con, database=None)
 
     assert resolve_redshift_schema(dt) == SESSION_SCHEMA
-    assert get_redshift_row_counts(dt) == (12345, 12345)
+    assert get_redshift_row_counts(dt) == (12345, 7, 3)
     assert any("current_schema" in s.lower() for s in con.con.statements), (
         "the unqualified table was probed without resolving search_path"
     )
@@ -306,18 +333,28 @@ def test_unqualified_tables_in_different_schemas_get_different_keys() -> None:
     assert HASHER.tokenize(left) != HASHER.tokenize(right)
 
 
-def test_the_freshness_query_reads_a_redshift_catalog_view() -> None:
-    """Redshift serves ``svv_table_info``; it does not serve ``pg_stat_user_tables``.
+def test_the_freshness_query_reads_the_statistics_indicator() -> None:
+    """The probe reads ``pg_statistic_indicator``, not the view built over it.
 
     Asserted on the emitted SQL rather than on the returned value, because a
     normalizer that silently fell back to a constant would pass every other
     test here.
+
+    ``svv_table_info`` is asserted ABSENT, not merely unnecessary: it is
+    superuser-only, so reading it -- even as a fallback, even once -- puts the
+    least-privilege user back in front of the error this probe now avoids.
+    ``reltuples`` is asserted absent for the opposite reason: it is readable by
+    everyone and wrong.
     """
     con = make_con()
     _databasetable_dispatcher(make_dt(con))
 
     issued = " ".join(con.con.statements).lower()
-    assert "svv_table_info" in issued, f"no Redshift catalog read issued: {issued!r}"
+    assert "pg_statistic_indicator" in issued, (
+        f"no statistics-catalog read issued: {issued!r}"
+    )
+    assert "svv_table_info" not in issued
+    assert "reltuples" not in issued
     assert "pg_stat_user_tables" not in issued
     assert "relpersistence" not in issued
 
@@ -373,7 +410,7 @@ def make_insufficient_privilege() -> Exception:
     the instance, so a stand-in carrying the code exercises the real path
     without importing psycopg here.
     """
-    exc = Exception("permission denied for relation svv_table_info")
+    exc = Exception("permission denied for relation pg_statistic_indicator")
     exc.sqlstate = "42501"
     return exc
 
@@ -386,26 +423,27 @@ def make_raising_dt(
     return make_dt(con, database=database)
 
 
-def test_a_read_only_user_gets_an_actionable_error_not_insufficient_privilege() -> None:
-    """Verified live, and it is why this test exists.
+def test_an_unreadable_catalog_gets_an_actionable_error_not_insufficient_privilege() -> (
+    None
+):
+    """The privilege path still has to be actionable, though it is now rare.
 
-    A Redshift user with USAGE on the schema and SELECT on its tables -- the
-    least-privilege shape reported from the field -- CANNOT read
-    ``svv_table_info``:
+    The least-privilege user this issue came from CAN read
+    ``pg_statistic_indicator``: it carries a PUBLIC SELECT grant, verified on a
+    directly authenticated connection. So 42501 here no longer means "an
+    ordinary read-only user" -- it means the PUBLIC grant has been revoked on
+    that cluster, and the message says so rather than repeating advice that
+    fits the case this probe was built to stop hitting.
 
-        InsufficientPrivilege: permission denied for relation svv_table_info
-
-    Offline tests could not have found this; the fix passed every one of them
-    while being unusable for the exact user the issue came from. Left alone, a
-    raw psycopg error surfaces from inside cache-key computation, which is the
-    same genre of unactionable failure as the CHECKPOINT syntax error this
-    issue is about.
+    The earlier ``svv_table_info`` probe failed here for every least-privilege
+    user, and passed every offline test while doing it. That is why this path
+    keeps a test even now that reaching it is unusual.
     """
     with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
         get_redshift_row_counts(make_raising_dt(make_insufficient_privilege()))
 
     message = str(excinfo.value)
-    assert "svv_table_info" in message
+    assert "pg_statistic_indicator" in message
     assert "GRANT SELECT" in message
     assert "ParquetSnapshotCache" in message
     assert "RedshiftFreshnessUnavailable" in message, (
@@ -416,10 +454,11 @@ def test_a_read_only_user_gets_an_actionable_error_not_insufficient_privilege() 
 def test_the_error_warns_against_the_reltuples_workaround() -> None:
     """The obvious workaround is readable by that user and silently wrong.
 
-    Measured live: after inserting 5 rows with no ANALYZE, the real count went
-    12 -> 17 and svv_table_info tracked it, while ``pg_class.reltuples`` stayed
-    at 12. Keying on it yields a cache that never invalidates -- so the error
-    names it explicitly rather than leaving the next person to rediscover it.
+    Measured live twice, with no ANALYZE: ``reltuples`` stayed at 12 while the
+    real count and the catalog moved 12 -> 17, and in a later run it sat at
+    0.001 while a table reached 5 rows. Keying on it yields a cache that never
+    invalidates -- so the error names it explicitly rather than leaving the next
+    person to rediscover it.
     """
     with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
         get_redshift_row_counts(make_raising_dt(make_insufficient_privilege()))
@@ -464,7 +503,7 @@ def test_an_ambiguous_catalog_answer_names_the_table() -> None:
     The previous unpack raised ``ValueError: too many values to unpack`` with
     no table, no schema and no cause -- true, and useless to act on.
     """
-    con = make_con(rows=((100, 100), (200, 200)))
+    con = make_con(rows=((100, 0, 0), (200, 0, 0)))
     with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
         get_redshift_row_counts(make_dt(con))
     message = str(excinfo.value)
@@ -472,15 +511,22 @@ def test_an_ambiguous_catalog_answer_names_the_table() -> None:
     assert "should not be reachable" in message
 
 
-def test_a_genuinely_absent_table_still_returns_none_rather_than_raising() -> None:
-    """Absence and unreadability must not be conflated.
+def test_an_ordinary_table_with_no_counters_is_an_anomaly_not_an_empty_table() -> None:
+    """The empty-table escape hatch is gone, and must not come back.
 
-    Verified live: a table that exists but has had no data written does not
-    appear in svv_table_info at all. That is a legitimate empty table, not a
-    privilege problem, and a cache key is the wrong place to fail on it.
+    Under the previous ``svv_table_info`` probe, absence was ambiguous: an empty
+    table and an untracked relation both produced no row, so the empty case had
+    to return ``None``. The statistics catalog removes the ambiguity -- an empty
+    ordinary table reports ``(0, 0, 0)``, measured live -- which means an
+    ordinary table with NO row is now a genuine anomaly and gets an error
+    saying so, rather than a ``None`` that would freeze the key forever.
     """
-    con = make_con(rows=())
-    assert get_redshift_row_counts(make_dt(con)) is None
+    con = make_con(rows=(), relkind=(("r",),))
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        get_redshift_row_counts(make_dt(con))
+    message = str(excinfo.value)
+    assert "offers" in message
+    assert "should not happen" in message
 
 
 def test_the_probe_binds_the_resolved_schema_and_name() -> None:
@@ -492,21 +538,20 @@ def test_the_probe_binds_the_resolved_schema_and_name() -> None:
     """
     con = make_con(current_schema=SESSION_SCHEMA)
     get_redshift_row_counts(make_dt(con, database=None))
-    assert con.con.params_for("svv_table_info") == {
+    assert con.con.params_for("pg_statistic_indicator") == {
         "name": "offers",
         "schema": SESSION_SCHEMA,
     }
 
 
-def test_a_relation_svv_table_info_never_tracks_raises_rather_than_freezing() -> None:
-    """A view or external table is absent from the view for a different reason.
+def test_a_relation_the_catalog_never_tracks_raises_rather_than_freezing() -> None:
+    """A view or external table has no statistics row at all.
 
-    ``svv_table_info`` lists tables and materialized views holding at least one
-    row, so a plain view, a late-binding view, a Spectrum external table and a
-    session-temp table are all permanently absent. Returning ``None`` for those
-    is not "empty", it is "unknowable" -- and it yields a key that can never
-    change no matter what the data does, which is the silent staleness this
-    module exists to prevent.
+    A plain view, a late-binding view, a Spectrum external table and a
+    session-temp table carry no indicator row, and unlike an empty table they
+    never will. Returning a placeholder for those is not "empty", it is
+    "unknowable" -- and it yields a key that can never change no matter what the
+    data does, which is the silent staleness this module exists to prevent.
     """
     con = make_con(rows=(), relkind=(("v",),))
     with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
@@ -527,19 +572,24 @@ def test_a_name_absent_from_pg_class_also_raises() -> None:
         get_redshift_row_counts(make_dt(con))
 
 
-def test_an_empty_ordinary_table_is_still_none_after_the_relkind_check() -> None:
-    """The disambiguation must not turn the legitimate empty case into an error.
+def test_an_empty_table_reports_zeroes_and_costs_no_second_read() -> None:
+    """An empty table is an ordinary answer now, not a special case.
 
-    Measured live: an ordinary table with no rows written is absent from
-    svv_table_info and reports ``relkind='r'``. ``None`` is the honest key
-    component for it -- it changes as soon as data lands.
+    Measured live, twice: a table created and never written reports
+    ``(0, 0, 0)``, and a pre-existing empty table does the same on a directly
+    authenticated least-privilege connection. Where ``svv_table_info`` returned
+    no row and forced a second ``pg_class`` round trip to find out why, this
+    returns a real key component and the relkind read stays on the error path.
     """
-    con = make_con(rows=(), relkind=(("r",),))
-    assert get_redshift_row_counts(make_dt(con)) is None
+    con = make_con(rows=((0, 0, 0),))
+    assert get_redshift_row_counts(make_dt(con)) == (0, 0, 0)
+    assert not any("relkind" in s.lower() for s in con.con.statements), (
+        "the empty case still pays for the disambiguation read it no longer needs"
+    )
 
 
 def test_a_catalog_qualified_table_is_refused_rather_than_mismeasured() -> None:
-    """svv_table_info describes the connected database only.
+    """The statistics catalog describes the connected database only.
 
     Probing ``otherdb.sales.t`` from this connection would silently score the
     local ``sales.t``, or nothing at all. Both are wrong answers with no error,

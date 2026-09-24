@@ -483,7 +483,8 @@ def _dispatch_databasetable(dt: ops.DatabaseTable) -> tuple:
     # any SQL is sent. It must not fall through to the postgres normalizer
     # either: that one calls get_postgres_n_reltuples, which issues CHECKPOINT
     # (not Redshift syntax) and ANALYZE (a write-privileged operation Redshift
-    # does accept). See redshift_utils for why svv_table_info is read instead.
+    # does accept). See redshift_utils for what is read instead, and why it is
+    # pg_statistic_indicator rather than svv_table_info or reltuples.
     if dt.source.name == BackendName.REDSHIFT:
         return normalize_redshift_databasetable(dt)
     if dt.source.name == BackendName.PANDAS:
