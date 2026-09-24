@@ -479,30 +479,149 @@ class PostgresType(SqlglotType):
 
 
 class RedshiftType(PostgresType):
-    """Redshift's type mapping, which is PostgreSQL's.
+    """PostgreSQL's type mapper, made loud about what Redshift adds to it.
 
-    Required purely because ``TYPE_MAPPERS`` is keyed by dialect name and
-    sqlglot's metaclass makes a dialect class hash equal to its name: the moment
-    the Redshift compiler stopped reporting ``"postgres"`` as its dialect,
-    ``Schema.to_sqlglot`` raised ``KeyError: Redshift`` for every
-    ``CREATE TABLE`` the backend emits. Retargeting the dialect without adding
-    this would break ingest while leaving all the SQL-generation tests green.
+    INTEGRATION NOTE (prototype merge of #2333 + #2336). #2336 defined this
+    class in ``xorq/backends/redshift/compiler.py``; it lives here instead
+    because ``TYPE_MAPPERS`` (below) is built from ``get_subclasses(SqlglotType)``
+    at *this module's* import time, so a subclass defined in a backend module
+    is never in it. #2333 needs it in that dict: the compiler now reports
+    ``"redshift"`` as its dialect, and ``Schema.to_sqlglot`` looks the mapper up
+    by dialect name. Defining it there and setting ``dialect = "redshift"`` here
+    is the union of the two requirements -- #2336's behaviour, reachable by the
+    name #2333 resolves.
 
-    Note this mapper is reached by dialect *name*. The compiler's own
-    ``type_mapper`` attribute is a separate binding and must be set on
-    ``RedshiftCompiler`` as well, or the warehouse-to-ibis read path keeps
-    parsing type strings as PostgreSQL.
+    ``PostgresType.from_string`` has three behaviours this backend cannot
+    live with, and they are shared by *both* introspection paths -- the
+    ``svv_all_columns`` catalog read and the ``cursor.description`` probe --
+    which is why the repair lives in the mapper rather than in either caller:
 
-    Subclassing rather than aliasing keeps the two documented Redshift
-    divergences -- unbounded ``VARCHAR`` and the ``TIMESTAMP(6)`` precision
-    modifier, both pinned by
-    ``test_ingest_ddl_pins_two_unverified_redshift_type_widths`` -- in one place
-    to correct once a live warehouse settles them. They are deliberately left
-    at the PostgreSQL spelling here: unverified, and changing them on
-    documentation alone would swap a suspected bug for an unsuspected one.
+    1. An unparsable type string falls back to ``dt.unknown`` **and drops the
+       ``nullable=`` argument on the way** (``SqlglotType.from_string``), so a
+       ``SUPER NOT NULL`` column comes back with the wrong type *and* the
+       wrong nullability, and nothing says so.
+    2. ``geometry`` and ``geography`` parse cleanly into ibis ``GeoSpatial``
+       types. That is worse than ``unknown``: this compiler is still the
+       PostgreSQL one, so a geo operation on such a column compiles to a
+       PostGIS call Redshift does not implement -- a server-side error on SQL
+       that looked fine, which is the exact failure class this backend's
+       overrides exist to eliminate.
+    3. A handful of OIDs (``oid``, ``regclass``, ``regproc`` and friends)
+       make the upstream mapper raise a bare
+       ``AttributeError: 'str' object has no attribute 'name'`` from inside
+       ``to_ibis``, which names neither the column nor the type.
+
+    The policy is the one the query path's docstring already stated and only
+    half-implemented: a type this backend cannot map raises
+    ``UnsupportedBackendType`` rather than degrading to a schema that looks
+    fine and is wrong.
     """
 
     dialect = "redshift"
+
+    # Redshift-only type names as ``svv_all_columns`` actually reports them,
+    # measured on a live warehouse (2026-09-24) rather than taken from the DDL
+    # keyword: a ``VARBYTE(16)`` column comes back as **``binary varying``**,
+    # because the view definition rewrites it. ``varbyte`` is kept beside it
+    # because that is the name a user writes and may pass in by hand; the
+    # spelling the catalog emits is the one that has to be here for the message
+    # to name Redshift rather than falling through to the generic branch below.
+    # ``varbinary`` is deliberately absent -- the inherited mapper maps it to
+    # ``dt.Binary``, and no Redshift path produces it.
+    _REDSHIFT_ONLY_TYPES = frozenset(
+        {
+            "super",
+            "varbyte",
+            "binary varying",
+            "hllsketch",
+            "geometry",
+            "geography",
+        }
+    )
+
+    # Spellings that mean a character type but that sqlglot's postgres dialect
+    # does not parse. ``bpchar`` is not exotic: it is what PostgreSQL -- and so
+    # psycopg's OID registry, at OID 1042 -- calls every ``CHAR(n)`` column, so
+    # without this entry the *query* path types every ``CHAR`` column
+    # ``unknown`` while the *catalog* path (which sees ``character``) types the
+    # same column ``string``.
+    _TYPE_ALIASES = {
+        "bpchar": "character",
+        '"char"': "character",
+    }
+
+    @staticmethod
+    def _unmappable_part(dtype: dt.DataType) -> dt.DataType | None:
+        """The first component of ``dtype`` this backend cannot emit SQL for.
+
+        Checking only the top-level type is not enough, and the gap is
+        reachable: ``bpchar[]`` is a real spelling (psycopg names OID 1014
+        exactly that, and ``svv_all_columns`` shows ``"char"[]``/``integer[]``
+        for ``pg_catalog`` relations), and it maps to
+        ``Array(value_type=Unknown)`` -- an ``Unknown`` the top-level check
+        walks straight past.
+
+        ``GeoSpatial`` is rejected alongside ``Unknown`` for the reason in the
+        class docstring, and doing it structurally rather than by name also
+        catches ``point``/``line``/``polygon``, which reach a geo type through
+        ``PostgresType.unknown_type_strings`` and so never touch the name list.
+        """
+        if isinstance(dtype, (dt.Unknown, dt.GeoSpatial)):
+            return dtype
+        parts = ()
+        if isinstance(dtype, dt.Array):
+            parts = (dtype.value_type,)
+        elif isinstance(dtype, dt.Map):
+            parts = (dtype.key_type, dtype.value_type)
+        elif isinstance(dtype, dt.Struct):
+            parts = tuple(dtype.types)
+        for part in parts:
+            if (found := RedshiftType._unmappable_part(part)) is not None:
+                return found
+        return None
+
+    @classmethod
+    def from_string(cls, text: str, nullable: bool | None = None) -> dt.DataType:
+        base, _, _ = (text or "").strip().partition("(")
+        # Strip any array suffix before the alias lookup: the aliases are keyed
+        # on the element spelling, and ``bpchar[]`` must reach the ``bpchar``
+        # entry rather than missing it and degrading to an unknown element.
+        element = base.strip().rstrip("[]").strip()
+        lowered = element.lower()
+
+        if lowered in cls._REDSHIFT_ONLY_TYPES:
+            raise com.UnsupportedBackendType(
+                f"redshift type {base.strip()!r} has no xorq equivalent; it is a "
+                f"Redshift-specific type this backend cannot map"
+            )
+
+        if (alias := cls._TYPE_ALIASES.get(lowered)) is not None:
+            text = text.replace(element, alias, 1)
+
+        try:
+            dtype = super().from_string(text, nullable=nullable)
+        except AttributeError as e:
+            # The upstream mapper's own failure, re-raised as something that
+            # names the type it choked on.
+            raise com.UnsupportedBackendType(
+                f"redshift type {text!r} could not be mapped by the postgres "
+                f"type mapper"
+            ) from e
+
+        if (bad := cls._unmappable_part(dtype)) is not None:
+            raise com.UnsupportedBackendType(
+                f"redshift type {text!r} has no xorq equivalent (resolved to "
+                f"{bad!r}); mapping it would hand back a schema that looks fine "
+                f"and is wrong"
+            )
+
+        # ``unknown_type_strings`` hits and the ``dt.unknown`` fallback both
+        # return a dtype built with the mapper's *default* nullability, ignoring
+        # the argument. Nothing above can reach the fallback any more, but the
+        # copy is cheap and makes the postcondition unconditional.
+        if nullable is not None and dtype.nullable != nullable:
+            dtype = dtype.copy(nullable=nullable)
+        return dtype
 
 
 class RisingWaveType(PostgresType):
