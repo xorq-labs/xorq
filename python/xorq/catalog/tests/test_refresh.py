@@ -21,7 +21,8 @@ import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
-from xorq.catalog.drift import iter_leaf_reports
+from xorq.catalog.drift import iter_leaf_reports, unchecked_leaves
+from xorq.catalog.enums import LeafKind
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import (
     check_refreshable,
@@ -391,6 +392,41 @@ def test_a_key_that_matches_no_source_raises(world: tuple) -> None:
     assert "not-a-table" in str(excinfo.value)
 
 
+def test_every_key_that_matches_no_source_is_named(world: tuple) -> None:
+    _, build_path = world
+    record = BuildRecord.from_build_dir(build_path)
+    (leaf,) = record.external_leaves
+    kind, con_name, _, recorded = leaf_key(leaf, record)
+    live = {
+        (kind, con_name, name, recorded): xo.schema(GROWN.schema)
+        for name in ("not-a-table", "nor-this-one")
+    }
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_schemas(load_expr(build_path), live)
+    assert excinfo.value.op_name == "DatabaseTable"
+    assert "not-a-table" in str(excinfo.value)
+    assert "nor-this-one" in str(excinfo.value)
+
+
+def test_unmatched_keys_of_mixed_kinds_are_labeled_with_each(world: tuple) -> None:
+    """The error names every key, so its label cannot be the first key's kind."""
+    _, build_path = world
+    record = BuildRecord.from_build_dir(build_path)
+    (leaf,) = record.external_leaves
+    _, con_name, _, recorded = leaf_key(leaf, record)
+    live = {
+        (str(LeafKind.DATABASE_TABLE), con_name, "not-a-table", recorded): xo.schema(
+            GROWN.schema
+        ),
+        (str(LeafKind.READ), con_name, "not-a-read", recorded): xo.schema(GROWN.schema),
+    }
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_schemas(load_expr(build_path), live)
+    assert excinfo.value.op_name == "DatabaseTable, Read"
+
+
 def test_a_source_that_went_empty_fails_its_dependents(world: tuple) -> None:
     """A zero-column schema is falsy; it still has to reach its dependents,
     and the Field that loses its column is the evidence that it did."""
@@ -404,41 +440,61 @@ def test_a_source_that_went_empty_fails_its_dependents(world: tuple) -> None:
     assert excinfo.value.op_name == "Field"
 
 
-def test_an_unprobeable_source_stops_the_refresh() -> None:
-    """A read with no registered inference, bound to an ingesting backend, is
-    never probed, so a refresh cannot vouch for its schema."""
-    record = BuildRecord(
+def unprobeable_record(*paths: str) -> BuildRecord:
+    """A build unioning one ``read_json`` per path, bound to sqlite: reads with
+    no registered inference on an ingesting backend, so none is ever probed.
+    Only the walk from ``expression`` reads the union, so its args are minimal."""
+    nodes = {
+        f"@read_{i}": {
+            "op": "Read",
+            "name": f"src{i}",
+            "method_name": "read_json",
+            "profile": "p0",
+            "read_kwargs": [["hash_path", path], ["table_name", f"src{i}"]],
+            "schema_ref": "schema_0",
+        }
+        for i, path in enumerate(paths)
+    }
+    nodes["@union"] = {
+        "op": "Union",
+        "values": [{"node_ref": ref} for ref in nodes],
+        "distinct": False,
+    }
+    return BuildRecord(
         {
             "definitions": {
                 "dtypes": {},
-                "nodes": {
-                    "@read_0": {
-                        "op": "Read",
-                        "name": "src",
-                        "method_name": "read_json",
-                        "profile": "p0",
-                        "read_kwargs": [
-                            ["hash_path", "/data/src.json"],
-                            ["table_name", "src"],
-                        ],
-                        "schema_ref": "schema_0",
-                    }
-                },
+                "nodes": nodes,
                 "schemas": {
                     "schema_0": {
                         "a": {"op": "DataType", "type": "Int64", "nullable": True}
                     }
                 },
             },
-            "expression": {"node_ref": "@read_0"},
+            "expression": {"node_ref": "@union"},
         },
         {"p0": {"con_name": "sqlite"}},
     )
 
+
+def test_an_unprobeable_source_stops_the_refresh() -> None:
+    """A read with no registered inference, bound to an ingesting backend, is
+    never probed, so a refresh cannot vouch for its schema."""
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        check_refreshable(unprobeable_record("/data/src.json"))
+    assert excinfo.value.op_name == "Read"
+    assert "/data/src.json" in str(excinfo.value)
+
+
+def test_every_unprobeable_source_is_named() -> None:
+    record = unprobeable_record("/data/one.json", "/data/two.json")
+    assert len(unchecked_leaves(record)) == 2
+
     with pytest.raises(SchemaRefreshError) as excinfo:
         check_refreshable(record)
     assert excinfo.value.op_name == "Read"
-    assert "/data/src.json" in str(excinfo.value)
+    assert "/data/one.json" in str(excinfo.value)
+    assert "/data/two.json" in str(excinfo.value)
 
 
 def test_a_checkable_build_is_refreshable(world: tuple) -> None:

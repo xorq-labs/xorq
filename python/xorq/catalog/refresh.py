@@ -138,6 +138,12 @@ def recreate_over(node: Node, overrides: dict) -> Node:
     return recreate(node, **overrides)
 
 
+def kinds_label(kinds: Iterable[str]) -> str:
+    """The ``op_name`` for an error that names several leaves: their distinct
+    kinds in order, so a mixed batch is not labeled after its first leaf."""
+    return ", ".join(dict.fromkeys(str(kind) for kind in kinds))
+
+
 def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
     """``expr`` rebuilt over ``live``, a ``leaf_key`` -> live schema mapping.
 
@@ -148,7 +154,8 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
 
     Every key in ``live`` has to match a source: one that matched nothing would
     leave its source on the recorded schema, and the result would look
-    refreshed without being so. It raises instead, named after the leaf's kind.
+    refreshed without being so. It raises instead, naming every such key and
+    labeled with their kinds.
     """
     if not live:
         return expr
@@ -186,7 +193,7 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
     if unmatched := [key for key in live if key not in matched]:
         names = ", ".join(name for (_, _, name, _) in unmatched)
         cause = LookupError(f"{names} matched no source of the loaded expression")
-        raise SchemaRefreshError(unmatched[0][0], cause)
+        raise SchemaRefreshError(kinds_label(kind for (kind, *_) in unmatched), cause)
     return refreshed
 
 
@@ -223,7 +230,7 @@ def check_refreshable(record: BuildRecord) -> None:
     if unchecked := unchecked_leaves(record):
         names = ", ".join(leaf.name for leaf in unchecked)
         cause = LookupError(f"{names} cannot be probed without writing to them")
-        raise SchemaRefreshError(str(unchecked[0].kind), cause)
+        raise SchemaRefreshError(kinds_label(leaf.kind for leaf in unchecked), cause)
 
 
 def refresh_build(
