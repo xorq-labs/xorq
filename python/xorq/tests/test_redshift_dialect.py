@@ -22,6 +22,7 @@ raises instead of compiling to something structurally invalid.
 
 from __future__ import annotations
 
+import inspect
 import subprocess
 import sys
 import textwrap
@@ -53,6 +54,8 @@ def t():
             "amt": "float64",
             "grp": "string",
             "flag": "boolean",
+            "s": "string",
+            "arr": "array<int64>",
         },
         name="t",
     )
@@ -312,7 +315,11 @@ def test_group_concat_where_leaves_the_separator_alone(t):
     """
     sql = to_sql(t.group_by("grp").agg(g=t.grp.group_concat(",", where=t.flag)))
     assert "LISTAGG(CASE WHEN" in sql
-    assert "', '" not in sql
+    # The separator appears exactly once, as a bare literal. Asserting on a
+    # spelling the separator never has (this line previously read
+    # `assert "\', \'" not in sql`, with a space, against a separator of ",")
+    # is an assertion that cannot fail.
+    assert sql.count("','") == 1, sql
     assert sql.count("CASE WHEN") == 1, sql
     sqlglot.parse_one(sql, dialect="redshift")
 
@@ -352,3 +359,246 @@ def test_compiler_type_mapper_is_redshifts(t):
     assert redshift_compiler.type_mapper is RedshiftType
     assert str(RedshiftType.from_string("varbyte")) == "binary"
     assert str(PostgresType.from_string("varbyte")) == "unknown"
+
+
+def test_last_raises_like_first(t):
+    """``visit_Last`` had no coverage at all: the ``distinct(on=...)`` test only
+    exercised ``keep="first"``, and nothing reached ``.last()``."""
+    with pytest.raises(com.UnsupportedOperationError, match="(?i)last"):
+        to_sql(t.distinct(on=["grp"], keep="last"))
+
+
+def test_approx_nunique_where_keeps_distinct_outside_the_case(t):
+    """The third entry point into the ``DISTINCT``-inside-``CASE`` trap.
+
+    ``visit_CountDistinct`` and ``visit_CountDistinctStar`` were each fixed on
+    discovery; ``visit_ApproxCountDistinct`` (``compilers/postgres.py:273``)
+    does the identical thing and was reached by neither. Found by sweeping
+    every ``where=``-taking reduction rather than by reasoning from the
+    override list -- which is what ``test_every_filtered_reduction_parses``
+    below now does on every run.
+    """
+    sql = to_sql(t.group_by("grp").agg(n=t.id.approx_nunique(where=t.flag)))
+    assert "COUNT(DISTINCT CASE WHEN" in sql
+    assert "THEN DISTINCT" not in sql
+    sqlglot.parse_one(sql, dialect="redshift")
+
+
+def test_startswith_does_not_build_an_unescaped_like_pattern(t):
+    """``STARTS_WITH`` does not exist on Redshift and sqlglot lowers it to a
+    ``LIKE`` whose pattern is the operand plus ``'%'``, unescaped.
+
+    A ``%`` or ``_`` in the operand then matches as a wildcard, so this is
+    silent wrong rows rather than an error. ``endswith`` is immune because it
+    compares extracted text instead of building a pattern; ``startswith`` now
+    has the same shape.
+    """
+    sql = to_sql(t.select(o=t.s.startswith("a%")))
+    assert "LIKE" not in sql
+    assert "LEFT(" in sql
+    sqlglot.parse_one(sql, dialect="redshift")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.select(o=t.arr.sort()), id="sort"),
+        pytest.param(lambda t: t.select(o=t.arr.unique()), id="unique"),
+        pytest.param(lambda t: t.select(o=t.arr.unnest()), id="unnest"),
+        pytest.param(lambda t: t.select(o=t.arr.sums()), id="sums"),
+        pytest.param(lambda t: t.select(o=t.arr.map(lambda x: x + 1)), id="map"),
+        pytest.param(lambda t: t.select(o=t.arr.filter(lambda x: x > 1)), id="filter"),
+        pytest.param(lambda t: t.select(o=t.arr.union(t.arr)), id="union"),
+        pytest.param(lambda t: t.select(o=t.arr.index(1)), id="index"),
+        pytest.param(lambda t: t.group_by("grp").agg(c=t.amt.collect()), id="collect"),
+        pytest.param(lambda t: t.select(o=t.s.re_split(",")), id="re_split"),
+    ],
+)
+def test_unnest_dependent_ops_raise_instead_of_emitting_holes(t, build):
+    """sqlglot's Redshift generator warns and returns ``""`` for ``UNNEST``.
+
+    That empty string flows back into expression building, so the observed
+    failures were an internal ``AttributeError: 'str' object has no attribute
+    'args'`` raised from inside sqlglot, or SQL with a hole in it --
+    ``SELECT  AS "o"``, ``ARRAY(SELECT DISTINCT)``,
+    ``ARRAY(SELECT UNION SELECT)``, an array column in the ``FROM`` position.
+    None of these were ever going to run on Redshift, which has no array type;
+    what they cost was the diagnosis, since none named the backend or the op.
+    """
+    with pytest.raises(com.OperationNotDefinedError):
+        to_sql(build(t))
+
+
+@pytest.mark.parametrize(
+    ("build", "kept"),
+    [
+        pytest.param(lambda t: t.arr.length(), "GET_ARRAY_LENGTH", id="length"),
+        pytest.param(lambda t: t.arr[0], "[", id="index"),
+        pytest.param(lambda t: t.arr + t.arr, "ARRAY_CONCAT", id="concat"),
+        pytest.param(lambda t: t.s.split(","), "SPLIT_TO_ARRAY", id="split"),
+    ],
+)
+def test_array_ops_with_a_redshift_spelling_are_kept(t, build, kept):
+    """The blanket above must not swallow the ops that do lower.
+
+    ``SPLIT_TO_ARRAY`` and ``GET_ARRAY_LENGTH`` are also the only coverage the
+    ``Redshift.Generator.TRANSFORMS`` block in ``dialects.py`` has: before this
+    test the whole block could be deleted with all tests still green.
+    """
+    assert kept in to_sql(t.select(o=build(t)))
+
+
+def test_pow_needs_no_transform_override(t):
+    """``sge.Pow: rename_func("power")`` was dead code -- sqlglot's own Redshift
+    generator already renders ``POWER(...)``. Removed; this pins the behaviour
+    it was pretending to provide."""
+    assert "POWER(" in to_sql(t.select(o=t.amt**2))
+
+
+@pytest.mark.parametrize(
+    ("build", "func"),
+    [
+        pytest.param(lambda t: t.grp.group_concat(","), "LISTAGG", id="listagg"),
+        pytest.param(lambda t: t.amt.median(), "PERCENTILE_CONT", id="median"),
+        pytest.param(lambda t: t.amt.quantile(0.9), "PERCENTILE_CONT", id="quantile"),
+    ],
+)
+def test_partition_only_window_functions_drop_order_by_and_frame(t, build, func):
+    """Redshift documents these in window position as ``OVER ([PARTITION BY])``.
+
+    No ``ORDER BY``, no frame -- their ordering rides in ``WITHIN GROUP``
+    instead. So unlike the ranking family, where only the frame is dropped,
+    the whole ``OVER`` body below ``PARTITION BY`` has to go.
+    """
+    w = xo.window(group_by=t.grp, order_by=t.id)
+    sql = to_sql(t.mutate(o=build(t).over(w)))
+    assert func in sql
+    assert 'OVER (PARTITION BY "t0"."grp")' in sql
+    assert "ROWS BETWEEN" not in sql
+
+
+def test_arbitrary_over_a_window_raises(t):
+    """``ANY_VALUE`` is an aggregate on Redshift, not a window function."""
+    w = xo.window(group_by=t.grp, order_by=t.id)
+    with pytest.raises(com.UnsupportedOperationError, match="(?i)any_value"):
+        to_sql(t.mutate(o=t.amt.arbitrary().over(w)))
+
+
+def test_cumulative_aggregates_keep_their_frame(t):
+    """The two suppression lists must stay scoped: a frame dropped here would
+    be a silent wrong answer rather than a loud one."""
+    w = xo.window(group_by=t.grp, order_by=t.id)
+    assert "ROWS BETWEEN" in to_sql(t.mutate(o=t.amt.sum().over(w)))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.aggregate(n=t.nunique()), id="nunique"),
+        pytest.param(lambda t: t.group_by("grp").agg(m=t.grp.mode()), id="mode"),
+        pytest.param(lambda t: t.group_by("grp").agg(q=t.amt.median()), id="median"),
+        pytest.param(
+            lambda t: t.group_by("grp").agg(g=t.grp.group_concat(",")), id="gc"
+        ),
+    ],
+)
+def test_the_unfiltered_branch_of_each_override_still_works(t, build):
+    """Every override above forks on ``where is None``; only the ``is not None``
+    side was exercised."""
+    sql = build(t)
+    assert "CASE WHEN" not in to_sql(sql)
+    sqlglot.parse_one(to_sql(sql), dialect="redshift")
+
+
+def test_every_filtered_reduction_parses(t):
+    """The sweep, as a standing guard rather than a one-off.
+
+    Three separate findings -- ``visit_CountDistinct``,
+    ``visit_CountDistinctStar``, ``visit_ApproxCountDistinct`` -- were one
+    mechanism reached through three entry points, and the first two were found
+    by inspection while the third was found only by compiling everything.
+    ``agg = AggGen(supports_filter=False)`` changes the lowering of *every*
+    reduction on this backend, so the set that needs checking is every
+    reduction, not the set someone thought to override.
+
+    Parseability is a weak oracle -- it cannot tell you Redshift will accept a
+    well-formed string. It is the strongest one available offline, and it is
+    exactly the property the CASE fallback breaks.
+    """
+    columns = {"int": t.id, "float": t.amt, "string": t.grp, "bool": t.flag}
+    checked = 0
+    failures = []
+    for dtype_name, col in columns.items():
+        for name in sorted(dir(col)):
+            if name.startswith("_"):
+                continue
+            method = getattr(type(col), name, None)
+            if not callable(method):
+                continue
+            try:
+                takes_where = "where" in inspect.signature(method).parameters
+            except (TypeError, ValueError):
+                continue
+            if not takes_where:
+                continue
+            for predicate in (None, t.flag):
+                try:
+                    expr = t.group_by("grp").agg(
+                        out=getattr(col, name)(where=predicate)
+                    )
+                except Exception:  # noqa: BLE001
+                    # Expression *construction* failed -- the method needs
+                    # positional arguments, or does not apply to this dtype.
+                    # The subject of this sweep is compilation, so anything
+                    # that never became an expression is simply out of scope.
+                    break
+                try:
+                    sql = to_sql(expr)
+                except (
+                    com.UnsupportedOperationError,
+                    com.OperationNotDefinedError,
+                ):
+                    continue  # a deliberate refusal, not a malformed string
+                checked += 1
+                try:
+                    sqlglot.parse_one(sql, dialect="redshift")
+                except Exception as exc:  # noqa: BLE001
+                    failures.append(f"{dtype_name}.{name}(where={predicate}): {exc}")
+    assert checked > 50, f"sweep degenerated to {checked} compilations"
+    assert not failures, "unparsable SQL emitted:\n" + "\n".join(failures)
+
+
+def test_string_literal_escaping_is_pinned_pending_a_live_warehouse():
+    """THE ONE OPEN QUESTION IN THIS MODULE. Not a passing feature.
+
+    Retargeting the dialect also swapped sqlglot's escape rules:
+    ``Redshift.Tokenizer.STRING_ESCAPES`` is ``["\\\\", "'"]`` where Postgres's
+    is ``["'"]``. Every string literal the backend emits is affected, and one
+    case needs no user literal at all -- ``.strip()`` lowers to a ``TRIM`` of a
+    whitespace literal, which now spells its characters as backslash escapes.
+
+    If Redshift decodes those escapes, everything below is correct. If it does
+    not, ``.strip()`` trims the literal characters ``\\``, ``t``, ``n``, ``r``,
+    ``v``, ``f`` off the ends of strings -- letters, silently, with no error.
+    That is the one failure mode this whole module exists to prevent, and it is
+    the only finding in either review round that produces wrong numbers rather
+    than a rejected query.
+
+    No offline test can settle it: sqlglot's Redshift parser preserves the
+    escape sequence as text, so the round-trip is self-consistent either way.
+    One query on a live warehouse settles it::
+
+        SELECT LENGTH('\\t'), TRIM(' \\t' FROM 'x\\tt');
+
+    LENGTH 1 means the escapes are decoded and this is correct as it stands.
+    LENGTH 2 means the emitted SQL is wrong and the Redshift generator needs
+    its escape settings overridden alongside the TRANSFORMS in ``dialects.py``.
+
+    This test pins the current bytes so that the answer, when it arrives,
+    lands as a deliberate edit to a failing assertion rather than as a silent
+    drift nobody notices.
+    """
+    t = xo.table({"s": "string"}, name="t")
+    assert to_sql(t.filter(t.s == "a'b").select("s")).endswith("= 'a\\'b'")
+    assert to_sql(t.filter(t.s == "a\\b").select("s")).endswith("= 'a\\\\b'")
+    assert "TRIM(' \\t\\n\\r\\v\\f' FROM" in to_sql(t.select(o=t.s.strip()))

@@ -46,6 +46,49 @@ _OFFSET_OPS = (
 
 _NO_FRAME_OPS = _RANKING_OPS + _OFFSET_OPS
 
+# Redshift documents these in window position as ``OVER ( [PARTITION BY ...] )``
+# -- no ``ORDER BY`` and no frame, because their ordering is carried by the
+# ``WITHIN GROUP`` clause instead. So unlike ``_NO_FRAME_OPS``, where only the
+# frame is dropped, the whole ``OVER`` body below ``PARTITION BY`` has to go.
+# Dropping the ``ORDER BY`` is not a loss: for every op here the ordering the
+# user asked for is already emitted inside ``WITHIN GROUP``.
+#
+# UNVERIFIED against a live warehouse, on AWS's documented grammar.
+_PARTITION_ONLY_OPS = (
+    ops.GroupConcat,
+    ops.Quantile,
+    ops.MultiQuantile,
+    ops.ApproxQuantile,
+    ops.ApproxMultiQuantile,
+    ops.Median,
+    ops.ApproxMedian,
+)
+
+# Redshift has no ``unnest``. sqlglot's Redshift generator does not raise on
+# one -- it warns and returns the empty string, which then flows back into
+# expression building as a ``str``. The result is either an internal
+# ``AttributeError: 'str' object has no attribute 'args'`` from inside sqlglot,
+# or SQL with a hole in it: ``SELECT  AS "o"``, ``ARRAY(SELECT DISTINCT)``,
+# ``ARRAY(SELECT UNION SELECT)``, or an array column used as a table. None of
+# these were ever going to run on Redshift, which has no array type at all --
+# what they cost is the diagnosis, since none of them names the backend or the
+# operation. Listing them here converts each into the same
+# ``OperationNotDefinedError`` every other unsupported op raises.
+_UNNEST_DEPENDENT_ARRAY_OPS = (
+    ops.ArrayDistinct,
+    ops.ArrayFilter,
+    ops.ArrayIntersect,
+    ops.ArrayMap,
+    ops.ArrayMax,
+    ops.ArrayMean,
+    ops.ArrayMin,
+    ops.ArrayPosition,
+    ops.ArraySort,
+    ops.ArraySum,
+    ops.ArrayUnion,
+    ops.Unnest,
+)
+
 
 class RedshiftCompiler(PostgresCompiler):
     """Redshift, compiled as Redshift rather than as PostgreSQL.
@@ -91,6 +134,20 @@ class RedshiftCompiler(PostgresCompiler):
     # and that generation happens whether or not a sibling method raises.
     # Redshift does support ``ANY_VALUE``.
     SIMPLE_OPS = PostgresCompiler.SIMPLE_OPS | {ops.Arbitrary: "any_value"}
+
+    UNSUPPORTED_OPS = (
+        *PostgresCompiler.UNSUPPORTED_OPS,
+        *_UNNEST_DEPENDENT_ARRAY_OPS,
+        # ``ARRAY_AGG`` is the same absent function ``visit_ArgMinMax`` raises
+        # over; leaving ``collect()`` compiling to it while ``argmax`` raises
+        # for want of it was one premise with two answers.
+        ops.ArrayCollect,
+        # The postgres block in ``dialects.py`` renames ``RegexpSplit`` to
+        # ``regexp_split_to_array``, which Redshift lacks. Declining the rename
+        # only moves it to ``REGEXP_SPLIT``, which no engine has. Redshift has
+        # no regex-split-to-array at all.
+        ops.RegexSplit,
+    )
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
     # fallback: with supports_filter=False it rewrites `agg(x, where=c)` to
@@ -269,6 +326,30 @@ class RedshiftCompiler(PostgresCompiler):
             )
         return out
 
+    # ``approx_nunique`` is the third entry point into the trap
+    # ``visit_CountDistinct`` documents, after ``visit_CountDistinctStar``.
+    # ``compilers/postgres.py:273`` hands ``sge.Distinct`` to ``AggGen`` exactly
+    # as the other two did. The lowering is identical -- postgres has no
+    # approximate count either -- so the override is an alias rather than a
+    # copy, which also means a future change to one cannot skip the other.
+    visit_ApproxCountDistinct = visit_CountDistinct
+
+    def visit_StartsWith(self, op, *, arg, start):
+        """``LEFT(s, LENGTH(p)) = p``, not ``s LIKE p || '%'``.
+
+        Redshift has no ``STARTS_WITH``, and sqlglot's Redshift generator
+        lowers it to a ``LIKE`` whose pattern is the operand concatenated with
+        ``'%'`` -- unescaped. Any ``%`` or ``_`` in the operand then becomes a
+        wildcard, so ``t.s.startswith("a%")`` matches every string beginning
+        with ``a`` rather than the two literal characters. Silent wrong rows,
+        not an error.
+
+        This mirrors the shape ``visit_EndsWith`` already has in the postgres
+        compiler (``compilers/postgres.py:561``), which is immune for the same
+        reason: it compares extracted text rather than building a pattern.
+        """
+        return self.f.left(arg, self.f.length(start)).eq(start)
+
     def visit_DateFromYMD(self, op, *, year, month, day):
         """Redshift has no ``make_date``.
 
@@ -313,7 +394,17 @@ class RedshiftCompiler(PostgresCompiler):
             group_by=group_by,
             order_by=order_by,
         )
-        if isinstance(op.func, _NO_FRAME_OPS):
+        if isinstance(op.func, ops.Arbitrary):
+            raise com.UnsupportedOperationError(
+                "`ANY_VALUE` is an aggregate on Redshift and not a window "
+                "function, so `.arbitrary()` cannot be used with `.over(...)` "
+                "on this backend. Aggregate it in a `group_by` instead, or "
+                "pick a row explicitly with a `row_number()` window."
+            )
+        if isinstance(op.func, _PARTITION_ONLY_OPS):
+            window.set("spec", None)
+            window.set("order", None)
+        elif isinstance(op.func, _NO_FRAME_OPS):
             window.set("spec", None)
         return window
 

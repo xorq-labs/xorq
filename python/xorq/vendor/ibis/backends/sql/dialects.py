@@ -452,18 +452,28 @@ class Redshift(_Redshift):
     ``test_redshift_dialect.py::test_transforms_do_not_depend_on_import_order``
     is what actually holds the property.
 
-    The overrides below are the Redshift spellings of the three functions the
-    Postgres block above renames to Postgres-only names. ``DateFromParts`` is
-    deliberately absent: Redshift has no ``make_date`` and no single-function
-    equivalent, so it is lowered in ``RedshiftCompiler.visit_DateFromYMD``
-    rather than renamed here.
+    The Postgres block above renames five functions to Postgres-only names.
+    Two of them get their Redshift spelling below. The other three do not, each
+    for its own reason:
+
+    * ``DateFromParts`` -- Redshift has no ``make_date`` and no single-function
+      equivalent, so it is lowered in ``RedshiftCompiler.visit_DateFromYMD``
+      rather than renamed here.
+    * ``RegexpSplit`` -- Redshift has no regex-split-to-array under any name, so
+      there is nothing to rename it *to*. Declining the postgres rename would
+      only move it from ``REGEXP_SPLIT_TO_ARRAY`` to ``REGEXP_SPLIT``, and no
+      engine has that either. ``ops.RegexSplit`` is in the compiler's
+      ``UNSUPPORTED_OPS`` instead, so it raises rather than emitting a name
+      that looks plausible.
+    * ``Pow`` -- sqlglot's own Redshift generator already renders ``sge.Pow`` as
+      ``POWER(...)``. An override here was byte-for-byte identical to no
+      override, i.e. dead code, and has been removed.
     """
 
     class Generator(_Redshift.Generator):
         TRANSFORMS = _Redshift.Generator.TRANSFORMS.copy() | {
             sge.Split: rename_func("split_to_array"),
             sge.ArraySize: rename_func("get_array_length"),
-            sge.Pow: rename_func("power"),
         }
 
 
