@@ -28,7 +28,6 @@ from xorq.common.utils.graph_utils import (
     _require_expr_args_recorded,
     _require_registered_if_expr_bearing,
     to_node,
-    walk_nodes,
 )
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
 from xorq.expr.relations import (
@@ -147,8 +146,9 @@ def rebind_unbound(unbound_expr: Any, schema: Schema) -> Any:
     """``unbound_expr`` rebuilt over its one ``UnboundTable`` carrying ``schema``.
 
     Each op above is recreated, so one that no longer fits is named.
+    Found via ``__children__``, the edges ``replace`` follows.
     """
-    (table, *_) = walk_nodes(ops.UnboundTable, unbound_expr)
+    (table, *_) = to_node(unbound_expr).find(ops.UnboundTable)
     moved = recreate(table, schema=schema)
 
     def replacer(node: Node, kwargs: dict | None) -> Node:

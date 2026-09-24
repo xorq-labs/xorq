@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import cloudpickle
 import pyarrow as pa
 import pytest
 import toolz
@@ -743,14 +744,14 @@ def test_an_expr_udf_rebinds_over_its_drifted_source(
     assert list(expr.execute()["out"]) == [31.0, 32.0]
 
 
-def drift_the_table(expr: xo.Expr) -> dict:
-    """The `refresh_schemas` mapping that grows `expr`'s one sqlite table."""
+def drift_the_table(expr: xo.Expr, schema: pa.Schema = GROWN.schema) -> dict:
+    """The `refresh_schemas` mapping that moves `expr`'s one sqlite table."""
     (table,) = (
         node
         for node in walk_nodes(ops.DatabaseTable, expr)
         if type(node) is ops.DatabaseTable
     )
-    return {op_key(table): xo.schema(GROWN.schema)}
+    return {op_key(table): xo.schema(schema)}
 
 
 def test_a_flight_udxf_takes_the_schema_of_its_moved_input(
@@ -783,6 +784,8 @@ def test_a_flight_expr_follows_an_added_column(con: SqliteBackend) -> None:
     assert unbound.schema == node.input_expr.schema()
     assert "c" in node.schema
     assert "c" in refreshed.schema()
+    # `from_exprs` stores a cloudpickle round-trip; the rebuilt one must survive it
+    assert "c" in cloudpickle.loads(cloudpickle.dumps(node.unbound_expr)).schema()
 
 
 def test_a_flight_expr_over_a_dropped_column_names_the_field(
@@ -790,14 +793,9 @@ def test_a_flight_expr_over_a_dropped_column_names_the_field(
 ) -> None:
     t = con.table("t")
     expr = flight_expr(t, xo.table(t.schema()).select("a"), con=xo.connect())
-    (table,) = (
-        node
-        for node in walk_nodes(ops.DatabaseTable, expr)
-        if type(node) is ops.DatabaseTable
-    )
 
     with pytest.raises(SchemaRefreshError) as excinfo:
-        refresh_schemas(expr, {op_key(table): xo.schema({"b": "string"})})
+        refresh_schemas(expr, drift_the_table(expr, pa.schema({"b": pa.string()})))
     assert excinfo.value.op_name == "Field"
 
 
