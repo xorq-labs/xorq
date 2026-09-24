@@ -8,6 +8,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.4] - 2026-09-22
+### Details
+#### Added
+- Add check-sources for database-table drift by @mesejo in [#2304](https://github.com/xorq-labs/xorq/pull/2304)
+
+#### Changed
+- Check-sources reports drift for file and object-store reads by @mesejo in [#2307](https://github.com/xorq-labs/xorq/pull/2307)
+- Check-sources --json emits a machine-readable drift report by @mesejo in [#2312](https://github.com/xorq-labs/xorq/pull/2312)
+- Read a source-drift report by @mesejo in [#2317](https://github.com/xorq-labs/xorq/pull/2317)
+
+#### Fixed
+- Reattach the one dead style pragma and gate style on the merge path by @mesejo in [#2278](https://github.com/xorq-labs/xorq/pull/2278)
+- Keep check-sources from creating a database file by @mesejo in [#2306](https://github.com/xorq-labs/xorq/pull/2306)
+
+## [0.4.3] - 2026-09-17
+### Details
+#### Added
+- Add read_delta, fix the deltalake install hint by @mesejo in [#2289](https://github.com/xorq-labs/xorq/pull/2289)
+
+#### Changed
+- Drop dead xorq-style pragmas, ignore reformat in blame by @mesejo in [#2279](https://github.com/xorq-labs/xorq/pull/2279)
+- Name the serialized node keys with enums by @mesejo in [#2302](https://github.com/xorq-labs/xorq/pull/2302)
+- Read build dump files through one helper by @mesejo in [#2303](https://github.com/xorq-labs/xorq/pull/2303)
+- Extract source leaves from an unloadable build record by @mesejo in [#2301](https://github.com/xorq-labs/xorq/pull/2301)
+
+#### Fixed
+- Drop pandas schema metadata on registration by @mesejo in [#2277](https://github.com/xorq-labs/xorq/pull/2277)
+- Fix vale prose findings by @mesejo in [#2292](https://github.com/xorq-labs/xorq/pull/2292)
+
+## [0.4.2] - 2026-09-10
+### Details
+#### Changed
+- Correct three defects in the Release Flow steps by @dlovell in [#2272](https://github.com/xorq-labs/xorq/pull/2272)
+- Make blame.ignoreRevsFile discoverable and automatic by @dlovell in [#2275](https://github.com/xorq-labs/xorq/pull/2275)
+- Format with ruff by @ray1097 in [#2274](https://github.com/xorq-labs/xorq/pull/2274)
+
+## New Contributors
+* @ray1097 made their first contribution in [#2274](https://github.com/xorq-labs/xorq/pull/2274)
+
 ## [0.4.1] - 2026-09-01
 ### Details
 #### Fixed

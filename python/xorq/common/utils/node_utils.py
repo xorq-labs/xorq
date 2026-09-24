@@ -1,4 +1,5 @@
 import importlib
+from enum import Enum
 
 import toolz
 
@@ -215,7 +216,16 @@ def recreate(op, **kwargs):
     return op.__recreate__(new_kwargs)
 
 
+def plain_key(name):
+    # read_kwargs keys live in op state: a StrEnum member would survive into the
+    # node and show up in repr diagnostics, so coerce once here rather than at
+    # every call site
+    return name.value if isinstance(name, Enum) else name
+
+
 def update_read_kwargs(old_read_kwargs, new_read_kwargs):
+    old_read_kwargs = tuple((plain_key(name), value) for name, value in old_read_kwargs)
+    new_read_kwargs = tuple((plain_key(name), value) for name, value in new_read_kwargs)
     existing = {name for name, _ in old_read_kwargs}
     to_append = tuple(
         (name, value) for (name, value) in new_read_kwargs if name not in existing

@@ -25,7 +25,7 @@ only-include = ["python"]
 
 [project]
 name = "xorq"
-version = "0.4.1"
+version = "0.4.4"
 dependencies = [
     "attrs>=24.1.0; python_version >= '3.10' and python_version < '4.0'",
     "pyarrow>=18.0.0,<22; python_version >= '3.10' and python_version < '4.0'",
@@ -221,6 +221,7 @@ test = [
     "pytest-snapshot<1.0.0,>=0.9.0",
     "coverage[toml]==7.13.4",
     "pytest-xdist>=3.8.0",
+    "deltalake>=1.0",
 ]
 docs = [
     "quartodoc<0.11.2,>=0.7.2",
@@ -306,6 +307,13 @@ ignore = [
 known-first-party = ["xorq"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 lines-after-imports = 2
+
+[tool.xorq-style.unlisted-import]
+# The package lives under python/, which the ("src", ".") default does not
+# cover: with it, the rule resolves no module and silently passes every import.
+# "." keeps examples/, docs/ and scripts/ in scope, which a bare "python" would
+# exempt outright -- the rule only fires on files under a listed root.
+src-roots = ["python", "."]
 
 [tool.xorq-style.print]
 # Example scripts print receipts to stdout by design. allow-files matches on

@@ -1,5 +1,5 @@
 ---
-title: "What is Xorq?"
+title: "What's Xorq?"
 description: "Understand what Xorq is, why it exists, and how it fits into your ML infrastructure"
 icon: "info-circle"
 headline: "Learn what Xorq is and why it exists"

@@ -1,0 +1,416 @@
+/*-- scss:defaults --*/
+// Xorq docs theme · matches the marketing site
+// Drop this file + the two includes into the docs repo and reference them from _quarto.yml.
+
+// xorq.dev sets both --bs-body-font-family and $headings-font-family to
+// "ALT Riviera", Georgia, serif. Matching it makes ALT Riviera the default
+// everywhere; each UI chrome rule below that must stay monospace sets
+// font-family:$font-family-monospace itself. $font-family-sans-serif keeps
+// Bootstrap's sans stack so --bs-font-sans-serif still means sans.
+$font-family-base: "ALT Riviera", Georgia, serif;
+$font-family-monospace: "FK Grotesk Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+$headings-font-family: "ALT Riviera", Georgia, serif;
+$headings-font-weight: 400;
+$font-size-base: 0.9375rem;
+
+// palette
+$xq-bg:        #091b1d;
+$xq-bg-2:      #0c1f21;
+$xq-bg-3:      #0b1e20;
+$xq-line:      #1f3437;
+$xq-line-2:    #2f454c;
+$xq-line-3:    #284044;
+$xq-ink:       #c2f0ff;
+$xq-ink-2:     #9ec9d5;
+$xq-ink-3:     #7ca0aa;
+$xq-ink-4:     #63848d;
+$xq-teal:      #5bc0d6;
+$xq-mint:      #34c9a0;
+$xq-sand:      #d6b26a;
+
+$body-bg: $xq-bg;
+$body-color: $xq-ink-2;
+$link-color: $xq-ink;
+$link-hover-color: #c1f0ff;
+$headings-color: $xq-ink;
+$code-bg: $xq-bg-3;
+$code-color: $xq-teal;
+$pre-bg: $xq-bg-3;
+$border-color: $xq-line;
+$navbar-bg: transparent;
+$navbar-fg: $xq-ink-2;
+$navbar-hl: $xq-ink;
+$sidebar-bg: transparent;
+$sidebar-fg: $xq-ink-2;
+$sidebar-hl: $xq-ink;
+$footer-bg: transparent;
+$footer-fg: $xq-ink-4;
+$toc-color: $xq-ink-3;
+$toc-active-border: $xq-teal;
+$callout-border-width: 1px;
+
+// NOTE: the rules below are expanded one declaration per line. Quarto 1.8.24's
+// CSS-variable analyzer cannot parse the compact single-line form this file
+// shipped with and aborts with "Error adding css vars block SCSSParsingError",
+// dropping the --quarto-scss-export-* custom properties from the compiled CSS.
+// The expansion is purely cosmetic: sass --style=compressed output is
+// byte-identical either way. Keep it expanded.
+/*-- scss:rules --*/
+@font-face {
+  font-family:"FK Grotesk Mono";
+  src:url("/fonts/FKGroteskMono-Regular.woff2") format("woff2");
+  font-weight:400;
+  font-display:swap;
+}
+@font-face {
+  font-family:"ALT Riviera";
+  src:url("/fonts/ALTRiviera-Regular.ttf") format("truetype");
+  font-weight:400;
+  font-display:swap;
+}
+
+body {
+  background:linear-gradient(180deg,#091b1d 0%,#091b1d 70%,#13282e 100%) fixed;
+  -webkit-font-smoothing:antialiased;
+}
+
+// prose in the serif, UI in the mono — same split as the site
+.content p, .content li, .content td, .content dd, .callout-body, .quarto-title-block .description {
+  font-size:1rem;
+  line-height:1.75;
+  color:$xq-ink-2;
+  text-wrap:pretty;
+}
+.content p a {
+  color:$xq-ink;
+  border-bottom:1px dashed $xq-line-3;
+}
+.content p a:hover {
+  border-bottom-color:#c1f0ff;
+}
+
+h1, h2, h3, h4 {
+  letter-spacing:-.01em;
+  color:$xq-ink;
+}
+h1.title {
+  font-size:clamp(34px,4vw,52px);
+  line-height:1.08;
+  letter-spacing:-.015em;
+}
+h2 {
+  font-size:clamp(24px,2.6vw,32px);
+  margin-top:3rem;
+  padding-top:2rem;
+  border-top:1px solid $xq-line;
+}
+h3 {
+  font-size:1.25rem;
+  margin-top:2rem;
+}
+.quarto-title-block .description {
+  font-size:1.1rem;
+  color:$xq-ink-2;
+}
+
+// kicker above titles — mirrors the site's mono labels
+.quarto-title-block .quarto-categories .quarto-category, .quarto-title-meta-heading {
+  font-family:$font-family-monospace;
+  font-size:10px;
+  letter-spacing:.18em;
+  text-transform:uppercase;
+  color:$xq-ink-3;
+}
+
+// navbar (Quarto's top bar)
+// Quarto wraps it in #quarto-header.fixed-top, which has no background of its
+// own; with $navbar-bg transparent the page would scroll visibly through the
+// bar. Paint the header with the body gradient's top stop: identical at
+// scroll-top, opaque once the page moves.
+#quarto-header {
+  background:$xq-bg;
+}
+.navbar {
+  border-bottom:1px solid $xq-line;
+  padding:.75rem 0;
+}
+.navbar .navbar-brand img {
+  height:32px;
+}
+.navbar .nav-link {
+  font-family:$font-family-monospace;
+  font-size:14px;
+  letter-spacing:.02em;
+  color:$xq-ink-2;
+  padding:8px 14px;
+  border:1px solid transparent;
+}
+.navbar .nav-link:hover, .navbar .nav-link.active {
+  color:#c1f0ff;
+  border-color:rgba(193,240,255,.2);
+}
+// Text items only — the GitHub item is icon-only and would render "./" next to
+// the glyph.
+.navbar .nav-link:not(:has(i.bi))::before {
+  content:"./";
+}
+
+// sidebar
+.sidebar-navigation .sidebar-item .sidebar-item-text {
+  font-size:14px;
+  color:$xq-ink-2;
+  padding:5px 0 5px 10px;
+  border-left:1px solid $xq-line;
+}
+.sidebar-navigation .sidebar-item .sidebar-item-text:hover, .sidebar-navigation .sidebar-item.active > .sidebar-item-container > .sidebar-item-text {
+  color:#c1f0ff;
+  border-left-color:#c1f0ff;
+}
+.sidebar-navigation .sidebar-section .sidebar-item-container > .sidebar-item-text {
+  font-family:$font-family-monospace;
+  font-size:10px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:$xq-ink-4;
+  border-left:0;
+  padding-left:0;
+}
+.sidebar-title {
+  font-family:$font-family-monospace;
+  font-size:10px;
+  letter-spacing:.18em;
+  text-transform:uppercase;
+  color:$xq-teal;
+  padding-bottom:6px;
+  border-bottom:1px dashed $xq-line-3;
+}
+// Default overlay search: #quarto-search in the navbar holds only the detached
+// button; the real form and input render in .aa-DetachedOverlay under <body>.
+#quarto-search .aa-DetachedSearchButton, .aa-DetachedOverlay .aa-Form {
+  font-family:$font-family-monospace;
+  background:$xq-bg-3;
+  border:1px solid $xq-line-2;
+  border-radius:10px;
+  color:$xq-ink;
+}
+// The input sits inside the boxed form; keep it flat so the border isn't drawn
+// twice.
+.aa-DetachedOverlay .aa-Input {
+  background:transparent;
+  color:$xq-ink;
+}
+
+// on-this-page
+// The toc title is an <h2>, so it inherits the section rule above; undo it.
+#TOC .toc-title, #quarto-margin-sidebar h2 {
+  font-family:$font-family-monospace;
+  font-size:10px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:$xq-ink-4;
+  margin-top:0;
+  padding-top:0;
+  border-top:0;
+}
+#TOC a, #quarto-margin-sidebar a {
+  font-family:$font-family-monospace;
+  font-size:12.5px;
+  color:$xq-ink-3;
+  border-left:1px solid $xq-line;
+}
+#TOC a.active, #quarto-margin-sidebar a.active {
+  color:$xq-ink;
+  border-left-color:$xq-teal;
+}
+
+// code
+pre, div.sourceCode {
+  background:$xq-bg-3;
+  border:1px solid $xq-line;
+  border-radius:12px;
+  padding:14px 18px;
+  font-size:12.5px;
+  line-height:1.7;
+}
+// Quarto nests pre.sourceCode inside div.sourceCode; box the wrapper only, or
+// the border, radius and padding are drawn twice. Padding stays on the pre so
+// the horizontal scroll region (code-overflow: scroll) spans the whole box.
+div.sourceCode {
+  padding:0;
+}
+div.sourceCode > pre {
+  margin:0;
+  background:transparent;
+  border:0;
+  border-radius:0;
+}
+pre code {
+  color:$xq-ink-2;
+}
+code:not(pre code) {
+  background:transparent;
+  color:$xq-ink;
+  padding:0;
+  font-size:.92em;
+}
+.code-copy-button {
+  color:$xq-ink-4;
+}
+// Annotated blocks: Quarto zeroes the padding (pre.sourceCode.code-annotation-code
+// drops padding-right, pre.code-annotation-code drops top and bottom), so they
+// lose this theme's 14px/18px box and sit flush against the border. It also
+// floats a gutter of numbered anchors at the right edge, and the anchors cascade
+// down and to the left, so the line-1 anchor lands under the copy button.
+// Quarto's own guard, `.code-annotated .code-copy-button`, never fires here:
+// code-annotated is on the <pre> while the button is its sibling inside
+// .code-copy-outer-scaffold. Restore the padding and reserve the top-right
+// corner instead, which clears the whole cascade rather than one anchor.
+// The extra class beats Quarto's two-class selectors.
+pre.sourceCode.code-annotated.code-annotation-code {
+  padding:34px 18px 14px;
+}
+.code-copy-button-tooltip {
+  font-family:$font-family-monospace;
+}
+.code-annotation-anchor {
+  color:$xq-mint;
+  border-color:$xq-mint;
+}
+.sourceCode .co {
+  color:$xq-ink-4;
+}
+.sourceCode .st {
+  color:$xq-mint;
+}
+.sourceCode .kw, .sourceCode .im {
+  color:$xq-teal;
+}
+.sourceCode .fu {
+  color:$xq-ink;
+}
+.sourceCode .dv, .sourceCode .fl {
+  color:$xq-sand;
+}
+
+// tabsets
+.panel-tabset .nav-tabs {
+  border-bottom:1px dashed $xq-line-3;
+}
+.panel-tabset .nav-link {
+  font-family:$font-family-monospace;
+  font-size:12px;
+  letter-spacing:.04em;
+  color:$xq-ink-2;
+  border:1px solid transparent;
+  border-radius:999px;
+  padding:6px 14px;
+  margin-right:6px;
+}
+.panel-tabset .nav-link.active {
+  color:$xq-ink;
+  border-color:$xq-teal;
+  background:rgba(91,192,214,.12);
+}
+
+// tables
+table {
+  font-size:13px;
+}
+thead th {
+  font-family:$font-family-monospace;
+  font-size:10px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:$xq-ink-4;
+  border-bottom:1px solid $xq-line-2;
+  font-weight:400;
+}
+tbody td {
+  border-top:1px dashed $xq-line-3;
+  color:$xq-ink-2;
+}
+
+// callouts — one dark surface, accent by type on the left rule only
+.callout {
+  background:$xq-bg-2;
+  border:1px solid $xq-line;
+  border-left-width:2px;
+  border-radius:12px;
+}
+.callout .callout-header {
+  font-family:$font-family-monospace;
+  background:transparent;
+  font-size:10px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:$xq-ink-3;
+}
+.callout-note {
+  border-left-color:$xq-teal;
+}
+.callout-tip {
+  border-left-color:$xq-mint;
+}
+.callout-important, .callout-warning {
+  border-left-color:$xq-sand;
+}
+.callout-caution {
+  border-left-color:#e0736a;
+}
+
+// pagination + footer
+.page-navigation .nav-page a {
+  font-family:$font-family-monospace;
+  color:$xq-ink-2;
+  border:1px solid $xq-line;
+  border-radius:12px;
+  padding:14px 18px;
+}
+.page-navigation .nav-page a:hover {
+  border-color:#c1f0ff;
+}
+.nav-footer {
+  font-family:$font-family-monospace;
+  border-top:1px solid $xq-line;
+  font-size:11px;
+  letter-spacing:.06em;
+  color:$xq-ink-4;
+  padding:24px 0;
+}
+.nav-footer a {
+  color:$xq-ink-3;
+}
+
+// include-after-body drops theme/footer.html inside #quarto-content, which is a
+// CSS grid on every non-custom page layout. Without a column it falls back to
+// `.page-columns > *` and is squeezed into the article column instead of
+// spanning the page, as it does on the custom-layout homepage.
+.page-columns > .xq-foot {
+  grid-column:screen-start/screen-end;
+  // footer.html centres the footer with `margin: 0 auto`. On a grid item auto
+  // margins suppress the default stretch, so without an explicit width the
+  // footer collapses to its fit-content size (~736px, the same box as the
+  // article column) and the five link groups wrap to three. width:100% makes
+  // it fill the span; max-width:1180px then caps it and the auto margins
+  // centre it, exactly as on xorq.dev.
+  width:100%;
+}
+
+// hide quarto's light/dark toggle (site is dark only)
+.quarto-color-scheme-toggle {
+  display:none;
+}
+
+// Chrome with no rule of its own above. It inherited mono from the base before
+// the base became ALT Riviera: title metadata values, the search results panel
+// (appended to <body>), and the mobile secondary nav, breadcrumbs and collapsed
+// navbar menu shown below collapse-below: lg.
+.quarto-title-meta-contents,
+.aa-Panel,
+.aa-DetachedOverlay,
+.quarto-secondary-nav,
+.quarto-page-breadcrumbs,
+.navbar-toggler,
+.navbar-collapse {
+  font-family:$font-family-monospace;
+}

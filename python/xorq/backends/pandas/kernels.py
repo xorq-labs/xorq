@@ -427,6 +427,9 @@ rowwise = {
 def custom_hash(arg):
     import pyarrow as pa  # noqa: PLC0415
 
+    from xorq.common.utils.arrow_utils import (  # noqa: PLC0415
+        drop_pandas_schema_metadata,
+    )
     from xorq.internal import SessionContext  # noqa: PLC0415
 
     name = "custom_hash"
@@ -437,8 +440,10 @@ def custom_hash(arg):
     ctx.register_record_batches(
         table_name,
         [
-            pa.Table.from_pandas(
-                arg.rename(name).to_frame().reset_index(names=row_id_name)
+            drop_pandas_schema_metadata(
+                pa.Table.from_pandas(
+                    arg.rename(name).to_frame().reset_index(names=row_id_name)
+                )
             ).to_batches()
         ],
     )

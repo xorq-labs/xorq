@@ -66,8 +66,33 @@ class Cache:
         return self.storage.exists(key)
 
     def get(self, expr):
+        """Return the cached node for *expr*.
+
+        Raises
+        ------
+        KeyError
+            The key holds nothing, or holds an artifact past its TTL.
+        CacheIntegrityError
+            The key holds an artifact that cannot be read. **This is a
+            behaviour change**: before integrity checking, a corrupt artifact
+            raised `KeyError` like an absent one, so a caller doing
+            ``try: cache.get(expr) except KeyError: recompute()`` silently
+            recomputed over the damage. It now says which of the two it is.
+            Catch `xorq.common.exceptions.CacheIntegrityError` alongside
+            `KeyError` to restore the old control flow -- but prefer
+            `Cache.drop`, which clears the artifact rather than papering over
+            it.
+        OSError
+            The artifact could not be read for a reason that says nothing
+            about it -- EMFILE, a stale handle, a permission change. Also new,
+            and deliberately loud: reporting one of these as a miss recomputes
+            the expression and overwrites a file that was never bad.
+        """
         key = self.calc_key(expr)
         if not self.key_exists(key):
+            # A corrupt artifact is not an absent one: say which it is, rather
+            # than reporting a key that is sitting right there as missing.
+            self.storage.check_integrity(key)
             raise KeyError(key)
         else:
             return self.storage.get(key)
@@ -97,7 +122,9 @@ class Cache:
 
     def drop(self, expr):
         key = self.calc_key(expr)
-        if not self.key_exists(key):
+        # is_present, not key_exists: dropping is how a corrupt or expired
+        # artifact gets cleared, and `exists` refuses to acknowledge both.
+        if not self.storage.is_present(key):
             raise KeyError(key)
         else:
             self.storage.drop(key)

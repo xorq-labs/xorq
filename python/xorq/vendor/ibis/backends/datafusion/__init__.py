@@ -19,6 +19,7 @@ import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.deltalake_utils import import_delta_table
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import (
@@ -522,14 +523,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # Our other backends support overwriting views / tables when reregistering
         self.con.deregister_table(table_name)
 
-        try:
-            from deltalake import DeltaTable
-        except ImportError:
-            raise ImportError(
-                "The deltalake extra is required to use the "
-                "read_delta method. You can install it using pip:\n\n"
-                "pip install 'ibis-framework[deltalake]'\n"
-            )
+        DeltaTable = import_delta_table()
 
         delta_table = DeltaTable(source_table, **kwargs)
         self.con.register_dataset(table_name, delta_table.to_pyarrow_dataset())

@@ -1,5 +1,6 @@
 import pathlib
 import runpy
+import types
 
 import pytest
 from pytest import param
@@ -61,6 +62,31 @@ def maybe_s3(name: str) -> pytest.MarkDecorator | tuple[()]:
 def maybe_marks(name: str):
     fs = (maybe_library, maybe_gcs, maybe_s3)
     return tuple(filter(None, (f(name) for f in fs)))
+
+
+@pytest.fixture(autouse=True)
+def gcs_cache_stays_in_memory(script, monkeypatch):
+    """Keep the GCS examples off the shared ``expr-cache`` bucket.
+
+    CI authenticates as a read-only service account, so the example's cache
+    writes cannot run against real GCS at all; locally they would mutate a
+    bucket shared with every other developer, and a run that dies between the
+    write and the drop strands an object under a key every later run reuses.
+
+    Only ``gcloud_utils``' ``gcsfs`` reference is swapped, which is the single
+    place ``GCStorage`` constructs its filesystem. The pins board is itself
+    GCS-backed and keeps the real ``gcsfs`` it needs to download the example's
+    input. ``monkeypatch.setattr`` raises if that attribute ever goes away, so
+    a refactor cannot silently route these writes back to the real bucket.
+    """
+    if script.stem not in GCS_SCRIPTS:
+        return
+    memory = pytest.importorskip("fsspec.implementations.memory")
+    pytest.importorskip("gcsfs")
+    monkeypatch.setattr(
+        "xorq.common.utils.gcloud_utils.gcsfs",
+        types.SimpleNamespace(GCSFileSystem=memory.MemoryFileSystem),
+    )
 
 
 @pytest.mark.parametrize(

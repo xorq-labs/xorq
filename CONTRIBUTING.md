@@ -23,9 +23,32 @@ uv sync --all-extras --all-groups
 source .venv/bin/activate
 # set up the git hook scripts
 uv run pre-commit install
+# ignore bulk-reformat commits in git blame (per clone; git never accepts this from the repo itself)
+git config --replace-all blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 > [!IMPORTANT]
 > Rename `.gitignore.template` to `.gitignore` 
+
+### git blame and bulk reformats
+
+`.git-blame-ignore-revs` lists the commits `git blame` should skip. Git
+deliberately never accepts `blame.ignoreRevsFile` from the repository itself,
+hence the `git config` line above. `pre-commit install` also installs a
+`post-checkout` hook that sets it -- not the install itself, the next checkout
+after it -- so clones set up before that hook existed need `uv run pre-commit
+install` once more. GitHub's web blame honors the file with no setup at all.
+
+One caveat: with the setting on, `git blame` exits 128 with `fatal: could not
+open object name list: .git-blame-ignore-revs` at any rev predating the file
+(2024-05-17), so bisecting into early history or checking out a tag up to
+`v0.1.2.post` breaks blame entirely. There is no per-command override --
+`blame.ignoreRevsFile` is multi-valued, so `-c blame.ignoreRevsFile=` and
+`--ignore-revs-file=""` append to the list rather than replace it. Unset it for
+the duration instead, and the next checkout puts it back:
+
+```bash
+git config --unset-all blame.ignoreRevsFile
+```
 
 ## Dev container
 
@@ -71,6 +94,61 @@ To test the code:
 just up postgres # some of the tests use postgres
 python -m pytest # or pytest
 ```
+
+## Style checks
+
+Ruff and `xorq-check-style` run on every pull request. `xorq-check-style`
+enforces the conventions below — import placement, `__all__`, `pytest` idioms —
+that Ruff has no rule for. `pre-commit install` runs it over what you staged, on
+any commit that stages Python; the command below reproduces what CI will say
+about the branch.
+
+It runs as two gates, both in `.github/workflows/ci-lint.yml`:
+
+- **Changed lines**, on pull requests and as the pre-commit hook. Every rule
+  applies except those in `disable=` in `scripts/check-style-diff.sh`, which CI
+  and the hook both run so they cannot drift. Pre-existing violations in a file
+  you edit do not block you.
+- **Whole repo**, on every build. Only the rules already at zero everywhere —
+  whatever is left after the `--disable` list. Drive a rule's count to zero,
+  move it off that list, and it can never come back.
+
+Before either gate runs, CI runs `scripts/style_tests/`. `xorq-check-style` exits
+0 both on a clean file and on one it never examined, so every rule owns a file it
+is required to flag; a rule that stops firing fails there rather than reporting a
+comfortable zero. The suite also reads the two `--disable` lists and the three
+copies of the linted-tree list rather than restating any of them, so a typo, a
+rule that leaves the checker, or a tree list that agrees in only two of its three
+files fails a test instead of silently enforcing a set nobody chose.
+
+To reproduce what CI will say about your branch, run the gate over the range CI
+uses — `origin/$GITHUB_BASE_REF...HEAD`, which for a pull request against main
+is:
+
+```bash
+uv run scripts/check-style-diff.sh origin/main...HEAD
+```
+
+The pre-commit hook runs the same script over your staged changes. Run it by
+hand with `uv run pre-commit run xorq-check-style` — without `--all-files`,
+which turns off the stash that makes the working tree match the index.
+
+To see every rule a single file breaks, including the ones the gate lets
+through, check the file directly:
+
+```bash
+uv run xorq-check-style python/xorq/expr/api.py
+```
+
+Suppress a single line with a trailing pragma:
+
+```python
+if ctx._protected_args:  # xorq-style: disable=protected-access
+```
+
+The pragma binds to the line it sits on, so a `ruff format` re-wrap can strand
+it on the wrong one. The changed-lines gate catches that, because the re-wrap
+puts the line back in the diff.
 
 ## Module and import conventions
 
@@ -120,6 +198,17 @@ module it tested. State the ratio at the rule it justifies, once. Never in a tes
 docstring, where the assertion is already the specification and a count is a
 claim nothing checks. If a number has to be exact, compute it rather than write
 it down.
+
+**Don't claim parity in prose.** A comment saying one thing "mirrors" another
+asserts a property nothing enforces, and the two drift while the comment goes on
+insisting they haven't: the pre-commit style hook claimed to mirror the CI gate
+in the same commit that gave it neither the gate's `core.quotepath=false` nor
+its `pipefail`. This holds for configuration as much as for code — a path list
+or a pinned version copied into a second file rots the way a count does. Make
+them one thing both callers run; failing that, write the test that reads both
+and compares, and have the comment point at the test rather than assert the
+agreement. Where neither is possible, say what differs instead of claiming
+nothing does.
 
 ## Writing the commit
 
@@ -218,13 +307,13 @@ change is not present in PyPI.
 1. Ensure you're on upstream main: `git switch main && git pull`
 2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
 3. Create a branch that starts from the upstream main: `git switch --create=release-$version_number`
-4. Update the version number in `pyproject.toml`: `version = "$version_number"`
-5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.).
+4. Update the version number in `pyproject.toml`: `version = "$version_number"`, then run `uv lock` so xorq's own version is updated in `uv.lock`.
+5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.). The command prepends the new section above `## [Unreleased]`; move it below the `## [Unreleased]` / `### Details` block, matching prior releases.
 6. Create commit with a message denoting the release: `git add --update && git commit -m "release: $version_number"`.
-7. Push the new branch: `git push --set-upstream upstream "release-$version_number"`
+7. Push the new branch: `git push --set-upstream origin "release-$version_number"`
 8. Open a PR for the new branch `release-$version_number`
-9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `$version_number`
+9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `release-$version_number`
 10. Wait for all ci-pre-release tests to pass
 11. "Squash and merge" the PR
-12. Tag the updated main with `v$version_number` and push the tag: `git fetch && git tag v$version_number origin/main && git push --tags`
+12. Tag the updated main with `v$version_number` and push that tag alone: `git fetch origin && git tag v$version_number origin/main && git push origin v$version_number`. Not `git push --tags`, which publishes every local tag, including any local-only archive or backup tags.
 13. Create a [GitHub release](https://github.com/xorq-labs/xorq/releases/new) to trigger the publishing workflow.

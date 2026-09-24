@@ -10,6 +10,9 @@ project:
   resources:
     - llms.txt
     - llms-full.txt
+    # Served at /fonts/**; theme/xorq.scss and theme/header.html reference them
+    # with root-absolute URLs.
+    - fonts/**
 
 execute:
   mermaid: true
@@ -24,11 +27,13 @@ website:
   open-graph: true
   twitter-card: true
 
-  page-footer:
-    center: "This page is built with [Quarto](https://quarto.org/)."
+  # No page-footer key: the site footer is theme/footer.html (include-after-body),
+  # matching xorq.dev. The theme snippet's `page-footer: false` is rejected by
+  # Quarto's schema (the field must be a string), so the key is omitted instead.
 
   navbar:
-    logo: "images/xorq-light-mode-logo.png"
+    logo: "images/xorq-dark-mode-logo.png"
+    background: transparent
     align: center
     title: false
     collapse-below: lg
@@ -75,6 +80,7 @@ website:
         - href: how_to/cache_by_backend.qmd
         - href: how_to/switch_backends.qmd
         - href: how_to/compose_catalog_entries.qmd
+        - href: how_to/check_source_drift.qmd
 
     - id: tutorials
       title: "Tutorials"
@@ -241,23 +247,25 @@ website:
 
 format:
   html:
+    # Single dark theme, no light/dark toggle (xorq.scss hides it).
     theme:
-      dark:  ["darkly", "style/dark.scss"]
-      light: ["flatly", "style/light.scss"]
+      - theme/xorq.scss
+      - theme/homepage.scss
     toc: true
-    highlight-style:
-      light: github
-      dark: github-dark
-    code-copy: false
-    code-overflow: wrap
+    toc-title: "On this page"
+    smooth-scroll: true
+    highlight-style: github-dark
+    code-copy: true
+    code-overflow: scroll
     code-annotations: hover
     mermaid:
       theme: dark
     execute:
       eval: false  # Don't execute code blocks by default
-    include-in-header: 
+    include-in-header:
+      - "theme/header.html"
       - "style/google.html"
-      - "style/typography-spacing.html"
+    include-after-body: "theme/footer.html"
 
 quartodoc:
   package: xorq.api
