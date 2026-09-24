@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pickle
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 import pytest
@@ -15,6 +16,7 @@ import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.duckdb import Backend as DuckDBBackend
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog.drift import LeafReport, iter_leaf_reports, unchecked_leaves
@@ -52,6 +54,7 @@ from xorq.flight import FlightServer
 from xorq.flight.tests.test_server import make_flight_url
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.ibis_yaml.enums import ReadKwarg
+from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.writes import ParquetWriteThrough
 
@@ -76,10 +79,11 @@ def builds_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def con(tmp_path: Path) -> SqliteBackend:
+def con(tmp_path: Path) -> Iterator[SqliteBackend]:
     con = SqliteBackend().connect(str(tmp_path / "live.sqlite"))
     con.create_table("t", RECORDED.to_pandas())
-    return con
+    yield con
+    con.disconnect()
 
 
 @pytest.fixture
@@ -99,6 +103,20 @@ def world_leaf(world: tuple) -> tuple:
 
 def write_parquet(path: Path, table: pa.Table) -> None:
     table.to_pandas().to_parquet(path, index=False)
+
+
+def read_json(con: DuckDBBackend, path: Path, name: str, **kwargs: Any) -> ir.Table:
+    """A duckdb ``read_json`` recorded at ``a: int64``; it has no inference."""
+    return Read(
+        method_name="read_json",
+        name=name,
+        schema=xo.schema({"a": "int64"}),
+        source=con,
+        read_kwargs=make_read_kwargs(
+            con.read_json, str(path), table_name=name, **kwargs
+        ),
+        normalize_method=normalize_read_path_stat,
+    ).to_expr()
 
 
 def test_an_unchanged_world_refreshes_to_the_recorded_schema(world: tuple) -> None:
@@ -418,6 +436,25 @@ def test_refresh_replaces_a_declared_schema_with_inference(
     assert str(dict(read.read_kwargs)[ReadKwarg.schema]["a"]) == "int64"
 
 
+def test_a_schema_kwarg_bound_as_none_stays_unset(
+    tmp_path: Path, builds_dir: Path
+) -> None:
+    """duckdb's `read_json` binds `columns=None`, and cannot take a `Schema`."""
+    path = tmp_path / "t.json"
+    path.write_text('{"a": 1}\n')
+    build_path = build_expr(
+        read_json(xo.duckdb.connect(), path, "t"),
+        builds_dir=builds_dir,
+        relocate_reads=False,
+    )
+    path.write_text('{"a": 1, "c": 2.5}\n')
+
+    expr = refresh_build(build_path)
+    (read,) = walk_nodes(Read, expr)
+    assert dict(read.read_kwargs)[ReadKwarg.columns] is None
+    assert list(expr.execute()["c"]) == [2.5]
+
+
 def test_a_refresh_drops_a_stale_types_override(tmp_path: Path) -> None:
     path = tmp_path / "t.csv"
     RECORDED.to_pandas().to_csv(path, index=False)
@@ -485,6 +522,15 @@ def test_a_refresh_error_survives_a_process_boundary() -> None:
     assert "Field" in str(err)
 
 
+def test_a_refresh_error_over_a_validation_error_survives_a_process_boundary() -> None:
+    """ibis's `ValidationError`s overwrite `args`, so they cannot be unpickled."""
+    with pytest.raises(ValidationError) as excinfo:
+        ops.Mean(ops.Literal("x", dt.string))
+    error = SchemaRefreshError("Mean", excinfo.value)
+
+    assert str(pickle.loads(pickle.dumps(error))) == str(error)
+
+
 def test_every_unmatched_key_is_named_and_labeled(world_leaf: tuple) -> None:
     build_path, record, leaf = world_leaf
     _, profile_key, _, recorded = leaf_key(leaf, record)
@@ -522,22 +568,10 @@ def test_two_reads_of_one_path_that_disagree_are_refused(
     path = tmp_path / "t.json"
     path.write_text('{"a": 1}\n')
     con = xo.duckdb.connect()
-    recorded = xo.schema({"a": "int64"})
-
-    def read_json(name: str, **kwargs) -> ir.Table:
-        return Read(
-            method_name="read_json",
-            name=name,
-            schema=recorded,
-            source=con,
-            read_kwargs=make_read_kwargs(
-                con.read_json, str(path), table_name=name, **kwargs
-            ),
-            normalize_method=normalize_read_path_stat,
-        ).to_expr()
-
     build_path = build_expr(
-        read_json("nested").union(read_json("flat", maximum_depth=1)),
+        read_json(con, path, "nested").union(
+            read_json(con, path, "flat", maximum_depth=1)
+        ),
         builds_dir=builds_dir,
         relocate_reads=False,
     )

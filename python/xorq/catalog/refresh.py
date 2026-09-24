@@ -21,7 +21,13 @@ from xorq.catalog.drift import (
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf, join_read_path
 from xorq.common.exceptions import InternalError, SchemaRefreshError, XorqError
-from xorq.common.utils.graph_utils import OPAQUE_SPECS, _opaque_lookup, to_node
+from xorq.common.utils.graph_utils import (
+    OPAQUE_SPECS,
+    _opaque_lookup,
+    _require_expr_args_recorded,
+    _require_registered_if_expr_bearing,
+    to_node,
+)
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
 from xorq.expr.relations import (
     CachedNode,
@@ -103,6 +109,8 @@ def with_live_schema(node: Node, schema: Schema) -> Node:
     """``node`` carrying ``schema``, including a read's schema ``read_kwargs``.
 
     duckdb's ``types`` override can't be derived from a schema, so it is dropped.
+    A key recorded as ``None`` is a bound default, not an instruction (duckdb's
+    ``read_json`` binds ``columns=None``), so it stays unset.
     """
     if not isinstance(node, Read):
         return recreate(node, schema=schema)
@@ -110,7 +118,7 @@ def with_live_schema(node: Node, schema: Schema) -> Node:
     instructions = tuple(
         (key, schema)
         for key in RECORDED_SCHEMA_KEYS - {ReadKwarg.types}
-        if key in recorded
+        if recorded.get(key) is not None
     )
     read_kwargs = tuple(
         (key, value)
@@ -195,7 +203,12 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
             return rebuild(node, lambda: with_live_schema(node, live[key]))
         overrides = dict(kwargs or {})
         rebound = node
-        if (spec := _opaque_lookup(node, OPAQUE_SPECS)) is not None:
+        # `replace_nodes`'s tripwires: an unregistered Expr field would be
+        # skipped here and keep its stale schema silently.
+        if (spec := _opaque_lookup(node, OPAQUE_SPECS)) is None:
+            _require_registered_if_expr_bearing(node)
+        else:
+            _require_expr_args_recorded(node)
             for edge in spec.descend_edges:
                 sub = to_node(getattr(node, edge))
                 if (new := rewrite(sub)) is sub:

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import pickle
 from typing import TYPE_CHECKING, Any
 
 
@@ -70,10 +71,29 @@ class NormalizeMethodError(TranslationError):
     """A Read's normalize_method could not be resolved by name (see #2155)."""
 
 
+class RefreshCause(XorqError):
+    """A ``SchemaRefreshError`` cause that cannot be rebuilt from its ``args``.
+
+    ibis's ``ValidationError``s overwrite ``args`` with the op's arguments, so
+    unpickling one raises; its type name and text are what cross instead.
+    """
+
+    def __init__(self, type_name: str, text: str) -> None:
+        super().__init__(type_name, text)
+
+    @property
+    def type_name(self) -> str:
+        return self.args[0]
+
+    def __str__(self) -> str:
+        return self.args[1]
+
+
 class SchemaRefreshError(TranslationError):
     """An op that could not be rebuilt over a refreshed source (``catalog.refresh``).
 
-    Names the deepest failing op. Message built in ``__str__`` so it pickles.
+    Names the deepest failing op. Message built in ``__str__`` so it pickles; a
+    cause that does not round-trip is carried as a ``RefreshCause``.
     """
 
     def __init__(self, op_name: str, cause: Exception) -> None:
@@ -87,11 +107,22 @@ class SchemaRefreshError(TranslationError):
     def cause(self) -> Exception:
         return self.args[1]
 
+    def __reduce__(self) -> tuple:
+        op_name, cause = self.args
+        try:
+            pickle.loads(pickle.dumps(cause))
+        except Exception:
+            cause = RefreshCause(type(cause).__name__, str(cause))
+        return (type(self), (op_name, cause))
+
     def __str__(self) -> str:
         op_name, cause = self.args
+        type_name = (
+            cause.type_name if isinstance(cause, RefreshCause) else type(cause).__name__
+        )
         return (
             f"could not rebuild {op_name} against the refreshed sources: "
-            f"{type(cause).__name__}: {cause}"
+            f"{type_name}: {cause}"
         )
 
 
