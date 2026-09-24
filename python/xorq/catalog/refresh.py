@@ -12,18 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from xorq.catalog.drift import (
+    RECORDED_SCHEMA_KEYS,
     LeafReport,
     iter_leaf_reports,
     make_profile,
     unchecked_leaves,
 )
 from xorq.catalog.enums import LeafKind, Verdict
-from xorq.catalog.inspection import (
-    BuildRecord,
-    SourceLeaf,
-    dotted_name,
-    join_read_path,
-)
+from xorq.catalog.inspection import BuildRecord, SourceLeaf, join_read_path
 from xorq.common.exceptions import InternalError, SchemaRefreshError, XorqError
 from xorq.common.utils.graph_utils import OPAQUE_SPECS, _opaque_lookup, to_node
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
@@ -80,8 +76,7 @@ def source_identity(node: Node) -> tuple | None:
     """
     match type(node).__name__:
         case LeafKind.DATABASE_TABLE:
-            namespace = node.namespace
-            name = dotted_name(namespace.catalog, namespace.database, node.name)
+            name = node.to_expr().get_name()
         case LeafKind.READ:
             # Same fallback as `SourceLeaf`.
             path = dict(node.read_kwargs).get(ReadKwarg.hash_path) or node.name
@@ -114,7 +109,7 @@ def with_live_schema(node: Node, schema: Schema) -> Node:
     recorded = dict(node.read_kwargs)
     instructions = tuple(
         (key, schema)
-        for key in (ReadKwarg.schema, ReadKwarg.columns)
+        for key in RECORDED_SCHEMA_KEYS - {ReadKwarg.types}
         if key in recorded
     )
     read_kwargs = tuple(
@@ -167,9 +162,12 @@ def recreate_over(node: Node, overrides: dict) -> Node:
     return recreate(node, **revalidate_flight(node, overrides))
 
 
-def kinds_label(kinds: Iterable[str]) -> str:
-    """Distinct ``kinds``, in order, as one ``op_name``."""
-    return ", ".join(dict.fromkeys(str(kind) for kind in kinds))
+def refuse(offenders: Iterable[tuple[str, str]], separator: str = ", ") -> None:
+    """Raise one ``SchemaRefreshError`` for ``(kind, detail)`` pairs, labeled
+    with their distinct kinds in order."""
+    kinds, details = zip(*offenders)
+    op_name = ", ".join(dict.fromkeys(map(str, kinds)))
+    raise SchemaRefreshError(op_name, LookupError(separator.join(details)))
 
 
 def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
@@ -213,9 +211,10 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
 
     refreshed = rewrite(to_node(expr)).to_expr()
     if unmatched := [key for key in live if key not in matched]:
-        names = ", ".join(name for (_, _, name, _) in unmatched)
-        cause = LookupError(f"{names} matched no source of the loaded expression")
-        raise SchemaRefreshError(kinds_label(kind for (kind, *_) in unmatched), cause)
+        refuse(
+            (kind, f"{name} matched no source of the loaded expression")
+            for (kind, _, name, _) in unmatched
+        )
     return refreshed
 
 
@@ -238,22 +237,24 @@ def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
         next(iter(by_live.values())) for by_live in found.values() if len(by_live) > 1
     ]
     if uncomparable or ambiguous:
-        details = "; ".join(
+        refuse(
             [
-                f"{report.leaf.name} is {report.verdict}"
-                + (f": {report.error}" if report.error else "")
+                (
+                    report.leaf.kind,
+                    f"{report.leaf.name} is {report.verdict}"
+                    + (f": {report.error}" if report.error else ""),
+                )
                 for report in uncomparable
             ]
             + [
-                f"{report.leaf.name} is read more than once, and its reads "
-                "disagree on its live schema"
+                (
+                    report.leaf.kind,
+                    f"{report.leaf.name} is read more than once, and its reads "
+                    "disagree on its live schema",
+                )
                 for report in ambiguous
-            ]
-        )
-        cause = LookupError(details)
-        raise SchemaRefreshError(
-            kinds_label(report.leaf.kind for report in (*uncomparable, *ambiguous)),
-            cause,
+            ],
+            separator="; ",
         )
     return {
         key: live
@@ -266,9 +267,10 @@ def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
 def check_refreshable(record: BuildRecord) -> None:
     """Raise, naming each, if ``record`` has external sources the sweep skips."""
     if unchecked := unchecked_leaves(record):
-        names = ", ".join(leaf.name for leaf in unchecked)
-        cause = LookupError(f"{names} cannot be probed without writing to them")
-        raise SchemaRefreshError(kinds_label(leaf.kind for leaf in unchecked), cause)
+        refuse(
+            (leaf.kind, f"{leaf.name} cannot be probed without writing to it")
+            for leaf in unchecked
+        )
 
 
 def refresh_build(

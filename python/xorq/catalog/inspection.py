@@ -32,6 +32,7 @@ See xorq-labs/xorq#2293 for the epic this feeds.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -267,11 +268,6 @@ def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
     return tuple(map(tuple, entries))
 
 
-def dotted_name(*parts: str | None) -> str:
-    """A table's qualified name: its non-empty namespace parts and name, dotted."""
-    return ".".join(part for part in parts if part)
-
-
 def join_read_path(path: Any) -> str:
     """A read's recorded path as one string: a multi-path read joined by commas."""
     return ", ".join(map(str, path)) if isinstance(path, (list, tuple)) else str(path)
@@ -340,7 +336,8 @@ class SourceLeaf:
         match kind:
             case LeafKind.DATABASE_TABLE:
                 table = get_node_key(node_ref, node_def, NodeKey.table)
-                name = dotted_name(catalog, database, table)
+                # Spelled as `Table.get_name` spells the loaded table.
+                name = ".".join(filter(None, (catalog, database, table)))
             case LeafKind.READ:
                 # `read_kwargs["table_name"]` is not the reliable spelling:
                 # `make_read_kwargs` fills it by binding the backend method's
@@ -402,7 +399,11 @@ def iter_source_leaves(doc: dict) -> tuple[SourceLeaf, ...]:
 
 
 def check_document(doc: Any, dump_file: DumpFiles, empty_ok: bool = False) -> dict:
-    """``doc``, a parsed ``dump_file``, checked to be a document."""
+    """``doc``, a parsed ``dump_file``, checked to be a mapping.
+
+    Otherwise it would reach the ``BuildRecord`` validators as an unnamed
+    ``TypeError``. ``empty_ok``: a record with no profiles is empty.
+    """
     if doc is None and empty_ok:
         return {}
     if not isinstance(doc, dict):
@@ -410,20 +411,6 @@ def check_document(doc: Any, dump_file: DumpFiles, empty_ok: bool = False) -> di
             f"{dump_file} did not parse to a document, got {type(doc).__name__}"
         )
     return doc
-
-
-def read_document(
-    build_zip: BuildZip, dump_file: DumpFiles, empty_ok: bool = False
-) -> dict:
-    """One YAML member of ``build_zip``, parsed, named on failure.
-
-    An empty or non-mapping member would otherwise reach the ``BuildRecord``
-    validators as an unnamed ``TypeError``. ``empty_ok`` allows the one member
-    that is legitimately empty, a record with no profiles.
-    """
-    return check_document(
-        build_zip.read_dump_file(dump_file, yaml12.parse_yaml), dump_file, empty_ok
-    )
 
 
 @frozen
@@ -497,27 +484,30 @@ class BuildRecord:
         return profile
 
     @classmethod
-    def from_build_zip(cls, build_zip: BuildZip) -> BuildRecord:
+    def from_reader(cls, read: Callable[[DumpFiles], Any]) -> BuildRecord:
+        """The record from ``read(dump_file)``, the parsed contents of each file."""
         (expr_doc, profiles) = (
-            read_document(
-                build_zip, dump_file, empty_ok=dump_file == DumpFiles.profiles
+            check_document(
+                read(dump_file), dump_file, empty_ok=dump_file == DumpFiles.profiles
             )
             for dump_file in (DumpFiles.expr, DumpFiles.profiles)
         )
         return cls(expr_doc=expr_doc, profiles=profiles)
 
     @classmethod
+    def from_build_zip(cls, build_zip: BuildZip) -> BuildRecord:
+        return cls.from_reader(
+            lambda dump_file: build_zip.read_dump_file(dump_file, yaml12.parse_yaml)
+        )
+
+    @classmethod
     def from_build_dir(cls, build_dir: str | Path) -> BuildRecord:
         """The record of an unzipped build, as ``build_expr`` leaves it."""
-        (expr_doc, profiles) = (
-            check_document(
-                yaml12.parse_yaml((Path(build_dir) / dump_file).read_text()),
-                dump_file,
-                empty_ok=dump_file == DumpFiles.profiles,
+        return cls.from_reader(
+            lambda dump_file: yaml12.parse_yaml(
+                (Path(build_dir) / dump_file).read_text()
             )
-            for dump_file in (DumpFiles.expr, DumpFiles.profiles)
         )
-        return cls(expr_doc=expr_doc, profiles=profiles)
 
     @classmethod
     def from_catalog_entry(cls, catalog_entry: CatalogEntry) -> BuildRecord:
