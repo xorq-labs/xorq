@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790254642094,
+  "lastUpdate": 1790255855290,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -40530,6 +40530,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.14185488041473293",
             "extra": "mean: 1.5261759296000037 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c52dd289904bd515e7eff9572d97a4eee23cce50",
+          "message": "fix(cache): give each cache writer its own temp path (#2329)\n\n## What\n\nTwo processes caching the same expression derive the same cache key.\n`ParquetStorage.put()` derived its temp path from that key alone, so\nboth opened and truncated the same `<key>.parquet.tmp`. Their writes\ninterleaved; the later finisher renamed its footer over the mixed body\nand **returned normally**, so the job reported success. `exists()` then\nserved that artifact as a cache hit forever, because it only checked\nthat the path existed.\n\n`GCStorage` had the identical defect, streaming straight into the final\nobject name with `exists()` a bare `fs.exists`.\n\nThis PR makes both storages stage every write under a name unique to the\nwriter, verify it, and only then publish — and makes `exists()` refuse\nan artifact it cannot read.\n\n## Evidence\n\nReproduced against local Postgres — no Redshift involved — in **5 of 8\nruns**:\n\n```\nxorq_cache-racekey.parquet: footer claims 200000 rows in 40 row group(s);\nreadable 0  -> CORRUPT\nstorage.exists('xorq_cache-racekey') -> True\n```\n\nThe user who hit this diagnosed it themselves and designed a 41-minute\nrun around it, explicitly declining to start a dependent job because it\nwrote the same cache key. Two ~176MB artifacts were lost, each with an\nintact footer over an unreadable body.\n\n| | before | after |\n|---|---|---|\n| race harness | 5 of 8 CORRUPT | 12 of 12 OK |\n| `test_concurrent_writers_on_one_key_do_not_corrupt` | 5 of 5 FAILED |\n6 of 6 pass |\n\nThe failure direction was checked by reverting only the temp-path line\nand re-running, rather than assuming the test was meaningful.\n\n## The fix\n\n**Per-writer temp path.** `<key>.parquet.<pid>.<uuid4hex>.tmp` locally,\n`<object>.<pid>.<uuid4hex>.tmp` on GCS. This is the corruption fix; it\nmakes the publish atomic in the sense the code already assumed.\nEverything below is the machinery that keeps it honest.\n\n**Verify before publishing, never after.** `verify_parquet` reads every\nrow group back and cross-checks `streamed == footer == readable`, then\nrenames. A full read rather than a footer peek, because the corruption\npresents as an intact footer over undecodable pages — a footer check\npasses on exactly the bad file. It reads in 8192-row batches so it never\nneeds more memory than the write it checks (`iter_batches` defaults to\n65536 rows over every column, which can exceed anything the writer\nheld).\n\n**`put()` leaves nothing behind.** The temp file is removed on any\n`BaseException`; on GCS that matters because an orphan bills. A write\nrejected by verification is *preserved*, moved to `<name>.corrupt`\nrather than unlinked — the error names a path, so that path has to still\nbe there when someone looks.\n\n**Three questions, not one.** A corrupt artifact must stop being\nservable while staying droppable, and one boolean cannot answer both.\nStorage now exposes `is_present` (\"is there anything here to drop\"),\n`check_integrity` (\"raise if what is here cannot be read\") and `exists`\n(\"is there a hit here to serve\"). `Cache.drop` moved to `is_present` —\npreviously a corrupt artifact was unreachable through the public API and\n`rm` was the only route — and `Cache.get` calls `check_integrity` before\nraising `KeyError`, so a damaged key reports as damaged rather than\nabsent.\n\n**`exists()` refuses what it cannot read.** A backstop for artifacts\nwritten by older versions or damaged since; verify-on-write is the\nactual guarantee, so treat silence here as \"plausible\", not \"checked\".\n`ParquetTTLStorage` routes through `super().exists()` rather than\noverriding with a bare `path.exists() and satisfies_ttl()`, which would\nhave gone on serving exactly these artifacts for its whole TTL window.\nWhen the backstop fires it **warns** — recomputing over the damage is\nthe right recovery, but done silently it is indistinguishable from an\nordinary miss, which is why the reported corruption went undiagnosed for\nas long as it did.\n\n**Only corruption counts as corruption.** `exists()` turns corruption\ninto a miss, and a miss recomputes and then overwrites — so anything\nmisfiled as corruption costs a sound artifact, silently. pyarrow reports\ndamage and machine trouble through the same channel, so the\ndiscriminator was established by measurement (pyarrow 21.0.0) and is a\npositive allow-list:\n\n| failure | raises | `ArrowException` | treated as |\n|---|---|---|---|\n| garbage / empty file | `ArrowInvalid` | yes | corrupt |\n| truncated body | bare `OSError`, `errno is None` | no | corrupt |\n| failed malloc | `ArrowMemoryError` | yes | **propagates** |\n| cancellation | `ArrowCancelled` | yes | **propagates** |\n| EMFILE | `OSError`, errno 24 | no | propagates |\n| permission change | `PermissionError`, errno 13 | no | propagates |\n\nTwo traps here, both measured rather than assumed. `pa.ArrowIOError is\nOSError` — a plain alias — so the exception type alone is not a\ndiscriminator and the errno is. And `ArrowException` is the whole\nfamily: `ArrowMemoryError` and friends are members, and every one of\nthem describes this machine right now rather than the bytes on disk.\nRead-back is the memory-hungry half of a cache write, which makes\n`ArrowMemoryError` the likely misfire, not an exotic one.\n\n**`_reap_stale_tmp()`**, age-gated at 24h so it cannot touch a write\nstill streaming, matching only our own temp shape rather than every\n`*.tmp` in the directory (`ParquetWriteThrough` stages\n`<name>.parquet.<random>.tmp` beside its target), and running once per\ndirectory per process rather than on every `put`.\n\nPlus `CacheIntegrityError`, a new `test_storage_integrity.py`, and a new\n`test_gcloud_utils.py`.\n\n## Behavior changes\n\n> [!WARNING]\n> **`exists()` can raise `OSError` where it previously returned\n`False`.** `Cache.key_exists` is called from `expr/relations.py:252` and\n`:260`, so an OS-level failure on a cache-hit decision is now loud\ninstead of a silent recompute-and-overwrite.\n>\n> **`Cache.get` raises `CacheIntegrityError` on a corrupt artifact where\nit previously raised `KeyError`.** A caller doing `try: cache.get(expr)\nexcept KeyError: recompute()` no longer catches it. Documented in the\n`Cache.get` docstring, with the migration; `Cache.drop` is the better\nanswer, since it clears the artifact rather than papering over it.\n\n## Cost\n\nVerification doubles the cost of a cache write, so it is optional:\n`options.cache.verify_writes` / `XORQ_CACHE_VERIFY_WRITES`, default on.\nAn unverified write is how the reported corruption reached disk, so the\ndefault stays on.\n\nThe cost is not symmetric across storages. Measured on an 18.7MB /\n2,000,000-row artifact, counting bytes served through a wrapped file\nobject:\n\n```\nfooter check only        0.07 MB    0.4% of file   1 read,  3 seeks\nfull read-back          19.58 MB  104.7% of file   9 reads, 6 seeks\n```\n\nLocally those reads come off a page cache still warm from the write.\nAgainst a bucket they are range GETs, on top of an `fs.mv` that gcsfs\nimplements as copy-then-delete. Splitting the knob so remote writes\nverify by footer is filed as `zwjb`, not done here.\n\n## Two leads killed by test, recorded so they are not re-chased\n\n- **An interrupted write does not publish a bad file.**\n`pq.ParquetWriter.__exit__` does call `close()` on exception, so a\nfooter is written — but that file is short, internally consistent and\nfully readable, and the rename is skipped, so `exists()` stays False. It\nonly ever leaked orphaned temp files, which are now reaped.\n- **Row-group shape is not the defect.** A clean single-writer cache of\n2,500,000 rows / 182MB wrote 26 row groups, all readable, in 11s.\n\n## Test gate\n\n23 tests in `caching/tests/test_storage_integrity.py` and 5 in\n`common/utils/tests/test_gcloud_utils.py`; 49 pass across `caching/`,\n`test_gcloud_utils.py`, `expr/tests/test_cache_pin.py` and\n`backends/datafusion/tests/test_cache.py`.\n\nThe cache-touching suites were also run on this branch **and** on\npristine `main`, full capture:\n\n| | passed | errors |\n|---|---|---|\n| this branch | 398 | 5 |\n| pristine `main` | 392 | 5 |\n\nThe 5 errors are identical between the two runs — all pre-existing\nPostgres fixture-setup errors on `main`.\n\nFailure direction was checked for the discrimination work too: reverting\nthe allow-list to `ArrowException` and removing the warning call fails\nexactly the five tests that cover them, and passes the rest. The\ntruncation and garbage-file cases pass under the allow-list, which is\nwhat establishes that `ArrowInvalid` covers both real corruption\nsignatures.\n\n## Known limitations\n\n- **The Postgres-backed cache tests do not run in this environment.**\n`test_postgres_cache_invalidation`, `test_postgres_parquet_snapshot`,\n`test_postgres_snapshot` and `test_source_caching[astronauts|diamonds]`\nare the 5 pre-existing errors above — and they are the tests that would\nmost exercise this change. Verification rests on the other suites plus\nthe new tests.\n- **The GCS path is verified against an in-memory fsspec filesystem\nonly, never a real bucket.** `MemoryFileSystem.mv` is a dict\nreassignment, i.e. *more* atomic than POSIX rename, so the one property\nthe remote fix depends on is the one property those tests structurally\ncannot exercise. `etp4` carries the credentialed-run requirement.\n- **There is no reaper for orphaned remote `.tmp` objects.** A\nhard-killed process leaves a full-size object on the bucket and it\nbills. Listing a bucket per write was judged too expensive; a lifecycle\nrule is the likely answer.\n- **`GCStorage` builds `gcsfs.GCSFileSystem()` with no arguments**, and\ngcsfs 2025.7.0 defaults to `consistency='none'`, so uploads are not\nintegrity-checked at all. Tracked in `zwjb`.\n- **Legacy orphans are never reaped.** The reaper matches only the\nper-writer shape, so pre-existing `<key>.parquet.tmp` files — including\nthe 359,893,078-byte one in the original report — need a one-time manual\n`rm`. Decided deliberately; recorded in `29qx`.\n- **`.corrupt` quarantine files are never collected** — deliberate,\nsince they are the evidence, but unbounded.\n- **`exists()` opens the parquet footer on every hit decision**, giving\nback the open that `get()`'s schema forwarding was written to save.\nJudged not worth re-plumbing; the comment in `storage.py` records it so\nthe earlier intent is not lost.\n\n## Merge order\n\n**Unblocked.** This PR's five `test_gcloud_utils.py` tests are\ncredential-free but carry `pytest.mark.gcs`, which `RESERVED_MARKERS`\ndeselects from `core` — so they needed a GCS job that actually collects\nthem. #2334 merged on 2026-09-24 and re-pointed that job from a path\nthat had not existed for nine months to `-m gcs python/xorq/`, which\npicks them up.\n\nNothing else in the open set constrains this one. It merges cleanly onto\ncurrent `main`, and cleanly in either order against the Redshift stack\n(#2332 with #2333/#2335/#2336 merged into it) — verified with `git\nmerge-tree` both ways round. #2335 is a cache PR but works at the dasher\nfreshness-probe layer and touches no storage class; its only shared file\nwith this PR is `common/exceptions.py`, where the two insertions are\n~150 lines apart.\n\n## Tracker\n\nCloses `ws:cache-integrity`: `52yv` (the race), `0f76`\n(validate-on-hit), `as9d` (the same defect on GCS), `29qx` (orphan\nreaping), `x7z3` (coverage). Filed and not done here: `zwjb` (split the\nverify knob by storage cost), `etp4` (run the GCS suite against a real\nbucket on release candidates).\n\n---\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nhttps://claude.ai/code/session_01AsLXzxRUTpJNxhbZHymtZG\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-24T09:11:39-04:00",
+          "tree_id": "7cf1fe2c73ede6413d43d300cb2870d47bd48333",
+          "url": "https://github.com/xorq-labs/xorq/commit/c52dd289904bd515e7eff9572d97a4eee23cce50"
+        },
+        "date": 1790255851741,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.960642780225248,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008006752752374424",
+            "extra": "mean: 125.61799688890257 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.5739321708293668,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05030052868854792",
+            "extra": "mean: 388.5106263999887 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.765407863117631,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13712900424617944",
+            "extra": "mean: 1.3064929800000187 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.491798715477966,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0487336172975373",
+            "extra": "mean: 401.31652439999925 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.4307679028818474,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04670775002823859",
+            "extra": "mean: 411.3926298000024 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.858022319605189,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03836049253044363",
+            "extra": "mean: 349.89229900000964 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 139.09905395737135,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00816335145488476",
+            "extra": "mean: 7.189121504064741 msec\nrounds: 246"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.580840537101738,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14068670712576803",
+            "extra": "mean: 279.26404140000614 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 14.278005590496104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014589876147628576",
+            "extra": "mean: 70.03779299999938 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 11.983649412871243,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01323567990531641",
+            "extra": "mean: 83.44703400000445 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 9.806279008589607,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008706688118963874",
+            "extra": "mean: 101.97547909090397 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.028905221741453,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008059946172085115",
+            "extra": "mean: 142.2696662499945 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 5.023963253875257,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01255890488602259",
+            "extra": "mean: 199.04604183333655 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.651437974094931,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010582318574534132",
+            "extra": "mean: 214.9872804000097 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.345235892358017,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06903317105069497",
+            "extra": "mean: 426.39633960000083 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.350665818310219,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01156974958797283",
+            "extra": "mean: 298.4481456000026 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.862919453565576,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11719116865793641",
+            "extra": "mean: 536.7918608000082 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 2.0211935532444074,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0701905075889413",
+            "extra": "mean: 494.75716879999254 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5314612446623337,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10272300554755726",
+            "extra": "mean: 652.9711434000319 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5765622564201958,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13198672580790052",
+            "extra": "mean: 634.29147559998 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2949022589581594,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15405697533288354",
+            "extra": "mean: 772.2590589999982 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.2098695094587437,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10410455161664701",
+            "extra": "mean: 826.5354173999867 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.0067121896992586,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12549109198544725",
+            "extra": "mean: 993.3325634000084 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.6150646347646317,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0988927842572979",
+            "extra": "mean: 1.625845388399989 sec\nrounds: 5"
           }
         ]
       }
