@@ -1,4 +1,4 @@
-# ADR-XXXX: Make the Columnar Redshift driver optional via a psycopg baseline, and ship it as a repackaged wheel
+# ADR-2332: Make the Columnar Redshift driver optional via a psycopg baseline, and ship it as a repackaged wheel
 
 - **Status:** Proposed
 - **Date:** 2026-09-03
@@ -205,14 +205,15 @@ a build.
 ## Implementation status
 
 This ADR is `Proposed`, and the consequences below are **targets, not
-descriptions**. As of this revision the psycopg baseline is real for every path
-this ADR names — connect, DDL, introspection, query and ingest — and what
-remains unbuilt is the accelerator and its packaging:
+descriptions**. As of this revision the psycopg baseline is written for every
+path this ADR names — connect, DDL, introspection, query and ingest — and what
+remains unbuilt is the accelerator and its packaging. "Written" is deliberately
+weaker than "reachable": see the second caveat below.
 
 | Decision | Status |
 |---|---|
 | psycopg baseline for connect/DDL/introspection/query | **implemented** |
-| `redshift` extra so the backend installs with `uv sync` | **not implemented** — no extra exists; `boto3` still undeclared |
+| `redshift` extra so the backend installs with `uv sync` | **partially implemented** — the extra exists and mirrors `postgres`; `boto3` still undeclared |
 | psycopg `read_record_batches` (the ingest baseline) | **implemented** — `CREATE TABLE` + parameterised `INSERT`, dispatched on driver availability |
 | `to_pyarrow_batches` discriminating driver-absent from auth-failed | **implemented** — availability is decided before connecting, so a rejected credential propagates |
 | `xorq-adbc-driver-redshift` wheels and the CI that asserts payload presence | **not implemented** — referenced nowhere in `pyproject.toml` or the workflows |
@@ -223,6 +224,18 @@ No Columnar driver is packaged yet, so the only ADBC driver that can satisfy the
 check today is `adbc_driver_postgresql` — the untested alternative above. Until
 a live endpoint settles that, "accelerator available" is a statement about the
 environment rather than about Redshift.
+
+A second caveat, and the sharper one: **no supported install reaches the psycopg
+baseline.** The `redshift` extra mirrors `postgres`, which pins
+`adbc-driver-postgresql` alongside `psycopg`, so `_adbc_unavailable_reason()`
+returns `None` for any credentialed install and the psycopg branch is dead code
+there. `postgres/__init__.py` and `postgres_utils.py` also import ADBC at module
+scope, so importing the backend requires the driver whatever the extras say.
+
+Stated, not resolved. The fix is either an extra that installs psycopg without
+ADBC, or dropping the fallback — a decision this ADR does not make. The dispatch
+seam is written so either answer changes the extras or
+`_adbc_unavailable_reason()`, not the Arrow paths.
 
 ## Consequences
 

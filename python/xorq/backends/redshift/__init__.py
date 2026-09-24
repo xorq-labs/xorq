@@ -7,6 +7,7 @@ import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+import xorq.common.exceptions as exc
 import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.redshift.compiler import compiler
@@ -19,7 +20,6 @@ logger = get_logger(__name__)
 
 __all__ = [
     "Backend",
-    "connect",
 ]
 
 # Redshift listens on 5439; the postgres backend defaults to 5432.
@@ -29,6 +29,13 @@ DEFAULT_PORT = 5439
 # exactly the same set: whichever branch runs must be an implementation detail,
 # and it stops being one the moment the two disagree about what ``mode`` means.
 INGEST_MODES = ("create", "append", "replace", "create_append")
+
+# Modes that append to a table this call did not create, so ``temporary`` has
+# nothing to apply to.
+APPEND_ONLY_MODES = ("append", "create_append")
+
+# Rows per ``executemany`` for a ``pa.Table``, which carries no batch size.
+INGEST_CHUNKSIZE = 10_000
 
 
 class Backend(PostgresBackend):
@@ -43,23 +50,9 @@ class Backend(PostgresBackend):
     name = "redshift"
     compiler = compiler
 
-    # Inherited from the postgres backend, restated so this backend's exposed
-    # secrets are visible here and stay in step with the
-    # ``con_name_to_secret_keys`` mirror, which is compared for equality by
-    # ``test_declared_secret_keys_are_mirrored``. Declaring nothing would not
-    # skip that test -- ``getattr`` finds the inherited tuple -- and declaring
-    # ``()`` would narrow ``check_for_exposed_secrets`` to just ``password``,
-    # letting a literal ``sslkey`` or ``passfile`` through where postgres
-    # raises.
-    _secret_keys = (
-        "password",
-        "sslcert",
-        "sslkey",
-        "sslrootcert",
-        "sslcrl",
-        "options",
-        "passfile",
-    )
+    # ``_secret_keys`` is inherited, not restated: a literal copy drifts from
+    # the ``con_name_to_secret_keys`` mirror, and ``()`` would narrow
+    # ``check_for_exposed_secrets`` to just ``password``.
 
     # Deliberately empty. The postgres backend exposes ``connect_env`` and
     # ``connect_examples``, and both are inherited by a plain subclass:
@@ -153,11 +146,13 @@ class Backend(PostgresBackend):
 
         Note what is *not* settled: whether ``adbc_driver_postgresql`` works
         against Redshift at all is untested -- it is recorded as an alternative
-        in ADR-redshift-psycopg-baseline-adbc-optional, needs a live endpoint,
-        and may fail on ``pg_catalog`` introspection the way ``CURRENT_SCHEMA``
-        did. So a "no reason" answer here means the accelerator is *installed
-        and credentialed*, not that it is known to work.
+        in ADR-2332, needs a live endpoint, and may fail on ``pg_catalog``
+        introspection the way ``CURRENT_SCHEMA`` did. So a "no reason" answer
+        here means the accelerator is *installed and credentialed*, not that it
+        is known to work.
         """
+        # Uncached: the tests simulate an absent driver by patching
+        # ``find_spec``, and a cached answer would outlive the patch.
         if importlib.util.find_spec("adbc_driver_postgresql") is None:
             return "adbc_driver_postgresql is not installed"
         if self._con_kwargs.get("password") is None:
@@ -173,8 +168,6 @@ class Backend(PostgresBackend):
         swallow a rejected temporary credential and quietly downgrade to
         psycopg -- reporting nothing while the IAM path is broken.
         """
-        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
-
         if (reason := self._adbc_unavailable_reason()) is not None:
             logger.debug(
                 "ADBC accelerator unavailable; using the psycopg baseline",
@@ -182,6 +175,12 @@ class Backend(PostgresBackend):
                 reason=reason,
             )
             return None
+
+        # Below the probe: ``postgres_utils`` imports
+        # ``adbc_driver_postgresql`` at module scope, so an import above it
+        # raises in exactly the case the probe exists to detect.
+        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
+
         return PgADBC(self).get_conn()
 
     def read_record_batches(
@@ -218,6 +217,30 @@ class Backend(PostgresBackend):
             raise ValueError("table_name is required")
         if mode not in INGEST_MODES:
             raise ValueError(f"mode must be one of {INGEST_MODES}, got {mode!r}")
+        if temporary and mode in APPEND_ONLY_MODES:
+            # ``append`` emits no ``CREATE`` for the psycopg branch to mark
+            # while the ADBC branch marks unconditionally; ``create_append``
+            # would render ``CREATE TEMPORARY TABLE IF NOT EXISTS``, which
+            # resolves against ``pg_temp`` and shadows a permanent table.
+            raise ValueError(
+                f"temporary=True is not supported with mode={mode!r}: "
+                f"{APPEND_ONLY_MODES} append to a table this call does not "
+                "create, so there is nothing for temporary to apply to"
+            )
+
+        # Above the dispatch so both branches reject it alike. Unguarded, a
+        # null column renders as the column type ``NULL``, which no server
+        # accepts.
+        null_columns = [
+            name
+            for name, dtype in sch.Schema.from_pyarrow(record_batches.schema).items()
+            if dtype.is_null()
+        ]
+        if null_columns:
+            raise exc.XorqTypeError(
+                f"{self.name} cannot yet reliably handle `null` typed columns; "
+                f"got null typed columns: {null_columns}"
+            )
 
         if (reason := self._adbc_unavailable_reason()) is None:
             return super().read_record_batches(
@@ -276,7 +299,9 @@ class Backend(PostgresBackend):
         tables. Which branch runs has to stay an implementation detail.
         """
         if isinstance(record_batches, pa.Table):
-            record_batches = record_batches.to_reader()
+            # Unbounded, a one-chunk table becomes one batch holding every row,
+            # materialised again as the tuples ``executemany`` binds.
+            record_batches = record_batches.to_reader(max_chunksize=INGEST_CHUNKSIZE)
 
         schema = sch.Schema.from_pyarrow(record_batches.schema)
         quoted = self.compiler.quoted
@@ -310,11 +335,5 @@ class Backend(PostgresBackend):
                 cursor.execute(statement.sql(self.dialect))
             for batch in record_batches:
                 if batch.num_rows:
-                    cursor.executemany(insert, list(zip(*batch.to_pydict().values())))
+                    cursor.executemany(insert, zip(*batch.to_pydict().values()))
         return self.table(table_name)
-
-
-def connect(**kwargs):
-    con = Backend()
-    Backend.connect(**kwargs)
-    return con

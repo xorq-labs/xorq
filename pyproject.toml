@@ -144,6 +144,15 @@ postgres = [
     "psycopg[binary]>=3.2.0; python_version < '3.13'",
     "psycopg[binary]>=3.2.2; python_version >= '3.13'",  # 3.2.2 is first psycopg-binary with cp313 wheels
 ]
+redshift = [
+    # Mirrors postgres: the backend subclasses it, and xorq.backends.postgres
+    # imports adbc_driver_manager at module scope, so both drivers are needed
+    # to import the backend at all. Whether a psycopg-only extra should exist
+    # is open; this one only stops the entry point installing with no extra.
+    "adbc-driver-postgresql>=1.4.0",
+    "psycopg[binary]>=3.2.0; python_version < '3.13'",
+    "psycopg[binary]>=3.2.2; python_version >= '3.13'",  # 3.2.2 is first psycopg-binary with cp313 wheels
+]
 sqlite = [
     "adbc-driver-sqlite>=1.4.0",
 ]

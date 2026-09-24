@@ -34,11 +34,13 @@ if TYPE_CHECKING:
 
 DEFAULT_CHUNKSIZE = 10_000
 
-# Backends whose read_parquet/read_csv route through ADBC read_record_batches
-# (so they accept ``mode="replace"`` to avoid "relation already exists" errors).
+# Backends whose read_parquet/read_csv route through a read_record_batches
+# taking a ``mode`` (so they accept ``mode="replace"`` to avoid "relation
+# already exists" errors). Membership is about that kwarg, not about ADBC:
+# redshift qualifies on both its branches.
 # Snowflake is excluded: its read_record_batches is ADBC, but read_parquet/read_csv
 # are native (kwargs become FILE_FORMAT options, where ``mode`` is invalid).
-_ADBC_BACKENDS = frozenset(("sqlite", "postgres", "databricks"))
+_ADBC_BACKENDS = frozenset(("sqlite", "postgres", "databricks", "redshift"))
 
 # Backend-specific parameter names for the file path argument.
 _PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
