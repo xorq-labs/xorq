@@ -392,20 +392,90 @@ def test_a_multi_path_read_refreshes(tmp_path: Path, builds_dir: Path) -> None:
     assert list(refresh_build(build_path).execute()["c"]) == [1.5, 2.5, 1.5, 2.5]
 
 
-def test_a_bundled_read_keeps_its_recorded_schema(
-    tmp_path: Path, builds_dir: Path
+@pytest.fixture
+def duckdb_con() -> Iterator[Any]:
+    con = xo.duckdb.connect()
+    yield con
+    con.disconnect()
+
+
+def bundled_shape(shape: str, path: Path, con: Any) -> ir.Table:
+    """One shape a bundled source takes, or all three in one build."""
+    con.create_table("dt", RECORDED)
+    shapes = {
+        "memtable": lambda: xo.memtable(RECORDED.to_pandas(), name="mt"),
+        "memory-backend-table": lambda: con.table("dt"),
+        "relocated-read": lambda: deferred_read_parquet(path, con, table_name="r"),
+    }
+    if shape == "all":
+        return toolz.reduce(ir.Table.union, (make() for make in shapes.values()))
+    return shapes[shape]()
+
+
+@pytest.mark.parametrize(
+    "shape",
+    tuple(
+        pytest.param(shape, id=shape)
+        for shape in ("memtable", "memory-backend-table", "relocated-read", "all")
+    ),
+)
+def test_a_bundled_only_build_refreshes_like_a_plain_load(
+    shape: str,
+    tmp_path: Path,
+    builds_dir: Path,
+    duckdb_con: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Its bytes are in the archive, so it is drift-exempt and never probed."""
+    """Drift-exempt: never probed, so neither the cwd nor the original path is read.
+
+    The cwd holds `GROWN` at every archive-relative path, so a bundled source
+    resolved against it rather than the archive would move.
+    """
     path = tmp_path / "t.parquet"
     write_parquet(path, RECORDED)
     build_path = build_expr(
-        deferred_read_parquet(path, xo.connect(), table_name="t"),
-        builds_dir=builds_dir,
-        relocate_reads=True,
+        bundled_shape(shape, path, duckdb_con), builds_dir=builds_dir
     )
     path.unlink()
+    decoy = tmp_path / "decoy"
+    for bundled in build_path.glob("*/*.parquet"):
+        (decoy / bundled.parent.name).mkdir(parents=True, exist_ok=True)
+        write_parquet(decoy / bundled.parent.name / bundled.name, GROWN)
+    monkeypatch.chdir(decoy)
 
-    assert refresh_build(build_path).schema() == load_expr(build_path).schema()
+    record = BuildRecord.from_build_dir(build_path)
+    assert record.source_leaves and record.external_leaves == ()
+    (refreshed, loaded) = (refresh_build(build_path), load_expr(build_path))
+    assert refreshed.schema() == loaded.schema() == xo.schema(RECORDED.schema)
+    assert get_expr_hash(refreshed) == get_expr_hash(loaded)
+    assert set(refreshed.execute().columns) == set(RECORDED.column_names)
+
+
+def test_a_refresh_leaves_bundled_sources_as_loaded(
+    con: SqliteBackend, tmp_path: Path, builds_dir: Path
+) -> None:
+    """Only the drifted external source moves; every bundled node is kept."""
+    path = tmp_path / "t.parquet"
+    write_parquet(path, RECORDED)
+    xcon = xo.connect()
+    t = con.table("t").into_backend(xcon, "t_moved")
+    read = deferred_read_parquet(path, xcon, table_name="r")
+    mt = xo.memtable(RECORDED.to_pandas(), name="mt")
+    build_path = build_expr(
+        t.select("a").union(read.select("a")).union(mt.select("a")),
+        builds_dir=builds_dir,
+    )
+    replace_table(con, GROWN)
+
+    record = BuildRecord.from_build_dir(build_path)
+    loaded = load_expr(build_path)
+    refreshed = refresh_schemas(loaded, live_schemas(record, iter_leaf_reports(record)))
+    sources = (ops.InMemoryTable, ops.DatabaseTable, Read)
+    kept = set(walk_nodes(sources, loaded)) & set(walk_nodes(sources, refreshed))
+    assert {(type(node), node.name) for node in kept} == {
+        (ops.InMemoryTable, "mt"),
+        (Read, "r"),
+    }
 
 
 @pytest.mark.parametrize(
