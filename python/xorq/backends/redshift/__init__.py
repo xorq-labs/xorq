@@ -146,23 +146,27 @@ class Backend(PostgresBackend):
     # ``svv_all_columns`` is Redshift's own union of native, datashare and
     # external columns. Its ``data_type`` is the *unparameterised* SQL name
     # (``numeric``, ``character varying``), with the modifiers split out into
-    # ``numeric_precision``/``numeric_scale`` and ``character_maximum_length``,
-    # so the type string has to be reassembled -- see ``_type_string``.
+    # ``numeric_precision``/``numeric_scale``, so a decimal's type string has
+    # to be reassembled -- see ``_type_string``.
     #
-    # Predicates are appended rather than written inline because the catalog
-    # one is conditional, and every value is bound rather than interpolated.
-    # Notably this is *not* ``schema_name = ANY(%(dbs)s)``, which is the form
-    # the inherited query uses: Redshift has no array type.
+    # ``character_maximum_length`` is deliberately *not* selected. It looks like
+    # the char-type counterpart of the numeric pair and is not usable: ibis's
+    # ``dt.String`` carries no length, so ``from_string("character varying(256)")``
+    # and ``from_string("character varying")`` return the identical dtype. A
+    # length read here could only be discarded one call later.
+    #
+    # Predicates are appended rather than written inline because the query is
+    # built from a variable number of them, and every value is bound rather
+    # than interpolated. Notably this is *not* ``schema_name = ANY(%(dbs)s)``,
+    # which is the form the inherited query uses: Redshift has no array type.
     _SVV_ALL_COLUMNS_SELECT = """\
 SELECT
   column_name,
   data_type,
   is_nullable,
-  character_maximum_length,
   numeric_precision,
   numeric_scale
-FROM svv_all_columns
-WHERE """
+FROM svv_all_columns"""
 
     # Types whose ``svv_all_columns`` row carries a meaningful modifier. The
     # exclusions matter more than the inclusions: the reference's own worked
@@ -170,41 +174,42 @@ WHERE """
     # and 16 for a ``smallint``, so appending the precision unconditionally
     # would build ``integer(32)``, which is not a type.
     _DECIMAL_TYPES = frozenset({"numeric", "decimal"})
-    _SIZED_CHAR_TYPES = frozenset(
-        {
-            "character varying",
-            "varchar",
-            "character",
-            "char",
-            "bpchar",
-            "nchar",
-            "nvarchar",
-        }
-    )
 
     @classmethod
-    def _type_string(cls, data_type, char_length, precision, scale) -> str:
+    def _type_string(
+        cls,
+        data_type: str | None,
+        precision: int | None,
+        scale: int | None,
+    ) -> str:
         """Reassemble a type string from one ``svv_all_columns`` row."""
         base = (data_type or "").strip()
-        lowered = base.lower()
-        if lowered in cls._DECIMAL_TYPES and precision is not None:
+        if base.lower() in cls._DECIMAL_TYPES and precision is not None:
             return f"{base}({precision},{scale or 0})"
-        if lowered in cls._SIZED_CHAR_TYPES and char_length is not None:
-            return f"{base}({char_length})"
         return base
 
     @staticmethod
-    def _is_nullable(flag) -> bool:
+    def _is_nullable(flag: Any) -> bool:
         """``is_nullable`` is a ``varchar(3)``, not a boolean.
 
         The reference documents the values as ``yes``/``no`` and prints them as
         ``YES``/``NO`` in its own worked example, so neither case is worth
         betting on. Passing the string straight through as ``nullable=`` would
         mark every column nullable, because both spellings are truthy.
+
+        It tests for ``no`` rather than for ``yes`` because the column has a
+        documented *third* value: the ``SVV_REDSHIFT_COLUMNS`` reference gives
+        the possible values as ``yes``, ``no``, and ``" "`` -- an empty string
+        meaning no information, which external and datashare rows carry.
+        Deciding that unknown case by asking ``== "yes"`` answers ``NOT NULL``,
+        which is the unsafe direction: a column wrongly marked non-nullable
+        makes ``project_and_cast_reader`` raise ``Casting field 'x' with null
+        values to non-nullable`` on the first batch that carries a null, while
+        a column wrongly marked nullable costs at most a cast.
         """
         if isinstance(flag, bool):
             return flag
-        return str(flag).strip().lower() == "yes"
+        return str(flag).strip().lower() != "no"
 
     def get_schema(
         self,
@@ -227,28 +232,50 @@ WHERE """
         is the view Redshift documents for this, and the one the customer's own
         workaround used.
 
-        Unlike the inherited version this does *not* fold in the session temp
-        schema. That would mean calling ``_session_temp_db``, which asks for
-        ``pg_my_temp_schema()``, and ``svv_all_columns`` is documented as a
-        union of ``SVV_REDSHIFT_COLUMNS`` and external columns -- neither is
-        documented to include temporary tables. Both points need a live
-        warehouse to settle, so the narrower query is the honest one; the
-        consequence is that binding a *temporary* table by name is not
-        supported here.
+        The query is scoped to one database by default, not only when a
+        ``catalog`` is passed. ``svv_all_columns`` is the union of
+        ``SVV_REDSHIFT_COLUMNS`` -- which the reference states includes "the
+        columns from datashares provided by remote clusters" -- and every
+        external column, so it genuinely spans databases. ``catalog`` is
+        ``None`` on every ordinary ``con.table("t")`` and
+        ``con.table("t", database="s")``; only a 2-tuple or a dotted three-part
+        name ever supplies one. Scoping only in that rare case left the common
+        one able to match ``public.sales`` in two databases at once, and since
+        ``ORDER BY ordinal_position`` has no tiebreaker across them the rows
+        interleave and same-named columns silently overwrite each other. The
+        compiled query still reads ``FROM "public"."sales"``, which resolves in
+        the *current* database -- so the reported schema would describe a
+        different table than the one queried, with no error anywhere.
+
+        A table in another database therefore needs the three-part form. That
+        is the deliberate trade: a ``TableNotFound`` naming a table you can
+        re-address is recoverable, and a silently wrong schema is not.
+
+        Whether temporary tables appear in this catalog at all is undocumented
+        and needs a live warehouse to settle, so an unqualified lookup that
+        finds nothing falls back to a description probe rather than betting on
+        the answer -- see ``_temp_table_schema``.
+
+        Two behaviours are inherited rather than introduced, and neither is a
+        regression: Redshift folds unquoted identifiers to lower case, so
+        ``con.table("SALES")`` binds ``'SALES'`` and raises ``TableNotFound``;
+        and the reference states a regular user sees only the rows it has
+        access to, so a permission problem also surfaces as ``TableNotFound``.
         """
-        predicates = ["schema_name = %(schema)s", "table_name = %(table)s"]
+        predicates = [
+            "database_name = %(catalog)s",
+            "schema_name = %(schema)s",
+            "table_name = %(table)s",
+        ]
         params: dict[str, Any] = {
+            "catalog": catalog or self.current_catalog,
             "schema": database or self.current_database,
             "table": name,
         }
-        if catalog is not None:
-            # svv_all_columns spans databases, so an unscoped lookup could
-            # match a same-named table in another one.
-            predicates.append("database_name = %(catalog)s")
-            params["catalog"] = catalog
 
         query = (
             self._SVV_ALL_COLUMNS_SELECT
+            + "\nWHERE "
             + "\n  AND ".join(predicates)
             + "\nORDER BY ordinal_position ASC"
         )
@@ -258,25 +285,71 @@ WHERE """
             rows = cursor.execute(query, params).fetchall()
 
         if not rows:
+            if catalog is None and database is None:
+                return self._temp_table_schema(name)
             raise exc.TableNotFound(name)
 
         type_mapper = self.compiler.type_mapper
-        return sch.Schema(
-            {
-                column_name: type_mapper.from_string(
-                    self._type_string(data_type, char_length, precision, scale),
-                    nullable=self._is_nullable(is_nullable),
+        # ``from_tuples`` rather than a dict comprehension: it raises
+        # ``IntegrityError`` on a duplicate column name instead of keeping the
+        # last one, so a lookup that somehow still matched two tables loses
+        # loudly rather than returning a schema short a column.
+        return sch.Schema.from_tuples(
+            [
+                (
+                    column_name,
+                    type_mapper.from_string(
+                        self._type_string(data_type, precision, scale),
+                        nullable=self._is_nullable(is_nullable),
+                    ),
                 )
                 for (
                     column_name,
                     data_type,
                     is_nullable,
-                    char_length,
                     precision,
                     scale,
                 ) in rows
-            }
+            ]
         )
+
+    def _temp_table_schema(self, name: str) -> sch.Schema:
+        """The schema of a table the catalog did not list, via a description probe.
+
+        This exists because this backend's *own* ingest path depends on it.
+        ``read_parquet``/``read_csv``/``read_record_batches`` with no
+        ``table_name`` force ``temporary=True``, generate a name, create a
+        ``TEMPORARY`` table and end in ``self.table(table_name)``, which
+        forwards ``catalog=None, database=None``. The inherited postgres
+        implementation covered this by appending ``_session_temp_db`` to its
+        schema list; dropping that fold made every temporary ingest raise
+        ``TableNotFound`` *after* the data had been written.
+
+        Restoring the fold is not the repair, because it assumes the answer to
+        an open question: ``svv_all_columns`` is not documented to list
+        temporary tables at all, and if it does not, no ``schema_name``
+        predicate can find one. A ``SELECT * ... LIMIT 0`` consults no catalog
+        -- it resolves through the session ``search_path``, which includes the
+        session temp schema -- so it is correct either way, and it needs no
+        ``pg_my_temp_schema()``, which is itself unverified on Redshift.
+
+        The cost is nullability: a result description carries none, so every
+        column comes back nullable. That is a widening, which is the safe
+        direction (see ``_is_nullable``), and it is the same thing the
+        permanent-table path would report for a temp table if the catalog
+        listed it without a ``NOT NULL`` flag.
+        """
+        probe = (
+            sg.select(sge.Star()).from_(sg.table(name, quoted=True)).sql(self.dialect)
+        )
+        try:
+            return self._get_schema_using_query(probe)
+        except exc.UnsupportedBackendType:
+            # A type this backend cannot map is a different failure from a
+            # table that is not there, and must not be reported as one.
+            raise
+        except Exception as e:
+            raise exc.TableNotFound(name) from e
 
     @classmethod
     def _type_string_from_column(cls, column) -> str:
@@ -290,7 +363,17 @@ WHERE """
         ``VARBYTE`` and ``GEOMETRY`` are the expected cases -- raises rather
         than degrading to ``unknown``. A schema that is quietly wrong is the
         failure mode this backend's tests exist to prevent, and the OID goes in
-        the message so a live session can map it.
+        the message so a live session can map it. An OID the registry *can*
+        name but the type mapper cannot use raises too, one layer down, in
+        ``RedshiftType.from_string``.
+
+        The type string itself comes from psycopg's own ``Column.type_display``
+        rather than from ``info.name``. They differ in two ways that matter:
+        ``type_display`` applies the type modifier, so a ``numeric(8,2)``
+        arrives parameterised without this method restating the decimal rule
+        that ``_type_string`` already owns; and it renders an array as
+        ``date[]``, where ``info.name`` on an array OID gives the *element*
+        name and silently turns every array column into its element type.
 
         ``psycopg`` is imported here rather than at module level because it is
         an optional extra: this module is imported when the backend entry point
@@ -300,17 +383,13 @@ WHERE """
         """
         import psycopg  # noqa: PLC0415
 
-        info = psycopg.postgres.types.get(column.type_code)
-        if info is None:
+        if psycopg.postgres.types.get(column.type_code) is None:
             raise exc.UnsupportedBackendType(
                 f"{cls.name} returned column {column.name!r} with type OID "
                 f"{column.type_code}, which psycopg cannot name; it is most "
                 f"likely a Redshift-specific type (SUPER, VARBYTE, GEOMETRY)"
             )
-        name = info.name
-        if name in cls._DECIMAL_TYPES and column.precision is not None:
-            return f"{name}({column.precision},{column.scale or 0})"
-        return name
+        return column.type_display
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         """Infer a query's schema from the result description, issuing no DDL.
@@ -331,37 +410,75 @@ WHERE """
         privilege and leaves nothing behind, so there is no cleanup path to get
         wrong.
 
-        The query is *wrapped* rather than suffixed with ``LIMIT 0``: a query
-        that already ends in a ``LIMIT`` would become a syntax error, and one
-        ending in a ``UNION`` branch would bind the limit to that branch alone.
-        The bound is not cosmetic -- psycopg buffers the whole result client
-        side, so an unbounded probe would read the table it selects from.
+        That property is why ``get_schema`` above borrows this method for a
+        table its catalog query did not find: the same "no catalog at all" that
+        makes this the right probe for a *query* makes it the only reliable way
+        to reach a *temporary table*. See ``_temp_table_schema``.
+
+        The query is *wrapped* in a derived table rather than suffixed with
+        ``LIMIT 0``. Not because appending would be a syntax error -- sqlglot's
+        ``.limit(0)`` replaces an existing ``LIMIT`` and binds to a whole
+        ``UNION`` rather than to its last branch, so appending through the AST
+        is safe, and other backends do exactly that. The wrap earns its place
+        by giving every probe the same shape regardless of what was passed,
+        including the statement forms that are not ``Query`` at all. The bound
+        itself is not cosmetic: psycopg buffers the whole result client side,
+        so an unbounded probe would read the table it selects from.
+
+        ``VALUES (1, 2)`` and ``TABLE t`` parse to ``sge.Values`` and
+        ``sge.Alias``, neither of which has ``.subquery()``; reaching for it
+        unconditionally crashed them with a bare ``AttributeError`` from inside
+        sqlglot, where the inherited ``CREATE TEMPORARY VIEW ... AS`` handled
+        them. They are wrapped by construction instead.
 
         Every column comes back nullable, because a result description carries
-        no nullability. Whether that differs from what the inherited path
-        reported for the same query is not measured here -- it would depend on
-        what Redshift records for a temporary view's columns, which needs a
-        live warehouse.
+        no nullability -- there is nothing to read, so this is a widening
+        rather than a guess. It is why ``con.sql`` reports all-nullable where
+        ``con.table`` reports ``NOT NULL`` for the same column; the cost is one
+        Python-side cast per batch in ``project_and_cast_reader``, and the only
+        way to close it would be to invent nullability the server did not send.
         """
-        probe = (
-            sg.select(sge.Star())
-            .from_(sg.parse_one(query, read=self.dialect).subquery(PROBE_ALIAS))
-            .limit(0)
-            .sql(self.dialect)
-        )
+        statements = sg.parse(query, read=self.dialect)
+        if len(statements) != 1:
+            # ``parse_one`` would silently probe the first statement while
+            # ``ops.SQLQueryResult`` stores and executes the whole string.
+            raise exc.XorqError(
+                f"expected a single statement to introspect, got {len(statements)}"
+            )
+        (parsed,) = statements
+
+        if isinstance(parsed, sge.Query):
+            source = parsed.subquery(PROBE_ALIAS)
+        else:
+            source = sge.Subquery(
+                this=parsed,
+                alias=sge.TableAlias(this=sg.to_identifier(PROBE_ALIAS)),
+            )
+
+        probe = sg.select(sge.Star()).from_(source).limit(0).sql(self.dialect)
 
         con = self.con
         with con.cursor() as cursor, con.transaction():
             description = list(cursor.execute(probe).description)
 
         type_mapper = self.compiler.type_mapper
-        return sch.Schema(
-            {
-                column.name: type_mapper.from_string(
-                    self._type_string_from_column(column), nullable=True
+        # ``from_tuples`` rather than a dict comprehension: a result set may
+        # legitimately repeat a column name (``SELECT t1.id, t2.id``, or
+        # ``SELECT 1, 2``, whose columns are both ``?column?``), and keying a
+        # dict on the name would hand back a schema with fewer columns than the
+        # cursor returns -- which ``_fetch_from_cursor`` then misaligns instead
+        # of rejecting. The inherited temporary-view path failed loudly here
+        # (``column "id" specified more than once``); this keeps that.
+        return sch.Schema.from_tuples(
+            [
+                (
+                    column.name,
+                    type_mapper.from_string(
+                        self._type_string_from_column(column), nullable=True
+                    ),
                 )
                 for column in description
-            }
+            ]
         )
 
     def _adbc_unavailable_reason(self) -> str | None:
