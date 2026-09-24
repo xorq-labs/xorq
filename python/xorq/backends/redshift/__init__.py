@@ -107,10 +107,16 @@ class Backend(PostgresBackend):
         ``UndefinedColumn: column "current_schema" does not exist``. Redshift
         requires the parenthesised call.
 
-        No dialect swap fixes this: ``sg.func("current_schema")`` renders
-        without parentheses under sqlglot's Postgres *and* Redshift dialects,
-        and only the default generator parenthesises it. ``Anonymous`` forces
-        the call form under any dialect.
+        No dialect swap fixes this: at sqlglot 28.6.0,
+        ``sg.func("current_schema")`` renders without parentheses under
+        sqlglot's Postgres *and* Redshift dialects, and only the default
+        generator parenthesises it. That is a *version-qualified* claim, not a
+        standing one -- at 23.6.3, the floor ``--resolution lowest-direct``
+        picks under the declared ``sqlglot>=23.4``, ``sg.func`` parenthesises
+        everywhere, and there this override is redundant rather than wrong.
+        ``Anonymous`` forces the call form at both versions and under every
+        dialect measured, which is why the test asserts what this method emits
+        rather than how ``sg.func`` renders.
 
         ``current_catalog`` needs no such treatment -- ``CURRENT_DATABASE()``
         already renders with parentheses.

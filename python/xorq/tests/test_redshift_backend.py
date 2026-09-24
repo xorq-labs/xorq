@@ -19,22 +19,48 @@ import importlib.util
 import inspect
 import sys
 
-import psycopg
 import pyarrow as pa
 import pytest
 import sqlglot as sg
-import sqlglot.expressions as sge
 
-import xorq
-import xorq.api as xo
-import xorq.backends.postgres as postgres_module
-import xorq.backends.redshift as redshift_module
-import xorq.common.exceptions as exc
-import xorq.common.utils.postgres_utils as postgres_utils
-from xorq.backends.postgres import Backend as PostgresBackend
-from xorq.backends.redshift import DEFAULT_PORT, INGEST_MODES
-from xorq.backends.redshift import Backend as RedshiftBackend
-from xorq.vendor.ibis.backends.profiles import (
+
+# Must run BEFORE the xorq imports below. Neither driver named here is a core
+# dependency -- each ships only in an extra -- and each is imported unguarded
+# at module scope on the path ``import xorq.backends.redshift`` takes, so
+# neither can be deferred to the tests that care:
+#
+#   adbc_driver_manager   backends/postgres/__init__.py:12
+#   psycopg               vendor/ibis/backends/postgres/__init__.py:11
+#
+# Measured one name at a time: blocking either one alone breaks the import.
+# ``adbc_driver_postgresql`` is a third driver on the same family tree and is
+# deliberately NOT guarded here. Nothing above reaches it: the only importer
+# is ``xorq.common.utils.postgres_utils``, which four tests below need and the
+# ``postgres_utils`` fixture imports for them. One further test needs it
+# merely *installed*, for the probe's own ``find_spec``, and guards itself.
+# Six tests of forty, rather than the whole module.
+#
+# CI selects by marker with no path filter, so every job COLLECTS this file;
+# without the guard the jobs lacking the extras failed collection outright
+# rather than deselecting -- a red build reading ModuleNotFoundError, not a
+# skip. ``backends/conftest.py`` guards ``backends/<name>/`` paths only, and
+# this file is deliberately sited outside them (see the docstring above), so
+# the guard has to be here. The E402s are that guard running first, not import
+# sloppiness -- and the two blank lines above this comment are load-bearing:
+# with one, ruff raises I001 and ``--fix`` hoists the imports back above the
+# guard. Same shape as ``test_redshift_cache_freshness.py``.
+pytest.importorskip("adbc_driver_manager")
+psycopg = pytest.importorskip("psycopg")
+
+import xorq  # noqa: E402
+import xorq.api as xo  # noqa: E402
+import xorq.backends.postgres as postgres_module  # noqa: E402
+import xorq.backends.redshift as redshift_module  # noqa: E402
+import xorq.common.exceptions as exc  # noqa: E402
+from xorq.backends.postgres import Backend as PostgresBackend  # noqa: E402
+from xorq.backends.redshift import DEFAULT_PORT, INGEST_MODES  # noqa: E402
+from xorq.backends.redshift import Backend as RedshiftBackend  # noqa: E402
+from xorq.vendor.ibis.backends.profiles import (  # noqa: E402
     Profile,
     check_for_exposed_secrets,
     con_name_to_secret_keys,
@@ -115,18 +141,32 @@ def test_plain_xorq_import_does_not_expose_the_backend():
 def test_current_schema_is_called_with_parentheses():
     """Redshift rejects bare ``CURRENT_SCHEMA`` with ``UndefinedColumn``.
 
-    Asserted on the rendered string rather than by executing, because the
-    failure is a *server-side* error on SQL that compiles cleanly. The bare
-    form is what both the postgres and redshift sqlglot dialects produce, so
-    this also pins that no dialect swap silently reintroduces it.
-    """
-    dialect = RedshiftBackend.compiler.dialect
+    Asserted on emitted SQL rather than by executing, because the failure is a
+    *server-side* error on SQL that compiles cleanly -- and on the SQL *this
+    override* emits rather than on how sqlglot renders
+    ``sg.func("current_schema")``. That rendering is third-party behaviour and
+    it changed inside the range this project declares it supports: measured,
+    ``sg.func("current_schema")`` renders ``SELECT CURRENT_SCHEMA()`` at
+    sqlglot 23.6.3 -- the floor ``uv lock --resolution lowest-direct`` picks
+    under ``sqlglot>=23.4`` -- and ``SELECT CURRENT_SCHEMA`` at 28.6.0, under
+    the Postgres and Redshift dialects alike. Asserting the bare form pinned
+    the whole lowest-direct matrix to one sqlglot. ``Anonymous`` parenthesises
+    at both versions and under every dialect measured, so the property below
+    is version-independent.
 
-    assert sg.select(sg.func("current_schema")).sql(dialect) == "SELECT CURRENT_SCHEMA"
-    assert (
-        sg.select(sge.Anonymous(this="current_schema")).sql(dialect)
-        == "SELECT CURRENT_SCHEMA()"
-    )
+    Still the negative control it was written to be, and on the version that
+    matters: delete the override and the inherited implementation at
+    ``vendor/ibis/backends/postgres/__init__.py:401`` runs, emitting
+    ``SELECT CURRENT_SCHEMA`` under any sqlglot new enough to have dropped the
+    parentheses, and this fails. Under one old enough to keep them it does not
+    -- because there the override is genuinely redundant and there is nothing
+    for a test to detect.
+    """
+    con = make_offline_con()
+    con.con = _FakeConnection(rows=[("public",)])
+
+    assert con.current_database == "public"
+    assert executed(con) == ["SELECT CURRENT_SCHEMA()"]
 
 
 def test_current_catalog_needs_no_override():
@@ -227,8 +267,9 @@ def test_profile_roundtrips():
 class _FakeCursor:
     """Records executed SQL. Mimics psycopg3's chaining ``execute``."""
 
-    def __init__(self, log):
+    def __init__(self, log, rows=()):
         self.log = log
+        self.rows = rows
 
     def __enter__(self):
         return self
@@ -244,13 +285,17 @@ class _FakeCursor:
         self.log.append(("executemany", sql, list(rows)))
         return self
 
+    def fetchall(self):
+        return list(self.rows)
+
 
 class _FakeConnection:
-    def __init__(self):
+    def __init__(self, rows=()):
         self.log = []
+        self.rows = rows
 
     def cursor(self, *args, **kwargs):
-        return _FakeCursor(self.log)
+        return _FakeCursor(self.log, self.rows)
 
     def transaction(self):
         return contextlib.nullcontext()
@@ -465,6 +510,21 @@ def test_ingest_validates_mode_before_choosing_a_branch(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def postgres_utils():
+    """``xorq.common.utils.postgres_utils``, imported per test rather than at
+    module scope.
+
+    It does ``import adbc_driver_postgresql.dbapi`` on its first line, and that
+    driver is in the ``postgres``/``examples`` extras only. Nothing else in
+    this file reaches it -- the backend itself needs ``adbc_driver_manager``
+    and ``psycopg``, which are guarded at module scope -- so importing it here
+    is what keeps the other thirty-odd tests running in jobs that have the
+    backend but not this driver.
+    """
+    return pytest.importorskip("xorq.common.utils.postgres_utils")
+
+
 def test_adbc_is_unavailable_without_the_driver(monkeypatch):
     con = make_offline_con(password="static")
     real_find_spec = importlib.util.find_spec
@@ -488,6 +548,12 @@ def test_adbc_is_unavailable_without_a_password(con_kwargs):
     worth pinning: it does not raise, it formats as the literal string
     ``"None"`` and fails later as an auth error against a password nobody
     set."""
+    # The probe checks the driver before the password, so with the driver
+    # absent this would pass or fail on the wrong clause. Measured: without
+    # ``adbc_driver_postgresql`` installed the reason is
+    # "adbc_driver_postgresql is not installed" and the assertion below fails.
+    pytest.importorskip("adbc_driver_postgresql")
+
     con = make_offline_con(**con_kwargs)
     assert "password" in con._adbc_unavailable_reason()
 
@@ -502,7 +568,7 @@ def test_adbc_is_available_when_installed_and_credentialed():
     assert con._adbc_unavailable_reason() is None
 
 
-def test_auth_failure_is_not_swallowed_as_a_missing_driver(monkeypatch):
+def test_auth_failure_is_not_swallowed_as_a_missing_driver(monkeypatch, postgres_utils):
     """The discrimination the inherited ``except Exception`` cannot make.
 
     A rejected temporary credential and an absent driver arrive at the probe as
@@ -519,7 +585,7 @@ def test_auth_failure_is_not_swallowed_as_a_missing_driver(monkeypatch):
         con._open_adbc_conn_or_none()
 
 
-def test_an_unavailable_driver_is_not_dialled_at_all(monkeypatch):
+def test_an_unavailable_driver_is_not_dialled_at_all(monkeypatch, postgres_utils):
     """Availability is decided from local facts *before* connecting, which is
     what makes the test above possible: every exception from the connect is
     then a real failure."""
@@ -530,7 +596,7 @@ def test_an_unavailable_driver_is_not_dialled_at_all(monkeypatch):
     assert con._open_adbc_conn_or_none() is None
 
 
-def test_the_postgres_seam_keeps_swallowing(monkeypatch):
+def test_the_postgres_seam_keeps_swallowing(monkeypatch, postgres_utils):
     """The probe was extracted from ``to_pyarrow_batches`` so Redshift could
     override it. Postgres's own behaviour must be unchanged by that -- its
     catch-all is deliberate, and users connecting without a password in
@@ -630,15 +696,17 @@ def test_null_typed_columns_are_refused_on_both_branches(
 
 
 def test_an_unavailable_driver_is_not_even_imported(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, postgres_utils
 ) -> None:
     """``postgres_utils`` imports the driver at module scope, so an import
     above the probe raises in exactly the case the probe detects.
 
     Asserting it is not re-imported is what separates this from
     ``test_an_unavailable_driver_is_not_dialled_at_all``, which cannot see the
-    ordering: this module imports ``postgres_utils`` at the top, so the import
-    has already succeeded before any test runs."""
+    ordering. Requesting the ``postgres_utils`` fixture is what puts it in
+    ``sys.modules`` for the ``delitem`` below to take back out: the module
+    deliberately does not import it at the top, so without the fixture this
+    test would depend on an earlier test having imported it."""
     con = make_offline_con()
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
     monkeypatch.delitem(sys.modules, "xorq.common.utils.postgres_utils")
