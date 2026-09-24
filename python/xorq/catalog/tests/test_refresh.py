@@ -34,7 +34,7 @@ from xorq.catalog.refresh import (
     refresh_schemas,
     with_live_schema,
 )
-from xorq.common.exceptions import SchemaRefreshError
+from xorq.common.exceptions import InternalError, SchemaRefreshError
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
@@ -149,6 +149,22 @@ def test_a_numeric_column_turned_string_fails_its_aggregate(
     assert excinfo.value.op_name == "Mean"
 
 
+def test_a_retyped_case_base_fails_its_simple_case(
+    con: SqliteBackend, builds_dir: Path
+) -> None:
+    """`SimpleCase` checks its base against each case in its constructor, not
+    its signature; that rejection is drift too."""
+    t = con.table("t")
+    build_path = build_expr(
+        t.mutate(c=t.a.cases((1, "one"), else_="other")), builds_dir=builds_dir
+    )
+    recreate(con, pa.table({"a": ["1", "x"], "b": ["x", "y"]}))
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_build(build_path)
+    assert excinfo.value.op_name == "SimpleCase"
+
+
 def test_the_recorded_path_survives_a_world_it_cannot_load(world: tuple) -> None:
     """Refreshing is a separate step: the build still loads as recorded."""
     con, build_path = world
@@ -248,6 +264,22 @@ def test_a_bug_in_the_rewrite_is_not_labeled_as_drift(
     monkeypatch.setattr("xorq.catalog.refresh.recreate", broken)
     with pytest.raises(AttributeError, match="a bug in the rewrite"):
         refresh_build(build_path)
+
+
+def test_an_internal_error_in_the_rewrite_is_not_labeled_as_drift(
+    world: tuple, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An `InternalError` is a `XorqError`, but a bug all the same."""
+    con, build_path = world
+    recreate(con, GROWN)
+
+    def broken(node, **kwargs):
+        raise InternalError("a bug in the rewrite")
+
+    monkeypatch.setattr("xorq.catalog.refresh.recreate", broken)
+    with pytest.raises(InternalError, match="a bug in the rewrite") as excinfo:
+        refresh_build(build_path)
+    assert not isinstance(excinfo.value, SchemaRefreshError)
 
 
 def test_a_refreshed_read_is_still_a_read(tmp_path: Path, builds_dir: Path) -> None:
