@@ -34,6 +34,12 @@ class Cache(Config):
     ----------
 
     default_relative_path : str
+    key_prefix : str
+    verify_writes : bool
+        Read each cache write back before publishing it, and refuse to publish
+        one that does not decode to the rows that were streamed into it. On by
+        default; turning it off trades the integrity check for the cost of the
+        second read.
 
     """
 
@@ -41,6 +47,9 @@ class Cache(Config):
         env_config.XORQ_DEFAULT_RELATIVE_PATH
     )
     key_prefix: str = env_config.XORQ_CACHE_KEY_PREFIX
+    verify_writes: bool = bool(env_config.XORQ_CACHE_VERIFY_WRITES) and parse_bool_env(
+        env_config.XORQ_CACHE_VERIFY_WRITES
+    )
 
 
 class Interactive(Config):

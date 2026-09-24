@@ -34,6 +34,15 @@ class IntegrityError(XorqError):
     """IntegrityError."""
 
 
+class CacheIntegrityError(XorqError):
+    """A cache artifact does not match what was written to it.
+
+    Raised when a cache write cannot be read back, or reads back a different
+    number of rows than were streamed into it. Signals a corrupt artifact, not
+    a miss: the cache refuses to publish it rather than serving it later.
+    """
+
+
 class ExpressionError(XorqError):
     """ExpressionError."""
 

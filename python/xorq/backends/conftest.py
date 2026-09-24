@@ -98,6 +98,10 @@ def pytest_ignore_collect(collection_path, config):
     return not keep
 
 
+# Markers that opt a test out of the default `core` selection entirely.
+RESERVED_MARKERS = ("benchmark", "gcs", "s3")
+
+
 def pytest_collection_modifyitems(session, config, items):
     all_backends = _get_backend_names()
     additional_markers = []
@@ -115,8 +119,14 @@ def pytest_collection_modifyitems(session, config, items):
                 item.iter_markers(name="backend"),
             )
         ):
-            # anything else is a "core" test and is run by default
-            if not any(item.iter_markers(name="benchmark")):
+            # anything else is a "core" test and is run by default, unless
+            # it is in a reserved category. A reserved test is one the repo
+            # keeps off the default PR path on purpose: benchmarks, and the
+            # cloud suites that are only run deliberately (`gcs`, `s3`).
+            # Without this, marking a test `gcs` outside python/xorq/tests/
+            # categorises it without reserving it -- it still collects `core`
+            # here and still runs on every PR.
+            if not any(m.name in RESERVED_MARKERS for m in item.iter_markers()):
                 item.add_marker(pytest.mark.core)
 
     if unrecognized_backends:
