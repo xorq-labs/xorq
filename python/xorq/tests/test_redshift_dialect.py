@@ -18,11 +18,43 @@ Redshift. That needs a live warehouse. What is asserted here is the narrower,
 fully checkable property -- that the specific construct Redshift is documented
 and observed to reject is no longer emitted, and that anything we cannot lower
 raises instead of compiling to something structurally invalid.
+
+OPEN WAREHOUSE QUESTIONS
+------------------------
+
+Three claims in this backend rest on AWS's documented grammar rather than on an
+observed rejection, and no offline test can settle any of them. They are
+collected here, each with the query that answers it, so that a live session
+discharges them in an afternoon rather than re-deriving them. Each is also
+marked UNVERIFIED at its own site.
+
+1. Does Redshift decode ``\t`` in a plain string literal?
+   ``SELECT LENGTH('\t'), TRIM(' \t' FROM 'x\tt');``
+   LENGTH 1 = decoded, and everything in
+   ``test_string_literal_escaping_is_pinned_pending_a_live_warehouse`` is
+   correct as it stands. LENGTH 2 = the ``TRIM`` literal ``.strip()`` emits is
+   wrong. Read that test before acting on the answer: the regex half of the
+   same mechanism has the opposite sign and must not be reverted along with it.
+
+2. Do ``LAG``/``LEAD`` reject a frame clause, as their documented grammar
+   implies? Cheapest check: run any ``.lag().over(window(order_by=...))`` from
+   before ``_OFFSET_OPS`` existed and see whether it errors.
+   ``SELECT LAG(x) OVER (ORDER BY x ROWS BETWEEN UNBOUNDED PRECEDING AND
+   UNBOUNDED FOLLOWING) FROM (SELECT 1 AS x);``
+
+3. Do ``LISTAGG``/``PERCENTILE_CONT``/``PERCENTILE_DISC``/``MEDIAN`` in window
+   position reject ``ORDER BY`` and a frame, per ``_PARTITION_ONLY_OPS``?
+   ``SELECT MEDIAN(x) OVER (PARTITION BY x ORDER BY x) FROM (SELECT 1 AS x);``
+
+A fourth, older one lives in ``test_redshift_backend.py``: the two unverified
+type widths (unbounded ``VARCHAR``, the ``TIMESTAMP(6)`` precision modifier).
 """
 
 from __future__ import annotations
 
+import ast
 import inspect
+import pathlib
 import subprocess
 import sys
 import textwrap
@@ -32,6 +64,7 @@ import sqlglot
 
 import xorq.api as xo
 import xorq.common.exceptions as com
+from xorq.backends.redshift.compiler import RedshiftCompiler
 from xorq.backends.redshift.compiler import compiler as redshift_compiler
 from xorq.vendor.ibis.backends.sql.datatypes import PostgresType, RedshiftType
 
@@ -573,32 +606,99 @@ def test_string_literal_escaping_is_pinned_pending_a_live_warehouse():
 
     Retargeting the dialect also swapped sqlglot's escape rules:
     ``Redshift.Tokenizer.STRING_ESCAPES`` is ``["\\\\", "'"]`` where Postgres's
-    is ``["'"]``. Every string literal the backend emits is affected, and one
-    case needs no user literal at all -- ``.strip()`` lowers to a ``TRIM`` of a
-    whitespace literal, which now spells its characters as backslash escapes.
+    is ``["'"]``. Every string literal the backend emits is affected.
 
-    If Redshift decodes those escapes, everything below is correct. If it does
-    not, ``.strip()`` trims the literal characters ``\\``, ``t``, ``n``, ``r``,
-    ``v``, ``f`` off the ends of strings -- letters, silently, with no error.
-    That is the one failure mode this whole module exists to prevent, and it is
-    the only finding in either review round that produces wrong numbers rather
-    than a rejected query.
+    This cuts BOTH WAYS, and the two halves have opposite signs -- which is why
+    the fix is not simply "put the old escaping back":
 
-    No offline test can settle it: sqlglot's Redshift parser preserves the
-    escape sequence as text, so the round-trip is self-consistent either way.
-    One query on a live warehouse settles it::
+    * The regex operations are backslash-dense by construction, and there the
+      change is very likely a **fix this PR shipped without noticing**. If
+      Redshift decodes backslash escapes -- which is what sqlglot's tokenizer
+      asserts and what AWS documents -- then ``'\\\\d+'`` is the correct way to
+      send the regex ``\\d+``, and the previous postgres-dialect output
+      ``'\\d+'`` was sending the regex ``d+``: matching literal letter "d",
+      silently, against a live warehouse.
+    * ``.strip()`` is the open risk. It lowers to a ``TRIM`` of a whitespace
+      literal and now spells its characters as backslash escapes. If Redshift
+      does NOT decode ``\\t`` specifically, ``.strip()`` trims the literal
+      characters ``\\``, ``t``, ``n``, ``r``, ``v``, ``f`` off the ends of
+      strings -- letters, with no error.
+
+    So the question the warehouse has to answer is narrower than "is the
+    escaping right": it is *does Redshift decode ``\\t`` in a plain string
+    literal*. One query settles it::
 
         SELECT LENGTH('\\t'), TRIM(' \\t' FROM 'x\\tt');
 
-    LENGTH 1 means the escapes are decoded and this is correct as it stands.
-    LENGTH 2 means the emitted SQL is wrong and the Redshift generator needs
-    its escape settings overridden alongside the TRANSFORMS in ``dialects.py``.
+    LENGTH 1 means the escapes are decoded, both halves above are correct as
+    they stand, and the regex half is a real improvement. LENGTH 2 means the
+    ``TRIM`` literal is wrong and the Redshift generator needs its escape
+    settings overridden alongside the TRANSFORMS in ``dialects.py`` -- while
+    the regex half must NOT be reverted with it.
 
-    This test pins the current bytes so that the answer, when it arrives,
-    lands as a deliberate edit to a failing assertion rather than as a silent
-    drift nobody notices.
+    No offline test can settle it: sqlglot's Redshift parser preserves the
+    escape sequence as text, so the round-trip is self-consistent either way.
+    This pins the current bytes so the answer, when it arrives, lands as a
+    deliberate edit to a failing assertion rather than as drift nobody notices.
     """
     t = xo.table({"s": "string"}, name="t")
+    # user literals
     assert to_sql(t.filter(t.s == "a'b").select("s")).endswith("= 'a\\'b'")
     assert to_sql(t.filter(t.s == "a\\b").select("s")).endswith("= 'a\\\\b'")
+    # the open risk: a literal no user wrote
     assert "TRIM(' \\t\\n\\r\\v\\f' FROM" in to_sql(t.select(o=t.s.strip()))
+    # the probable fix: regex operands, all four of them
+    assert "'\\\\d+'" in to_sql(t.select(o=t.s.re_search(r"\d+")))
+    assert "'\\\\s'" in to_sql(t.select(o=t.s.re_replace(r"\s", "")))
+    assert "'(\\\\w+)'" in to_sql(t.select(o=t.s.re_extract(r"(\w+)", 1)))
+    assert "LIKE 'a\\\\b'" in to_sql(t.select(o=t.s.like(r"a\b")))
+
+
+def test_no_hand_written_override_is_clobbered_by_simple_ops():
+    """``__init_subclass__`` runs AFTER the class body and can delete an
+    override silently.
+
+    ``compilers/base.py:458`` does ``setattr(cls, f"visit_{op}", make_impl(...))``
+    for every entry in ``SIMPLE_OPS``, after the class body has already bound
+    the hand-written methods. So an op appearing in BOTH ``SIMPLE_OPS`` and a
+    hand-written ``visit_*`` loses the hand-written one, with no error and no
+    warning. ``UNSUPPORTED_OPS`` is applied later still and wins over both.
+
+    This backend now carries 55 inherited ``SIMPLE_OPS`` entries and a dozen
+    hand-written overrides, most of which exist to fix defects found in review.
+    Nothing but this test stands between the next added spelling and the silent
+    deletion of one of them.
+
+    Reads the class body's own source rather than ``vars()``: every generated
+    method is set on the class too, so class-dict membership cannot tell a
+    hand-written method from a generated one. What distinguishes them is where
+    the surviving object was defined.
+    """
+    source = pathlib.Path(inspect.getfile(RedshiftCompiler)).read_text()
+    tree = ast.parse(source)
+    class_def = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "RedshiftCompiler"
+    )
+    written = set()
+    for node in class_def.body:
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("visit_"):
+            written.add(node.name)
+        elif isinstance(node, ast.Assign):  # e.g. visit_MultiQuantile = visit_Quantile
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id.startswith("visit_"):
+                    written.add(target.id)
+    assert len(written) >= 12, f"source scan degenerated to {written}"
+
+    clobbered = sorted(
+        name
+        for name in written
+        if getattr(getattr(RedshiftCompiler, name), "__module__", None)
+        != RedshiftCompiler.__module__
+    )
+    assert not clobbered, (
+        "these hand-written overrides no longer resolve to the redshift "
+        f"compiler module -- SIMPLE_OPS or UNSUPPORTED_OPS replaced them: "
+        f"{clobbered}"
+    )
