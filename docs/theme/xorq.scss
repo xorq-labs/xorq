@@ -374,6 +374,13 @@ tbody td {
 // spanning the page, as it does on the custom-layout homepage.
 .page-columns > .xq-foot {
   grid-column:screen-start/screen-end;
+  // footer.html centres the footer with `margin: 0 auto`. On a grid item auto
+  // margins suppress the default stretch, so without an explicit width the
+  // footer collapses to its fit-content size (~736px, the same box as the
+  // article column) and the five link groups wrap to three. width:100% makes
+  // it fill the span; max-width:1180px then caps it and the auto margins
+  // centre it, exactly as on xorq.dev.
+  width:100%;
 }
 
 // hide quarto's light/dark toggle (site is dark only)
