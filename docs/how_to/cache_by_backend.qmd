@@ -117,12 +117,37 @@ Automatic invalidation relies on backend-specific change signals, and they're no
 | Backend | Change signal | Caveat |
 |---|---|---|
 | PostgreSQL | `reltuples` estimate | Updates after `ANALYZE`/autovacuum; an insert may not invalidate immediately. Run `ANALYZE <table>` to force it. |
+| Redshift | `svv_table_info` row counts | Needs `SELECT` on `svv_table_info`, which a least-privilege user does not hold by default; see below. Views, external tables and tables with no rows yet are not tracked. |
 | Snowflake | `LAST_ALTERED` timestamp | Reliable; updates on any DDL or DML. |
 | DuckDB | File metadata or data bytes | In-memory tables hash the actual data, which is precise but costly for large tables. |
 | SQLite (on disk) | `COUNT(*)` and `MAX(id)` | Needs an `id` column; misses updates that change neither count nor max id. |
 | PyIceberg | Snapshot IDs | Tied to Iceberg's snapshot model. |
 
 If your backend's signal is too coarse for your use case, a Snapshot variant plus explicit cache deletion gives you manual control.
+
+#### Redshift needs a catalog grant
+
+The Redshift probe reads `tbl_rows` and `estimated_visible_rows` from `svv_table_info`. A connection holding only `USAGE` on the schema and `SELECT` on its tables cannot read that view, and caching a table on such a connection fails loudly rather than caching under a key that can never change:
+
+```text
+xorq.common.exceptions.RedshiftFreshnessUnavailable: cannot read the Redshift
+catalog to compute a cache key for public.offers: permission denied for
+relation svv_table_info ...
+```
+
+Either grant the read, as a superuser:
+
+```sql
+GRANT SELECT ON svv_table_info TO <user>;
+```
+
+or use a cache that needs no freshness probe at all: [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd) keys on the expression, never consults the catalog, and serves the first result until you delete it.
+
+The grant must come from a superuser or the view's owner. `ALTER USER ... SYSLOG ACCESS UNRESTRICTED` is not a substitute: AWS documents that it grants a regular user no access to superuser-visible tables, and no visibility at all into metadata views.
+
+Two things not to carry over from the PostgreSQL row above. The Redshift probe never runs `ANALYZE` — Redshift accepts that statement, but it is an expensive, write-privileged operation, and computing a cache key should not require write privilege. And `pg_class.reltuples` is not a substitute for the grant: it is readable without one and looks like a row count, but Redshift does not maintain it on write. Measured on a live warehouse, five inserts moved both the true count and `svv_table_info` from 12 to 17 while `reltuples` stayed at 12, so a cache keyed on it would never invalidate.
+
+`RedshiftFreshnessUnavailable` also fires for a relation `svv_table_info` does not track at all: a view, a late-binding view, a Spectrum external table, or a session-temporary table. A table that merely has no rows yet is not one of those — it is absent from the view, the probe contributes no count, and the key moves as soon as data lands.
 
 ## See also
 
