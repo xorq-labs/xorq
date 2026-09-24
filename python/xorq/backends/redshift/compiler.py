@@ -35,14 +35,20 @@ class RedshiftType(PostgresType):
     fine and is wrong.
     """
 
-    # Redshift-only type names that ``svv_all_columns`` reports. ``geometry``
-    # and ``geography`` are listed because they *do* parse -- see the class
-    # docstring -- so leaving them out would let them through silently.
+    # Redshift-only type names as ``svv_all_columns`` actually reports them,
+    # measured on a live warehouse (2026-09-24) rather than taken from the DDL
+    # keyword: a ``VARBYTE(16)`` column comes back as **``binary varying``**,
+    # because the view definition rewrites it. ``varbyte`` is kept beside it
+    # because that is the name a user writes and may pass in by hand; the
+    # spelling the catalog emits is the one that has to be here for the message
+    # to name Redshift rather than falling through to the generic branch below.
+    # ``varbinary`` is deliberately absent -- the inherited mapper maps it to
+    # ``dt.Binary``, and no Redshift path produces it.
     _REDSHIFT_ONLY_TYPES = frozenset(
         {
             "super",
             "varbyte",
-            "varbinary",
+            "binary varying",
             "hllsketch",
             "geometry",
             "geography",
@@ -60,10 +66,44 @@ class RedshiftType(PostgresType):
         '"char"': "character",
     }
 
+    @staticmethod
+    def _unmappable_part(dtype: dt.DataType) -> dt.DataType | None:
+        """The first component of ``dtype`` this backend cannot emit SQL for.
+
+        Checking only the top-level type is not enough, and the gap is
+        reachable: ``bpchar[]`` is a real spelling (psycopg names OID 1014
+        exactly that, and ``svv_all_columns`` shows ``"char"[]``/``integer[]``
+        for ``pg_catalog`` relations), and it maps to
+        ``Array(value_type=Unknown)`` -- an ``Unknown`` the top-level check
+        walks straight past.
+
+        ``GeoSpatial`` is rejected alongside ``Unknown`` for the reason in the
+        class docstring, and doing it structurally rather than by name also
+        catches ``point``/``line``/``polygon``, which reach a geo type through
+        ``PostgresType.unknown_type_strings`` and so never touch the name list.
+        """
+        if isinstance(dtype, (dt.Unknown, dt.GeoSpatial)):
+            return dtype
+        parts = ()
+        if isinstance(dtype, dt.Array):
+            parts = (dtype.value_type,)
+        elif isinstance(dtype, dt.Map):
+            parts = (dtype.key_type, dtype.value_type)
+        elif isinstance(dtype, dt.Struct):
+            parts = tuple(dtype.types)
+        for part in parts:
+            if (found := RedshiftType._unmappable_part(part)) is not None:
+                return found
+        return None
+
     @classmethod
     def from_string(cls, text: str, nullable: bool | None = None) -> dt.DataType:
         base, _, _ = (text or "").strip().partition("(")
-        lowered = base.strip().lower()
+        # Strip any array suffix before the alias lookup: the aliases are keyed
+        # on the element spelling, and ``bpchar[]`` must reach the ``bpchar``
+        # entry rather than missing it and degrading to an unknown element.
+        element = base.strip().rstrip("[]").strip()
+        lowered = element.lower()
 
         if lowered in cls._REDSHIFT_ONLY_TYPES:
             raise exc.UnsupportedBackendType(
@@ -72,7 +112,7 @@ class RedshiftType(PostgresType):
             )
 
         if (alias := cls._TYPE_ALIASES.get(lowered)) is not None:
-            text = text.replace(base.strip(), alias, 1)
+            text = text.replace(element, alias, 1)
 
         try:
             dtype = super().from_string(text, nullable=nullable)
@@ -84,10 +124,11 @@ class RedshiftType(PostgresType):
                 f"type mapper"
             ) from e
 
-        if isinstance(dtype, dt.Unknown):
+        if (bad := cls._unmappable_part(dtype)) is not None:
             raise exc.UnsupportedBackendType(
-                f"redshift type {text!r} has no xorq equivalent; mapping it to "
-                f"'unknown' would hand back a schema that looks fine and is wrong"
+                f"redshift type {text!r} has no xorq equivalent (resolved to "
+                f"{bad!r}); mapping it would hand back a schema that looks fine "
+                f"and is wrong"
             )
 
         # ``unknown_type_strings`` hits and the ``dt.unknown`` fallback both

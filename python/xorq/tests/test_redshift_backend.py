@@ -555,10 +555,12 @@ class _IntrospectionCursor(_FakeCursor):
         con: _IntrospectionConnection,
         rows: tuple,
         description: tuple | None,
+        temp_rows: tuple = (),
     ) -> None:
         super().__init__(con.log)
         self._con = con
         self._rows = rows
+        self._temp_rows = temp_rows
         self._last = None
         self.description = description
 
@@ -571,26 +573,32 @@ class _IntrospectionCursor(_FakeCursor):
         return self
 
     def fetchall(self) -> list:
-        # ``get_schema`` resolves the current catalog and schema through the
-        # same connection, so the fake has to answer those the way a server
-        # would -- a single row -- rather than handing back the catalog rows.
-        upper = (self._last or "").upper()
-        if "CURRENT_DATABASE()" in upper:
-            return [(CURRENT_CATALOG,)]
-        if "CURRENT_SCHEMA()" in upper:
-            return [(CURRENT_SCHEMA,)]
+        # The permanent and temporary lookups hit different views, so the fake
+        # answers them separately: a test that supplies only ``temp_rows`` must
+        # not see them returned for a ``svv_all_columns`` query, or the
+        # fallback would look exercised when it was not.
+        if "svv_columns" in (self._last or ""):
+            return list(self._temp_rows)
         return list(self._rows)
 
 
 class _IntrospectionConnection(_FakeConnection):
-    def __init__(self, rows: tuple = (), description: tuple | None = None) -> None:
+    def __init__(
+        self,
+        rows: tuple = (),
+        description: tuple | None = None,
+        temp_rows: tuple = (),
+    ) -> None:
         super().__init__()
         self.params = []
         self._rows = rows
+        self._temp_rows = temp_rows
         self._description = description
 
     def cursor(self, *args: object, **kwargs: object) -> _IntrospectionCursor:
-        return _IntrospectionCursor(self, self._rows, self._description)
+        return _IntrospectionCursor(
+            self, self._rows, self._description, self._temp_rows
+        )
 
 
 class _FakeColumn:
@@ -615,10 +623,14 @@ class _FakeColumn:
 
 
 def make_introspection_con(
-    rows: tuple = (), description: tuple | None = None
+    rows: tuple = (),
+    description: tuple | None = None,
+    temp_rows: tuple = (),
 ) -> RedshiftBackend:
     con = make_offline_con()
-    con.con = _IntrospectionConnection(rows=rows, description=description)
+    con.con = _IntrospectionConnection(
+        rows=rows, description=description, temp_rows=temp_rows
+    )
     return con
 
 
@@ -629,12 +641,6 @@ def issued(con: RedshiftBackend) -> list[str]:
 def last_call(con: RedshiftBackend) -> tuple[str, dict]:
     """The ``(sql, params)`` of the most recent statement."""
     return (executed(con)[-1], con.con.params[-1])
-
-
-# What the fake connection reports for ``CURRENT_DATABASE()`` and
-# ``CURRENT_SCHEMA()``.
-CURRENT_CATALOG = "dev"
-CURRENT_SCHEMA = "reporting"
 
 
 # Shaped after the worked example in the SVV_ALL_COLUMNS reference. Note that
@@ -801,7 +807,11 @@ def test_get_schema_scopes_by_the_current_catalog_when_none_is_given() -> None:
 
     (sql, params) = last_call(con)
     assert "database_name" in sql
-    assert params["catalog"] == CURRENT_CATALOG
+    # The default is applied server-side, so the bound value is None and the
+    # statement carries the fallback. Reading current_database() in Python
+    # first would be two extra round trips per con.table().
+    assert params["catalog"] is None
+    assert "COALESCE(%(catalog)s, current_database())" in sql
 
 
 def test_get_schema_raises_rather_than_collapsing_duplicate_column_names() -> None:
@@ -818,18 +828,16 @@ def test_get_schema_raises_rather_than_collapsing_duplicate_column_names() -> No
         con.get_schema("sales", database="public")
 
 
-def test_get_schema_defaults_the_schema_to_the_current_one(monkeypatch):
+def test_get_schema_defaults_the_schema_to_the_current_one() -> None:
     """The customer's failure reproduced on a plain single-schema
     ``con.table("t")``, so the no-``database`` path is the one that has to
     work, not only the three-part-named one."""
     con = make_introspection_con(rows=SVV_ROWS)
-    monkeypatch.setattr(
-        type(con), "current_database", property(lambda self: "reporting")
-    )
     con.get_schema("sales")
 
-    (_sql, params) = last_call(con)
-    assert params["schema"] == CURRENT_SCHEMA
+    (sql, params) = last_call(con)
+    assert params["schema"] is None
+    assert "COALESCE(%(schema)s, current_schema())" in sql
 
 
 def test_get_schema_raises_table_not_found_for_a_missing_table():
@@ -942,9 +950,9 @@ def test_get_schema_using_query_rejects_an_unmappable_oid_loudly():
     """Redshift's own types (SUPER, VARBYTE, GEOMETRY) carry OIDs psycopg does
     not know. Mapping them to ``unknown`` would hand back a schema that looks
     fine and is wrong; the OID is named so a live session can add it."""
-    con = make_introspection_con(description=(_FakeColumn("s", 999999),))
+    con = make_introspection_con(description=(_FakeColumn("s", 4000),))
 
-    with pytest.raises(exc.UnsupportedBackendType, match="999999"):
+    with pytest.raises(exc.UnsupportedBackendType, match="4000"):
         con._get_schema_using_query("SELECT s FROM t")
 
 
@@ -976,7 +984,7 @@ def test_postgres_introspection_is_left_alone():
 # --- the temporary-table path ----------------------------------------------
 
 
-def test_get_schema_falls_back_to_a_probe_for_a_table_the_catalog_omits() -> None:
+def test_get_schema_reads_a_temporary_table_from_svv_columns() -> None:
     """The defect this covers is in *this backend's own ingest path*.
 
     ``read_parquet``/``read_csv``/``read_record_batches`` with no
@@ -986,41 +994,66 @@ def test_get_schema_falls_back_to_a_probe_for_a_table_the_catalog_omits() -> Non
     folding ``_session_temp_db`` into its schema list; dropping the fold made
     every temporary ingest raise ``TableNotFound`` *after* writing the data.
 
-    The repair is a description probe rather than the fold, because
-    ``svv_all_columns`` is not documented to list temporary tables at all --
-    a ``schema_name`` predicate cannot find what the view does not carry,
-    while ``SELECT * ... LIMIT 0`` resolves through the session
-    ``search_path`` and consults no catalog.
+    Restoring the fold could never have worked: ``svv_all_columns`` does not
+    list temporary tables at all (measured live -- 0 rows for one that
+    exists), so no ``schema_name`` predicate finds them. ``svv_columns`` does,
+    in a ``pg_temp_<N>`` schema and with ``is_nullable`` intact, which is why
+    this path keeps ``NOT NULL`` where a ``cursor.description`` probe would
+    widen every column.
     """
-    con = make_introspection_con(rows=(), description=(_FakeColumn("a", 23, "int4"),))
+    con = make_introspection_con(
+        rows=(),
+        temp_rows=(
+            ("a", "integer", "NO", 32, 0),
+            ("b", "character varying", "YES", None, None),
+        ),
+    )
     schema = con.get_schema("xorq_temp_abc123")
 
-    assert schema.names == ("a",)
+    assert schema.names == ("a", "b")
+    assert schema["a"] == dt.Int32(nullable=False)
+
     statements = issued(con)
     assert any("svv_all_columns" in sql for sql in statements)
-    assert any("redshift_probe" in sql for sql in statements)
+    (temp_sql,) = [sql for sql in statements if "svv_columns" in sql]
+    # The scoping is the whole point: without it the fallback means "anything
+    # this session can see" rather than "a temporary table".
+    assert "pg^_temp^_%" in temp_sql
+    assert "ESCAPE '^'" in temp_sql
 
 
-def test_get_schema_still_raises_table_not_found_when_the_probe_fails() -> None:
-    """The fallback must not turn a missing table into a different error. The
-    fake has no description, so the probe fails the way a server would for a
-    table that is not there."""
-    con = make_introspection_con(rows=(), description=None)
+def test_get_schema_does_not_resolve_through_search_path() -> None:
+    """The previous fallback was ``SELECT * FROM "t" LIMIT 0``, which resolves
+    through ``search_path`` -- on Redshift ``"$user", public`` by default.
+
+    An unqualified ``con.table("t")`` that missed the catalog would then find a
+    *permanent* ``alice.t`` and report it with every column widened to
+    nullable: a different table than the caller named, silently, and the exact
+    outcome ``get_schema``'s own docstring says the design trades away. The
+    fallback must consult a catalog scoped to temp schemas, never the session's
+    name resolution.
+    """
+    con = make_introspection_con(rows=(), temp_rows=())
 
     with pytest.raises(exc.TableNotFound):
-        con.get_schema("nope")
+        con.get_schema("t")
+
+    for sql in issued(con):
+        assert "LIMIT 0" not in sql
+        assert "redshift_probe" not in sql
 
 
-def test_get_schema_does_not_probe_when_the_lookup_was_explicit() -> None:
-    """The probe resolves through ``search_path``, which is only the right
-    answer for the unqualified case. A lookup that named a schema and got
-    nothing back means that table is not there."""
-    con = make_introspection_con(rows=(), description=(_FakeColumn("a", 23, "int4"),))
+def test_get_schema_does_not_look_for_a_temp_table_when_the_lookup_was_explicit() -> (
+    None
+):
+    """A lookup that named a schema and got nothing back means that table is
+    not there. Temporary tables have no addressable schema name to pass."""
+    con = make_introspection_con(rows=(), temp_rows=(("a", "integer", "NO", 32, 0),))
 
     with pytest.raises(exc.TableNotFound):
         con.get_schema("nope", database="public")
 
-    assert not any("redshift_probe" in sql for sql in issued(con))
+    assert not any("svv_columns" in sql for sql in issued(con))
 
 
 # --- types neither path may quietly get wrong -------------------------------
@@ -1052,7 +1085,10 @@ def test_both_paths_agree_on_a_char_column() -> None:
     "data_type",
     [
         pytest.param("super", id="super"),
-        pytest.param("varbyte", id="varbyte"),
+        # The spelling svv_all_columns actually emits for VARBYTE(16),
+        # measured live: the view definition rewrites the DDL keyword.
+        pytest.param("binary varying", id="binary-varying"),
+        pytest.param("varbyte", id="varbyte-as-written-by-a-user"),
         pytest.param("hllsketch", id="hllsketch"),
         pytest.param("geometry", id="geometry"),
         pytest.param("geography", id="geography"),
@@ -1136,23 +1172,56 @@ def test_fake_column_type_displays_match_psycopg() -> None:
     [
         pytest.param("VALUES (1, 2)", id="values"),
         pytest.param("TABLE t", id="table"),
+        pytest.param("", id="empty"),
+        pytest.param("-- just a comment", id="comment-only"),
     ],
 )
-def test_get_schema_using_query_handles_statements_that_are_not_queries(
+def test_get_schema_using_query_refuses_statements_with_no_result_shape(
     query: str,
 ) -> None:
-    """``sge.Values`` and ``sge.Alias`` have no ``.subquery()``, so reaching
-    for it crashed these with a bare ``AttributeError`` from inside sqlglot --
-    a regression, since the inherited ``CREATE TEMPORARY VIEW ... AS`` rendered
-    both perfectly well. ``SQLBackend.sql`` reaches this method for any query
-    whose schema is not given, so arbitrary user SQL lands here.
+    """These parse to something that is not ``sge.Query``, and an earlier
+    version wrapped them by hand so ``.subquery()`` would not raise
+    ``AttributeError``.
+
+    That was effort spent on statements Redshift cannot run: measured live,
+    ``VALUES (1, 2)``, ``SELECT * FROM (VALUES (1, 2)) AS p LIMIT 0``,
+    ``TABLE t`` and its wrapped form are all syntax errors there, and
+    ``TABLE t`` parses to ``Alias(Column(TABLE), t)`` so the probe rendered
+    ``SELECT * FROM (TABLE AS t)``. Refusing locally turns a round trip that
+    was going to fail into a message, and costs no statement at all.
+    """
+    con = make_introspection_con(description=(_FakeColumn("a", 23, "int4"),))
+
+    with pytest.raises(exc.XorqError):
+        con._get_schema_using_query(query)
+
+    assert not issued(con), "a statement was sent for a query that cannot work"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("SELECT a FROM t; -- trailing note", id="trailing-comment"),
+        pytest.param("SELECT a FROM t;", id="trailing-semicolon"),
+        pytest.param("SELECT a FROM t;;", id="doubled-semicolon"),
+    ],
+)
+def test_get_schema_using_query_accepts_one_statement_with_trailing_noise(
+    query: str,
+) -> None:
+    """A trailing separator or comment is not a second statement.
+
+    ``sg.parse`` yields an element for each: ``SELECT 1; -- note`` parses to
+    ``[Select, Semicolon]`` and ``SELECT 1;;`` to ``[Select, None]``. Counting
+    those rejected valid SQL -- verified live, ``con.sql("SELECT event FROM
+    xorq_test.events; -- note")`` raised while the same query without the
+    comment worked -- and it was a regression against both the inherited
+    ``parse_one`` path and this backend's own first implementation.
     """
     con = make_introspection_con(description=(_FakeColumn("a", 23, "int4"),))
     schema = con._get_schema_using_query(query)
 
     assert schema.names == ("a",)
-    (sql,) = issued(con)
-    assert "redshift_probe" in sql
 
 
 def test_get_schema_using_query_rejects_more_than_one_statement() -> None:
@@ -1183,3 +1252,37 @@ def test_get_schema_using_query_keeps_duplicate_result_column_names_loud() -> No
 
     with pytest.raises(exc.IntegrityError, match="id"):
         con._get_schema_using_query("SELECT t1.id, t2.id FROM t1, t2")
+
+
+def test_an_unmappable_array_element_does_not_escape_the_guard() -> None:
+    """The postcondition used to inspect only the top-level dtype.
+
+    ``bpchar[]`` is a real spelling -- psycopg names OID 1014 exactly that, and
+    ``svv_all_columns`` shows ``"char"[]``/``integer[]`` for ``pg_catalog``
+    relations -- and it mapped to ``Array(value_type=Unknown)``, an ``Unknown``
+    the top-level check walked straight past.
+    """
+    mapper = RedshiftBackend.compiler.type_mapper
+
+    # The alias applies through the array suffix, so this one is mappable.
+    assert mapper.from_string("bpchar[]", nullable=True) == dt.Array(
+        dt.String(nullable=True), nullable=True
+    )
+    # This one is not, and must not come back as Array(Unknown).
+    with pytest.raises(exc.UnsupportedBackendType):
+        mapper.from_string("xid[]", nullable=True)
+
+
+def test_geo_types_raise_however_they_are_spelled() -> None:
+    """``geometry``/``geography`` are on the name list, but ``point``/``line``/
+    ``polygon`` reach a geo type through ``PostgresType.unknown_type_strings``
+    and never touch it. Rejecting structurally covers both.
+
+    This compiler is still the PostgreSQL one, so a geo operation on such a
+    column emits a PostGIS call Redshift does not implement.
+    """
+    mapper = RedshiftBackend.compiler.type_mapper
+
+    for spelling in ("geometry", "geography", "point", "line", "polygon"):
+        with pytest.raises(exc.UnsupportedBackendType):
+            mapper.from_string(spelling, nullable=True)
