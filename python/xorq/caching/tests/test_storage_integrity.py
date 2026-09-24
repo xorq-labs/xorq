@@ -9,6 +9,7 @@ successfully; `exists()` then reported that artifact as a cache hit forever.
 
 import datetime
 import errno
+import logging
 import multiprocessing as mp
 import os
 import uuid
@@ -322,3 +323,80 @@ def test_a_corrupt_artifact_names_itself_and_can_be_dropped(tmp_path):
 
     with pytest.raises(KeyError):
         cache.drop(expr)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        pytest.param(
+            pa.ArrowMemoryError("malloc of 1073741824 bytes failed"), id="oom"
+        ),
+        pytest.param(pa.ArrowCancelled("cancelled"), id="cancelled"),
+        pytest.param(pa.ArrowCapacityError("array would exceed 2GB"), id="capacity"),
+    ],
+)
+def test_exists_does_not_report_pyarrow_resource_failure_as_corruption(
+    tmp_path, monkeypatch, exc
+):
+    """An OOM is about this machine, not about the bytes on disk.
+
+    These are all `pa.ArrowException` subclasses, so testing the family rather
+    than the specific corruption types swallows every one of them: `exists`
+    would answer False, the caller would recompute, and a sound artifact would
+    be overwritten -- the exact failure the errno check exists to prevent,
+    arriving through the other branch.
+    """
+    storage = _storage(tmp_path)
+    key = "xorq_cache-oom"
+    storage._ensure_dir()
+    pq.write_table(pa.table({"i": [1, 2, 3]}), storage.get_path(key))
+    assert storage.exists(key) is True
+
+    def raise_it(*args, **kwargs):
+        raise exc
+
+    monkeypatch.setattr(pq, "ParquetFile", raise_it)
+
+    with pytest.raises(type(exc)):
+        storage.exists(key)
+
+
+def test_put_does_not_quarantine_a_good_write_on_a_resource_failure(
+    tmp_path, monkeypatch
+):
+    """Read-back is the memory-hungry half of a write, so this is where an OOM lands.
+
+    Quarantining here would move a perfectly good artifact to `.corrupt` and
+    fail the write.
+    """
+    storage = _storage(tmp_path)
+    key = "xorq_cache-oom-on-verify"
+
+    def raise_oom(*args, **kwargs):
+        raise pa.ArrowMemoryError("malloc failed during read-back")
+
+    monkeypatch.setattr(pq, "ParquetFile", raise_oom)
+
+    with pytest.raises(pa.ArrowMemoryError):
+        storage.put(key, xo.memtable({"i": [1, 2, 3]}).op())
+
+    assert not list(tmp_path.glob("*.corrupt")), "a good write was quarantined"
+
+
+def test_a_corrupt_artifact_is_logged_before_it_is_treated_as_a_miss(tmp_path, caplog):
+    """Healing is right; healing in silence is how the incident went undiagnosed.
+
+    `exists` answers False so the caller recomputes and publishes over the
+    damage. Without a log line that is indistinguishable from an ordinary
+    miss: the user sees a slow run and never learns the cache was corrupt.
+    """
+    storage = _storage(tmp_path)
+    key = "xorq_cache-noisy"
+    storage._ensure_dir()
+    storage.get_path(key).write_bytes(b"not a parquet file")
+
+    with caplog.at_level(logging.WARNING, logger="xorq.caching.storage"):
+        assert storage.exists(key) is False
+
+    assert "corrupt cache artifact ignored" in caplog.text
+    assert key in caplog.text

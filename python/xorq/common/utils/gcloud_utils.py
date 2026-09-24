@@ -20,6 +20,7 @@ from xorq.caching.storage import (
     read_parquet_metadata,
     verify_parquet,
     verify_writes_enabled,
+    warn_corrupt_artifact,
 )
 from xorq.common.exceptions import CacheIntegrityError
 from xorq.config import default_backend
@@ -115,7 +116,8 @@ class GCStorage(CacheStorage):
             return False
         try:
             self.check_integrity(key)
-        except CacheIntegrityError:
+        except CacheIntegrityError as e:
+            warn_corrupt_artifact(key, self.get_path(key), e)
             return False
         return True
 

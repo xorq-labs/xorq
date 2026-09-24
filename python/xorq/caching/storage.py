@@ -6,7 +6,7 @@ import re
 import uuid
 from abc import abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from attr import field, frozen
 from attr.validators import instance_of, optional
@@ -134,21 +134,44 @@ def _write_parquet(path, batch_reader, parquet_metadata=None):
 _VERIFY_BATCH_SIZE = 8192
 
 
-def _reraise_read_failure(e, message):
-    """Re-raise *e* as CacheIntegrityError, unless it is an OS-level failure.
+def _corruption_types() -> tuple[type[BaseException], ...]:
+    """The pyarrow exceptions that mean "this artifact is bad".
 
-    pyarrow reports both through the same channel. A corrupt artifact raises an
-    ArrowException ("Parquet magic bytes not found in footer") or a bare,
-    errno-less OSError ("Invalid column metadata (corrupt file?)"). A real OS
-    failure -- EMFILE, a stale NFS handle, a permission change -- raises an
-    OSError subclass carrying an errno, and says nothing about the artifact.
-    Only the first kind may be called corruption: callers turn corruption into
-    a cache miss, and a miss recomputes the expression and then overwrites a
-    file that was never bad.
+    Named positively, as an allow-list. `pa.ArrowException` is the whole
+    family and is NOT the right test: `ArrowMemoryError` (a failed malloc),
+    `ArrowCancelled` and `ArrowCapacityError` are all members, and every one
+    of them says something about this machine right now rather than about the
+    bytes on disk. Read-back is the memory-hungry half of a cache write, so
+    `ArrowMemoryError` is the likely one, not the exotic one.
+
+    `ArrowInvalid` is the corruption signal proper -- "Parquet magic bytes not
+    found in footer", "Couldn't deserialize thrift". `ArrowIOError` is
+    deliberately absent: pyarrow aliases it to the builtin `OSError` (measured,
+    pyarrow 21.0.0, `pa.ArrowIOError is OSError`), so naming it here would
+    swallow EMFILE along with it. The errno check below is what decides those.
     """
     import pyarrow as pa  # noqa: PLC0415
 
-    is_corrupt = isinstance(e, pa.ArrowException) or (
+    return (pa.ArrowInvalid,)
+
+
+def _reraise_read_failure(e: BaseException, message: str) -> NoReturn:
+    """Re-raise *e* as CacheIntegrityError, unless it is an OS-level failure.
+
+    pyarrow reports both through the same channel. A corrupt artifact raises
+    `ArrowInvalid` ("Parquet magic bytes not found in footer") or a bare,
+    errno-less OSError ("Invalid column metadata (corrupt file?)"). A real OS
+    failure -- EMFILE, a stale NFS handle, a permission change -- raises an
+    OSError subclass carrying an errno, and says nothing about the artifact.
+    Resource exhaustion inside pyarrow itself (`ArrowMemoryError`) says the
+    same: nothing about the artifact.
+
+    Only corruption proper may be called corruption. Callers turn corruption
+    into a cache miss, and a miss recomputes the expression and then
+    overwrites a file that was never bad -- so every exception wrongly landing
+    here costs a sound artifact and a full recompute, silently.
+    """
+    is_corrupt = isinstance(e, _corruption_types()) or (
         type(e) is OSError and e.errno is None
     )
     if not is_corrupt:
@@ -227,6 +250,29 @@ def quarantine(error, tmp_path, move):
     except Exception:  # noqa: BLE001 - preserving evidence is best-effort
         return CacheIntegrityError(f"{error}; artifact left at {tmp_path}")
     return CacheIntegrityError(f"{error}; artifact preserved at {target}")
+
+
+def warn_corrupt_artifact(key: str, name, error: BaseException) -> None:
+    """Say out loud that a corrupt artifact was found and is being ignored.
+
+    `exists` answers a boolean, so a corrupt artifact leaves it as False and
+    the caller recomputes -- which then publishes over the damaged file. That
+    is the right recovery, and silent it is indistinguishable from an ordinary
+    miss: the user sees a slow run and never learns their cache was corrupt.
+    The reported incident went undiagnosed for exactly this reason.
+
+    Warning rather than raising, because a cache that can heal itself should:
+    the artifact is about to be replaced by a good one. What must not happen
+    is the healing going unrecorded.
+    """
+    import structlog  # noqa: PLC0415
+
+    structlog.get_logger().warning(
+        "corrupt cache artifact ignored; treating as a miss and recomputing",
+        key=key,
+        path=str(name),
+        error=str(error),
+    )
 
 
 # `<key>.parquet.<pid>.<uuid4 hex>.tmp`, the shape `_tmp_path_for` builds.
@@ -348,12 +394,13 @@ class ParquetStorage(CacheStorage):
         if path.exists():
             read_parquet_metadata(path)
 
-    def exists(self, key):
+    def exists(self, key: str) -> bool:
         if not self.is_present(key):
             return False
         try:
             self.check_integrity(key)
-        except CacheIntegrityError:
+        except CacheIntegrityError as e:
+            warn_corrupt_artifact(key, self.get_path(key), e)
             return False
         except FileNotFoundError:
             # dropped between the two checks: a miss, not a failure
