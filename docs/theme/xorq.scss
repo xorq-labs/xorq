@@ -190,6 +190,7 @@ h3 {
   color:$xq-ink-2;
   padding:8px 14px;
   border:1px solid transparent;
+  text-transform:lowercase;   // menus lowercase to match xorq.dev
 }
 .navbar .nav-link:hover, .navbar .nav-link.active {
   color:#c1f0ff;
