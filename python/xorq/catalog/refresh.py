@@ -26,7 +26,12 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from xorq.catalog.drift import LeafReport, iter_leaf_reports, leaf_con_name
+from xorq.catalog.drift import (
+    LeafReport,
+    iter_leaf_reports,
+    leaf_con_name,
+    unchecked_leaves,
+)
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
 from xorq.common.exceptions import SchemaRefreshError
@@ -78,7 +83,10 @@ def op_key(node: Node) -> tuple | None:
             parts = (namespace.catalog, namespace.database, node.name)
             name = ".".join(part for part in parts if part)
         case LeafKind.READ:
-            name = join_path(dict(node.read_kwargs).get(ReadKwarg.hash_path))
+            # `SourceLeaf`'s fallback, so a read without a `hash_path` still
+            # spells the name its record does.
+            path = dict(node.read_kwargs).get(ReadKwarg.hash_path) or node.name
+            name = join_path(path)
         case _:
             return None
     return (type(node).__name__, node.source.name, name, node.schema)
@@ -137,10 +145,15 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
     ``OPAQUE_SPECS`` names on its write side. A replacer that returned an
     untouched op as-is would discard the rebuilt children ``replace`` hands it,
     so every op a change reached is recreated from them.
+
+    Every key in ``live`` has to match a source: one that matched nothing would
+    leave its source on the recorded schema, and the result would look
+    refreshed without being so. It raises instead, named after the leaf's kind.
     """
     if not live:
         return expr
     memo: dict[Node, Node] = {}
+    matched: set[tuple] = set()
 
     def rewrite(node: Node) -> Node:
         if node not in memo:
@@ -150,8 +163,9 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
     def replacer(node: Node, kwargs: dict | None) -> Node:
         if isinstance(node, CacheTag):
             return node
-        if (key := op_key(node)) is not None and (schema := live.get(key)):
-            return rebuild(node, lambda: with_live_schema(node, schema))
+        if (key := op_key(node)) is not None and key in live:
+            matched.add(key)
+            return rebuild(node, lambda: with_live_schema(node, live[key]))
         overrides = dict(kwargs or {})
         rebound = node
         if (spec := _opaque_lookup(node, OPAQUE_SPECS)) is not None:
@@ -168,7 +182,12 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
             return node
         return rebuild(node, lambda: recreate_over(rebound, overrides))
 
-    return rewrite(to_node(expr)).to_expr()
+    refreshed = rewrite(to_node(expr)).to_expr()
+    if unmatched := [key for key in live if key not in matched]:
+        (kind, _, name, _) = unmatched[0]
+        cause = LookupError(f"{name} matched no source of the loaded expression")
+        raise SchemaRefreshError(kind, cause)
+    return refreshed
 
 
 def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
@@ -191,16 +210,33 @@ def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
     return live
 
 
+def check_refreshable(record: BuildRecord) -> None:
+    """Raise when ``record`` has an external source the sweep will not probe.
+
+    ``iter_leaf_reports`` covers ``checkable_leaves`` only, so a source it
+    leaves out -- a read with no registered inference, bound to an ingesting
+    backend -- would keep its recorded schema while the refresh reports
+    success. ``check-sources`` names such a leaf as unchecked; a refresh cannot
+    stand behind a schema it never looked at, so it refuses instead.
+    """
+    if unchecked := unchecked_leaves(record):
+        leaf = unchecked[0]
+        cause = LookupError(f"{leaf.name} cannot be probed without writing to it")
+        raise SchemaRefreshError(str(leaf.kind), cause)
+
+
 def refresh_build(
     build_path: str | Path, con_cache: dict | None = None, **kwargs: Any
 ) -> Any:
     """Load the build at ``build_path`` and rebuild it over its drifted sources.
 
     The sweep runs first, on the guarded connections ``catalog.drift`` opens,
-    and a source it cannot compare stops the refresh before anything loads.
+    and a source it cannot compare, or will not probe, stops the refresh
+    before anything loads.
     """
     from xorq.ibis_yaml.compiler import load_expr  # noqa: PLC0415
 
     record = BuildRecord.from_build_dir(build_path)
+    check_refreshable(record)
     live = live_schemas(record, iter_leaf_reports(record, con_cache))
     return refresh_schemas(load_expr(build_path, **kwargs), live)

@@ -13,14 +13,19 @@ from pathlib import Path
 
 import pyarrow as pa
 import pytest
+import toolz
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
+import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog.drift import iter_leaf_reports
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import (
+    check_refreshable,
+    leaf_key,
     live_schemas,
     refresh_build,
     refresh_schemas,
@@ -29,7 +34,14 @@ from xorq.catalog.refresh import (
 from xorq.common.exceptions import SchemaRefreshError
 from xorq.common.utils.defer_utils import deferred_read_csv, deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.expr.relations import CachedNode, Read, Tag, TeeNode, pin_cache
+from xorq.expr.relations import (
+    CachedNode,
+    Read,
+    RemoteTable,
+    Tag,
+    TeeNode,
+    pin_cache,
+)
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.common.collections import FrozenDict
@@ -362,3 +374,119 @@ def test_a_refresh_error_survives_a_process_boundary() -> None:
     assert err.op_name == "Field"
     assert isinstance(err.cause, ValueError)
     assert "Field" in str(err)
+
+
+def test_a_key_that_matches_no_source_raises(world: tuple) -> None:
+    """A drifted source the rewrite cannot find would otherwise keep its
+    recorded schema while the refresh reports success."""
+    _, build_path = world
+    record = BuildRecord.from_build_dir(build_path)
+    (leaf,) = record.external_leaves
+    kind, con_name, _, recorded = leaf_key(leaf, record)
+    live = {(kind, con_name, "not-a-table", recorded): xo.schema(GROWN.schema)}
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_schemas(load_expr(build_path), live)
+    assert excinfo.value.op_name == "DatabaseTable"
+    assert "not-a-table" in str(excinfo.value)
+
+
+def test_a_source_that_went_empty_is_refreshed(world: tuple) -> None:
+    """A zero-column schema is falsy; it still has to reach its dependents."""
+    _, build_path = world
+    record = BuildRecord.from_build_dir(build_path)
+    (leaf,) = record.external_leaves
+    live = {leaf_key(leaf, record): xo.schema({})}
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_schemas(load_expr(build_path), live)
+    assert excinfo.value.op_name == "Field"
+
+
+def test_an_unprobeable_source_stops_the_refresh() -> None:
+    """A read with no registered inference, bound to an ingesting backend, is
+    never probed, so a refresh cannot vouch for its schema."""
+    record = BuildRecord(
+        {
+            "definitions": {
+                "dtypes": {},
+                "nodes": {
+                    "@read_0": {
+                        "op": "Read",
+                        "name": "src",
+                        "method_name": "read_json",
+                        "profile": "p0",
+                        "read_kwargs": [
+                            ["hash_path", "/data/src.json"],
+                            ["table_name", "src"],
+                        ],
+                        "schema_ref": "schema_0",
+                    }
+                },
+                "schemas": {
+                    "schema_0": {
+                        "a": {"op": "DataType", "type": "Int64", "nullable": True}
+                    }
+                },
+            },
+            "expression": {"node_ref": "@read_0"},
+        },
+        {"p0": {"con_name": "sqlite"}},
+    )
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        check_refreshable(record)
+    assert excinfo.value.op_name == "Read"
+    assert "/data/src.json" in str(excinfo.value)
+
+
+def test_a_checkable_build_is_refreshable(world: tuple) -> None:
+    _, build_path = world
+    check_refreshable(BuildRecord.from_build_dir(build_path))
+
+
+def test_a_remote_table_follows_its_remote_expr(
+    con: SqliteBackend, builds_dir: Path
+) -> None:
+    t = con.table("t")
+    moved = t.into_backend(xo.connect(), "moved")
+    build_path = build_expr(moved.filter(moved.a > 1), builds_dir=builds_dir)
+    recreate(con, GROWN)
+
+    expr = refresh_build(build_path)
+    (remote,) = walk_nodes(RemoteTable, expr)
+    assert dict(remote.schema) == dict(con.table("t").schema())
+    assert "c" in expr.schema()
+    assert list(expr.execute()["c"]) == [2.5]
+
+
+def test_an_expr_udf_rebinds_over_its_drifted_source(
+    con: SqliteBackend, builds_dir: Path
+) -> None:
+    """`computed_kwargs_expr` sits in `__config__`, so it is rebound by method
+    rather than recreated as a kwarg."""
+
+    @udf.agg.pandas_df(schema=xo.schema({"a": "int64"}), return_type=dt.float64)
+    def a_sum(frame):
+        return frame["a"].astype(float).sum()
+
+    t = con.table("t").into_backend(xo.connect(), "moved")
+    add_sum = udf.make_pandas_expr_udf(
+        computed_kwargs_expr=a_sum.on_expr(t).name("s").as_table(),
+        fn=lambda value, frame, **kw: frame["x"] + float(value),
+        schema=xo.schema({"x": dt.float64}),
+        name="add_sum",
+        return_type=dt.float64,
+        post_process_fn=toolz.identity,
+    )
+    data = xo.memtable({"x": [1.0, 2.0]})
+    build_path = build_expr(
+        data.mutate(out=add_sum.on_expr(data)), builds_dir=builds_dir
+    )
+    recreate(con, GROWN.set_column(0, "a", pa.array([10, 20], pa.int64())))
+
+    expr = refresh_build(build_path)
+    (op,) = walk_nodes(udf.ExprScalarUDF, expr)
+    (remote,) = walk_nodes(RemoteTable, op.computed_kwargs_expr)
+    assert "c" in remote.schema
+    assert list(expr.execute()["out"]) == [31.0, 32.0]
