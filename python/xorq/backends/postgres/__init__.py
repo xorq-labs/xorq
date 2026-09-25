@@ -124,9 +124,9 @@ class Backend(IbisPostgresBackend):
         ``adbc_driver_postgresql`` still raises -- the import is above the
         ``try``, not inside it -- just later, and from inside iteration.
 
-        Postgres keeps the catch-all on purpose: an absent ``password`` in ``_con_kwargs`` is an ordinary way
-        for the ADBC URI to be unbuildable while psycopg is perfectly
-        connected -- a ``.pgpass``, a service file, ``PGPASSWORD`` -- and for a
+        Postgres keeps the catch-all on purpose: an absent ``password`` in
+        ``_con_kwargs`` is an ordinary way for the ADBC URI to be unbuildable
+        while psycopg is perfectly connected -- a ``.pgpass``, a service file, ``PGPASSWORD`` -- and for a
         static credential, quietly using the psycopg path is the right answer.
 
         A subclass whose credentials rotate cannot afford that catch-all,
