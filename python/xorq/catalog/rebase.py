@@ -16,7 +16,15 @@ from pathlib import Path
 from typing import Any
 
 from attr import field, frozen
-from attr.validators import and_, deep_iterable, in_, instance_of, max_len, min_len
+from attr.validators import (
+    and_,
+    deep_iterable,
+    in_,
+    instance_of,
+    max_len,
+    min_len,
+    optional,
+)
 
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.drift import (
@@ -53,6 +61,23 @@ def str_tuple() -> Any:
 
 
 @frozen
+class RebaseConflict:
+    """What a conflicted rebase could not follow.
+
+    ``op_name`` is the op that could not be rebuilt, ``None`` when a source is
+    gone. ``sources`` are the sweep's own reports for the sources involved: the
+    changed ones an op failed over, or the gone ones.
+    """
+
+    detail = field(validator=instance_of(str))
+    sources = field(
+        converter=tuple,
+        validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
+    )
+    op_name = field(default=None, validator=optional(instance_of(str)))
+
+
+@frozen
 class RebaseResult:
     """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED``."""
 
@@ -81,6 +106,8 @@ class RebaseResult:
     skipped_aliases = str_tuple()
     # The sources no probe could compare, when none could; never on REBASED.
     unprobed = str_tuple()
+    # Set exactly when ``status`` is ``CONFLICT``.
+    conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -212,21 +239,21 @@ def check_databases_exist(catalog_entry: CatalogEntry, record: BuildRecord) -> N
         )
 
 
-def live_or_refuse(
+def live_or_conflict(
     catalog_entry: CatalogEntry, record: BuildRecord, reports: tuple[LeafReport, ...]
-) -> dict:
+) -> dict | RebaseConflict:
+    """The live schemas to refresh over, or the conflict of a gone table."""
     try:
         return live_schemas(record, reports)
     except SchemaRefreshError as e:
         # Worst verdict wins, ranked as `check-sources` ranks it. Below
         # `table-missing`, what refused is an unreachable or unreadable source,
         # or two reads that disagree on a live schema.
-        worst = roll_up(report.verdict for report in reports)
+        if roll_up(report.verdict for report in reports) == Verdict.TABLE_MISSING:
+            gone = [r for r in reports if r.verdict == Verdict.TABLE_MISSING]
+            return RebaseConflict(str(e.cause), gone)
         raise RebaseError(
-            f"{catalog_entry.name}: {e.cause}",
-            RebaseExit.CONFLICT
-            if worst == Verdict.TABLE_MISSING
-            else RebaseExit.UNREACHABLE,
+            f"{catalog_entry.name}: {e.cause}", RebaseExit.UNREACHABLE
         ) from e
 
 
@@ -351,9 +378,9 @@ def rebase_entry(
     """``catalog_entry`` re-derived over its live sources, as a new entry.
 
     Aliases on the old entry move to the new one, all of them unless
-    ``move_aliases`` names some; ``alias`` registers another. A no-op returns
-    ``catalog_entry`` and commits nothing. Raises ``RebaseError`` before any
-    write.
+    ``move_aliases`` names some; ``alias`` registers another. A no-op or a
+    conflict returns ``catalog_entry`` and commits nothing. Raises
+    ``RebaseError`` before any write.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -370,7 +397,19 @@ def rebase_entry(
     # Only a sweep that probed every source can prove a no-op on its own.
     if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
         return RebaseResult(RebaseStatus.NOOP, catalog_entry, catalog_entry, reports)
-    live = live_or_refuse(catalog_entry, record, reports)
+
+    def conflicted(conflict: RebaseConflict) -> RebaseResult:
+        return RebaseResult(
+            RebaseStatus.CONFLICT,
+            catalog_entry,
+            catalog_entry,
+            reports,
+            conflict=conflict,
+        )
+
+    live = live_or_conflict(catalog_entry, record, reports)
+    if isinstance(live, RebaseConflict):
+        return conflicted(live)
     check_databases_exist(catalog_entry, record)
     with tempfile.TemporaryDirectory() as td:
         # Loaded inside the block: `load_expr` keeps the archive's extract dir,
@@ -379,7 +418,8 @@ def rebase_entry(
         try:
             expr = refresh_schemas(loaded, live)
         except SchemaRefreshError as e:
-            raise RebaseError(f"{catalog_entry.name}: {e}", RebaseExit.CONFLICT) from e
+            changed = [r for r in reports if r.verdict == Verdict.CHANGED]
+            return conflicted(RebaseConflict(str(e), changed, e.op_name))
         # `relocate_reads=False` keeps each read's recorded posture: a bundled
         # read stays bundled, an external one external.
         dumper = ExprDumper(

@@ -1198,7 +1198,8 @@ def rebase(
          unreadable or lacks its wheel or requirements; or the options
          were invalid; nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
-         table is gone; nothing written
+         table is gone; stderr names the op and the source, with its
+         recorded and live schemas; nothing written
 
     \b
     Arguments:
@@ -1214,7 +1215,7 @@ def rebase(
         catalog_entry = _get_catalog_entry(catalog, entry)
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
-    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict  # noqa: PLC0415
     from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
     from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
 
@@ -1234,6 +1235,24 @@ def rebase(
     if isinstance(result, RebaseError):
         click.echo(str(result), err=True)
         ctx.exit(result.exit_code)
+    if (conflict := result.conflict) is not None:
+        sources = ", ".join(f"{r.leaf.kind} {r.leaf.name}" for r in conflict.sources)
+        if conflict.op_name is None:
+            click.echo(
+                f"{result.old_entry.name}: conflict: {sources} is gone", err=True
+            )
+        else:
+            click.echo(
+                f"{result.old_entry.name}: conflict: {conflict.op_name} cannot be "
+                f"rebuilt over {sources}",
+                err=True,
+            )
+        for report in conflict.sources:
+            for line in format_leaf_report(report):
+                click.echo(line, err=True)
+        if conflict.op_name is not None:
+            click.echo(conflict.detail, err=True)
+        ctx.exit(RebaseExit.CONFLICT)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
             for line in format_leaf_report(report):
