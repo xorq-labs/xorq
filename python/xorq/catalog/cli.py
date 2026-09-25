@@ -1152,6 +1152,12 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     multiple=True,
     help="Move only this alias onto the new entry (repeatable).",
 )
+@click.option(
+    "--move-aliases/--no-move-aliases",
+    default=True,
+    show_default=True,
+    help="Move all of the old entry's aliases onto the new entry.",
+)
 @sync_option
 @cache_dir_option
 @ignore_venv_mismatch_option
@@ -1161,6 +1167,7 @@ def rebase(
     entry: str,
     alias: str | None,
     only_aliases: tuple[str, ...],
+    move_aliases: bool,
     sync: bool,
     cache_dir: str | None,
     ignore_venv_mismatch: bool,
@@ -1170,8 +1177,9 @@ def rebase(
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. Every alias moves to the new entry
-    unless --only-alias names the ones that should; an --alias already on the
-    old entry moves too, and one on another entry is taken from it. An alias
+    unless --only-alias names the ones that should, or --no-move-aliases
+    keeps them all on the old one; an --alias already on the old entry moves
+    too, and one on another entry is taken from it. An alias
     the sync's pull has moved off the old entry stays where the pull put it.
     The new entry keeps the old one's wheels and requirements.
 
@@ -1208,7 +1216,12 @@ def rebase(
     Examples:
       xorq catalog rebase prod-matches
       xorq catalog rebase prod-matches --only-alias prod -a matches-v2
+      xorq catalog rebase prod-matches --no-move-aliases -a matches-trial
     """
+    if only_aliases and not move_aliases:
+        raise click.UsageError(
+            "--no-move-aliases and --only-alias are mutually exclusive"
+        )
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
@@ -1223,7 +1236,7 @@ def rebase(
             result = rebase_entry(
                 catalog_entry,
                 alias=alias,
-                move_aliases=only_aliases or None,
+                move_aliases=only_aliases or (None if move_aliases else ()),
                 sync=sync,
                 ignore_mismatch=ignore_venv_mismatch,
                 cache_dir=_get_cache_dir(cache_dir),
