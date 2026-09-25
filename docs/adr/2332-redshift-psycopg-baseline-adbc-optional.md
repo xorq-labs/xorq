@@ -54,7 +54,11 @@ IAM.
 Two parts, and the second only makes sense because of the first.
 
 **1. psycopg is the baseline.** Connect, DDL and query work with psycopg alone,
-and every driver-backed path degrades to it.
+and every driver-backed path degrades to it. Degradation preserves *results*, not
+machinery: the two read branches build Arrow differently — the accelerator casts
+each fetched batch to the ibis schema, the baseline builds a record batch from a
+struct array — so a defect in one cast can surface on one branch and not the
+other. The alias failure below is exactly that.
 
 **2. The accelerator is `adbc_driver_postgresql`.** Redshift speaks the
 PostgreSQL wire protocol. That driver is already declared in the `postgres` and
@@ -70,10 +74,12 @@ dependency with no packaging work behind it.
 | `read_record_batches` (ingest) | psycopg | the only ingest that works; **must not dispatch on the read-path availability predicate** |
 
 Measured against live Redshift Serverless, the driver connects and correctly
-identifies the server — `vendor_name = "Redshift"` — and every read path passes:
-`SELECT` to an Arrow table, `fetch_record_batch`, `adbc_get_table_schema`,
+identifies the server — `vendor_name = "Redshift"` — and the reads exercised all
+passed: `SELECT` to an Arrow table, `fetch_record_batch`, `adbc_get_table_schema`,
 `adbc_get_objects`, and `to_pyarrow_batches` end to end, with values matching
-psycopg.
+psycopg. None of them carried an auto-generated alias, which is why this does not
+contradict the alias failure under *Implementation status*. It is a record of what
+was run, not a claim that every read works.
 
 The `numeric` case deserves naming because it looked like the likely failure and
 is not one. ADBC returns Redshift `numeric` as
@@ -212,10 +218,11 @@ The consequences below are targets rather than descriptions, and "written" is
 deliberately weaker than "reachable" — see the second caveat.
 
 - **psycopg baseline for connect, DDL, introspection and query** — connect and
-  query hold live; *introspection does not*. `get_schema` reads
-  `pg_catalog.pg_enum` and `pg_my_temp_schema()`, and `_get_schema_using_query`
-  builds a `CREATE TEMPORARY VIEW`; Redshift has none of the three, so
-  `con.table()` and `con.sql()` are both unreachable.
+  query hold live; *introspection does not*. Both `con.table()` and `con.sql()`
+  failed against a live endpoint on `pg_catalog` constructs Redshift does not
+  provide. Which construct each path dies on is not recorded here: the calls are
+  sequential, so only the first failure on each path was ever observable, and the
+  vendored `get_schema` is where the order can be read.
 - **`redshift` extra so the backend installs with `uv sync`** — the extra exists
   and mirrors `postgres`; `boto3` is still undeclared.
 - **psycopg `read_record_batches`** — implemented, not reached, and not clean
@@ -256,12 +263,20 @@ branch is the right one, and on the ingest path the live branch is the one
 Redshift rejects outright. A dead branch that is also the only correct one is not
 an untested path, it is an outage.
 
-Stated, not resolved — but narrower than it looks. Because the blocker is the
-manager, an extra declaring psycopg plus `adbc-driver-manager` and omitting
-`adbc-driver-postgresql` makes the psycopg branch reachable with no code edit: a
-`pyproject.toml` change, not a seam change, and `adbc-driver-manager` is not a
-core dependency, so it must be named. The alternative is dropping the fallback.
-Which of the two is a decision this ADR does not make.
+Stated, not resolved — and narrower than it looks in one direction, wider in
+another. Because the blocker is the manager, an extra declaring psycopg plus
+`adbc-driver-manager` and omitting `adbc-driver-postgresql` is a
+`pyproject.toml` change alone; `adbc-driver-manager` is not a core dependency, so
+it must be named. But it puts the psycopg branches only in the *dispatch path*,
+not into service. The routes that introspect first — `table`, `sql` without a
+supplied schema, and the ingest tail — stay broken while introspection is broken,
+so the dispatch being correct buys nothing on its own. Such an extra also removes
+the accelerator from installs that would otherwise have got the driver only from
+the `redshift` extra, which is Decision part 2 undone for those users rather than
+a free repair.
+The extras change is necessary for the baseline and nowhere near sufficient. The
+alternative is dropping the fallback. Which of the two is a decision this ADR
+does not make.
 
 ## Consequences
 
@@ -274,11 +289,12 @@ Which of the two is a decision this ADR does not make.
   platform xorq supports, Intel Mac included.
 - The Arrow-native path reaches every one of those platforms with no out-of-band
   step.
-- `boto3` gets declared. It is currently undeclared repo-wide despite being
-  imported by the catalog's S3 utilities. Nothing in this backend mints the IAM
-  temporary password of *Context* — obtaining it is the caller's job, and no
-  backend code reads `boto3` — so whether the declaration belongs to this extra
-  or to the catalog is unsettled.
+- The IAM question of *Context* is settled for the baseline: psycopg can present
+  a temporary password, so no AWS SDK is needed to *connect*. Minting that
+  password stays the caller's job; no backend code reads `boto3`, and `boto3`
+  remains undeclared repo-wide despite the catalog's S3 utilities importing it.
+  That gap is real but this decision neither causes nor repairs it, and whether
+  the declaration belongs to a backend extra or to the catalog is unsettled.
 
 ### Negative
 
@@ -289,7 +305,12 @@ Which of the two is a decision this ADR does not make.
   with no ceiling (`pyproject.toml` owns the list), so such a release would
   install automatically, and no live-Redshift CI job would catch it — nor would
   one that fails to assert *which* branch served the read, since the fallback
-  would mask the regression.
+  would mask the regression. Note what that leaves open: the inherited catch
+  masks one class of failure — an `ADBCProgrammingError` raised by the query
+  execution — and the discrimination above does not cover it. Other stages and
+  other error classes propagate. So a regression is masked or not depending on
+  how it surfaces, and nothing here tells which; the masking ships, the detector
+  does not.
 - Migration to another accelerator is cheaper than the wheel but not free. It
   changes the availability predicate, the extras, **and** the connection factory
   the read path calls, which names `adbc_driver_postgresql` directly.
