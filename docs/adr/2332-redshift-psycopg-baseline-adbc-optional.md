@@ -254,19 +254,18 @@ that builds its batches positionally and cannot see a mismatch. Any driver
 handing back the folded name meets it identically, the Columnar driver included,
 and swapping accelerators neither causes nor cures it.
 
-The second caveat is that **no supported install reaches the psycopg baseline.**
-The `redshift` extra mirrors `postgres`, which pins `adbc-driver-postgresql`
-alongside `psycopg`, so the availability predicate returns `None` for any
-credentialed install and the psycopg branch is dead code there. Importing the
-backend also requires an ADBC package — but the driver *manager*, not the driver:
-`postgres/__init__.py` imports `adbc_driver_manager` at module scope, while the
-module that imports `adbc_driver_postgresql` is itself loaded lazily. The
-backend's own tests are the source of truth for this.
+The second caveat is that **no supported install reaches the psycopg read
+fallback.** The `redshift` extra mirrors `postgres`, which pins
+`adbc-driver-postgresql` alongside `psycopg`, so the availability predicate
+returns `None` for any credentialed install and the psycopg *read* branch is dead
+code there. Importing the backend also requires an ADBC package — but the driver
+*manager*, not the driver: `postgres/__init__.py` imports `adbc_driver_manager`
+at module scope, while the module that imports `adbc_driver_postgresql` is itself
+loaded lazily. The backend's own tests are the source of truth for this.
 
-The consequence is worse than an untested branch: on the read path the live
-branch is the right one, and on the ingest path the live branch is the one
-Redshift rejects outright. A dead branch that is also the only correct one is not
-an untested path, it is an outage.
+Ingest is not affected: it consults no predicate, so its psycopg path is the live
+one on every install. What remains is an untested read fallback — a branch that
+ships, is the documented degrade, and that no supported install exercises.
 
 Stated, not resolved — and narrower than it looks in one direction, wider in
 another. Because the blocker is the manager, an extra declaring psycopg plus
