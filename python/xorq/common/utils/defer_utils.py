@@ -37,7 +37,7 @@ DEFAULT_CHUNKSIZE = 10_000
 # Backends whose read_parquet/read_csv route through a read_record_batches
 # taking a ``mode`` (so they accept ``mode="replace"`` to avoid "relation
 # already exists" errors). Membership is about that kwarg, not about ADBC:
-# redshift qualifies on both its branches.
+# redshift qualifies with no ADBC branch at all -- its ingest is psycopg only.
 # Snowflake is excluded: its read_record_batches is ADBC, but read_parquet/read_csv
 # are native (kwargs become FILE_FORMAT options, where ``mode`` is invalid).
 _ADBC_BACKENDS = frozenset(("sqlite", "postgres", "databricks", "redshift"))

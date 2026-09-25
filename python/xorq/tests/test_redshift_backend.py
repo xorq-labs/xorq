@@ -36,9 +36,9 @@ import sqlglot as sg
 # ``adbc_driver_postgresql`` is a third driver on the same family tree and is
 # deliberately NOT guarded here. Nothing above reaches it: the only importer
 # is ``xorq.common.utils.postgres_utils``, which four tests below need and the
-# ``postgres_utils`` fixture imports for them. One further test needs it
-# merely *installed*, for the probe's own ``find_spec``, and guards itself.
-# Six tests of forty, rather than the whole module.
+# ``postgres_utils`` fixture imports for them. Two further tests need it
+# merely *installed*, for the probe's own ``find_spec``, and guard themselves
+# with ``importorskip``. Six tests, rather than the whole module.
 #
 # CI selects by marker with no path filter, so every job COLLECTS this file;
 # without the guard the jobs lacking the extras failed collection outright
@@ -48,7 +48,8 @@ import sqlglot as sg
 # the guard has to be here. The E402s are that guard running first, not import
 # sloppiness -- and the two blank lines above this comment are load-bearing:
 # with one, ruff raises I001 and ``--fix`` hoists the imports back above the
-# guard. Same shape as ``test_redshift_cache_freshness.py``.
+# guard. Same shape as ``python/xorq/tests/test_redshift_cache_freshness.py``,
+# which arrives with PR #2335.
 pytest.importorskip("adbc_driver_manager")
 psycopg = pytest.importorskip("psycopg")
 
