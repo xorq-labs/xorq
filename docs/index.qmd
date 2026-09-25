@@ -2,10 +2,10 @@
 image: /images/og-card.png
 image-alt: "Xorq Docs: AI generates numbers. Xorq verifies them."
 open-graph:
-  title: "Xorq Docs – Verifiable AI for Enterprise Data Teams"
+  title: "The Agentic Execution System for AI – Xorq"
   description: "Docs for Xorq, the Agentic Execution System for AI. Run every step as a real query, trace every result, and reuse verified work. Quickstart, guides, and API reference."
 twitter-card:
-  title: "Xorq Docs – Verifiable AI for Enterprise Data Teams"
+  title: "The Agentic Execution System for AI – Xorq"
   description: "Docs for Xorq, the Agentic Execution System for AI. Run every step as a real query, trace every result, and reuse verified work. Quickstart, guides, and API reference."
 pagetitle: "Xorq docs"
 description: "Documentation for Xorq: the agentic execution system for AI."
