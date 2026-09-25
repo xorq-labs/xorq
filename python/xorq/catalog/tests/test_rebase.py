@@ -159,6 +159,28 @@ def test_only_alias_narrows_and_alias_adds(
     assert targets(world, "live", "v2", "staging") == (new, new, world.name)
 
 
+@pytest.mark.parametrize(
+    "extra, moved",
+    (
+        pytest.param("trial", (), id="new-alias"),
+        pytest.param("live", ("live",), id="alias-of-the-old-entry"),
+    ),
+)
+def test_no_move_aliases_keeps_the_aliases_on_the_old_entry(
+    runner: CliRunner, world: SimpleNamespace, extra: str, moved: tuple[str, ...]
+) -> None:
+    """Except an `-a` one, which lands on the new entry wherever it pointed."""
+    replace_t(world, GROWN)
+
+    result = rebase(runner, world, world.name, "--no-move-aliases", "-a", extra)
+    assert result.exit_code == 0, result.output
+    new = result.stdout.strip()
+    expected = {"live": world.name, "staging": world.name, extra: new}
+    assert targets(world, *expected) == tuple(expected.values())
+    for alias in moved:
+        assert f"Moved alias {alias!r} -> {new}" in result.stderr
+
+
 def test_an_alias_already_on_the_entry_moves_and_is_reported(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
@@ -243,6 +265,11 @@ NO_REQUIREMENTS = "{name} carries no requirements.txt for the rebased entry"
 def refuse_unknown_alias(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
     return w.name, ("--only-alias", "nope"), ()
+
+
+def refuse_flag_clash(w: SimpleNamespace) -> Setup:
+    replace_t(w, GROWN)
+    return w.name, ("--no-move-aliases", "--only-alias", "live"), ()
 
 
 def refuse_pinned(w: SimpleNamespace) -> Setup:
@@ -372,6 +399,7 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
     "setup, exit_code, message",
     (
         pytest.param(refuse_unknown_alias, 1, "no alias nope", id="unknown-alias"),
+        pytest.param(refuse_flag_clash, 2, "mutually exclusive", id="flag-clash"),
         pytest.param(refuse_pinned, 1, "xorq catalog unpin {name}", id="pinned"),
         pytest.param(
             refuse_python_minor,
