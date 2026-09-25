@@ -18,6 +18,10 @@ class CatalogConfigurationError(RuntimeError):
     """
 
 
+class WheelCollisionError(ValueError):
+    """Raised when two entries carry same-named wheels that differ."""
+
+
 class RebaseError(XorqError):
     """A rebase refused before writing anything; ``exit_code`` is the CLI's,
     a ``RebaseExit``."""

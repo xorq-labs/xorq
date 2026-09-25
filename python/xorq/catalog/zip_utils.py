@@ -12,6 +12,7 @@ from xorq.catalog.constants import (
     PREFERRED_SUFFIX,
     VALID_SUFFIXES,
 )
+from xorq.catalog.exceptions import WheelCollisionError
 from xorq.common.utils.file_utils import file_digest
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, DumpFiles
 
@@ -131,15 +132,13 @@ def extract_wheel(
     seen_wheels: dict | None,
     entry_name: str | None,
 ) -> Path | None:
-    import click  # noqa: PLC0415
-
     base = Path(member).name
     if seen_wheels is not None:
         info = zf.getinfo(member)
         sig = (info.file_size, info.CRC)
         if base in seen_wheels:
             if seen_wheels[base] != sig:
-                raise click.ClickException(
+                raise WheelCollisionError(
                     f"wheel collision: {base!r} differs in entry {entry_name!r}"
                 )
             return None

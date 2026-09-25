@@ -37,7 +37,7 @@ from xorq.catalog.zip_utils import BuildZip, harvest_entry_from_zip
 from xorq.common.exceptions import SchemaRefreshError
 from xorq.common.utils.logging_utils import get_logger
 from xorq.ibis_yaml.enums import DumpFiles
-from xorq.ibis_yaml.packager import python_minor_from_metadata_text
+from xorq.ibis_yaml.packager import parse_python_minor
 
 
 logger = get_logger(__name__)
@@ -109,9 +109,12 @@ def check_rebasable(
 
 
 def recorded_python_minor(catalog_entry: CatalogEntry) -> tuple[int, int] | None:
-    """The ``(major, minor)`` the entry was built under, if its metadata says."""
+    """The ``(major, minor)`` the entry was built under, if its metadata says.
+
+    Raises on malformed metadata, which is refused rather than read as none.
+    """
     return BuildZip(catalog_entry.catalog_path).read_dump_file(
-        DumpFiles.build_metadata, python_minor_from_metadata_text
+        DumpFiles.build_metadata, parse_python_minor
     )
 
 
@@ -131,6 +134,37 @@ def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> No
             f"{'.'.join(map(str, running))}; pass --ignore-venv-mismatch to rebase "
             "anyway",
             RebaseExit.REFUSED,
+        )
+
+
+def bundle_members(catalog_entry: CatalogEntry) -> tuple[str, ...]:
+    """The names of the archive's wheels and ``requirements.txt``."""
+    with zipfile.ZipFile(catalog_entry.catalog_path) as zf:
+        return tuple(
+            name
+            for name in (Path(member).name for member in zf.namelist())
+            if name.endswith(".whl") or name == DumpFiles.requirements
+        )
+
+
+def check_bundle(catalog_entry: CatalogEntry) -> None:
+    """Refuse an archive that lacks the wheels or requirements to re-add."""
+    name = catalog_entry.name
+    try:
+        members = bundle_members(catalog_entry)
+    except Exception as e:
+        raise RebaseError(
+            f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
+        ) from e
+    if not any(member.endswith(".whl") for member in members):
+        raise RebaseError(
+            f"{name} carries no wheel for the rebased entry", RebaseExit.UNREACHABLE
+        )
+    # Without it, `catalog.add` would package the cwd's project requirements.
+    if DumpFiles.requirements not in members:
+        raise RebaseError(
+            f"{name} carries no {DumpFiles.requirements} for the rebased entry",
+            RebaseExit.UNREACHABLE,
         )
 
 
@@ -195,25 +229,16 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
     """Copy the entry's wheels and requirements into ``build_path``.
 
     ``catalog.add`` then packages nothing from the caller's cwd.
+    ``check_bundle`` has made sure the archive carries both.
     """
-    name = catalog_entry.name
     try:
         with zipfile.ZipFile(catalog_entry.catalog_path) as zf:
-            wheels, requirements, _ = harvest_entry_from_zip(zf, build_path)
+            _, requirements, _ = harvest_entry_from_zip(zf, build_path)
     except Exception as e:
         raise RebaseError(
-            f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
-        ) from e
-    if not wheels:
-        raise RebaseError(
-            f"{name} carries no wheel for the rebased entry", RebaseExit.UNREACHABLE
-        )
-    # Without it, `catalog.add` would package the cwd's project requirements.
-    if requirements is None:
-        raise RebaseError(
-            f"{name} carries no {DumpFiles.requirements} for the rebased entry",
+            f"{catalog_entry.name} is unreadable: {format_error(e)}",
             RebaseExit.UNREACHABLE,
-        )
+        ) from e
     (build_path / DumpFiles.requirements).write_bytes(requirements)
 
 
@@ -324,6 +349,7 @@ def rebase_entry(
     record = read_entry_record(catalog_entry)
     unprobed = check_rebasable(catalog_entry, record)
     check_python_minor(catalog_entry, ignore_mismatch)
+    check_bundle(catalog_entry)
     moving = aliases_to_move(catalog_entry, move_aliases)
     reports = tuple(iter_leaf_reports(record))
     # Only a sweep that probed every source can prove a no-op on its own.

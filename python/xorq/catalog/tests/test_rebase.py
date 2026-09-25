@@ -261,21 +261,38 @@ def refuse_unreadable(target: str) -> Callable:
     return setup
 
 
-def refuse_without(dropped: str) -> Callable:
+def refuse_without(dropped: str, drift: bool = True) -> Callable:
+    """An archive without ``dropped``; refused before the sweep, drift or not."""
+
     def setup(w: SimpleNamespace) -> Setup:
-        replace_t(w, GROWN)
-        harvest = rebase_module.harvest_entry_from_zip
+        if drift:
+            replace_t(w, GROWN)
+        members = rebase_module.bundle_members
 
-        def without(zf: zipfile.ZipFile, harvest_dir: Path) -> tuple:
-            wheels, requirements, pin = harvest(zf, harvest_dir)
-            if dropped == DumpFiles.requirements:
-                return wheels, None, pin
-            return [], requirements, pin
+        def without(catalog_entry: object) -> tuple[str, ...]:
+            return tuple(
+                name for name in members(catalog_entry) if not name.endswith(dropped)
+            )
 
-        w.monkeypatch.setattr(rebase_module, "harvest_entry_from_zip", without)
+        w.monkeypatch.setattr(rebase_module, "bundle_members", without)
         return w.name, (), ()
 
     return setup
+
+
+def refuse_corrupt_metadata(w: SimpleNamespace) -> Setup:
+    replace_t(w, GROWN)
+    path = w.catalog.get_catalog_entry(w.name).catalog_path
+    with zipfile.ZipFile(path) as zf:
+        members = {info.filename: zf.read(info) for info in zf.infolist()}
+    members = {
+        member: b"{corrupt" if Path(member).name == DumpFiles.build_metadata else byts
+        for member, byts in members.items()
+    }
+    with zipfile.ZipFile(path, "w") as zf:
+        for member, byts in members.items():
+            zf.writestr(member, byts)
+    return w.name, (), ()
 
 
 def refuse_deleted_db(w: SimpleNamespace) -> Setup:
@@ -352,9 +369,18 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
         pytest.param(
             refuse_unreadable("make_profile"), 2, UNREADABLE, id="unreadable-profile"
         ),
+        pytest.param(
+            refuse_corrupt_metadata,
+            2,
+            "{name} is unreadable: JSONDecodeError",
+            id="corrupt-metadata",
+        ),
         pytest.param(refuse_without(".whl"), 2, NO_BUNDLE, id="no-wheel"),
         pytest.param(
             refuse_without(DumpFiles.requirements), 2, NO_BUNDLE, id="no-requirements"
+        ),
+        pytest.param(
+            refuse_without(".whl", drift=False), 2, NO_BUNDLE, id="no-wheel-no-drift"
         ),
         pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
         pytest.param(refuse_unprobed_db, 2, "does not exist", id="unprobed-db"),

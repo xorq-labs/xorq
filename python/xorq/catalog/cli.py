@@ -1961,6 +1961,7 @@ def _stage_bundle_into_build(bundle, build_path):
 def _entry_run_bundle(
     catalog: "Catalog", entries: tuple[str, ...], *, ignore_mismatch: bool = False
 ) -> Iterator["JointBundle"]:
+    from xorq.catalog.exceptions import WheelCollisionError  # noqa: PLC0415
     from xorq.catalog.zip_utils import harvest_entry_from_zip  # noqa: PLC0415
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
     from xorq.ibis_yaml.packager import JointBundle  # noqa: PLC0415
@@ -1986,9 +1987,12 @@ def _entry_run_bundle(
                 if not ce.is_content_local:
                     ce.fetch()
                 with zipfile.ZipFile(ce.catalog_path) as zf:
-                    wp, req_bytes, py_pin = harvest_entry_from_zip(
-                        zf, harvest_dir, entry, seen_wheels
-                    )
+                    try:
+                        wp, req_bytes, py_pin = harvest_entry_from_zip(
+                            zf, harvest_dir, entry, seen_wheels
+                        )
+                    except WheelCollisionError as e:
+                        raise click.ClickException(str(e)) from e
                     all_wheel_paths.extend(wp)
                     if req_bytes is None:
                         raise click.ClickException(

@@ -161,11 +161,23 @@ def _read_requires_python(path):
         )
 
 
+def parse_python_minor(text: str) -> tuple[int, int] | None:
+    """Return the `(major, minor)` build_metadata.json text records.
+
+    None when it records no version; raises when the text is malformed.
+    """
+    metadata = json.loads(text)
+    if not isinstance(metadata, dict):
+        raise ValueError(f"expected a JSON object, got {type(metadata).__name__}")
+    if (info := metadata.get("sys-version_info")) is None:
+        return None
+    return int(info[0]), int(info[1])
+
+
 def python_minor_from_metadata_text(text: str) -> tuple[int, int] | None:
     """Return the `(major, minor)` build_metadata.json text records, or None."""
     try:
-        info = json.loads(text).get("sys-version_info")
-        return int(info[0]), int(info[1])
+        return parse_python_minor(text)
     except (ValueError, TypeError, KeyError, IndexError, AttributeError):
         return None
 
