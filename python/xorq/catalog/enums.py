@@ -131,11 +131,14 @@ class RebaseStatus(StrEnum):
 
     ``UNPROBED``: no source can be probed, so nothing was done; unlike
     ``NOOP``, that doesn't prove no drift.
+    ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
+    written.
     """
 
     NOOP = "noop"
     UNPROBED = "unprobed"
     REBASED = "rebased"
+    CONFLICT = "conflict"
 
 
 class RebaseExit(IntEnum):

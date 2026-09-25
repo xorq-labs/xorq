@@ -1228,7 +1228,8 @@ def rebase(
          or the options were invalid (--move-aliases with --only-alias);
          nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
-         table is gone; nothing written
+         table is gone; stderr names the op and the source, with its
+         recorded and live schemas; nothing written
       5  rebased and committed locally, but the push failed; the name is
          still printed; run `xorq catalog push`
 
@@ -1252,7 +1253,7 @@ def rebase(
         entry_alias = entry if entry in catalog.list_aliases() else None
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
-    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict  # noqa: PLC0415
     from xorq.catalog.exceptions import RebaseError, RebasePushError  # noqa: PLC0415
     from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
 
@@ -1281,6 +1282,24 @@ def rebase(
         ctx.exit(failure.exit_code)
     if result.venv_warning:
         click.echo(result.venv_warning, err=True)
+    if (conflict := result.conflict) is not None:
+        sources = ", ".join(f"{r.leaf.kind} {r.leaf.name}" for r in conflict.sources)
+        if conflict.op_name is None:
+            click.echo(
+                f"{result.old_entry.name}: conflict: {sources} is gone", err=True
+            )
+        else:
+            click.echo(
+                f"{result.old_entry.name}: conflict: {conflict.op_name} cannot be "
+                f"rebuilt over {sources}",
+                err=True,
+            )
+        for report in conflict.sources:
+            for line in format_leaf_report(report):
+                click.echo(line, err=True)
+        if conflict.op_name is not None:
+            click.echo(conflict.detail, err=True)
+        ctx.exit(RebaseExit.CONFLICT)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
             for line in format_leaf_report(report):
