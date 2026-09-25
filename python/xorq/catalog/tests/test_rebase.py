@@ -651,13 +651,50 @@ def test_an_alias_the_pull_took_off_the_old_entry_stays_put(
     skipped = f"Alias 'live' not moved: no longer on {world.name}"
     assert (skipped in result.stderr) == (live != "new")
     assert f"Moved alias 'staging' -> {new}" in result.stderr
-    assert (f"Moved alias 'live' -> {new}" in result.stderr) == (live == "new")
+    taken = f"Moved alias 'live' from {other} -> {new}"
+    assert (taken in result.stderr) == (live == "new")
+    assert f"Moved alias 'live' -> {new}" not in result.stderr
     catalog = reopen(world)
     assert alias_target_hash(catalog, "staging") == new
     if live is None:
         assert "live" not in catalog.list_aliases()
     else:
         assert alias_target_hash(catalog, "live") == {"other": other, "new": new}[live]
+
+
+@pytest.mark.parametrize(
+    "pulled",
+    (pytest.param(False, id="already-there"), pytest.param(True, id="pulled")),
+)
+def test_an_alias_taken_off_another_entry_is_reported(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    pulled: bool,
+) -> None:
+    other = other_entry(world)
+    replace_t(world, GROWN)
+    if pulled:
+        pull_then(monkeypatch, lambda c: c.add_alias(other, "fresh", sync=False))
+    else:
+        world.catalog.add_alias(other, "fresh")
+
+    result = rebase(runner, world, world.name, "-a", "fresh")
+    monkeypatch.undo()
+    assert result.exit_code == 0, result.output
+    new = result.stdout.strip()
+    assert f"Moved alias 'fresh' from {other} -> {new}" in result.stderr
+    assert f"Moved alias 'fresh' -> {new}" not in result.stderr
+    assert alias_target_hash(reopen(world), "fresh") == new
+
+
+def test_a_new_alias_is_not_reported_as_taken(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, GROWN)
+    result = rebase(runner, world, world.name, "-a", "fresh")
+    assert result.exit_code == 0, result.output
+    assert "'fresh'" not in result.stderr
 
 
 def test_a_failed_rollback_surfaces_the_error_that_caused_it(

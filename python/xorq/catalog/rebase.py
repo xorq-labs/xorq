@@ -64,6 +64,12 @@ class RebaseResult:
         validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
     )
     moved_aliases = str_tuple()
+    # `(alias, entry)`: the ``alias`` that ``-a`` took off another entry.
+    taken_aliases = field(
+        default=(),
+        converter=tuple,
+        validator=deep_iterable(instance_of(tuple), instance_of(tuple)),
+    )
     # Aliases the pull moved off the old entry, or removed: left as it has them.
     skipped_aliases = str_tuple()
     # The sources no probe could compare, when none could; never on REBASED.
@@ -288,16 +294,19 @@ def add_rebased(
     alias: str | None,
     moving: tuple[str, ...],
     sync: bool,
-) -> tuple[CatalogEntry, tuple[str, ...], tuple[str, ...]]:
+) -> tuple[CatalogEntry, tuple[str, ...], tuple[tuple[str, str], ...], tuple[str, ...]]:
     """Catalog ``build_path`` and move ``moving`` onto it, all or nothing.
 
-    Returns the new entry, the aliases moved, and those skipped: an alias the
-    pull no longer has on ``old_entry`` is not taken from where it went, unless
-    it is ``alias``. An ``alias`` already on ``old_entry`` counts as moved.
+    Returns the new entry, the aliases moved, the ``(alias, entry)`` taken off
+    another entry, and those skipped: an alias the pull no longer has on
+    ``old_entry`` is not taken from where it went, unless it is ``alias``. An
+    ``alias`` already on ``old_entry`` counts as moved, one on any other entry
+    as taken.
     """
     catalog = old_entry.catalog
     added_aliases = (alias,) if alias else ()
     moved = []
+    taken = ()
     with catalog.maybe_synchronizing(sync):
         # Read after the pull, which can bring in the entry or retarget an
         # alias. A rebase can land on an entry that already exists (an earlier
@@ -310,15 +319,18 @@ def add_rebased(
         skipped = tuple(
             name for name in moving if name != alias and prior[name] != old_entry.name
         )
-        moving = tuple(name for name in moving if name not in skipped)
+        # `catalog.add` moves `alias` itself.
+        moving = tuple(name for name in moving if name not in (*skipped, alias))
         new_entry = catalog.add(
             build_path,
             sync=False,
             aliases=added_aliases,
             exist_ok=True,
         )
-        if alias and alias not in moving and prior[alias] == old_entry.name:
+        if alias and prior[alias] == old_entry.name:
             moved.append(alias)
+        elif alias and prior[alias] not in (None, new_entry.name):
+            taken = ((alias, prior[alias]),)
         attempted = []
         try:
             for name in moving:
@@ -331,7 +343,7 @@ def add_rebased(
             touched = (*added_aliases, *attempted)
             roll_back(new_entry, {name: prior[name] for name in touched}, added)
             raise
-    return new_entry, tuple(moved), skipped
+    return new_entry, tuple(moved), taken, skipped
 
 
 def rebase_entry(
@@ -397,7 +409,7 @@ def rebase_entry(
             )
         build_path = dumper.dump_expr()
         stage_bundle(catalog_entry, build_path)
-        new_entry, moved, skipped = add_rebased(
+        new_entry, moved, taken, skipped = add_rebased(
             catalog_entry, build_path, alias, moving, sync
         )
     return RebaseResult(
@@ -406,5 +418,6 @@ def rebase_entry(
         new_entry,
         reports,
         moved,
+        taken,
         skipped,
     )
