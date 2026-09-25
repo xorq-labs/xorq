@@ -312,19 +312,6 @@ def refuse_without(dropped: str, drift: bool = True) -> Callable:
     return setup
 
 
-def refuse_harvested_without_requirements(w: SimpleNamespace) -> Setup:
-    """The staging guard, should the harvest disagree with ``check_bundle``."""
-    replace_t(w, GROWN)
-    harvest = rebase_module.harvest_entry_from_zip
-
-    def without(*args: object) -> tuple:
-        wheels, _, pin = harvest(*args)
-        return wheels, None, pin
-
-    w.monkeypatch.setattr(rebase_module, "harvest_entry_from_zip", without)
-    return w.name, (), ()
-
-
 def refuse_corrupt_metadata(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
     rewrite_archive(
@@ -429,19 +416,13 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
         pytest.param(
             refuse_without(".whl", drift=False), 2, NO_WHEEL, id="no-wheel-no-drift"
         ),
-        pytest.param(
-            refuse_harvested_without_requirements,
-            2,
-            NO_REQUIREMENTS,
-            id="harvested-no-requirements",
-        ),
         pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
         pytest.param(
             refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
         ),
         pytest.param(
             refuse_unprobed_new_hash,
-            4,
+            1,
             "no source could be probed (t)",
             id="unprobed-new-hash",
         ),

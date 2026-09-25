@@ -1188,17 +1188,17 @@ def rebase(
          the rebase succeeded
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, some but not all of its sources
-         cannot be probed, the entry was built on another Python minor,
-         --only-alias names an alias the entry lacks, or a write failed
-         (an alias move is rolled back locally, a failed rollback is
-         logged; a failed push is not)
+         cannot be probed, none could be but the entry re-derived to a new
+         hash, the entry was built on another Python minor, --only-alias
+         names an alias the entry lacks, or a write failed (an alias
+         move is rolled back locally, a failed rollback is logged; a
+         failed push is not)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; or the options
          were invalid; nothing written
-      4  conflict: an op no longer fits its new inputs, a source's table
-         is gone, or no source could be probed but the entry re-derived to
-         a new hash; nothing written
+      4  conflict: an op no longer fits its new inputs, or a source's
+         table is gone; nothing written
 
     \b
     Arguments:

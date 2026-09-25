@@ -33,7 +33,7 @@ from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
-from xorq.catalog.zip_utils import BuildZip, harvest_entry_from_zip
+from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
 from xorq.common.exceptions import SchemaRefreshError
 from xorq.common.utils.logging_utils import get_logger
 from xorq.ibis_yaml.enums import DumpFiles
@@ -151,31 +151,22 @@ def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> No
         )
 
 
-def bundle_members(catalog_entry: CatalogEntry) -> tuple[str, ...]:
-    """The names of the archive's wheels and ``requirements.txt``."""
-    with zipfile.ZipFile(catalog_entry.catalog_path) as zf:
-        return tuple(
-            name
-            for name in (Path(member).name for member in zf.namelist())
-            if name.endswith(".whl") or name == DumpFiles.requirements
-        )
-
-
 def check_bundle(catalog_entry: CatalogEntry) -> None:
     """Refuse an archive that lacks the wheels or requirements to re-add."""
     name = catalog_entry.name
     try:
-        members = bundle_members(catalog_entry)
+        with zipfile.ZipFile(catalog_entry.catalog_path) as zf:
+            wheels, requirements, _ = bundle_members(zf)
     except Exception as e:
         raise RebaseError(
             f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
         ) from e
-    if not any(member.endswith(".whl") for member in members):
+    if not wheels:
         raise RebaseError(
             f"{name} carries no wheel for the rebased entry", RebaseExit.UNREACHABLE
         )
     # Without it, `catalog.add` would package the cwd's project requirements.
-    if DumpFiles.requirements not in members:
+    if requirements is None:
         raise RebaseError(
             f"{name} carries no {DumpFiles.requirements} for the rebased entry",
             RebaseExit.UNREACHABLE,
@@ -253,11 +244,6 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
         raise RebaseError(
             f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
         ) from e
-    if requirements is None:
-        raise RebaseError(
-            f"{name} carries no {DumpFiles.requirements} for the rebased entry",
-            RebaseExit.UNREACHABLE,
-        )
     (build_path / DumpFiles.requirements).write_bytes(requirements)
 
 
@@ -412,7 +398,7 @@ def rebase_entry(
                 f"{catalog_entry.name}: re-derived to a new hash, but no source "
                 f"could be probed ({', '.join(unprobed)}), so nothing was "
                 "refreshed",
-                RebaseExit.CONFLICT,
+                RebaseExit.REFUSED,
             )
         build_path = dumper.dump_expr()
         stage_bundle(catalog_entry, build_path)

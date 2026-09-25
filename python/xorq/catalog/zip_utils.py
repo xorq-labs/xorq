@@ -148,6 +148,18 @@ def extract_wheel(
     return target
 
 
+def bundle_members(zf: zipfile.ZipFile) -> tuple[list[str], str | None, str | None]:
+    """An entry archive's wheel members, and its ``requirements.txt`` and
+    ``build_metadata.json`` members, each ``None`` when the archive lacks it."""
+    members = sorted(zf.namelist())
+
+    def named(name: str) -> str | None:
+        return next((m for m in members if Path(m).name == name), None)
+
+    wheels = [m for m in members if Path(m).name.endswith(".whl")]
+    return wheels, named(DumpFiles.requirements), named(DumpFiles.build_metadata)
+
+
 def harvest_entry_from_zip(
     zf: zipfile.ZipFile,
     harvest_dir: Path,
@@ -163,25 +175,14 @@ def harvest_entry_from_zip(
         _python_minor_from_metadata_text,
     )
 
-    members = sorted(zf.namelist())
-
+    wheels, req_member, meta_member = bundle_members(zf)
     wheel_paths = [
         path
-        for m in members
-        if Path(m).name.endswith(".whl")
+        for m in wheels
         if (path := extract_wheel(zf, m, harvest_dir, seen_wheels, entry_name))
         is not None
     ]
-
-    req_bytes = next(
-        (zf.read(m) for m in members if Path(m).name == DumpFiles.requirements),
-        None,
-    )
-
-    meta_member = next(
-        (m for m in members if Path(m).name == DumpFiles.build_metadata),
-        None,
-    )
+    req_bytes = zf.read(req_member) if req_member else None
     python_pin = (
         _python_minor_from_metadata_text(zf.read(meta_member).decode())
         if meta_member
