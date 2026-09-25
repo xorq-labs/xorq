@@ -148,8 +148,26 @@ body.nav-fixed {
 // Logo: match xorq.dev — brandmark 34px tall. Our combined lockup SVG keeps the
 // 34:20 mark:word ratio, so a 34px height renders the wordmark at 20px, exactly
 // like the marketing lockup.
-.navbar .navbar-brand img {
+.navbar .navbar-brand img,
+.navbar .navbar-brand img.navbar-logo,
+.navbar .navbar-logo {
   height:34px;
+  max-height:34px;   // Quarto's default .navbar-logo caps at 24px — lift it so
+                     // the mark matches xorq.dev's 34px lockup (drives row height)
+}
+// Search lives in the docs navbar (xorq.dev's header has none). Left unconstrained
+// its autocomplete form is taller than the 34px logo and pushes the whole header
+// box taller than the marketing one. Cap it to the logo row and centre it so the
+// header height stays logo-driven == exactly xorq.dev.
+.navbar #quarto-search {
+  display:flex;
+  align-items:center;
+}
+.navbar #quarto-search .aa-DetachedSearchButton,
+.navbar #quarto-search .aa-Autocomplete,
+.navbar #quarto-search .aa-Form {
+  height:34px;
+  min-height:0;
 }
 // Header layout — match the target docs design (and xorq.dev nav):
 //   [ logo hard-left ] ......... [ nav links centered ] ......... [ github right ]
