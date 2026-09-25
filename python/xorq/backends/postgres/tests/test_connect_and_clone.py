@@ -42,7 +42,16 @@ class SubclassBackend(postgres_module.Backend):
 
 # what ``info.get_parameters`` can report: libpq conninfo keywords. psycopg-only
 # settings such as ``autocommit`` are absent from it by construction.
-LIBPQ_KEYWORDS = ("host", "port", "user", "dbname", "options", "sslmode", "passfile")
+LIBPQ_KEYWORDS = (
+    "host",
+    "hostaddr",
+    "port",
+    "user",
+    "dbname",
+    "options",
+    "sslmode",
+    "passfile",
+)
 
 
 def fake_psycopg_connect(**kwargs: Any) -> FakeConnection:
@@ -174,3 +183,107 @@ def test_clone_reads_autocommit_off_the_live_connection(faked_psycopg: None) -> 
     cloned = con.clone(password="pw")
 
     assert cloned._con_kwargs["autocommit"] is False
+
+
+def test_clone_drops_the_hostaddr_the_resolver_added(faked_psycopg: None) -> None:
+    """psycopg resolves ``host`` on connect and records the IP it picked as
+    ``hostaddr``, which the DSN then reports. That is resolver output, not
+    caller intent: carried into the clone it lands in the clone's profile,
+    which a build persists, so a later hydration targets a stale IP."""
+    con = SubclassBackend()
+    con.con = FakeConnection(
+        {"host": "example.invalid", "hostaddr": "192.0.2.10", "dbname": "d"}
+    )
+
+    cloned = con.clone(password="pw")
+
+    assert cloned._con_kwargs["host"] == "example.invalid"
+    assert "hostaddr" not in cloned._con_kwargs
+    assert "hostaddr" not in cloned._profile.kwargs_dict
+
+
+def test_clone_keeps_a_hostaddr_the_caller_passed(faked_psycopg: None) -> None:
+    """Dropping it from the DSN must not drop the caller's own: that one is in
+    ``_con_kwargs`` and comes through from there."""
+    con = postgres_module.connect(
+        host="example.invalid", hostaddr="192.0.2.10", user="u", database="d"
+    )
+
+    cloned = con.clone(password="pw")
+
+    assert cloned._con_kwargs["hostaddr"] == "192.0.2.10"
+
+
+def test_clone_reuses_the_source_password(
+    faked_psycopg: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``clone`` layered ``make_credential_defaults()["password"]`` -- the
+    literal ``"$POSTGRES_PASSWORD"`` -- over the source's own password, so a
+    source that connected fine died in ``clone`` with ``KeyError`` from env
+    substitution whenever that env var was unset."""
+    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+    con = postgres_module.connect(
+        host="example.invalid", user="u", database="d", password="hunter2"
+    )
+
+    cloned = con.clone()
+
+    assert cloned._con_kwargs["password"] == "hunter2"
+
+
+def test_clone_keeps_the_source_password_as_its_env_reference(
+    faked_psycopg: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The source's profile holds the reference the caller passed; the clone's
+    must too, or ``Profile.save`` refuses it and ``xo.build`` writes the
+    literal to disk."""
+    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+    monkeypatch.setenv("PGPW", "hunter2")
+    con = postgres_module.connect(
+        host="example.invalid", user="u", database="d", password="$PGPW"
+    )
+
+    cloned = con.clone()
+
+    assert cloned._profile.kwargs_dict["password"] == "$PGPW"
+    assert cloned._con_kwargs["password"] == "hunter2"
+    cloned._profile.check_for_exposed_secrets()
+
+
+def test_clone_explicit_password_wins_over_the_source_password(
+    faked_psycopg: None,
+) -> None:
+    con = postgres_module.connect(
+        host="example.invalid", user="u", database="d", password="hunter2"
+    )
+
+    cloned = con.clone(password="other")
+
+    assert cloned._con_kwargs["password"] == "other"
+
+
+def test_clone_falls_back_to_the_env_default_password(
+    faked_psycopg: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source with no password of its own (``from_connection`` has none
+    anywhere) clones with the ``POSTGRES_PASSWORD`` reference."""
+    monkeypatch.setenv("POSTGRES_PASSWORD", "fromenv")
+    con = postgres_module.Backend.from_connection(FakeConnection({"dbname": "d"}))
+
+    cloned = con.clone()
+
+    assert cloned._profile.kwargs_dict["password"] == "$POSTGRES_PASSWORD"
+    assert cloned._con_kwargs["password"] == "fromenv"
+
+
+def test_clone_raises_value_error_when_no_password_is_available(
+    faked_psycopg: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ``ValueError`` guard compared the default -- always the string
+    ``"$POSTGRES_PASSWORD"`` -- against ``None``, so it never fired and a
+    ``KeyError`` escaped from env substitution inside ``connect`` instead."""
+    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+    con = postgres_module.Backend.from_connection(FakeConnection({"dbname": "d"}))
+
+    with pytest.raises(ValueError, match="POSTGRES_PASSWORD env var is not populated"):
+        con.clone()
