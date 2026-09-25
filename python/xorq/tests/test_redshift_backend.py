@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
-import inspect
 import sys
 from types import ModuleType
 
@@ -55,7 +54,6 @@ psycopg = pytest.importorskip("psycopg")
 
 import xorq  # noqa: E402
 import xorq.api as xo  # noqa: E402
-import xorq.backends.postgres as postgres_module  # noqa: E402
 import xorq.backends.redshift as redshift_module  # noqa: E402
 import xorq.common.exceptions as exc  # noqa: E402
 from xorq.backends.postgres import Backend as PostgresBackend  # noqa: E402
@@ -728,28 +726,11 @@ def test_an_unavailable_driver_is_not_even_imported(
     assert "xorq.common.utils.postgres_utils" not in sys.modules
 
 
-def test_clone_returns_the_subclass_not_postgres() -> None:
-    """``clone`` resolved the postgres module's ``connect`` through
-    ``__globals__``, so a Redshift caller got a postgres backend back.
-    Asserted on the source rather than by cloning, which needs a live
-    ``con.info``."""
-    source = inspect.getsource(PostgresBackend.clone)
-    assert "return self.connect(" in source
-    assert "return connect(" not in source
+def test_redshift_exposes_no_module_level_connect() -> None:
+    """Redshift deliberately has no module-level ``connect`` of its own: the
+    loader builds ``xo.redshift.connect`` from the bound ``Backend.connect``.
 
-
-def test_module_level_connect_builds_a_connected_backend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``Backend.connect(**kwargs)`` was an unbound call that raised
-    ``TypeError``; ``clone`` was its only caller. Redshift's copy is gone --
-    the loader builds ``xo.redshift.connect`` from the bound method."""
-    monkeypatch.setattr(psycopg, "connect", lambda **kwargs: _FakeConnection())
-    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
-
-    con = postgres_module.connect(host="example.invalid", user="u", database="d")
-    assert isinstance(con, PostgresBackend)
-    assert con.con is not None
-
+    The postgres module-level ``connect`` and ``clone`` themselves are covered
+    in ``backends/postgres/tests/test_connect_and_clone.py``."""
     assert not hasattr(redshift_module, "connect")
     assert redshift_module.__all__ == ["Backend"]
