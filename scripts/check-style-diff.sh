@@ -16,12 +16,21 @@ paths=(python examples docs scripts)
 # ci-lint.yml for why the ratchet is a flag here rather than pyproject config.
 disable=type-annotations,pytest-param-id,future-annotations,print
 
-# During conflict resolution the staged diff holds everything the merge brought
+# During conflict resolution the staged diff holds everything the replay brought
 # in, not just the resolution. CI compares base...HEAD and never sees those
 # lines, so checking them here only manufactures failures on other people's
-# code.
-if [ "${1-}" = "--cached" ] && [ -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
-    exit 0
+# code. `git rebase --continue` and `git cherry-pick --continue` run this hook
+# on such a diff too, and leave their own markers rather than MERGE_HEAD. The
+# rebase markers live for the whole rebase, not only the conflict stop, so a
+# commit hand-written at an `edit` stop is skipped here too; CI's base...HEAD
+# still sees those lines, which replayed ones it never does.
+if [ "${1-}" = "--cached" ]; then
+    git_dir=$(git rev-parse --git-dir)
+    for marker in MERGE_HEAD CHERRY_PICK_HEAD rebase-merge rebase-apply; do
+        if [ -e "$git_dir/$marker" ]; then
+            exit 0
+        fi
+    done
 fi
 
 # quotepath off: the default spells a non-ASCII path octal-escaped inside

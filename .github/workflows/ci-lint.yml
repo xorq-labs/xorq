@@ -91,12 +91,15 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t globs < <(printf '%s/*.py\n' $LINT_PATHS)
-          mapfile -t files < <(git ls-files -- "${globs[@]}")
+          # `-z`: NUL-delimited and verbatim, so a path carrying a space
+          # arrives as one file rather than two that do not exist, and a
+          # non-ASCII one is not octal-escaped into a name no file has.
+          mapfile -d '' -t files < <(git ls-files -z -- "${globs[@]}")
           # An empty list means the globs stopped matching the tree, not that
           # the tree is clean. Say so rather than passing on nothing.
           (( ${#files[@]} )) || { echo "::error::style gate matched no files"; exit 1; }
-          printf '%s\n' "${files[@]}" \
-            | xargs uv run --no-sync xorq-check-style --disable \
+          printf '%s\0' "${files[@]}" \
+            | xargs -0 uv run --no-sync xorq-check-style --disable \
               type-annotations,pytest-param-id,future-annotations,print,pytest-tmp-path,protected-access,unlisted-import,deferred-import-test,redundant-import,os-environ,init-reexport,deferred-stdlib,import-aliasing,stdlib-logging,os-path,test-class,exception-placement,relative-import,exception-hierarchy,enum-placement,cache-method
 
       # Pull requests only: GITHUB_BASE_REF is empty on every other event, and

@@ -138,6 +138,11 @@ jobs:
         if: ${{ matrix.backend.services }}
         run: just up-ci ${{ matrix.backend.services }}
 
+      # The two script suites each run in the workflow that owns their guard,
+      # in an environment that job controls: scripts/style_tests in ci-lint.yml
+      # (it re-lints every tracked file and pins its fixture set to the
+      # installed xorq-style) and scripts/tests in ci-adr.yml. Neither is this
+      # job's business.
       - name: pytest
         timeout-minutes: 20
         run: >
@@ -146,6 +151,8 @@ jobs:
           --cov --cov-report=xml
           -m ${{ matrix.backend.name }}
           --ignore=python/xorq/catalog
+          --ignore=scripts/style_tests
+          --ignore=scripts/tests
           -k 'not script_execution and not slow'
           -v --durations=20
           ${{ matrix.backend.parallel && '-n auto --dist=loadfile' || '' }}
