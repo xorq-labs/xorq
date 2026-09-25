@@ -38,6 +38,13 @@ __all__ = [
 
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
+    # Connection settings a subclass injects *below* the caller's kwargs, and
+    # which ``clone`` must therefore not carry back out of the live DSN. Empty
+    # here: postgres injects none, so the dissoc in ``clone`` is a no-op. A
+    # subclass that defaults a libqp setting inside ``do_connect`` -- to keep
+    # it out of ``_con_kwargs``, the profile and the build hash -- has to name
+    # it here too, or the clone reacquires it from ``get_parameters``.
+    _clone_drop_dsn_params: tuple[str, ...] = ()
     _secret_keys = (
         "password",
         "sslcert",
@@ -114,6 +121,41 @@ class Backend(IbisPostgresBackend):
             ),
         ).sql(self.dialect)
 
+    def _open_adbc_conn_or_none(self):
+        """Open an ADBC connection for the Arrow paths, or ``None`` if there is
+        not one to be had.
+
+        A seam, with one narrow behaviour change: this import used to run when
+        ``to_pyarrow_batches`` was called, and now runs on the first batch
+        read, because the only caller is inside the generator. A missing
+        ``adbc_driver_postgresql`` still raises -- the import is above the
+        ``try``, not inside it -- just later, and from inside iteration.
+
+        Postgres keeps the catch-all on purpose: an absent ``password`` in
+        ``_con_kwargs`` is an ordinary way for the ADBC URI to be unbuildable
+        while psycopg is perfectly connected -- a ``.pgpass``, a service file,
+        ``PGPASSWORD`` -- and for a static credential, quietly using the
+        psycopg path is the right answer.
+
+        A subclass whose credentials rotate cannot afford that catch-all,
+        because driver-absent and auth-failed arrive here as the same
+        exception. Overriding this one method is how it tells them apart.
+        """
+        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
+
+        try:
+            return PgADBC(self).get_conn()
+        except Exception:
+            # A genuine config/auth error is indistinguishable here from a
+            # missing ADBC URI; both fall through to the psycopg path, so log
+            # at debug to keep the real cause diagnosable.
+            logger.debug(
+                "ADBC connection unavailable; falling back to psycopg",
+                backend=self.name,
+                exc_info=True,
+            )
+            return None
+
     @util.experimental
     def to_pyarrow_batches(
         self,
@@ -125,24 +167,11 @@ class Backend(IbisPostgresBackend):
         chunk_size: int = 1_000_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
-        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
-
         def _batches(self, *, pyarrow_schema, struct_type, query):
             # Primary path: ADBC opens its own independent postgres connection
             # per call, so concurrent generators never share psycopg connection
             # state (eliminates OutOfOrderTransactionNesting).
-            try:
-                adbc_con = PgADBC(self).get_conn()
-            except Exception:
-                # A genuine config/auth error is indistinguishable here from a
-                # missing ADBC URI; both fall through to the psycopg path, so log
-                # at debug to keep the real cause diagnosable.
-                logger.debug(
-                    "ADBC connection unavailable; falling back to psycopg",
-                    backend=self.name,
-                    exc_info=True,
-                )
-                adbc_con = None
+            adbc_con = self._open_adbc_conn_or_none()
 
             if adbc_con is not None:
                 cur = adbc_con.cursor()
@@ -336,6 +365,11 @@ class Backend(IbisPostgresBackend):
             "database": dsn_parameters["dbname"],
             **kwargs,
         }
+        # The live DSN reports every setting the connection actually has,
+        # including ones the caller never passed. Drop those, then re-apply
+        # ``kwargs`` so an explicit value from this call still wins.
+        if self._clone_drop_dsn_params:
+            dct = {**toolz.dissoc(dct, *self._clone_drop_dsn_params), **kwargs}
         # Password precedence: explicit > the source's own > the env default.
         # The DSN never reports the password, so "the source's own" is whatever
         # ``_con_kwargs`` and the secret merge left in ``dct``: the env
