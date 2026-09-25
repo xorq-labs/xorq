@@ -193,13 +193,17 @@ body.nav-fixed {
 // inside it so the links sit in the middle of the bar while GitHub stays right.
 //
 // Width + box: the visible bordered box = xorq.dev's `.xq-header`. Cap it to
-// 1320px (the marketing chrome width), centre it, pad it 22px/36px (this sets
-// the header HEIGHT, matching the live site), and border it with $xq-line-2 (the
-// exact marketing border colour). The page bg shows in the side gutters.
+// 1280px, centre it, pad it 22px/36px (this sets the header HEIGHT, matching the
+// live site), and border it with $xq-line-2 (the exact marketing border colour).
+// NOTE: marketing's visible .xq-header box is 1280px — it lives INSIDE the 1320px
+// .xq-chrome wrapper which has 20px side padding (1320 - 40 = 1280). Our wrapper
+// (#quarto-header) already has that 20px padding, so cap the BOX at 1280, not
+// 1320, or the header reads ~40px wider than marketing. The page bg shows in the
+// side gutters.
 .navbar > .container-fluid,
 .navbar > .container {
   justify-content:flex-start;
-  max-width:1320px;
+  max-width:1280px;
   margin-left:auto;
   margin-right:auto;
   padding:22px 36px;     // xorq.dev .xq-header — controls the header height
