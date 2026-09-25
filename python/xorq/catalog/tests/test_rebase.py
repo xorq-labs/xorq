@@ -158,6 +158,19 @@ def test_only_alias_narrows_and_alias_adds(
     assert targets(world, "live", "v2", "staging") == (new, new, world.name)
 
 
+def test_an_alias_already_on_the_entry_moves_and_is_reported(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, GROWN)
+
+    result = rebase(runner, world, world.name, "--only-alias", "staging", "-a", "live")
+    assert result.exit_code == 0, result.output
+    new = result.stdout.strip()
+    assert f"Moved alias 'live' -> {new}" in result.stderr
+    assert f"Moved alias 'staging' -> {new}" in result.stderr
+    assert targets(world, "live", "staging") == (new, new)
+
+
 def test_an_entry_with_only_unprobed_sources_is_attempted(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -538,6 +551,20 @@ def test_a_rollback_restores_an_extra_alias_where_the_pull_left_it(
     monkeypatch.undo()
 
     assert targets(world, "fresh", "live") == (other, world.name)
+
+
+def test_a_rollback_restores_an_alias_already_on_the_entry(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    # `-a live` lands through `catalog.add`; the `staging` move after it fails.
+    fail_nth_alias_move(monkeypatch, 1)
+    with pytest.raises(RuntimeError, match="alias move failed"):
+        rebase_old(world, alias="live", move_aliases=("staging",))
+    monkeypatch.undo()
+
+    assert reopen(world).list() == [world.name]
+    assert targets(world, "live", "staging") == (world.name, world.name)
 
 
 @pytest.mark.parametrize(

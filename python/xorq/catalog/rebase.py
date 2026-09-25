@@ -288,7 +288,7 @@ def add_rebased(
 
     Returns the new entry, the aliases moved, and those skipped: an alias the
     pull no longer has on ``old_entry`` is not taken from where it went, unless
-    it is ``alias``.
+    it is ``alias``. An ``alias`` already on ``old_entry`` counts as moved.
     """
     catalog = old_entry.catalog
     added_aliases = (alias,) if alias else ()
@@ -312,6 +312,8 @@ def add_rebased(
             aliases=added_aliases,
             exist_ok=True,
         )
+        if alias and alias not in moving and prior[alias] == old_entry.name:
+            moved.append(alias)
         attempted = []
         try:
             for name in moving:

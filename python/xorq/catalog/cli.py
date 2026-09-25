@@ -1170,9 +1170,10 @@ def rebase(
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. Every alias moves to the new entry
-    unless --only-alias names the ones that should. An alias the sync's pull has moved off the
-    old entry stays where the pull put it. The new entry keeps the old one's
-    wheels and requirements.
+    unless --only-alias names the ones that should; an --alias already on the
+    old entry moves too. An alias the sync's pull has moved off the old entry
+    stays where the pull put it. The new entry keeps the old one's wheels and
+    requirements.
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed: not even
