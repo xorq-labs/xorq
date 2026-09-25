@@ -1181,8 +1181,9 @@ def rebase(
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. Every alias moves to the new entry
     unless --move-alias names the ones that should, or --no-move-aliases
-    keeps them all on the old one. The new entry keeps the old one's wheels
-    and requirements.
+    keeps them all on the old one. An alias the sync's pull has moved off the
+    old entry stays where the pull put it. The new entry keeps the old one's
+    wheels and requirements.
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed: not even
@@ -1251,6 +1252,8 @@ def rebase(
         click.echo(f"Rebased {old} -> {new}", err=True)
         for moved in result.moved_aliases:
             click.echo(f"Moved alias {moved!r} -> {new}", err=True)
+        for skipped in result.skipped_aliases:
+            click.echo(f"Alias {skipped!r} not moved: no longer on {old}", err=True)
     click.echo(new)
 
 

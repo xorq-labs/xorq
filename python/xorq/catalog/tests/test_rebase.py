@@ -306,15 +306,36 @@ def test_a_rollback_restores_an_alias_to_where_the_pull_moved_it(
     other = world.catalog.add(t.filter(t.a > 0)).name
     replace_t(world, GROWN)
 
-    pull_then(monkeypatch, lambda c: c.add_alias(other, "live", sync=False))
-    fail_nth_add_alias(monkeypatch, 3)
+    # `catalog.add` overwrites `fresh`; the second `add_alias`, moving
+    # `live`, fails.
+    pull_then(monkeypatch, lambda c: c.add_alias(other, "fresh", sync=False))
+    fail_nth_add_alias(monkeypatch, 2)
     with pytest.raises(RuntimeError, match="alias move failed"):
-        rebase_entry(world.catalog.get_catalog_entry(world.name))
+        rebase_entry(world.catalog.get_catalog_entry(world.name), alias="fresh")
     monkeypatch.undo()
 
     catalog = reopen(world)
-    assert alias_target_hash(catalog, "live") == other
+    assert alias_target_hash(catalog, "fresh") == other
+    assert alias_target_hash(catalog, "live") == world.name
     assert alias_target_hash(catalog, "staging") == world.name
+
+
+def test_a_rebase_leaves_an_alias_the_pull_moved_off_the_old_entry(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    t = world.con.table("t")
+    other = world.catalog.add(t.filter(t.a > 0)).name
+    replace_t(world, GROWN)
+
+    pull_then(monkeypatch, lambda c: c.add_alias(other, "live", sync=False))
+    result = rebase_entry(world.catalog.get_catalog_entry(world.name))
+    monkeypatch.undo()
+
+    assert result.moved_aliases == ("staging",)
+    assert result.skipped_aliases == ("live",)
+    catalog = reopen(world)
+    assert alias_target_hash(catalog, "live") == other
+    assert alias_target_hash(catalog, "staging") == result.new_entry.name
 
 
 def test_a_failed_alias_move_exits_one_from_the_cli(

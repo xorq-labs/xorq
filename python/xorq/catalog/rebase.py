@@ -59,6 +59,12 @@ class RebaseResult:
         converter=tuple,
         validator=deep_iterable(instance_of(str), instance_of(tuple)),
     )
+    # Aliases the pull moved off the old entry, or removed: left as it has them.
+    skipped_aliases = field(
+        default=(),
+        converter=tuple,
+        validator=deep_iterable(instance_of(str), instance_of(tuple)),
+    )
 
 
 def recorded_python_minor(catalog_entry: CatalogEntry) -> tuple[int, int] | None:
@@ -207,8 +213,12 @@ def add_rebased(
     alias: str | None,
     moving: tuple[str, ...],
     sync: bool,
-) -> tuple[CatalogEntry, tuple[str, ...]]:
-    """Catalog ``build_path`` and move ``moving`` onto it, all or nothing."""
+) -> tuple[CatalogEntry, tuple[str, ...], tuple[str, ...]]:
+    """Catalog ``build_path`` and move ``moving`` onto it, all or nothing.
+
+    Returns the new entry, the aliases moved, and those skipped: an alias the
+    pull no longer has on ``old_entry`` is not taken from where it went.
+    """
     catalog = old_entry.catalog
     added_aliases = (alias,) if alias else ()
     moved = []
@@ -220,6 +230,8 @@ def add_rebased(
         # `catalog.add` and `add_alias` overwrite an alias, so each prior
         # target is kept to restore.
         prior = alias_targets(catalog, (*added_aliases, *moving))
+        skipped = tuple(name for name in moving if prior[name] != old_entry.name)
+        moving = tuple(name for name in moving if name not in skipped)
         new_entry = catalog.add(
             build_path,
             sync=False,
@@ -234,7 +246,7 @@ def add_rebased(
             touched = (*added_aliases, *moved)
             roll_back(new_entry, {name: prior[name] for name in touched}, added)
             raise
-    return new_entry, tuple(moved)
+    return new_entry, tuple(moved), skipped
 
 
 def rebase_entry(
@@ -294,5 +306,9 @@ def rebase_entry(
             )
         build_path = dumper.dump_expr()
         stage_bundle(catalog_entry, build_path)
-        new_entry, moved = add_rebased(catalog_entry, build_path, alias, moving, sync)
-    return RebaseResult(RebaseStatus.REBASED, catalog_entry, new_entry, reports, moved)
+        new_entry, moved, skipped = add_rebased(
+            catalog_entry, build_path, alias, moving, sync
+        )
+    return RebaseResult(
+        RebaseStatus.REBASED, catalog_entry, new_entry, reports, moved, skipped
+    )
