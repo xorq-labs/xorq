@@ -123,11 +123,14 @@ class RebaseStatus(StrEnum):
 
     ``ATTEMPTED``: no source could be probed, so the entry was re-derived and
     came back with its own hash; unlike ``NOOP``, that doesn't prove no drift.
+    ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
+    written.
     """
 
     NOOP = "noop"
     ATTEMPTED = "attempted"
     REBASED = "rebased"
+    CONFLICT = "conflict"
 
 
 class RebaseExit(IntEnum):

@@ -230,6 +230,48 @@ def test_a_python_minor_mismatch_is_overridable(
     assert result.stdout.strip() != world.name
 
 
+@pytest.mark.parametrize(
+    "drift_t, headline, op_name",
+    (
+        pytest.param(
+            lambda w: replace_t(w, pa.table({"b": ["x", "y"]})),
+            "conflict: Field cannot be rebuilt over DatabaseTable t",
+            "Field",
+            id="dropped-column",
+        ),
+        pytest.param(
+            lambda w: w.con.drop_table("t"),
+            "conflict: DatabaseTable t is gone",
+            None,
+            id="gone-table",
+        ),
+    ),
+)
+def test_a_conflict_names_the_op_and_source_with_check_sources_schemas(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    drift_t: Callable,
+    headline: str,
+    op_name: str | None,
+) -> None:
+    drift_t(world)
+    checked = runner.invoke(
+        cli, ["--path", world.catalog_path, "check-sources", world.name]
+    )
+    pair = [line for line in checked.stdout.splitlines() if line.startswith("    ")]
+
+    result = rebase(runner, world)
+    assert result.exit_code == 4, result.output
+    assert f"{world.name}: {headline}" in result.stderr
+    assert pair and all(line in result.stderr.splitlines() for line in pair)
+    assert ("could not rebuild" in result.stderr) == (op_name is not None)
+    conflicted = rebase_old(world)
+    assert conflicted.status == RebaseStatus.CONFLICT
+    assert conflicted.new_entry.name == world.name
+    assert conflicted.conflict.op_name == op_name
+    assert [r.leaf.name for r in conflicted.conflict.sources] == ["t"]
+
+
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
 RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
