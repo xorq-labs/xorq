@@ -26,6 +26,7 @@ from xorq.catalog.drift import (
     make_profile,
     missing_database,
     read_record,
+    roll_up,
     unchecked_leaves,
 )
 from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict
@@ -188,12 +189,15 @@ def live_or_refuse(
     try:
         return live_schemas(record, reports)
     except SchemaRefreshError as e:
-        # Worst verdict wins, as in `check-sources`: a gone table outranks an
-        # unreachable one.
-        gone = any(report.verdict == Verdict.TABLE_MISSING for report in reports)
+        # Worst verdict wins, ranked as `check-sources` ranks it. Below
+        # `table-missing`, what refused is an unreachable or unreadable source,
+        # or two reads that disagree on a live schema.
+        worst = roll_up(report.verdict for report in reports)
         raise RebaseError(
             f"{catalog_entry.name}: {e.cause}",
-            RebaseExit.CONFLICT if gone else RebaseExit.UNREACHABLE,
+            RebaseExit.CONFLICT
+            if worst == Verdict.TABLE_MISSING
+            else RebaseExit.UNREACHABLE,
         ) from e
 
 

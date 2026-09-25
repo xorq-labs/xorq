@@ -624,6 +624,37 @@ def test_a_dropped_referenced_column_is_a_conflict(
     assert_nothing_written(world, commits)
 
 
+@pytest.mark.parametrize(
+    "t_drift, exit_code",
+    (
+        pytest.param("drop", 4, id="gone-outranks-unreachable"),
+        pytest.param("grow", 2, id="changed-refuses-nothing"),
+    ),
+)
+def test_the_worst_refusal_picks_the_exit_code(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    tmp_path: Path,
+    t_drift: str,
+    exit_code: int,
+) -> None:
+    other_db = tmp_path / "other.sqlite"
+    other = SqliteBackend().connect(str(other_db))
+    other.create_table("u", RECORDED.to_pandas())
+    t = world.con.table("t")
+    name = world.catalog.add(t.union(other.table("u").into_backend(world.con))).name
+    other.disconnect()
+    other_db.unlink()
+    if t_drift == "drop":
+        world.con.drop_table("t")
+    else:
+        replace_t(world, GROWN)
+
+    result = rebase(runner, world, name)
+    assert result.exit_code == exit_code, result.output
+    assert not other_db.exists()
+
+
 def test_a_dropped_table_is_a_conflict(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
