@@ -118,8 +118,13 @@ class Backend(IbisPostgresBackend):
         """Open an ADBC connection for the Arrow paths, or ``None`` if there is
         not one to be had.
 
-        A seam rather than a behaviour change. Postgres keeps the catch-all on
-        purpose: an absent ``password`` in ``_con_kwargs`` is an ordinary way
+        A seam, with one narrow behaviour change: this import used to run when
+        ``to_pyarrow_batches`` was called, and now runs on the first batch
+        read, because the only caller is inside the generator. A missing
+        ``adbc_driver_postgresql`` still raises -- the import is above the
+        ``try``, not inside it -- just later, and from inside iteration.
+
+        Postgres keeps the catch-all on purpose: an absent ``password`` in ``_con_kwargs`` is an ordinary way
         for the ADBC URI to be unbuildable while psycopg is perfectly
         connected -- a ``.pgpass``, a service file, ``PGPASSWORD`` -- and for a
         static credential, quietly using the psycopg path is the right answer.
