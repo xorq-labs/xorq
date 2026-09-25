@@ -136,7 +136,7 @@ def test_move_alias_narrows_and_alias_adds(
 ) -> None:
     replace_t(world, GROWN)
 
-    result = rebase(runner, world, "live", "--move-alias", "live", "-a", "v2")
+    result = rebase(runner, world, "live", "--only-alias", "live", "-a", "v2")
     assert result.exit_code == 0, result.output
     new = result.stdout.strip()
     catalog = reopen(world)
@@ -161,13 +161,13 @@ def test_no_move_aliases_leaves_every_alias_on_the_old_entry(
     assert alias_target_hash(catalog, "trial") == new
 
 
-def test_no_move_aliases_and_move_alias_are_exclusive(
+def test_no_move_aliases_and_only_alias_are_exclusive(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     commits = commit_count(world.catalog)
 
     result = rebase(
-        runner, world, world.name, "--no-move-aliases", "--move-alias", "live"
+        runner, world, world.name, "--no-move-aliases", "--only-alias", "live"
     )
     assert result.exit_code == 2
     assert "mutually exclusive" in result.stderr
@@ -176,8 +176,8 @@ def test_no_move_aliases_and_move_alias_are_exclusive(
 
 @pytest.mark.parametrize(
     "flags",
-    (("--no-move-aliases",), ("--move-alias", "staging")),
-    ids=("no-move-aliases", "move-alias"),
+    (("--no-move-aliases",), ("--only-alias", "staging")),
+    ids=("no-move-aliases", "only-alias"),
 )
 def test_an_extra_alias_already_on_the_entry_is_refused(
     runner: CliRunner, world: SimpleNamespace, flags: tuple[str, ...]
@@ -188,7 +188,7 @@ def test_an_extra_alias_already_on_the_entry_is_refused(
     result = rebase(runner, world, world.name, *flags, "-a", "live")
     assert result.exit_code == 1
     assert "already has alias live" in result.stderr
-    assert "--move-alias" not in result.stderr
+    assert "--only-alias" not in result.stderr
     assert_nothing_written(world, commits)
     assert alias_target_hash(reopen(world), "live") == world.name
 
@@ -212,7 +212,7 @@ def test_an_unknown_alias_to_move_writes_nothing(
     replace_t(world, GROWN)
     commits = commit_count(world.catalog)
 
-    result = rebase(runner, world, world.name, "--move-alias", "nope")
+    result = rebase(runner, world, world.name, "--only-alias", "nope")
     assert result.exit_code == 1
     assert "no alias nope" in result.stderr
     assert_nothing_written(world, commits)
@@ -471,7 +471,7 @@ def test_a_str_cache_dir_rebases(
 
 
 @pytest.mark.parametrize(
-    "target", ("recorded_python_minor", "bundle_members", "make_profile")
+    "target", ("recorded_python_minor", "harvest_entry_from_zip", "make_profile")
 )
 def test_an_unreadable_archive_or_profile_exits_two(
     runner: CliRunner,
@@ -507,12 +507,15 @@ def test_an_archive_missing_its_bundle_exits_two(
     dropped: str,
 ) -> None:
     replace_t(world, GROWN)
-    members = rebase_module.bundle_members
-    monkeypatch.setattr(
-        rebase_module,
-        "bundle_members",
-        lambda entry: tuple(m for m in members(entry) if not m.endswith(dropped)),
-    )
+    harvest = rebase_module.harvest_entry_from_zip
+
+    def without(zf: zipfile.ZipFile, harvest_dir: Path) -> tuple:
+        wheels, requirements, pin = harvest(zf, harvest_dir)
+        if dropped == DumpFiles.requirements:
+            return wheels, None, pin
+        return [], requirements, pin
+
+    monkeypatch.setattr(rebase_module, "harvest_entry_from_zip", without)
     commits = commit_count(world.catalog)
 
     result = rebase(runner, world)
@@ -586,15 +589,27 @@ def test_an_unprobed_database_is_not_recreated(
     assert commit_count(reopen(world)) == commits
 
 
-def test_a_dropped_referenced_column_writes_nothing(
+def test_a_dropped_referenced_column_is_a_conflict(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     replace_t(world, pa.table({"b": ["x", "y"]}))
     commits = commit_count(world.catalog)
 
     result = rebase(runner, world)
-    assert result.exit_code == 2, result.output
+    assert result.exit_code == 4, result.output
     assert "could not rebuild" in result.stderr
+    assert_nothing_written(world, commits)
+
+
+def test_a_dropped_table_is_a_conflict(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    world.con.drop_table("t")
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world)
+    assert result.exit_code == 4, result.output
+    assert "table-missing" in result.stderr
     assert_nothing_written(world, commits)
 
 

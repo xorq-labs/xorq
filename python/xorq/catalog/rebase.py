@@ -8,7 +8,6 @@ every source.
 
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import zipfile
@@ -21,26 +20,25 @@ from attr.validators import deep_iterable, in_, instance_of
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.drift import (
     LeafReport,
-    duckdb_no_create,
     format_error,
     iter_leaf_reports,
     make_profile,
+    missing_database,
     read_record,
-    sqlite_no_create,
 )
 from xorq.catalog.enums import RebaseStatus, Verdict
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
-from xorq.catalog.zip_utils import BuildZip
+from xorq.catalog.zip_utils import BuildZip, harvest_entry_from_zip
 from xorq.common.exceptions import SchemaRefreshError
 from xorq.ibis_yaml.enums import DumpFiles
+from xorq.ibis_yaml.packager import python_minor_from_metadata_text
 
 
-# The backends that create a missing database file on connect.
-NO_CREATE = {"sqlite": sqlite_no_create, "duckdb": duckdb_no_create}
-
-WHEEL_SUFFIX = ".whl"
+# A conflict: the re-derivation can't follow the drift. Retrying won't help,
+# unlike exit 2.
+CONFLICT = 4
 
 
 @frozen
@@ -69,22 +67,9 @@ class RebaseResult:
 
 def recorded_python_minor(catalog_entry: CatalogEntry) -> tuple[int, int] | None:
     """The ``(major, minor)`` the entry was built under, if its metadata says."""
-    metadata = BuildZip(catalog_entry.catalog_path).read_dump_file(
-        DumpFiles.build_metadata, json.loads
+    return BuildZip(catalog_entry.catalog_path).read_dump_file(
+        DumpFiles.build_metadata, python_minor_from_metadata_text
     )
-    info = metadata.get("sys-version_info") if isinstance(metadata, dict) else None
-    return tuple(info[:2]) if info else None
-
-
-def bundle_members(catalog_entry: CatalogEntry) -> tuple[str, ...]:
-    """The archive's wheels and ``requirements.txt``."""
-    with zipfile.ZipFile(catalog_entry.catalog_path) as zf:
-        return tuple(
-            member
-            for member in zf.namelist()
-            if Path(member).name.endswith(WHEEL_SUFFIX)
-            or Path(member).name == DumpFiles.requirements
-        )
 
 
 def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
@@ -92,9 +77,20 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
 
     ``catalog.add`` then packages nothing from the caller's cwd.
     """
-    with zipfile.ZipFile(catalog_entry.catalog_path) as zf:
-        for member in bundle_members(catalog_entry):
-            (build_path / Path(member).name).write_bytes(zf.read(member))
+    name = catalog_entry.name
+    try:
+        with zipfile.ZipFile(catalog_entry.catalog_path) as zf:
+            wheels, requirements, _ = harvest_entry_from_zip(zf, build_path)
+    except Exception as e:
+        raise RebaseError(f"{name} is unreadable: {format_error(e)}", 2) from e
+    if not wheels:
+        raise RebaseError(f"{name} carries no wheel for the rebased entry", 2)
+    # Without it, `catalog.add` would package the cwd's project requirements.
+    if requirements is None:
+        raise RebaseError(
+            f"{name} carries no {DumpFiles.requirements} for the rebased entry", 2
+        )
+    (build_path / DumpFiles.requirements).write_bytes(requirements)
 
 
 def missing_databases(record: BuildRecord) -> tuple[str, ...]:
@@ -104,11 +100,11 @@ def missing_databases(record: BuildRecord) -> tuple[str, ...]:
     duckdb create a missing file on connect.
     """
     paths = (
-        NO_CREATE[profile_dict["con_name"]](make_profile(profile_dict))[0]
+        missing_database(make_profile(profile_dict))
         for profile_dict in record.profiles.values()
-        if isinstance(profile_dict, dict) and profile_dict.get("con_name") in NO_CREATE
+        if isinstance(profile_dict, dict)
     )
-    return tuple(path for path in paths if path is not None and not Path(path).exists())
+    return tuple(path for path in paths if path is not None)
 
 
 def preflight(
@@ -136,7 +132,6 @@ def preflight(
         raise RebaseError(f"{name} cannot be rebased: {e.cause}", 1) from e
     try:
         recorded = recorded_python_minor(catalog_entry)
-        members = bundle_members(catalog_entry)
     except Exception as e:
         raise RebaseError(f"{name} is unreadable: {format_error(e)}", 2) from e
     running = tuple(sys.version_info[:2])
@@ -161,13 +156,6 @@ def preflight(
             "entry; include it among the aliases to move, or don't request it as "
             "an extra alias",
             1,
-        )
-    if not any(Path(m).name.endswith(WHEEL_SUFFIX) for m in members):
-        raise RebaseError(f"{name} carries no wheel for the rebased entry", 2)
-    # Without it, `catalog.add` would package the cwd's project requirements.
-    if not any(Path(m).name == DumpFiles.requirements for m in members):
-        raise RebaseError(
-            f"{name} carries no {DumpFiles.requirements} for the rebased entry", 2
         )
     return record, moving
 
@@ -293,7 +281,12 @@ def rebase_entry(
     try:
         live = live_schemas(record, reports)
     except SchemaRefreshError as e:
-        raise RebaseError(f"{catalog_entry.name}: {e.cause}", 2) from e
+        # Worst verdict wins, as in `check-sources`: a gone table outranks an
+        # unreachable one.
+        gone = any(report.verdict == Verdict.TABLE_MISSING for report in reports)
+        raise RebaseError(
+            f"{catalog_entry.name}: {e.cause}", CONFLICT if gone else 2
+        ) from e
     try:
         missing = missing_databases(record)
     except Exception as e:
@@ -311,7 +304,7 @@ def rebase_entry(
         try:
             expr = refresh_schemas(loaded, live)
         except SchemaRefreshError as e:
-            raise RebaseError(f"{catalog_entry.name}: {e}", 2) from e
+            raise RebaseError(f"{catalog_entry.name}: {e}", CONFLICT) from e
         # `relocate_reads=False` keeps each read's recorded posture: a bundled
         # read stays bundled, an external one external.
         dumper = ExprDumper(

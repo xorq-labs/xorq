@@ -1147,19 +1147,16 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     help="Also register this alias for the new entry.",
 )
 @click.option(
-    "--move-alias",
-    "move_aliases",
-    multiple=True,
-    help=(
-        "Move only this alias onto the new entry (repeatable); by default "
-        "every alias moves."
-    ),
+    "--move-aliases/--no-move-aliases",
+    default=True,
+    show_default=True,
+    help="Move all of the old entry's aliases onto the new entry.",
 )
 @click.option(
-    "--no-move-aliases",
-    is_flag=True,
-    default=False,
-    help="Leave every alias on the old entry.",
+    "--only-alias",
+    "only_aliases",
+    multiple=True,
+    help="Move only this alias onto the new entry (repeatable).",
 )
 @sync_option
 @cache_dir_option
@@ -1169,8 +1166,8 @@ def rebase(
     ctx: click.Context,
     entry: str,
     alias: str | None,
-    move_aliases: tuple[str, ...],
-    no_move_aliases: bool,
+    move_aliases: bool,
+    only_aliases: tuple[str, ...],
     sync: bool,
     cache_dir: str | None,
     ignore_venv_mismatch: bool,
@@ -1180,7 +1177,7 @@ def rebase(
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. Every alias moves to the new entry
-    unless --move-alias names the ones that should, or --no-move-aliases
+    unless --only-alias names the ones that should, or --no-move-aliases
     keeps them all on the old one. An alias the sync's pull has moved off the
     old entry stays where the pull put it. The new entry keeps the old one's
     wheels and requirements.
@@ -1194,15 +1191,16 @@ def rebase(
       0  no drift, or the rebase succeeded
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, a source cannot be probed, the
-         entry was built on another Python minor, --move-alias names an
+         entry was built on another Python minor, --only-alias names an
          alias the entry lacks, --alias names an alias of the entry that
          is not moving, or a write failed (an alias move is rolled back
          locally, a failed rollback is logged; a failed push is not)
-      2  a source was unreachable or unreadable, its table or database
-         is missing, its reads disagree on its live schema, or an op no
-         longer fits its new inputs; the record is unreadable or lacks
-         its wheel or requirements; or the options were invalid (e.g.
-         conflicting flags); nothing written
+      2  a source was unreachable or unreadable, its database is
+         missing, or its reads disagree on its live schema; the record is
+         unreadable or lacks its wheel or requirements; or the options
+         were invalid (e.g. conflicting flags); nothing written
+      4  conflict: an op no longer fits its new inputs, or a source's
+         table is gone; nothing written
 
     \b
     Arguments:
@@ -1211,12 +1209,12 @@ def rebase(
     \b
     Examples:
       xorq catalog rebase prod-matches
-      xorq catalog rebase prod-matches --move-alias prod -a matches-v2
+      xorq catalog rebase prod-matches --only-alias prod -a matches-v2
       xorq catalog rebase prod-matches --no-move-aliases -a matches-trial
     """
-    if no_move_aliases and move_aliases:
+    if only_aliases and not move_aliases:
         raise click.UsageError(
-            "--no-move-aliases and --move-alias are mutually exclusive"
+            "--no-move-aliases and --only-alias are mutually exclusive"
         )
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
@@ -1232,7 +1230,7 @@ def rebase(
             result = rebase_entry(
                 catalog_entry,
                 alias=alias,
-                move_aliases=() if no_move_aliases else move_aliases or None,
+                move_aliases=only_aliases or (None if move_aliases else ()),
                 sync=sync,
                 ignore_mismatch=ignore_venv_mismatch,
                 cache_dir=_get_cache_dir(cache_dir),
@@ -1958,60 +1956,11 @@ def _stage_bundle_into_build(bundle, build_path):
     shutil.copy2(bundle.requirements_path, build_path / DumpFiles.requirements)
 
 
-def _extract_wheel(zf, member, harvest_dir, seen_wheels, entry_name):
-    base = Path(member).name
-    if seen_wheels is not None:
-        info = zf.getinfo(member)
-        sig = (info.file_size, info.CRC)
-        if base in seen_wheels:
-            if seen_wheels[base] != sig:
-                raise click.ClickException(
-                    f"wheel collision: {base!r} differs in entry {entry_name!r}"
-                )
-            return None
-        seen_wheels[base] = sig
-    target = harvest_dir / base
-    target.write_bytes(zf.read(member))
-    return target
-
-
-def _harvest_entry_from_zip(zf, harvest_dir, entry_name=None, seen_wheels=None):
-    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
-        _python_minor_from_metadata_text,
-    )
-
-    members = sorted(zf.namelist())
-
-    wheel_paths = [
-        path
-        for m in members
-        if Path(m).name.endswith(".whl")
-        if (path := _extract_wheel(zf, m, harvest_dir, seen_wheels, entry_name))
-        is not None
-    ]
-
-    req_bytes = next(
-        (zf.read(m) for m in members if Path(m).name == DumpFiles.requirements),
-        None,
-    )
-
-    meta_member = next(
-        (m for m in members if Path(m).name == DumpFiles.build_metadata),
-        None,
-    )
-    python_pin = (
-        _python_minor_from_metadata_text(zf.read(meta_member).decode())
-        if meta_member
-        else None
-    )
-
-    return wheel_paths, req_bytes, python_pin
-
-
 @contextmanager
 def _entry_run_bundle(
     catalog: "Catalog", entries: tuple[str, ...], *, ignore_mismatch: bool = False
 ) -> Iterator["JointBundle"]:
+    from xorq.catalog.zip_utils import harvest_entry_from_zip  # noqa: PLC0415
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
     from xorq.ibis_yaml.packager import JointBundle  # noqa: PLC0415
 
@@ -2036,7 +1985,7 @@ def _entry_run_bundle(
                 if not ce.is_content_local:
                     ce.fetch()
                 with zipfile.ZipFile(ce.catalog_path) as zf:
-                    wp, req_bytes, py_pin = _harvest_entry_from_zip(
+                    wp, req_bytes, py_pin = harvest_entry_from_zip(
                         zf, harvest_dir, entry, seen_wheels
                     )
                     all_wheel_paths.extend(wp)

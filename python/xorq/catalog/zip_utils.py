@@ -13,7 +13,7 @@ from xorq.catalog.constants import (
     VALID_SUFFIXES,
 )
 from xorq.common.utils.file_utils import file_digest
-from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
+from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, DumpFiles
 
 
 def with_pure_suffix(path, suffix=""):
@@ -122,3 +122,71 @@ class BuildZip:
     def read_dump_file(self, dump_file, read_f):
         """Read and parse one of the build's dump files, under the internal prefix."""
         return self.read_member(f"{self.internal_prefix}/{dump_file}", read_f)
+
+
+def extract_wheel(
+    zf: zipfile.ZipFile,
+    member: str,
+    harvest_dir: Path,
+    seen_wheels: dict | None,
+    entry_name: str | None,
+) -> Path | None:
+    import click  # noqa: PLC0415
+
+    base = Path(member).name
+    if seen_wheels is not None:
+        info = zf.getinfo(member)
+        sig = (info.file_size, info.CRC)
+        if base in seen_wheels:
+            if seen_wheels[base] != sig:
+                raise click.ClickException(
+                    f"wheel collision: {base!r} differs in entry {entry_name!r}"
+                )
+            return None
+        seen_wheels[base] = sig
+    target = harvest_dir / base
+    target.write_bytes(zf.read(member))
+    return target
+
+
+def harvest_entry_from_zip(
+    zf: zipfile.ZipFile,
+    harvest_dir: Path,
+    entry_name: str | None = None,
+    seen_wheels: dict | None = None,
+) -> tuple[list[Path], bytes | None, str | None]:
+    """Extract an entry archive's wheels into ``harvest_dir``.
+
+    Returns the extracted wheels, the ``requirements.txt`` bytes and the
+    ``==X.Y.*`` Python pin, each ``None`` when the archive lacks it.
+    """
+    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
+        _python_minor_from_metadata_text,
+    )
+
+    members = sorted(zf.namelist())
+
+    wheel_paths = [
+        path
+        for m in members
+        if Path(m).name.endswith(".whl")
+        if (path := extract_wheel(zf, m, harvest_dir, seen_wheels, entry_name))
+        is not None
+    ]
+
+    req_bytes = next(
+        (zf.read(m) for m in members if Path(m).name == DumpFiles.requirements),
+        None,
+    )
+
+    meta_member = next(
+        (m for m in members if Path(m).name == DumpFiles.build_metadata),
+        None,
+    )
+    python_pin = (
+        _python_minor_from_metadata_text(zf.read(meta_member).decode())
+        if meta_member
+        else None
+    )
+
+    return wheel_paths, req_bytes, python_pin

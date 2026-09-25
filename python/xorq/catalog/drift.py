@@ -307,23 +307,37 @@ def duckdb_no_create(profile: Profile) -> tuple[str | None, dict]:
     return str(target), {"read_only": True}
 
 
-def connect(profile: Profile) -> Any:
-    """The connection ``profile`` names, or the error every leaf behind it gets.
+def no_create(profile: Profile) -> tuple[str | None, dict]:
+    """The path to check before connecting, and the kwargs that never create.
 
-    Only sqlite and duckdb create their database on open, and a read-only
-    command must not: the fresh empty database would report `table-missing`.
+    Only sqlite and duckdb create their database on open.
     """
     match profile.con_name:
         case "sqlite":
-            path, kwargs = sqlite_no_create(profile)
+            return sqlite_no_create(profile)
         case "duckdb":
-            path, kwargs = duckdb_no_create(profile)
+            return duckdb_no_create(profile)
         case _:
-            path, kwargs = None, {}
+            return None, {}
+
+
+def missing_database(profile: Profile) -> str | None:
+    """The local database file ``profile`` names, if it no longer exists."""
+    path, _ = no_create(profile)
+    return path if path is not None and not Path(path).exists() else None
+
+
+def connect(profile: Profile) -> Any:
+    """The connection ``profile`` names, or the error every leaf behind it gets.
+
+    A read-only command must not create a database: the fresh empty one would
+    report `table-missing`.
+    """
     # Before the connect: once the driver has raised, the file exists. It also
     # names the cause, which sqlite's message does not.
-    if path is not None and not Path(path).exists():
+    if (path := missing_database(profile)) is not None:
         return FileNotFoundError(f"{profile.con_name} database {path} does not exist")
+    _, kwargs = no_create(profile)
     try:
         # The check can go stale; the kwargs are what close that window.
         return profile.get_con(**kwargs)
