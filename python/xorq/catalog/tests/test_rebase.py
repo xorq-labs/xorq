@@ -188,6 +188,7 @@ def test_an_extra_alias_already_on_the_entry_is_refused(
     result = rebase(runner, world, world.name, *flags, "-a", "live")
     assert result.exit_code == 1
     assert "already has alias live" in result.stderr
+    assert "--move-alias" not in result.stderr
     assert_nothing_written(world, commits)
     assert alias_target_hash(reopen(world), "live") == world.name
 

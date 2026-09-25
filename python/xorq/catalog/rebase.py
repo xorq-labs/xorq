@@ -158,7 +158,7 @@ def preflight(
     if alias in aliases and alias not in moving:
         raise RebaseError(
             f"{name} already has alias {alias}, which would move to the new "
-            f"entry; pass --move-alias {alias} to move it",
+            "entry; include it among the aliases to move, or drop the alias",
             1,
         )
     if not any(Path(m).name.endswith(WHEEL_SUFFIX) for m in members):
