@@ -144,6 +144,7 @@ def test_no_drift_prints_the_same_hash_and_commits_nothing(
     assert "no drift" in result.stderr
     assert "Alias 'v2' not added" in result.stderr
     assert reopen(world).list() == [world.name]
+    assert "v2" not in reopen(world).list_aliases()
     assert commit_count(reopen(world)) == commits
 
 
@@ -502,14 +503,19 @@ def pull_then(
     (pytest.param(False, id="raised"), pytest.param(True, id="committing")),
 )
 def test_a_failed_alias_move_rolls_back_the_new_entry(
-    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, after_write: bool
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    after_write: bool,
 ) -> None:
     replace_t(world, GROWN)
     fail_nth_alias_move(monkeypatch, 2, after_write=after_write)
-    with pytest.raises(RuntimeError, match="alias move failed"):
-        rebase_old(world)
+    result = rebase(runner, world)
     monkeypatch.undo()
 
+    assert result.exit_code == 1, result.output
+    assert "alias move failed" in result.stderr
+    assert result.stdout == ""
     assert reopen(world).list() == [world.name]
     assert targets(world, "live", "staging") == (world.name, world.name)
 
