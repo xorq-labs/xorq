@@ -38,6 +38,13 @@ __all__ = [
 
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
+    # Connection settings a subclass injects *below* the caller's kwargs, and
+    # which ``clone`` must therefore not carry back out of the live DSN. Empty
+    # here: postgres injects none, so the dissoc in ``clone`` is a no-op. A
+    # subclass that defaults a libqp setting inside ``do_connect`` -- to keep
+    # it out of ``_con_kwargs``, the profile and the build hash -- has to name
+    # it here too, or the clone reacquires it from ``get_parameters``.
+    _clone_drop_dsn_params: tuple[str, ...] = ()
     _secret_keys = (
         "password",
         "sslcert",
@@ -358,6 +365,11 @@ class Backend(IbisPostgresBackend):
             "database": dsn_parameters["dbname"],
             **kwargs,
         }
+        # The live DSN reports every setting the connection actually has,
+        # including ones the caller never passed. Drop those, then re-apply
+        # ``kwargs`` so an explicit value from this call still wins.
+        if self._clone_drop_dsn_params:
+            dct = {**toolz.dissoc(dct, *self._clone_drop_dsn_params), **kwargs}
         # Password precedence: explicit > the source's own > the env default.
         # The DSN never reports the password, so "the source's own" is whatever
         # ``_con_kwargs`` and the secret merge left in ``dct``: the env

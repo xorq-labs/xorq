@@ -50,6 +50,12 @@ class Backend(PostgresBackend):
     name = "redshift"
     compiler = compiler
 
+    # ``do_connect`` defaults ``client_encoding`` below the caller's kwargs so
+    # it never reaches ``_con_kwargs``, the profile or the build hash. The live
+    # DSN reports it regardless, so ``clone`` has to be told to drop it or the
+    # clone hashes differently from its source over a setting nobody passed.
+    _clone_drop_dsn_params = ("client_encoding",)
+
     # ``_secret_keys`` is inherited, not restated: a literal copy drifts from
     # the ``con_name_to_secret_keys`` mirror, and ``()`` would narrow
     # ``check_for_exposed_secrets`` to just ``password``.
@@ -250,6 +256,18 @@ class Backend(PostgresBackend):
                 f"temporary=True is not supported with mode={mode!r}: "
                 f"{APPEND_ONLY_MODES} append to a table this call does not "
                 "create, so there is nothing for temporary to apply to"
+            )
+        if temporary and mode == "replace":
+            # ``replace`` emits an unqualified ``DROP TABLE IF EXISTS`` before
+            # the ``CREATE``, and it resolves through ``search_path``: with no
+            # temporary table of that name in the session yet, it drops the
+            # PERMANENT one, then replaces it with a table that disappears at
+            # disconnect. The guard above refuses shadowing, which ends with
+            # the session; this refuses destruction, which does not.
+            raise ValueError(
+                "temporary=True is not supported with mode='replace': the "
+                "DROP it emits is unqualified, so it would resolve to a "
+                "permanent table of the same name and destroy it"
             )
 
         # Unguarded, a null column renders as the column type ``NULL``, which

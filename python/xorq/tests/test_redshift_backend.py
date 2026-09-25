@@ -35,7 +35,7 @@ import sqlglot as sg
 # Measured one name at a time: blocking either one alone breaks the import.
 # ``adbc_driver_postgresql`` is a third driver on the same family tree and is
 # deliberately NOT guarded here. Nothing above reaches it: the only importer
-# is ``xorq.common.utils.postgres_utils``, which four tests below need and the
+# is ``xorq.common.utils.postgres_utils``, which five tests below need and the
 # ``postgres_utils`` fixture imports for them. Two further tests need it
 # merely *installed*, for the probe's own ``find_spec``, and guard themselves
 # with ``importorskip``. Six tests, rather than the whole module.
@@ -675,6 +675,92 @@ def test_temporary_is_refused_for_the_append_modes(
         )
 
     assert con.con.log == []
+
+
+def test_temporary_is_refused_for_replace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``replace`` emits an unqualified ``DROP TABLE IF EXISTS`` before the
+    ``CREATE``, and it resolves through ``search_path``. With no temporary
+    table of that name in the session yet, the DROP lands on the PERMANENT
+    one, and what replaces it disappears at disconnect.
+
+    Separate from the append-mode guard above because the harm differs in kind,
+    not degree: that one refuses SHADOWING, which ends with the session, and
+    this one refuses DESTRUCTION, which does not.
+
+    Probed with a driver available, which is the configuration that used to
+    divert to ADBC: the rejection must come from this method."""
+    con = make_offline_con(password="static")
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+
+    with pytest.raises(ValueError, match="temporary=True is not supported"):
+        con.read_record_batches(
+            make_reader({"a": [1], "b": ["x"]}),
+            table_name="t",
+            temporary=True,
+            mode="replace",
+        )
+
+    # The DROP is the whole point: nothing may reach the server.
+    assert con.con.log == []
+
+
+def test_clone_does_not_carry_client_encoding(
+    postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``do_connect`` keeps ``client_encoding`` out of ``_con_kwargs``, the
+    profile and the build hash by defaulting it below the caller's kwargs.
+
+    ``clone`` rebuilds its kwargs from the LIVE connection rather than from
+    ``_con_kwargs``, and ``get_parameters`` reports every setting the
+    connection actually has -- so without ``_clone_drop_dsn_params`` the clone
+    reacquires a setting nobody passed, and a cloned-then-built artifact hashes
+    differently from one built off the source.
+
+    Hash equality with the source is deliberately NOT asserted here: this fake
+    DSN reports ``port`` as a string, as libpq does, so an equality assertion
+    would pin unrelated coercions rather than this guard. What is asserted is
+    the claim the guard makes -- the setting is absent -- plus that the drop is
+    narrow: ``options`` carries ``search_path`` and must survive it.
+    """
+
+    class _FakeInfo:
+        def __init__(self, parameters: dict) -> None:
+            self._parameters = parameters
+
+        def get_parameters(self) -> dict:
+            return dict(self._parameters)
+
+    con = make_offline_con(password="static", user="u", database="d")
+    con.con.info = _FakeInfo(
+        {
+            "host": "example.invalid",
+            "port": str(redshift_module.DEFAULT_PORT),
+            "user": "u",
+            "dbname": "d",
+            "options": "-c search_path=myschema",
+            "client_encoding": "UNICODE",
+        }
+    )
+    con.con.autocommit = True
+
+    recorded = {}
+
+    def fake_connect(**kwargs):
+        recorded.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    clone = con.clone()
+
+    # ``do_connect`` still defaults it, so the wire is configured ...
+    assert recorded["client_encoding"] == "utf8"
+    # ... and the clone did not inherit the DSN's value as a caller argument.
+    assert "client_encoding" not in clone._con_kwargs
+    assert "client_encoding" not in clone._profile.kwargs_dict
+    # The drop is narrow: a DSN setting the caller does depend on survives.
+    assert clone._con_kwargs["options"] == "-c search_path=myschema"
 
 
 def test_null_typed_columns_are_refused_before_any_sql(
