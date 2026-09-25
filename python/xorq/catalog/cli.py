@@ -1194,12 +1194,14 @@ def rebase(
       0  no drift, or the rebase succeeded
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, a source cannot be probed, the
-         entry was built on another Python minor, --alias names an alias
-         of the entry that is not moving, or a write failed (an
-         alias move is rolled back locally, a failed rollback is logged;
-         a failed push is not)
-      2  a source was unreachable or the record unreadable, or the
-         options were invalid (e.g. conflicting flags); nothing written
+         entry was built on another Python minor, --move-alias names an
+         alias the entry lacks, --alias names an alias of the entry that
+         is not moving, or a write failed (an alias move is rolled back
+         locally, a failed rollback is logged; a failed push is not)
+      2  a source was unreachable, its table is missing, or an op no
+         longer fits its new inputs; the record is unreadable or lacks
+         its wheel or requirements; or the options were invalid (e.g.
+         conflicting flags); nothing written
 
     \b
     Arguments:
