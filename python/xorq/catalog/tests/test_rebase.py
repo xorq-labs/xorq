@@ -233,7 +233,8 @@ def test_a_python_minor_mismatch_is_overridable(
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
 RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
-NO_BUNDLE = "for the rebased entry"
+NO_WHEEL = "{name} carries no wheel for the rebased entry"
+NO_REQUIREMENTS = "{name} carries no requirements.txt for the rebased entry"
 
 
 # Refusals. Each case sets `w` up (`w.monkeypatch` is the test's) and returns
@@ -285,37 +286,51 @@ def refuse_unreadable(target: str) -> Callable:
     return setup
 
 
+def rewrite_archive(w: SimpleNamespace, rewrite: Callable) -> None:
+    """Rewrite the entry's zip, each member through ``rewrite(name, bytes)``.
+
+    A member ``rewrite`` maps to ``None`` is dropped.
+    """
+    path = w.catalog.get_catalog_entry(w.name).catalog_path
+    with zipfile.ZipFile(path) as zf:
+        members = {info.filename: zf.read(info) for info in zf.infolist()}
+    with zipfile.ZipFile(path, "w") as zf:
+        for member, byts in members.items():
+            if (byts := rewrite(Path(member).name, byts)) is not None:
+                zf.writestr(member, byts)
+
+
 def refuse_without(dropped: str, drift: bool = True) -> Callable:
     """An archive without ``dropped``; refused before the sweep, drift or not."""
 
     def setup(w: SimpleNamespace) -> Setup:
         if drift:
             replace_t(w, GROWN)
-        members = rebase_module.bundle_members
-
-        def without(catalog_entry: object) -> tuple[str, ...]:
-            return tuple(
-                name for name in members(catalog_entry) if not name.endswith(dropped)
-            )
-
-        w.monkeypatch.setattr(rebase_module, "bundle_members", without)
+        rewrite_archive(w, lambda name, byts: None if name.endswith(dropped) else byts)
         return w.name, (), ()
 
     return setup
 
 
+def refuse_harvested_without_requirements(w: SimpleNamespace) -> Setup:
+    """The staging guard, should the harvest disagree with ``check_bundle``."""
+    replace_t(w, GROWN)
+    harvest = rebase_module.harvest_entry_from_zip
+
+    def without(*args: object) -> tuple:
+        wheels, _, pin = harvest(*args)
+        return wheels, None, pin
+
+    w.monkeypatch.setattr(rebase_module, "harvest_entry_from_zip", without)
+    return w.name, (), ()
+
+
 def refuse_corrupt_metadata(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
-    path = w.catalog.get_catalog_entry(w.name).catalog_path
-    with zipfile.ZipFile(path) as zf:
-        members = {info.filename: zf.read(info) for info in zf.infolist()}
-    members = {
-        member: b"{corrupt" if Path(member).name == DumpFiles.build_metadata else byts
-        for member, byts in members.items()
-    }
-    with zipfile.ZipFile(path, "w") as zf:
-        for member, byts in members.items():
-            zf.writestr(member, byts)
+    rewrite_archive(
+        w,
+        lambda name, byts: b"{corrupt" if name == DumpFiles.build_metadata else byts,
+    )
     return w.name, (), ()
 
 
@@ -404,12 +419,21 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             "{name} is unreadable: JSONDecodeError",
             id="corrupt-metadata",
         ),
-        pytest.param(refuse_without(".whl"), 2, NO_BUNDLE, id="no-wheel"),
+        pytest.param(refuse_without(".whl"), 2, NO_WHEEL, id="no-wheel"),
         pytest.param(
-            refuse_without(DumpFiles.requirements), 2, NO_BUNDLE, id="no-requirements"
+            refuse_without(DumpFiles.requirements),
+            2,
+            NO_REQUIREMENTS,
+            id="no-requirements",
         ),
         pytest.param(
-            refuse_without(".whl", drift=False), 2, NO_BUNDLE, id="no-wheel-no-drift"
+            refuse_without(".whl", drift=False), 2, NO_WHEEL, id="no-wheel-no-drift"
+        ),
+        pytest.param(
+            refuse_harvested_without_requirements,
+            2,
+            NO_REQUIREMENTS,
+            id="harvested-no-requirements",
         ),
         pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
         pytest.param(

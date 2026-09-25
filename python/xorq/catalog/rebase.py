@@ -232,14 +232,19 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
     ``catalog.add`` then packages nothing from the caller's cwd.
     ``check_bundle`` has made sure the archive carries both.
     """
+    name = catalog_entry.name
     try:
         with zipfile.ZipFile(catalog_entry.catalog_path) as zf:
             _, requirements, _ = harvest_entry_from_zip(zf, build_path)
     except Exception as e:
         raise RebaseError(
-            f"{catalog_entry.name} is unreadable: {format_error(e)}",
-            RebaseExit.UNREACHABLE,
+            f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
         ) from e
+    if requirements is None:
+        raise RebaseError(
+            f"{name} carries no {DumpFiles.requirements} for the rebased entry",
+            RebaseExit.UNREACHABLE,
+        )
     (build_path / DumpFiles.requirements).write_bytes(requirements)
 
 
@@ -349,10 +354,12 @@ def rebase_entry(
 
     # `ExprDumper` validates `cache_dir` as a `Path`.
     cache_dir = Path(cache_dir) if cache_dir is not None else None
+    # First: reading the record opens a `BuildZip`, which refuses a
+    # bundle-less archive with a bare assertion.
+    check_bundle(catalog_entry)
     record = read_entry_record(catalog_entry)
     unprobed = check_rebasable(catalog_entry, record)
     check_python_minor(catalog_entry, ignore_mismatch)
-    check_bundle(catalog_entry)
     moving = aliases_to_move(catalog_entry, move_aliases)
     reports = tuple(iter_leaf_reports(record))
     # Only a sweep that probed every source can prove a no-op on its own.
