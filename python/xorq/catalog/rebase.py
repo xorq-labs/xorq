@@ -251,12 +251,16 @@ def add_rebased(
             aliases=added_aliases,
             exist_ok=True,
         )
+        attempted = []
         try:
             for name in moving:
+                # Recorded before the call: a move that fails after writing
+                # the symlink must be restored too.
+                attempted.append(name)
                 catalog.add_alias(new_entry.name, name, sync=False)
                 moved.append(name)
         except Exception:
-            touched = (*added_aliases, *moved)
+            touched = (*added_aliases, *attempted)
             roll_back(new_entry, {name: prior[name] for name in touched}, added)
             raise
     return new_entry, tuple(moved), skipped

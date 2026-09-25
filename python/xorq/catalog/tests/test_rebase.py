@@ -19,7 +19,7 @@ from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog import drift
 from xorq.catalog import rebase as rebase_module
-from xorq.catalog.catalog import Catalog
+from xorq.catalog.catalog import Catalog, CatalogAlias
 from xorq.catalog.cli import cli
 from xorq.catalog.enums import RebaseStatus
 from xorq.catalog.exceptions import RebaseError
@@ -405,6 +405,33 @@ def test_the_cli_reports_an_alias_the_pull_moved_off(
     assert result.exit_code == 0, result.output
     assert f"Alias 'live' not moved: no longer on {world.name}" in result.stderr
     assert alias_target_hash(reopen(world), "live") == other
+
+
+def test_a_rollback_restores_an_alias_whose_commit_failed(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The symlink is written before the commit, so a failed commit leaves the
+    alias on the new entry, where removing that entry would take it along."""
+    add = CatalogAlias.add
+    calls = []
+
+    def add_then_fail_commit(self):
+        calls.append(self.alias)
+        if len(calls) == 2:
+            self._add()
+            raise RuntimeError("alias move failed")
+        return add(self)
+
+    monkeypatch.setattr(CatalogAlias, "add", add_then_fail_commit)
+    replace_t(world, GROWN)
+    with pytest.raises(RuntimeError, match="alias move failed"):
+        rebase_entry(world.catalog.get_catalog_entry(world.name))
+    monkeypatch.undo()
+
+    catalog = reopen(world)
+    assert catalog.list() == [world.name]
+    assert alias_target_hash(catalog, "live") == world.name
+    assert alias_target_hash(catalog, "staging") == world.name
 
 
 def test_a_failed_alias_move_exits_one_from_the_cli(
