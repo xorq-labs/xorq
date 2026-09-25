@@ -363,6 +363,7 @@ markers = [
     "uv_export: tests that call uv export against the project lockfile",
     "bare_install: tests that build the wheel and drive the CLI against declared dependencies only",
     "bigquery: BigQuery tests",
+    "redshift: Redshift tests",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
