@@ -169,6 +169,21 @@ body.nav-fixed {
   height:34px;
   min-height:0;
 }
+// The brand container/link render 44px (Bootstrap .navbar-brand default vertical
+// padding) even though the logo img is 34px — that becomes the tallest child and
+// keeps the box at 90px. Pin brand + container to the 34px logo row too so the
+// box is fully logo-driven (== marketing's 81px).
+.navbar .navbar-brand-container,
+.navbar .navbar-brand {
+  height:34px;
+  min-height:0;
+  padding-top:0;
+  padding-bottom:0;
+  margin-top:0;
+  margin-bottom:0;
+  display:flex;
+  align-items:center;
+}
 // Header layout — match the target docs design (and xorq.dev nav):
 //   [ logo hard-left ] ......... [ nav links centered ] ......... [ github right ]
 // Quarto centres the brand with `.navbar-brand-container.mx-auto` and pushes the
@@ -208,12 +223,33 @@ body.nav-fixed {
 .navbar .navbar-nav.ms-auto {
   margin-left:0 !important;
 }
+// Height parity with xorq.dev (measured): marketing's <nav> row is 35px, but our
+// nav ULs render 40-46px (the ms-auto GitHub UL is the tallest at 46px, plus
+// nav-links are 39px from 8px top/bottom padding + 21px line-height). That made
+// the whole header box 92px vs marketing's 81px. Pin the nav rows + collapse to
+// the 34px logo row and vertically centre them so the box height is logo-driven
+// (34 + 44 pad + 2 border = 80px == marketing).
+.navbar .navbar-collapse,
+.navbar .navbar-nav {
+  height:34px;
+  min-height:0;
+  align-items:center;
+}
+.navbar .nav-item {
+  display:flex;
+  align-items:center;
+  height:34px;
+}
 .navbar .nav-link {
   font-family:$font-family-monospace;
   font-size:14px;
   letter-spacing:.02em;
   color:$xq-ink-2;
-  padding:8px 14px;
+  padding:0 14px;              // no vertical padding — height comes from the 34px
+  height:34px;                 // row; keeps the item at the logo height
+  display:flex;
+  align-items:center;
+  line-height:1;
   border:1px solid transparent;
   text-transform:lowercase;   // menus lowercase to match xorq.dev
 }
