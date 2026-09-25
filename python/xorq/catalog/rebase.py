@@ -113,6 +113,7 @@ def missing_databases(record: BuildRecord) -> tuple[str, ...]:
 
 def preflight(
     catalog_entry: CatalogEntry,
+    alias: str | None,
     move_aliases: Iterable[str] | None,
     ignore_mismatch: bool,
 ) -> tuple[BuildRecord, tuple[str, ...]]:
@@ -153,6 +154,13 @@ def preflight(
         raise RebaseError(f"{name} has no alias {', '.join(unknown)}", 1)
     else:
         moving = tuple(dict.fromkeys(move_aliases))
+    # `catalog.add` overwrites an alias, so this one would move all the same.
+    if alias in aliases and alias not in moving:
+        raise RebaseError(
+            f"{name} already has alias {alias}, which would move to the new "
+            f"entry; pass --move-alias {alias} to move it",
+            1,
+        )
     if not any(Path(m).name.endswith(WHEEL_SUFFIX) for m in members):
         raise RebaseError(f"{name} carries no wheel for the rebased entry", 2)
     # Without it, `catalog.add` would package the cwd's project requirements.
@@ -269,7 +277,7 @@ def rebase_entry(
 
     # `ExprDumper` validates `cache_dir` as a `Path`.
     cache_dir = Path(cache_dir) if cache_dir is not None else None
-    record, moving = preflight(catalog_entry, move_aliases, ignore_mismatch)
+    record, moving = preflight(catalog_entry, alias, move_aliases, ignore_mismatch)
     reports = tuple(iter_leaf_reports(record))
     if sweep_proves_noop(reports):
         return RebaseResult(RebaseStatus.NOOP, catalog_entry, catalog_entry, reports)

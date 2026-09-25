@@ -174,6 +174,24 @@ def test_no_move_aliases_and_move_alias_are_exclusive(
     assert_nothing_written(world, commits)
 
 
+@pytest.mark.parametrize(
+    "flags",
+    (("--no-move-aliases",), ("--move-alias", "staging")),
+    ids=("no-move-aliases", "move-alias"),
+)
+def test_an_extra_alias_already_on_the_entry_is_refused(
+    runner: CliRunner, world: SimpleNamespace, flags: tuple[str, ...]
+) -> None:
+    replace_t(world, GROWN)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, *flags, "-a", "live")
+    assert result.exit_code == 1
+    assert "already has alias live" in result.stderr
+    assert_nothing_written(world, commits)
+    assert alias_target_hash(reopen(world), "live") == world.name
+
+
 def test_no_drift_says_the_alias_was_not_added(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
