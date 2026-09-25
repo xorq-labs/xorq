@@ -124,8 +124,7 @@ driver availability was meant to let an ADBC branch arrive later as an addition
 rather than a restructuring. Because `_adbc_unavailable_reason()` answers `None`
 on every credentialed install, dispatching that way instead selects the branch
 that cannot work and leaves the one that does as dead code. One predicate cannot
-serve two paths whose correct answers are opposite: ingest needs its own, false
-for any driver that ingests by `COPY`.
+serve two paths whose correct answers are opposite.
 
 `redshift.ingest.bucket`, if it is ever added, would be a non-secret
 `do_connect` kwarg, so it lands in the build hash. Adding it later changes
