@@ -331,7 +331,7 @@ def raise_get_conn(self, **kwargs):
     raise RuntimeError("FATAL: password authentication failed for user")
 
 
-def test_psycopg_ingest_creates_and_inserts(monkeypatch):
+def test_psycopg_ingest_creates_and_inserts():
     """The baseline the ADR promises and the inherited method did not provide.
 
     ``INSERT`` rather than ``COPY`` is not a shortcut: Redshift has no
@@ -339,7 +339,6 @@ def test_psycopg_ingest_creates_and_inserts(monkeypatch):
     an assumable role, which is the deferred ``redshift.ingest.bucket`` work.
     """
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     result = con.read_record_batches(
         make_reader({"a": [1, 2], "b": ["x", "y"]}), table_name="t"
@@ -356,12 +355,11 @@ def test_psycopg_ingest_creates_and_inserts(monkeypatch):
     assert result == ("table", "t")
 
 
-def test_psycopg_ingest_consumes_every_batch(monkeypatch):
+def test_psycopg_ingest_consumes_every_batch():
     """A reader is a stream, and the obvious wrong implementation -- reading
     ``next(reader)`` or materialising ``.read_all()`` into one statement --
     silently drops or reshapes rows."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(
         make_reader(
@@ -375,11 +373,10 @@ def test_psycopg_ingest_consumes_every_batch(monkeypatch):
     assert inserted == [[(1, "x")], [(2, "y"), (3, "z")]]
 
 
-def test_psycopg_ingest_of_an_empty_batch_still_creates_the_table(monkeypatch):
+def test_psycopg_ingest_of_an_empty_batch_still_creates_the_table():
     """``executemany`` with no rows is skipped, but the schema still lands --
     an empty parquet file must produce an empty table, not no table."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(make_reader({"a": [], "b": []}), table_name="t")
 
@@ -387,13 +384,12 @@ def test_psycopg_ingest_of_an_empty_batch_still_creates_the_table(monkeypatch):
     assert not [entry for entry in con.con.log if entry[0] == "executemany"]
 
 
-def test_psycopg_ingest_accepts_a_table_like_the_adbc_branch_does(monkeypatch):
+def test_psycopg_ingest_accepts_a_table_like_the_adbc_branch_does():
     """``adbc_ingest`` takes a ``pa.Table``, and iterating one yields *columns*
     -- so the naive psycopg loop would fail on a missing ``num_rows`` for an
     input the accelerator handles. Which branch runs has to stay an
     implementation detail."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(pa.table({"a": [1], "b": ["x"]}), table_name="t")
 
@@ -421,13 +417,12 @@ def test_psycopg_ingest_accepts_a_table_like_the_adbc_branch_does(monkeypatch):
         ),
     ],
 )
-def test_psycopg_ingest_modes_match_their_adbc_meanings(monkeypatch, mode, expected):
+def test_psycopg_ingest_modes_match_their_adbc_meanings(mode, expected):
     """Which branch runs has to stay an implementation detail, and it stops
     being one the moment the two disagree about what ``mode`` means:
     ``append`` must not create, ``create`` must not tolerate an existing table,
     ``replace`` must drop it, ``create_append`` must tolerate it."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(
         make_reader({"a": [1], "b": ["x"]}), table_name="t", mode=mode
@@ -436,14 +431,13 @@ def test_psycopg_ingest_modes_match_their_adbc_meanings(monkeypatch, mode, expec
     assert executed(con) == expected
 
 
-def test_psycopg_ingest_creates_the_temp_table_directly(monkeypatch):
+def test_psycopg_ingest_creates_the_temp_table_directly():
     """The ADBC path creates a permanent table and converts it afterwards with
     ``make_table_temporary``. That is not overhead ADBC failed to avoid -- it
     connects separately, so a temp table created there would be invisible.
     Sharing the psycopg connection is what makes the direct form correct, so
     assert no rename-and-copy appears."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(
         make_reader({"a": [1], "b": ["x"]}), table_name="t", temporary=True
@@ -452,57 +446,58 @@ def test_psycopg_ingest_creates_the_temp_table_directly(monkeypatch):
     assert executed(con) == ['CREATE TEMPORARY TABLE "t" ("a" BIGINT, "b" VARCHAR)']
 
 
-def test_ingest_dispatches_to_adbc_when_it_is_available(monkeypatch):
-    """The other half of the dispatch. Without this, a psycopg-only
-    implementation would pass every test above and silently discard the
-    accelerator."""
+def test_ingest_never_dispatches_to_adbc_even_when_it_is_available(monkeypatch):
+    """The test this replaces asserted the opposite, and the opposite was wrong.
+
+    Neither ADBC driver can ingest into Redshift -- both ingest by ``COPY``,
+    and Redshift's ``COPY`` reads from S3 only -- so a driver that is installed
+    AND credentialed must change nothing here. ``_adbc_unavailable_reason()``
+    answering ``None`` is the case that used to select the branch that cannot
+    run; this pins that it no longer selects anything.
+
+    Every other ingest test describes the psycopg branch and would keep passing
+    if a dispatch were reintroduced, so this is the only one that would fail.
+    """
     con = make_offline_con(password="static")
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
-
-    calls = []
     monkeypatch.setattr(
         PostgresBackend,
         "read_record_batches",
-        lambda self, record_batches, **kwargs: calls.append(kwargs) or "delegated",
+        lambda *args, **kwargs: pytest.fail("ingest delegated to the ADBC branch"),
     )
 
     result = con.read_record_batches(
         make_reader({"a": [1], "b": ["x"]}), table_name="t", mode="append"
     )
 
-    assert result == "delegated"
-    assert calls == [
-        {"table_name": "t", "password": None, "temporary": False, "mode": "append"}
+    assert result == ("table", "t")
+    assert con.con.log == [
+        ("executemany", 'INSERT INTO "t" ("a", "b") VALUES (%s, %s)', [(1, "x")]),
     ]
-    # nothing was ingested twice
-    assert con.con.log == []
 
 
-def test_ingest_rejects_a_missing_table_name(monkeypatch):
+def test_ingest_rejects_a_missing_table_name():
     """Inherited, ``table_name=None`` reached ``adbc_ingest`` and failed
     somewhere inside the driver."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     with pytest.raises(ValueError, match="table_name"):
         con.read_record_batches(make_reader({"a": [1], "b": ["x"]}))
 
 
-def test_ingest_validates_mode_before_choosing_a_branch(monkeypatch):
-    """Validation belongs above the dispatch: an unknown mode must fail
-    identically whether or not a driver happens to be installed."""
+def test_ingest_validates_mode_before_issuing_any_sql(monkeypatch):
+    """An unknown mode must fail before anything is created or inserted, and
+    must fail identically whether or not a driver happens to be installed --
+    probed with one available, since that is the case that used to divert."""
     con = make_offline_con(password="static")
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
-    monkeypatch.setattr(
-        PostgresBackend,
-        "read_record_batches",
-        lambda *args, **kwargs: pytest.fail("dispatched on an invalid mode"),
-    )
 
     with pytest.raises(ValueError, match="mode must be one of"):
         con.read_record_batches(
             make_reader({"a": [1], "b": ["x"]}), table_name="t", mode="upsert"
         )
+
+    assert con.con.log == []
 
 
 # ---------------------------------------------------------------------------
@@ -623,7 +618,7 @@ def test_ingest_modes_are_the_adbc_ingest_modes():
     )
 
 
-def test_ingest_ddl_pins_two_unverified_redshift_type_widths(monkeypatch):
+def test_ingest_ddl_pins_two_unverified_redshift_type_widths():
     """Not a passing feature -- a tripwire on a live-session checklist item.
 
     The ``CREATE`` is rendered under the postgres dialect, and two of its types
@@ -640,7 +635,6 @@ def test_ingest_ddl_pins_two_unverified_redshift_type_widths(monkeypatch):
     the live session has a checklist entry rather than a discovery.
     """
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     schema = pa.schema([("s", pa.string()), ("ts", pa.timestamp("us"))])
     con.read_record_batches(
@@ -661,49 +655,46 @@ def test_ingest_ddl_pins_two_unverified_redshift_type_widths(monkeypatch):
 def test_temporary_is_refused_for_the_append_modes(
     monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
-    """``append`` emits no ``CREATE`` for the psycopg branch to mark while the
-    ADBC branch marks unconditionally; ``create_append`` would render
-    ``CREATE TEMPORARY TABLE IF NOT EXISTS``, which resolves against
-    ``pg_temp`` and shadows a permanent table. Probed over both reasons so the
-    rejection is not itself a divergence."""
-    for reason in ("no driver", None):
-        con = make_offline_con(password="static")
-        monkeypatch.setattr(
-            con, "_adbc_unavailable_reason", lambda reason=reason: reason
+    """``append`` emits no ``CREATE`` for ``TEMPORARY`` to mark, and
+    ``create_append`` would render ``CREATE TEMPORARY TABLE IF NOT EXISTS``,
+    which resolves against ``pg_temp`` and shadows a permanent table.
+
+    Probed with a driver available, which is the configuration that used to
+    divert to ADBC: the rejection must come from this method, not from
+    whichever branch a predicate picked."""
+    con = make_offline_con(password="static")
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+
+    with pytest.raises(ValueError, match="temporary=True is not supported"):
+        con.read_record_batches(
+            make_reader({"a": [1], "b": ["x"]}),
+            table_name="t",
+            temporary=True,
+            mode=mode,
         )
 
-        with pytest.raises(ValueError, match="temporary=True is not supported"):
-            con.read_record_batches(
-                make_reader({"a": [1], "b": ["x"]}),
-                table_name="t",
-                temporary=True,
-                mode=mode,
-            )
-
-        assert con.con.log == []
+    assert con.con.log == []
 
 
-def test_null_typed_columns_are_refused_on_both_branches(
+def test_null_typed_columns_are_refused_before_any_sql(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A null column renders as the column type ``NULL``, which no server
     accepts. The vendored ``_register_in_memory_table`` guards this; the
-    psycopg ingest was written without it. Guarded above the dispatch, so
-    probed over both reasons."""
-    schema = pa.schema([("n", pa.null()), ("a", pa.int64())])
+    psycopg ingest was written without it.
 
-    for reason in ("no driver", None):
-        con = make_offline_con(password="static")
-        monkeypatch.setattr(
-            con, "_adbc_unavailable_reason", lambda reason=reason: reason
+    Probed with a driver available, which is the configuration that used to
+    divert to ADBC: the guard must run before any statement is issued."""
+    schema = pa.schema([("n", pa.null()), ("a", pa.int64())])
+    con = make_offline_con(password="static")
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+
+    with pytest.raises(exc.XorqTypeError, match="null. typed columns"):
+        con.read_record_batches(
+            make_reader({"n": [None], "a": [1]}, schema=schema), table_name="t"
         )
 
-        with pytest.raises(exc.XorqTypeError, match="null. typed columns"):
-            con.read_record_batches(
-                make_reader({"n": [None], "a": [1]}, schema=schema), table_name="t"
-            )
-
-        assert con.con.log == []
+    assert con.con.log == []
 
 
 def test_an_unavailable_driver_is_not_even_imported(

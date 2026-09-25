@@ -130,11 +130,13 @@ class Backend(PostgresBackend):
     def _adbc_unavailable_reason(self) -> str | None:
         """Why the ADBC accelerator cannot be used, or ``None`` if it can.
 
-        The single point of dispatch for both Arrow paths, and the reason
-        neither of them needs a catch-all. Availability is decided from local
-        facts *before* anything is dialled, so every exception raised by the
-        subsequent connect is a real failure and propagates -- which is what
-        separates "no driver installed" from "these credentials were rejected".
+        Serves the read path alone -- ``_open_adbc_conn_or_none`` is its only
+        caller -- and is the reason that path needs no catch-all. Ingest used
+        to share it and must not: see ``read_record_batches``. Availability is
+        decided from local facts *before* anything is dialled, so every
+        exception raised by the subsequent connect is a real failure and
+        propagates -- which is what separates "no driver installed" from
+        "these credentials were rejected".
         Under a rotating IAM credential that distinction is the difference
         between a quiet fallback and silence about an expired password.
 
@@ -157,7 +159,7 @@ class Backend(PostgresBackend):
         ``pg_catalog`` failures are in xorq's own psycopg path instead. A "no
         reason" answer still means only *installed and credentialed* -- and for
         ingest it is the wrong question entirely, since neither ADBC driver can
-        ingest into Redshift.
+        ingest into Redshift. That is why ingest no longer asks it.
         """
         # Uncached: the tests simulate an absent driver by patching
         # ``find_spec``, and a cached answer would outlive the patch.
@@ -200,49 +202,58 @@ class Backend(PostgresBackend):
         mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
-        """Ingest Arrow record batches, over ADBC if it is there and psycopg if
-        it is not.
+        """Ingest Arrow record batches over psycopg. There is no ADBC branch.
 
-        The postgres implementation is unconditional ADBC. Inheriting it made
-        this backend claim a psycopg baseline it did not have. For ingest the
-        psycopg branch is not a fallback but the *only* path that works:
-        measured against a live endpoint, neither ADBC driver can ingest,
-        because both ingest by ``COPY`` and Redshift's ``COPY`` reads from S3
-        only. So dispatching ingest on driver availability selects the branch
-        that cannot run. That is the open defect: ingest needs its own
-        predicate, false for any driver that ingests by ``COPY``.
+        The postgres implementation is unconditional ADBC, and inheriting it
+        made this backend claim a psycopg baseline it did not have. This one
+        is unconditional psycopg, which is not a fallback but the only ingest
+        Redshift accepts: measured against a live endpoint, *neither* ADBC
+        driver can ingest here, because both ingest by ``COPY`` and Redshift's
+        ``COPY`` reads from S3 only. For ``adbc_driver_postgresql`` that is a
+        parse failure (``COPY ... FROM STDIN``, SQLSTATE 42601), not a missing
+        setting, so no configuration reaches it and the driver has no
+        ``INSERT`` fallback.
 
-        Dispatching here rather than rescuing a failed ADBC attempt was meant
-        to keep the accelerator an addition, on the assumption that a settled
-        driver question would only add a clause to ``_adbc_unavailable_reason``.
-        That no longer holds for ingest: the fix changes this method's shape,
-        giving ingest its own predicate rather than adding a clause elsewhere.
+        **Deliberately not dispatched on ``_adbc_unavailable_reason()``.** That
+        predicate answers "is the accelerator installed and credentialed",
+        which is the right question for ``to_pyarrow_batches`` and the wrong
+        one here: it returns ``None`` on every credentialed install, so
+        dispatching on it selected the branch that cannot run and left the one
+        that works as dead code. The two paths' correct answers are inversely
+        correlated, so they must not share a predicate -- and after this method
+        stopped calling it, they no longer can.
 
-        ``kwargs`` reach ``adbc_ingest`` on the ADBC branch and are dropped on
-        the psycopg one, which has nothing to spend them on. That asymmetry is
-        inherited rather than chosen: ``read_csv`` and ``read_parquet`` forward
-        their *own* reader kwargs down this call, so rejecting unknown ones
-        would break both callers on the branch that is meant to be the
-        baseline.
+        No ingest-side predicate replaces it, because nothing would ever flip
+        one: ``adbc_driver_postgresql`` will not ingest here in any release,
+        and the Columnar driver is rejected by ADR-2332 on packaging grounds.
+        The genuine future path is ``COPY``-from-S3, which is psycopg plus a
+        staging upload and would branch on whether a bucket is configured --
+        inside this method, never on driver availability. That work is out of
+        scope and is tracked separately; it needs no seam held open here.
+
+        ``password`` is unused and kept because it is the inherited signature:
+        ``read_csv`` and ``read_parquet`` both forward it down this call.
+        ``kwargs`` are likewise accepted and dropped -- those two callers
+        forward their *own* reader kwargs here, so rejecting unknown ones would
+        break them.
         """
         if table_name is None:
             raise ValueError("table_name is required")
         if mode not in INGEST_MODES:
             raise ValueError(f"mode must be one of {INGEST_MODES}, got {mode!r}")
         if temporary and mode in APPEND_ONLY_MODES:
-            # ``append`` emits no ``CREATE`` for the psycopg branch to mark
-            # while the ADBC branch marks unconditionally; ``create_append``
-            # would render ``CREATE TEMPORARY TABLE IF NOT EXISTS``, which
-            # resolves against ``pg_temp`` and shadows a permanent table.
+            # ``append`` emits no ``CREATE`` for ``TEMPORARY`` to mark, and
+            # ``create_append`` would render ``CREATE TEMPORARY TABLE IF NOT
+            # EXISTS``, which resolves against ``pg_temp`` and shadows a
+            # permanent table.
             raise ValueError(
                 f"temporary=True is not supported with mode={mode!r}: "
                 f"{APPEND_ONLY_MODES} append to a table this call does not "
                 "create, so there is nothing for temporary to apply to"
             )
 
-        # Above the dispatch so both branches reject it alike. Unguarded, a
-        # null column renders as the column type ``NULL``, which no server
-        # accepts.
+        # Unguarded, a null column renders as the column type ``NULL``, which
+        # no server accepts.
         null_columns = [
             name
             for name, dtype in sch.Schema.from_pyarrow(record_batches.schema).items()
@@ -254,22 +265,6 @@ class Backend(PostgresBackend):
                 f"got null typed columns: {null_columns}"
             )
 
-        if (reason := self._adbc_unavailable_reason()) is None:
-            return super().read_record_batches(
-                record_batches,
-                table_name=table_name,
-                password=password,
-                temporary=temporary,
-                mode=mode,
-                **kwargs,
-            )
-
-        logger.debug(
-            "ingesting over psycopg",
-            backend=self.name,
-            reason=reason,
-            table_name=table_name,
-        )
         return self._read_record_batches_psycopg(
             record_batches,
             table_name,
@@ -307,8 +302,9 @@ class Backend(PostgresBackend):
 
         A ``Table`` is normalised to a reader rather than iterated: iterating a
         ``pa.Table`` yields *columns*, so it would fail here on a missing
-        ``num_rows`` while working perfectly on the ADBC branch, which accepts
-        tables. Which branch runs has to stay an implementation detail.
+        ``num_rows`` for an input ``adbc_ingest`` accepts. Callers were written
+        against that signature and still pass tables, so this path has to take
+        them too.
         """
         if isinstance(record_batches, pa.Table):
             # Unbounded, a one-chunk table becomes one batch holding every row,
