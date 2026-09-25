@@ -225,7 +225,8 @@ def add_rebased(
     """Catalog ``build_path`` and move ``moving`` onto it, all or nothing.
 
     Returns the new entry, the aliases moved, and those skipped: an alias the
-    pull no longer has on ``old_entry`` is not taken from where it went.
+    pull no longer has on ``old_entry`` is not taken from where it went, unless
+    it is ``alias``.
     """
     catalog = old_entry.catalog
     added_aliases = (alias,) if alias else ()
@@ -238,7 +239,10 @@ def add_rebased(
         # `catalog.add` and `add_alias` overwrite an alias, so each prior
         # target is kept to restore.
         prior = alias_targets(catalog, (*added_aliases, *moving))
-        skipped = tuple(name for name in moving if prior[name] != old_entry.name)
+        # `alias` lands on the new entry wherever the pull put it.
+        skipped = tuple(
+            name for name in moving if name != alias and prior[name] != old_entry.name
+        )
         moving = tuple(name for name in moving if name not in skipped)
         new_entry = catalog.add(
             build_path,

@@ -356,6 +356,56 @@ def test_a_rebase_leaves_an_alias_the_pull_moved_off_the_old_entry(
     assert alias_target_hash(catalog, "staging") == result.new_entry.name
 
 
+def test_a_rebase_leaves_an_alias_the_pull_removed(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+
+    pull_then(monkeypatch, lambda c: c.remove_alias("live", sync=False))
+    result = rebase_entry(world.catalog.get_catalog_entry(world.name))
+    monkeypatch.undo()
+
+    assert result.moved_aliases == ("staging",)
+    assert result.skipped_aliases == ("live",)
+    catalog = reopen(world)
+    assert "live" not in catalog.list_aliases()
+    assert alias_target_hash(catalog, "staging") == result.new_entry.name
+
+
+def test_an_extra_alias_the_pull_moved_off_still_lands_on_the_new_entry(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    t = world.con.table("t")
+    other = world.catalog.add(t.filter(t.a > 0)).name
+    replace_t(world, GROWN)
+
+    pull_then(monkeypatch, lambda c: c.add_alias(other, "live", sync=False))
+    result = rebase_entry(world.catalog.get_catalog_entry(world.name), alias="live")
+    monkeypatch.undo()
+
+    assert result.skipped_aliases == ()
+    assert set(result.moved_aliases) == {"live", "staging"}
+    catalog = reopen(world)
+    assert alias_target_hash(catalog, "live") == result.new_entry.name
+    assert alias_target_hash(catalog, "staging") == result.new_entry.name
+
+
+def test_the_cli_reports_an_alias_the_pull_moved_off(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    t = world.con.table("t")
+    other = world.catalog.add(t.filter(t.a > 0)).name
+    replace_t(world, GROWN)
+
+    pull_then(monkeypatch, lambda c: c.add_alias(other, "live", sync=False))
+    result = rebase(runner, world)
+    monkeypatch.undo()
+
+    assert result.exit_code == 0, result.output
+    assert f"Alias 'live' not moved: no longer on {world.name}" in result.stderr
+    assert alias_target_hash(reopen(world), "live") == other
+
+
 def test_a_failed_alias_move_exits_one_from_the_cli(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
