@@ -295,10 +295,18 @@ class Backend(IbisPostgresBackend):
             )
         dsn_parameters = self.con.info.get_parameters()
         dct = {
+            # ``get_parameters`` reports libpq conninfo keywords only, so
+            # settings that never reach libpq cannot come back out of it:
+            # ``autocommit`` is a psycopg ``Connection`` setting and ``schema``
+            # is applied by ``_post_connect``. Take those from the kwargs this
+            # connection was opened with; the live DSN wins where they overlap.
+            **self._con_kwargs,
+            # ``options`` is kept: it carries libpq runtime settings, most
+            # importantly ``search_path``, and dropping it silently changed
+            # which schema unqualified names in the clone resolved against.
             **toolz.dissoc(
                 dsn_parameters,
                 "dbname",
-                "options",
             ),
             **{
                 "database": dsn_parameters["dbname"],
