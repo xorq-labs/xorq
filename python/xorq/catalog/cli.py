@@ -1179,7 +1179,8 @@ def rebase(
     no drift that name is the entry's own, and nothing is committed: not even
     the --alias, which stderr says was not added. An entry none of whose
     sources can be probed is re-derived anyway; if it comes back with its own
-    hash, stderr says that drift was not ruled out.
+    hash, stderr says that drift was not ruled out, and if it comes back with
+    a new hash, the rebase is refused, since nothing was refreshed.
 
     \b
     Exit codes:
@@ -1195,8 +1196,9 @@ def rebase(
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; or the options
          were invalid; nothing written
-      4  conflict: an op no longer fits its new inputs, or a source's
-         table is gone; nothing written
+      4  conflict: an op no longer fits its new inputs, a source's table
+         is gone, or no source could be probed but the entry re-derived to
+         a new hash; nothing written
 
     \b
     Arguments:
