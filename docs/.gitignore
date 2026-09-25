@@ -12,7 +12,8 @@ site_libs
 *.db
 diamonds.json
 *.ndjson
-reference/
+reference/*
+!reference/_metadata.yml
 api_reference/cli/
 objects.json
 llms.txt

@@ -133,6 +133,16 @@ h3 {
 // side padding. The VISIBLE bordered box is the capped .navbar-container below.
 #quarto-header {
   background:$xq-bg;
+}
+// Match xorq.dev's `.xq-chrome` EXACTLY so there's no horizontal shift when
+// navigating marketing -> docs: a 1320px max-width wrapper, centred, with the
+// 12px top gap + 20px side gutters. Quarto paints #quarto-header full-width, so
+// we put the capped+centred wrapper on the inner `.navbar` (Quarto's element that
+// spans the header) rather than #quarto-header itself; #quarto-header only carries
+// the page-bg paint so nothing scrolls through the gutters.
+#quarto-header > .navbar {
+  max-width:1320px;
+  margin:0 auto;
   padding:12px 20px 0;   // xorq.dev .xq-chrome: 12px top gap, 20px side gutters
 }
 // Our header is taller than Quarto's default 64px (chrome 12 + box border/pad

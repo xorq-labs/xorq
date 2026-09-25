@@ -13,6 +13,10 @@ project:
     # Served at /fonts/**; theme/xorq.scss and theme/header.html reference them
     # with root-absolute URLs.
     - fonts/**
+    # Social preview cards (see each section's _metadata.yml) and iOS icon.
+    - images/og-card.png
+    - images/og/**
+    - apple-touch-icon.png
 
 execute:
   mermaid: true
@@ -22,10 +26,17 @@ website:
   site-url: https://docs.xorq.dev
   page-navigation: true
   title: "Xorq documentation"
-  description: "Xorq documentation — build portable, multi-engine ML pipelines with deferred execution, caching, and lineage tracking. Tutorials, API reference, and guides."
+  description: "Docs for Xorq, the Agentic Execution System for AI. Run every step as a real query, trace every result, and reuse verified work. Quickstart, guides, and API reference."
   favicon: "style/favicon.ico"
-  open-graph: true
-  twitter-card: true
+  open-graph:
+    site-name: "Xorq Docs"
+    locale: en_US
+    image: images/og-card.png
+    image-width: 1200
+    image-height: 630
+  twitter-card:
+    card-style: summary_large_image
+    creator: "@hussainsultan"
 
   # No page-footer key: the site footer is theme/footer.html (include-after-body),
   # matching xorq.dev. The theme snippet's `page-footer: false` is rejected by
