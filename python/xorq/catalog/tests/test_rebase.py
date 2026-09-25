@@ -35,7 +35,7 @@ from xorq.ibis_yaml.enums import DumpFiles
 
 
 # Most tests exercise rebase's own logic, which doesn't vary with storage; the
-# ones that add or remove entries run on every backend. Aliases are git
+# basic add, no-op and rollback paths run on every backend. Aliases are git
 # symlinks on all of them.
 ALL_BACKENDS = pytest.mark.parametrize(
     "backend_type",
@@ -183,6 +183,7 @@ def test_an_entry_with_only_unprobed_sources_is_attempted(
     assert result.stdout == f"{world.name}\n"
     assert "No source could be probed (t)" in result.stderr
     assert "drift not ruled out" in result.stderr
+    assert "no drift" not in result.stderr
     assert commit_count(reopen(world)) == commits
     attempted = rebase_old(world)
     assert (attempted.status, attempted.unprobed) == (RebaseStatus.ATTEMPTED, ("t",))
@@ -229,12 +230,14 @@ def test_a_python_minor_mismatch_is_overridable(
 
 
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
+RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
 NO_BUNDLE = "for the rebased entry"
 
 
 # Refusals. Each case sets `w` up (`w.monkeypatch` is the test's) and returns
-# the entry to rebase, the extra CLI args, and files that must stay gone.
+# the entry to rebase, the extra CLI args, and files that must stay gone; a
+# message can name them as `{gone[0]}`.
 def refuse_unknown_alias(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
     return w.name, ("--only-alias", "nope"), ()
@@ -367,7 +370,12 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
     (
         pytest.param(refuse_unknown_alias, 1, "no alias nope", id="unknown-alias"),
         pytest.param(refuse_pinned, 1, "xorq catalog unpin {name}", id="pinned"),
-        pytest.param(refuse_python_minor, 1, "built on Python 3.0", id="python-minor"),
+        pytest.param(
+            refuse_python_minor,
+            1,
+            f"built on Python 3.0, this is {RUNNING}; pass --ignore-venv-mismatch",
+            id="python-minor",
+        ),
         pytest.param(
             refuse_some_unprobed,
             1,
@@ -403,7 +411,9 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             refuse_without(".whl", drift=False), 2, NO_BUNDLE, id="no-wheel-no-drift"
         ),
         pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
-        pytest.param(refuse_unprobed_db, 2, "does not exist", id="unprobed-db"),
+        pytest.param(
+            refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
+        ),
         pytest.param(
             refuse_unprobed_new_hash,
             4,
@@ -444,7 +454,7 @@ def test_a_refused_rebase_writes_nothing(
 
     result = rebase(runner, world, name, *args)
     assert result.exit_code == exit_code, result.output
-    assert message.format(name=name) in result.stderr
+    assert message.format(name=name, gone=gone) in result.stderr
     assert result.stdout == ""
     assert reopen(world).list() == entries
     assert commit_count(reopen(world)) == commits
@@ -538,19 +548,32 @@ def test_a_rollback_keeps_an_entry_it_did_not_add(
     assert targets(world, "live", "staging") == (world.name, world.name)
 
 
-def test_a_rollback_restores_an_extra_alias_where_the_pull_left_it(
-    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "pulled",
+    (pytest.param(False, id="already-there"), pytest.param(True, id="pulled")),
+)
+def test_a_rollback_restores_an_extra_alias_where_it_was(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, pulled: bool
 ) -> None:
+    """`-a fresh` lands through `catalog.add`; the `live` move after it fails."""
     other = other_entry(world)
     replace_t(world, GROWN)
-    pull_then(monkeypatch, lambda c: c.add_alias(other, "fresh", sync=False))
-    # The first move is `-a fresh` through `catalog.add`; `live`, second, fails.
-    fail_nth_alias_move(monkeypatch, 2)
+    if pulled:
+        pull_then(monkeypatch, lambda c: c.add_alias(other, "fresh", sync=False))
+    else:
+        world.catalog.add_alias(other, "fresh")
+    # The pull's own `add_alias` is a move too.
+    fail_nth_alias_move(monkeypatch, 2 if pulled else 1)
     with pytest.raises(RuntimeError, match="alias move failed"):
         rebase_old(world, alias="fresh")
     monkeypatch.undo()
 
-    assert targets(world, "fresh", "live") == (other, world.name)
+    assert set(reopen(world).list()) == {world.name, other}
+    assert targets(world, "fresh", "live", "staging") == (
+        other,
+        world.name,
+        world.name,
+    )
 
 
 def test_a_rollback_restores_an_alias_already_on_the_entry(
@@ -597,6 +620,8 @@ def test_an_alias_the_pull_took_off_the_old_entry_stays_put(
     new = result.stdout.strip()
     skipped = f"Alias 'live' not moved: no longer on {world.name}"
     assert (skipped in result.stderr) == (live != "new")
+    assert f"Moved alias 'staging' -> {new}" in result.stderr
+    assert (f"Moved alias 'live' -> {new}" in result.stderr) == (live == "new")
     catalog = reopen(world)
     assert alias_target_hash(catalog, "staging") == new
     if live is None:
