@@ -409,7 +409,7 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             refuse_beside_unreachable(lambda w: replace_t(w, GROWN)),
             2,
             "unreachable",
-            id="changed-refuses-nothing",
+            id="unreachable-outranks-changed",
         ),
     ),
 )
