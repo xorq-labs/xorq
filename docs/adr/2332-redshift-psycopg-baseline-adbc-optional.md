@@ -218,11 +218,14 @@ The consequences below are targets rather than descriptions, and "written" is
 deliberately weaker than "reachable" — see the second caveat.
 
 - **psycopg baseline for connect, DDL, introspection and query** — connect and
-  query hold live; *introspection does not*. Both `con.table()` and `con.sql()`
-  failed against a live endpoint on `pg_catalog` constructs Redshift does not
-  provide. Which construct each path dies on is not recorded here: the calls are
-  sequential, so only the first failure on each path was ever observable, and the
-  vendored `get_schema` is where the order can be read.
+  query hold live; *introspection does not*. Three `pg_catalog` constructs
+  Redshift does not provide were each raised live and separately observed:
+  `pg_my_temp_schema()`, which `get_schema` calls when no database is passed;
+  `pg_catalog.pg_enum`, which an explicit database routes onto instead; and
+  `CREATE TEMPORARY VIEW`, which schema inference from a query needs. So
+  `con.table()` fails either way and `con.sql()` fails without a supplied schema,
+  and there is no way to obtain a bound table expression through the shipped
+  code. `con.list_tables()` does work — it does not introspect.
 - **`redshift` extra so the backend installs with `uv sync`** — the extra exists
   and mirrors `postgres`; `boto3` is still undeclared.
 - **psycopg `read_record_batches`** — implemented, not reached, and not clean
