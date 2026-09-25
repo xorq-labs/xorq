@@ -24,11 +24,37 @@ from xorq.catalog.cli import cli
 from xorq.catalog.enums import RebaseStatus
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
-from xorq.catalog.tests.conftest import TEST_WHEEL_NAME, alias_target_hash
+from xorq.catalog.tests.conftest import (
+    TEST_WHEEL_NAME,
+    _annex_available,
+    alias_target_hash,
+)
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
 from xorq.ibis_yaml.compiler import build_expr
 from xorq.ibis_yaml.enums import DumpFiles
+
+
+# Most tests exercise rebase's own logic, which doesn't vary with storage; the
+# ones that write entries or move aliases run on every backend.
+ALL_BACKENDS = pytest.mark.parametrize(
+    "backend_type",
+    (
+        "git",
+        pytest.param(
+            "annex",
+            marks=pytest.mark.skipif(
+                not _annex_available, reason="git-annex not installed"
+            ),
+        ),
+        "pointer",
+    ),
+)
+
+
+@pytest.fixture
+def backend_type() -> str:
+    return "git"
 
 
 RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
@@ -78,6 +104,7 @@ def assert_nothing_written(world: SimpleNamespace, commits: int) -> None:
     assert commit_count(catalog) == commits
 
 
+@ALL_BACKENDS
 def test_a_grown_source_rebases_to_a_new_entry(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
@@ -95,6 +122,7 @@ def test_a_grown_source_rebases_to_a_new_entry(
     assert catalog.get_catalog_entry(world.name).columns == ("a", "b")
 
 
+@ALL_BACKENDS
 def test_no_drift_prints_the_same_hash_and_commits_nothing(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
@@ -107,19 +135,7 @@ def test_no_drift_prints_the_same_hash_and_commits_nothing(
     assert_nothing_written(world, commits)
 
 
-def test_a_rederived_entry_with_the_same_hash_is_a_noop(
-    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The path the sweep can't settle: re-derive, and let the hash decide."""
-    monkeypatch.setattr("xorq.catalog.rebase.sweep_proves_noop", lambda *_: False)
-    commits = commit_count(world.catalog)
-
-    result = rebase_entry(world.catalog.get_catalog_entry(world.name))
-    assert result.status == RebaseStatus.NOOP
-    assert result.new_entry.name == world.name
-    assert_nothing_written(world, commits)
-
-
+@ALL_BACKENDS
 def test_every_alias_moves_by_default(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
@@ -131,7 +147,8 @@ def test_every_alias_moves_by_default(
     assert alias_target_hash(catalog, "staging") == new
 
 
-def test_move_alias_narrows_and_alias_adds(
+@ALL_BACKENDS
+def test_only_alias_narrows_and_alias_adds(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     replace_t(world, GROWN)
@@ -145,6 +162,7 @@ def test_move_alias_narrows_and_alias_adds(
     assert alias_target_hash(catalog, "staging") == world.name
 
 
+@ALL_BACKENDS
 def test_no_move_aliases_leaves_every_alias_on_the_old_entry(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
@@ -218,24 +236,31 @@ def test_an_unknown_alias_to_move_writes_nothing(
     assert_nothing_written(world, commits)
 
 
-def fail_nth_add_alias(monkeypatch: pytest.MonkeyPatch, n: int) -> None:
-    add_alias = Catalog.add_alias
+def fail_nth_alias_move(
+    monkeypatch: pytest.MonkeyPatch, n: int, after_write: bool = False
+) -> None:
+    """Fail the ``n``th alias move; ``after_write`` fails it once the symlink is
+    written, as a failed commit would."""
+    add = CatalogAlias.add
     calls = []
 
-    def failing_add_alias(self, name, alias, sync=True):
-        calls.append(alias)
+    def failing_add(self: CatalogAlias) -> None:
+        calls.append(self.alias)
         if len(calls) == n:
+            if after_write:
+                self._add()
             raise RuntimeError("alias move failed")
-        return add_alias(self, name, alias, sync=sync)
+        return add(self)
 
-    monkeypatch.setattr(Catalog, "add_alias", failing_add_alias)
+    monkeypatch.setattr(CatalogAlias, "add", failing_add)
 
 
+@ALL_BACKENDS
 def test_a_failed_alias_move_rolls_back_the_new_entry(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     replace_t(world, GROWN)
-    fail_nth_add_alias(monkeypatch, 2)
+    fail_nth_alias_move(monkeypatch, 2)
     with pytest.raises(RuntimeError, match="alias move failed"):
         rebase_entry(world.catalog.get_catalog_entry(world.name))
     monkeypatch.undo()
@@ -246,6 +271,7 @@ def test_a_failed_alias_move_rolls_back_the_new_entry(
     assert alias_target_hash(catalog, "staging") == world.name
 
 
+@ALL_BACKENDS
 def test_a_failed_alias_move_keeps_an_entry_that_already_existed(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -255,7 +281,7 @@ def test_a_failed_alias_move_keeps_an_entry_that_already_existed(
     for alias in ("live", "staging"):
         catalog.add_alias(world.name, alias)
 
-    fail_nth_add_alias(monkeypatch, 2)
+    fail_nth_alias_move(monkeypatch, 2)
     with pytest.raises(RuntimeError, match="alias move failed"):
         rebase_entry(catalog.get_catalog_entry(world.name))
     monkeypatch.undo()
@@ -266,6 +292,7 @@ def test_a_failed_alias_move_keeps_an_entry_that_already_existed(
     assert alias_target_hash(catalog, "staging") == world.name
 
 
+@ALL_BACKENDS
 def test_a_failed_alias_move_restores_the_extra_alias(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -273,7 +300,7 @@ def test_a_failed_alias_move_restores_the_extra_alias(
     other = world.catalog.add(t.filter(t.a > 0), aliases=("v2",)).name
     replace_t(world, GROWN)
 
-    fail_nth_add_alias(monkeypatch, 1)
+    fail_nth_alias_move(monkeypatch, 1)
     with pytest.raises(RuntimeError, match="alias move failed"):
         rebase_entry(world.catalog.get_catalog_entry(world.name), alias="v2")
     monkeypatch.undo()
@@ -298,6 +325,7 @@ def pull_then(
     monkeypatch.setattr(Catalog, "maybe_synchronizing", pulling)
 
 
+@ALL_BACKENDS
 def test_a_rollback_keeps_an_entry_the_pull_brought_in(
     world: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -310,7 +338,7 @@ def test_a_rollback_keeps_an_entry_the_pull_brought_in(
         catalog.add_alias(world.name, alias)
 
     pull_then(monkeypatch, lambda c: c.add(archive, sync=False))
-    fail_nth_add_alias(monkeypatch, 2)
+    fail_nth_alias_move(monkeypatch, 2)
     with pytest.raises(RuntimeError, match="alias move failed"):
         rebase_entry(catalog.get_catalog_entry(world.name))
     monkeypatch.undo()
@@ -318,6 +346,7 @@ def test_a_rollback_keeps_an_entry_the_pull_brought_in(
     assert set(reopen(world).list()) == {world.name, pushed.name}
 
 
+@ALL_BACKENDS
 def test_a_rollback_restores_an_alias_to_where_the_pull_moved_it(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -328,7 +357,7 @@ def test_a_rollback_restores_an_alias_to_where_the_pull_moved_it(
     # `catalog.add` overwrites `fresh`; the second `add_alias`, moving
     # `live`, fails.
     pull_then(monkeypatch, lambda c: c.add_alias(other, "fresh", sync=False))
-    fail_nth_add_alias(monkeypatch, 2)
+    fail_nth_alias_move(monkeypatch, 2)
     with pytest.raises(RuntimeError, match="alias move failed"):
         rebase_entry(world.catalog.get_catalog_entry(world.name), alias="fresh")
     monkeypatch.undo()
@@ -339,6 +368,7 @@ def test_a_rollback_restores_an_alias_to_where_the_pull_moved_it(
     assert alias_target_hash(catalog, "staging") == world.name
 
 
+@ALL_BACKENDS
 def test_a_rebase_leaves_an_alias_the_pull_moved_off_the_old_entry(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -357,6 +387,7 @@ def test_a_rebase_leaves_an_alias_the_pull_moved_off_the_old_entry(
     assert alias_target_hash(catalog, "staging") == result.new_entry.name
 
 
+@ALL_BACKENDS
 def test_a_rebase_leaves_an_alias_the_pull_removed(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -373,6 +404,7 @@ def test_a_rebase_leaves_an_alias_the_pull_removed(
     assert alias_target_hash(catalog, "staging") == result.new_entry.name
 
 
+@ALL_BACKENDS
 def test_an_extra_alias_the_pull_moved_off_still_lands_on_the_new_entry(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -407,22 +439,13 @@ def test_the_cli_reports_an_alias_the_pull_moved_off(
     assert alias_target_hash(reopen(world), "live") == other
 
 
+@ALL_BACKENDS
 def test_a_rollback_restores_an_alias_whose_commit_failed(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The symlink is written before the commit, so a failed commit leaves the
     alias on the new entry, where removing that entry would take it along."""
-    add = CatalogAlias.add
-    calls = []
-
-    def add_then_fail_commit(self):
-        calls.append(self.alias)
-        if len(calls) == 2:
-            self._add()
-            raise RuntimeError("alias move failed")
-        return add(self)
-
-    monkeypatch.setattr(CatalogAlias, "add", add_then_fail_commit)
+    fail_nth_alias_move(monkeypatch, 2, after_write=True)
     replace_t(world, GROWN)
     with pytest.raises(RuntimeError, match="alias move failed"):
         rebase_entry(world.catalog.get_catalog_entry(world.name))
@@ -438,7 +461,7 @@ def test_a_failed_alias_move_exits_one_from_the_cli(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     replace_t(world, GROWN)
-    fail_nth_add_alias(monkeypatch, 2)
+    fail_nth_alias_move(monkeypatch, 2)
 
     result = rebase(runner, world)
     assert result.exit_code == 1
@@ -450,7 +473,7 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     replace_t(world, GROWN)
-    fail_nth_add_alias(monkeypatch, 2)
+    fail_nth_alias_move(monkeypatch, 2)
 
     def failing_remove(self, name, sync=True):
         raise OSError("rollback failed")
@@ -638,6 +661,7 @@ def test_the_recorded_python_minor_is_read_from_the_archive(
     assert recorded_python_minor(entry) == tuple(sys.version_info[:2])
 
 
+@ALL_BACKENDS
 def test_the_rebased_archive_inherits_wheels_and_requirements(
     runner: CliRunner,
     world: SimpleNamespace,
@@ -664,18 +688,40 @@ def test_the_rebased_archive_inherits_wheels_and_requirements(
     assert requirements == b"pinned-dep==1.0\n"
 
 
-def test_an_entry_with_only_unprobed_sources_is_not_a_noop(
+def test_an_entry_with_only_unprobed_sources_is_attempted(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Refused rather than passed: the rewrite never moves an unprobed source."""
+    """Re-derived and settled by the hash, but not declared drift-free."""
     monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
     commits = commit_count(world.catalog)
 
     result = rebase(runner, world)
-    assert result.exit_code == 1, result.output
-    assert "cannot be probed without writing to it" in result.stderr
-    assert result.stdout == ""
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{world.name}\n"
+    assert "No source could be probed (t)" in result.stderr
+    assert "drift not ruled out" in result.stderr
+    assert "no drift" not in result.stderr
     assert_nothing_written(world, commits)
+
+    attempted = rebase_entry(world.catalog.get_catalog_entry(world.name))
+    assert (attempted.status, attempted.unprobed) == (RebaseStatus.ATTEMPTED, ("t",))
+
+
+def test_an_entry_with_some_unprobed_sources_is_refused(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The unprobed source would come back unchanged beside the refreshed one."""
+    u = world.con.create_table("u", RECORDED.to_pandas())
+    t = world.con.table("t")
+    name = world.catalog.add(t.union(u)).name
+    monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: leaf.name != "u")
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, name)
+    assert result.exit_code == 1, result.output
+    assert "u cannot be probed without writing to it" in result.stderr
+    assert result.stdout == ""
+    assert commit_count(reopen(world)) == commits
 
 
 def test_a_rebase_error_carries_its_exit_code() -> None:

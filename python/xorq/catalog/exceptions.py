@@ -19,12 +19,8 @@ class CatalogConfigurationError(RuntimeError):
 
 
 class RebaseError(XorqError):
-    """A rebase refused before writing anything; ``exit_code`` is the CLI's.
-
-    1: it never started (pinned entry, Python-minor mismatch, unprobeable
-    source). 2: a source or the record could not be read. 4: a conflict, the
-    drift the re-derivation can't follow.
-    """
+    """A rebase refused before writing anything; ``exit_code`` is the CLI's,
+    a ``RebaseExit``."""
 
     def __init__(self, message: str, exit_code: int) -> None:
         super().__init__(message, exit_code)

@@ -1184,17 +1184,21 @@ def rebase(
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed: not even
-    the --alias, which stderr says was not added.
+    the --alias, which stderr says was not added. An entry none of whose
+    sources can be probed is re-derived anyway; if it comes back with its own
+    hash, stderr says that drift was not ruled out.
 
     \b
     Exit codes:
-      0  no drift, or the rebase succeeded
+      0  no drift, drift not ruled out (no source could be probed), or
+         the rebase succeeded
       1  refused, or failed: the name does not resolve, the catalog does
-         not open, the entry is pinned, a source cannot be probed, the
-         entry was built on another Python minor, --only-alias names an
-         alias the entry lacks, --alias names an alias of the entry that
-         is not moving, or a write failed (an alias move is rolled back
-         locally, a failed rollback is logged; a failed push is not)
+         not open, the entry is pinned, some but not all of its sources
+         cannot be probed, the entry was built on another Python minor,
+         --only-alias names an alias the entry lacks, --alias names an
+         alias of the entry that is not moving, or a write failed (an
+         alias move is rolled back locally, a failed rollback is logged;
+         a failed push is not)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; or the options
@@ -1246,8 +1250,19 @@ def rebase(
             for line in format_leaf_report(report):
                 click.echo(line, err=True)
     old, new = result.old_entry.name, result.new_entry.name
-    if result.status == RebaseStatus.NOOP:
-        click.echo(f"{old}: no drift", err=True)
+    if result.unprobed:
+        click.echo(
+            f"No source could be probed ({', '.join(result.unprobed)}); "
+            "re-derived without refreshing any",
+            err=True,
+        )
+    if result.status != RebaseStatus.REBASED:
+        click.echo(
+            f"{old}: no drift"
+            if result.status == RebaseStatus.NOOP
+            else f"{old}: re-derived to the same hash; drift not ruled out",
+            err=True,
+        )
         if alias:
             click.echo(f"Alias {alias!r} not added: nothing to rebase", err=True)
     else:
