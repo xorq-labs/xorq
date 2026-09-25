@@ -146,16 +146,18 @@ class Backend(PostgresBackend):
         the literal string ``"None"`` and fails later as an auth error against
         a password nobody set.
 
-        This method is also the seam the accelerator work extends. Adding the
-        Columnar driver, or ruling ``adbc_driver_postgresql`` in or out against
-        a live endpoint, changes a clause here and touches neither Arrow path.
+        This method is also the seam the accelerator work extends, but it is
+        not the whole of it: swapping accelerators changes a clause here, the
+        extras, and the connection factory below (``PgADBC``, which hardcodes
+        ``adbc_driver_postgresql``).
 
-        Note what is *not* settled: whether ``adbc_driver_postgresql`` works
-        against Redshift at all is untested -- it is recorded as an alternative
-        in ADR-2332, needs a live endpoint, and may fail on ``pg_catalog``
-        introspection the way ``CURRENT_SCHEMA`` did. So a "no reason" answer
-        here means the accelerator is *installed and credentialed*, not that it
-        is known to work.
+        ADR-2332 settled the open question this docstring used to carry:
+        measured against a live endpoint, ``adbc_driver_postgresql``
+        works against Redshift for every read path, and the feared
+        ``pg_catalog`` failures are in xorq's own psycopg path instead. A "no
+        reason" answer still means only *installed and credentialed* -- and for
+        ingest it is the wrong question entirely, since neither ADBC driver can
+        ingest into Redshift.
         """
         # Uncached: the tests simulate an absent driver by patching
         # ``find_spec``, and a cached answer would outlive the patch.
@@ -202,15 +204,19 @@ class Backend(PostgresBackend):
         it is not.
 
         The postgres implementation is unconditional ADBC. Inheriting it made
-        this backend claim a psycopg baseline it did not have, and under that
-        baseline an absent driver is the *common* case rather than the edge:
-        no Columnar driver is installable from PyPI, and none is built for
-        Intel macOS at all. So the fallback is the path that has to work.
+        this backend claim a psycopg baseline it did not have. For ingest the
+        psycopg branch is not a fallback but the *only* path that works:
+        measured against a live endpoint, neither ADBC driver can ingest,
+        because both ingest by ``COPY`` and Redshift's ``COPY`` reads from S3
+        only. So dispatching ingest on driver availability selects the branch
+        that cannot run. That is the open defect: ingest needs its own
+        predicate, false for any driver that ingests by ``COPY``.
 
-        Dispatching here rather than rescuing a failed ADBC attempt is what
-        keeps the accelerator an addition: when the driver question is settled
-        the ADBC branch gains a clause in ``_adbc_unavailable_reason``, and
-        this method does not change shape.
+        Dispatching here rather than rescuing a failed ADBC attempt was meant
+        to keep the accelerator an addition, on the assumption that a settled
+        driver question would only add a clause to ``_adbc_unavailable_reason``.
+        That no longer holds for ingest: the fix changes this method's shape,
+        giving ingest its own predicate rather than adding a clause elsewhere.
 
         ``kwargs`` reach ``adbc_ingest`` on the ADBC branch and are dropped on
         the psycopg one, which has nothing to spend them on. That asymmetry is
