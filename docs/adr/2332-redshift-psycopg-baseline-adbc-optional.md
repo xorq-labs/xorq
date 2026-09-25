@@ -246,11 +246,13 @@ deliberately weaker than "reachable" — see the second caveat.
 One measured caveat on the read path: it raises `ValueError` when an expression
 carries an **auto-generated** alias containing upper case — `t.count().execute()`
 is the minimal case — because Redshift folds identifiers to lower case and the
-per-batch cast rejects the mismatch. The folding is *server*-side, so the
-Columnar driver would very likely meet it identically through the same cast.
-That is unverified, and it was unverified when this decision was taken; the
-answer decides whether it was ever evidence about drivers at all rather than
-about xorq's cast.
+per-batch cast rejects the mismatch. Measured since: Redshift folds the alias
+even though xorq emits it **quoted**, and the psycopg branch returns the same
+expression cleanly. So this is not evidence about drivers at all. The
+discriminator is xorq's cast, which matches on field names, against a baseline
+that builds its batches positionally and cannot see a mismatch. Any driver
+handing back the folded name meets it identically, the Columnar driver included,
+and swapping accelerators neither causes nor cures it.
 
 The second caveat is that **no supported install reaches the psycopg baseline.**
 The `redshift` extra mirrors `postgres`, which pins `adbc-driver-postgresql`
