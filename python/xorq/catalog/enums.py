@@ -1,3 +1,5 @@
+from enum import IntEnum
+
 from xorq.common.compat import StrEnum
 
 
@@ -114,3 +116,26 @@ class Verdict(StrEnum):
             # property exists to prevent.
             case _:
                 raise ValueError(f"no exit code for verdict {self}")
+
+
+class RebaseStatus(StrEnum):
+    """How a successful ``rebase_entry`` ended.
+
+    ``ATTEMPTED``: no source could be probed, so the entry was re-derived and
+    came back with its own hash; unlike ``NOOP``, that doesn't prove no drift.
+    """
+
+    NOOP = "noop"
+    ATTEMPTED = "attempted"
+    REBASED = "rebased"
+
+
+class RebaseExit(IntEnum):
+    """The exit codes ``xorq catalog rebase`` refuses with."""
+
+    # Never started: a property of the entry or the request; retrying won't help.
+    REFUSED = 1
+    # A source or the record could not be read; retryable.
+    UNREACHABLE = 2
+    # The re-derivation can't follow the drift; retrying won't help.
+    CONFLICT = 4
