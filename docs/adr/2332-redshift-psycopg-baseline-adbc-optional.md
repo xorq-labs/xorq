@@ -121,10 +121,11 @@ contradicts its own implementation.
 
 This is why the ingest row above carries a prohibition. Dispatching ingest on
 driver availability was meant to let an ADBC branch arrive later as an addition
-rather than a restructuring. Because `_adbc_unavailable_reason()` answers `None`
-on every credentialed install, dispatching that way instead selects the branch
-that cannot work and leaves the one that does as dead code. One predicate cannot
-serve two paths whose correct answers are opposite.
+rather than a restructuring. It did the opposite: because the availability
+predicate answers `None` on every credentialed install, dispatching that way
+selected the branch that cannot work and left the one that does as dead code.
+One predicate cannot serve two paths whose correct answers are opposite, so
+ingest no longer consults that predicate at all.
 
 `redshift.ingest.bucket`, if it is ever added, would be a non-secret
 `do_connect` kwarg, so it lands in the build hash. Adding it later changes
@@ -227,11 +228,11 @@ deliberately weaker than "reachable" — see the second caveat.
   code. `con.list_tables()` does work — it does not introspect.
 - **`redshift` extra so the backend installs with `uv sync`** — the extra exists
   and mirrors `postgres`; `boto3` is still undeclared.
-- **psycopg `read_record_batches`** — implemented, not reached, and not clean
-  when forced. The `CREATE TABLE` plus parameterised `INSERT` lands rows, but the
-  method's tail re-introspects (`return self.table(...)`) and raises for the
-  introspection reason above. The dispatch also selects ADBC on every
-  credentialed install, and ADBC ingest cannot run on Redshift.
+- **psycopg `read_record_batches`** — implemented and now the only ingest path,
+  reached unconditionally; still not clean. The `CREATE TABLE` plus parameterised
+  `INSERT` lands rows, but the method's tail re-introspects
+  (`return self.table(...)`) and raises for the introspection reason above. That
+  remaining failure is the introspection gap, not the ingest.
 - **Driver-absent distinguished from auth-failed** — implemented at connect only.
   Availability is decided before dialling, so a credential rejected there
   propagates. The inherited execute-stage catch is untouched.
