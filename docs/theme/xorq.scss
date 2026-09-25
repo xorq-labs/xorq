@@ -207,6 +207,12 @@ body.nav-fixed {
   height:34px;
   max-height:34px;   // Quarto's default .navbar-logo caps at 24px — lift it so
   width:auto;        // the mark matches xorq.dev's 34px brandmark (drives row ht)
+  padding:0;         // Quarto puts padding-right:4px on the brand img to gap it
+                     // from a text title. With box-sizing:border-box that made the
+                     // 84.2px brandmark render 88.2px, widening the mark→wordmark
+                     // gap 4px vs marketing (and bulking the lockup). Zero it so
+                     // the mark is exactly 84.2px and the 14px ::after margin
+                     // yields the identical gap as xorq.dev.
 }
 // Wordmark as a separate element, exactly like marketing's second <img>. The
 // source SVG is 2220x576 → at 20px tall it is 77px wide (marketing's wordmark
@@ -290,6 +296,15 @@ body.nav-fixed {
   margin-right:auto;
   padding:22px 36px;     // xorq.dev .xq-header — controls the header height
   border:1px solid $xq-line-2;
+  box-sizing:border-box; // include the 1px borders in the height so min-height is
+                         // measured edge-to-edge like marketing's box
+  min-height:81px;       // marketing's box is 81px: 22+22 pad + 35px content row
+                         // (its <img> wordmark sits on a 35px line) + 2px border.
+                         // Our logo row is 34px → box computes to 80px, 1px shorter.
+                         // Floor it at 81 so the docs box is edge-identical to
+                         // xorq.dev; align-items:center keeps the logo centred in
+                         // the extra px so nothing shifts.
+  align-items:center;
 }
 // brand: cancel Quarto's mx-auto so the logo sits hard-left
 .navbar .navbar-brand-container.mx-auto {
