@@ -29,8 +29,11 @@ class FakeConnectionInfo:
 
 
 class FakeConnection:
-    def __init__(self, parameters: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, parameters: dict[str, str] | None = None, autocommit: bool = True
+    ) -> None:
         self.info = FakeConnectionInfo(parameters or {})
+        self.autocommit = autocommit
 
 
 class SubclassBackend(postgres_module.Backend):
@@ -48,7 +51,8 @@ def fake_psycopg_connect(**kwargs: Any) -> FakeConnection:
             key: str(value)
             for key, value in kwargs.items()
             if key in LIBPQ_KEYWORDS and value is not None
-        }
+        },
+        autocommit=kwargs.get("autocommit", True),
     )
 
 
@@ -118,3 +122,55 @@ def test_clone_keeps_settings_the_dsn_cannot_report(faked_psycopg: None) -> None
     # conninfo keywords, so ``get_parameters`` cannot report them at all
     assert cloned._con_kwargs["autocommit"] is False
     assert cloned._con_kwargs["schema"] == "analytics"
+
+
+def test_clone_takes_options_the_caller_never_passed(faked_psycopg: None) -> None:
+    """``options`` reaching libpq from the environment (``PGOPTIONS``) is
+    reported by the DSN and by nothing else, so the DSN is what must supply
+    it."""
+    con = SubclassBackend()
+    con.con = FakeConnection({"dbname": "d", "options": "-c search_path=fromenv"})
+
+    cloned = con.clone(password="pw")
+
+    assert cloned._con_kwargs["options"] == "-c search_path=fromenv"
+
+
+def test_clone_keeps_a_secret_as_the_env_reference_it_was_passed_as(
+    faked_psycopg: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``options`` is a declared secret key. ``_con_kwargs`` and the DSN both
+    hold it resolved, so taking either bakes the literal into the clone's
+    profile -- which ``xo.build`` writes to disk with no secret check."""
+    monkeypatch.setenv("PGOPTS", "-c search_path=analytics")
+    monkeypatch.setenv("PGPW", "hunter2")
+    con = postgres_module.connect(
+        host="example.invalid",
+        user="u",
+        database="d",
+        password="$PGPW",
+        options="$PGOPTS",
+    )
+    # the source resolves it to connect, but its profile kept the reference
+    assert con._con_kwargs["options"] == "-c search_path=analytics"
+    assert con._profile.kwargs_dict["options"] == "$PGOPTS"
+    con._profile.check_for_exposed_secrets()
+
+    cloned = con.clone(password="$PGPW")
+
+    assert cloned._profile.kwargs_dict["options"] == "$PGOPTS"
+    # the check ``Profile.save`` runs and ``xo.build`` does not
+    cloned._profile.check_for_exposed_secrets()
+
+
+def test_clone_reads_autocommit_off_the_live_connection(faked_psycopg: None) -> None:
+    """``from_connection`` leaves ``_con_kwargs`` empty, so a clone that learns
+    ``autocommit`` only from there silently comes back autocommitting."""
+    con = postgres_module.Backend.from_connection(
+        FakeConnection({"dbname": "d"}, autocommit=False)
+    )
+    assert con._con_kwargs == {}
+
+    cloned = con.clone(password="pw")
+
+    assert cloned._con_kwargs["autocommit"] is False

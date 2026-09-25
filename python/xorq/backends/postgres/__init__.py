@@ -297,10 +297,16 @@ class Backend(IbisPostgresBackend):
         dct = {
             # ``get_parameters`` reports libpq conninfo keywords only, so
             # settings that never reach libpq cannot come back out of it:
-            # ``autocommit`` is a psycopg ``Connection`` setting and ``schema``
-            # is applied by ``_post_connect``. Take those from the kwargs this
-            # connection was opened with; the live DSN wins where they overlap.
+            # ``schema`` is applied by ``_post_connect``. Take those from the
+            # kwargs this connection was opened with; the live DSN wins where
+            # they overlap.
             **self._con_kwargs,
+            # ``autocommit`` is a psycopg ``Connection`` setting, so it is not
+            # in the DSN either -- and it is absent from ``_con_kwargs`` too
+            # whenever the source was built by ``from_connection`` or
+            # positionally. The live connection knows it on every path, and
+            # ``create_catalog`` above already treats it as the truth.
+            "autocommit": self.con.autocommit,
             # ``options`` is kept: it carries libpq runtime settings, most
             # importantly ``search_path``, and dropping it silently changed
             # which schema unqualified names in the clone resolved against.
@@ -308,6 +314,18 @@ class Backend(IbisPostgresBackend):
                 dsn_parameters,
                 "dbname",
             ),
+            # ...but the DSN reports secrets as literals, and ``Profile.from_con``
+            # bakes whatever is in here into the clone's profile, which
+            # ``xo.build`` writes to disk without a secret check. The source's
+            # profile kept the env reference the caller actually passed, so for
+            # a declared secret that form wins over the resolved one.
+            **{
+                key: value
+                for key, value in (
+                    self._profile.kwargs_dict if self._profile is not None else {}
+                ).items()
+                if key in self._secret_keys and value is not None
+            },
             **{
                 "database": dsn_parameters["dbname"],
                 "password": password,
