@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from attr import field, frozen
-from attr.validators import deep_iterable, in_, instance_of
+from attr.validators import and_, deep_iterable, in_, instance_of, max_len, min_len
 
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.drift import (
@@ -68,7 +68,14 @@ class RebaseResult:
     taken_aliases = field(
         default=(),
         converter=tuple,
-        validator=deep_iterable(instance_of(tuple), instance_of(tuple)),
+        validator=deep_iterable(
+            and_(
+                deep_iterable(instance_of(str), instance_of(tuple)),
+                min_len(2),
+                max_len(2),
+            ),
+            instance_of(tuple),
+        ),
     )
     # Aliases the pull moved off the old entry, or removed: left as it has them.
     skipped_aliases = str_tuple()
