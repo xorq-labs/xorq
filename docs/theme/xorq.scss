@@ -142,6 +142,33 @@ h3 {
 html {
   scrollbar-gutter: stable;
 }
+// Match xorq.dev's scrollbar WIDTH too, or scrollbar-gutter:stable reserves a
+// different-sized gutter on each site and the centred header still lands a couple
+// px apart. Marketing styles a 6px webkit scrollbar + `scrollbar-width:thin`
+// (theme/xorq.scss), so its reserved gutter is ~10px and its body measures 1430
+// at a 1440 viewport. The docs, unstyled, got the classic 15px scrollbar → 15px
+// gutter → body 1425 → header 2px to the left of marketing. Adopting the exact
+// same scrollbar styling makes both reserve the identical gutter (body 1430 on
+// both) so the 1320px header centres from the same width == pixel-aligned. Colours
+// use this theme's ink so the thin thumb reads on the dark ground like marketing.
+::-webkit-scrollbar {
+  width:6px;
+  height:6px;
+}
+::-webkit-scrollbar-track {
+  background:transparent;
+}
+::-webkit-scrollbar-thumb {
+  background:rgba(193,240,255,.2);
+  border-radius:3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background:rgba(193,240,255,.4);
+}
+* {
+  scrollbar-width:thin;
+  scrollbar-color:rgba(193,240,255,.2) transparent;
+}
 // Match xorq.dev's `.xq-chrome` EXACTLY so there's no horizontal shift when
 // navigating marketing -> docs: a 1320px max-width wrapper, centred, with the
 // 12px top gap + 20px side gutters. Quarto paints #quarto-header full-width, so
@@ -163,15 +190,52 @@ body.nav-fixed {
 .navbar {
   padding:0;             // height comes from the box padding below, not here
 }
-// Logo: match xorq.dev — brandmark 34px tall. Our combined lockup SVG keeps the
-// 34:20 mark:word ratio, so a 34px height renders the wordmark at 20px, exactly
-// like the marketing lockup.
+// Logo: match xorq.dev EXACTLY. Marketing renders the lockup as TWO separate
+// images inside the brand link — a 34px-tall brandmark and a 20px-tall wordmark
+// with a 14px gap (see includes/header.html: Xorq_BrandMark + Xorq_WordMark).
+// The docs previously used a single combined lockup SVG; at a fixed 34px height
+// its intrinsic width is 175px, and Quarto/Bootstrap's `max-width:100%` on
+// navbar images scales the whole unit inside the narrow mobile header row, which
+// clipped the right side (the wordmark) on phones. Splitting it the same way as
+// marketing removes the clip: Quarto's `navbar.logo` is now the BRANDMARK ONLY
+// (34px square, no wordmark to clip), and the wordmark is painted as a separate
+// ::after element on the brand link — each piece sized in px, neither subject to
+// unit-scaling of a 175px img. This is a 1:1 structural match with xorq.dev.
 .navbar .navbar-brand img,
 .navbar .navbar-brand img.navbar-logo,
 .navbar .navbar-logo {
   height:34px;
   max-height:34px;   // Quarto's default .navbar-logo caps at 24px — lift it so
-                     // the mark matches xorq.dev's 34px lockup (drives row height)
+  width:auto;        // the mark matches xorq.dev's 34px brandmark (drives row ht)
+}
+// Wordmark as a separate element, exactly like marketing's second <img>. The
+// source SVG is 2220x576 → at 20px tall it is 77px wide (marketing's wordmark
+// height:20px). 14px gap == marketing's `gap:14px` on the brand flex row.
+.navbar .navbar-brand::after {
+  content:"";
+  display:block;
+  width:77px;
+  height:20px;
+  margin-left:14px;
+  flex:0 0 auto;
+  background:url("/images/Xorq_WordMark_RGB_BlueSky.svg") left center / contain no-repeat;
+}
+// Quarto's default `.navbar-brand { overflow:hidden; text-overflow:ellipsis }` is
+// meant to ellipsis a long text title. With our two-image lockup it CLIPS the
+// wordmark's right edge — on mobile the "q" tail was cut so it read "xor". And
+// Quarto caps the brand container at `max-width: calc(100% - 115px)`, which on a
+// 390px phone leaves too little room for brandmark(88) + gap(14) + wordmark(77) ≈
+// 179px and forces that clip. Let the lockup show in full: no overflow clip on the
+// brand, and give the container enough width for the whole lockup (it still can't
+// exceed the row, and the nav/search sit in their own columns).
+.navbar .navbar-brand {
+  overflow:visible;
+  text-overflow:clip;
+}
+.navbar .navbar-brand-container {
+  max-width:none;
+  min-width:0;
+  flex:0 0 auto;
 }
 // Search lives in the docs navbar (xorq.dev's header has none). Left unconstrained
 // its autocomplete form is taller than the 34px logo and pushes the whole header

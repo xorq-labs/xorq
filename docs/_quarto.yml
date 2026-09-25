@@ -17,6 +17,11 @@ project:
     - images/og-card.png
     - images/og/**
     - apple-touch-icon.png
+    # Header wordmark: theme/xorq.scss paints it as a root-absolute background on
+    # .navbar-brand::after (the brandmark is the Quarto navbar logo). Quarto only
+    # auto-copies files it can see referenced in markup, not ones named in CSS, so
+    # list it here to guarantee it lands at /images/Xorq_WordMark_RGB_BlueSky.svg.
+    - images/Xorq_WordMark_RGB_BlueSky.svg
 
 execute:
   mermaid: true
@@ -43,7 +48,7 @@ website:
   # Quarto's schema (the field must be a string), so the key is omitted instead.
 
   navbar:
-    logo: "images/xorq-header-logo.svg"
+    logo: "images/Xorq_BrandMark_RGB_BlueSky.svg"
     logo-href: "https://www.xorq.dev"
     background: transparent
     align: center
