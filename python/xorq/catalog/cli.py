@@ -1198,7 +1198,8 @@ def rebase(
          alias the entry lacks, --alias names an alias of the entry that
          is not moving, or a write failed (an alias move is rolled back
          locally, a failed rollback is logged; a failed push is not)
-      2  a source was unreachable, its table is missing, or an op no
+      2  a source was unreachable or unreadable, its table or database
+         is missing, its reads disagree on its live schema, or an op no
          longer fits its new inputs; the record is unreadable or lacks
          its wheel or requirements; or the options were invalid (e.g.
          conflicting flags); nothing written
