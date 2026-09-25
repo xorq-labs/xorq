@@ -137,6 +137,8 @@ An `ANALYZE` may invalidate it spuriously. `ANALYZE`, including the background a
 
 Caching a view, a late-binding view, a Spectrum external table or a session-temporary table raises `RedshiftFreshnessUnavailable`: those carry no statistics row, so any key built for them could never change. Cache the query that defines them instead, or use [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd), which needs no freshness probe at all. A table that merely has no rows yet is not one of those: it reports zeroes, and the key moves as soon as data lands.
 
+Temp tables are refused even when a permanent table shares the name. `con.table("staging")` resolves against the session temp schema as well as your own, so after a `create_table("staging", ..., temporary=True)` the unqualified name reaches the temp table. The probe refuses rather than measuring the permanent `staging` that happens to share the name, which would key the cache on a relation you are not reading. Qualify the name with a schema if the permanent table is what you meant.
+
 Finally, do not substitute `pg_class.reltuples`. It is readable without any grant and looks like a row count, but Redshift does not maintain it on write: measured on a live warehouse, it sat at `0.001` while a table reached five rows. A cache keyed on it would never invalidate. For the same reason, ignore the PostgreSQL row's advice to run `ANALYZE`: the Redshift probe issues no DDL and needs no write privilege.
 
 ## See also

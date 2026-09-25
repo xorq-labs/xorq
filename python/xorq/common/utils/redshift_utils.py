@@ -59,8 +59,17 @@ INSUFFICIENT_PRIVILEGE = "42501"
 # ``pg_get_viewdef('svv_table_info'::regclass, true)`` shows the view computing
 # ``estimated_visible_rows`` as ``sum(stairows)`` over exactly this grouping,
 # and ``stats_off`` as ``LEAST((staidels + staiins) * 100 / stairows, 100)``.
-# The shape below -- including the ``HAVING`` -- is copied from that definition
-# rather than invented, so this reads the same number the view would report.
+# The aggregates and the grouping below are copied from that definition rather
+# than invented, so this reads the same number the view would report.
+#
+# The view's ``HAVING count(stairelid) = 1`` is deliberately NOT copied. In the
+# view it omits a multi-indicator relation from a report, which is harmless
+# there and wrong here: dropping the row leaves this query returning nothing,
+# an ordinary table then lands in ``_no_counters``, and the table becomes
+# permanently uncacheable through any storage that needs a freshness key. The
+# ``sum()`` already aggregates across however many indicator rows a relation
+# carries -- that is the whole reason the view sums rather than selects -- so
+# copying the filter would have discarded a correct answer this query computes.
 #
 # All three are keyed on because they answer different questions, measured live
 # on 2026-09-24 with no ANALYZE at any point:
@@ -95,7 +104,6 @@ JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relname = %(name)s
   AND n.nspname = %(schema)s
 GROUP BY i.stairelid
-HAVING count(i.stairelid) = 1
 """
 
 
@@ -105,9 +113,8 @@ HAVING count(i.stairelid) = 1
 # (0, 0, 0) -- measured, where ``svv_table_info`` returns no row at all for the
 # same table. So absence here is never "empty"; it means the relation is one the
 # statistics catalog does not track (a view, a late-binding view, a Spectrum
-# external table, a session-temp table), or it does not resolve at all, or it
-# has several indicator rows and the ``HAVING`` above excluded it as the view
-# itself would. relkind tells those apart for the reader.
+# external table, a session-temp table), or it does not resolve at all. relkind
+# tells those apart for the reader.
 #
 # Measured on a live Redshift: relkind is 'r' for both a populated and an empty
 # ordinary table, and no row comes back for a name that does not resolve in the
@@ -144,14 +151,64 @@ def resolve_redshift_schema(dt: ops.DatabaseTable) -> str:
     A multi-entry ``search_path`` is NOT a hazard here, though an earlier
     version of this docstring claimed it was. ``get_schema``
     (``vendor/ibis/backends/postgres/__init__.py``) resolves an unqualified name
-    through ``database or self.current_database`` -- the same expression -- so
-    any table ``table()`` accepted lives in the schema this reads. A table
-    reachable only via a later ``search_path`` entry raises ``TableNotFound`` at
-    ``table()`` time; it never becomes a stale key.
+    through ``database or self.current_database`` -- the same expression -- so a
+    table reachable only via a later ``search_path`` entry raises
+    ``TableNotFound`` at ``table()`` time; it never becomes a stale key.
+
+    The session-temporary schema IS a hazard, and is why this can raise. That
+    same ``get_schema`` appends ``self._session_temp_db`` to its candidate
+    schemas whenever ``database is None``, so ``table()`` also accepts a name
+    that exists only in ``pg_temp_N`` -- and this backend mints such tables
+    itself, through ``create_table(..., temporary=True)``. An earlier version of
+    this docstring asserted that "any table ``table()`` accepted lives in the
+    schema this reads", and the temp schema is the case where that is false.
+
+    Resolving such a name to ``current_schema()`` would probe a *different*,
+    permanent relation that merely shares the name and key the cache on its
+    counters -- the silent staleness this module exists to prevent, reached from
+    a third direction. Nor can a temp table be keyed on its own terms: it is
+    invisible to every other session, so a key computed here would describe
+    something no other reader can see. Refuse instead.
     """
     if (database := dt.namespace.database) is not None:
         return database
-    return dt.source.current_database
+    con = dt.source
+    schema = con.current_database
+    # Cheap twice over, and only on the unqualified path: the property is a
+    # single ``pg_my_temp_schema()`` read, and it answers ``None`` -- costing no
+    # second query -- in every session that has never created a temp table.
+    # Reading the same private property ``get_schema`` reads, deliberately: the
+    # point is to resolve the way it resolves, and duplicating its
+    # ``pg_my_temp_schema()`` query here would be a second copy free to drift
+    # from the one that decides what ``table()`` accepts.
+    temp_schema = con._session_temp_db  # xorq-style: disable=protected-access
+    if temp_schema is None:
+        return schema
+    if not _relation_exists(con.con, dt.name, temp_schema):
+        return schema
+    raise RedshiftFreshnessUnavailable(
+        f"{dt.name!r} resolves to the session-temporary schema {temp_schema}, "
+        f"which no freshness key can describe: the table is invisible to every "
+        f"other session, so a key computed from it would describe something no "
+        f"other reader can see. Probing {schema}.{dt.name} instead would be "
+        f"worse -- it would key the cache on a different, permanent relation "
+        f"that happens to share the name, and go stale silently. Qualify the "
+        f"table with a permanent schema if that is what you meant, or use a "
+        f"cache that needs no freshness probe, e.g. "
+        f"`.cache(ParquetSnapshotCache.from_kwargs())`."
+    )
+
+
+def _relation_exists(raw: Any, name: str, schema: str) -> bool:
+    """Whether ``schema.name`` is in ``pg_class``. Reads relkind, ignores it.
+
+    Shares ``RELKIND_SQL`` with ``_no_counters`` rather than issuing a narrower
+    ``SELECT 1``: it is the same question against the same PUBLIC-readable
+    catalogs, and one statement is easier to keep honest than two.
+    """
+    with raw.cursor() as cursor, raw.transaction():
+        rows = cursor.execute(RELKIND_SQL, {"name": name, "schema": schema}).fetchall()
+    return bool(rows)
 
 
 def get_redshift_row_counts(
@@ -173,7 +230,7 @@ def get_redshift_row_counts(
     ``pg_namespace`` each carry a PUBLIC SELECT grant; ``svv_table_info`` has no
     ACL at all.
 
-    Raises ``RedshiftFreshnessUnavailable`` in three cases, all loud on purpose:
+    Raises ``RedshiftFreshnessUnavailable`` in five cases, all loud on purpose:
 
     * the catalog cannot be *read*. With a PUBLIC grant this should be
       unreachable, so it means the grant has been revoked on this cluster --
@@ -181,8 +238,13 @@ def get_redshift_row_counts(
     * the relation has no indicator row: a view, a late-binding view, a Spectrum
       external table, a session-temp table, or a name that does not resolve.
       See ``_no_counters``.
-    * more than one row comes back, which the ``HAVING`` should already have
-      excluded.
+    * an unqualified name resolves into the session-temporary schema, which
+      ``table()`` accepts and no freshness key can describe. See
+      ``resolve_redshift_schema``.
+    * a counter comes back ``NULL``, which would freeze that component of the
+      key forever. See ``_as_int``.
+    * more than one row comes back, which the per-relation ``GROUP BY`` should
+      already have made impossible.
 
     Why it raises rather than degrading to something readable:
 
@@ -198,6 +260,23 @@ def get_redshift_row_counts(
 
     ``ParquetSnapshotCache`` needs no freshness probe at all and remains the
     supported path for anyone this cannot serve.
+    """
+    return _resolve_and_count(dt, schema)[1]
+
+
+def _resolve_and_count(
+    dt: ops.DatabaseTable, schema: str | None = None
+) -> tuple[str, tuple[int, int, int]]:
+    """``(schema, counters)`` -- the probe proper, for callers needing both.
+
+    Exists so ``normalize_redshift_databasetable``, which puts the resolved
+    schema in the key beside the counters, does not resolve it a second time in
+    its own body. Doing that put the resolution round trip *ahead* of the
+    catalog refusal below and *outside* the ``try`` that turns a privilege
+    failure into an actionable error, so on the only production path a
+    catalog-qualified table issued ``SELECT current_schema()`` before being
+    refused, and a denied ``current_schema()`` surfaced as a raw driver
+    traceback. Both contradicted comments a few lines down from here.
     """
     raw = dt.source.con
     # pg_catalog describes the CONNECTED database only, and the probe's WHERE
@@ -252,13 +331,21 @@ def get_redshift_row_counts(
         raise RedshiftFreshnessUnavailable(
             f"the statistics catalog returned {len(rows)} rows for "
             f"{schema}.{dt.name}, so the counters to key on would be a guess. "
-            f"The GROUP BY is per-relation and the HAVING admits only "
-            f"single-row relations, so this should not be reachable; treat it "
-            f"as a bug in this probe rather than something to work around, and "
-            f"use `.cache(ParquetSnapshotCache.from_kwargs())` meanwhile."
+            f"relname and nspname are unique together in pg_class and the "
+            f"GROUP BY is per-relation, so this should not be reachable; treat "
+            f"it as a bug in this probe rather than something to work around, "
+            f"and use `.cache(ParquetSnapshotCache.from_kwargs())` meanwhile."
         )
     ((stairows, staiins, staidels),) = rows
-    return (_as_int(stairows), _as_int(staiins), _as_int(staidels))
+    where = f"{schema}.{dt.name}"
+    return (
+        schema,
+        (
+            _as_int(stairows, "stairows", where),
+            _as_int(staiins, "staiins", where),
+            _as_int(staidels, "staidels", where),
+        ),
+    )
 
 
 def _no_counters(raw: Any, dt: ops.DatabaseTable, schema: str) -> None:
@@ -271,9 +358,9 @@ def _no_counters(raw: Any, dt: ops.DatabaseTable, schema: str) -> None:
     buys the reader a useful one instead of "no rows".
 
     An ordinary table reaching here is a real anomaly rather than a user error,
-    and the message says so, because the remaining explanation is the ``HAVING``
-    in the probe -- copied from the view's own definition -- excluding a relation
-    that carries several indicator rows.
+    and the message says so. The probe deliberately drops the view's ``HAVING``,
+    which was the one benign explanation a well-formed table could have had for
+    reaching this function, so nothing is left for the reader to work around.
     """
     with raw.cursor() as cursor, raw.transaction():
         found = cursor.execute(
@@ -283,9 +370,9 @@ def _no_counters(raw: Any, dt: ops.DatabaseTable, schema: str) -> None:
         raise RedshiftFreshnessUnavailable(
             f"{schema}.{dt.name} is an ordinary table but has no row in the "
             f"statistics catalog, which should not happen -- an empty table "
-            f"reports (0, 0, 0). The likely cause is that it carries several "
-            f"indicator rows and the probe's HAVING excluded it, exactly as "
-            f"svv_table_info itself would. Treat it as a bug in this probe, and "
+            f"reports (0, 0, 0), and the probe aggregates across however many "
+            f"indicator rows a relation carries, so a multi-indicator table is "
+            f"not the explanation either. Treat it as a bug in this probe, and "
             f"use `.cache(ParquetSnapshotCache.from_kwargs())` meanwhile."
         )
     kind = f"relkind {found[0][0]!r}" if found else "not present in pg_class"
@@ -300,17 +387,33 @@ def _no_counters(raw: Any, dt: ops.DatabaseTable, schema: str) -> None:
     )
 
 
-def _as_int(value: Any) -> int | None:
-    """Coerce a catalog count to ``int``, passing ``None`` through.
+def _as_int(value: Any, column: str, where: str) -> int:
+    """Coerce a catalog counter to ``int``. Never returns ``None``.
 
-    ``tbl_rows`` and ``estimated_visible_rows`` are ``numeric(38,0)``, which
-    psycopg returns as ``decimal.Decimal``. dasher's encoder accepts only
-    str/int/float/bool/bytes/None, so handing it a ``Decimal`` raises
-    ``ValueError: No normalizer registered for <class 'decimal.Decimal'>`` at
-    tokenize time — after the probe has already succeeded, which is exactly the
-    kind of failure an offline fake serving Python ``int`` cannot show you.
+    ``stairows``, ``staiins`` and ``staidels`` are ``numeric``, and psycopg
+    returns the ``sum()`` of one as ``decimal.Decimal``. dasher's encoder
+    accepts only str/int/float/bool/bytes/None, so handing it a ``Decimal``
+    raises ``ValueError: No normalizer registered for
+    <class 'decimal.Decimal'>`` at tokenize time -- after the probe has already
+    succeeded, which is exactly the kind of failure an offline fake serving
+    Python ``int`` cannot show you.
+
+    A ``NULL`` counter is refused rather than passed through, which an earlier
+    version did while its caller's signature promised a triple of ints.
+    ``None`` encodes perfectly well, and that is the problem: it would sit in
+    the cache key as a component that can never change again. That is the same
+    frozen-key staleness this module refuses ``pg_class.reltuples`` for,
+    arriving by a quieter route and with no error to notice it by.
     """
-    return None if value is None else int(value)
+    if value is None:
+        raise RedshiftFreshnessUnavailable(
+            f"the statistics catalog returned NULL for {column} on {where}, so "
+            f"that component of the cache key could never change -- the same "
+            f"silent staleness this probe refuses pg_class.reltuples for. Use "
+            f"a cache that needs no freshness probe instead, e.g. "
+            f"`.cache(ParquetSnapshotCache.from_kwargs())`."
+        )
+    return int(value)
 
 
 def _is_permission_error(exc: BaseException | None) -> bool:
@@ -365,8 +468,12 @@ def normalize_redshift_databasetable(dt: ops.DatabaseTable) -> tuple:
     namespace is ``None`` for an unqualified table: without it, the same table
     name in two schemas on two differently-scoped connections produces two keys
     that differ only by row count.
+
+    It comes back from ``_resolve_and_count`` rather than from a
+    ``resolve_redshift_schema`` call here, so that the refusal and privilege
+    handling in that function cover the resolution too. See its docstring.
     """
-    schema = resolve_redshift_schema(dt)
+    schema, counts = _resolve_and_count(dt)
     return (
         "ibis.DatabaseTable.redshift",
         dt.name,
@@ -374,5 +481,5 @@ def normalize_redshift_databasetable(dt: ops.DatabaseTable) -> tuple:
         dt.source,
         dt.namespace,
         schema,
-        get_redshift_row_counts(dt, schema),
+        counts,
     )

@@ -63,15 +63,17 @@ from xorq.common.exceptions import RedshiftFreshnessUnavailable  # noqa: E402
 from xorq.common.utils.dasher import HASHER  # noqa: E402
 from xorq.common.utils.dasher._relations import _databasetable_dispatcher  # noqa: E402
 from xorq.common.utils.redshift_utils import (  # noqa: E402
+    ROW_COUNTERS_SQL,
     get_redshift_row_counts,
     resolve_redshift_schema,
 )
 
 
-# Anything that writes, not merely anything that says CREATE. The probe is
-# allowed exactly two shapes of statement: the statistics-catalog read and
-# the current_schema() resolution. A third, the pg_class relkind read, is
-# reached only on the error path.
+# Anything that writes, not merely anything that says CREATE. Every statement
+# the probe is allowed is a read: the statistics-catalog read, the
+# current_schema() resolution, the pg_my_temp_schema() check that resolution
+# makes, and the pg_class relkind read -- the last reached only on the error
+# path or when a session temp schema actually exists.
 DDL_TOKENS = (
     "CHECKPOINT",
     "ANALYZE",
@@ -112,6 +114,8 @@ class RecordingConnection:
         rows: tuple = ((12345, 7, 3),),
         current_schema: str = SESSION_SCHEMA,
         relkind: tuple = (("r",),),
+        temp_schema: str | None = None,
+        temp_relkind: tuple = (),
     ) -> None:
         # (sql, params) rather than sql alone. Recording only the statement
         # meant the schema and name actually BOUND were asserted nowhere, so a
@@ -122,6 +126,11 @@ class RecordingConnection:
         self._rows = rows
         self._current_schema = current_schema
         self._relkind = relkind
+        # ``None`` is the default because it is the default on a real
+        # connection: ``pg_my_temp_schema()`` answers nothing until the session
+        # has actually created a temp table.
+        self._temp_schema = temp_schema
+        self._temp_relkind = temp_relkind
 
     @property
     def statements(self) -> list[str]:
@@ -171,20 +180,49 @@ class _RecordingCursor:
         lowered = self._last.lower()
         if "current_schema" in lowered:
             return [(self._con._current_schema,)]
+        if "pg_my_temp_schema" in lowered:
+            # ``_session_temp_db`` reads this and returns row[0], so serving the
+            # counters here -- which the fallthrough below used to do -- handed
+            # the resolver a row count as a schema name.
+            temp = self._con._temp_schema
+            return [(temp,)] if temp is not None else []
         if "pg_statistic_indicator" in lowered:
             return list(self._con._rows)
         if "relkind" in lowered:
+            # Routed on the schema actually BOUND: the temp-schema probe and
+            # the error-path probe issue the same statement, and answering both
+            # from one canned value would make "present in pg_temp_N" and
+            # "present in the session schema" indistinguishable.
+            _, params = self._con.calls[-1]
+            if (
+                self._con._temp_schema is not None
+                and isinstance(params, dict)
+                and params.get("schema") == self._con._temp_schema
+            ):
+                return list(self._con._temp_relkind)
             return list(self._con._relkind)
         return list(self._con._rows)
+
+    def fetchone(self) -> tuple | None:
+        rows = self.fetchall()
+        return rows[0] if rows else None
 
 
 def make_con(
     rows: tuple = ((12345, 7, 3),),
     current_schema: str = SESSION_SCHEMA,
     relkind: tuple = (("r",),),
+    temp_schema: str | None = None,
+    temp_relkind: tuple = (),
 ) -> RedshiftBackend:
     con = RedshiftBackend(host="example.invalid", port=DEFAULT_PORT)
-    con.con = RecordingConnection(rows, current_schema=current_schema, relkind=relkind)
+    con.con = RecordingConnection(
+        rows,
+        current_schema=current_schema,
+        relkind=relkind,
+        temp_schema=temp_schema,
+        temp_relkind=temp_relkind,
+    )
     return con
 
 
@@ -606,3 +644,144 @@ def test_a_catalog_qualified_table_is_refused_rather_than_mismeasured() -> None:
         get_redshift_row_counts(dt)
     assert "otherdb" in str(excinfo.value)
     assert not con.con.calls, "refusal must come before any statement is issued"
+
+
+TEMP_SCHEMA = "pg_temp_3"
+
+
+def test_a_name_resolving_into_the_session_temp_schema_is_refused() -> None:
+    """``table()`` accepts a temp-only name; this probe must not mis-resolve it.
+
+    ``get_schema`` appends ``_session_temp_db`` to its candidate schemas
+    whenever ``database is None``, and this backend mints temp tables itself via
+    ``create_table(..., temporary=True)``. Resolving such a name to
+    ``current_schema()`` -- which is what this did -- probes a *different*,
+    permanent relation that merely shares the name, and keys the cache on its
+    counters. That is the silent staleness the whole module exists to prevent,
+    so the refusal has to be loud and has to name the schema.
+    """
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_relkind=(("r",),))
+    dt = make_dt(con, database=None)
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        resolve_redshift_schema(dt)
+    message = str(excinfo.value)
+    assert TEMP_SCHEMA in message
+    assert "offers" in message
+    assert "ParquetSnapshotCache" in message
+
+
+def test_the_temp_schema_refusal_reaches_the_cache_key_path() -> None:
+    """The refusal must fire through the dispatcher, not only the direct call.
+
+    ``normalize_redshift_databasetable`` resolves the schema on its own path, so
+    a guard that only ``resolve_redshift_schema``'s direct callers see would
+    leave the actual ``.cache()`` path mis-resolving exactly as before.
+    """
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_relkind=(("r",),))
+    with pytest.raises(RedshiftFreshnessUnavailable):
+        _databasetable_dispatcher(make_dt(con, database=None))
+
+
+def test_a_permanent_table_is_unaffected_by_an_open_temp_schema() -> None:
+    """Having *a* temp schema must not refuse every unqualified table.
+
+    The session temp schema exists as soon as any temp table has been created,
+    which says nothing about the table being probed. Only a name that actually
+    resolves there is ambiguous.
+    """
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_relkind=())
+    dt = make_dt(con, database=None)
+    assert resolve_redshift_schema(dt) == SESSION_SCHEMA
+
+
+def test_resolving_costs_no_extra_read_without_a_temp_schema() -> None:
+    """``pg_my_temp_schema()`` answers ``None`` in an ordinary session.
+
+    That is the common case on the cache-key path, and it must not pay for the
+    ``pg_class`` lookup the ambiguous case needs.
+    """
+    con = make_con()
+    assert resolve_redshift_schema(make_dt(con, database=None)) == SESSION_SCHEMA
+    assert not any("relkind" in s.lower() for s in con.con.statements), (
+        "the ordinary session paid for the temp-schema disambiguation read"
+    )
+
+
+def test_a_table_with_several_indicator_rows_is_summed_not_refused() -> None:
+    """The view's ``HAVING count(stairelid) = 1`` must not be copied.
+
+    In ``svv_table_info`` it omits a multi-indicator relation from a report.
+    Copied here it dropped the row instead, which made ``rows`` empty, sent an
+    ordinary table into ``_no_counters``, and left it permanently uncacheable
+    through any storage needing a freshness key -- while the ``sum()`` beside it
+    was already computing the right answer.
+    """
+    assert "HAVING" not in ROW_COUNTERS_SQL.upper(), (
+        "the view's HAVING is back, and multi-indicator tables are uncacheable again"
+    )
+    # What the server returns for such a relation once the filter is gone: one
+    # grouped row carrying the summed counters.
+    con = make_con(rows=((300, 12, 5),))
+    assert get_redshift_row_counts(make_dt(con)) == (300, 12, 5)
+
+
+def test_a_null_counter_is_refused_rather_than_frozen_into_the_key() -> None:
+    """``None`` encodes fine, which is exactly the problem.
+
+    A ``NULL`` counter used to pass straight through ``_as_int`` into the key,
+    where it became a component that could never change again -- the same
+    frozen-key staleness this probe refuses ``reltuples`` for, arriving with no
+    error to notice it by. The signature promised a triple of ints throughout.
+    """
+    con = make_con(rows=((100, None, 0),))
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        get_redshift_row_counts(make_dt(con))
+    message = str(excinfo.value)
+    assert "staiins" in message
+    assert "sales.offers" in message
+
+
+def test_the_catalog_refusal_precedes_resolution_on_the_key_path() -> None:
+    """No statement at all for a catalog-qualified, schema-unqualified table.
+
+    The direct-call test pins this with ``database="sales"``, which needs no
+    resolution and so could not see the gap: the normalizer resolved the schema
+    itself first, issuing ``SELECT current_schema()`` before the catalog
+    refusal fired.
+    """
+    con = make_con()
+    dt = ops.DatabaseTable(
+        name="offers",
+        schema=sch.Schema({"id": "int64"}),
+        source=con,
+        namespace=ops.Namespace(catalog="otherdb", database=None),
+    )
+    with pytest.raises(RedshiftFreshnessUnavailable):
+        _databasetable_dispatcher(dt)
+    assert not con.con.calls, "refusal must come before any statement is issued"
+
+
+def test_a_denied_schema_resolution_gets_the_actionable_error() -> None:
+    """Resolution is a round trip, and it is inside the ``try`` for a reason.
+
+    The normalizer used to resolve before calling the probe, so a privilege
+    failure on ``current_schema()`` escaped as a raw driver traceback rather
+    than the error the module's own comment promises.
+    """
+
+    class _DeniedSchemaConnection(RecordingConnection):
+        def cursor(self) -> _RecordingCursor:
+            return _DeniedSchemaCursor(self)
+
+    class _DeniedSchemaCursor(_RecordingCursor):
+        def execute(self, sql: object, *args: object, **kwargs: object):
+            super().execute(sql, *args, **kwargs)
+            if "current_schema" in str(sql).lower():
+                raise make_insufficient_privilege()
+            return self
+
+    con = RedshiftBackend(host="example.invalid", port=DEFAULT_PORT)
+    con.con = _DeniedSchemaConnection()
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        _databasetable_dispatcher(make_dt(con, database=None))
+    assert "ParquetSnapshotCache" in str(excinfo.value)
