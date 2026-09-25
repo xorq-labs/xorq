@@ -134,6 +134,14 @@ h3 {
 #quarto-header {
   background:$xq-bg;
 }
+// Reserve the scrollbar gutter exactly like xorq.dev (its <html> has
+// scrollbar-gutter:stable). Without this the docs page's usable width is 1440
+// while marketing's is 1430 (gutter reserved), so the 1320px centred header
+// lands 5px to the right — a visible shift when navigating marketing -> docs.
+// Matching the gutter makes both centre from the same width == no shift.
+html {
+  scrollbar-gutter: stable;
+}
 // Match xorq.dev's `.xq-chrome` EXACTLY so there's no horizontal shift when
 // navigating marketing -> docs: a 1320px max-width wrapper, centred, with the
 // 12px top gap + 20px side gutters. Quarto paints #quarto-header full-width, so
