@@ -135,28 +135,18 @@ def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> No
 
 
 def aliases_to_move(
-    catalog_entry: CatalogEntry, alias: str | None, move_aliases: Iterable[str] | None
+    catalog_entry: CatalogEntry, move_aliases: Iterable[str] | None
 ) -> tuple[str, ...]:
     """``move_aliases``, or every alias for ``None``, checked against the entry."""
-    name = catalog_entry.name
     aliases = tuple(catalog_alias.alias for catalog_alias in catalog_entry.aliases)
     if move_aliases is None:
-        moving = aliases
-    elif unknown := sorted(set(move_aliases) - set(aliases)):
+        return aliases
+    if unknown := sorted(set(move_aliases) - set(aliases)):
         raise RebaseError(
-            f"{name} has no alias {', '.join(unknown)}", RebaseExit.REFUSED
-        )
-    else:
-        moving = tuple(dict.fromkeys(move_aliases))
-    # `catalog.add` overwrites an alias, so this one would move all the same.
-    if alias in aliases and alias not in moving:
-        raise RebaseError(
-            f"{name} already has alias {alias}, which would move to the new "
-            "entry; include it among the aliases to move, or don't request it as "
-            "an extra alias",
+            f"{catalog_entry.name} has no alias {', '.join(unknown)}",
             RebaseExit.REFUSED,
         )
-    return moving
+    return tuple(dict.fromkeys(move_aliases))
 
 
 def check_databases_exist(catalog_entry: CatalogEntry, record: BuildRecord) -> None:
@@ -334,7 +324,7 @@ def rebase_entry(
     record = read_entry_record(catalog_entry)
     unprobed = check_rebasable(catalog_entry, record)
     check_python_minor(catalog_entry, ignore_mismatch)
-    moving = aliases_to_move(catalog_entry, alias, move_aliases)
+    moving = aliases_to_move(catalog_entry, move_aliases)
     reports = tuple(iter_leaf_reports(record))
     # Only a sweep that probed every source can prove a no-op on its own.
     if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):

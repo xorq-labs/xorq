@@ -1147,12 +1147,6 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     help="Also register this alias for the new entry.",
 )
 @click.option(
-    "--move-aliases/--no-move-aliases",
-    default=True,
-    show_default=True,
-    help="Move all of the old entry's aliases onto the new entry.",
-)
-@click.option(
     "--only-alias",
     "only_aliases",
     multiple=True,
@@ -1166,7 +1160,6 @@ def rebase(
     ctx: click.Context,
     entry: str,
     alias: str | None,
-    move_aliases: bool,
     only_aliases: tuple[str, ...],
     sync: bool,
     cache_dir: str | None,
@@ -1177,8 +1170,7 @@ def rebase(
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. Every alias moves to the new entry
-    unless --only-alias names the ones that should, or --no-move-aliases
-    keeps them all on the old one. An alias the sync's pull has moved off the
+    unless --only-alias names the ones that should. An alias the sync's pull has moved off the
     old entry stays where the pull put it. The new entry keeps the old one's
     wheels and requirements.
 
@@ -1195,14 +1187,13 @@ def rebase(
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, some but not all of its sources
          cannot be probed, the entry was built on another Python minor,
-         --only-alias names an alias the entry lacks, --alias names an
-         alias of the entry that is not moving, or a write failed (an
-         alias move is rolled back locally, a failed rollback is logged;
-         a failed push is not)
+         --only-alias names an alias the entry lacks, or a write failed
+         (an alias move is rolled back locally, a failed rollback is
+         logged; a failed push is not)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; or the options
-         were invalid (e.g. conflicting flags); nothing written
+         were invalid; nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
          table is gone; nothing written
 
@@ -1214,12 +1205,7 @@ def rebase(
     Examples:
       xorq catalog rebase prod-matches
       xorq catalog rebase prod-matches --only-alias prod -a matches-v2
-      xorq catalog rebase prod-matches --no-move-aliases -a matches-trial
     """
-    if only_aliases and not move_aliases:
-        raise click.UsageError(
-            "--no-move-aliases and --only-alias are mutually exclusive"
-        )
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
@@ -1234,7 +1220,7 @@ def rebase(
             result = rebase_entry(
                 catalog_entry,
                 alias=alias,
-                move_aliases=only_aliases or (None if move_aliases else ()),
+                move_aliases=only_aliases or None,
                 sync=sync,
                 ignore_mismatch=ignore_venv_mismatch,
                 cache_dir=_get_cache_dir(cache_dir),

@@ -162,55 +162,6 @@ def test_only_alias_narrows_and_alias_adds(
     assert alias_target_hash(catalog, "staging") == world.name
 
 
-@ALL_BACKENDS
-def test_no_move_aliases_leaves_every_alias_on_the_old_entry(
-    runner: CliRunner, world: SimpleNamespace
-) -> None:
-    replace_t(world, GROWN)
-
-    result = rebase(runner, world, world.name, "--no-move-aliases", "-a", "trial")
-    assert result.exit_code == 0, result.output
-    new = result.stdout.strip()
-    assert new != world.name
-    assert "Moved alias" not in result.stderr
-    catalog = reopen(world)
-    assert alias_target_hash(catalog, "live") == world.name
-    assert alias_target_hash(catalog, "staging") == world.name
-    assert alias_target_hash(catalog, "trial") == new
-
-
-def test_no_move_aliases_and_only_alias_are_exclusive(
-    runner: CliRunner, world: SimpleNamespace
-) -> None:
-    commits = commit_count(world.catalog)
-
-    result = rebase(
-        runner, world, world.name, "--no-move-aliases", "--only-alias", "live"
-    )
-    assert result.exit_code == 2
-    assert "mutually exclusive" in result.stderr
-    assert_nothing_written(world, commits)
-
-
-@pytest.mark.parametrize(
-    "flags",
-    (("--no-move-aliases",), ("--only-alias", "staging")),
-    ids=("no-move-aliases", "only-alias"),
-)
-def test_an_extra_alias_already_on_the_entry_is_refused(
-    runner: CliRunner, world: SimpleNamespace, flags: tuple[str, ...]
-) -> None:
-    replace_t(world, GROWN)
-    commits = commit_count(world.catalog)
-
-    result = rebase(runner, world, world.name, *flags, "-a", "live")
-    assert result.exit_code == 1
-    assert "already has alias live" in result.stderr
-    assert "--only-alias" not in result.stderr
-    assert_nothing_written(world, commits)
-    assert alias_target_hash(reopen(world), "live") == world.name
-
-
 def test_no_drift_says_the_alias_was_not_added(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
