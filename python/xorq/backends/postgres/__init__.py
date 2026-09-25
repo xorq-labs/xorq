@@ -126,8 +126,9 @@ class Backend(IbisPostgresBackend):
 
         Postgres keeps the catch-all on purpose: an absent ``password`` in
         ``_con_kwargs`` is an ordinary way for the ADBC URI to be unbuildable
-        while psycopg is perfectly connected -- a ``.pgpass``, a service file, ``PGPASSWORD`` -- and for a
-        static credential, quietly using the psycopg path is the right answer.
+        while psycopg is perfectly connected -- a ``.pgpass``, a service file,
+        ``PGPASSWORD`` -- and for a static credential, quietly using the
+        psycopg path is the right answer.
 
         A subclass whose credentials rotate cannot afford that catch-all,
         because driver-absent and auth-failed arrive here as the same
