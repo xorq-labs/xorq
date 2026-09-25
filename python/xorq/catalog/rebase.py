@@ -66,7 +66,7 @@ class RebaseResult:
     moved_aliases = str_tuple()
     # Aliases the pull moved off the old entry, or removed: left as it has them.
     skipped_aliases = str_tuple()
-    # The sources no probe could compare, when none could.
+    # The sources no probe could compare, when none could; never on REBASED.
     unprobed = str_tuple()
 
 
@@ -85,9 +85,10 @@ def check_rebasable(
 ) -> tuple[str, ...]:
     """The unprobed sources, when no source can be probed; refuses otherwise.
 
-    An entry whose sources are all unprobed is re-derived and let the hash
-    decide. One with only some unprobed is refused: those would come back
-    unchanged beside the refreshed ones.
+    An entry whose sources are all unprobed is re-derived, and the hash
+    decides: the same hash is ``ATTEMPTED``, a new one is refused, since no
+    schema was refreshed to follow it. One with only some unprobed is refused:
+    those would come back unchanged beside the refreshed ones.
     """
     name = catalog_entry.name
     if any(leaf.pinned for leaf in record.source_leaves):
@@ -375,6 +376,16 @@ def rebase_entry(
             return RebaseResult(
                 status, catalog_entry, catalog_entry, reports, unprobed=unprobed
             )
+        if unprobed:
+            # Nothing was refreshed, so the new hash follows no drift (the
+            # build hash reads a source's path, not its contents); a new entry
+            # would carry the old schemas under a rebased name.
+            raise RebaseError(
+                f"{catalog_entry.name}: re-derived to a new hash, but no source "
+                f"could be probed ({', '.join(unprobed)}), so nothing was "
+                "refreshed",
+                RebaseExit.CONFLICT,
+            )
         build_path = dumper.dump_expr()
         stage_bundle(catalog_entry, build_path)
         new_entry, moved, skipped = add_rebased(
@@ -387,5 +398,4 @@ def rebase_entry(
         reports,
         moved,
         skipped,
-        unprobed,
     )

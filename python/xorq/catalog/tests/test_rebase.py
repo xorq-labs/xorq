@@ -30,7 +30,7 @@ from xorq.catalog.tests.conftest import (
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
-from xorq.ibis_yaml.compiler import build_expr
+from xorq.ibis_yaml.compiler import ExprDumper, build_expr
 from xorq.ibis_yaml.enums import DumpFiles
 
 
@@ -248,6 +248,13 @@ def refuse_some_unprobed(w: SimpleNamespace) -> Setup:
     return w.catalog.add(w.con.table("t").union(u)).name, (), ()
 
 
+def refuse_unprobed_new_hash(w: SimpleNamespace) -> Setup:
+    """No source probed, yet the re-derivation hashes anew: nothing to follow."""
+    w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
+    w.monkeypatch.setattr(ExprDumper, "expr_hash", property(lambda _: "0" * 12))
+    return w.name, (), ()
+
+
 def refuse_unreadable(target: str) -> Callable:
     def setup(w: SimpleNamespace) -> Setup:
         replace_t(w, GROWN)
@@ -384,6 +391,12 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
         ),
         pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
         pytest.param(refuse_unprobed_db, 2, "does not exist", id="unprobed-db"),
+        pytest.param(
+            refuse_unprobed_new_hash,
+            4,
+            "no source could be probed (t)",
+            id="unprobed-new-hash",
+        ),
         pytest.param(refuse_dropped_column, 4, "could not rebuild", id="column"),
         pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
         pytest.param(
