@@ -22,7 +22,12 @@ from xorq.catalog.drift import (
 )
 from xorq.catalog.enums import LeafKind, RebaseTag, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf, join_read_path
-from xorq.common.exceptions import InternalError, SchemaRefreshError, XorqError
+from xorq.common.exceptions import (
+    InternalError,
+    SchemaRefreshError,
+    UnmatchedSourceError,
+    XorqError,
+)
 from xorq.common.utils.graph_utils import (
     OPAQUE_SPECS,
     _opaque_lookup,
@@ -357,10 +362,12 @@ def refresh_schemas(
 
     refreshed = rewrite(to_node(expr)).to_expr()
     if unmatched := [key for key in live if key not in matched]:
-        refuse(
-            (kind, f"{name} matched no source of the loaded expression")
-            for (kind, _, name, _) in unmatched
+        kinds = ", ".join(dict.fromkeys(str(kind) for kind, _, _, _ in unmatched))
+        details = ", ".join(
+            f"{name} matched no source of the loaded expression"
+            for (_, _, name, _) in unmatched
         )
+        raise UnmatchedSourceError(kinds, LookupError(details))
     return refreshed
 
 

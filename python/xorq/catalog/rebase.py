@@ -50,7 +50,7 @@ from xorq.catalog.refresh import (
     refresh_schemas,
 )
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
-from xorq.common.exceptions import SchemaRefreshError
+from xorq.common.exceptions import SchemaRefreshError, UnmatchedSourceError
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
 from xorq.vendor.ibis.expr.schema import Schema
@@ -130,8 +130,8 @@ class RebaseConflict:
     """What a conflicted rebase could not follow.
 
     ``op_name`` is the op that could not be rebuilt, ``None`` when a source is
-    gone. ``sources`` are the sweep's own reports for the sources involved: the
-    changed ones an op failed over, or the gone ones.
+    gone. ``sources`` are the sweep's reports for all changed sources in the
+    entry on an op failure, or the gone sources on a missing-table conflict.
     """
 
     detail = field(validator=instance_of(str))
@@ -179,6 +179,10 @@ class RebaseResult:
     )
     # Set exactly when ``status`` is ``CONFLICT``.
     conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
+
+    def __attrs_post_init__(self) -> None:
+        if (self.status == RebaseStatus.CONFLICT) != (self.conflict is not None):
+            raise ValueError("conflict must be set exactly when status is CONFLICT")
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -675,6 +679,10 @@ def rebase_entry(
         loaded = catalog_entry.load_expr(cache_dir=cache_dir)
         try:
             expr = refresh_schemas(loaded, live, planned)
+        except UnmatchedSourceError as e:
+            raise RebaseError(
+                f"{catalog_entry.name}: {e.cause}", RebaseExit.REFUSED
+            ) from e
         except SchemaRefreshError as e:
             changed = [r for r in reports if r.verdict == Verdict.CHANGED]
             detail = f"{e}{rename_hint(record, reports, planned)}"

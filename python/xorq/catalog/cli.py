@@ -1291,14 +1291,13 @@ def rebase(
         else:
             click.echo(
                 f"{result.old_entry.name}: conflict: {conflict.op_name} cannot be "
-                f"rebuilt over {sources}",
+                f"rebuilt; changed sources in entry: {sources}",
                 err=True,
             )
         for report in conflict.sources:
             for line in format_leaf_report(report):
                 click.echo(line, err=True)
-        if conflict.op_name is not None:
-            click.echo(conflict.detail, err=True)
+        click.echo(conflict.detail, err=True)
         ctx.exit(RebaseExit.CONFLICT)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
