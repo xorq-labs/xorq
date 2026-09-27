@@ -685,7 +685,8 @@ def rebase_entry(
             ) from e
         except SchemaRefreshError as e:
             changed = [r for r in reports if r.verdict == Verdict.CHANGED]
-            detail = f"{e}{rename_hint(record, reports, planned)}"
+            # The cause alone: the CLI's headline already names the op.
+            detail = f"{format_error(e.cause)}{rename_hint(record, reports, planned)}"
             return conflicted(RebaseConflict(detail, changed, e.op_name))
         # `relocate_reads=False` keeps each read's recorded posture: a bundled
         # read stays bundled, an external one external.

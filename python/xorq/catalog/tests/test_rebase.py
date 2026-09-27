@@ -336,7 +336,11 @@ def test_a_conflict_names_the_op_and_source_with_check_sources_schemas(
     assert result.exit_code == 4, result.output
     assert f"{world.name}: {headline}" in result.stderr
     assert pair and all(line in result.stderr.splitlines() for line in pair)
-    assert ("could not rebuild" in result.stderr) == (op_name is not None)
+    assert "could not rebuild" not in result.stderr
+    if op_name is not None:
+        # Named once, by the headline; the cause follows it.
+        assert result.stderr.count(op_name) == 1
+        assert "XorqTypeError: Column 'a' is not found" in result.stderr
     conflicted = rebase_old(world)
     assert conflicted.status == RebaseStatus.CONFLICT
     assert conflicted.new_entry.name == world.name
@@ -738,7 +742,7 @@ def test_gone_table_also_names_unreachable_source(
             "t: recorded columns gone: b; live columns new: -\nif a gone column was renamed to a new one",
             id="rename-hint-less-renames",
         ),
-        pytest.param(refuse_dropped_column, 4, "could not rebuild", id="column"),
+        pytest.param(refuse_dropped_column, 4, "cannot be rebuilt", id="column"),
         pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
         pytest.param(
             refuse_beside_unreachable(lambda w: w.con.drop_table("t")),
