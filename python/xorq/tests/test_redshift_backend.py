@@ -276,6 +276,54 @@ def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> No
     assert recorded["prepare_threshold"] == 3
 
 
+class _FakeEncodingInfo:
+    def __init__(self, encoding: str | None) -> None:
+        self._encoding = encoding
+
+    @property
+    def encoding(self) -> str:
+        if self._encoding is None:
+            # What psycopg raises for Redshift's ``UNICODE``.
+            raise psycopg.NotSupportedError("codec not available in Python: 'UNICODE'")
+        return self._encoding
+
+
+def test_from_connection_turns_off_statement_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``from_connection`` skips ``do_connect``, so its ``prepare_threshold``
+    default never applied there; it is set on the connection instead."""
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    raw = _FakeConnection()
+    raw.info = _FakeEncodingInfo("utf-8")
+    raw.prepare_threshold = 5
+
+    con = RedshiftBackend.from_connection(raw)
+
+    assert con.con is raw
+    assert raw.prepare_threshold is None
+
+
+def test_from_connection_refuses_an_undecodable_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection opened without ``client_encoding`` reports Redshift's
+    ``UNICODE``, which psycopg cannot decode, so every query on it would fail.
+    It is refused before any SQL, naming the setting."""
+    post_connected = []
+    monkeypatch.setattr(
+        RedshiftBackend, "_post_connect", lambda self: post_connected.append(self)
+    )
+    raw = _FakeConnection()
+    raw.info = _FakeEncodingInfo(None)
+
+    with pytest.raises(ValueError, match="client_encoding='utf8'"):
+        RedshiftBackend.from_connection(raw)
+
+    assert post_connected == []
+    assert raw.log == []
+
+
 def test_client_encoding_is_not_inherited_from_postgres(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

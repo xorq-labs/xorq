@@ -5,6 +5,7 @@ import re
 import urllib.parse
 from typing import Any
 
+import psycopg
 import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -148,6 +149,32 @@ class Backend(PostgresBackend):
             autocommit=autocommit,
             **kwargs,
         )
+
+    @classmethod
+    def from_connection(cls, con: psycopg.Connection, /) -> Backend:
+        """Wrap an existing psycopg connection to Redshift.
+
+        ``do_connect`` is skipped here, so both of its defaults are applied
+        to the connection instead. ``prepare_threshold`` is set to ``None``
+        on it, because Redshift has no ``DEALLOCATE ALL`` for psycopg to send
+        on rollback. It overrides whatever the connection carried: psycopg's
+        default of 5 is indistinguishable from a choice, and no threshold is
+        safe here.
+
+        ``client_encoding`` cannot be set after the fact without a query, and
+        a connection Redshift reports as ``UNICODE`` cannot run one, so such a
+        connection is refused before any SQL, naming the setting to open it
+        with.
+        """
+        try:
+            con.info.encoding
+        except psycopg.NotSupportedError as e:
+            raise ValueError(
+                "this connection's client encoding is not one psycopg can "
+                "decode; open it with client_encoding='utf8'"
+            ) from e
+        con.prepare_threshold = None
+        return super().from_connection(con)
 
     @property
     def current_database(self) -> str:
