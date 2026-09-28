@@ -40,17 +40,21 @@ class RedshiftType(PostgresType):
     # one: it is variable-length binary data, and maps to ``dt.Binary`` through
     # ``_TYPE_ALIASES`` below.
     #
-    # The two interval column types parse as ibis intervals, and are here
-    # because they cannot be *read* as one: a live result description carries
-    # them as OIDs 1188/1190, which psycopg has no loader for, so each value
-    # arrives as Redshift's text rendering (``'1 mon'``). That the catalog
-    # spells them this way is inferred from the DDL, not measured.
+    # The two interval column types cannot be *read* as ibis intervals: a live
+    # result description carries them as OIDs 1188/1190, which psycopg has no
+    # loader for, so each value arrives as Redshift's text rendering
+    # (``'1 mon'``). ``svv_columns`` spells them ``intervaly2m`` and
+    # ``intervald2s`` (measured), which sqlglot does not parse; the DDL
+    # spellings are listed too because they *do* parse, into intervals, and
+    # ``svv_all_columns``' spelling for a permanent table is unmeasured.
     _REDSHIFT_ONLY_TYPES = frozenset(
         {
             "super",
             "hllsketch",
             "geometry",
             "geography",
+            "intervaly2m",
+            "intervald2s",
             "interval year to month",
             "interval day to second",
         }

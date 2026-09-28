@@ -941,6 +941,7 @@ SVV_ROWS = (
     ("eventname", "character varying", "YES", None, None),
     ("saletime", "timestamp without time zone", "YES", None, None),
 )
+SVV_ROWS_NAMES = tuple(row[0] for row in SVV_ROWS)
 
 
 def test_get_schema_reads_svv_all_columns_and_never_pg_catalog():
@@ -1264,12 +1265,12 @@ def test_get_schema_using_query_wraps_rather_than_appends():
         pytest.param(3999, dt.NamedUnknown(raw_type="geometry"), id="geometry-value"),
         pytest.param(
             1188,
-            dt.NamedUnknown(raw_type="interval year to month"),
+            dt.NamedUnknown(raw_type="intervaly2m"),
             id="interval-year-to-month",
         ),
         pytest.param(
             1190,
-            dt.NamedUnknown(raw_type="interval day to second"),
+            dt.NamedUnknown(raw_type="intervald2s"),
             id="interval-day-to-second",
         ),
     ],
@@ -1399,7 +1400,8 @@ def test_get_schema_reads_a_temporary_table_from_svv_columns() -> None:
     assert schema["a"] == dt.Int32(nullable=False)
 
     statements = issued(con)
-    assert any("svv_all_columns" in sql for sql in statements)
+    # Found in the temporary catalog, so the permanent one is never asked.
+    assert not any("svv_all_columns" in sql for sql in statements)
     (temp_sql,) = [sql for sql in statements if "svv_columns" in sql]
     # The scoping is the whole point: without it the fallback means "anything
     # this session can see" rather than "a temporary table". Asserted on the
@@ -1443,6 +1445,22 @@ def test_table_routes_a_catalog_qualified_name_to_the_catalog_query(
     (_sql, params) = last_call(con)
     assert params["catalog"] == "warehouse"
     assert params["schema"] == "analytics"
+
+
+def test_an_unqualified_lookup_binds_the_temporary_table_that_shadows() -> None:
+    """Measured on a live warehouse: with a temporary ``offers`` and a
+    permanent ``xorq_test.offers`` both present, unqualified SQL reads the
+    temporary one, and ``con.table("offers")`` bound the permanent one's
+    eleven columns. The compiled query names the table unqualified, so the
+    schema described a different table than the one it read. A qualified
+    lookup still binds the permanent table.
+    """
+    con = make_introspection_con(
+        rows=SVV_ROWS, temp_rows=(("temp_only_col", "integer", "YES", 32, 0),)
+    )
+
+    assert con.get_schema("sales").names == ("temp_only_col",)
+    assert con.get_schema("sales", database="public").names == SVV_ROWS_NAMES
 
 
 def test_get_schema_does_not_resolve_through_search_path() -> None:
@@ -1529,6 +1547,11 @@ def test_query_path_maps_the_single_byte_char_type() -> None:
         pytest.param("hllsketch", id="hllsketch"),
         pytest.param("geometry", id="geometry"),
         pytest.param("geography", id="geography"),
+        # How svv_columns spells the interval column types (measured); their
+        # values arrive through psycopg as text.
+        pytest.param("intervaly2m", id="interval-year-to-month"),
+        pytest.param("intervald2s", id="interval-day-to-second"),
+        pytest.param("interval year to month", id="interval-ym-as-ddl"),
     ],
 )
 @pytest.mark.parametrize(

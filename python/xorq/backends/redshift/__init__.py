@@ -267,7 +267,7 @@ ORDER BY ordinal_position ASC"""
 
     # The temporary-table counterpart. ``svv_columns`` rather than
     # ``svv_all_columns`` because only the former lists temporary tables --
-    # measured on a live warehouse, see ``_temp_table_schema`` -- and the two
+    # measured on a live warehouse, see ``_temp_table_rows`` -- and the two
     # expose the same column names, so one row-to-schema conversion serves both.
     #
     # ``LIKE 'pg^_temp^_%%' ESCAPE '^'`` separates temporary from permanent --
@@ -393,9 +393,15 @@ ORDER BY ordinal_position ASC"""
         direction: it costs a recoverable error if the reasoning is wrong.
 
         Temporary tables are **not** in this view at all -- measured on a live
-        warehouse, not inferred -- so an unqualified lookup that finds nothing
-        falls through to ``_temp_table_schema``, which reads the one catalog
-        that does list them.
+        warehouse, not inferred -- so an unqualified lookup reads
+        ``_temp_table_rows``, the one catalog that does list them, and it
+        reads it *first*. That order is SQL's: measured on a live warehouse, a
+        temporary table shadows a permanent one of the same name for
+        unqualified SQL, and the compiled query names the table unqualified.
+        Checking the permanent catalog first bound the permanent table's
+        columns to a query that then read the temporary one -- a schema for a
+        different table than the one queried, with no error. The cost is a
+        second round trip for an unqualified lookup of a permanent table.
 
         Two behaviours are inherited rather than introduced, and neither is a
         regression: Redshift folds unquoted identifiers to lower case, so
@@ -403,6 +409,13 @@ ORDER BY ordinal_position ASC"""
         and the reference states a regular user sees only the rows it has
         access to, so a permission problem also surfaces as ``TableNotFound``.
         """
+        if (
+            catalog is None
+            and database is None
+            and (rows := self._temp_table_rows(name))
+        ):
+            return self._schema_from_catalog_rows(rows)
+
         con = self.con
         with con.cursor() as cursor, con.transaction():
             rows = cursor.execute(
@@ -412,8 +425,6 @@ ORDER BY ordinal_position ASC"""
 
         if rows:
             return self._schema_from_catalog_rows(rows)
-        if catalog is None and database is None:
-            return self._temp_table_schema(name)
         raise exc.TableNotFound(name)
 
     @classmethod
@@ -638,8 +649,9 @@ ORDER BY ordinal_position ASC"""
             overwrite=overwrite,
         )
 
-    def _temp_table_schema(self, name: str) -> sch.Schema:
-        """The schema of a *temporary* table, which ``svv_all_columns`` omits.
+    def _temp_table_rows(self, name: str) -> list:
+        """The catalog rows of a *temporary* table, which ``svv_all_columns``
+        omits, or none if the session has no temporary table of that name.
 
         This exists because this backend's own ingest path depends on it.
         ``read_parquet``/``read_csv``/``read_record_batches`` with no
@@ -670,28 +682,25 @@ ORDER BY ordinal_position ASC"""
         ``con.table("t")`` that missed the catalog would find a *permanent*
         ``alice.t`` through the probe and report it with every column widened to
         nullable -- a different table than the caller named, silently. Scoping
-        to ``pg_temp_%`` is what makes the fallback mean "temporary table"
+        to ``pg_temp_%`` is what makes the lookup mean "temporary table"
         rather than "anything the session can see".
         """
         con = self.con
         with con.cursor() as cursor, con.transaction():
-            rows = cursor.execute(
+            return cursor.execute(
                 self._SVV_TEMP_COLUMNS_QUERY, {"table": name}
             ).fetchall()
-
-        if not rows:
-            raise exc.TableNotFound(name)
-        return self._schema_from_catalog_rows(rows)
 
     # Redshift's own types carry OIDs psycopg's registry does not know, so a
     # result description names them only by number. Read from ``pg_type`` on
     # a live warehouse (2026-09-28), and then from live result descriptions,
     # which differ in two places: a ``GEOMETRY`` value is described as 3999,
     # not ``pg_type``'s 3000, and the two interval column types are 1188 and
-    # 1190, which arrive as text (``'1 mon'``) for want of a loader.
+    # 1190, which arrive as text (``'1 mon'``) for want of a loader. Those two
+    # are named as ``svv_columns`` spells them, so both paths bind one name.
     _REDSHIFT_TYPE_OIDS = {
-        1188: "interval year to month",
-        1190: "interval day to second",
+        1188: "intervaly2m",
+        1190: "intervald2s",
         2935: "hllsketch",
         3000: "geometry",
         3001: "geography",
@@ -760,7 +769,7 @@ ORDER BY ordinal_position ASC"""
 
         ``get_schema`` does *not* borrow this method for a table its catalog
         query missed: a probe resolves through ``search_path`` and would
-        report a permanent table of the same name. See ``_temp_table_schema``.
+        report a permanent table of the same name. See ``_temp_table_rows``.
 
         The query is *wrapped* in a derived table rather than suffixed with
         ``LIMIT 0``. Not because appending would be a syntax error -- sqlglot's
