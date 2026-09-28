@@ -861,10 +861,10 @@ def test_clone_does_not_carry_client_encoding(
     reacquires a setting nobody passed, and a cloned-then-built artifact hashes
     differently from one built off the source.
 
-    Hash equality with the source is deliberately NOT asserted here: this fake
-    DSN reports ``port`` as a string, as libpq does, so an equality assertion
-    would pin unrelated coercions rather than this guard. What is asserted is
-    the claim the guard makes -- the setting is absent -- plus that the drop is
+    Hash equality with the source is asserted by
+    ``test_clone_hashes_equal_to_its_source``, which builds the source through
+    ``connect`` rather than ``make_offline_con``. What is asserted here is the
+    claim the guard makes -- the setting is absent -- plus that the drop is
     narrow: ``options`` carries ``search_path`` and must survive it.
     """
 
@@ -1024,6 +1024,64 @@ def test_clone_keeps_a_client_encoding_the_caller_passed(
     assert clone._con_kwargs["client_encoding"] == "latin1"
     # The DSN's ``UNICODE`` is still what gets dropped, not the caller's value.
     assert clone._con_kwargs["client_encoding"] != "UNICODE"
+
+
+@pytest.mark.parametrize(
+    "caller_kwargs",
+    [
+        pytest.param({}, id="defaults"),
+        pytest.param({"schema": "s"}, id="schema"),
+        pytest.param({"client_encoding": "latin1"}, id="caller-encoding"),
+    ],
+)
+def test_clone_hashes_equal_to_its_source(
+    monkeypatch: pytest.MonkeyPatch, caller_kwargs: dict
+) -> None:
+    """The invariant the two tests above guard piecewise: a cloned-then-built
+    artifact hashes the same as one built off the source.
+
+    Both connections go through the real ``connect`` -> ``do_connect`` path,
+    so ``_con_kwargs`` is what a caller actually gets, and the fake reports
+    what libpq's ``get_parameters`` does: ``port`` as a string, ``schema``
+    absent (``_post_connect`` applies it with ``set_config``, not libpq), and
+    ``client_encoding`` echoing the value the client sent. The string ``port``
+    is normalised by ``Profile.from_con``, so it is part of the path under
+    test, not noise. Without ``_clone_drop_dsn_params`` the ``defaults`` and
+    ``schema`` cases fail here: the clone's profile gains ``client_encoding``.
+    """
+    connect_kwargs = {
+        "host": "example.invalid",
+        "user": "u",
+        "password": "static",
+        "database": "d",
+        **caller_kwargs,
+    }
+    dsn = {
+        "host": "example.invalid",
+        "port": str(redshift_module.DEFAULT_PORT),
+        "user": "u",
+        "dbname": "d",
+        "client_encoding": caller_kwargs.get("client_encoding", "utf8"),
+    }
+
+    class _FakeInfo:
+        def get_parameters(self) -> dict:
+            return dict(dsn)
+
+    def fake_connect(**kwargs):
+        con = _FakeConnection()
+        con.info = _FakeInfo()
+        con.autocommit = kwargs["autocommit"]
+        return con
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    source = RedshiftBackend().connect(**connect_kwargs)
+    clone = source.clone()
+
+    assert clone._profile.kwargs_dict == source._profile.kwargs_dict
+    assert clone._profile.content_hash == source._profile.content_hash
 
 
 def test_clone_refuses_rather_than_borrowing_the_postgres_env_password(
