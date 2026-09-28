@@ -16,25 +16,30 @@ from xorq.loader import _load_entry_points
 reduction_tolerance = 1e-7
 
 
-def write_fake_dist(root: pathlib.Path, con_name: str) -> None:
+def write_fake_dist(
+    root: pathlib.Path, con_name: str, module: str | None = None
+) -> None:
     """Write a minimal installed distribution declaring a xorq.backends entry
     point, so adding `root` to sys.path is indistinguishable from installing a
-    backend plugin."""
+    backend plugin. `module` is the entry point's target; the default names a
+    module that doesn't exist, which suffices for discovery-only tests."""
     dist_info = root / f"xorq_{con_name}-0.1.dist-info"
     dist_info.mkdir(parents=True)
     (dist_info / "METADATA").write_text(
         f"Metadata-Version: 2.1\nName: xorq-{con_name}\nVersion: 0.1\n"
     )
     (dist_info / "entry_points.txt").write_text(
-        f"[xorq.backends]\n{con_name} = xorq_{con_name}\n"
+        f"[xorq.backends]\n{con_name} = {module or f'xorq_{con_name}'}\n"
     )
 
 
 @contextlib.contextmanager
-def installed_mid_process(root: pathlib.Path, con_name: str) -> Iterator[str]:
+def installed_mid_process(
+    root: pathlib.Path, con_name: str, module: str | None = None
+) -> Iterator[str]:
     """Install a backend distribution into this live process, with an entry-point
     cache that predates it -- i.e. `pip install` in a Jupyter kernel."""
-    write_fake_dist(root, con_name)
+    write_fake_dist(root, con_name, module=module)
     assert not any(ep.name == con_name for ep in _load_entry_points())  # warm it
     sys.path.insert(0, str(root))
     try:
