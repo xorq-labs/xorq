@@ -509,15 +509,16 @@ def test_compiler_type_mapper_is_redshifts(t):
     [
         pytest.param("varbyte", id="varbyte"),
         pytest.param("varbyte(16)", id="varbyte-sized"),
-        pytest.param("binary varying", id="binary-varying"),
-        pytest.param("binary varying(16)", id="binary-varying-sized"),
     ],
 )
-def test_both_varbyte_spellings_parse_to_binary(spelling: str) -> None:
-    """``binary varying`` is the spelling ``svv_all_columns`` reports for a
-    ``VARBYTE`` column; ``varbyte`` is the one a user writes. Both are
-    variable-length binary data with an exact xorq equivalent, so neither may
-    come back ``unknown`` and neither may raise."""
+def test_varbyte_parses_to_binary(spelling: str) -> None:
+    """``VARBYTE`` is variable-length binary data with an exact xorq
+    equivalent, so it may neither come back ``unknown`` nor raise.
+
+    The catalog's spelling, ``binary varying``, is deliberately absent: below
+    sqlglot 26 the redshift dialect parses it as fixed-length ``BINARY``,
+    which maps to ``unknown``, so it needs an explicit alias rather than the
+    dialect."""
     assert RedshiftType.from_string(spelling) == dt.Binary()
 
 
