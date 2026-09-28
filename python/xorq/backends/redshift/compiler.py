@@ -39,12 +39,20 @@ class RedshiftType(PostgresType):
     # Redshift-only type names with no xorq equivalent. ``VARBYTE`` is not
     # one: it is variable-length binary data, and maps to ``dt.Binary`` through
     # ``_TYPE_ALIASES`` below.
+    #
+    # The two interval column types parse as ibis intervals, and are here
+    # because they cannot be *read* as one: a live result description carries
+    # them as OIDs 1188/1190, which psycopg has no loader for, so each value
+    # arrives as Redshift's text rendering (``'1 mon'``). That the catalog
+    # spells them this way is inferred from the DDL, not measured.
     _REDSHIFT_ONLY_TYPES = frozenset(
         {
             "super",
             "hllsketch",
             "geometry",
             "geography",
+            "interval year to month",
+            "interval day to second",
         }
     )
 

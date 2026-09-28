@@ -41,6 +41,9 @@ APPEND_ONLY_MODES = ("append", "create_append")
 # Rows per ``executemany`` for a ``pa.Table``, which carries no batch size.
 INGEST_CHUNKSIZE = 10_000
 
+# Redshift's OID for ``VARBYTE`` in a result description.
+VARBYTE_OID = 6551
+
 # Alias for the derived table that ``_get_schema_using_query`` probes through.
 # Fixed rather than generated: it names a subquery, which is scoped to the
 # statement and cannot collide with anything in the catalog, and a deterministic
@@ -162,6 +165,30 @@ class Backend(PostgresBackend):
             autocommit=autocommit,
             **kwargs,
         )
+
+    def _post_connect(self) -> None:
+        """Teach the psycopg connection to read ``VARBYTE``.
+
+        A result description reports ``VARBYTE`` as OID 6551, which psycopg's
+        registry does not know, so it hands the value back as the text
+        Redshift sends: hex digits with no prefix, ``'ab'`` for ``b"\\xab"``.
+        The column is typed binary on both introspection paths, so the Arrow
+        cast then turned that text into its *ASCII* bytes -- ``b"ab"`` --
+        silently, on every read the psycopg baseline served. Measured on a
+        live warehouse: the ADBC path returned ``b"\\xab"`` and psycopg
+        ``b"ab"`` for the same row. The loader decodes the hex.
+
+        ``psycopg`` is imported here for the reason given in
+        ``_column_dtype_from_description``.
+        """
+        from psycopg.adapt import Loader  # noqa: PLC0415
+
+        class VarbyteLoader(Loader):
+            def load(self, data: bytes | bytearray | memoryview) -> bytes:
+                return bytes.fromhex(bytes(data).decode("ascii"))
+
+        super()._post_connect()
+        self.con.adapters.register_loader(VARBYTE_OID, VarbyteLoader)
 
     @property
     def current_database(self) -> str:
@@ -481,9 +508,12 @@ ORDER BY ordinal_position ASC"""
 
         Two kinds pass the returned-schema check and still have to be refused.
 
-        A cast returns a mappable type, but what Redshift's cast makes of a
-        ``SUPER`` value that is not a scalar of the target type is unmeasured;
-        a ``NULL`` in place of the data is plausible, and would be silent.
+        A cast returns a mappable type, but not the data: measured on a live
+        warehouse, ``CAST`` of a ``SUPER`` object or array to ``VARCHAR`` is
+        ``NULL``, while a string or number scalar casts to its text. So a
+        column of objects would read back as all ``NULL``, silently.
+        ``JSON_SERIALIZE``, which the refusal names instead, returned the
+        object's text.
 
         A value built *from* such a column -- a struct holding it, say, later
         unpacked and dropped -- is compiled with its type, which this backend
@@ -655,13 +685,19 @@ ORDER BY ordinal_position ASC"""
 
     # Redshift's own types carry OIDs psycopg's registry does not know, so a
     # result description names them only by number. Read from ``pg_type`` on
-    # a live warehouse (2026-09-28).
+    # a live warehouse (2026-09-28), and then from live result descriptions,
+    # which differ in two places: a ``GEOMETRY`` value is described as 3999,
+    # not ``pg_type``'s 3000, and the two interval column types are 1188 and
+    # 1190, which arrive as text (``'1 mon'``) for want of a loader.
     _REDSHIFT_TYPE_OIDS = {
+        1188: "interval year to month",
+        1190: "interval day to second",
         2935: "hllsketch",
         3000: "geometry",
         3001: "geography",
+        3999: "geometry",
         4000: "super",
-        6551: "varbyte",
+        VARBYTE_OID: "varbyte",
     }
 
     @classmethod

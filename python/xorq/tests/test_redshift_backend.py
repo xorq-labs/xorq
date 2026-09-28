@@ -1260,6 +1260,18 @@ def test_get_schema_using_query_wraps_rather_than_appends():
         pytest.param(3000, dt.NamedUnknown(raw_type="geometry"), id="geometry"),
         pytest.param(3001, dt.NamedUnknown(raw_type="geography"), id="geography"),
         pytest.param(2935, dt.NamedUnknown(raw_type="hllsketch"), id="hllsketch"),
+        # What a live description reports for a GEOMETRY value, not pg_type's.
+        pytest.param(3999, dt.NamedUnknown(raw_type="geometry"), id="geometry-value"),
+        pytest.param(
+            1188,
+            dt.NamedUnknown(raw_type="interval year to month"),
+            id="interval-year-to-month",
+        ),
+        pytest.param(
+            1190,
+            dt.NamedUnknown(raw_type="interval day to second"),
+            id="interval-day-to-second",
+        ),
     ],
 )
 def test_query_path_maps_redshift_type_oids_as_the_catalog_path_maps_names(
@@ -1271,6 +1283,30 @@ def test_query_path_maps_redshift_type_oids_as_the_catalog_path_maps_names(
     con = make_introspection_con(description=(_FakeColumn("c", oid),))
 
     assert con._get_schema_using_query("SELECT c FROM t")["c"] == expected
+
+
+class _AdaptingConnection(_FakeConnection):
+    """``_FakeConnection`` carrying a real psycopg adapters map, as a live
+    connection does, so a loader registered on it can be read back."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.adapters = psycopg.adapt.AdaptersMap(psycopg.adapters)
+
+
+def test_varbyte_values_are_decoded_from_hex_on_the_psycopg_path() -> None:
+    """psycopg does not know OID 6551, so it returned ``VARBYTE`` as the hex
+    text Redshift sends, and the binary cast made that text's ASCII bytes:
+    measured live, ``b"\\xab"`` came back as ``b"ab"`` with ADBC off."""
+    con = make_offline_con()
+    con.con = _AdaptingConnection()
+
+    con._post_connect()
+
+    loader = con.con.adapters.get_loader(
+        redshift_module.VARBYTE_OID, psycopg.pq.Format.TEXT
+    )
+    assert loader(redshift_module.VARBYTE_OID).load(b"ab00ff") == b"\xab\x00\xff"
 
 
 def test_redshift_type_oids_are_unknown_to_psycopg() -> None:
@@ -1743,8 +1779,8 @@ def test_a_table_with_an_unmappable_column_binds_and_reads_its_other_columns(
             id="insert-overwrite",
         ),
         pytest.param(lambda con, t: con.insert("copy", t), id="insert"),
-        # What Redshift's cast makes of a non-scalar SUPER value is unmeasured,
-        # and a NULL in its place would be silent.
+        # Redshift casts a SUPER object or array to VARCHAR as NULL (measured),
+        # so a cast read would silently return no data.
         pytest.param(
             lambda con, t: t.select("id", p=t.payload.cast("string")).execute(),
             id="cast",
