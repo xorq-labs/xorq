@@ -337,6 +337,12 @@ class YamlExpressionTranslator:
             profiles=freeze(dict(profiles)),
         )
         expr_dict = freeze(yaml_dict[DocKey.expression])
+        # nodes are registered children-first (convert_to_ref registers after
+        # the handler has translated the children), so translating them in
+        # stored order leaves each handler's inputs in translate_from_yaml's
+        # cache and keeps recursion depth constant in the op chain's length
+        for node_ref in context.registry.nodes:
+            context.get_node(node_ref)
         return translate_from_yaml(expr_dict, context)
 
 
