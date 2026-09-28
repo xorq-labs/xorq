@@ -1,3 +1,5 @@
+import urllib.parse
+
 import adbc_driver_postgresql.dbapi
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -48,7 +50,14 @@ class PgADBC(ADBCBase):
 
     def get_uri(self, **kwargs):
         params = {**self.params, **kwargs}
-        uri = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}"
+        # Userinfo is percent-encoded: libpq splits it on the first ``:`` and
+        # the last ``@``, so a raw Redshift IAM user (``IAMR:<role>``) or a
+        # password containing ``@ / # %`` parses into different credentials.
+        user, password = (
+            urllib.parse.quote(str(params[key]), safe="")
+            for key in ("user", "password")
+        )
+        uri = f"postgresql://{user}:{password}@{params['host']}:{params['port']}/{params['database']}"
         return uri
 
     def get_conn(self, **kwargs):
