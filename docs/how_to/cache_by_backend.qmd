@@ -117,7 +117,7 @@ Automatic invalidation relies on backend-specific change signals, and they're no
 | Backend | Change signal | Caveat |
 |---|---|---|
 | PostgreSQL | `reltuples` estimate | Updates after `ANALYZE`/autovacuum; an insert may not invalidate immediately. Run `ANALYZE <table>` to force it. |
-| Redshift | `pg_statistic_indicator` counters | Tracks inserts and deletes separately from the row count, so an in-place `UPDATE` invalidates too. Views, external tables and temp tables are not tracked; see below. |
+| Redshift | None | Automatic invalidation is refused: `ParquetCache` raises `RedshiftFreshnessUnavailable`. Use `ParquetSnapshotCache`; see below. |
 | Snowflake | `LAST_ALTERED` timestamp | Reliable; updates on any DDL or DML. |
 | DuckDB | File metadata or data bytes | In-memory tables hash the actual data, which is precise but costly for large tables. |
 | SQLite (on disk) | `COUNT(*)` and `MAX(id)` | Needs an `id` column; misses updates that change neither count nor max id. |
@@ -125,21 +125,19 @@ Automatic invalidation relies on backend-specific change signals, and they're no
 
 If your backend's signal is too coarse for your use case, a Snapshot variant plus explicit cache deletion gives you manual control.
 
-#### Redshift, and why it needs no grant
+#### Redshift has no automatic invalidation
 
-The Redshift probe reads three counters (visible rows, inserts, and deletes) from `pg_statistic_indicator`, the catalog that `svv_table_info.estimated_visible_rows` is itself computed from. Reading it directly rather than through the view matters for who can use the cache at all: `svv_table_info` is superuser-only, while the indicator carries a `PUBLIC` grant. A connection holding only `USAGE` on the schema and `SELECT` on its tables can compute Redshift cache keys with no grant of any kind.
+Redshift exposes no per-table change signal that a cache key can rely on, so `ParquetCache` and other automatically invalidating caches over a Redshift table raise `RedshiftFreshnessUnavailable` before sending any query. Use [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd) instead, and delete the cached entry when the table's data changes. `xorq run-cached` defaults to `ParquetCache`, so over a Redshift build pass `--cache-type snapshot`.
 
-Two consequences worth knowing about.
+The signals that exist all fall short:
 
-An in-place `UPDATE` invalidates the cache. Redshift implements `UPDATE` as delete-plus-insert, so it moves the insert and delete counters while leaving the row count unchanged, which a row count alone cannot see.
+- The insert and delete counters in `pg_statistic_indicator` are readable by any user, but they count changes since the last `ANALYZE` and reset on every one, including Redshift's background auto-analyze. After an `UPDATE` followed by an analyze, the counters are back where they were before the `UPDATE`, so a key built on them would return to its old value and serve the result cached before the change.
+- `pg_class.reltuples` is readable by any user, but Redshift does not maintain it on write: measured on a live warehouse, it sat at `0.001` while a table reached five rows.
+- `svv_table_info` and the analyze history (`stl_analyze`, `sys_analyze_history`) are for superusers only.
 
-An `ANALYZE` may invalidate it spuriously. `ANALYZE`, including the background auto-analyze on Redshift Serverless, resets the insert and delete counters while updating the row count, so the key can change when your data did not. That costs a recompute, never a stale result.
+The PostgreSQL row's advice to run `ANALYZE` does not apply to Redshift: an `ANALYZE` is what resets the counters.
 
-Caching a view, a late-binding view, a Spectrum external table or a session-temporary table raises `RedshiftFreshnessUnavailable`: those carry no statistics row, so any key built for them could never change. Cache the query that defines them instead, or use [`ParquetSnapshotCache`](../reference/ParquetSnapshotCache.qmd), which needs no freshness probe at all. A table that merely has no rows yet is not one of those: it reports zeroes, and the key moves as soon as data lands.
-
-Temp tables are refused even when a permanent table shares the name. `con.table("staging")` resolves against the session temp schema as well as your own, so after a `create_table("staging", ..., temporary=True)` the unqualified name reaches the temp table. The probe refuses rather than measuring the permanent `staging` that happens to share the name, which would key the cache on a relation you are not reading. Qualify the name with a schema if the permanent table is what you meant.
-
-Finally, do not substitute `pg_class.reltuples`. It is readable without any grant and looks like a row count, but Redshift does not maintain it on write: measured on a live warehouse, it sat at `0.001` while a table reached five rows. A cache keyed on it would never invalidate. For the same reason, ignore the PostgreSQL row's advice to run `ANALYZE`: the Redshift probe issues no DDL and needs no write privilege.
+A snapshot key over an unqualified table includes the schema it resolves to, so `con.table("offers")` read through connections scoped to two different schemas gets two keys. A name that resolves to a session-temporary table raises `RedshiftFreshnessUnavailable` even under `ParquetSnapshotCache`: the table is invisible to every other session, and keying a permanent table that shares its name would describe a relation you are not reading. Qualify the name with a schema if the permanent table is what you meant.
 
 ## See also
 

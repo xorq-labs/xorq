@@ -474,19 +474,19 @@ def _dispatch_databasetable(dt: ops.DatabaseTable) -> tuple:
     # column label and crashes on every table; use the fixed xorq version.
     if dt.source.name == BackendName.BIGQUERY:
         return _normalize_bigquery_databasetable_xorq(dt)
-    # pandas-backend tables and in-memory sqlite are memory-resident:
-    # xorq_dasher's dispatch hashes the IPC bytes of their
-    # ``to_pyarrow_batches()`` stream, which is pyarrow-version-coupled
-    # (issue #2191) — route them to the canonical form instead.
     # Redshift is absent from dasher's dispatch dict, which is a bare lookup
     # with no default -- so without this it raises KeyError: 'redshift' before
     # any SQL is sent. It must not fall through to the postgres normalizer
     # either: that one calls get_postgres_n_reltuples, which issues CHECKPOINT
     # (not Redshift syntax) and ANALYZE (a write-privileged operation Redshift
-    # does accept). See redshift_utils for what is read instead, and why it is
-    # pg_statistic_indicator rather than svv_table_info or reltuples.
+    # does accept). The rule refuses instead: see redshift_utils for why no
+    # Redshift catalog read can serve as a freshness signal.
     if dt.source.name == BackendName.REDSHIFT:
         return normalize_redshift_databasetable(dt)
+    # pandas-backend tables and in-memory sqlite are memory-resident:
+    # xorq_dasher's dispatch hashes the IPC bytes of their
+    # ``to_pyarrow_batches()`` stream, which is pyarrow-version-coupled
+    # (issue #2191) — route them to the canonical form instead.
     if dt.source.name == BackendName.PANDAS:
         return normalize_memory_databasetable_canonical(dt)
     if dt.source.name == BackendName.SQLITE and dt.source.is_in_memory():

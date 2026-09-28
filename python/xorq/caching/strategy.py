@@ -196,8 +196,12 @@ class SnapshotStrategy(CacheStrategy):
         # `name` in — for a genuine backend table `name` *is* the identity —
         # and ``lookup_view_normalizer`` raises rather than let a
         # DatabaseTableView reach it.
+        from xorq.common.enums import BackendName  # noqa: PLC0415
         from xorq.common.utils.dasher._relations import (  # noqa: PLC0415
             lookup_view_normalizer,
+        )
+        from xorq.common.utils.redshift_utils import (  # noqa: PLC0415
+            normalize_redshift_snapshot_databasetable,
         )
 
         memo = _snapshot_dt_normalize_memo.get()
@@ -206,6 +210,11 @@ class SnapshotStrategy(CacheStrategy):
         normalizer = lookup_view_normalizer(dt, snapshot=True)
         if normalizer is not None:
             result = normalizer(dt)
+        elif dt.source.name == BackendName.REDSHIFT:
+            # An unqualified Redshift table's namespace is empty, and the
+            # connection identity carries no schema, so the fallback below
+            # would give same-named tables in two schemas one key.
+            result = normalize_redshift_snapshot_databasetable(dt)
         else:
             keys = ("name", "schema", "source", "namespace")
             result = tuple((k, getattr(dt, k)) for k in keys)

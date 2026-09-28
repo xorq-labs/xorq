@@ -1,4 +1,4 @@
-"""The Redshift cache-freshness probe must issue no DDL.
+"""Redshift cache keys: freshness refused, snapshot identity complete.
 
 Sited in ``python/xorq/tests/`` rather than under
 ``python/xorq/backends/redshift/tests/`` for the reason given in
@@ -6,39 +6,33 @@ Sited in ``python/xorq/tests/`` rather than under
 marker by path and CI selects by marker, so a test under the backend directory
 would run only in the credential-gated workflow. Nothing here needs credentials.
 
-The defect has two distinct shapes depending on which backend reaches Redshift.
-**Only the second is fixed, and only the second is covered here:**
+The defect this started from has two shapes depending on which backend reaches
+Redshift. **Only the second is covered here:**
 
 * Through the **postgres** backend -- reaching Redshift over an SSH tunnel as a
   Postgres profile, which is how it was first reported -- dasher's per-backend
   dispatch calls ``get_postgres_n_reltuples``, which issues ``CHECKPOINT`` and
-  then ``ANALYZE "<table>"``. The first is a syntax error on Redshift. The
-  second is worse than a syntax error: on a warehouse that does accept it,
-  ``ANALYZE`` is a real, expensive, write-privileged operation run as a side
-  effect of computing a cache key. **This path is out of scope here**: dispatch
-  keys on ``dt.source.name``, a postgres-named profile still reports
-  ``postgres``, and separating a Redshift endpoint from a PostgreSQL one behind
-  that name needs a signal nothing in this change establishes. Tracked
-  separately; nothing below tests it, and no test here should be read as
-  covering it.
+  then ``ANALYZE "<table>"``. **This path is out of scope here**: dispatch keys
+  on ``dt.source.name``, a postgres-named profile still reports ``postgres``,
+  and separating a Redshift endpoint from a PostgreSQL one behind that name
+  needs a signal nothing in this change establishes.
 * Through the dedicated **redshift** backend, dasher's dispatch is a bare dict
-  lookup with no ``redshift`` key and no default, so computing a cache key
-  raises ``KeyError: 'redshift'`` before any SQL is sent. That is what these
-  tests cover.
+  lookup with no ``redshift`` key, so computing a cache key raised
+  ``KeyError: 'redshift'`` before any SQL was sent.
 
-So "it no longer issues CHECKPOINT" is not sufficient evidence on its own --
-raising KeyError also satisfies it. These tests assert the positive property
-too, and assert it **at the tokenize boundary**: a normalizer may return a
-perfectly well-formed tuple that the only consumer of that tuple then refuses
-to encode, which is invisible to any assertion that stops at ``isinstance(key,
-tuple)``.
+The freshness key is now refused outright (see ``redshift_utils`` for why no
+Redshift catalog read can serve), so "it issues no DDL" is true trivially and
+proves nothing on its own. What these tests pin is the pair of positive
+properties: the freshness refusal names the cache that works, and that cache's
+key -- asserted **at the tokenize boundary**, where a well-formed tuple the
+encoder refuses would show -- tells apart every pair of relations a reader
+could confuse.
 """
 
 from __future__ import annotations
 
 import contextlib
 from collections.abc import Iterator
-from decimal import Decimal
 
 import pytest
 
@@ -57,38 +51,19 @@ pytest.importorskip("psycopg")
 import xorq.vendor.ibis.expr.operations as ops  # noqa: E402
 import xorq.vendor.ibis.expr.schema as sch  # noqa: E402
 from xorq.backends.redshift import Backend as RedshiftBackend  # noqa: E402
-from xorq.caching.strategy import SnapshotStrategy  # noqa: E402
+from xorq.caching.strategy import (  # noqa: E402
+    ModificationTimeStrategy,
+    SnapshotStrategy,
+)
 from xorq.common.exceptions import RedshiftFreshnessUnavailable  # noqa: E402
 from xorq.common.utils.dasher import HASHER  # noqa: E402
 from xorq.common.utils.dasher._relations import _databasetable_dispatcher  # noqa: E402
-from xorq.common.utils.redshift_utils import (  # noqa: E402
-    ROW_COUNTERS_SQL,
-    get_redshift_row_counts,
-    resolve_redshift_schema,
-)
+from xorq.common.utils.redshift_utils import resolve_redshift_schema  # noqa: E402
 from xorq.vendor.ibis.expr.datatypes import Unknown  # noqa: E402
 
 
-# Anything that writes, not merely anything that says CREATE. Every statement
-# the probe is allowed is a read: the statistics-catalog read, the
-# current_schema() resolution, the svv_columns temp-table check that resolution
-# makes, and the pg_class relkind read -- the last reached only on the error
-# path.
-DDL_TOKENS = (
-    "CHECKPOINT",
-    "ANALYZE",
-    "CREATE ",
-    "DROP ",
-    "VACUUM",
-    "ALTER ",
-    "INSERT ",
-    "UPDATE ",
-    "DELETE ",
-    "TRUNCATE",
-    "GRANT ",
-)
-
 SESSION_SCHEMA = "analytics"
+TEMP_SCHEMA = "pg_temp_3"
 PORT = 5439
 
 
@@ -103,30 +78,25 @@ class _ConnectionInfo:
 
 
 class RecordingConnection:
-    """Records every statement and serves canned catalog answers.
+    """Records every statement and answers only the ones the key may issue.
 
-    Deliberately *not* a mock that accepts anything: an unexpected call should
-    be visible in ``statements`` rather than silently absorbed, because the
-    whole point of these tests is which statements get issued.
+    Deliberately *not* a mock that accepts anything. A statement this fake does
+    not recognise raises, because answering it is how a postgres-only call
+    reached a live warehouse before: the fake served ``pg_my_temp_schema()``,
+    Redshift does not have it, and every unqualified key failed live.
     """
 
     def __init__(
         self,
-        rows: tuple = ((12345, 7, 3),),
         current_schema: str = SESSION_SCHEMA,
-        relkind: tuple = (("r",),),
         temp_schema: str | None = None,
         temp_names: tuple[str, ...] = (),
     ) -> None:
-        # (sql, params) rather than sql alone. Recording only the statement
-        # meant the schema and name actually BOUND were asserted nowhere, so a
-        # probe that ignored its schema argument -- or swapped name and schema
-        # -- passed every test in this file.
+        # (sql, params) rather than sql alone, so the name actually BOUND is
+        # asserted and not only the statement shape.
         self.calls: list[tuple[str, object]] = []
         self.info = _ConnectionInfo()
-        self._rows = rows
         self._current_schema = current_schema
-        self._relkind = relkind
         # The session's ``pg_temp_<N>`` schema and the temp tables in it. None
         # by default, as on a real connection that has created no temp table.
         self._temp_schema = temp_schema
@@ -164,57 +134,46 @@ class _RecordingCursor:
     def execute(self, sql: object, *args: object, **kwargs: object) -> _RecordingCursor:
         self._last = str(sql)
         self._con.calls.append((self._last, args[0] if args else kwargs.get("params")))
-        if "pg_my_temp_schema" in self._last.lower():
-            # Redshift does not have it. A fake that answered it is how the
-            # probe came to call it: every unqualified key raised live.
+        lowered = self._last.lower()
+        if "pg_my_temp_schema" in lowered:
             raise make_undefined_function("pg_my_temp_schema()")
+        if "current_schema" not in lowered and "svv_columns" not in lowered:
+            raise AssertionError(f"unexpected statement sent to Redshift: {sql!r}")
         return self
 
     def fetchall(self) -> list[tuple]:
-        # Three statement shapes reach this cursor and they must not be
-        # conflated: ``current_database`` on this backend is a
-        # ``current_schema()`` read, the probe reads pg_statistic_indicator, and
-        # the error path reads pg_class for relkind. Serving the counters to all
-        # three would hand the probe a schema name as a row count.
-        #
-        # Routed on the DISTINGUISHING token, not on ``pg_class``: the probe
-        # JOINs pg_class to resolve the name, so a ``"pg_class" in lowered``
-        # test -- which is what this was -- hands the probe the relkind answer
-        # and every counter assertion below silently measures nothing.
         lowered = self._last.lower()
         if "current_schema" in lowered:
             return [(self._con._current_schema,)]
-        if "svv_columns" in lowered:
-            # Routed on the name actually BOUND: an open temp schema holding
-            # other tables must not make every unqualified name temporary.
-            _, params = self._con.calls[-1]
-            temp = self._con._temp_schema
-            if temp is not None and params["name"] in self._con._temp_names:
-                return [(temp,)]
-            return []
-        if "pg_statistic_indicator" in lowered:
-            return list(self._con._rows)
-        if "relkind" in lowered:
-            return list(self._con._relkind)
-        return list(self._con._rows)
+        # svv_columns, the only other statement execute() lets through. Routed
+        # on the name actually BOUND: an open temp schema holding other tables
+        # must not make every unqualified name temporary.
+        _, params = self._con.calls[-1]
+        temp = self._con._temp_schema
+        if temp is not None and params["name"] in self._con._temp_names:
+            return [(temp,)]
+        return []
 
     def fetchone(self) -> tuple | None:
         rows = self.fetchall()
         return rows[0] if rows else None
 
 
+def make_undefined_function(name: str) -> Exception:
+    """Stands in for ``psycopg.errors.UndefinedFunction``, as Redshift raises it."""
+    exc = Exception(f"function {name} does not exist")
+    exc.sqlstate = "42883"
+    return exc
+
+
 def make_con(
-    rows: tuple = ((12345, 7, 3),),
     current_schema: str = SESSION_SCHEMA,
-    relkind: tuple = (("r",),),
     temp_schema: str | None = None,
     temp_names: tuple[str, ...] = (),
 ) -> RedshiftBackend:
     con = RedshiftBackend(host="example.invalid", port=PORT)
     con.con = RecordingConnection(
-        rows,
         current_schema=current_schema,
-        relkind=relkind,
         temp_schema=temp_schema,
         temp_names=temp_names,
     )
@@ -235,616 +194,170 @@ def make_dt(
     )
 
 
-def test_normalizing_a_redshift_table_issues_no_ddl() -> None:
-    """The headline assertion, and the one the issue is filed about."""
-    con = make_con()
-    _databasetable_dispatcher(make_dt(con))
-
-    issued = " ".join(con.con.statements).upper()
-    for token in DDL_TOKENS:
-        assert token not in issued, f"{token!r} was issued to the warehouse: {issued!r}"
-
-
-def test_the_key_tokenizes() -> None:
-    """Not raising in the normalizer is not the same as producing a usable key.
-
-    The normalizer's tuple embeds ``dt.source``, and tokenizing that reaches
-    dasher's backend rule -- a ``match con.name`` whose default raises. Before
-    this was registered, every assertion in this file passed while
-    ``HASHER.tokenize`` raised ``ValueError: no normalization rule for backend
-    'redshift'``: the pre-fix ``KeyError`` had simply moved one layer out. An
-    assertion that stops at the dispatcher cannot see that.
-    """
-    token = HASHER.tokenize(make_dt(make_con()))
-    assert isinstance(token, str) and token
-
-
-def test_the_no_probe_fallback_the_error_recommends_also_tokenizes() -> None:
-    """The privilege error tells the user to switch to ``ParquetSnapshotCache``.
-
-    That path runs ``SnapshotStrategy.normalize_backend``, which for a backend
-    outside ``NAME_ONLY_BACKEND_NAMES`` delegates to ``HASHER.normalize``. It
-    hit the identical missing rule, so the actionable error was handing the
-    user an action that raised too.
-    """
-    assert SnapshotStrategy.normalize_backend(make_con())
-
-
-def test_catalog_counts_are_coerced_from_decimal() -> None:
-    """The counters are ``numeric``, which psycopg returns as ``Decimal``.
-
-    dasher's encoder takes only str/int/float/bool/bytes/None, so an
-    un-coerced ``Decimal`` raises at tokenize time -- after the probe has
-    already succeeded. A fake serving Python ``int`` cannot show this, so the
-    fake serves what the driver actually serves.
-    """
-    con = make_con(rows=((Decimal(12345), Decimal(7), Decimal(3)),))
-    counts = get_redshift_row_counts(make_dt(con))
-    assert counts == (12345, 7, 3)
-    assert all(type(count) is int for count in counts)
-    assert HASHER.tokenize(
-        make_dt(make_con(rows=((Decimal(1), Decimal(1), Decimal(1)),)))
-    )
-
-
-def test_the_key_carries_a_freshness_component() -> None:
-    """The key must change when the underlying row count changes.
-
-    This is what separates the fix from routing Redshift to the identity-only
-    ``normalize_remote_databasetable`` that trino and gizmosql use. That would
-    also issue no DDL and also return a tuple -- and would let a SourceStorage
-    cache serve stale numbers forever, converting a loud failure into a quiet
-    wrong answer.
-    """
-    before = HASHER.tokenize(make_dt(make_con(rows=((100, 0, 0),))))
-    after = HASHER.tokenize(make_dt(make_con(rows=((200, 100, 0),))))
-    assert before != after, (
-        "cache key is insensitive to the source row count, so a cached "
-        "result would never be invalidated by upstream changes"
-    )
-
-
-def test_the_key_moves_when_rows_are_deleted_but_not_vacuumed() -> None:
-    """A DELETE moves ``stairows`` down and ``staidels`` up, before any vacuum.
-
-    Measured live on 2026-09-24, no ANALYZE and no VACUUM: deleting one row of
-    five moved ``stairows`` 5 -> 4 and ``staidels`` 0 -> 1. (The same run
-    settled a claim this file previously took from AWS documentation and
-    covered only against a fake: ``estimated_visible_rows`` does drop on a
-    delete before a vacuum, and ``stairows`` IS that column.)
-    """
-    before = HASHER.tokenize(make_dt(make_con(rows=((5, 5, 0),))))
-    after = HASHER.tokenize(make_dt(make_con(rows=((4, 5, 1),))))
-    assert before != after, (
-        "cache key does not move on a delete, so rows deleted but not yet "
-        "vacuumed would never invalidate a cached result"
-    )
-
-
-def test_the_key_moves_on_a_cardinality_preserving_update() -> None:
-    """The capability the row-count-only key did not have.
-
-    Redshift implements UPDATE as delete-plus-insert, so an in-place update
-    leaves the visible row count exactly where it was while moving ``staiins``
-    and ``staidels`` together. A key on counts alone cannot see it, and would
-    serve a stale result for data that genuinely changed -- silently, which is
-    the failure mode this module exists to avoid.
-    """
-    before = HASHER.tokenize(make_dt(make_con(rows=((100, 0, 0),))))
-    after = HASHER.tokenize(make_dt(make_con(rows=((100, 3, 3),))))
-    assert before != after, (
-        "cache key ignores staiins/staidels, so an in-place UPDATE -- which "
-        "preserves the row count -- would never invalidate a cached result"
-    )
-
-
-def test_an_unqualified_table_probes_the_session_schema_not_public() -> None:
-    """``con.table("offers")`` carries no schema; ``search_path`` does.
-
-    ``table()`` builds ``Namespace(database=None)`` and resolves nothing, while
-    ``_post_connect`` has already set ``search_path`` from the ``schema=``
-    connect kwarg. Defaulting the probe to ``"public"`` therefore queried a
-    schema the caller never named: no row matched, the probe returned ``None``
-    forever, and a SourceStorage cache never invalidated.
-    """
-    con = make_con(current_schema=SESSION_SCHEMA)
-    dt = make_dt(con, database=None)
-
-    assert resolve_redshift_schema(dt) == SESSION_SCHEMA
-    assert get_redshift_row_counts(dt) == (12345, 7, 3)
-    assert any("current_schema" in s.lower() for s in con.con.statements), (
-        "the unqualified table was probed without resolving search_path"
-    )
-
-
-def test_unqualified_tables_in_different_schemas_get_different_keys() -> None:
-    """The resolved schema has to be *in* the key, not merely used to build it.
-
-    Two connections scoped to different schemas, each holding a table of the
-    same name with the same row count, are different tables. With only
-    ``dt.namespace`` in the key -- ``None`` for both -- they collide.
-    """
-    left = make_dt(make_con(current_schema="analytics"), database=None)
-    right = make_dt(make_con(current_schema="staging"), database=None)
-    assert HASHER.tokenize(left) != HASHER.tokenize(right)
-
-
-def test_the_freshness_query_reads_the_statistics_indicator() -> None:
-    """The probe reads ``pg_statistic_indicator``, not the view built over it.
-
-    Asserted on the emitted SQL rather than on the returned value, because a
-    normalizer that silently fell back to a constant would pass every other
-    test here.
-
-    ``svv_table_info`` is asserted ABSENT, not merely unnecessary: it is
-    superuser-only, so reading it -- even as a fallback, even once -- puts the
-    least-privilege user back in front of the error this probe now avoids.
-    ``reltuples`` is asserted absent for the opposite reason: it is readable by
-    everyone and wrong.
-    """
-    con = make_con()
-    _databasetable_dispatcher(make_dt(con))
-
-    issued = " ".join(con.con.statements).lower()
-    assert "pg_statistic_indicator" in issued, (
-        f"no statistics-catalog read issued: {issued!r}"
-    )
-    assert "svv_table_info" not in issued
-    assert "reltuples" not in issued
-    assert "pg_stat_user_tables" not in issued
-    assert "relpersistence" not in issued
+def snapshot_token(dt: ops.DatabaseTable) -> str:
+    return SnapshotStrategy().declared_hasher().tokenize(dt)
 
 
 @pytest.mark.parametrize(
-    "token",
-    [
-        pytest.param("CHECKPOINT", id="checkpoint"),
-        pytest.param("ANALYZE", id="analyze"),
-    ],
+    "database",
+    (pytest.param("sales", id="qualified"), pytest.param(None, id="unqualified")),
 )
-def test_the_postgres_probe_helpers_are_not_reachable_from_redshift(token: str) -> None:
-    """Guards the regression path specifically.
+def test_a_freshness_key_is_refused_before_any_statement(database: str | None) -> None:
+    """No freshness signal exists, so nothing is read in search of one.
 
-    ``get_postgres_n_reltuples`` is selected by backend *name*. A future rename
-    would route the redshift-named backend straight back into the DDL-issuing
-    probe. This pins that it does not reach it today.
-
-    It says nothing about a *postgres*-named profile pointed at Redshift: that
-    backend is not this one, and the module docstring explains why it is out of
-    scope here.
+    Refusing before the first round trip is also what keeps the postgres
+    probe's ``CHECKPOINT`` and ``ANALYZE`` unreachable from this backend.
     """
     con = make_con()
-    _databasetable_dispatcher(make_dt(con))
-    assert not any(token in s.upper() for s in con.con.statements)
+    with pytest.raises(RedshiftFreshnessUnavailable):
+        _databasetable_dispatcher(make_dt(con, database=database))
+    assert not con.con.calls
 
 
-class _RaisingCursor(_RecordingCursor):
-    """Records the statement, then fails the way a driver does."""
+def test_the_freshness_refusal_reaches_the_cache_strategy() -> None:
+    """``ParquetCache``'s strategy, not only the rule, must refuse.
 
-    def __init__(self, con: RecordingConnection, exc: BaseException) -> None:
-        super().__init__(con)
-        self._exc = exc
-
-    def execute(self, sql: object, *args: object, **kwargs: object) -> _RecordingCursor:
-        super().execute(sql, *args, **kwargs)
-        raise self._exc
-
-
-class RaisingConnection(RecordingConnection):
-    def __init__(self, exc: BaseException, **kwargs: object) -> None:
-        super().__init__(**kwargs)
-        self._exc = exc
-
-    def cursor(self) -> _RaisingCursor:
-        return _RaisingCursor(self, self._exc)
-
-
-def make_undefined_function(name: str) -> Exception:
-    """Stands in for ``psycopg.errors.UndefinedFunction``, as Redshift raises it."""
-    exc = Exception(f"function {name} does not exist")
-    exc.sqlstate = "42883"
-    return exc
-
-
-def make_insufficient_privilege() -> Exception:
-    """Stands in for ``psycopg.errors.InsufficientPrivilege``.
-
-    Matched on ``sqlstate`` in ``redshift_utils``, which is what psycopg sets on
-    the instance, so a stand-in carrying the code exercises the real path
-    without importing psycopg here.
+    ``ModificationTimeStrategy`` keys on ``expr.ls.tokenized``, the global
+    hasher; a refusal the strategy did not reach would leave the actual
+    ``.cache()`` path keying on something else.
     """
-    exc = Exception("permission denied for relation pg_statistic_indicator")
-    exc.sqlstate = "42501"
-    return exc
+    expr = make_dt(make_con()).to_expr()
+    with pytest.raises(RedshiftFreshnessUnavailable):
+        ModificationTimeStrategy().calc_key(expr)
 
 
-def make_raising_dt(
-    exc: BaseException, database: str | None = "sales"
-) -> ops.DatabaseTable:
-    con = RedshiftBackend(host="example.invalid", port=PORT)
-    con.con = RaisingConnection(exc)
-    return make_dt(con, database=database)
-
-
-def test_an_unreadable_catalog_gets_an_actionable_error_not_insufficient_privilege() -> (
-    None
-):
-    """The privilege path still has to be actionable, though it is now rare.
-
-    The least-privilege user this issue came from CAN read
-    ``pg_statistic_indicator``: it carries a PUBLIC SELECT grant, verified on a
-    directly authenticated connection. So 42501 here no longer means "an
-    ordinary read-only user" -- it means the PUBLIC grant has been revoked on
-    that cluster, and the message says so rather than repeating advice that
-    fits the case this probe was built to stop hitting.
-
-    The earlier ``svv_table_info`` probe failed here for every least-privilege
-    user, and passed every offline test while doing it. That is why this path
-    keeps a test even now that reaching it is unusual.
-    """
+def test_the_freshness_refusal_says_why_and_names_the_cache_that_works() -> None:
+    con = make_con()
     with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        get_redshift_row_counts(make_raising_dt(make_insufficient_privilege()))
-
+        HASHER.tokenize(make_dt(con))
     message = str(excinfo.value)
-    assert "pg_statistic_indicator" in message
-    assert "GRANT SELECT" in message
+    assert "'offers'" in message
+    assert "ANALYZE" in message
     assert "ParquetSnapshotCache" in message
-    assert "RedshiftFreshnessUnavailable" in message, (
-        "the error tells the user to catch a type but not where to import it"
-    )
+    # ``xorq run-cached`` defaults to ParquetCache, so a CLI user hits this
+    # refusal first and needs the flag, not the class.
+    assert "--cache-type snapshot" in message
 
 
-def test_the_error_warns_against_the_reltuples_workaround() -> None:
-    """The obvious workaround is readable by that user and silently wrong.
+def test_the_snapshot_key_computes_through_the_strategy() -> None:
+    """The cache the refusal recommends must itself produce a key.
 
-    Measured live twice, with no ANALYZE: ``reltuples`` stayed at 12 while the
-    real count and the catalog moved 12 -> 17, and in a later run it sat at
-    0.001 while a table reached 5 rows. Keying on it yields a cache that never
-    invalidates -- so the error names it explicitly rather than leaving the next
-    person to rediscover it.
+    ``SnapshotStrategy.normalize_backend`` delegates to ``HASHER.normalize`` for
+    a backend outside ``NAME_ONLY_BACKEND_NAMES``, which hit dasher's raising
+    default until the Redshift backend rule was registered, so the refusal was
+    handing the user an action that raised too.
     """
-    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        get_redshift_row_counts(make_raising_dt(make_insufficient_privilege()))
-    assert "reltuples" in str(excinfo.value)
+    expr = make_dt(make_con()).to_expr()
+    assert SnapshotStrategy().calc_key(expr)
+    assert SnapshotStrategy.normalize_backend(make_con())
 
 
-def test_a_non_privilege_failure_propagates_unchanged() -> None:
-    """The negative control the privilege tests need to mean anything.
+def test_unqualified_tables_in_different_schemas_get_different_snapshot_keys() -> None:
+    """``a.offers`` and ``b.offers`` must never share a snapshot.
 
-    Without it, an ``_is_permission_error`` that returned ``True``
-    unconditionally would pass every other test in this file -- and would
-    relabel every driver failure, however unrelated, as a missing GRANT.
+    Unqualified, both carry an empty namespace, and the connection identity is
+    host, port and database only. Before the resolved schema was added, these
+    two tables -- same name, same columns, same cluster, different schemas --
+    had one key, and one schema's snapshot was served for the other.
     """
-    boom = Exception("connection is closed")
-    with pytest.raises(Exception) as excinfo:
-        get_redshift_row_counts(make_raising_dt(boom))
-    # Identity, not a message match: RedshiftFreshnessUnavailable subclasses
-    # Exception and interpolates the original into its own text, so
-    # `pytest.raises(Exception, match=...)` was satisfied by the WRAPPER and
-    # passed even with _is_permission_error stubbed to always return True --
-    # the precise regression this test claims to guard.
-    assert excinfo.value is boom
-
-
-def test_a_filesystem_permission_error_is_not_relabelled_as_a_missing_grant() -> None:
-    """``PermissionError`` says "Permission denied" and has nothing to do with GRANT.
-
-    An unreadable ssl key or pgpass file raises one on the way to the
-    warehouse. Matching the *message* caught it and told the reader to grant
-    SELECT on a catalog view, sending them somewhere there is nothing to find;
-    matching SQLSTATE 42501 does not.
-    """
-    with pytest.raises(PermissionError):
-        get_redshift_row_counts(
-            make_raising_dt(PermissionError(13, "Permission denied"))
-        )
-
-
-def test_an_ambiguous_catalog_answer_names_the_table() -> None:
-    """Two rows means the count to key on is a guess.
-
-    The previous unpack raised ``ValueError: too many values to unpack`` with
-    no table, no schema and no cause -- true, and useless to act on.
-    """
-    con = make_con(rows=((100, 0, 0), (200, 0, 0)))
-    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        get_redshift_row_counts(make_dt(con))
-    message = str(excinfo.value)
-    assert "offers" in message
-    assert "should not be reachable" in message
-
-
-def test_an_ordinary_table_with_no_counters_is_an_anomaly_not_an_empty_table() -> None:
-    """The empty-table escape hatch is gone, and must not come back.
-
-    Under the previous ``svv_table_info`` probe, absence was ambiguous: an empty
-    table and an untracked relation both produced no row, so the empty case had
-    to return ``None``. The statistics catalog removes the ambiguity -- an empty
-    ordinary table reports ``(0, 0, 0)``, measured live -- which means an
-    ordinary table with NO row is now a genuine anomaly and gets an error
-    saying so, rather than a ``None`` that would freeze the key forever.
-    """
-    con = make_con(rows=(), relkind=(("r",),))
-    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        get_redshift_row_counts(make_dt(con))
-    message = str(excinfo.value)
-    assert "offers" in message
-    assert "should not happen" in message
-
-
-def test_the_probe_binds_the_resolved_schema_and_name() -> None:
-    """Asserting on the emitted SQL is not asserting on what was BOUND.
-
-    The statement text is a constant, so a probe that ignored its ``schema``
-    argument, or that swapped ``name`` and ``schema``, emitted exactly the same
-    SQL and passed every other test here. Only the parameters distinguish them.
-    """
-    con = make_con(current_schema=SESSION_SCHEMA)
-    get_redshift_row_counts(make_dt(con, database=None))
-    assert con.con.params_for("pg_statistic_indicator") == {
-        "name": "offers",
-        "schema": SESSION_SCHEMA,
+    keys = {
+        snapshot_token(make_dt(make_con(current_schema=schema), database=None))
+        for schema in ("a", "b")
     }
+    assert len(keys) == 2
 
 
-def test_a_relation_the_catalog_never_tracks_raises_rather_than_freezing() -> None:
-    """A view or external table has no statistics row at all.
-
-    A plain view, a late-binding view, a Spectrum external table and a
-    session-temp table carry no indicator row, and unlike an empty table they
-    never will. Returning a placeholder for those is not "empty", it is
-    "unknowable" -- and it yields a key that can never change no matter what the
-    data does, which is the silent staleness this module exists to prevent.
-    """
-    con = make_con(rows=(), relkind=(("v",),))
-    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        get_redshift_row_counts(make_dt(con))
-    message = str(excinfo.value)
-    assert "offers" in message
-    assert "ParquetSnapshotCache" in message
+def test_the_same_unqualified_table_keeps_its_snapshot_key() -> None:
+    """Resolution must not make the key vary for one relation."""
+    keys = {
+        snapshot_token(make_dt(make_con(), database=None)),
+        snapshot_token(make_dt(make_con(), database=None)),
+    }
+    assert len(keys) == 1
 
 
-def test_a_name_absent_from_pg_class_also_raises() -> None:
-    """No relkind row at all: dropped, or not visible in the probed schema.
-
-    Distinguished from the empty-table case by the same read, and it must not
-    be allowed to masquerade as one.
-    """
-    con = make_con(rows=(), relkind=())
-    with pytest.raises(RedshiftFreshnessUnavailable):
-        get_redshift_row_counts(make_dt(con))
-
-
-def test_an_empty_table_reports_zeroes_and_costs_no_second_read() -> None:
-    """An empty table is an ordinary answer now, not a special case.
-
-    Measured live, twice: a table created and never written reports
-    ``(0, 0, 0)``, and a pre-existing empty table does the same on a directly
-    authenticated least-privilege connection. Where ``svv_table_info`` returned
-    no row and forced a second ``pg_class`` round trip to find out why, this
-    returns a real key component and the relkind read stays on the error path.
-    """
-    con = make_con(rows=((0, 0, 0),))
-    assert get_redshift_row_counts(make_dt(con)) == (0, 0, 0)
-    assert not any("relkind" in s.lower() for s in con.con.statements), (
-        "the empty case still pays for the disambiguation read it no longer needs"
-    )
-
-
-def test_a_catalog_qualified_table_is_refused_rather_than_mismeasured() -> None:
-    """The statistics catalog describes the connected database only.
-
-    Probing ``otherdb.sales.t`` from this connection would silently score the
-    local ``sales.t``, or nothing at all. Both are wrong answers with no error,
-    so the probe refuses instead.
-    """
+def test_a_qualified_table_costs_no_statement_for_its_snapshot_key() -> None:
+    """The namespace already names the schema; resolving it again is waste."""
     con = make_con()
-    dt = ops.DatabaseTable(
-        name="offers",
-        schema=sch.Schema({"id": "int64"}),
-        source=con,
-        namespace=ops.Namespace(catalog="otherdb", database="sales"),
-    )
-    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        get_redshift_row_counts(dt)
-    assert "otherdb" in str(excinfo.value)
-    assert not con.con.calls, "refusal must come before any statement is issued"
+    assert snapshot_token(make_dt(con))
+    assert not con.con.calls
 
 
-TEMP_SCHEMA = "pg_temp_3"
-
-
-def test_a_name_resolving_into_the_session_temp_schema_is_refused() -> None:
-    """``table()`` accepts a temp-only name; this probe must not mis-resolve it.
-
-    ``table()`` accepts a name that exists only in the session's temp schema,
-    and this backend mints temp tables itself via
-    ``create_table(..., temporary=True)``. Resolving such a name to
-    ``current_schema()`` -- which is what this did -- probes a *different*,
-    permanent relation that merely shares the name, and keys the cache on its
-    counters. That is the silent staleness the whole module exists to prevent,
-    so the refusal has to be loud and has to name the schema.
-    """
-    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("offers",))
-    dt = make_dt(con, database=None)
-    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        resolve_redshift_schema(dt)
-    message = str(excinfo.value)
-    assert TEMP_SCHEMA in message
-    assert "offers" in message
-    assert "ParquetSnapshotCache" in message
-
-
-def test_the_temp_schema_refusal_reaches_the_cache_key_path() -> None:
-    """The refusal must fire through the dispatcher, not only the direct call.
-
-    ``normalize_redshift_databasetable`` resolves the schema on its own path, so
-    a guard that only ``resolve_redshift_schema``'s direct callers see would
-    leave the actual ``.cache()`` path mis-resolving exactly as before.
-    """
-    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("offers",))
-    with pytest.raises(RedshiftFreshnessUnavailable):
-        _databasetable_dispatcher(make_dt(con, database=None))
-
-
-def test_a_permanent_table_is_unaffected_by_an_open_temp_schema() -> None:
-    """Having *a* temp schema must not refuse every unqualified table.
-
-    The session temp schema exists as soon as any temp table has been created,
-    which says nothing about the table being probed. Only a name that actually
-    resolves there is ambiguous.
-    """
-    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("staging",))
-    dt = make_dt(con, database=None)
-    assert resolve_redshift_schema(dt) == SESSION_SCHEMA
-
-
-def test_resolving_costs_one_read_and_no_relkind_without_a_temp_table() -> None:
-    """The common case on the cache-key path: no temp table of this name.
-
-    It pays for one temp-table lookup, bound to the probed name, and not for
-    the ``pg_class`` read the error path needs.
-    """
+def test_an_unqualified_table_resolves_the_session_schema() -> None:
+    """The session schema, not ``public``, and one temp lookup bound by name."""
     con = make_con()
     assert resolve_redshift_schema(make_dt(con, database=None)) == SESSION_SCHEMA
     assert con.con.params_for("svv_columns") == {"name": "offers"}
-    assert not any("relkind" in s.lower() for s in con.con.statements), (
-        "the ordinary session paid for the error path's relkind read"
-    )
+
+
+def test_a_name_resolving_into_the_session_temp_schema_is_refused() -> None:
+    """``table()`` accepts a temp-only name; the snapshot key must not.
+
+    Keying it under ``current_schema()`` would describe a different, permanent
+    relation that merely shares the name, and keying the temp table itself
+    would describe something invisible to every other session. The refusal
+    names the schema, and does not send the user to a snapshot cache that
+    refuses the same table.
+    """
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("offers",))
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        snapshot_token(make_dt(con, database=None))
+    message = str(excinfo.value)
+    assert TEMP_SCHEMA in message
+    assert "'offers'" in message
+    assert "ParquetSnapshotCache" not in message
+
+
+def test_a_permanent_table_is_unaffected_by_an_open_temp_schema() -> None:
+    """Having *a* temp schema must not refuse every unqualified table."""
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("staging",))
+    assert resolve_redshift_schema(make_dt(con, database=None)) == SESSION_SCHEMA
 
 
 @pytest.mark.parametrize(
     "temp_names",
     (pytest.param((), id="no-temp-table"), pytest.param(("offers",), id="temp-table")),
 )
-def test_the_key_path_never_calls_pg_my_temp_schema(
+def test_the_snapshot_key_never_calls_pg_my_temp_schema(
     temp_names: tuple[str, ...],
 ) -> None:
     """Redshift has no ``pg_my_temp_schema()``; calling it fails every key.
 
-    The inherited postgres ``_session_temp_db`` issues it, so reading that
-    property made every unqualified Redshift table's key raise
-    ``UndefinedFunction`` on a live warehouse. The fake raises on it as
-    Redshift does, so either outcome here, a key or the temp-table refusal,
-    proves the call was never made.
+    The inherited postgres ``_session_temp_db`` issues it. The fake raises on
+    it as Redshift does, so either outcome here, a key or the temp-table
+    refusal, proves the call was never made.
     """
     con = make_con(temp_schema=TEMP_SCHEMA, temp_names=temp_names)
     dt = make_dt(con, database=None)
     if temp_names:
         with pytest.raises(RedshiftFreshnessUnavailable, match=TEMP_SCHEMA):
-            HASHER.tokenize(dt)
+            snapshot_token(dt)
     else:
-        assert HASHER.tokenize(dt)
+        assert snapshot_token(dt)
     assert not any("pg_my_temp_schema" in s.lower() for s in con.con.statements)
-
-
-def test_a_table_with_several_indicator_rows_is_summed_not_refused() -> None:
-    """The view's ``HAVING count(stairelid) = 1`` must not be copied.
-
-    In ``svv_table_info`` it omits a multi-indicator relation from a report.
-    Copied here it dropped the row instead, which made ``rows`` empty, sent an
-    ordinary table into ``_no_counters``, and left it permanently uncacheable
-    through any storage needing a freshness key -- while the ``sum()`` beside it
-    was already computing the right answer.
-    """
-    assert "HAVING" not in ROW_COUNTERS_SQL.upper(), (
-        "the view's HAVING is back, and multi-indicator tables are uncacheable again"
-    )
-    # What the server returns for such a relation once the filter is gone: one
-    # grouped row carrying the summed counters.
-    con = make_con(rows=((300, 12, 5),))
-    assert get_redshift_row_counts(make_dt(con)) == (300, 12, 5)
-
-
-def test_a_null_counter_is_refused_rather_than_frozen_into_the_key() -> None:
-    """``None`` encodes fine, which is exactly the problem.
-
-    A ``NULL`` counter used to pass straight through ``_as_int`` into the key,
-    where it became a component that could never change again -- the same
-    frozen-key staleness this probe refuses ``reltuples`` for, arriving with no
-    error to notice it by. The signature promised a triple of ints throughout.
-    """
-    con = make_con(rows=((100, None, 0),))
-    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        get_redshift_row_counts(make_dt(con))
-    message = str(excinfo.value)
-    assert "staiins" in message
-    assert "sales.offers" in message
-
-
-def test_the_catalog_refusal_precedes_resolution_on_the_key_path() -> None:
-    """No statement at all for a catalog-qualified, schema-unqualified table.
-
-    The direct-call test pins this with ``database="sales"``, which needs no
-    resolution and so could not see the gap: the normalizer resolved the schema
-    itself first, issuing ``SELECT current_schema()`` before the catalog
-    refusal fired.
-    """
-    con = make_con()
-    dt = ops.DatabaseTable(
-        name="offers",
-        schema=sch.Schema({"id": "int64"}),
-        source=con,
-        namespace=ops.Namespace(catalog="otherdb", database=None),
-    )
-    with pytest.raises(RedshiftFreshnessUnavailable):
-        _databasetable_dispatcher(dt)
-    assert not con.con.calls, "refusal must come before any statement is issued"
-
-
-def test_a_denied_schema_resolution_gets_the_actionable_error() -> None:
-    """Resolution is a round trip, and it is inside the ``try`` for a reason.
-
-    The normalizer used to resolve before calling the probe, so a privilege
-    failure on ``current_schema()`` escaped as a raw driver traceback rather
-    than the error the module's own comment promises.
-    """
-
-    class _DeniedSchemaConnection(RecordingConnection):
-        def cursor(self) -> _RecordingCursor:
-            return _DeniedSchemaCursor(self)
-
-    class _DeniedSchemaCursor(_RecordingCursor):
-        def execute(self, sql: object, *args: object, **kwargs: object):
-            super().execute(sql, *args, **kwargs)
-            if "current_schema" in str(sql).lower():
-                raise make_insufficient_privilege()
-            return self
-
-    con = RedshiftBackend(host="example.invalid", port=PORT)
-    con.con = _DeniedSchemaConnection()
-    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
-        _databasetable_dispatcher(make_dt(con, database=None))
-    assert "ParquetSnapshotCache" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
     "nullable",
     (pytest.param(True, id="nullable"), pytest.param(False, id="not-null")),
 )
-def test_a_table_with_an_unmappable_column_gets_a_stable_key(nullable: bool) -> None:
+def test_a_table_with_an_unmappable_column_gets_a_stable_snapshot_key(
+    nullable: bool,
+) -> None:
     """A Redshift table binds even when a column has no xorq type (SUPER, say).
 
     Such a column sits in the schema as ``Unknown``, and the schema is part of
     the key, so tokenizing must accept it and give the same answer every time.
-    The probe measures the table, not its columns: what it binds must be the
-    same as for a table with no such column.
     """
     schema = sch.Schema({"id": "int64", "payload": Unknown(nullable=nullable)})
-    cons = (make_con(), make_con())
-    tokens = {HASHER.tokenize(make_dt(con, schema=schema)) for con in cons}
+    tokens = {snapshot_token(make_dt(make_con(), schema=schema)) for _ in range(2)}
     assert len(tokens) == 1
-    for con in cons:
-        assert con.con.params_for("pg_statistic_indicator") == {
-            "name": "offers",
-            "schema": "sales",
-        }
 
 
-def test_an_unmappable_column_does_not_share_a_key_with_a_mapped_one() -> None:
+def test_an_unmappable_column_does_not_share_a_snapshot_key_with_a_mapped_one() -> None:
     """Two tables that differ only in whether a column could be mapped differ."""
     keys = {
-        HASHER.tokenize(
+        snapshot_token(
             make_dt(make_con(), schema=sch.Schema({"id": "int64", "payload": dtype}))
         )
         for dtype in (Unknown(), Unknown(nullable=False), "string")

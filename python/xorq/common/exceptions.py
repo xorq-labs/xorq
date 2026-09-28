@@ -258,10 +258,10 @@ class TableNotFound(XorqError):
 
 
 class RedshiftFreshnessUnavailable(XorqError):
-    """No freshness key can be built for a Redshift relation.
+    """No cache key can be built for a Redshift relation.
 
-    Defined here rather than beside the probe so that a user told to catch it
-    can import it from the module every other xorq exception lives in. See
-    ``xorq.common.utils.redshift_utils.get_redshift_row_counts`` for why the
-    probe raises instead of silently degrading.
+    Raised for every freshness key, and for a snapshot key over a session
+    temp table. Defined here rather than beside the rules so that a user told
+    to catch it can import it from the module every other xorq exception lives
+    in. See ``xorq.common.utils.redshift_utils`` for why.
     """
