@@ -330,13 +330,15 @@ def test_a_conflict_names_the_op_and_source_with_check_sources_schemas(
     checked = runner.invoke(
         cli, ["--path", world.catalog_path, "check-sources", world.name]
     )
+    assert checked.exit_code == 3, checked.output
     pair = [line for line in checked.stdout.splitlines() if line.startswith("    ")]
 
-    result = rebase(runner, world)
+    result = rebase(runner, world, world.name, "-a", "v2")
     assert result.exit_code == 4, result.output
     assert f"{world.name}: {headline}" in result.stderr
     assert pair and all(line in result.stderr.splitlines() for line in pair)
     assert "could not rebuild" not in result.stderr
+    assert "Alias 'v2' not added" in result.stderr
     if op_name is not None:
         # Named once, by the headline; the cause follows it.
         assert result.stderr.count(op_name) == 1
@@ -586,11 +588,8 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
 
 
 def test_gone_table_also_names_unreachable_source(
-    runner: CliRunner,
-    world: SimpleNamespace,
-    monkeypatch: pytest.MonkeyPatch,
+    runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    world.monkeypatch = monkeypatch
     name, _, _ = refuse_beside_unreachable(lambda w: w.con.drop_table("t"))(world)
 
     result = rebase(runner, world, name)
