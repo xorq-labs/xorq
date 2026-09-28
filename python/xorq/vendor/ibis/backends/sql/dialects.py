@@ -21,7 +21,7 @@ from sqlglot.dialects import (
 )
 
 
-__all__ = ["Databricks"]
+__all__ = ["Databricks", "Redshift"]
 from sqlglot.dialects import ClickHouse as _ClickHouse
 from sqlglot.dialects import Redshift as _Redshift
 from sqlglot.dialects.dialect import rename_func
