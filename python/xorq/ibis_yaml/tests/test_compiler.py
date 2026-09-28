@@ -55,6 +55,7 @@ from xorq.ibis_yaml.compiler import (
     ExprKind,
     RefEnum,
     WritePlan,
+    YamlExpressionTranslator,
     _extract_sql_queries,
     _is_relocatable_candidate,
     _prepare_relocatable_reads,
@@ -64,7 +65,7 @@ from xorq.ibis_yaml.compiler import (
     make_read_op,
 )
 from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, WritePhase
+from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, RegistryEnum, WritePhase
 from xorq.ibis_yaml.sql import find_relations, sql_query_deps
 from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
@@ -2205,3 +2206,19 @@ def test_map_literal_with_node_ref_key_round_trips(compiler):
     restored = compiler.from_yaml(compiler.to_yaml(expr))
 
     assert restored.op().value == value
+
+
+def test_from_yaml_ignores_unreachable_node_definitions(compiler):
+    table = ibis.table({"a": "int64"}, name="t")
+    expr = table.filter(table.a > 0)
+    yaml_dict = compiler.to_yaml(expr)
+    yaml_dict = dict(yaml_dict)
+    definitions = dict(yaml_dict["definitions"])
+    nodes = dict(definitions[RegistryEnum.nodes])
+    nodes["@unused"] = {"op": "DatabaseTable", "profile": "missing"}
+    definitions[RegistryEnum.nodes] = nodes
+    yaml_dict["definitions"] = definitions
+
+    restored = YamlExpressionTranslator.from_yaml(yaml_dict)
+
+    assert restored.schema() == expr.schema()

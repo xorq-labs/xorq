@@ -8,6 +8,7 @@ import pathlib
 import shutil
 import sys
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable, Dict
 
@@ -337,12 +338,40 @@ class YamlExpressionTranslator:
             profiles=freeze(dict(profiles)),
         )
         expr_dict = freeze(yaml_dict[DocKey.expression])
-        # nodes are registered children-first (convert_to_ref registers after
-        # the handler has translated the children), so translating them in
-        # stored order leaves each handler's inputs in translate_from_yaml's
-        # cache and keeps recursion depth constant in the op chain's length
+        # Find referenced nodes without translating them: a long chain would
+        # otherwise recurse once per op. Ignore literal values, which may be
+        # mappings with a "node_ref" key that are not serialized references.
+        reachable = set()
+        pending = [expr_dict]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, Mapping):
+                node_ref = value.get(RefEnum.node_ref)
+                if (
+                    isinstance(node_ref, str)
+                    and node_ref in context.registry.nodes
+                    and set(value) <= {RefEnum.node_ref, RefEnum.schema_ref}
+                ):
+                    if node_ref not in reachable:
+                        reachable.add(node_ref)
+                        pending.append(context.registry.nodes[node_ref])
+                    continue
+                pending.extend(
+                    child
+                    for key, child in value.items()
+                    if not (value.get("op") == "Literal" and key == "value")
+                    and not (
+                        value.get("op") == "NamedScalarParameter" and key == "default"
+                    )
+                )
+            elif isinstance(value, (tuple, list)):
+                pending.extend(value)
+
+        # convert_to_ref stores children before parents. Preload only the
+        # reachable nodes in that order to keep translation depth bounded.
         for node_ref in context.registry.nodes:
-            context.get_node(node_ref)
+            if node_ref in reachable:
+                context.get_node(node_ref)
         return translate_from_yaml(expr_dict, context)
 
 
