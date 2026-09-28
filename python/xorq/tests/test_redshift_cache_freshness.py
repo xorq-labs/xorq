@@ -67,6 +67,7 @@ from xorq.common.utils.redshift_utils import (  # noqa: E402
     get_redshift_row_counts,
     resolve_redshift_schema,
 )
+from xorq.vendor.ibis.expr.datatypes import Unknown  # noqa: E402
 
 
 # Anything that writes, not merely anything that says CREATE. Every statement
@@ -227,11 +228,14 @@ def make_con(
 
 
 def make_dt(
-    con: RedshiftBackend, name: str = "offers", database: str | None = "sales"
+    con: RedshiftBackend,
+    name: str = "offers",
+    database: str | None = "sales",
+    schema: sch.Schema | None = None,
 ) -> ops.DatabaseTable:
     return ops.DatabaseTable(
         name=name,
-        schema=sch.Schema({"id": "int64", "amt": "float64"}),
+        schema=schema or sch.Schema({"id": "int64", "amt": "float64"}),
         source=con,
         namespace=ops.Namespace(catalog=None, database=database),
     )
@@ -785,3 +789,34 @@ def test_a_denied_schema_resolution_gets_the_actionable_error() -> None:
     with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
         _databasetable_dispatcher(make_dt(con, database=None))
     assert "ParquetSnapshotCache" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("nullable", (True, False))
+def test_a_table_with_an_unmappable_column_gets_a_stable_key(nullable: bool) -> None:
+    """A Redshift table binds even when a column has no xorq type (SUPER, say).
+
+    Such a column sits in the schema as ``Unknown``, and the schema is part of
+    the key, so tokenizing must accept it and give the same answer every time.
+    The probe measures the table, not its columns: what it binds must be the
+    same as for a table with no such column.
+    """
+    schema = sch.Schema({"id": "int64", "payload": Unknown(nullable=nullable)})
+    cons = (make_con(), make_con())
+    tokens = {HASHER.tokenize(make_dt(con, schema=schema)) for con in cons}
+    assert len(tokens) == 1
+    for con in cons:
+        assert con.con.params_for("pg_statistic_indicator") == {
+            "name": "offers",
+            "schema": "sales",
+        }
+
+
+def test_an_unmappable_column_does_not_share_a_key_with_a_mapped_one() -> None:
+    """Two tables that differ only in whether a column could be mapped differ."""
+    keys = {
+        HASHER.tokenize(
+            make_dt(make_con(), schema=sch.Schema({"id": "int64", "payload": dtype}))
+        )
+        for dtype in (Unknown(), Unknown(nullable=False), "string")
+    }
+    assert len(keys) == 3
