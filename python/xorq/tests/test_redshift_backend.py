@@ -16,26 +16,52 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
-import inspect
 import sys
+from types import ModuleType
 
-import psycopg
 import pyarrow as pa
 import pytest
 import sqlglot as sg
 import sqlglot.expressions as sge
 
-import xorq
-import xorq.api as xo
-import xorq.backends.postgres as postgres_module
-import xorq.backends.redshift as redshift_module
-import xorq.common.exceptions as exc
-import xorq.common.utils.postgres_utils as postgres_utils
-import xorq.vendor.ibis.expr.datatypes as dt
-from xorq.backends.postgres import Backend as PostgresBackend
-from xorq.backends.redshift import DEFAULT_PORT, INGEST_MODES
-from xorq.backends.redshift import Backend as RedshiftBackend
-from xorq.vendor.ibis.backends.profiles import (
+
+# Must run BEFORE the xorq imports below. Neither driver named here is a core
+# dependency -- each ships only in an extra -- and each is imported unguarded
+# at module scope on the path ``import xorq.backends.redshift`` takes, so
+# neither can be deferred to the tests that care:
+#
+#   adbc_driver_manager   backends/postgres/__init__.py:12
+#   psycopg               vendor/ibis/backends/postgres/__init__.py:11
+#
+# Measured one name at a time: blocking either one alone breaks the import.
+# ``adbc_driver_postgresql`` is a third driver on the same family tree and is
+# deliberately NOT guarded here. Nothing above reaches it: the only importer
+# is ``xorq.common.utils.postgres_utils``, which five tests below need and the
+# ``postgres_utils`` fixture imports for them. Two further tests need it
+# merely *installed*, for the probe's own ``find_spec``, and guard themselves
+# with ``importorskip``. Six tests, rather than the whole module.
+#
+# CI selects by marker with no path filter, so every job COLLECTS this file;
+# without the guard the jobs lacking the extras failed collection outright
+# rather than deselecting -- a red build reading ModuleNotFoundError, not a
+# skip. ``backends/conftest.py`` guards ``backends/<name>/`` paths only, and
+# this file is deliberately sited outside them (see the docstring above), so
+# the guard has to be here. The E402s are that guard running first, not import
+# sloppiness -- and the two blank lines above this comment are load-bearing:
+# with one, ruff raises I001 and ``--fix`` hoists the imports back above the
+# guard. Same shape as ``python/xorq/tests/test_redshift_cache_freshness.py``,
+# which arrives with PR #2335.
+pytest.importorskip("adbc_driver_manager")
+psycopg = pytest.importorskip("psycopg")
+
+import xorq  # noqa: E402
+import xorq.api as xo  # noqa: E402
+import xorq.backends.redshift as redshift_module  # noqa: E402
+import xorq.common.exceptions as exc  # noqa: E402
+import xorq.vendor.ibis.expr.datatypes as dt  # noqa: E402
+from xorq.backends.postgres import Backend as PostgresBackend  # noqa: E402
+from xorq.backends.redshift import Backend as RedshiftBackend  # noqa: E402
+from xorq.vendor.ibis.backends.profiles import (  # noqa: E402
     Profile,
     check_for_exposed_secrets,
     con_name_to_secret_keys,
@@ -116,18 +142,32 @@ def test_plain_xorq_import_does_not_expose_the_backend():
 def test_current_schema_is_called_with_parentheses():
     """Redshift rejects bare ``CURRENT_SCHEMA`` with ``UndefinedColumn``.
 
-    Asserted on the rendered string rather than by executing, because the
-    failure is a *server-side* error on SQL that compiles cleanly. The bare
-    form is what both the postgres and redshift sqlglot dialects produce, so
-    this also pins that no dialect swap silently reintroduces it.
-    """
-    dialect = RedshiftBackend.compiler.dialect
+    Asserted on emitted SQL rather than by executing, because the failure is a
+    *server-side* error on SQL that compiles cleanly -- and on the SQL *this
+    override* emits rather than on how sqlglot renders
+    ``sg.func("current_schema")``. That rendering is third-party behaviour and
+    it changed inside the range this project declares it supports: measured,
+    ``sg.func("current_schema")`` renders ``SELECT CURRENT_SCHEMA()`` at
+    sqlglot 23.6.3 -- the floor ``uv lock --resolution lowest-direct`` picks
+    under ``sqlglot>=23.4`` -- and ``SELECT CURRENT_SCHEMA`` at 28.6.0, under
+    the Postgres and Redshift dialects alike. Asserting the bare form pinned
+    the whole lowest-direct matrix to one sqlglot. ``Anonymous`` parenthesises
+    at both versions and under every dialect measured, so the property below
+    is version-independent.
 
-    assert sg.select(sg.func("current_schema")).sql(dialect) == "SELECT CURRENT_SCHEMA"
-    assert (
-        sg.select(sge.Anonymous(this="current_schema")).sql(dialect)
-        == "SELECT CURRENT_SCHEMA()"
-    )
+    Still the negative control it was written to be, and on the version that
+    matters: delete the override and the inherited implementation at
+    ``vendor/ibis/backends/postgres/__init__.py:401`` runs, emitting
+    ``SELECT CURRENT_SCHEMA`` under any sqlglot new enough to have dropped the
+    parentheses, and this fails. Under one old enough to keep them it does not
+    -- because there the override is genuinely redundant and there is nothing
+    for a test to detect.
+    """
+    con = make_offline_con()
+    con.con = _FakeConnection(rows=[("public",)])
+
+    assert con.current_database == "public"
+    assert executed(con) == ["SELECT CURRENT_SCHEMA()"]
 
 
 def test_current_catalog_needs_no_override():
@@ -169,7 +209,7 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
 
     # Reached the driver ...
     assert recorded["client_encoding"] == "utf8"
-    assert recorded["port"] == DEFAULT_PORT
+    assert recorded["port"] == redshift_module.DEFAULT_PORT
     # ... and did not reach the build hash.
     assert "client_encoding" not in con._con_kwargs
 
@@ -196,19 +236,19 @@ def test_client_encoding_is_not_inherited_from_postgres(
 
 
 def test_default_port_is_redshifts():
-    assert DEFAULT_PORT == 5439
+    assert redshift_module.DEFAULT_PORT == 5439
     defaults = dict(
         zip(
             RedshiftBackend.do_connect.__code__.co_varnames[1:],
             RedshiftBackend.do_connect.__defaults__,
         )
     )
-    assert defaults["port"] == DEFAULT_PORT
+    assert defaults["port"] == redshift_module.DEFAULT_PORT
 
 
 def test_profile_roundtrips():
     con = RedshiftBackend()
-    type(con).__init__(con, host="example.invalid", port=DEFAULT_PORT)
+    type(con).__init__(con, host="example.invalid", port=redshift_module.DEFAULT_PORT)
     restored = Profile(**con._profile.as_dict())
     assert restored.con_name == "redshift"
     assert restored.hash_name == con._profile.hash_name
@@ -228,8 +268,9 @@ def test_profile_roundtrips():
 class _FakeCursor:
     """Records executed SQL. Mimics psycopg3's chaining ``execute``."""
 
-    def __init__(self, log):
+    def __init__(self, log: list, rows: tuple = ()) -> None:
         self.log = log
+        self.rows = rows
 
     def __enter__(self):
         return self
@@ -245,13 +286,17 @@ class _FakeCursor:
         self.log.append(("executemany", sql, list(rows)))
         return self
 
+    def fetchall(self) -> list:
+        return list(self.rows)
+
 
 class _FakeConnection:
-    def __init__(self):
-        self.log = []
+    def __init__(self, rows: tuple = ()) -> None:
+        self.log: list = []
+        self.rows = rows
 
     def cursor(self, *args, **kwargs):
-        return _FakeCursor(self.log)
+        return _FakeCursor(self.log, self.rows)
 
     def transaction(self):
         return contextlib.nullcontext()
@@ -265,7 +310,9 @@ def make_offline_con(**con_kwargs):
     the profile, without ``do_connect``.
     """
     con = RedshiftBackend()
-    type(con).__init__(con, host="example.invalid", port=DEFAULT_PORT, **con_kwargs)
+    type(con).__init__(
+        con, host="example.invalid", port=redshift_module.DEFAULT_PORT, **con_kwargs
+    )
     con.con = _FakeConnection()
     con.table = lambda name: ("table", name)
     return con
@@ -287,7 +334,7 @@ def raise_get_conn(self, **kwargs):
     raise RuntimeError("FATAL: password authentication failed for user")
 
 
-def test_psycopg_ingest_creates_and_inserts(monkeypatch):
+def test_psycopg_ingest_creates_and_inserts():
     """The baseline the ADR promises and the inherited method did not provide.
 
     ``INSERT`` rather than ``COPY`` is not a shortcut: Redshift has no
@@ -295,7 +342,6 @@ def test_psycopg_ingest_creates_and_inserts(monkeypatch):
     an assumable role, which is the deferred ``redshift.ingest.bucket`` work.
     """
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     result = con.read_record_batches(
         make_reader({"a": [1, 2], "b": ["x", "y"]}), table_name="t"
@@ -312,12 +358,11 @@ def test_psycopg_ingest_creates_and_inserts(monkeypatch):
     assert result == ("table", "t")
 
 
-def test_psycopg_ingest_consumes_every_batch(monkeypatch):
+def test_psycopg_ingest_consumes_every_batch():
     """A reader is a stream, and the obvious wrong implementation -- reading
     ``next(reader)`` or materialising ``.read_all()`` into one statement --
     silently drops or reshapes rows."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(
         make_reader(
@@ -331,11 +376,10 @@ def test_psycopg_ingest_consumes_every_batch(monkeypatch):
     assert inserted == [[(1, "x")], [(2, "y"), (3, "z")]]
 
 
-def test_psycopg_ingest_of_an_empty_batch_still_creates_the_table(monkeypatch):
+def test_psycopg_ingest_of_an_empty_batch_still_creates_the_table():
     """``executemany`` with no rows is skipped, but the schema still lands --
     an empty parquet file must produce an empty table, not no table."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(make_reader({"a": [], "b": []}), table_name="t")
 
@@ -343,13 +387,12 @@ def test_psycopg_ingest_of_an_empty_batch_still_creates_the_table(monkeypatch):
     assert not [entry for entry in con.con.log if entry[0] == "executemany"]
 
 
-def test_psycopg_ingest_accepts_a_table_like_the_adbc_branch_does(monkeypatch):
+def test_psycopg_ingest_accepts_a_table_like_the_adbc_branch_does():
     """``adbc_ingest`` takes a ``pa.Table``, and iterating one yields *columns*
     -- so the naive psycopg loop would fail on a missing ``num_rows`` for an
     input the accelerator handles. Which branch runs has to stay an
     implementation detail."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(pa.table({"a": [1], "b": ["x"]}), table_name="t")
 
@@ -377,13 +420,12 @@ def test_psycopg_ingest_accepts_a_table_like_the_adbc_branch_does(monkeypatch):
         ),
     ],
 )
-def test_psycopg_ingest_modes_match_their_adbc_meanings(monkeypatch, mode, expected):
+def test_psycopg_ingest_modes_match_their_adbc_meanings(mode, expected):
     """Which branch runs has to stay an implementation detail, and it stops
     being one the moment the two disagree about what ``mode`` means:
     ``append`` must not create, ``create`` must not tolerate an existing table,
     ``replace`` must drop it, ``create_append`` must tolerate it."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(
         make_reader({"a": [1], "b": ["x"]}), table_name="t", mode=mode
@@ -392,14 +434,13 @@ def test_psycopg_ingest_modes_match_their_adbc_meanings(monkeypatch, mode, expec
     assert executed(con) == expected
 
 
-def test_psycopg_ingest_creates_the_temp_table_directly(monkeypatch):
+def test_psycopg_ingest_creates_the_temp_table_directly():
     """The ADBC path creates a permanent table and converts it afterwards with
     ``make_table_temporary``. That is not overhead ADBC failed to avoid -- it
     connects separately, so a temp table created there would be invisible.
     Sharing the psycopg connection is what makes the direct form correct, so
     assert no rename-and-copy appears."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     con.read_record_batches(
         make_reader({"a": [1], "b": ["x"]}), table_name="t", temporary=True
@@ -408,62 +449,78 @@ def test_psycopg_ingest_creates_the_temp_table_directly(monkeypatch):
     assert executed(con) == ['CREATE TEMPORARY TABLE "t" ("a" BIGINT, "b" VARCHAR)']
 
 
-def test_ingest_dispatches_to_adbc_when_it_is_available(monkeypatch):
-    """The other half of the dispatch. Without this, a psycopg-only
-    implementation would pass every test above and silently discard the
-    accelerator."""
+def test_ingest_never_dispatches_to_adbc_even_when_it_is_available(monkeypatch):
+    """The test this replaces asserted the opposite, and the opposite was wrong.
+
+    Neither ADBC driver can ingest into Redshift -- both ingest by ``COPY``,
+    and Redshift's ``COPY`` reads from S3 only -- so a driver that is installed
+    AND credentialed must change nothing here. ``_adbc_unavailable_reason()``
+    answering ``None`` is the case that used to select the branch that cannot
+    run; this pins that it no longer selects anything.
+
+    Every other ingest test describes the psycopg branch and would keep passing
+    if a dispatch were reintroduced, so this is the only one that would fail.
+    """
     con = make_offline_con(password="static")
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
-
-    calls = []
     monkeypatch.setattr(
         PostgresBackend,
         "read_record_batches",
-        lambda self, record_batches, **kwargs: calls.append(kwargs) or "delegated",
+        lambda *args, **kwargs: pytest.fail("ingest delegated to the ADBC branch"),
     )
 
     result = con.read_record_batches(
         make_reader({"a": [1], "b": ["x"]}), table_name="t", mode="append"
     )
 
-    assert result == "delegated"
-    assert calls == [
-        {"table_name": "t", "password": None, "temporary": False, "mode": "append"}
+    assert result == ("table", "t")
+    assert con.con.log == [
+        ("executemany", 'INSERT INTO "t" ("a", "b") VALUES (%s, %s)', [(1, "x")]),
     ]
-    # nothing was ingested twice
-    assert con.con.log == []
 
 
-def test_ingest_rejects_a_missing_table_name(monkeypatch):
+def test_ingest_rejects_a_missing_table_name():
     """Inherited, ``table_name=None`` reached ``adbc_ingest`` and failed
     somewhere inside the driver."""
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     with pytest.raises(ValueError, match="table_name"):
         con.read_record_batches(make_reader({"a": [1], "b": ["x"]}))
 
 
-def test_ingest_validates_mode_before_choosing_a_branch(monkeypatch):
-    """Validation belongs above the dispatch: an unknown mode must fail
-    identically whether or not a driver happens to be installed."""
+def test_ingest_validates_mode_before_issuing_any_sql(monkeypatch):
+    """An unknown mode must fail before anything is created or inserted, and
+    must fail identically whether or not a driver happens to be installed --
+    probed with one available, since that is the case that used to divert."""
     con = make_offline_con(password="static")
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
-    monkeypatch.setattr(
-        PostgresBackend,
-        "read_record_batches",
-        lambda *args, **kwargs: pytest.fail("dispatched on an invalid mode"),
-    )
 
     with pytest.raises(ValueError, match="mode must be one of"):
         con.read_record_batches(
             make_reader({"a": [1], "b": ["x"]}), table_name="t", mode="upsert"
         )
 
+    assert con.con.log == []
+
 
 # ---------------------------------------------------------------------------
 # Driver availability, and telling driver-absent from auth-failed.
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def postgres_utils() -> ModuleType:
+    """``xorq.common.utils.postgres_utils``, imported per test rather than at
+    module scope.
+
+    It does ``import adbc_driver_postgresql.dbapi`` on its first line, and that
+    driver is in the ``postgres``/``examples`` extras only. Nothing else in
+    this file reaches it -- the backend itself needs ``adbc_driver_manager``
+    and ``psycopg``, which are guarded at module scope -- so importing it here
+    is what keeps the other thirty-odd tests running in jobs that have the
+    backend but not this driver.
+    """
+    return pytest.importorskip("xorq.common.utils.postgres_utils")
 
 
 def test_adbc_is_unavailable_without_the_driver(monkeypatch):
@@ -489,6 +546,12 @@ def test_adbc_is_unavailable_without_a_password(con_kwargs):
     worth pinning: it does not raise, it formats as the literal string
     ``"None"`` and fails later as an auth error against a password nobody
     set."""
+    # The probe checks the driver before the password, so with the driver
+    # absent this would pass or fail on the wrong clause. Measured: without
+    # ``adbc_driver_postgresql`` installed the reason is
+    # "adbc_driver_postgresql is not installed" and the assertion below fails.
+    pytest.importorskip("adbc_driver_postgresql")
+
     con = make_offline_con(**con_kwargs)
     assert "password" in con._adbc_unavailable_reason()
 
@@ -503,7 +566,9 @@ def test_adbc_is_available_when_installed_and_credentialed():
     assert con._adbc_unavailable_reason() is None
 
 
-def test_auth_failure_is_not_swallowed_as_a_missing_driver(monkeypatch):
+def test_auth_failure_is_not_swallowed_as_a_missing_driver(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
     """The discrimination the inherited ``except Exception`` cannot make.
 
     A rejected temporary credential and an absent driver arrive at the probe as
@@ -520,7 +585,9 @@ def test_auth_failure_is_not_swallowed_as_a_missing_driver(monkeypatch):
         con._open_adbc_conn_or_none()
 
 
-def test_an_unavailable_driver_is_not_dialled_at_all(monkeypatch):
+def test_an_unavailable_driver_is_not_dialled_at_all(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
     """Availability is decided from local facts *before* connecting, which is
     what makes the test above possible: every exception from the connect is
     then a real failure."""
@@ -531,7 +598,9 @@ def test_an_unavailable_driver_is_not_dialled_at_all(monkeypatch):
     assert con._open_adbc_conn_or_none() is None
 
 
-def test_the_postgres_seam_keeps_swallowing(monkeypatch):
+def test_the_postgres_seam_keeps_swallowing(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
     """The probe was extracted from ``to_pyarrow_batches`` so Redshift could
     override it. Postgres's own behaviour must be unchanged by that -- its
     catch-all is deliberate, and users connecting without a password in
@@ -544,10 +613,15 @@ def test_the_postgres_seam_keeps_swallowing(monkeypatch):
 
 
 def test_ingest_modes_are_the_adbc_ingest_modes():
-    assert INGEST_MODES == ("create", "append", "replace", "create_append")
+    assert redshift_module.INGEST_MODES == (
+        "create",
+        "append",
+        "replace",
+        "create_append",
+    )
 
 
-def test_ingest_ddl_pins_two_unverified_redshift_type_widths(monkeypatch):
+def test_ingest_ddl_pins_two_unverified_redshift_type_widths():
     """Not a passing feature -- a tripwire on a live-session checklist item.
 
     The ``CREATE`` is rendered under the postgres dialect, and two of its types
@@ -564,7 +638,6 @@ def test_ingest_ddl_pins_two_unverified_redshift_type_widths(monkeypatch):
     the live session has a checklist entry rather than a discovery.
     """
     con = make_offline_con()
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
 
     schema = pa.schema([("s", pa.string()), ("ts", pa.timestamp("us"))])
     con.read_record_batches(
@@ -1341,61 +1414,146 @@ def test_geo_types_raise_however_they_are_spelled() -> None:
 def test_temporary_is_refused_for_the_append_modes(
     monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
-    """``append`` emits no ``CREATE`` for the psycopg branch to mark while the
-    ADBC branch marks unconditionally; ``create_append`` would render
-    ``CREATE TEMPORARY TABLE IF NOT EXISTS``, which resolves against
-    ``pg_temp`` and shadows a permanent table. Probed over both reasons so the
-    rejection is not itself a divergence."""
-    for reason in ("no driver", None):
-        con = make_offline_con(password="static")
-        monkeypatch.setattr(
-            con, "_adbc_unavailable_reason", lambda reason=reason: reason
+    """``append`` emits no ``CREATE`` for ``TEMPORARY`` to mark, and
+    ``create_append`` would render ``CREATE TEMPORARY TABLE IF NOT EXISTS``,
+    which resolves against ``pg_temp`` and shadows a permanent table.
+
+    Probed with a driver available, which is the configuration that used to
+    divert to ADBC: the rejection must come from this method, not from
+    whichever branch a predicate picked."""
+    con = make_offline_con(password="static")
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+
+    with pytest.raises(ValueError, match="temporary=True is not supported"):
+        con.read_record_batches(
+            make_reader({"a": [1], "b": ["x"]}),
+            table_name="t",
+            temporary=True,
+            mode=mode,
         )
 
-        with pytest.raises(ValueError, match="temporary=True is not supported"):
-            con.read_record_batches(
-                make_reader({"a": [1], "b": ["x"]}),
-                table_name="t",
-                temporary=True,
-                mode=mode,
-            )
-
-        assert con.con.log == []
+    assert con.con.log == []
 
 
-def test_null_typed_columns_are_refused_on_both_branches(
+def test_temporary_is_refused_for_replace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``replace`` emits an unqualified ``DROP TABLE IF EXISTS`` before the
+    ``CREATE``, and it resolves through ``search_path``. With no temporary
+    table of that name in the session yet, the DROP lands on the PERMANENT
+    one, and what replaces it disappears at disconnect.
+
+    Separate from the append-mode guard above because the harm differs in kind,
+    not degree: that one refuses SHADOWING, which ends with the session, and
+    this one refuses DESTRUCTION, which does not.
+
+    Probed with a driver available, which is the configuration that used to
+    divert to ADBC: the rejection must come from this method."""
+    con = make_offline_con(password="static")
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+
+    with pytest.raises(ValueError, match="temporary=True is not supported"):
+        con.read_record_batches(
+            make_reader({"a": [1], "b": ["x"]}),
+            table_name="t",
+            temporary=True,
+            mode="replace",
+        )
+
+    # The DROP is the whole point: nothing may reach the server.
+    assert con.con.log == []
+
+
+def test_clone_does_not_carry_client_encoding(
+    postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``do_connect`` keeps ``client_encoding`` out of ``_con_kwargs``, the
+    profile and the build hash by defaulting it below the caller's kwargs.
+
+    ``clone`` rebuilds its kwargs from the LIVE connection rather than from
+    ``_con_kwargs``, and ``get_parameters`` reports every setting the
+    connection actually has -- so without ``_clone_drop_dsn_params`` the clone
+    reacquires a setting nobody passed, and a cloned-then-built artifact hashes
+    differently from one built off the source.
+
+    Hash equality with the source is deliberately NOT asserted here: this fake
+    DSN reports ``port`` as a string, as libpq does, so an equality assertion
+    would pin unrelated coercions rather than this guard. What is asserted is
+    the claim the guard makes -- the setting is absent -- plus that the drop is
+    narrow: ``options`` carries ``search_path`` and must survive it.
+    """
+
+    class _FakeInfo:
+        def __init__(self, parameters: dict) -> None:
+            self._parameters = parameters
+
+        def get_parameters(self) -> dict:
+            return dict(self._parameters)
+
+    con = make_offline_con(password="static", user="u", database="d")
+    con.con.info = _FakeInfo(
+        {
+            "host": "example.invalid",
+            "port": str(redshift_module.DEFAULT_PORT),
+            "user": "u",
+            "dbname": "d",
+            "options": "-c search_path=myschema",
+            "client_encoding": "UNICODE",
+        }
+    )
+    con.con.autocommit = True
+
+    recorded = {}
+
+    def fake_connect(**kwargs):
+        recorded.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    clone = con.clone()
+
+    # ``do_connect`` still defaults it, so the wire is configured ...
+    assert recorded["client_encoding"] == "utf8"
+    # ... and the clone did not inherit the DSN's value as a caller argument.
+    assert "client_encoding" not in clone._con_kwargs
+    assert "client_encoding" not in clone._profile.kwargs_dict
+    # The drop is narrow: a DSN setting the caller does depend on survives.
+    assert clone._con_kwargs["options"] == "-c search_path=myschema"
+
+
+def test_null_typed_columns_are_refused_before_any_sql(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A null column renders as the column type ``NULL``, which no server
     accepts. The vendored ``_register_in_memory_table`` guards this; the
-    psycopg ingest was written without it. Guarded above the dispatch, so
-    probed over both reasons."""
-    schema = pa.schema([("n", pa.null()), ("a", pa.int64())])
+    psycopg ingest was written without it.
 
-    for reason in ("no driver", None):
-        con = make_offline_con(password="static")
-        monkeypatch.setattr(
-            con, "_adbc_unavailable_reason", lambda reason=reason: reason
+    Probed with a driver available, which is the configuration that used to
+    divert to ADBC: the guard must run before any statement is issued."""
+    schema = pa.schema([("n", pa.null()), ("a", pa.int64())])
+    con = make_offline_con(password="static")
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+
+    with pytest.raises(exc.XorqTypeError, match="null. typed columns"):
+        con.read_record_batches(
+            make_reader({"n": [None], "a": [1]}, schema=schema), table_name="t"
         )
 
-        with pytest.raises(exc.XorqTypeError, match="null. typed columns"):
-            con.read_record_batches(
-                make_reader({"n": [None], "a": [1]}, schema=schema), table_name="t"
-            )
-
-        assert con.con.log == []
+    assert con.con.log == []
 
 
 def test_an_unavailable_driver_is_not_even_imported(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, postgres_utils
 ) -> None:
     """``postgres_utils`` imports the driver at module scope, so an import
     above the probe raises in exactly the case the probe detects.
 
     Asserting it is not re-imported is what separates this from
     ``test_an_unavailable_driver_is_not_dialled_at_all``, which cannot see the
-    ordering: this module imports ``postgres_utils`` at the top, so the import
-    has already succeeded before any test runs."""
+    ordering. Requesting the ``postgres_utils`` fixture is what puts it in
+    ``sys.modules`` for the ``delitem`` below to take back out: the module
+    deliberately does not import it at the top, so without the fixture this
+    test would depend on an earlier test having imported it."""
     con = make_offline_con()
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
     monkeypatch.delitem(sys.modules, "xorq.common.utils.postgres_utils")
@@ -1404,28 +1562,136 @@ def test_an_unavailable_driver_is_not_even_imported(
     assert "xorq.common.utils.postgres_utils" not in sys.modules
 
 
-def test_clone_returns_the_subclass_not_postgres() -> None:
-    """``clone`` resolved the postgres module's ``connect`` through
-    ``__globals__``, so a Redshift caller got a postgres backend back.
-    Asserted on the source rather than by cloning, which needs a live
-    ``con.info``."""
-    source = inspect.getsource(PostgresBackend.clone)
-    assert "return self.connect(" in source
-    assert "return connect(" not in source
+def test_redshift_exposes_no_module_level_connect() -> None:
+    """Redshift deliberately has no module-level ``connect`` of its own: the
+    loader builds ``xo.redshift.connect`` from the bound ``Backend.connect``.
 
-
-def test_module_level_connect_builds_a_connected_backend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``Backend.connect(**kwargs)`` was an unbound call that raised
-    ``TypeError``; ``clone`` was its only caller. Redshift's copy is gone --
-    the loader builds ``xo.redshift.connect`` from the bound method."""
-    monkeypatch.setattr(psycopg, "connect", lambda **kwargs: _FakeConnection())
-    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
-
-    con = postgres_module.connect(host="example.invalid", user="u", database="d")
-    assert isinstance(con, PostgresBackend)
-    assert con.con is not None
-
+    The postgres module-level ``connect`` and ``clone`` themselves are covered
+    in ``backends/postgres/tests/test_connect_and_clone.py``."""
     assert not hasattr(redshift_module, "connect")
     assert redshift_module.__all__ == ["Backend"]
+
+
+def test_clone_keeps_a_client_encoding_the_caller_passed(
+    postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sibling test above covers the IMPLICIT case -- nobody passed one, so
+    the DSN's value must not be reacquired. This is the other half, and it was
+    broken: ``_clone_drop_dsn_params`` was dissoc-ed from the MERGED dict,
+    which already held ``_con_kwargs``, so a caller who *did* ask for
+    ``latin1`` got a clone silently dialling ``utf8``.
+
+    That is the failure the mechanism exists to prevent, arrived at from the
+    other direction: source and clone disagree about a connection setting, so
+    a cloned-then-built artifact hashes differently from one built off the
+    source. ``test_clone_keeps_a_hostaddr_the_caller_passed`` in the postgres
+    suite states exactly this invariant for the DSN dissoc; nothing restated
+    it for the second, later mechanism.
+    """
+
+    class _FakeInfo:
+        def __init__(self, parameters: dict) -> None:
+            self._parameters = parameters
+
+        def get_parameters(self) -> dict:
+            return dict(self._parameters)
+
+    con = make_offline_con(
+        password="static", user="u", database="d", client_encoding="latin1"
+    )
+    con.con.info = _FakeInfo(
+        {
+            "host": "example.invalid",
+            "port": str(redshift_module.DEFAULT_PORT),
+            "user": "u",
+            "dbname": "d",
+            "client_encoding": "UNICODE",
+        }
+    )
+    con.con.autocommit = True
+
+    recorded = {}
+
+    def fake_connect(**kwargs):
+        recorded.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    clone = con.clone()
+
+    # The caller asked for it, so it is theirs to keep -- on the wire ...
+    assert recorded["client_encoding"] == "latin1"
+    # ... and in the clone's own kwargs, so the profile agrees with the source.
+    assert clone._con_kwargs["client_encoding"] == "latin1"
+    # The DSN's ``UNICODE`` is still what gets dropped, not the caller's value.
+    assert clone._con_kwargs["client_encoding"] != "UNICODE"
+
+
+def test_clone_refuses_rather_than_borrowing_the_postgres_env_password(
+    postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Redshift backend with no password in ``_con_kwargs`` -- which is every
+    one built by ``from_connection`` -- inherited postgres's
+    ``make_credential_defaults()``, i.e. ``$POSTGRES_PASSWORD``.
+
+    Two bad outcomes, and the second is the dangerous one: on a machine with
+    no ``POSTGRES_PASSWORD`` it refused with a message naming a service the
+    caller never used, and on a developer machine where that variable happens
+    to be set it dialled the *warehouse* with a local postgres password.
+
+    Asserted with the variable POPULATED, because that is the case the old
+    code passed silently. A test that only unset it would see an error either
+    way and could not tell the two apart.
+    """
+    monkeypatch.setenv("POSTGRES_PASSWORD", "a-local-postgres-password")
+
+    class _FakeInfo:
+        def __init__(self, parameters: dict) -> None:
+            self._parameters = parameters
+
+        def get_parameters(self) -> dict:
+            return dict(self._parameters)
+
+    con = RedshiftBackend()
+    type(con).__init__(con)
+    con.con = _FakeConnection()
+    con.con.info = _FakeInfo(
+        {
+            "host": "example.invalid",
+            "port": str(redshift_module.DEFAULT_PORT),
+            "user": "u",
+            "dbname": "d",
+        }
+    )
+    con.con.autocommit = True
+
+    dialled = {}
+
+    def fake_connect(**kwargs):
+        dialled.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    with pytest.raises(ValueError, match="password is required"):
+        con.clone()
+
+    # The message names redshift and not some other service's env var.
+    with pytest.raises(ValueError) as excinfo:
+        con.clone()
+    assert "redshift" in str(excinfo.value)
+    assert "POSTGRES_PASSWORD" not in str(excinfo.value)
+    # And nothing was dialled with the borrowed credential.
+    assert dialled == {}
+
+
+def test_postgres_clone_still_falls_back_to_its_own_env_password(
+    postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hook must not change postgres. Redshift returning ``None`` is an
+    override, not a removal of the base behaviour."""
+    con = PostgresBackend()
+    assert con._clone_credential_default_password() == "$POSTGRES_PASSWORD"

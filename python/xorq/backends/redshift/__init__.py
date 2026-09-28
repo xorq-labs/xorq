@@ -56,6 +56,12 @@ class Backend(PostgresBackend):
     name = "redshift"
     compiler = compiler
 
+    # ``do_connect`` defaults ``client_encoding`` below the caller's kwargs so
+    # it never reaches ``_con_kwargs``, the profile or the build hash. The live
+    # DSN reports it regardless, so ``clone`` has to be told to drop it or the
+    # clone hashes differently from its source over a setting nobody passed.
+    _clone_drop_dsn_params = ("client_encoding",)
+
     # ``_secret_keys`` is inherited, not restated: a literal copy drifts from
     # the ``con_name_to_secret_keys`` mirror, and ``()`` would narrow
     # ``check_for_exposed_secrets`` to just ``password``.
@@ -68,6 +74,24 @@ class Backend(PostgresBackend):
     # not connect to Redshift. Redshift's own auth modes arrive with the
     # authenticator work.
     _top_level_methods = ()
+
+    def _clone_credential_default_password(self) -> str | None:
+        """Redshift has no environment default, and must not borrow one.
+
+        The same reasoning that empties ``_top_level_methods`` above: the
+        inherited fallback is ``$POSTGRES_PASSWORD``, so a Redshift connection
+        with no password in ``_con_kwargs`` -- which is every connection built
+        by ``from_connection`` -- either refused with a message naming a
+        service the caller never used, or, on a developer machine where
+        ``POSTGRES_PASSWORD`` happens to be set, dialled the *warehouse* with
+        a local postgres password.
+
+        ``None`` rather than a ``$REDSHIFT_PASSWORD`` of our own invention:
+        that would be a new public convention, and nothing else in xorq reads
+        such a variable. Redshift's own auth modes arrive with the
+        authenticator work, and this hook is where they will attach.
+        """
+        return None
 
     def do_connect(
         self,
@@ -113,10 +137,16 @@ class Backend(PostgresBackend):
         ``UndefinedColumn: column "current_schema" does not exist``. Redshift
         requires the parenthesised call.
 
-        No dialect swap fixes this: ``sg.func("current_schema")`` renders
-        without parentheses under sqlglot's Postgres *and* Redshift dialects,
-        and only the default generator parenthesises it. ``Anonymous`` forces
-        the call form under any dialect.
+        No dialect swap fixes this: at sqlglot 28.6.0,
+        ``sg.func("current_schema")`` renders without parentheses under
+        sqlglot's Postgres *and* Redshift dialects, and only the default
+        generator parenthesises it. That is a *version-qualified* claim, not a
+        standing one -- at 23.6.3, the floor ``--resolution lowest-direct``
+        picks under the declared ``sqlglot>=23.4``, ``sg.func`` parenthesises
+        everywhere, and there this override is redundant rather than wrong.
+        ``Anonymous`` forces the call form at both versions and under every
+        dialect measured, which is why the test asserts what this method emits
+        rather than how ``sg.func`` renders.
 
         ``current_catalog`` needs no such treatment -- ``CURRENT_DATABASE()``
         already renders with parentheses.
@@ -526,11 +556,13 @@ ORDER BY ordinal_position ASC"""
     def _adbc_unavailable_reason(self) -> str | None:
         """Why the ADBC accelerator cannot be used, or ``None`` if it can.
 
-        The single point of dispatch for both Arrow paths, and the reason
-        neither of them needs a catch-all. Availability is decided from local
-        facts *before* anything is dialled, so every exception raised by the
-        subsequent connect is a real failure and propagates -- which is what
-        separates "no driver installed" from "these credentials were rejected".
+        Serves the read path alone -- ``_open_adbc_conn_or_none`` is its only
+        caller -- and is the reason that path needs no catch-all. Ingest used
+        to share it and must not: see ``read_record_batches``. Availability is
+        decided from local facts *before* anything is dialled, so every
+        exception raised by the subsequent connect is a real failure and
+        propagates -- which is what separates "no driver installed" from
+        "these credentials were rejected".
         Under a rotating IAM credential that distinction is the difference
         between a quiet fallback and silence about an expired password.
 
@@ -542,16 +574,18 @@ ORDER BY ordinal_position ASC"""
         the literal string ``"None"`` and fails later as an auth error against
         a password nobody set.
 
-        This method is also the seam the accelerator work extends. Adding the
-        Columnar driver, or ruling ``adbc_driver_postgresql`` in or out against
-        a live endpoint, changes a clause here and touches neither Arrow path.
+        This method is also the seam the accelerator work extends, but it is
+        not the whole of it: swapping accelerators changes a clause here, the
+        extras, and the connection factory below (``PgADBC``, which hardcodes
+        ``adbc_driver_postgresql``).
 
-        Note what is *not* settled: whether ``adbc_driver_postgresql`` works
-        against Redshift at all is untested -- it is recorded as an alternative
-        in ADR-2332, needs a live endpoint, and may fail on ``pg_catalog``
-        introspection the way ``CURRENT_SCHEMA`` did. So a "no reason" answer
-        here means the accelerator is *installed and credentialed*, not that it
-        is known to work.
+        ADR-2332 settled the open question this docstring used to carry:
+        measured against a live endpoint, ``adbc_driver_postgresql``
+        works against Redshift for every read path, and the feared
+        ``pg_catalog`` failures are in xorq's own psycopg path instead. A "no
+        reason" answer still means only *installed and credentialed* -- and for
+        ingest it is the wrong question entirely, since neither ADBC driver can
+        ingest into Redshift. That is why ingest no longer asks it.
         """
         # Uncached: the tests simulate an absent driver by patching
         # ``find_spec``, and a cached answer would outlive the patch.
@@ -594,45 +628,70 @@ ORDER BY ordinal_position ASC"""
         mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
-        """Ingest Arrow record batches, over ADBC if it is there and psycopg if
-        it is not.
+        """Ingest Arrow record batches over psycopg. There is no ADBC branch.
 
-        The postgres implementation is unconditional ADBC. Inheriting it made
-        this backend claim a psycopg baseline it did not have, and under that
-        baseline an absent driver is the *common* case rather than the edge:
-        no Columnar driver is installable from PyPI, and none is built for
-        Intel macOS at all. So the fallback is the path that has to work.
+        The postgres implementation is unconditional ADBC, and inheriting it
+        made this backend claim a psycopg baseline it did not have. This one
+        is unconditional psycopg, which is not a fallback but the only ingest
+        Redshift accepts: measured against a live endpoint, *neither* ADBC
+        driver can ingest here, because both ingest by ``COPY`` and Redshift's
+        ``COPY`` reads from S3 only. For ``adbc_driver_postgresql`` that is a
+        parse failure (``COPY ... FROM STDIN``, SQLSTATE 42601), not a missing
+        setting, so no configuration reaches it and the driver has no
+        ``INSERT`` fallback.
 
-        Dispatching here rather than rescuing a failed ADBC attempt is what
-        keeps the accelerator an addition: when the driver question is settled
-        the ADBC branch gains a clause in ``_adbc_unavailable_reason``, and
-        this method does not change shape.
+        **Deliberately not dispatched on ``_adbc_unavailable_reason()``.** That
+        predicate answers "is the accelerator installed and credentialed",
+        which is the right question for ``to_pyarrow_batches`` and the wrong
+        one here: it returns ``None`` on every credentialed install, so
+        dispatching on it selected the branch that cannot run and left the one
+        that works as dead code. The two paths' correct answers are inversely
+        correlated, so they must not share a predicate -- and after this method
+        stopped calling it, they no longer can.
 
-        ``kwargs`` reach ``adbc_ingest`` on the ADBC branch and are dropped on
-        the psycopg one, which has nothing to spend them on. That asymmetry is
-        inherited rather than chosen: ``read_csv`` and ``read_parquet`` forward
-        their *own* reader kwargs down this call, so rejecting unknown ones
-        would break both callers on the branch that is meant to be the
-        baseline.
+        No ingest-side predicate replaces it, because nothing would ever flip
+        one: ``adbc_driver_postgresql`` will not ingest here in any release,
+        and the Columnar driver is rejected by ADR-2332 on packaging grounds.
+        The genuine future path is ``COPY``-from-S3, which is psycopg plus a
+        staging upload and would branch on whether a bucket is configured --
+        inside this method, never on driver availability. That work is out of
+        scope and is tracked separately; it needs no seam held open here.
+
+        ``password`` is unused and kept because it is the inherited signature:
+        ``read_csv`` and ``read_parquet`` both forward it down this call.
+        ``kwargs`` are likewise accepted and dropped -- those two callers
+        forward their *own* reader kwargs here, so rejecting unknown ones would
+        break them.
         """
         if table_name is None:
             raise ValueError("table_name is required")
         if mode not in INGEST_MODES:
             raise ValueError(f"mode must be one of {INGEST_MODES}, got {mode!r}")
         if temporary and mode in APPEND_ONLY_MODES:
-            # ``append`` emits no ``CREATE`` for the psycopg branch to mark
-            # while the ADBC branch marks unconditionally; ``create_append``
-            # would render ``CREATE TEMPORARY TABLE IF NOT EXISTS``, which
-            # resolves against ``pg_temp`` and shadows a permanent table.
+            # ``append`` emits no ``CREATE`` for ``TEMPORARY`` to mark, and
+            # ``create_append`` would render ``CREATE TEMPORARY TABLE IF NOT
+            # EXISTS``, which resolves against ``pg_temp`` and shadows a
+            # permanent table.
             raise ValueError(
                 f"temporary=True is not supported with mode={mode!r}: "
                 f"{APPEND_ONLY_MODES} append to a table this call does not "
                 "create, so there is nothing for temporary to apply to"
             )
+        if temporary and mode == "replace":
+            # ``replace`` emits an unqualified ``DROP TABLE IF EXISTS`` before
+            # the ``CREATE``, and it resolves through ``search_path``: with no
+            # temporary table of that name in the session yet, it drops the
+            # PERMANENT one, then replaces it with a table that disappears at
+            # disconnect. The guard above refuses shadowing, which ends with
+            # the session; this refuses destruction, which does not.
+            raise ValueError(
+                "temporary=True is not supported with mode='replace': the "
+                "DROP it emits is unqualified, so it would resolve to a "
+                "permanent table of the same name and destroy it"
+            )
 
-        # Above the dispatch so both branches reject it alike. Unguarded, a
-        # null column renders as the column type ``NULL``, which no server
-        # accepts.
+        # Unguarded, a null column renders as the column type ``NULL``, which
+        # no server accepts.
         null_columns = [
             name
             for name, dtype in sch.Schema.from_pyarrow(record_batches.schema).items()
@@ -644,22 +703,6 @@ ORDER BY ordinal_position ASC"""
                 f"got null typed columns: {null_columns}"
             )
 
-        if (reason := self._adbc_unavailable_reason()) is None:
-            return super().read_record_batches(
-                record_batches,
-                table_name=table_name,
-                password=password,
-                temporary=temporary,
-                mode=mode,
-                **kwargs,
-            )
-
-        logger.debug(
-            "ingesting over psycopg",
-            backend=self.name,
-            reason=reason,
-            table_name=table_name,
-        )
         return self._read_record_batches_psycopg(
             record_batches,
             table_name,
@@ -697,8 +740,9 @@ ORDER BY ordinal_position ASC"""
 
         A ``Table`` is normalised to a reader rather than iterated: iterating a
         ``pa.Table`` yields *columns*, so it would fail here on a missing
-        ``num_rows`` while working perfectly on the ADBC branch, which accepts
-        tables. Which branch runs has to stay an implementation detail.
+        ``num_rows`` for an input ``adbc_ingest`` accepts. Callers were written
+        against that signature and still pass tables, so this path has to take
+        them too.
         """
         if isinstance(record_batches, pa.Table):
             # Unbounded, a one-chunk table becomes one batch holding every row,

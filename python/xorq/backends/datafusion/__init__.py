@@ -4,19 +4,24 @@ import contextlib
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
+import pyarrow.dataset as ds
 import sqlglot as sg
 import sqlglot.expressions as sge
 
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
+from xorq.common.utils.deltalake_utils import import_delta_table
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.datafusion import Backend as IbisDatafusionBackend
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
-from xorq.vendor.ibis.util import gen_name
+from xorq.vendor.ibis.util import gen_name, normalize_filename
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pandas as pd
 
 
@@ -27,7 +32,54 @@ __all__ = [
 
 class Backend(IbisDatafusionBackend):
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
-        self.con.from_arrow(op.data.to_pyarrow(op.schema), op.name)
+        self.con.from_arrow(
+            drop_pandas_schema_metadata(op.data.to_pyarrow(op.schema)), op.name
+        )
+
+    def _register(
+        self, source: Any, table_name: str | None = None, **kwargs: Any
+    ) -> ir.Table:
+        # register() hands Arrow sources straight to DataFusion, so without this
+        # a table registered here cannot join one created through create_table,
+        # which strips (xorq #2266). The allowlist mirrors the branches super()
+        # registers directly; the DataFrame branch re-enters here as a pa.Table,
+        # and path sources are read through read_* instead.
+        if isinstance(source, (pa.Table, pa.RecordBatch, ds.Dataset)):
+            source = drop_pandas_schema_metadata(source)
+        return super()._register(source, table_name, **kwargs)
+
+    def read_delta(
+        self, source_table: str | Path, table_name: str | None = None, **kwargs: Any
+    ) -> ir.Table:
+        """Register a Delta Lake table as a table in the current database.
+
+        Parameters
+        ----------
+        source_table
+            The data source. Must be a directory
+            containing a Delta Lake table.
+        table_name
+            An optional name to use for the created table. This defaults to
+            a sequentially generated name.
+        **kwargs
+            Additional keyword arguments passed to deltalake.DeltaTable.
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table
+
+        """
+        DeltaTable = import_delta_table()
+
+        # super() hands the dataset straight to self.con.register_dataset,
+        # bypassing _register and leaving any pandas metadata in place
+        # (xorq #2266).
+        delta_table = DeltaTable(normalize_filename(source_table), **kwargs)
+        return self._register(
+            delta_table.to_pyarrow_dataset(),
+            table_name=table_name or gen_name("read_delta"),
+        )
 
     def create_table(
         self,
@@ -38,7 +90,7 @@ class Backend(IbisDatafusionBackend):
         database: str | None = None,
         temp: bool = False,
         overwrite: bool = False,
-    ):
+    ) -> ir.Table:
         """Create a table in DataFusion.
 
         Parameters
@@ -179,35 +231,56 @@ def _polars(source, table_name, _conn, overwrite: bool = False):
 
 
 @_read_in_memory.register("pyarrow.Table")
-def _pyarrow_table(source, table_name, _conn, overwrite: bool = False):
+def _pyarrow_table(
+    source: pa.Table, table_name: str, _conn: Backend, overwrite: bool = False
+) -> None:
     tmp_name = gen_name("pyarrow")
     with _create_and_drop_memtable(_conn, table_name, tmp_name, overwrite):
-        _conn.con.from_arrow(source, name=tmp_name)
+        _conn.con.from_arrow(drop_pandas_schema_metadata(source), name=tmp_name)
 
 
 @_read_in_memory.register("pyarrow.RecordBatchReader")
-def _pyarrow_rbr(source, table_name, _conn, overwrite: bool = False):
+def _pyarrow_rbr(
+    source: pa.RecordBatchReader,
+    table_name: str,
+    _conn: Backend,
+    overwrite: bool = False,
+) -> None:
     tmp_name = gen_name("pyarrow")
     with _create_and_drop_memtable(_conn, table_name, tmp_name, overwrite):
-        _conn.con.from_arrow(source.read_all(), name=tmp_name)
+        _conn.con.from_arrow(
+            drop_pandas_schema_metadata(source.read_all()), name=tmp_name
+        )
 
 
 @_read_in_memory.register("pyarrow.RecordBatch")
-def _pyarrow_rb(source, table_name, _conn, overwrite: bool = False):
+def _pyarrow_rb(
+    source: pa.RecordBatch, table_name: str, _conn: Backend, overwrite: bool = False
+) -> None:
     tmp_name = gen_name("pyarrow")
     with _create_and_drop_memtable(_conn, table_name, tmp_name, overwrite):
-        _conn.con.register_record_batches(tmp_name, [[source]])
+        _conn.con.register_record_batches(
+            tmp_name, [[drop_pandas_schema_metadata(source)]]
+        )
 
 
 @_read_in_memory.register("pyarrow.dataset.Dataset")
-def _pyarrow_rb(source, table_name, _conn, overwrite: bool = False):
+def _pyarrow_dataset(
+    source: ds.Dataset, table_name: str, _conn: Backend, overwrite: bool = False
+) -> None:
     tmp_name = gen_name("pyarrow")
     with _create_and_drop_memtable(_conn, table_name, tmp_name, overwrite):
-        _conn.con.register_dataset(tmp_name, source)
+        _conn.con.register_dataset(tmp_name, drop_pandas_schema_metadata(source))
 
 
 @_read_in_memory.register("pandas.DataFrame")
-def _pandas(source: pd.DataFrame, table_name, _conn, overwrite: bool = False):
+def _pandas(
+    source: pd.DataFrame, table_name: str, _conn: Backend, overwrite: bool = False
+) -> None:
     tmp_name = gen_name("pandas")
     with _create_and_drop_memtable(_conn, table_name, tmp_name, overwrite):
-        _conn.con.from_pandas(source, name=tmp_name)
+        # via Arrow rather than con.from_pandas so the pandas schema metadata
+        # can be dropped: it breaks DataFusion's schema equality (xorq #2266)
+        _conn.con.from_arrow(
+            drop_pandas_schema_metadata(pa.Table.from_pandas(source)), name=tmp_name
+        )

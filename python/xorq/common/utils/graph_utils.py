@@ -503,17 +503,11 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
     if tables_to_transfer:
         # Filter out tables that already exist on the target backend
         # (e.g. cloned backends that share the same underlying connection).
-        missing = _find_missing_tables(tables_to_transfer)
+        probe_errors = {}
+        missing = _find_missing_tables(tables_to_transfer, errors=probe_errors)
         if missing:
             if not transfer_tables:
-                names = sorted({name for _, _, name in missing})
-                raise ValueError(
-                    f"Expression contains DatabaseTable nodes {names} whose "
-                    f"data would need to be materialized and transferred to "
-                    f"the new backend. Use deferred reads (e.g. "
-                    f"deferred_read_parquet) to avoid this, or pass "
-                    f"transfer_tables=True to materialize."
-                )
+                raise ValueError(_missing_tables_message(missing, probe_errors))
             _transfer_tables(missing)
 
     return result
@@ -528,30 +522,131 @@ def _namespace_to_database(namespace):
     return None
 
 
-def _find_missing_tables(tables_to_transfer):
-    """Return the subset of tables that don't exist on the target backend."""
+def _database_kwargs(namespace):
+    """Kwargs for ``table``/``list_tables``/``create_table``.
+
+    Empty for a bare namespace: the pandas backend's ``table`` has no
+    ``database`` parameter, so ``database=None`` must not be passed either.
+    """
+    database = _namespace_to_database(namespace)
+    return {"database": database} if database is not None else {}
+
+
+def _probe_key(new_backend, table_name, namespace):
+    """Per-backend key, so a failed probe on one backend cannot answer for another."""
+    return (id(new_backend), table_name, namespace.catalog, namespace.database)
+
+
+def _qualify(table_name, namespace):
+    return ".".join(
+        part for part in (namespace.catalog, namespace.database, table_name) if part
+    )
+
+
+def _missing_tables_message(missing, probe_errors):
+    """ValueError text for *missing*, separating unverified tables from absent ones."""
+    names = sorted({name for _, _, name, _ in missing})
+    unverified = []
+    for _, new_backend, table_name, namespace in missing:
+        error = probe_errors.get(_probe_key(new_backend, table_name, namespace))
+        if error is not None:
+            unverified.append((table_name, namespace, error))
+    detail = "\n".join(
+        f"  {_qualify(table_name, namespace)}: {type(error).__name__}: {error}"
+        for table_name, namespace, error in unverified
+    )
+
+    if len(unverified) == len(missing):
+        # Nothing was shown absent, so do not advise a transfer; and
+        # _transfer_tables does not handle a table that turns out to exist.
+        return (
+            f"Could not determine whether DatabaseTable nodes {names} exist "
+            f"on the new backend: introspecting it raised. Fix the "
+            f"introspection error, or pass transfer_tables=True to "
+            f"materialize them regardless -- which fails outright if a table "
+            f"is in fact already there.\n{detail}"
+        )
+
+    message = (
+        f"Expression contains DatabaseTable nodes {names} whose data would "
+        f"need to be materialized and transferred to the new backend. Use "
+        f"deferred reads (e.g. deferred_read_parquet) to avoid this, or pass "
+        f"transfer_tables=True to materialize."
+    )
+    if unverified:
+        unverified_names = sorted(
+            {_qualify(table_name, namespace) for table_name, namespace, _ in unverified}
+        )
+        message += (
+            f"\n\nPresence could not be confirmed for {unverified_names} -- "
+            f"introspection raised:\n{detail}"
+        )
+    return message
+
+
+def _is_rebind_clone(old_backend, new_backend):
+    """True when *new_backend* is a copy of *old_backend* sharing its live ``con``.
+
+    ``normalize_profiles`` makes such pairs (``_clone_backend_with_profile``
+    sets ``cloned.con = backend.con``) to canonicalize ``Profile.idx``; a
+    rebind across them moves no data, so there is nothing to probe.
+
+    A backend mapped to itself is excluded: ``normalize_profiles`` never
+    produces that pair, and callers passing ``(con, con)`` want a real probe.
+    """
+    if old_backend is new_backend:
+        return False
+    old_con = getattr(old_backend, "con", None)
+    return old_con is not None and old_con is getattr(new_backend, "con", None)
+
+
+def _find_missing_tables(tables_to_transfer, errors=None):
+    """Return the subset of tables not present on the target backend.
+
+    *errors*, if given, receives ``{_probe_key(...): exception}`` for each
+    table on which both ``table()`` and ``list_tables()`` raised.  Such tables
+    are still returned as missing; the mapping tells "absent" from "unknown".
+    """
     missing = []
     seen = set()
     for old_backend, new_backend, table_name, namespace in tables_to_transfer:
-        key = (id(new_backend), table_name, namespace.catalog, namespace.database)
+        if _is_rebind_clone(old_backend, new_backend):
+            continue
+        key = _probe_key(new_backend, table_name, namespace)
         if key in seen:
             continue
         seen.add(key)
+        db_kwargs = _database_kwargs(namespace)
         try:
-            database = _namespace_to_database(namespace)
-            new_backend.table(table_name, database=database)
+            new_backend.table(table_name, **db_kwargs)
             continue
+        except Exception as e:
+            probe_error = e
+
+        # A raise from .table() does not mean absent: the exception type is
+        # no help (duckdb raises a bare XorqError for a missing table), and
+        # .table() builds a schema -- on postgres via pg_catalog.pg_enum,
+        # which Redshift lacks, so there it raises for a table that exists.
+        # list_tables reads information_schema and answers presence directly.
+        # If it raises too, we do not know, which is not "no".
+        try:
+            listed = new_backend.list_tables(**db_kwargs)
         except Exception:
-            pass
-        missing.append((old_backend, new_backend, table_name))
+            if errors is not None:
+                errors[key] = probe_error
+        else:
+            if table_name in listed:
+                continue
+        missing.append((old_backend, new_backend, table_name, namespace))
     return missing
 
 
 def _transfer_tables(tables_to_transfer):
-    """Materialize and register table data on new backends."""
-    for old_backend, new_backend, table_name in tables_to_transfer:
-        table = old_backend.table(table_name).to_pyarrow()
-        new_backend.create_table(table_name, table)
+    """Copy each table across, into the namespace the rebound node still names."""
+    for old_backend, new_backend, table_name, namespace in tables_to_transfer:
+        db_kwargs = _database_kwargs(namespace)
+        table = old_backend.table(table_name, **db_kwargs).to_pyarrow()
+        new_backend.create_table(table_name, table, **db_kwargs)
 
 
 def replace_unbound(expr, replacement, *, target=None):

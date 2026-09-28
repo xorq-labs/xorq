@@ -2,8 +2,8 @@
 title: "The catalog as executable memory"
 ---
 
-Most "memory" an agent accumulates is prose: Markdown notes, a `MEMORY.md`
-index, chat history. Prose memory has to be reread and reinterpreted by
+Most "memory" an agent accumulates is prose, whether Markdown notes, a
+`MEMORY.md` index, or chat history. Prose memory has to be reread and reinterpreted by
 whatever model picks it up next, and it has no way to *run*. A Xorq catalog is
 the other kind of memory—**executable**. Each entry is a content-addressed
 pipeline plus the environment to run it, so a future agent or human doesn't

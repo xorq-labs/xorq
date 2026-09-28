@@ -55,7 +55,8 @@ Understand why Xorq works the way it does
 
 [**Reference**](reference/)
 
-Look up the [Python API](reference/) or [CLI commands](api_reference/cli/)
+Look up the [Python API](reference/) or the
+[command-line reference](api_reference/cli/)
 :::
 :::
 :::
