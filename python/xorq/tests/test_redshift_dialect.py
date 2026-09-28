@@ -279,6 +279,16 @@ def test_sqlglot_redshift_is_built_before_the_postgres_transforms_mutation():
     mutation above it and the second does. Counterfactual confirmed by
     mutating ``Postgres.Generator.TRANSFORMS`` before importing
     ``sqlglot.dialects.redshift`` in a scratch process: all five names leak.
+
+    A leak is the *object* ``dialects.py`` installed turning up in sqlglot's
+    Redshift table, so that is what is compared -- not whether the key is
+    present. Key presence is sqlglot's business and varies inside the declared
+    range: at 23.6.3 sqlglot's own Redshift carries ``ArraySize`` (Postgres's
+    pristine ``ARRAY_LENGTH(a, 1)``, not the ``cardinality`` installed here),
+    and a membership check reported that as a leak. The counterfactual above
+    only bites where sqlglot loads dialects lazily (26.33 onward, measured):
+    below that, ``import sqlglot`` builds Redshift before anything can mutate
+    Postgres, so no import order can leak and this holds by construction.
     """
     probe = textwrap.dedent(
         """
@@ -290,21 +300,25 @@ def test_sqlglot_redshift_is_built_before_the_postgres_transforms_mutation():
 
         assert "sqlglot.dialects.redshift" in sys.modules, "eager-import-gone"
 
+        from sqlglot.dialects.postgres import Postgres
         from sqlglot.dialects.redshift import Redshift as SqlglotRedshift
 
-        postgres_only = (
-            sge.Split,
-            sge.RegexpSplit,
-            sge.DateFromParts,
-            sge.ArraySize,
-            sge.Pow,
-        )
+        installed = {
+            k: Postgres.Generator.TRANSFORMS[k]
+            for k in (
+                sge.Split,
+                sge.RegexpSplit,
+                sge.DateFromParts,
+                sge.ArraySize,
+                sge.Pow,
+            )
+        }
         print(
             ",".join(
                 sorted(
                     k.__name__
-                    for k in postgres_only
-                    if k in SqlglotRedshift.Generator.TRANSFORMS
+                    for k, v in installed.items()
+                    if SqlglotRedshift.Generator.TRANSFORMS.get(k) is v
                 )
             )
         )
