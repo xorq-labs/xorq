@@ -122,11 +122,21 @@ class Backend(PostgresBackend):
         absent from psycopg3's codec map. Without this every query -- not just
         non-ASCII ones -- raises ``NotSupportedError``.
 
-        Defaulting it here rather than in the caller keeps it out of
-        ``_con_kwargs``, which is captured from the caller's arguments, so it
-        never reaches the profile or the build hash.
+        ``prepare_threshold`` is defaulted to ``None`` for the same kind of
+        reason: Redshift has no ``DEALLOCATE ALL``, which psycopg sends to
+        clear its server-side prepared statements whenever a transaction
+        rolls back. There it fails with a syntax error, so a rolled-back
+        ``drop_table`` leaves the table behind. With the threshold ``None``
+        psycopg never prepares a statement, so it never has one to
+        deallocate.
+
+        Defaulting both here rather than in the caller keeps them out of
+        ``_con_kwargs``, which is captured from the caller's arguments, so
+        they never reach the profile or the build hash; a caller's explicit
+        value still wins.
         """
         kwargs.setdefault("client_encoding", "utf8")
+        kwargs.setdefault("prepare_threshold", None)
         return super().do_connect(
             host=host,
             user=user,

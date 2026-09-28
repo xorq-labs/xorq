@@ -212,6 +212,55 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
     assert "client_encoding" not in con._con_kwargs
 
 
+def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Redshift rejects ``DEALLOCATE ALL``, which psycopg sends on rollback to
+    clear the statements it has prepared; measured live, the error rolled back
+    a ``drop_table`` and left an ``into_backend`` placeholder in the schema.
+    With the threshold ``None`` nothing is prepared, so nothing is sent.
+
+    Defaulted in ``do_connect``, like ``client_encoding``, so it reaches the
+    driver and not ``_con_kwargs``."""
+    recorded = {}
+
+    def fake_connect(**kwargs):
+        recorded.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    con = RedshiftBackend()
+    con.do_connect(host="example.invalid", user="u", password="p", database="d")
+
+    assert "prepare_threshold" in recorded
+    assert recorded["prepare_threshold"] is None
+    assert "prepare_threshold" not in con._con_kwargs
+
+
+def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded = {}
+
+    def fake_connect(**kwargs):
+        recorded.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    con = RedshiftBackend()
+    con.do_connect(
+        host="example.invalid",
+        user="u",
+        password="p",
+        database="d",
+        prepare_threshold=3,
+    )
+
+    assert recorded["prepare_threshold"] == 3
+
+
 def test_client_encoding_is_not_inherited_from_postgres(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -231,6 +280,7 @@ def test_client_encoding_is_not_inherited_from_postgres(
     con.do_connect(host="example.invalid", user="u", password="p", database="d")
 
     assert "client_encoding" not in recorded
+    assert "prepare_threshold" not in recorded
 
 
 def test_default_port_is_redshifts():
@@ -853,6 +903,11 @@ def test_clone_does_not_carry_client_encoding(
 
     # ``do_connect`` still defaults it, so the wire is configured ...
     assert recorded["client_encoding"] == "utf8"
+    # ``prepare_threshold`` is not a DSN setting, so the clone gets it only by
+    # going back through ``do_connect``; it must, or the clone's rollbacks
+    # send ``DEALLOCATE ALL`` again.
+    assert "prepare_threshold" in recorded
+    assert recorded["prepare_threshold"] is None
     # ... and the clone did not inherit the DSN's value as a caller argument.
     assert "client_encoding" not in clone._con_kwargs
     assert "client_encoding" not in clone._profile.kwargs_dict
