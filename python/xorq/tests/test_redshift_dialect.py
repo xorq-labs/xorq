@@ -133,6 +133,7 @@ from xorq.backends.redshift.compiler import RedshiftCompiler  # noqa: E402
 from xorq.backends.redshift.compiler import (  # noqa: E402
     compiler as redshift_compiler,
 )
+from xorq.tests.redshift_evidence import absent_or_unsafe_forms  # noqa: E402
 from xorq.vendor.ibis.backends.sql.datatypes import (  # noqa: E402
     PostgresType,
     RedshiftType,
@@ -141,10 +142,18 @@ from xorq.vendor.ibis.backends.sql.dialects import Redshift  # noqa: E402
 
 
 def to_sql(expr):
-    """Compile under the Redshift compiler, with no connection involved."""
-    return redshift_compiler.to_sqlglot(expr).sql(
+    """Compile under the Redshift compiler, with no connection involved.
+
+    Every string this returns is also checked against the measured-absent and
+    NULL-unsafe forms in ``redshift_evidence``, so each test here guards every
+    emission path it happens to reach, not only the one it was written for.
+    """
+    sql = redshift_compiler.to_sqlglot(expr).sql(
         dialect=redshift_compiler.dialect, pretty=False
     )
+    denied = absent_or_unsafe_forms(sql)
+    assert not denied, f"emitted a form Redshift lacks or mishandles: {denied}\n{sql}"
+    return sql
 
 
 @pytest.fixture
