@@ -1210,7 +1210,7 @@ def test_no_hand_written_override_is_clobbered_by_simple_ops():
     hand-written ``visit_*`` loses the hand-written one, with no error and no
     warning. ``UNSUPPORTED_OPS`` is applied later still and wins over both.
 
-    This backend now carries 55 inherited ``SIMPLE_OPS`` entries and a dozen
+    This backend now carries 54 inherited ``SIMPLE_OPS`` entries and a dozen
     hand-written overrides, most of which exist to fix defects found in review.
     Nothing but this test stands between the next added spelling and the silent
     deletion of one of them.
