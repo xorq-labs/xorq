@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import re
+import urllib.parse
 from typing import Any
 
 import pyarrow as pa
@@ -42,6 +44,20 @@ INGEST_CHUNKSIZE = 10_000
 # statement and cannot collide with anything in the catalog, and a deterministic
 # alias makes the emitted SQL assertable.
 PROBE_ALIAS = "redshift_probe"
+
+
+def _search_path_option(schema: str) -> str:
+    r"""``schema`` as a percent-encoded libpq ``options`` value setting
+    ``search_path``.
+
+    libpq splits ``options`` on whitespace unless it is backslash-escaped,
+    and reads ``\\`` as one backslash, so both are escaped before encoding.
+    The value is otherwise passed as ``_post_connect`` passes it to
+    ``set_config``: a ``search_path`` string, so a comma list keeps its
+    meaning.
+    """
+    escaped = re.sub(r"([\\\s])", r"\\\1", schema)
+    return urllib.parse.quote(f"-csearch_path={escaped}", safe="")
 
 
 class Backend(PostgresBackend):
@@ -112,11 +128,21 @@ class Backend(PostgresBackend):
         absent from psycopg3's codec map. Without this every query -- not just
         non-ASCII ones -- raises ``NotSupportedError``.
 
-        Defaulting it here rather than in the caller keeps it out of
-        ``_con_kwargs``, which is captured from the caller's arguments, so it
-        never reaches the profile or the build hash.
+        ``prepare_threshold`` is defaulted to ``None`` for the same kind of
+        reason: Redshift has no ``DEALLOCATE ALL``, which psycopg sends to
+        clear its server-side prepared statements whenever a transaction
+        rolls back. There it fails with a syntax error, so a rolled-back
+        ``drop_table`` leaves the table behind. With the threshold ``None``
+        psycopg never prepares a statement, so it never has one to
+        deallocate.
+
+        Defaulting both here rather than in the caller keeps them out of
+        ``_con_kwargs``, which is captured from the caller's arguments, so
+        they never reach the profile or the build hash; a caller's explicit
+        value still wins.
         """
         kwargs.setdefault("client_encoding", "utf8")
+        kwargs.setdefault("prepare_threshold", None)
         return super().do_connect(
             host=host,
             user=user,
@@ -604,6 +630,17 @@ ORDER BY ordinal_position ASC"""
         ordinary consequence of a ``.pgpass`` connection, but here it would
         swallow a rejected temporary credential and quietly downgrade to
         psycopg -- reporting nothing while the IAM path is broken.
+
+        It also carries ``schema`` onto the ADBC connection. psycopg gets it
+        from ``_post_connect``'s ``set_config('search_path', ...)``; ADBC is a
+        second connection, and ``PgADBC``'s URI names no schema, so it ran
+        with the server default ``'$user, public'``. The compiler emits
+        unqualified table names, so every table-bound read raised "relation
+        does not exist" there and was silently re-run on psycopg by the
+        inherited execute-stage catch: correct rows, and an accelerator that
+        never served a table-bound read. The search path therefore goes in the
+        URI's libpq ``options``, taken from the same ``_con_kwargs["schema"]``
+        ``_post_connect`` reads, so the two connections agree.
         """
         if (reason := self._adbc_unavailable_reason()) is not None:
             logger.debug(
@@ -616,9 +653,15 @@ ORDER BY ordinal_position ASC"""
         # Below the probe: ``postgres_utils`` imports
         # ``adbc_driver_postgresql`` at module scope, so an import above it
         # raises in exactly the case the probe exists to detect.
-        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
+        from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
+            PgADBC,
+            adbc_driver_postgresql,
+        )
 
-        return PgADBC(self).get_conn()
+        uri = PgADBC(self).get_uri()
+        if schema := self._con_kwargs.get("schema"):
+            uri = f"{uri}?options={_search_path_option(schema)}"
+        return adbc_driver_postgresql.dbapi.connect(uri)
 
     def read_record_batches(
         self,
