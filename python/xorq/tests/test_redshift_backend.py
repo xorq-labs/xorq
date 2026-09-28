@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import inspect
+import subprocess
 import sys
 import typing
 from types import ModuleType
@@ -1035,6 +1036,29 @@ def test_redshift_exposes_no_module_level_connect() -> None:
     in ``backends/postgres/tests/test_connect_and_clone.py``."""
     assert not hasattr(redshift_module, "connect")
     assert redshift_module.__all__ == ["Backend"]
+
+
+@pytest.mark.parametrize(
+    ("blocked", "imports"),
+    [
+        pytest.param("adbc_driver_postgresql", True, id="without-the-driver"),
+        pytest.param("adbc_driver_manager", False, id="without-the-manager"),
+    ],
+)
+def test_import_needs_the_driver_manager_but_not_the_driver(
+    blocked: str, imports: bool
+) -> None:
+    """The psycopg baseline is only real if the backend imports without the
+    accelerator. A fresh process, because this one has already imported both;
+    ``None`` in ``sys.modules`` makes the import raise as an absent package
+    does. The manager half pins the limit the ADR records: the postgres
+    backend imports it at module scope."""
+    code = f"import sys; sys.modules[{blocked!r}] = None; import xorq.backends.redshift"
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
+
+    assert (result.returncode == 0) is imports, result.stderr
 
 
 def test_clone_keeps_a_client_encoding_the_caller_passed(

@@ -23,26 +23,31 @@ SCANNED_PACKAGE = "python/xorq"
 # unguarded -- xorq.api imports vendor/ibis, so test_bare_install catches an
 # undeclared import there that is genuinely absent from a bare install.
 
-# Modules whose module-level third-party imports belong to an optional backend.
-# Excluded by path rather than by scanning an allowlist of packages, so a new
-# module anywhere in xorq is in scope by default and has to be excluded
-# deliberately.  test_extras_gated_modules_are_all_still_needed keeps this from
-# accumulating entries that no longer apply.
-EXTRAS_GATED_MODULES = (
-    "python/xorq/backends/databricks/backend.py",
-    "python/xorq/backends/postgres/__init__.py",
-    "python/xorq/backends/pyiceberg/__init__.py",
-    "python/xorq/backends/pyiceberg/compiler.py",
-    "python/xorq/backends/redshift/__init__.py",
-    "python/xorq/common/utils/bigquery_utils.py",
-    "python/xorq/common/utils/databricks_utils.py",
-    "python/xorq/common/utils/gcloud_utils.py",
-    "python/xorq/common/utils/ibis_utils.py",
-    "python/xorq/common/utils/postgres_utils.py",
-    "python/xorq/common/utils/snowflake_utils.py",
-    "python/xorq/common/utils/sqlite_utils.py",
-    "python/xorq/expr/ml/sklearn_utils.py",
-)
+# Modules whose module-level third-party imports belong to an optional backend,
+# each with the import roots it is allowed.  Keyed by path, so a new module
+# anywhere in xorq is in scope by default and has to be listed deliberately; and
+# scoped to named roots, so a listed module is still checked for everything else.
+# A module gated for psycopg that gains a module-level ADBC driver import fails
+# here, as the redshift backend would.  test_extras_gated_modules_are_all_still_needed
+# keeps entries from outliving their imports.
+EXTRAS_GATED_MODULES = {
+    "python/xorq/backends/databricks/backend.py": {"databricks"},
+    "python/xorq/backends/postgres/__init__.py": {"adbc_driver_manager"},
+    "python/xorq/backends/pyiceberg/__init__.py": {"pyiceberg"},
+    "python/xorq/backends/pyiceberg/compiler.py": {"pyiceberg"},
+    "python/xorq/backends/redshift/__init__.py": {"psycopg"},
+    "python/xorq/common/utils/bigquery_utils.py": {"adbc_driver_manager"},
+    "python/xorq/common/utils/databricks_utils.py": {"adbc_driver_manager"},
+    "python/xorq/common/utils/gcloud_utils.py": {"gcsfs", "google"},
+    "python/xorq/common/utils/ibis_utils.py": {"ibis"},
+    "python/xorq/common/utils/postgres_utils.py": {"adbc_driver_postgresql", "psycopg"},
+    "python/xorq/common/utils/snowflake_utils.py": {
+        "adbc_driver_snowflake",
+        "snowflake",
+    },
+    "python/xorq/common/utils/sqlite_utils.py": {"adbc_driver_sqlite"},
+    "python/xorq/expr/ml/sklearn_utils.py": {"sklearn"},
+}
 
 # Import root -> distribution name, for the cases where they differ.
 IMPORT_ROOT_TO_DISTRIBUTION = {
@@ -66,15 +71,17 @@ def declared_dependency_names(root_dir):
 
 
 def iter_core_modules(root_dir):
-    """Every xorq module that must import with only the declared dependencies."""
-    excluded = {root_dir.joinpath(module) for module in EXTRAS_GATED_MODULES}
+    """Every xorq module that must import with only the declared dependencies,
+    beyond the roots EXTRAS_GATED_MODULES allows it."""
     for path in sorted(root_dir.joinpath(SCANNED_PACKAGE).rglob("*.py")):
         parts = path.relative_to(root_dir).parts
         if "tests" in parts or "vendor" in parts or path.name == "conftest.py":
             continue
-        if path in excluded:
-            continue
         yield path
+
+
+def gated_roots(path, root_dir):
+    return EXTRAS_GATED_MODULES.get(str(path.relative_to(root_dir)), set())
 
 
 def undeclared_imports(path, declared):
@@ -128,14 +135,14 @@ def test_extras_gated_modules_are_all_still_needed(root_dir):
     scope for no reason.
     """
     declared = declared_dependency_names(root_dir)
-    unnecessary = [
-        module
-        for module in EXTRAS_GATED_MODULES
-        if not undeclared_imports(root_dir.joinpath(module), declared)
-    ]
+    unnecessary = {
+        module: sorted(roots - undeclared_imports(root_dir.joinpath(module), declared))
+        for module, roots in EXTRAS_GATED_MODULES.items()
+    }
+    unnecessary = {module: roots for module, roots in unnecessary.items() if roots}
     assert not unnecessary, (
-        f"EXTRAS_GATED_MODULES entries no longer have an undeclared "
-        f"module-level import and should be removed: {unnecessary}"
+        f"EXTRAS_GATED_MODULES allows import roots these modules no longer "
+        f"import undeclared at module level; remove them: {unnecessary}"
     )
 
 
@@ -148,7 +155,9 @@ def test_core_module_imports_are_declared(root_dir):
     declared = declared_dependency_names(root_dir)
     undeclared = {}
     for path in iter_core_modules(root_dir):
-        for import_root in undeclared_imports(path, declared):
+        for import_root in undeclared_imports(path, declared) - gated_roots(
+            path, root_dir
+        ):
             distribution = IMPORT_ROOT_TO_DISTRIBUTION.get(import_root, import_root)
             undeclared.setdefault(distribution, set()).add(
                 str(path.relative_to(root_dir))
