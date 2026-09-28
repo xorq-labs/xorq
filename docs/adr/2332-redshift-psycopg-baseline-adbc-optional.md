@@ -7,10 +7,8 @@
 
 ## Context
 
-Adding a backend is not by itself an architecture decision — twenty ADRs exist
-and none is about a data backend. This one is not really about Redshift. It is
-about what xorq does when the best driver for a source is distributed in a way
-that no `[project.optional-dependencies]` entry can express.
+This ADR is about what xorq does when the best driver for a source is
+distributed in a way no `[project.optional-dependencies]` entry can express.
 
 Backends declare their Python drivers as PyPI extras in `pyproject.toml`; the
 drivers installed out of band today are bigquery's and databricks', by `dbc
@@ -55,16 +53,16 @@ IAM.
 
 Two parts, and the second only makes sense because of the first.
 
-**1. psycopg is the baseline.** Connect, DDL and query work with psycopg alone,
-and every driver-backed path degrades to it. Degradation preserves *results*, not
-machinery: the two read branches build Arrow differently — the accelerator casts
+**1. psycopg is the baseline.** Connect, DDL and query run over psycopg, and the
+read path degrades to it when the driver is *absent*, never when it fails. The
+two read branches build Arrow differently — the accelerator casts
 each fetched batch to the ibis schema, the baseline builds a record batch from a
 struct array — so a defect in one cast can surface on one branch and not the
 other. The alias failure below is exactly that.
 
 **2. The accelerator is `adbc_driver_postgresql`.** Redshift speaks the
-PostgreSQL wire protocol. That driver is already declared in the `postgres` and
-`redshift` extras, already in the lockfile, and already what the inherited
+PostgreSQL wire protocol. That driver is already declared in the `postgres`,
+`redshift` and `examples` extras, already in the lockfile, and already what the inherited
 `to_pyarrow_batches` reaches for. It publishes wheels for more platforms than
 Columnar, Intel Mac included, so the accelerator is an ordinary declared
 dependency with no packaging work behind it.
@@ -86,16 +84,13 @@ was run, not a claim that every read works.
 The `numeric` case deserves naming because it looked like the likely failure and
 is not one. ADBC returns Redshift `numeric` as
 `extension<arrow.opaque[storage_type=string, type_name=numeric, vendor_name=Redshift]>`,
-and `to_pyarrow_batches`' per-batch cast to the ibis schema converts it to
-`decimal128(5, 4)` with values identical to the psycopg branch.
+and `to_pyarrow_batches`' per-batch cast converts it to the ibis schema's type —
+`decimal128(5, 4)` for the column measured — with values identical to psycopg's.
 
 The fear this measurement retired was the opposite of what happened. The worry
 was that a PostgreSQL-targeted driver would fail on Redshift's incomplete
 `pg_catalog`. ADBC's introspection is fine; the `pg_catalog` failures on
 Redshift are all in xorq's own psycopg path.
-
-**What this buys is recorded as a cost** — see *Negative*, the wire-compatibility
-bullet, which is its single home.
 
 ### Ingest has no accelerator, and must not pretend otherwise
 
@@ -123,9 +118,9 @@ contradicts its own implementation.
 
 This is why the ingest row above carries a prohibition. Dispatching ingest on
 driver availability was meant to let an ADBC branch arrive later as an addition
-rather than a restructuring. It did the opposite: because the availability
-predicate answers `None` on every credentialed install, dispatching that way
-selected the branch that cannot work and left the one that does as dead code.
+rather than a restructuring. It did the opposite: the availability
+predicate reports the accelerator available on every connection given a
+password, so dispatching that way selected the branch that cannot work.
 One predicate cannot serve two paths whose correct answers are opposite, so
 ingest no longer consults that predicate at all.
 
@@ -147,12 +142,13 @@ The fallback must therefore catch driver-absence specifically, and it does at
 the connect stage: `_open_adbc_conn_or_none` decides availability before
 dialling and does not wrap the connect, so a rejected credential propagates.
 
-**This is narrowed at execute, not closed.** `to_pyarrow_batches` is not
-overridden for Redshift, and the inherited implementation keeps a narrow
-`except ADBCProgrammingError` around `cur.execute` that falls through to psycopg.
-A rejected credential cannot reach it, because authentication happens at
-connect. What still falls through silently is a server-side SQL error at
-execute, re-run as a slower psycopg query.
+**This rule governs the connect stage; execute keeps one deliberate catch.**
+`to_pyarrow_batches` is inherited with an `except ADBCProgrammingError` around
+`cur.execute` that re-runs the query on psycopg. It is what reads session-local
+temporary tables, which the fresh ADBC connection cannot see and which a
+`temporary=True` ingest creates, so it cannot simply be removed. Its cost: a
+server-side SQL error at execute is retried on psycopg without notice (and raises
+there if genuine), and an ADBC-specific one is masked.
 
 ## Alternatives considered
 
@@ -175,13 +171,6 @@ build time. Publishing under an `xorq-*` name would also be a courtesy call to
 Columnar at minimum, and the better outcome is that they publish it themselves.
 A measured speed margin would be an input to a *new* decision, not a trigger that
 resumes this one.
-
-Two build hazards are recorded because both are silent and both were hit while
-the approach was live: build backends that honour VCS ignore rules will build a
-wheel with **no driver in it** — exit 0, no warning, a few kilobytes — so CI must
-assert the payload's presence and size, not merely that the build succeeded; and
-a wheel carrying a native library must not be tagged `purelib`, which needs a
-build hook because purity is a build-time value.
 
 ### `dbc install redshift`, out-of-band, as the primary mechanism
 
@@ -206,13 +195,10 @@ than chosen; psycopg authenticating is what made it a choice.
 
 ### Do not offer an accelerator at all
 
-Rejected. The Arrow-native path is a genuine performance win over psycopg, and
-`adbc_driver_postgresql` makes it available without compromising installability
-on any supported platform. The accelerator arrives with no packaging work and no
-platform gap, so nothing is traded away for it.
-
-Note what the ADR claims and does not: the Arrow-native path is asserted as a win
-against *psycopg*, never against the Columnar driver.
+Rejected. The Arrow-native path avoids psycopg's per-row Python conversion, and
+`adbc_driver_postgresql` offers it with no packaging work and no platform gap.
+The speed margin is expected, not measured: no benchmark against psycopg on
+Redshift is recorded, and none against the Columnar driver exists either.
 
 ## Implementation status
 
@@ -225,9 +211,9 @@ deliberately weaker than "reachable" — see the second caveat.
   `pg_my_temp_schema()`, which `get_schema` calls when no database is passed;
   `pg_catalog.pg_enum`, which an explicit database routes onto instead; and
   `CREATE TEMPORARY VIEW`, which schema inference from a query needs. So
-  `con.table()` fails either way and `con.sql()` fails without a supplied schema,
-  and there is no way to obtain a bound table expression through the shipped
-  code. `con.list_tables()` does work — it does not introspect.
+  `con.table()` fails either way, and the one shipped route to a bound table
+  expression is `con.sql(query, schema=...)`. The live table-bound reads recorded
+  below ran with a separate introspection fix merged in. `con.list_tables()` does work — it does not introspect.
 - **`redshift` extra so the backend installs with `uv sync`** — the extra exists
   and mirrors `postgres`; `boto3` is still undeclared.
 - **psycopg `read_record_batches`** — implemented and now the only ingest path,
@@ -253,8 +239,8 @@ even though xorq emits it **quoted**, and the psycopg branch returns the same
 expression cleanly. So this is not evidence about drivers at all. The
 discriminator is xorq's cast, which matches on field names, against a baseline
 that builds its batches positionally and cannot see a mismatch. Any driver
-handing back the folded name meets it identically, the Columnar driver included,
-and swapping accelerators neither causes nor cures it.
+handing back the folded name meets it identically, the Columnar driver included;
+the fix belongs in the cast, and is not part of this change.
 
 A further read-path defect is closed rather than carried: on a connection opened
 with `schema=`, the ADBC read connection ran with the server's default
@@ -276,15 +262,18 @@ standard `redshift` extra; a connection given a password reads through
 `adbc_driver_postgresql`. So the psycopg read branch is live, on a population the
 extra does not select, and the same expression can succeed on one connection
 and fail on another: the alias case above succeeds through psycopg and raises
-through ADBC.
+through ADBC. `from_connection` skips `do_connect`, so it applies
+`prepare_threshold=None` to the given connection itself, and refuses one whose
+encoding psycopg cannot decode rather than setting `client_encoding`.
 
 Importing the backend requires an ADBC package — the driver *manager*, not the
 driver: `postgres/__init__.py` imports `adbc_driver_manager` at module scope,
 while the module that imports `adbc_driver_postgresql` is itself loaded lazily.
 The measurement is recorded beside the import guard in
-`python/xorq/tests/test_redshift_backend.py`. An install without
-`adbc-driver-postgresql` therefore reads every connection through psycopg; one
-without the manager cannot import the backend at all.
+`python/xorq/tests/test_redshift_backend.py`. An install with the
+manager but not `adbc-driver-postgresql` (no declared extra produces one; the dev
+group's `adbc-driver-sqlite` brings the manager alone) reads every connection through psycopg; one without the manager
+cannot import the backend at all.
 
 Ingest is not affected: it consults no predicate, so its psycopg path is the live
 one on every connection.
@@ -299,7 +288,7 @@ one on every connection.
   want of an accelerator build — `adbc_driver_postgresql` ships wheels for every
   platform xorq supports, Intel Mac included.
 - The Arrow-native path reaches every one of those platforms with no out-of-band
-  step.
+  step, subject to the alias caveat under *Implementation status*.
 - The IAM question of *Context* is settled for the baseline: psycopg can present
   a temporary password, so no AWS SDK is needed to *connect*. Minting that
   password stays the caller's job; no backend code reads `boto3`, and `boto3`
@@ -326,9 +315,8 @@ one on every connection.
   changes the availability predicate, the extras, **and** the connection factory
   the read path calls, which names `adbc_driver_postgresql` directly.
 - Two read paths exist, so both need testing and the boundary between them is a
-  real source of bugs. The blanket `except` is not inherited, but a narrow
-  `except ADBCProgrammingError` at execute is, and it still swallows server-side
-  SQL errors into a psycopg re-run.
+  real source of bugs. The blanket `except` is not inherited, but the narrow
+  execute-stage catch is, with the cost described under *Degrading*.
 - Ingest is row-oriented `INSERT`, slower than `COPY`-from-S3 for large loads,
   and it has no ADBC successor waiting. Both ADBC drivers ingest by `COPY`, which
   on Redshift means from S3, so `INSERT` is the only driver-independent ingest

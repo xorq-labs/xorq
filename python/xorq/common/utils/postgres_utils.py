@@ -50,9 +50,10 @@ class PgADBC(ADBCBase):
 
     def get_uri(self, **kwargs):
         params = {**self.params, **kwargs}
-        # Userinfo is percent-encoded: libpq splits it on the first ``:`` and
-        # the last ``@``, so a raw Redshift IAM user (``IAMR:<role>``) or a
-        # password containing ``@ / # %`` parses into different credentials.
+        # Userinfo is percent-encoded: libpq ends it at the first ``@`` and
+        # splits user from password at the first ``:``, so a raw Redshift IAM
+        # user (``IAMR:<role>``) or a password containing ``@ / # %`` parses
+        # into different credentials.
         user, password = (
             urllib.parse.quote(str(params[key]), safe="")
             for key in ("user", "password")

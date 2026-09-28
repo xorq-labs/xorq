@@ -44,10 +44,11 @@ _NOT_REMOTE_PUT = frozenset(
         "sqlite",
         # remote, but no ``read_record_batches`` to take the out-of-core path
         "trino",
+        # remote, with a ``read_record_batches`` (own or inherited), but not yet
+        # evaluated for the server-side path (see the FIXME on
+        # ``REMOTE_PUT_BACKENDS``)
         "databricks",
         "bigquery",
-        # remote, with a ``read_record_batches``, but not yet evaluated for the
-        # server-side path (see the FIXME on ``REMOTE_PUT_BACKENDS``)
         "pyiceberg",
         "gizmosql",
     )

@@ -234,7 +234,8 @@ class Backend(PostgresBackend):
         ADR-2332 settled the open question this docstring used to carry:
         measured against a live endpoint, ``adbc_driver_postgresql`` connects
         to Redshift and passed every read that was exercised (the ADR lists
-        them, and one known alias failure), and the feared ``pg_catalog``
+        them; none carried an auto-generated alias, which is a known failure
+        of its own), and the feared ``pg_catalog``
         failures are in xorq's own psycopg path instead. A "no
         reason" answer still means only *installed and credentialed* -- and for
         ingest it is the wrong question entirely, since neither ADBC driver can
@@ -325,7 +326,7 @@ class Backend(PostgresBackend):
         The genuine future path is ``COPY``-from-S3, which is psycopg plus a
         staging upload and would branch on whether a bucket is configured --
         inside this method, never on driver availability. That work is out of
-        scope and is tracked separately; it needs no seam held open here.
+        scope; it needs no seam held open here.
 
         ``password`` is unused and kept because it is the inherited signature:
         ``read_csv`` and ``read_parquet`` both forward it down this call.
@@ -400,7 +401,7 @@ class Backend(PostgresBackend):
         ``COPY ... FROM STDIN``: its ``COPY`` reads from S3, which would make
         the baseline require a bucket, an IAM role to assume and a staging
         lifecycle. That is the deferred ``redshift.ingest.bucket`` work, and
-        keeping it out is exactly why ``COPY``-from-S3 is off the v1 list.
+        keeping it out is why ``COPY``-from-S3 is out of scope here.
 
         ``TEMPORARY`` is applied to the ``CREATE`` directly, where the ADBC
         path creates a permanent table and converts it afterwards via
