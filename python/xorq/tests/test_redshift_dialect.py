@@ -554,6 +554,150 @@ def test_unknown_column_refuses_ddl_with_a_typed_error(nullable: bool) -> None:
         schema.to_sqlglot("redshift")
 
 
+class _PostgresMappedRedshiftCompiler(RedshiftCompiler):
+    """The Redshift compiler with the baseline mapper, and nothing else changed.
+
+    Holding the compiler fixed isolates the mapper: any SQL that differs between
+    this and ``redshift_compiler`` is caused by ``RedshiftType`` alone.
+    """
+
+    __slots__ = ()
+    type_mapper = PostgresType
+
+
+_POSTGRES_MAPPED = _PostgresMappedRedshiftCompiler()
+
+# Every dtype on which RedshiftType is MEANT to differ from PostgresType, and
+# why. A divergence missing from here, or an entry here that stopped
+# diverging, fails the tests below: RedshiftType was first validated only as
+# ingest DDL, and its refusals leaked into the compiler's cast path unnoticed.
+_INTENDED_TYPE_DIVERGENCES = {
+    "uint8": "no unsigned types; widened (measured)",
+    "uint16": "no unsigned types; widened (measured)",
+    "uint32": "no unsigned types; widened (measured)",
+    "uint64": "no unsigned types; DECIMAL(20, 0) (measured)",
+    "string": "bare VARCHAR is VARCHAR(256) on Redshift; VARCHAR(65535)",
+    "timestamp(3)": "TIMESTAMP(p) is rejected; precision dropped",
+    "timestamp(9)": "TIMESTAMP(p) is rejected; precision dropped",
+    "timestamp('UTC', 6)": "TIMESTAMPTZ(p) is rejected; precision dropped",
+    "unknown": "typed refusal instead of a KeyError",
+    "array<int64>": "no array types; refused",
+    "array<string>": "no array types; refused",
+    "map<string, int64>": "no map type; refused with UnsupportedBackendType",
+    "struct<a: int64>": "no struct type; refused",
+}
+
+_PROBED_DTYPES = [
+    dt.boolean,
+    dt.int8,
+    dt.int16,
+    dt.int32,
+    dt.int64,
+    dt.uint8,
+    dt.uint16,
+    dt.uint32,
+    dt.uint64,
+    dt.float32,
+    dt.float64,
+    dt.Decimal(),
+    dt.Decimal(18, 3),
+    dt.Decimal(38, 9),
+    dt.string,
+    dt.binary,
+    dt.date,
+    dt.time,
+    dt.Timestamp(),
+    dt.Timestamp(scale=3),
+    dt.Timestamp(scale=9),
+    dt.Timestamp(timezone="UTC"),
+    dt.Timestamp(timezone="UTC", scale=6),
+    dt.Interval("s"),
+    dt.Interval("D"),
+    dt.json,
+    dt.uuid,
+    dt.inet,
+    dt.macaddr,
+    dt.null,
+    dt.unknown,
+    dt.Array(dt.int64),
+    dt.Array(dt.string),
+    dt.Map(dt.string, dt.int64),
+    dt.Struct({"a": dt.int64}),
+    dt.geometry,
+    dt.geography,
+]
+
+# Only the geospatial types cannot be cast to from a string column at all, so
+# they are probed on the DDL path alone.
+_UNCASTABLE = {"geospatial:geometry", "geospatial:geography"}
+
+
+def _rendered(render: Callable[[], str]) -> str:
+    """The SQL, or the exception's type: messages may differ by design."""
+    try:
+        return render()
+    except Exception as e:  # noqa: BLE001 -- the exception is the observation
+        return f"!{type(e).__name__}"
+
+
+def _cast_sql(compiler: RedshiftCompiler, expr: ir.Table) -> str:
+    return _rendered(lambda: compiler.to_sqlglot(expr).sql(dialect="redshift"))
+
+
+def test_redshift_type_ddl_diverges_from_postgres_only_where_intended() -> None:
+    diverging = {
+        str(dtype)
+        for dtype in _PROBED_DTYPES
+        if _rendered(lambda d=dtype: RedshiftType.from_ibis(d).sql("redshift"))
+        != _rendered(lambda d=dtype: PostgresType.from_ibis(d).sql("redshift"))
+    }
+    assert diverging == set(_INTENDED_TYPE_DIVERGENCES)
+
+
+def test_redshift_type_casts_diverge_from_postgres_only_where_intended(
+    t: ir.Table,
+) -> None:
+    """The mapper is also the compiler's cast target, so every DDL divergence
+    reaches compiled queries too. This is the path the DDL-only validation
+    missed. A typed NULL and a column cast cover both of ``cast()``'s callers."""
+    diverging = {
+        str(dtype)
+        for dtype in _PROBED_DTYPES
+        if str(dtype) not in _UNCASTABLE
+        for expr in (
+            t.select(o=xo.literal(None, type=dtype)),
+            t.select(o=t.s.cast(dtype)),
+        )
+        if _cast_sql(redshift_compiler, expr) != _cast_sql(_POSTGRES_MAPPED, expr)
+    }
+    assert diverging == set(_INTENDED_TYPE_DIVERGENCES)
+
+
+def test_only_typeof_diverges_among_ops_that_cast_internally(t: ir.Table) -> None:
+    """Ops whose visitors cast through the mapper with no cast in the user's
+    expression. ``TypeOf`` casts ``pg_typeof`` to ``string``, so it picks up
+    ``VARCHAR(65535)``, which is harmless."""
+    exprs = {
+        "Literal[binary]": t.select(o=xo.literal(b"\x01")),
+        "Literal[json]": t.select(o=xo.literal('{"a": 1}', type="json")),
+        "Literal[uint64]": t.select(o=xo.literal(1, type="uint64")),
+        "JSONGetItem.int": t.select(o=t.s.cast("json")["a"].int),
+        "Round(digits)": t.select(o=t.amt.round(2)),
+        "Log(base)": t.select(o=t.amt.log(2)),
+        "FloorDivide": t.select(o=t.id // 2),
+        "TryCast[decimal]": t.select(o=t.s.try_cast("decimal(18, 3)")),
+        "EpochSeconds": t.select(o=t.s.cast("timestamp").epoch_seconds()),
+        "Mean[bool]": t.select(o=t.flag.mean()),
+        "TypeOf": t.select(o=t.id.typeof()),
+    }
+    diverging = {
+        name
+        for name, expr in exprs.items()
+        if _cast_sql(redshift_compiler, expr) != _cast_sql(_POSTGRES_MAPPED, expr)
+    }
+    assert diverging == {"TypeOf"}
+
+
 def test_last_raises_like_first(t):
     """``visit_Last`` had no coverage at all: the ``distinct(on=...)`` test only
     exercised ``keep="first"``, and nothing reached ``.last()``."""
