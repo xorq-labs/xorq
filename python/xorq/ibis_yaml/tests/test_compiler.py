@@ -2211,13 +2211,11 @@ def test_map_literal_with_node_ref_key_round_trips(compiler):
 def test_from_yaml_ignores_unreachable_node_definitions(compiler):
     table = ibis.table({"a": "int64"}, name="t")
     expr = table.filter(table.a > 0)
-    yaml_dict = compiler.to_yaml(expr)
-    yaml_dict = dict(yaml_dict)
-    definitions = dict(yaml_dict["definitions"])
-    nodes = dict(definitions[RegistryEnum.nodes])
-    nodes["@unused"] = {"op": "DatabaseTable", "profile": "missing"}
-    definitions[RegistryEnum.nodes] = nodes
-    yaml_dict["definitions"] = definitions
+    yaml_dict = toolz.assoc_in(
+        compiler.to_yaml(expr),
+        ["definitions", RegistryEnum.nodes, "@unused"],
+        {"op": "DatabaseTable", "profile": "missing"},
+    )
 
     restored = YamlExpressionTranslator.from_yaml(yaml_dict)
 

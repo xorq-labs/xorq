@@ -1,5 +1,6 @@
 import base64
 import functools
+from collections.abc import Mapping
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -120,6 +121,28 @@ class Registry:
             raise ValueError(
                 f"ref {ref} not found in definitions for which={which}"
             ) from err
+
+
+def reachable_node_refs(registry: Registry, yaml_obj) -> frozenset[str]:
+    """Every registered node ref reachable from yaml_obj, found without recursion.
+
+    A mapping counts as a ref only if its node_ref names a registered node, so a
+    literal that happens to carry a "node_ref" key is walked as plain data.
+    """
+    reachable = set()
+    pending = [yaml_obj]
+    while pending:
+        match value := pending.pop():
+            case Mapping():
+                node_ref = value.get(RefEnum.node_ref)
+                if isinstance(node_ref, str) and node_ref in registry.nodes:
+                    if node_ref not in reachable:
+                        reachable.add(node_ref)
+                        pending.append(registry.nodes[node_ref])
+                pending.extend(value.values())
+            case tuple() | list():
+                pending.extend(value)
+    return frozenset(reachable)
 
 
 def _is_absolute_path(instance, attribute, value):
