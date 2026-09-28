@@ -12,25 +12,27 @@ and none is about a data backend. This one is not really about Redshift. It is
 about what xorq does when the best driver for a source is distributed in a way
 that no `[project.optional-dependencies]` entry can express.
 
-Every backend with an external driver declares it as a PyPI extra in
-`pyproject.toml`. The Columnar ADBC Redshift driver cannot be declared that way:
+Backends declare their Python drivers as PyPI extras in `pyproject.toml`; the
+one driver installed out of band today is bigquery's, by `dbc install` (see
+*Alternatives*). The Columnar ADBC Redshift driver cannot be declared as an
+extra:
 
 | | |
 |---|---|
 | Distribution | Not on PyPI, and Columnar publishes no driver as a wheel. The *installer*, `dbc`, is on PyPI; the driver it fetches is not |
-| Environment | `dbc install --level` accepts only `user` and `system`. There is no environment level |
+| Environment | `--level` accepts only `user` and `system`. With it omitted, `dbc install` writes to the first of `$ADBC_DRIVER_PATH`, `$VIRTUAL_ENV/etc/adbc/drivers` and `$CONDA_PREFIX/etc/adbc/drivers` that is set, else the user level. No lockfile records it |
 | Platforms | Builds exist for `linux_amd64`, `linux_arm64`, `macos_arm64` and `windows_amd64`. **No `macos_amd64`** — for any version |
 
 **The environment row is the load-bearing one**, and it is not the row that is
-usually cited. A `dbc`-installed driver is machine-global: it cannot be captured
-in `uv.lock`, cannot be reconstructed by `uv sync`, and two projects on one
-machine cannot pin different driver versions. "Not on PyPI" is a fact about one
-index that Columnar could retire tomorrow by publishing anywhere; the
-environment defect is a property of `dbc`'s install model and survives that.
-
-The irony is sharp: `adbc_driver_manager` already searches
-`sys.prefix/etc/adbc/drivers`, but only when running inside a real virtualenv.
-The hook `dbc` cannot target is one the driver manager already honours.
+usually cited. A `dbc`-installed driver sits outside the Python dependency
+graph: it cannot be captured in `uv.lock` and cannot be reconstructed by
+`uv sync`. It can land inside a virtualenv — `adbc_driver_manager` searches
+`sys.prefix/etc/adbc/drivers` there, and `dbc` targets that directory when
+`$VIRTUAL_ENV` is set — but only as an out-of-band step, whose destination is
+decided by the environment variables of the shell that ran it rather than by the
+project. "Not on PyPI" is a fact about one index that Columnar could retire
+tomorrow by publishing anywhere; the lockability defect is a property of `dbc`'s
+install model and survives that.
 
 Optionality is only worth discussing if a PyPI-installable driver can do the job
 at all, and for Redshift the open question was authentication: IAM mints a
@@ -89,8 +91,8 @@ and `to_pyarrow_batches`' per-batch cast to the ibis schema converts it to
 
 The fear this measurement retired was the opposite of what happened. The worry
 was that a PostgreSQL-targeted driver would fail on Redshift's incomplete
-`pg_catalog`, the way `CURRENT_SCHEMA` did. ADBC's introspection is fine; the
-`pg_catalog` failures on Redshift are all in xorq's own psycopg path.
+`pg_catalog`. ADBC's introspection is fine; the `pg_catalog` failures on
+Redshift are all in xorq's own psycopg path.
 
 **What this buys is recorded as a cost** — see *Negative*, the wire-compatibility
 bullet, which is its single home.
@@ -159,7 +161,7 @@ execute, re-run as a slower psycopg query.
 Build `xorq-adbc-driver-redshift` wheels bundling the unmodified Columnar shared
 library, resolving its absolute path at import, for the platforms upstream
 builds. This would make the accelerator a declarable, lockable dependency
-instead of a machine-global side effect, and it is not a novel mechanism:
+instead of an out-of-band install step, and it is not a novel mechanism:
 `adbc_driver_snowflake` is a PyPI wheel shipping its Go shared library inside
 the Python package and handing the driver manager an absolute path, and xorq
 already depends on several ADBC drivers packaged that way (`pyproject.toml` is
@@ -186,9 +188,9 @@ build hook because purity is a build-time value.
 The pattern the bigquery backend uses today.
 
 Rejected as *primary*. It cannot be captured in `uv.lock`, so the environment is
-not reproducible and two projects on one machine cannot pin different driver
-versions. It also requires an out-of-band step before the accelerator exists at
-all.
+not reproducible from the lockfile, and the installed driver version is whatever
+the last out-of-band run left. It also requires that step before the
+accelerator exists at all.
 
 It remains a precedent for *another* backend, not a working Redshift path: no
 code here accepts a `driver=` name, and the availability probe looks for
@@ -254,40 +256,34 @@ that builds its batches positionally and cannot see a mismatch. Any driver
 handing back the folded name meets it identically, the Columnar driver included,
 and swapping accelerators neither causes nor cures it.
 
-The second caveat is that **no supported install reaches the psycopg read
-fallback.** The `redshift` extra mirrors `postgres`, which pins
-`adbc-driver-postgresql` alongside `psycopg`, so the availability predicate
-returns `None` for any credentialed install and the psycopg *read* branch is dead
-code there. Importing the backend also requires an ADBC package — but the driver
-*manager*, not the driver: `postgres/__init__.py` imports `adbc_driver_manager`
-at module scope, while the module that imports `adbc_driver_postgresql` is itself
-loaded lazily. The backend's own tests are the source of truth for this.
+The second caveat is that **which read branch serves a query is decided per
+connection, not per install.** The availability predicate returns a reason
+whenever the connection's `_con_kwargs` carry no password, which is every
+backend built by `from_connection` and every connect that leaves the password to
+libpq (`PGPASSWORD`, `.pgpass`). Those connections read through psycopg on the
+standard `redshift` extra; a connection given a password reads through
+`adbc_driver_postgresql`. So the psycopg read branch is live, on a population the
+extra does not select, and the same expression can succeed on one connection
+and fail on another: the alias case above succeeds through psycopg and raises
+through ADBC.
+
+Importing the backend requires an ADBC package — the driver *manager*, not the
+driver: `postgres/__init__.py` imports `adbc_driver_manager` at module scope,
+while the module that imports `adbc_driver_postgresql` is itself loaded lazily.
+The measurement is recorded beside the import guard in
+`python/xorq/tests/test_redshift_backend.py`. An install without
+`adbc-driver-postgresql` therefore reads every connection through psycopg; one
+without the manager cannot import the backend at all.
 
 Ingest is not affected: it consults no predicate, so its psycopg path is the live
-one on every install. What remains is an untested read fallback — a branch that
-ships, is the documented degrade, and that no supported install exercises.
-
-Stated, not resolved — and narrower than it looks in one direction, wider in
-another. Because the blocker is the manager, an extra declaring psycopg plus
-`adbc-driver-manager` and omitting `adbc-driver-postgresql` is a
-`pyproject.toml` change alone; `adbc-driver-manager` is not a core dependency, so
-it must be named. But it puts the psycopg branches only in the *dispatch path*,
-not into service. The routes that introspect first — `table`, `sql` without a
-supplied schema, and the ingest tail — stay broken while introspection is broken,
-so the dispatch being correct buys nothing on its own. Such an extra also removes
-the accelerator from installs that would otherwise have got the driver only from
-the `redshift` extra, which is Decision part 2 undone for those users rather than
-a free repair.
-The extras change is necessary for the baseline and nowhere near sufficient. The
-alternative is dropping the fallback. Which of the two is a decision this ADR
-does not make.
+one on every connection.
 
 ## Consequences
 
 ### Positive
 
 - The backend installs with `uv sync`, and the accelerator is lockable rather
-  than machine-global.
+  than installed out of band.
 - No supported platform gets a broken install, and no platform has to degrade for
   want of an accelerator build — `adbc_driver_postgresql` ships wheels for every
   platform xorq supports, Intel Mac included.
@@ -334,8 +330,8 @@ does not make.
   ingest
 - `python/xorq/backends/postgres/__init__.py` — the backend subclassed, and the
   ADBC-first read path discussed above
-- `python/xorq/common/utils/adbc_utils.py` — the bulk-ingest capability probe,
-  not reached when the driver fails to load
+- `python/xorq/common/utils/adbc_utils.py` — the bulk-ingest capability probe
+  the postgres ingest path consults; Redshift's ingest never reaches it
 - `.github/workflows/ci-test-bigquery.yml` — the out-of-band `dbc install`
   fallback pattern, already in use for another backend
 - [ADR-0003](0003-optional-git-annex-backend.md) — making an external
