@@ -53,9 +53,10 @@ IAM.
 
 Two parts, and the second only makes sense because of the first.
 
-**1. psycopg is the baseline.** Connect, DDL and query run over psycopg, and the
-read path degrades to it when the driver is *absent*, never when it fails. The
-two read branches build Arrow differently — the accelerator casts
+**1. psycopg is the baseline.** Connect, DDL and query run over psycopg. The read
+path falls back to it when the driver is absent at connect, and at execute
+through one narrow catch (see *Degrading*); a failed connect raises. The two
+read branches build Arrow differently — the accelerator casts
 each fetched batch to the ibis schema, the baseline builds a record batch from a
 struct array — so a defect in one cast can surface on one branch and not the
 other. The alias failure below is exactly that.
@@ -270,10 +271,11 @@ Importing the backend requires an ADBC package — the driver *manager*, not the
 driver: `postgres/__init__.py` imports `adbc_driver_manager` at module scope,
 while the module that imports `adbc_driver_postgresql` is itself loaded lazily.
 The measurement is recorded beside the import guard in
-`python/xorq/tests/test_redshift_backend.py`. An install with the
-manager but not `adbc-driver-postgresql` (no declared extra produces one; the dev
-group's `adbc-driver-sqlite` brings the manager alone) reads every connection through psycopg; one without the manager
-cannot import the backend at all.
+`python/xorq/tests/test_redshift_backend.py`. An install with psycopg
+and the manager but not `adbc-driver-postgresql` reads every connection through
+psycopg; no declared extra produces one, since only `postgres` and `redshift`
+bring psycopg and both bring the driver. One without the manager cannot import
+the backend at all.
 
 Ingest is not affected: it consults no predicate, so its psycopg path is the live
 one on every connection.
