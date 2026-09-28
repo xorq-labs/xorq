@@ -3,10 +3,9 @@
 Covers the generalized ``catalog replay --rebuild`` capability that
 delegates to registered ``TagHandler`` rebuild protocols:
   1. Handler-level ``reemit`` callable.
-  2. Domain-object ``reemit(tag_node, rebuild_subexpr)`` method
-     (multi-output builders like ``FittedPipeline``).
-  3. Domain-object ``with_inputs_translated`` + ``expr`` (single-output
-     builders like ``ExprComposer``).
+  2. Domain object implementing the ``Rebuildable`` protocol
+     (``rebuild(tag_node, rebuild_subexpr, remap, to_catalog)``), e.g.
+     ``FittedPipeline`` and ``ExprComposer``.
 """
 
 from pathlib import Path
@@ -21,6 +20,11 @@ from xorq.catalog.enums import CatalogTag
 from xorq.catalog.replay import Replayer
 from xorq.catalog.tests.conftest import _replay_rebuild
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.builders import (
+    TagHandler,
+    get_rebuild_dispatch,
+    register_tag_handler,
+)
 from xorq.expr.ml.enums import FittedPipelineTagKey
 from xorq.expr.ml.pipeline_lib import (
     _FITTED_PIPELINE_REEMIT_TAGS,
@@ -112,60 +116,57 @@ def test_get_rebuild_dispatch_handler_level_reemit_wins(saved_registry):
     assert calls["from_tag_node"] == 0
 
 
-def test_get_rebuild_dispatch_single_output_returns_callable(saved_registry):
-    """A domain object with with_inputs_translated + expr returns a callable
-    that delegates to with_inputs_translated and reads `.expr`."""
-    from attr import field, frozen  # noqa: PLC0415
+def test_get_rebuild_dispatch_single_output_returns_callable(
+    saved_registry,
+):  # xorq-style: disable=type-annotations
+    """A Rebuildable that translates a self-contained recipe (uses remap /
+    to_catalog) returns a callable that delegates to its rebuild() method."""
+    calls = {"rebuild": 0, "remap": None}
 
-    from xorq.expr.builders import (  # noqa: PLC0415
-        TagHandler,
-        get_rebuild_dispatch,
-        register_tag_handler,
-    )
-
-    calls = {"with_inputs_translated": 0}
-
-    @frozen
-    class FakeBuilder:
-        tag = field()
-
-        def with_inputs_translated(self, remap, to_catalog):
-            calls["with_inputs_translated"] += 1
-            return self
-
-        @property
-        def expr(self):
-            return self.tag.parent.to_expr()
+    class FakeRecipeBuilder:
+        def rebuild(
+            self,
+            tag_node: object,
+            rebuild_subexpr: object,
+            remap: dict,
+            to_catalog: object,
+        ) -> object:
+            calls["rebuild"] += 1
+            calls["remap"] = remap
+            return tag_node.parent.to_expr()
 
     register_tag_handler(
         TagHandler(
             tag_names=("test_single_out",),
             extract_metadata=lambda tag_node: {"type": "test_single_out"},
-            from_tag_node=lambda tag_node: FakeBuilder(tag=tag_node),
+            from_tag_node=lambda tag_node: FakeRecipeBuilder(),
         )
     )
 
     raw = xo.memtable({"x": [1, 2, 3]}).tag("test_single_out")
     dispatch = get_rebuild_dispatch(raw.op())
     assert callable(dispatch)
-    dispatch(lambda expr: expr, {}, None)
-    assert calls["with_inputs_translated"] == 1
+    dispatch(lambda expr: expr, {"a": "b"}, None)
+    assert calls["rebuild"] == 1
+    assert calls["remap"] == {"a": "b"}
 
 
-def test_get_rebuild_dispatch_domain_object_reemit(saved_registry):
-    """A domain object with a reemit method returns a callable."""
-    from xorq.expr.builders import (  # noqa: PLC0415
-        TagHandler,
-        get_rebuild_dispatch,
-        register_tag_handler,
-    )
-
-    calls = {"reemit": 0}
+def test_get_rebuild_dispatch_input_driven_returns_callable(
+    saved_registry,
+):  # xorq-style: disable=type-annotations
+    """A Rebuildable that recurses via rebuild_subexpr returns a callable."""
+    calls = {"rebuild": 0}
 
     class FakeBuilder:
-        def reemit(self, tag_node, rebuild_subexpr):
-            calls["reemit"] += 1
-            return tag_node.parent.to_expr()
+        def rebuild(
+            self,
+            tag_node: object,
+            rebuild_subexpr: object,
+            remap: dict,
+            to_catalog: object,
+        ) -> object:
+            calls["rebuild"] += 1
+            return rebuild_subexpr(tag_node.parent.to_expr())
 
     register_tag_handler(
         TagHandler(
@@ -179,16 +180,13 @@ def test_get_rebuild_dispatch_domain_object_reemit(saved_registry):
     dispatch = get_rebuild_dispatch(raw.op())
     assert callable(dispatch)
     dispatch(lambda expr: expr, {}, None)
-    assert calls["reemit"] == 1
+    assert calls["rebuild"] == 1
 
 
-def test_get_rebuild_dispatch_no_protocol_returns_none(saved_registry):
-    """A domain object with neither reemit nor with_inputs_translated returns None."""
-    from xorq.expr.builders import (  # noqa: PLC0415
-        TagHandler,
-        get_rebuild_dispatch,
-        register_tag_handler,
-    )
+def test_get_rebuild_dispatch_no_protocol_returns_none(
+    saved_registry,
+):  # xorq-style: disable=type-annotations
+    """A domain object without a rebuild() method is not Rebuildable -> None."""
 
     class Bare:
         pass
