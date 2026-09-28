@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import sys
+from collections.abc import Callable
 from types import ModuleType
 
 import pyarrow as pa
@@ -66,6 +67,7 @@ from xorq.vendor.ibis.backends.profiles import (  # noqa: E402
     check_for_exposed_secrets,
     con_name_to_secret_keys,
 )
+from xorq.vendor.ibis.expr import types as ir  # noqa: E402
 
 
 def test_name_is_redshift_not_inherited_postgres():
@@ -1346,30 +1348,61 @@ def test_both_paths_agree_on_a_char_column() -> None:
     "data_type",
     [
         pytest.param("super", id="super"),
-        # The spelling svv_all_columns actually emits for VARBYTE(16),
-        # measured live: the view definition rewrites the DDL keyword.
-        pytest.param("binary varying", id="binary-varying"),
-        pytest.param("varbyte", id="varbyte-as-written-by-a-user"),
         pytest.param("hllsketch", id="hllsketch"),
         pytest.param("geometry", id="geometry"),
         pytest.param("geography", id="geography"),
     ],
 )
-def test_get_schema_rejects_a_redshift_only_type_loudly(data_type: str) -> None:
-    """The catalog path had no unsupported-type guard at all, while the query
-    path raised -- opposite policies from two entry points onto one table.
+@pytest.mark.parametrize(
+    ("is_nullable", "nullable"),
+    [pytest.param("NO", False, id="not-null"), pytest.param("YES", True, id="null")],
+)
+def test_get_schema_binds_a_redshift_only_type_as_unknown(
+    data_type: str, is_nullable: str, nullable: bool
+) -> None:
+    """One unmappable column used to fail the whole table, so a table carrying
+    a ``SUPER`` column could not be bound at all. It now binds, with that
+    column present and typed ``unknown``; touching it is what fails.
 
-    ``geometry`` and ``geography`` are the reason this cannot be left to a
-    generic "unknown" check: they *parse*, into ibis ``GeoSpatial`` types, and
-    this backend still compiles as PostgreSQL, so a geo operation on such a
-    column emits a PostGIS call Redshift does not implement -- a server-side
-    error on SQL that compiled cleanly, which is the failure class these
-    overrides exist to remove.
+    ``geometry`` and ``geography`` are here although they *parse*, into ibis
+    ``GeoSpatial`` types: this backend still compiles as PostgreSQL, so a geo
+    operation on such a column would emit a PostGIS call Redshift does not
+    implement.
+
+    Nullability is asserted both ways because the mapper's own ``unknown``
+    fallback drops ``nullable=``, so a ``SUPER NOT NULL`` column taken from it
+    would come back nullable.
     """
+    con = make_introspection_con(
+        rows=(
+            ("id", "integer", "NO", 32, 0),
+            ("c", data_type, is_nullable, None, None),
+        )
+    )
+
+    schema = con.get_schema("t", database="public")
+
+    assert schema.names == ("id", "c")
+    assert schema["id"] == dt.Int32(nullable=False)
+    assert schema["c"] == dt.Unknown(nullable=nullable)
+
+
+@pytest.mark.parametrize(
+    "data_type",
+    [
+        # The spelling svv_all_columns actually emits for VARBYTE(16),
+        # measured live: the view definition rewrites the DDL keyword.
+        pytest.param("binary varying", id="binary-varying"),
+        pytest.param("varbyte", id="varbyte-as-written-by-a-user"),
+    ],
+)
+def test_get_schema_maps_varbyte_to_binary(data_type: str) -> None:
+    """``VARBYTE`` is variable-length binary data, which ``dt.Binary`` is.
+    sqlglot's postgres dialect parses neither spelling, so without the alias
+    both would bind as ``unknown``."""
     con = make_introspection_con(rows=(("c", data_type, "NO", None, None),))
 
-    with pytest.raises(exc.UnsupportedBackendType, match=data_type):
-        con.get_schema("t", database="public")
+    assert con.get_schema("t", database="public")["c"] == dt.Binary(nullable=False)
 
 
 def test_query_path_rejects_an_oid_psycopg_names_but_cannot_map() -> None:
@@ -1397,6 +1430,148 @@ def test_unsupported_type_keeps_the_nullability_it_was_given() -> None:
     assert mapper.from_string("integer", nullable=True) == dt.Int32(nullable=True)
     with pytest.raises(exc.UnsupportedBackendType):
         mapper.from_string("super", nullable=False)
+    assert mapper.from_string("varbyte(16)", nullable=False) == dt.Binary(
+        nullable=False
+    )
+
+
+# --- an unmappable column fails where it is used, not where it is bound -----
+
+
+# ``offers`` carries a SUPER column between two mappable ones, which is the
+# shape of the field report: most required tables have one or more.
+OFFERS_CATALOG_ROWS = (
+    ("id", "integer", "NO", 32, 0),
+    ("payload", "super", "NO", None, None),
+    ("name", "character varying", "YES", None, None),
+)
+OFFERS_DATA_ROWS = ((1, "a"), (2, None))
+
+
+class _ReadCursor(_IntrospectionCursor):
+    """``_IntrospectionCursor`` that answers a data query with data rows.
+
+    Catalog queries still get the catalog rows. ``fetchmany`` serves the
+    psycopg read path, which drains a named cursor in chunks.
+    """
+
+    def __init__(self, con: _ReadConnection, *args: object) -> None:
+        super().__init__(con, *args)
+        self._data = con.data_rows
+
+    def fetchall(self) -> list:
+        if "svv_" in (self._last or ""):
+            return super().fetchall()
+        rows, self._data = self._data, ()
+        return list(rows)
+
+    def fetchmany(self, size: int) -> list:
+        return self.fetchall()
+
+
+class _ReadConnection(_IntrospectionConnection):
+    def __init__(self, rows: tuple, data_rows: tuple) -> None:
+        super().__init__(rows=rows)
+        self.data_rows = data_rows
+
+    def cursor(self, *args: object, **kwargs: object) -> _ReadCursor:
+        return _ReadCursor(self, self._rows, self._description, self._temp_rows)
+
+
+Offers = tuple[RedshiftBackend, ir.Table]
+
+
+@pytest.fixture
+def offers(monkeypatch: pytest.MonkeyPatch) -> Offers:
+    """``offers`` bound through ``con.table``, readable over the psycopg path.
+
+    ``make_offline_con`` stubs ``con.table``, so the unbound method is called
+    to reach the real ``get_schema``. ADBC is switched off so the read stays
+    on the fake connection rather than dialling anything.
+    """
+    con = make_offline_con()
+    con.con = _ReadConnection(rows=OFFERS_CATALOG_ROWS, data_rows=OFFERS_DATA_ROWS)
+    monkeypatch.setattr(RedshiftBackend, "_open_adbc_conn_or_none", lambda self: None)
+    return con, RedshiftBackend.table(con, "offers", database="public")
+
+
+def test_a_table_with_an_unmappable_column_binds_and_reads_its_other_columns(
+    offers: Offers,
+) -> None:
+    """The point of binding: the columns that do map are readable through the
+    table, without hand-building a source that leaves the SUPER column out."""
+    con, t = offers
+
+    assert t.schema()["payload"] == dt.Unknown(nullable=False)
+    result = t.select("id", "name").to_pyarrow()
+
+    assert result.to_pylist() == [{"id": 1, "name": "a"}, {"id": 2, "name": None}]
+
+
+@pytest.mark.parametrize(
+    "read",
+    [
+        pytest.param(lambda con, t: con.to_pyarrow_batches(t), id="con-batches"),
+        pytest.param(lambda con, t: con.to_pyarrow(t), id="con-to-pyarrow"),
+        pytest.param(lambda con, t: t.execute(), id="xo-execute"),
+        pytest.param(lambda con, t: t.to_pyarrow_batches(), id="xo-batches"),
+        pytest.param(lambda con, t: t.to_pyarrow(), id="xo-to-pyarrow"),
+        pytest.param(
+            lambda con, t: t.into_backend(xo.connect()).execute(), id="into-backend"
+        ),
+        pytest.param(
+            lambda con, t: con.create_table("copy", t), id="create-table-from-expr"
+        ),
+        pytest.param(
+            lambda con, t: con.create_table("copy", schema=t.schema()),
+            id="create-table-from-schema",
+        ),
+    ],
+)
+def test_touching_an_unmappable_column_raises_naming_it(
+    offers: Offers, read: Callable[[RedshiftBackend, ir.Table], object]
+) -> None:
+    """Nothing downstream refuses an ``unknown`` column on its own:
+    ``Schema.to_pyarrow`` maps it to ``string``, so a read that got as far as
+    the Arrow conversion would return SUPER data as strings. The refusal is
+    therefore explicit, on every entry point, and before any statement is
+    issued.
+    """
+    con, t = offers
+    before = len(executed(con))
+
+    with pytest.raises(exc.UnmappableColumnError, match="'payload'") as excinfo:
+        read(con, t)
+
+    assert excinfo.value.columns == ("payload",)
+    assert executed(con)[before:] == []
+
+
+def test_a_column_that_is_referenced_but_not_returned_is_not_refused(
+    offers: Offers,
+) -> None:
+    """The refusal is on what a read *returns*, since that is what would come
+    back mistyped. Filtering on the column is evaluated server-side, on
+    Redshift's own type, and returns only correctly typed columns."""
+    con, t = offers
+    con.con.data_rows = ((1,), (2,))
+
+    result = t.filter(t.payload.notnull()).select("id").to_pyarrow()
+
+    assert result.to_pylist() == [{"id": 1}, {"id": 2}]
+    assert '"payload" IS NOT NULL' in executed(con)[-1]
+
+
+def test_an_expression_with_an_unmappable_column_still_compiles(
+    offers: Offers,
+) -> None:
+    """Compiling reads no data, so it must not raise: ``con.compile`` and
+    ``xo.to_sql`` are how a caller inspects the SQL for such a table."""
+    con, t = offers
+    expr = t.select("id", "payload")
+
+    assert '"payload"' in con.compile(expr)
+    assert '"payload"' in str(xo.to_sql(expr))
 
 
 def test_fake_column_type_displays_match_psycopg() -> None:

@@ -68,6 +68,20 @@ class UnsupportedBackendType(TranslationError):
     """UnsupportedBackendType."""
 
 
+class UnmappableColumnError(UnsupportedBackendType):
+    """A read or create touched a column whose backend type has no xorq
+    equivalent.
+
+    Such a column binds -- it is in the schema, typed ``unknown`` -- so that a
+    table carrying one stays usable through its other columns. ``columns``
+    names the ones the refused operation touched.
+    """
+
+    def __init__(self, message: str, columns: tuple[str, ...]) -> None:
+        super().__init__(message)
+        self.columns = columns
+
+
 class UnboundExpressionError(ValueError, XorqError):
     """UnboundExpressionError."""
 

@@ -35,39 +35,40 @@ class RedshiftType(PostgresType):
     fine and is wrong.
     """
 
-    # Redshift-only type names as ``svv_all_columns`` actually reports them,
-    # measured on a live warehouse (2026-09-24) rather than taken from the DDL
-    # keyword: a ``VARBYTE(16)`` column comes back as **``binary varying``**,
-    # because the view definition rewrites it. ``varbyte`` is kept beside it
-    # because that is the name a user writes and may pass in by hand; the
-    # spelling the catalog emits is the one that has to be here for the message
-    # to name Redshift rather than falling through to the generic branch below.
-    # ``varbinary`` is deliberately absent -- the inherited mapper maps it to
-    # ``dt.Binary``, and no Redshift path produces it.
+    # Redshift-only type names with no xorq equivalent. ``VARBYTE`` is not
+    # one: it is variable-length binary data, and maps to ``dt.Binary`` through
+    # ``_TYPE_ALIASES`` below.
     _REDSHIFT_ONLY_TYPES = frozenset(
         {
             "super",
-            "varbyte",
-            "binary varying",
             "hllsketch",
             "geometry",
             "geography",
         }
     )
 
-    # Spellings that mean a character type but that sqlglot's postgres dialect
-    # does not parse. ``bpchar`` is not exotic: it is what PostgreSQL -- and so
+    # Spellings Redshift reports that sqlglot's postgres dialect does not
+    # parse. ``bpchar`` is not exotic: it is what PostgreSQL -- and so
     # psycopg's OID registry, at OID 1042 -- calls every ``CHAR(n)`` column, so
     # without this entry the *query* path types every ``CHAR`` column
     # ``unknown`` while the *catalog* path (which sees ``character``) types the
     # same column ``string``.
+    #
+    # ``VARBYTE`` has two spellings and sqlglot's postgres dialect parses
+    # neither: ``varbyte`` is the DDL keyword a user writes, and ``binary
+    # varying`` is what ``svv_all_columns`` reports for a ``VARBYTE(16)``
+    # column, measured on a live warehouse (2026-09-24) -- the view definition
+    # rewrites it. Both are sent to ``varbinary``, which the inherited mapper
+    # maps to ``dt.Binary``.
     _TYPE_ALIASES = {
         "bpchar": "character",
         '"char"': "character",
+        "varbyte": "varbinary",
+        "binary varying": "varbinary",
     }
 
     @staticmethod
-    def _unmappable_part(dtype: dt.DataType) -> dt.DataType | None:
+    def unmappable_part(dtype: dt.DataType) -> dt.DataType | None:
         """The first component of ``dtype`` this backend cannot emit SQL for.
 
         Checking only the top-level type is not enough, and the gap is
@@ -92,7 +93,7 @@ class RedshiftType(PostgresType):
         elif isinstance(dtype, dt.Struct):
             parts = tuple(dtype.types)
         for part in parts:
-            if (found := RedshiftType._unmappable_part(part)) is not None:
+            if (found := RedshiftType.unmappable_part(part)) is not None:
                 return found
         return None
 
@@ -124,7 +125,7 @@ class RedshiftType(PostgresType):
                 f"type mapper"
             ) from e
 
-        if (bad := cls._unmappable_part(dtype)) is not None:
+        if (bad := cls.unmappable_part(dtype)) is not None:
             raise exc.UnsupportedBackendType(
                 f"redshift type {text!r} has no xorq equivalent (resolved to "
                 f"{bad!r}); mapping it would hand back a schema that looks fine "

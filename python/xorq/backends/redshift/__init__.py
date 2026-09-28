@@ -14,6 +14,7 @@ import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.redshift.compiler import compiler
 from xorq.common.utils.logging_utils import get_logger
+from xorq.vendor.ibis.expr import datatypes as dt
 from xorq.vendor.ibis.expr import types as ir
 
 
@@ -366,13 +367,18 @@ ORDER BY ordinal_position ASC"""
         ``IntegrityError`` on a duplicate column name instead of keeping the
         last one, so a lookup that somehow matched two tables loses loudly
         rather than returning a schema short a column.
+
+        A column the type mapper refuses -- ``SUPER`` above all -- is typed
+        ``dt.Unknown`` with its catalog nullability rather than failing the
+        whole table, and ``_raise_on_unmappable_columns`` refuses any read or
+        create that touches it. Dropping it instead would bind a schema
+        silently short a column.
         """
-        type_mapper = cls.compiler.type_mapper
         return sch.Schema.from_tuples(
             [
                 (
                     column_name,
-                    type_mapper.from_string(
+                    cls._column_dtype(
                         cls._type_string(data_type, precision, scale),
                         nullable=cls._is_nullable(is_nullable),
                     ),
@@ -386,6 +392,75 @@ ORDER BY ordinal_position ASC"""
                 ) in rows
             ]
         )
+
+    @classmethod
+    def _column_dtype(cls, type_string: str, nullable: bool) -> dt.DataType:
+        """One catalog column's dtype, or ``dt.Unknown`` if it has none.
+
+        ``dt.Unknown`` is built here rather than taken from the mapper's own
+        fallback, which drops ``nullable=``.
+        """
+        try:
+            return cls.compiler.type_mapper.from_string(type_string, nullable=nullable)
+        except exc.UnsupportedBackendType:
+            logger.debug(
+                "binding an unmappable column as unknown", type_string=type_string
+            )
+            return dt.Unknown(nullable=nullable)
+
+    def _raise_on_unmappable_columns(self, schema: sch.Schema, action: str) -> None:
+        """Refuse an operation whose schema carries an unmappable column.
+
+        This is where an unmappable column fails, since binding no longer
+        does. It must be explicit: nothing downstream refuses on its own.
+        ``Schema.to_pyarrow`` maps ``dt.Unknown`` to ``string``, so a read
+        that reached the Arrow conversion would hand back ``SUPER`` data as
+        strings; and ``Schema.to_sqlglot`` fails with a bare ``KeyError``
+        naming a Python class rather than the column.
+        """
+        mapper = self.compiler.type_mapper
+        columns = tuple(
+            name
+            for name, dtype in schema.items()
+            if mapper.unmappable_part(dtype) is not None
+        )
+        if columns:
+            raise exc.UnmappableColumnError(
+                f"cannot {action} column(s) {', '.join(map(repr, columns))}: "
+                f"their {self.name} type has no xorq equivalent, so they are "
+                f"bound as unknown and cannot be read or created. Select the "
+                f"other columns instead.",
+                columns=columns,
+            )
+
+    def _run_pre_execute_hooks(self, expr: ir.Expr) -> None:
+        """Refuse a read before it is issued if it returns an unmappable column.
+
+        Every inherited read entry point -- ``execute``, ``to_pyarrow``,
+        ``to_pyarrow_batches``, and so a ``RemoteTable`` or cache read drawing
+        on this backend -- and ``create_table`` from an expression call this
+        before compiling, so one check covers them all. ``compile`` does not,
+        so an expression carrying such a column still compiles. A column
+        referenced but not returned, as in a filter on it, is not refused:
+        the data returned is still correctly typed.
+        """
+        self._raise_on_unmappable_columns(expr.as_table().schema(), "read")
+        super()._run_pre_execute_hooks(expr)
+
+    def create_table(
+        self,
+        name: str,
+        /,
+        obj: Any = None,
+        *,
+        schema: sch.SchemaLike | None = None,
+        **kwargs: Any,
+    ) -> ir.Table:
+        # A table created from an expression is checked by
+        # ``_run_pre_execute_hooks``; one created from a schema never reaches it.
+        if schema is not None:
+            self._raise_on_unmappable_columns(sch.schema(schema), "create")
+        return super().create_table(name, obj, schema=schema, **kwargs)
 
     def _temp_table_schema(self, name: str) -> sch.Schema:
         """The schema of a *temporary* table, which ``svv_all_columns`` omits.
