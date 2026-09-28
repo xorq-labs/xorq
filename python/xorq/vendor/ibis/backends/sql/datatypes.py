@@ -618,6 +618,22 @@ class RedshiftType(PostgresType):
             "the column to a string before ingest."
         )
 
+    # PostgreSQL types Redshift does not have, which the inherited mapper
+    # spells verbatim. Refused for the same reason as the nested types: the
+    # alternative is a CREATE or a CAST the warehouse rejects, naming neither
+    # the column nor a way out.
+    @classmethod
+    def _from_ibis_UUID(cls, dtype: dt.UUID) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no uuid type. Cast the column to a string first."
+        )
+
+    @classmethod
+    def _from_ibis_INET(cls, dtype: dt.INET) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no inet type. Cast the column to a string first."
+        )
+
     # A column the read side could not map binds as ``Unknown`` so the rest
     # of its table stays usable; emitting DDL for it must still fail. Without
     # this the base falls through to ``_to_sqlglot_types[type(dtype)]`` and

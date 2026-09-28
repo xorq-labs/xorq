@@ -138,6 +138,7 @@ from xorq.vendor.ibis.backends.sql.datatypes import (  # noqa: E402
     PostgresType,
     RedshiftType,
 )
+from xorq.vendor.ibis.backends.sql.dialects import Redshift  # noqa: E402
 
 
 def to_sql(expr):
@@ -446,18 +447,30 @@ def test_mode_raises(t):
         to_sql(t.group_by("grp").agg(m=t.grp.mode(where=t.flag)))
 
 
-def test_quantile_over_a_non_numeric_column_raises(t):
-    """``percentile_disc`` is rejected outright, and ``percentile_cont``
-    refuses a non-numeric ordering expression.
+@pytest.mark.parametrize(
+    "column",
+    [
+        pytest.param(lambda t: t.grp, id="string"),
+        pytest.param(lambda t: xo.date(t.y, t.m, t.d), id="date"),
+    ],
+)
+def test_quantile_over_a_non_numeric_column_raises(t, column):
+    """``percentile_disc`` is rejected outright, and ``percentile_cont`` is not
+    the discrete percentile.
 
     VERIFIED on the xorq-test warehouse 2026-09-24: PERCENTILE_DISC gives
     'Aggregate function "percentile_disc" is not supported; use approximate
     percentile_disc or percentile_cont instead', and PERCENTILE_CONT over a
-    varchar gives 'Non supported data-type in order-by expression'. So the
-    ``disc`` branch of ``visit_Quantile`` had no valid target either way.
+    varchar gives 'Non supported data-type in order-by expression'.
+
+    Measured 2026-09-28: PERCENTILE_CONT over a date is ACCEPTED and returns a
+    date, interpolated and truncated. It still must not be emitted: ibis's
+    non-numeric quantile is discrete, so an interpolated date is a value the
+    column may not contain. So the ``disc`` branch of ``visit_Quantile`` has no
+    valid target either way.
     """
     with pytest.raises(com.UnsupportedOperationError, match="(?i)percentile_disc"):
-        to_sql(t.group_by("grp").agg(q=t.grp.quantile(0.5)))
+        to_sql(t.group_by("grp").agg(q=column(t).quantile(0.5)))
 
 
 @pytest.mark.parametrize(
@@ -599,6 +612,8 @@ _INTENDED_TYPE_DIVERGENCES = {
     "array<string>": "no array types; refused",
     "map<string, int64>": "no map type; refused with UnsupportedBackendType",
     "struct<a: int64>": "no struct type; refused",
+    "uuid": "no uuid type; refused",
+    "inet": "no inet type; refused",
 }
 
 _PROBED_DTYPES = [
@@ -804,6 +819,33 @@ def test_array_casting_ops_raise_naming_the_op(
     """
     with pytest.raises(com.OperationNotDefinedError, match=op):
         to_sql(build(t))
+
+
+@pytest.mark.parametrize(
+    ("build", "op"),
+    [
+        pytest.param(lambda t: t.select(o=t.s.hash()), "Hash", id="hash"),
+        pytest.param(lambda t: t.select(o=xo.uuid()), "RandomUUID", id="uuid"),
+        pytest.param(
+            lambda t: t.select(o=t.s.re_extract(r"a(b)", 1)),
+            "RegexExtract",
+            id="re-extract",
+        ),
+    ],
+)
+def test_postgres_only_functions_raise_naming_the_op(
+    t: ir.Table, build: Callable[[ir.Table], ir.Table], op: str
+) -> None:
+    """The inherited visitors emit ``HASHTEXTEXTENDED``, ``GEN_RANDOM_UUID`` and
+    ``REGEXP_MATCH(...)[n]``, none of which Redshift has."""
+    with pytest.raises(com.OperationNotDefinedError, match=op):
+        to_sql(build(t))
+
+
+def test_redshift_names_the_xorq_dialect_process_wide():
+    """``"redshift"`` resolves to the xorq subclass, not sqlglot's own, so a
+    string-named dialect renders what the compiler renders."""
+    assert type(sqlglot.Dialect.get_or_raise("redshift")) is Redshift
 
 
 @pytest.mark.parametrize(
@@ -1024,10 +1066,11 @@ def test_string_literal_escaping_matches_what_the_warehouse_decodes():
     assert to_sql(t.filter(t.s == "a\\b").select("s")).endswith("= 'a\\\\b'")
     # the whitespace literal .strip() emits, which no user wrote
     assert "TRIM(' \\t\\n\\r\\v\\f' FROM" in to_sql(t.select(o=t.s.strip()))
-    # the four regex operands -- doubled, which is what the warehouse decodes
+    # the regex operands -- doubled, which is what the warehouse decodes.
+    # (``re_extract`` was the fourth; it now raises, as Redshift has no
+    # ``REGEXP_MATCH``.)
     assert "'\\\\d+'" in to_sql(t.select(o=t.s.re_search(r"\d+")))
     assert "'\\\\s'" in to_sql(t.select(o=t.s.re_replace(r"\s", "")))
-    assert "'(\\\\w+)'" in to_sql(t.select(o=t.s.re_extract(r"(\w+)", 1)))
     assert "LIKE 'a\\\\b'" in to_sql(t.select(o=t.s.like(r"a\b")))
 
 

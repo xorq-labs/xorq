@@ -452,6 +452,12 @@ class Redshift(_Redshift):
     ``test_redshift_dialect.py::test_transforms_do_not_depend_on_import_order``
     is what actually holds the property.
 
+    Like ``ClickHouse`` above, the class replaces sqlglot's own entry in the
+    dialect registry, so ``"redshift"`` names this class everywhere in the
+    process, including a plain ``sqlglot.transpile(..., write="redshift")``.
+    That is deliberate: a string-named dialect elsewhere in xorq must render
+    what the compiler renders, not sqlglot's import-order-dependent class.
+
     The Postgres block above renames five functions to Postgres-only names.
     Two of them get their Redshift spelling below. The other three do not, each
     for its own reason:

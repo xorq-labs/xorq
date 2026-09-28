@@ -164,6 +164,13 @@ class RedshiftCompiler(PostgresCompiler):
         # ``PERCENTILE_CONT`` takes one scalar fraction.
         ops.MultiQuantile,
         ops.ApproxMultiQuantile,
+        # PostgreSQL-only functions the inherited visitors emit, with no
+        # Redshift namesake: ``HASHTEXTEXTENDED`` and its per-type siblings,
+        # ``GEN_RANDOM_UUID``, and ``REGEXP_MATCH(...)[n]``, which also indexes
+        # the array Redshift cannot return.
+        ops.Hash,
+        ops.RandomUUID,
+        ops.RegexExtract,
     )
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
@@ -276,15 +283,23 @@ class RedshiftCompiler(PostgresCompiler):
         ordered argument instead: ``PERCENTILE_CONT`` ignores NULLs, so
         nulling-out the filtered rows removes them from the ordering set
         exactly as ``FILTER`` removed them from the input.
+
+        A non-numeric column raises even though ``PERCENTILE_CONT`` accepts a
+        date: measured 2026-09-28, the median of twelve consecutive dates came
+        back as a ``date``, interpolated and truncated. That is not the
+        discrete percentile ibis defines for a non-numeric quantile (and
+        PostgreSQL lowers to ``percentile_disc``), so emitting it would change
+        the answer silently.
         """
         if not op.arg.dtype.is_numeric():
             raise com.UnsupportedOperationError(
-                "Redshift has no `percentile_disc` -- it rejects the function "
-                "outright and directs callers to `percentile_cont`, which in "
-                "turn refuses a non-numeric ordering expression. So a quantile "
-                "over a non-numeric column has no lowering on this backend. "
-                "Rank the values explicitly with a `row_number()` window if "
-                "you need the discrete percentile."
+                "A quantile over a non-numeric column is the discrete "
+                "percentile, and Redshift has no `percentile_disc` -- it "
+                "rejects the function outright. `percentile_cont` accepts a "
+                "date but interpolates between values, so it would return a "
+                "value the column may not contain. Rank the values explicitly "
+                "with a `row_number()` window if you need the discrete "
+                "percentile."
             )
         if where is not None:
             arg = self.if_(where, arg, NULL)
