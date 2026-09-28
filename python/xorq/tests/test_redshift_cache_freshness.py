@@ -56,7 +56,6 @@ pytest.importorskip("psycopg")
 
 import xorq.vendor.ibis.expr.operations as ops  # noqa: E402
 import xorq.vendor.ibis.expr.schema as sch  # noqa: E402
-from xorq.backends.redshift import DEFAULT_PORT  # noqa: E402
 from xorq.backends.redshift import Backend as RedshiftBackend  # noqa: E402
 from xorq.caching.strategy import SnapshotStrategy  # noqa: E402
 from xorq.common.exceptions import RedshiftFreshnessUnavailable  # noqa: E402
@@ -90,12 +89,13 @@ DDL_TOKENS = (
 )
 
 SESSION_SCHEMA = "analytics"
+PORT = 5439
 
 
 class _ConnectionInfo:
     """The psycopg ``info`` surface ``normalize_redshift_backend`` reads."""
 
-    port = DEFAULT_PORT
+    port = PORT
 
     @staticmethod
     def get_parameters() -> dict[str, str]:
@@ -216,7 +216,7 @@ def make_con(
     temp_schema: str | None = None,
     temp_relkind: tuple = (),
 ) -> RedshiftBackend:
-    con = RedshiftBackend(host="example.invalid", port=DEFAULT_PORT)
+    con = RedshiftBackend(host="example.invalid", port=PORT)
     con.con = RecordingConnection(
         rows,
         current_schema=current_schema,
@@ -460,7 +460,7 @@ def make_insufficient_privilege() -> Exception:
 def make_raising_dt(
     exc: BaseException, database: str | None = "sales"
 ) -> ops.DatabaseTable:
-    con = RedshiftBackend(host="example.invalid", port=DEFAULT_PORT)
+    con = RedshiftBackend(host="example.invalid", port=PORT)
     con.con = RaisingConnection(exc)
     return make_dt(con, database=database)
 
@@ -784,14 +784,17 @@ def test_a_denied_schema_resolution_gets_the_actionable_error() -> None:
                 raise make_insufficient_privilege()
             return self
 
-    con = RedshiftBackend(host="example.invalid", port=DEFAULT_PORT)
+    con = RedshiftBackend(host="example.invalid", port=PORT)
     con.con = _DeniedSchemaConnection()
     with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
         _databasetable_dispatcher(make_dt(con, database=None))
     assert "ParquetSnapshotCache" in str(excinfo.value)
 
 
-@pytest.mark.parametrize("nullable", (True, False))
+@pytest.mark.parametrize(
+    "nullable",
+    (pytest.param(True, id="nullable"), pytest.param(False, id="not-null")),
+)
 def test_a_table_with_an_unmappable_column_gets_a_stable_key(nullable: bool) -> None:
     """A Redshift table binds even when a column has no xorq type (SUPER, say).
 
