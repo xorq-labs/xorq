@@ -213,7 +213,7 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     con = RedshiftBackend().connect(
         host="example.invalid", user="u", password="p", database="d"
@@ -234,8 +234,8 @@ def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
     a ``drop_table`` and left an ``into_backend`` placeholder in the schema.
     With the threshold ``None`` nothing is prepared, so nothing is sent.
 
-    Defaulted in ``do_connect``, like ``client_encoding``, so it reaches the
-    driver and not the profile."""
+    Set on the connection by ``_post_connect``, the hook every construction
+    path reaches, so it never enters the caller's kwargs or the profile."""
     recorded = {}
 
     def fake_connect(**kwargs):
@@ -243,14 +243,14 @@ def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     con = RedshiftBackend().connect(
         host="example.invalid", user="u", password="p", database="d"
     )
 
-    assert "prepare_threshold" in recorded
-    assert recorded["prepare_threshold"] is None
+    assert con.con.prepare_threshold is None
+    assert "prepare_threshold" not in recorded
     assert "prepare_threshold" not in con._profile.kwargs_dict
 
 
@@ -259,13 +259,13 @@ def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> No
 
     def fake_connect(**kwargs):
         recorded.update(kwargs)
-        return _FakeConnection()
+        # psycopg applies the kwarg to the connection it returns.
+        return _FakeConnection(prepare_threshold=kwargs.get("prepare_threshold", 5))
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
-    con = RedshiftBackend()
-    con.do_connect(
+    con = RedshiftBackend().connect(
         host="example.invalid",
         user="u",
         password="p",
@@ -274,6 +274,7 @@ def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
     assert recorded["prepare_threshold"] == 3
+    assert con.con.prepare_threshold == 3
 
 
 class _FakeEncodingInfo:
@@ -291,12 +292,10 @@ class _FakeEncodingInfo:
 def test_from_connection_turns_off_statement_preparation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``from_connection`` skips ``do_connect``, so its ``prepare_threshold``
-    default never applied there; it is set on the connection instead."""
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
-    raw = _FakeConnection()
-    raw.info = _FakeEncodingInfo("utf-8")
-    raw.prepare_threshold = 5
+    """``from_connection`` skips ``do_connect``; ``_post_connect``, which it
+    does reach, sets the threshold on the connection it was given."""
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
+    raw = _FakeConnection(prepare_threshold=5)
 
     con = RedshiftBackend.from_connection(raw)
 
@@ -312,7 +311,7 @@ def test_from_connection_refuses_an_undecodable_encoding(
     It is refused before any SQL, naming the setting."""
     post_connected = []
     monkeypatch.setattr(
-        RedshiftBackend, "_post_connect", lambda self: post_connected.append(self)
+        PostgresBackend, "_post_connect", lambda self: post_connected.append(self)
     )
     raw = _FakeConnection()
     raw.info = _FakeEncodingInfo(None)
@@ -402,9 +401,12 @@ class _FakeCursor:
 
 
 class _FakeConnection:
-    def __init__(self, rows: tuple = ()) -> None:
+    def __init__(self, rows: tuple = (), prepare_threshold: int | None = 5) -> None:
         self.log: list = []
         self.rows = rows
+        # psycopg's defaults: a decodable encoding, and a threshold of 5.
+        self.info = _FakeEncodingInfo("utf-8")
+        self.prepare_threshold = prepare_threshold
 
     def cursor(self, *args, **kwargs):
         return _FakeCursor(self.log, self.rows)
@@ -805,11 +807,12 @@ def test_adbc_read_connection_without_a_schema_is_unchanged(
     assert uris == [_BASE_URI]
 
 
-def test_postgres_adbc_read_connection_is_not_given_the_schema(
+def test_postgres_adbc_read_connection_is_given_the_schema_too(
     monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
 ) -> None:
-    """The fix is Redshift's alone. Postgres has the same gap, but its read
-    path is shared by every postgres user and is a separate change."""
+    """The search path is ``PgADBC``'s, so postgres gets it as well: it had
+    the same gap, and its table-bound reads on a ``schema=`` connection fell
+    back to psycopg in the same way."""
     con = PostgresBackend()
     type(con).__init__(con, host="example.invalid", password="static", schema="s")
     con.con = _FakeConnection()
@@ -818,7 +821,7 @@ def test_postgres_adbc_read_connection_is_not_given_the_schema(
 
     con._open_adbc_conn_or_none()
 
-    assert uris == [_BASE_URI]
+    assert uris == [f"{_BASE_URI}?options=-csearch_path%3Ds"]
 
 
 def test_ingest_modes_are_the_adbc_ingest_modes() -> None:
@@ -966,17 +969,16 @@ def test_clone_does_not_carry_client_encoding(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     clone = con.clone()
 
     # ``do_connect`` still defaults it, so the wire is configured ...
     assert recorded["client_encoding"] == "utf8"
-    # ``prepare_threshold`` is not a DSN setting, so the clone gets it only by
-    # going back through ``do_connect``; it must, or the clone's rollbacks
-    # send ``DEALLOCATE ALL`` again.
-    assert "prepare_threshold" in recorded
-    assert recorded["prepare_threshold"] is None
+    # ``prepare_threshold`` is not a DSN setting, so the clone gets it only
+    # from ``_post_connect``; it must, or the clone's rollbacks send
+    # ``DEALLOCATE ALL`` again.
+    assert clone.con.prepare_threshold is None
     # ... and the clone did not inherit the DSN's value as a caller argument.
     assert "client_encoding" not in clone._con_kwargs
     assert "client_encoding" not in clone._profile.kwargs_dict
@@ -1083,7 +1085,7 @@ def test_clone_keeps_a_client_encoding_the_caller_passed(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     clone = con.clone()
 
@@ -1134,6 +1136,8 @@ def test_clone_hashes_equal_to_its_source(
     }
 
     class _FakeInfo:
+        encoding = "utf-8"
+
         def get_parameters(self) -> dict:
             return dict(dsn)
 
@@ -1144,7 +1148,7 @@ def test_clone_hashes_equal_to_its_source(
         return con
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     source = RedshiftBackend().connect(**connect_kwargs)
     clone = source.clone()
@@ -1198,7 +1202,7 @@ def test_clone_refuses_rather_than_borrowing_the_postgres_env_password(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     with pytest.raises(ValueError, match="password is required"):
         con.clone()
