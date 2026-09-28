@@ -479,12 +479,12 @@ class PostgresType(SqlglotType):
 
 
 class RedshiftType(PostgresType):
-    """Redshift's type mapping, which is PostgreSQL's.
+    """Redshift's type mapping, which is *nearly* PostgreSQL's.
 
-    Required purely because ``TYPE_MAPPERS`` is keyed by dialect name and
-    sqlglot's metaclass makes a dialect class hash equal to its name: the moment
-    the Redshift compiler stopped reporting ``"postgres"`` as its dialect,
-    ``Schema.to_sqlglot`` raised ``KeyError: Redshift`` for every
+    Required in the first place because ``TYPE_MAPPERS`` is keyed by dialect
+    name and sqlglot's metaclass makes a dialect class hash equal to its name:
+    the moment the Redshift compiler stopped reporting ``"postgres"`` as its
+    dialect, ``Schema.to_sqlglot`` raised ``KeyError: Redshift`` for every
     ``CREATE TABLE`` the backend emits. Retargeting the dialect without adding
     this would break ingest while leaving all the SQL-generation tests green.
 
@@ -493,16 +493,130 @@ class RedshiftType(PostgresType):
     ``RedshiftCompiler`` as well, or the warehouse-to-ibis read path keeps
     parsing type strings as PostgreSQL.
 
-    Subclassing rather than aliasing keeps the two documented Redshift
-    divergences -- unbounded ``VARCHAR`` and the ``TIMESTAMP(6)`` precision
-    modifier, both pinned by
-    ``test_ingest_ddl_pins_two_unverified_redshift_type_widths`` -- in one place
-    to correct once a live warehouse settles them. They are deliberately left
-    at the PostgreSQL spelling here: unverified, and changing them on
-    documentation alone would swap a suspected bug for an unsuspected one.
+    The overrides below were MEASURED against a live Redshift Serverless
+    warehouse on 2026-09-25 -- ``CREATE`` acceptance and an ``INSERT``
+    round-trip per candidate, each in a rolled-back transaction. This class
+    previously carried the PostgreSQL spellings unchanged, with a docstring
+    saying they were suspected-wrong but unverified; six of the thirteen types
+    a representative schema renders were in fact rejected outright:
+
+        TIMESTAMP(6)      FeatureNotSupported: timestamp column does not
+                          support precision.
+        TIMESTAMPTZ(6)    SyntaxError -- and the retargeted dialect's
+                          ``TIMESTAMP(6) WITH TIME ZONE`` spelling carries the
+                          same modifier, so it fails the same way.
+        BYTEA             unsupported type -- fixed by the dialect retarget
+                          alone, which renders VARBINARY as VARBYTE.
+        UTINYINT          type "utinyint" does not exist
+        BIGINT[]          unsupported type -- Redshift has no array types
+        STRUCT<...>       SyntaxError -- Redshift has no struct type
+
+    A bare ``VARCHAR`` is accepted and is ``VARCHAR(256)``, so it was the one
+    divergence that failed at ``INSERT`` rather than ``CREATE``, and only for
+    values over 256 bytes -- which is why every earlier probe missed it.
     """
 
     dialect = "redshift"
+
+    @classmethod
+    def _from_ibis_Timestamp(cls, dtype: dt.Timestamp) -> sge.DataType:
+        """No precision modifier, on either spelling.
+
+        ``PostgresType`` inherits ``default_temporal_scale = 6``, and the base
+        implementation renders that as ``TIMESTAMP(6)``. Redshift rejects the
+        modifier outright rather than ignoring it, and a timestamp column is
+        the common case for ``read_parquet``, so this is the override that
+        decides whether v1 ingest works on real files at all.
+
+        Dropping it costs nothing: Redshift's ``TIMESTAMP`` is microsecond
+        precision, which is exactly what the modifier asked for. Measured, a
+        value with ``.123456`` round-trips intact.
+        """
+        code = typecode.TIMESTAMP if dtype.timezone is None else typecode.TIMESTAMPTZ
+        return sge.DataType(this=code)
+
+    @classmethod
+    def _from_ibis_String(cls, dtype: dt.String) -> sge.DataType:
+        """``VARCHAR(65535)``, Redshift's maximum, rather than a bare
+        ``VARCHAR``.
+
+        In PostgreSQL a bare ``VARCHAR`` is unbounded; in Redshift it means
+        ``VARCHAR(256)``, and the 257th byte fails the ``INSERT`` -- measured,
+        ``Value too long for character type``. An ibis ``String`` carries no
+        length, so there is no width to propagate and the maximum is the only
+        spelling that cannot silently reject valid data.
+
+        The cost is real but is the right trade: Redshift allocates query
+        working memory from the DECLARED width, so max-width columns are a
+        documented performance anti-pattern. Truncating user data is worse
+        than a slow scan, and a narrower width would have to come from a
+        length ibis does not model.
+        """
+        return sge.DataType(
+            this=typecode.VARCHAR,
+            expressions=[sge.DataTypeParam(this=sge.convert(65535))],
+        )
+
+    # Redshift has no unsigned integer types, so each widens to the smallest
+    # signed type that holds its whole range -- the same ladder MySQLType uses
+    # a few classes below, with one deliberate difference: UInt64 gets
+    # ``DECIMAL(20, 0)`` rather than MySQL's ``DECIMAL(19, 0)``, because 19
+    # digits cannot represent 18446744073709551615. Measured: the 20-digit
+    # maximum round-trips.
+    @classmethod
+    def _from_ibis_UInt64(cls, dtype: dt.UInt64) -> sge.DataType:
+        return sge.DataType(
+            this=typecode.DECIMAL,
+            expressions=[
+                sge.DataTypeParam(this=sge.convert(20)),
+                sge.DataTypeParam(this=sge.convert(0)),
+            ],
+        )
+
+    @classmethod
+    def _from_ibis_UInt32(cls, dtype: dt.UInt32) -> sge.DataType:
+        return sge.DataType(this=typecode.BIGINT)
+
+    @classmethod
+    def _from_ibis_UInt16(cls, dtype: dt.UInt16) -> sge.DataType:
+        return sge.DataType(this=typecode.INT)
+
+    @classmethod
+    def _from_ibis_UInt8(cls, dtype: dt.UInt8) -> sge.DataType:
+        return sge.DataType(this=typecode.SMALLINT)
+
+    # Nested types raise rather than render. Redshift's SUPER would take the
+    # DDL -- measured, ``CREATE TABLE (c SUPER)`` is accepted -- but it is not
+    # a fix: the psycopg ingest binds ``batch.to_pydict()`` values directly,
+    # and a bound Python list is rejected with
+    # ``DatatypeMismatch: column "c" is of type super but expression is of
+    # type smallint[]``. SUPER only accepts a JSON *string*, so making these
+    # work means serialising in the ingest path, not spelling a type here.
+    # Emitting SUPER would move the failure from CREATE to INSERT and make it
+    # harder to read; raising names the column and the reason up front. Same
+    # shape as SQLiteType below.
+    @classmethod
+    def _from_ibis_Array(cls, dtype: dt.Array) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no array type; SUPER would accept the DDL but not "
+            "the bound value. Flatten the column or serialise it to a string "
+            "before ingest."
+        )
+
+    @classmethod
+    def _from_ibis_Map(cls, dtype: dt.Map) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no map type; SUPER would accept the DDL but not "
+            "the bound value. Serialise the column to a string before ingest."
+        )
+
+    @classmethod
+    def _from_ibis_Struct(cls, dtype: dt.Struct) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no struct type; SUPER would accept the DDL but not "
+            "the bound value. Unpack the fields into columns, or serialise "
+            "the column to a string before ingest."
+        )
 
 
 class RisingWaveType(PostgresType):
