@@ -13,6 +13,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # The trees Ruff and the style gates lint. Two other files carry the same
+  # list and cannot read this one: `paths` in scripts/check-style-diff.sh, and
+  # the ruff-check args in .pre-commit-config.yaml, where a comment explains why
+  # that copy means something slightly different. test_lint_paths_agree in
+  # scripts/style_tests/ compares all three and names the first that disagrees.
+  LINT_PATHS: python examples docs scripts
+
 
 jobs:
   # Deliberately not gated on detect-changes. Those exclusions exist to skip
@@ -20,13 +28,19 @@ jobs:
   # does not carry over to the linters: a prose-only change is the one this job
   # has the most to say about, and it was the one case that ran nothing at all.
   # The job installs only the dev group, so running it everywhere is cheap.
+  #
+  # No matrix: a one-cell matrix would name the check `lint (3.13)`, and a
+  # ruleset matches a required check on that name.
   lint:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ "3.13" ]
     steps:
+      # The changed-lines style gate below needs the base branch, which the
+      # default checkout does not fetch, leaving `origin/$GITHUB_BASE_REF`
+      # unresolvable. Quote the operands: GitHub reads a bare 0 as falsy, so
+      # `&& 0 || 1` would evaluate to 1.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       # Prose is listed explicitly rather than scanning the tree, so a
       # generated or vendored file cannot fail the build over wording nobody
@@ -40,7 +54,7 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -52,7 +66,49 @@ jobs:
 
       # Update output format to enable automatic inline annotations.
       - name: Run Ruff
-        run: uv run --no-sync ruff check --output-format=github python examples docs scripts
+        run: uv run --no-sync ruff check --output-format=github $LINT_PATHS
+
+      # Before the gates run, prove they can fail: every rule must flag a file
+      # written to provoke it. A rule that has stopped firing -- misconfigured,
+      # renamed upstream, switched off by accident -- reports the same clean
+      # tree as a rule with nothing to say. The file-count guard below covers
+      # the other half: a gate that matched nothing at all.
+      - name: Test the style gate
+        run: uv run --no-sync --with pytest pytest scripts/style_tests -q
+
+      # Files are expanded with `git ls-files` because xorq-check-style reports
+      # nothing and exits 0 when handed a directory (xorq-labs/xorq-style#30).
+      #
+      # --disable is the ratchet: every rule listed still has violations, which
+      # test_ratcheted_rules_still_have_violations enforces -- when one reaches
+      # zero that test fails and asks for it to come off, tightening the gate.
+      # It lives here rather than in [tool.xorq-style] disable because that
+      # would apply to every invocation, including the editor PostToolUse hook
+      # -- the rules would then go unreported on new code as well as old, and
+      # their counts could never fall.
+      - name: Style (rules at zero, whole repo)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t globs < <(printf '%s/*.py\n' $LINT_PATHS)
+          mapfile -t files < <(git ls-files -- "${globs[@]}")
+          # An empty list means the globs stopped matching the tree, not that
+          # the tree is clean. Say so rather than passing on nothing.
+          (( ${#files[@]} )) || { echo "::error::style gate matched no files"; exit 1; }
+          printf '%s\n' "${files[@]}" \
+            | xargs uv run --no-sync xorq-check-style --disable \
+              type-annotations,pytest-param-id,future-annotations,print,pytest-tmp-path,protected-access,unlisted-import,deferred-import-test,redundant-import,os-environ,init-reexport,deferred-stdlib,import-aliasing,stdlib-logging,os-path,test-class,exception-placement,relative-import,exception-hierarchy,enum-placement,cache-method
+
+      # Pull requests only: GITHUB_BASE_REF is empty on every other event, and
+      # the argument would then resolve `origin/` and redden every push to main.
+      # Everything else lives in the script, which the pre-commit hook also
+      # runs, so the two cannot drift apart.
+      - name: Style (changed lines)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/check-style-diff.sh "origin/$GITHUB_BASE_REF...HEAD"
 
       - name: Verify no uncommitted changes
         run: |

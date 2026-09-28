@@ -1,4 +1,5 @@
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
 from xorq.internal import AbstractTableProvider
 
 
@@ -18,4 +19,10 @@ class IbisTableProvider(AbstractTableProvider):
         if filters:
             table = self.table.filter(filters)
         backend = table._find_backend()
-        return backend.to_pyarrow_batches(table)
+        # schema() is rebuilt from the ibis schema and so never carries the
+        # pandas blob, but to_pyarrow_batches can: the pandas backend builds its
+        # result with pa.Table.from_pandas and PyArrowData.convert_table skips
+        # the cast when the types already match, since pa.Schema equality
+        # ignores metadata. Stripping keeps the declared and scanned schemas in
+        # agreement (xorq #2266).
+        return drop_pandas_schema_metadata(backend.to_pyarrow_batches(table))

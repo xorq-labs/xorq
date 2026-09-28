@@ -161,14 +161,32 @@ def _read_requires_python(path):
         )
 
 
-def _python_minor_from_metadata_text(text):
-    """Return a `==X.Y.*` specifier from build_metadata.json text, or None."""
+def parse_python_minor(text: str) -> tuple[int, int] | None:
+    """Return the `(major, minor)` build_metadata.json text records.
+
+    None when it records no version; raises when the text is malformed.
+    """
+    metadata = json.loads(text)
+    if not isinstance(metadata, dict):
+        raise ValueError(f"expected a JSON object, got {type(metadata).__name__}")
+    if (info := metadata.get("sys-version_info")) is None:
+        return None
+    return int(info[0]), int(info[1])
+
+
+def python_minor_from_metadata_text(text: str) -> tuple[int, int] | None:
+    """Return the `(major, minor)` build_metadata.json text records, or None."""
     try:
-        info = json.loads(text).get("sys-version_info")
-        major, minor = int(info[0]), int(info[1])
+        return parse_python_minor(text)
     except (ValueError, TypeError, KeyError, IndexError, AttributeError):
         return None
-    return f"=={major}.{minor}.*"
+
+
+def _python_minor_from_metadata_text(text: str) -> str | None:
+    """Return a `==X.Y.*` specifier from build_metadata.json text, or None."""
+    if (minor := python_minor_from_metadata_text(text)) is None:
+        return None
+    return "=={}.{}.*".format(*minor)
 
 
 def _read_build_python_minor(build_path):

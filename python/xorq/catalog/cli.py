@@ -581,8 +581,8 @@ def pin(
 
     Pinning changes the build hash, so it always yields a new content-named
     entry rather than mutating the source. Use --alias to name it, or
-    --move-aliases to move every alias (e.g. `prod`) from the source entry onto
-    the pinned entry.
+    --move-aliases to move every alias (for example, `prod`) from the source
+    entry onto the pinned entry.
 
     \b
     Arguments:
@@ -1027,6 +1027,244 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
+def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
+    """Print one entry's leaf reports as they arrive; return its exit code."""
+    from xorq.catalog.drift import (  # noqa: PLC0415
+        format_error,
+        format_leaf_report,
+        format_no_external,
+        format_unchecked,
+        iter_leaf_reports,
+        read_record,
+    )
+    from xorq.catalog.enums import Verdict  # noqa: PLC0415
+
+    # A record we cannot read is a defect in what we read rather than evidence
+    # about a backend, so it ranks `unreadable` and leaves `unreachable` to the
+    # probes, which are the only thing here that reached a source. A defect in a
+    # single leaf stays with that leaf: `iter_leaf_reports` reports it
+    # `unreadable` and goes on probing the rest.
+    record = read_record(catalog_entry)
+    if isinstance(record, Exception):
+        click.echo(f"  unreadable: {format_error(record)}")
+        # The same verdict a leaf-level defect ranks, so the entry-level and
+        # leaf-level codes cannot drift apart.
+        return Verdict.UNREADABLE.exit_code
+    codes = []
+    for report in iter_leaf_reports(record, con_cache):
+        for line in format_leaf_report(report):
+            click.echo(line)
+        codes.append(report.exit_code)
+    if (unchecked := format_unchecked(record)) is not None:
+        click.echo(unchecked)
+    elif not codes:
+        click.echo(format_no_external(record))
+    return max(codes, default=0)
+
+
+@cli.command("check-sources")
+@click.argument(
+    "names", nargs=-1, required=True, shell_complete=_complete_entry_or_alias_names
+)
+@json_option
+@click.pass_context
+def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> None:
+    """Compare each entry's recorded source schemas against the live ones.
+
+    Reports; never repairs and never infers. Bundled and pinned sources are
+    exempt: their bytes are in the archive, so they cannot drift.
+
+    \b
+    Exit codes (the worst leaf wins):
+      0  every checked source equal; any leaf this version cannot probe is
+         named in the output
+      2  a source was unreachable, or a leaf or the entry itself was
+         unreadable
+      3  a source changed, or its table is missing
+
+    A sweep that never started is not a verdict about any source: a name that
+    does not resolve, or a catalog that cannot be opened, exits 1, and a usage
+    error exits click's own 2. Neither prints a document, so a consumer reads
+    the sweep's verdict off the document rather than off a bare 2.
+
+    With --json the whole sweep is buffered and printed once as a single
+    document, so a consumer parses a complete report or none at all. Its shape
+    is documented in `xorq.catalog.drift`; the exit code is the same either way.
+
+    \b
+    Arguments:
+      NAMES  One or more entry names or aliases.
+
+    \b
+    Examples:
+      xorq catalog check-sources prod-matches staging
+      xorq catalog check-sources prod-matches --json
+    """
+    # One sweep per name, however many times it was asked for, and before
+    # either rendering picks it up: probing a repeat twice pays the probe twice
+    # and lets the second verdict replace the first, so a source that changed
+    # between the two probes could drop out of the answer the exit code was
+    # owed for. Deduped here rather than in `drift_document` alone, or the two
+    # renderings would not be sweeping the same names.
+    names = tuple(dict.fromkeys(names))
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        entries = tuple(_get_catalog_entry(catalog, name) for name in names)
+
+    from xorq.catalog.drift import close_cons, drift_document  # noqa: PLC0415
+    from xorq.catalog.enums import Verdict  # noqa: PLC0415
+
+    # Probing runs outside the handler above, which funnels every exception into
+    # a ClickException and would collapse every exit code to 1.
+    con_cache = {}
+    try:
+        if as_json:
+            # Printed after the sweep, not during it: a document cut short by a
+            # backend that never answers is worse than no document at all.
+            document = drift_document(tuple(zip(names, entries)), con_cache)
+            click.echo(json.dumps(document, indent=2))
+            exit_code = document["exit_code"]
+        else:
+            codes = []
+            for name, catalog_entry in zip(names, entries):
+                click.echo(name)
+                codes.append(_echo_entry_sources(catalog_entry, con_cache))
+            drifted = sum(code == Verdict.CHANGED.exit_code for code in codes)
+            click.echo()
+            click.echo(f"{len(codes)} entries, {drifted} drifted")
+            exit_code = max(codes, default=0)
+    finally:
+        close_cons(con_cache)
+    ctx.exit(exit_code)
+
+
+@cli.command("rebase")
+@click.argument("entry", shell_complete=_complete_entry_or_alias_names)
+@click.option(
+    "-a",
+    "--alias",
+    default=None,
+    help="Also register this alias for the new entry.",
+)
+@click.option(
+    "--only-alias",
+    "only_aliases",
+    multiple=True,
+    help="Move only this alias onto the new entry (repeatable).",
+)
+@sync_option
+@cache_dir_option
+@ignore_venv_mismatch_option
+@click.pass_context
+def rebase(
+    ctx: click.Context,
+    entry: str,
+    alias: str | None,
+    only_aliases: tuple[str, ...],
+    sync: bool,
+    cache_dir: str | None,
+    ignore_venv_mismatch: bool,
+) -> None:
+    """Re-derive an entry over its live sources and catalog it as a new entry.
+
+    Run it once `xorq catalog check-sources` reports a changed source. The
+    recorded expression is rebuilt over the schemas the sources have now; the
+    old entry is never edited or removed. Every alias moves to the new entry
+    unless --only-alias names the ones that should; an --alias already on the
+    old entry moves too, and one on another entry is taken from it. An alias
+    the sync's pull has moved off the old entry stays where the pull put it.
+    The new entry keeps the old one's wheels and requirements.
+
+    Prints the resulting entry name on stdout, and the detail on stderr. With
+    no drift that name is the entry's own, and nothing is committed: not even
+    the --alias, which stderr says was not added. An entry none of whose
+    sources can be probed is re-derived anyway; if it comes back with its own
+    hash, stderr says that drift was not ruled out, and if it comes back with
+    a new hash, the rebase is refused, since nothing was refreshed.
+
+    \b
+    Exit codes:
+      0  no drift, drift not ruled out (no source could be probed), or
+         the rebase succeeded
+      1  refused, or failed: the name does not resolve, the catalog does
+         not open, the entry is pinned, some but not all of its sources
+         cannot be probed, none could be but the entry re-derived to a new
+         hash, the entry was built on another Python minor, --only-alias
+         names an alias the entry lacks, or a write failed (an alias
+         move is rolled back locally, a failed rollback is logged; a
+         failed push is not)
+      2  a source was unreachable or unreadable, its database is
+         missing, or its reads disagree on its live schema; the record is
+         unreadable or lacks its wheel or requirements; or the options
+         were invalid; nothing written
+      4  conflict: an op no longer fits its new inputs, or a source's
+         table is gone; nothing written
+
+    \b
+    Arguments:
+      ENTRY  An entry name or alias.
+
+    \b
+    Examples:
+      xorq catalog rebase prod-matches
+      xorq catalog rebase prod-matches --only-alias prod -a matches-v2
+    """
+    with click_context_catalog(ctx):
+        catalog = ctx.obj.make_catalog(init=False)
+        catalog_entry = _get_catalog_entry(catalog, entry)
+
+    from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
+    from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
+
+    with click_context_catalog(ctx):
+        try:
+            result = rebase_entry(
+                catalog_entry,
+                alias=alias,
+                move_aliases=only_aliases or None,
+                sync=sync,
+                ignore_mismatch=ignore_venv_mismatch,
+                cache_dir=_get_cache_dir(cache_dir),
+            )
+        except RebaseError as e:
+            # Kept from the handler, which collapses every error to exit 1.
+            result = e
+    if isinstance(result, RebaseError):
+        click.echo(str(result), err=True)
+        ctx.exit(result.exit_code)
+    for report in result.reports:
+        if report.verdict == Verdict.CHANGED:
+            for line in format_leaf_report(report):
+                click.echo(line, err=True)
+    old, new = result.old_entry.name, result.new_entry.name
+    if result.unprobed:
+        click.echo(
+            f"No source could be probed ({', '.join(result.unprobed)}); "
+            "re-derived without refreshing any",
+            err=True,
+        )
+    if result.status != RebaseStatus.REBASED:
+        click.echo(
+            f"{old}: no drift"
+            if result.status == RebaseStatus.NOOP
+            else f"{old}: re-derived to the same hash; drift not ruled out",
+            err=True,
+        )
+        if alias:
+            click.echo(f"Alias {alias!r} not added: nothing to rebase", err=True)
+    else:
+        click.echo(f"Rebased {old} -> {new}", err=True)
+        for moved in result.moved_aliases:
+            click.echo(f"Moved alias {moved!r} -> {new}", err=True)
+        for taken, other in result.taken_aliases:
+            click.echo(f"Moved alias {taken!r} from {other} -> {new}", err=True)
+        for skipped in result.skipped_aliases:
+            click.echo(f"Alias {skipped!r} not moved: no longer on {old}", err=True)
+    click.echo(new)
+
+
 def _resolve_lineage(dag: LineageDAG, handle: str, name: str) -> tuple[dict, ...]:
     """Nodes a `--node`/`--expand` handle names, or a pointer to the listing."""
     if matches := dag.resolve(handle):
@@ -1116,9 +1354,9 @@ def lineage(
     `--level` picks how much detail, `--node` picks how much of the graph,
     `--format` picks the rendering, and `--expand` opens a node up: its columns
     are listed under it in the tree, or inside it in the diagram. With `--node`,
-    the compact level prints the subtree feeding that node — including a Flight
-    boundary's nested input lineage — and a handle matching several nodes (a
-    kind, a tag) prints each match in turn.
+    the compact level prints the subtree feeding that node, including a Flight
+    boundary's nested input lineage. A handle matching several nodes (a kind, a
+    tag) prints each match in turn.
 
     The TUI's Lineage panel expands the same way, with `]` and `[` on the node
     under its cursor.
@@ -1724,60 +1962,12 @@ def _stage_bundle_into_build(bundle, build_path):
     shutil.copy2(bundle.requirements_path, build_path / DumpFiles.requirements)
 
 
-def _extract_wheel(zf, member, harvest_dir, seen_wheels, entry_name):
-    base = Path(member).name
-    if seen_wheels is not None:
-        info = zf.getinfo(member)
-        sig = (info.file_size, info.CRC)
-        if base in seen_wheels:
-            if seen_wheels[base] != sig:
-                raise click.ClickException(
-                    f"wheel collision: {base!r} differs in entry {entry_name!r}"
-                )
-            return None
-        seen_wheels[base] = sig
-    target = harvest_dir / base
-    target.write_bytes(zf.read(member))
-    return target
-
-
-def _harvest_entry_from_zip(zf, harvest_dir, entry_name=None, seen_wheels=None):
-    from xorq.ibis_yaml.packager import (  # noqa: PLC0415
-        _python_minor_from_metadata_text,
-    )
-
-    members = sorted(zf.namelist())
-
-    wheel_paths = [
-        path
-        for m in members
-        if Path(m).name.endswith(".whl")
-        if (path := _extract_wheel(zf, m, harvest_dir, seen_wheels, entry_name))
-        is not None
-    ]
-
-    req_bytes = next(
-        (zf.read(m) for m in members if Path(m).name == DumpFiles.requirements),
-        None,
-    )
-
-    meta_member = next(
-        (m for m in members if Path(m).name == DumpFiles.build_metadata),
-        None,
-    )
-    python_pin = (
-        _python_minor_from_metadata_text(zf.read(meta_member).decode())
-        if meta_member
-        else None
-    )
-
-    return wheel_paths, req_bytes, python_pin
-
-
 @contextmanager
 def _entry_run_bundle(
     catalog: "Catalog", entries: tuple[str, ...], *, ignore_mismatch: bool = False
 ) -> Iterator["JointBundle"]:
+    from xorq.catalog.exceptions import WheelCollisionError  # noqa: PLC0415
+    from xorq.catalog.zip_utils import harvest_entry_from_zip  # noqa: PLC0415
     from xorq.common.utils.otel_utils import tracer  # noqa: PLC0415
     from xorq.ibis_yaml.packager import JointBundle  # noqa: PLC0415
 
@@ -1802,9 +1992,12 @@ def _entry_run_bundle(
                 if not ce.is_content_local:
                     ce.fetch()
                 with zipfile.ZipFile(ce.catalog_path) as zf:
-                    wp, req_bytes, py_pin = _harvest_entry_from_zip(
-                        zf, harvest_dir, entry, seen_wheels
-                    )
+                    try:
+                        wp, req_bytes, py_pin = harvest_entry_from_zip(
+                            zf, harvest_dir, entry, seen_wheels
+                        )
+                    except WheelCollisionError as e:
+                        raise click.ClickException(str(e)) from e
                     all_wheel_paths.extend(wp)
                     if req_bytes is None:
                         raise click.ClickException(

@@ -224,9 +224,7 @@ def _rebind_same_profile_sources(*exprs: "Expr") -> tuple["Expr", ...]:
     return tuple(rebind_one(expr) for expr in exprs)
 
 
-def _reconcile_backends(
-    *exprs: "Expr", rebind_backends: bool
-) -> tuple["Expr", ...]:
+def _reconcile_backends(*exprs: "Expr", rebind_backends: bool) -> tuple["Expr", ...]:
     """Require *exprs* to jointly resolve to a single backend, rebinding
     same-profile connections onto one object first (unless
     `rebind_backends=False`).
@@ -322,8 +320,15 @@ def join_builds(
     left = load_expr(left_path, cache_dir=cache_dir, con_cache=con_cache)
     right = load_expr(right_path, cache_dir=cache_dir, con_cache=con_cache)
     expr = join_exprs(
-        left, right, on=on, left_on=left_on, right_on=right_on, how=how,
-        lname=lname, rname=rname, rebind_backends=rebind_backends,
+        left,
+        right,
+        on=on,
+        left_on=left_on,
+        right_on=right_on,
+        how=how,
+        lname=lname,
+        rname=rname,
+        rebind_backends=rebind_backends,
     )
     return build_expr(
         expr, builds_dir=builds_dir, cache_dir=cache_dir, relocate_reads=relocate_reads

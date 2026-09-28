@@ -1339,12 +1339,9 @@ class CatalogAddition:
 
     @cached_property
     def metadata(self):
-        prefix = self.build_zip.internal_prefix
-        expr_data = self.build_zip.read_member(
-            f"{prefix}/{DumpFiles.expr_metadata}", json.loads
-        )
-        profiles_data = self.build_zip.read_member(
-            f"{prefix}/{DumpFiles.profiles}", yaml12.parse_yaml
+        expr_data = self.build_zip.read_dump_file(DumpFiles.expr_metadata, json.loads)
+        profiles_data = self.build_zip.read_dump_file(
+            DumpFiles.profiles, yaml12.parse_yaml
         )
         backends = [
             v["con_name"] for v in profiles_data.values() if isinstance(v, dict)
