@@ -1146,6 +1146,15 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
         self._register_udfs(expr)
         self._register_in_memory_tables(expr)
 
+    def refuse_before_execute(self, expr: ir.Expr) -> None:
+        """Raise if this backend would refuse to execute ``expr``.
+
+        Called on every expression this backend will run *before* xorq's
+        transform passes do any work for it -- uploading a remote table,
+        building a cache -- so a refusal is not preceded by work that is then
+        thrown away. It must therefore have no side effects. A no-op here.
+        """
+
     def compile(
         self,
         expr: ir.Expr,

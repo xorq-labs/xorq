@@ -56,6 +56,13 @@ import sqlglot.expressions as sge
 pytest.importorskip("adbc_driver_manager")
 psycopg = pytest.importorskip("psycopg")
 
+# psycopg's own client-side placeholder binder, for the fake cursors below.
+# ``psycopg._queries`` is private, and is used anyway because it refuses
+# exactly what a live ``cursor.execute`` would -- a lone ``%``, a placeholder
+# with no parameter -- and needs no connection to do it.
+from psycopg._queries import PostgresQuery  # noqa: E402
+from psycopg.adapt import Transformer  # noqa: E402
+
 import xorq  # noqa: E402
 import xorq.api as xo  # noqa: E402
 import xorq.backends.redshift as redshift_module  # noqa: E402
@@ -814,6 +821,12 @@ class _IntrospectionCursor(_FakeCursor):
     Records ``params`` alongside the ``sql`` its base class already logs, so a
     test can assert that the schema and table name are *bound*, not
     interpolated into the statement.
+
+    A statement with ``params`` is bound through psycopg's own placeholder
+    binder first, as a live cursor would bind it, and the result -- the
+    statement with ``$n`` placeholders, and the parameter values in their
+    order -- is recorded too. Without that, a ``%`` psycopg refuses or a placeholder
+    with no parameter passed every test here and failed every live lookup.
     """
 
     def __init__(
@@ -835,6 +848,12 @@ class _IntrospectionCursor(_FakeCursor):
     ) -> _IntrospectionCursor:
         super().execute(sql)
         self._con.params.append(params)
+        if params is not None:
+            query = PostgresQuery(Transformer())
+            query.convert(sql, params)
+            self._con.bound.append(
+                (query.query.decode(), [p and bytes(p) for p in query.params])
+            )
         self._last = sql
         return self
 
@@ -857,6 +876,7 @@ class _IntrospectionConnection(_FakeConnection):
     ) -> None:
         super().__init__()
         self.params = []
+        self.bound = []
         self._rows = rows
         self._temp_rows = temp_rows
         self._description = description
@@ -1029,6 +1049,12 @@ def test_get_schema_binds_the_schema_and_table_rather_than_interpolating():
     assert "analytics" not in sql
     assert params["table"] == "sales"
     assert params["schema"] == "analytics"
+    # And each placeholder is one psycopg fills from those params.
+    (bound, values) = con.con.bound[-1]
+    assert "COALESCE($1, current_database())" in bound
+    assert "COALESCE($2, current_schema())" in bound
+    assert "table_name = $3" in bound
+    assert values == [None, b"analytics", b"sales"]
 
 
 def test_get_schema_emits_no_array_predicate():
@@ -1097,7 +1123,14 @@ def test_get_schema_raises_rather_than_collapsing_duplicate_column_names() -> No
 def test_get_schema_defaults_the_schema_to_the_current_one() -> None:
     """The customer's failure reproduced on a plain single-schema
     ``con.table("t")``, so the no-``database`` path is the one that has to
-    work, not only the three-part-named one."""
+    work, not only the three-part-named one.
+
+    The fake answers ``current_schema()`` like any other SQL, so it cannot
+    catch a function Redshift refuses in this position -- the reference lists
+    ``CURRENT_SCHEMA`` among the leader-node-only functions. That is covered by
+    the live runs instead: an unqualified ``con.table`` passed against a
+    warehouse, as an administrator and as a read-only user.
+    """
     con = make_introspection_con(rows=SVV_ROWS)
     con.get_schema("sales")
 
@@ -1200,9 +1233,12 @@ def test_get_schema_using_query_bounds_the_probe_to_no_rows():
 
 
 def test_get_schema_using_query_wraps_rather_than_appends():
-    """Appending ``LIMIT 0`` to a query that already ends in a ``LIMIT`` would
-    be a syntax error, and appending it to a ``UNION`` would bind to the last
-    branch only. Wrapping is what makes the probe total."""
+    """The probe wraps the caller's query instead of appending ``LIMIT 0``.
+
+    Appending through the AST would not be wrong -- sqlglot's ``.limit(0)``
+    replaces an existing ``LIMIT`` and binds to a whole ``UNION`` -- but the
+    wrap gives every probe one shape. This pins that the caller's own
+    ``LIMIT`` survives inside it, neither replaced nor hoisted."""
     con = make_introspection_con(description=(_FakeColumn("a", 23, "int4"),))
     con._get_schema_using_query("SELECT a FROM t LIMIT 5")
 
@@ -1275,12 +1311,23 @@ def test_neither_introspection_path_creates_a_temporary_view():
 def test_postgres_introspection_is_left_alone():
     """The overrides are Redshift's. Postgres still reads ``pg_catalog`` and
     still uses a temporary view -- both are correct there, and a change to the
-    shared implementation would reach every postgres user."""
-    assert PostgresBackend.get_schema is not RedshiftBackend.get_schema
-    assert (
-        PostgresBackend._get_schema_using_query
-        is not RedshiftBackend._get_schema_using_query
-    )
+    shared implementation would reach every postgres user.
+
+    Asserted on the statements postgres emits, not on the methods being
+    different objects, which any override satisfies. The fake cannot answer
+    what follows the first statement, so each call's failure is suppressed
+    and only what it sent is read.
+    """
+    con = PostgresBackend()
+    con.con = _IntrospectionConnection(rows=(("a", "integer", True),))
+
+    con.get_schema("t", database="public")
+    with contextlib.suppress(Exception):
+        con._get_schema_using_query("SELECT 1 AS a")
+
+    (catalog_sql, view_sql, *_rest) = executed(con)
+    assert "pg_catalog.pg_attribute" in catalog_sql
+    assert view_sql.upper().startswith("CREATE TEMPORARY VIEW")
 
 
 # --- the temporary-table path ----------------------------------------------
@@ -1319,9 +1366,47 @@ def test_get_schema_reads_a_temporary_table_from_svv_columns() -> None:
     assert any("svv_all_columns" in sql for sql in statements)
     (temp_sql,) = [sql for sql in statements if "svv_columns" in sql]
     # The scoping is the whole point: without it the fallback means "anything
-    # this session can see" rather than "a temporary table".
-    assert "pg^_temp^_%" in temp_sql
-    assert "ESCAPE '^'" in temp_sql
+    # this session can see" rather than "a temporary table". Asserted on the
+    # text psycopg binds, where ``%%`` has become the one ``%`` Redshift sees;
+    # a single ``%`` in the source is refused by psycopg before that.
+    ((bound, values),) = [b for b in con.con.bound if "svv_columns" in b[0]]
+    assert "LIKE 'pg^_temp^_%' ESCAPE '^'" in bound
+    assert "table_name = $1" in bound
+    assert values == [b"xorq_temp_abc123"]
+
+
+def test_table_reaches_the_temp_fallback_unqualified() -> None:
+    """The ingest path ends in ``self.table(name)``, not ``get_schema``, so the
+    fallback is exercised through the real ``table``: an override that
+    defaulted ``database`` there would disable it while every direct call to
+    ``get_schema`` stayed green."""
+    con = make_introspection_con(rows=(), temp_rows=(("a", "integer", "NO", 32, 0),))
+
+    t = RedshiftBackend.table(con, "xorq_temp_abc123")
+
+    assert t.schema() == xo.schema({"a": dt.Int32(nullable=False)})
+    assert any("svv_columns" in sql for sql in issued(con))
+
+
+@pytest.mark.parametrize(
+    "database",
+    [
+        pytest.param(("warehouse", "analytics"), id="tuple"),
+        pytest.param("warehouse.analytics", id="dotted"),
+    ],
+)
+def test_table_routes_a_catalog_qualified_name_to_the_catalog_query(
+    database: tuple[str, str] | str,
+) -> None:
+    """A 2-tuple or dotted name is the only way ``catalog`` is ever supplied,
+    so the scoping ``get_schema`` documents depends on ``table`` splitting it."""
+    con = make_introspection_con(rows=SVV_ROWS)
+
+    RedshiftBackend.table(con, "sales", database=database)
+
+    (_sql, params) = last_call(con)
+    assert params["catalog"] == "warehouse"
+    assert params["schema"] == "analytics"
 
 
 def test_get_schema_does_not_resolve_through_search_path() -> None:
@@ -1381,6 +1466,24 @@ def test_both_paths_agree_on_a_char_column() -> None:
 
     assert from_catalog == dt.String(nullable=False)
     assert from_query == dt.String(nullable=True)
+
+
+def test_query_path_maps_the_single_byte_char_type() -> None:
+    """``"char"`` -- OID 18, with the quotes -- is PostgreSQL's one-byte type,
+    which ``pg_catalog`` columns such as ``pg_class.relkind`` carry. Without
+    its alias it binds as unknown, and ``SELECT relkind FROM pg_class``
+    through ``con.sql`` is refused on read."""
+    con = make_introspection_con(
+        description=(
+            _FakeColumn("relkind", 18, '"char"'),
+            _FakeColumn("kinds", 1002, '"char"[]'),
+        )
+    )
+
+    schema = con._get_schema_using_query("SELECT relkind, kinds FROM pg_class")
+
+    assert schema["relkind"] == dt.String(nullable=True)
+    assert schema["kinds"] == dt.Array(dt.String(nullable=True), nullable=True)
 
 
 @pytest.mark.parametrize(
@@ -1476,6 +1579,72 @@ def test_unsupported_type_keeps_the_nullability_it_was_given() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("spelling", "expected"),
+    [
+        # psycopg's name for OID 20, so every BIGINT through ``con.sql``.
+        pytest.param("int8", dt.Int64(nullable=True), id="int8"),
+        pytest.param("int8[]", dt.Array(dt.Int64(nullable=True)), id="int8-array"),
+        pytest.param("float", dt.Float64(nullable=True), id="float"),
+    ],
+)
+def test_integer_and_float_widths_are_redshift_s_on_every_sqlglot(
+    spelling: str, expected: dt.DataType
+) -> None:
+    """At sqlglot 23.6.3 -- what the lowest-direct job installs -- ``int8`` is
+    an 8-bit integer and ``float`` a 32-bit one. On Redshift they are
+    ``BIGINT`` and ``DOUBLE PRECISION``. Unaliased, ``COUNT(*)`` through
+    ``con.sql`` bound as int8 there, overflowing above 127."""
+    mapper = RedshiftBackend.compiler.type_mapper
+
+    assert mapper.from_string(spelling, nullable=True) == expected
+
+
+def test_query_path_binds_bigint_as_int64() -> None:
+    con = make_introspection_con(description=(_FakeColumn("n", 20, "int8"),))
+
+    schema = con._get_schema_using_query("SELECT COUNT(*) AS n FROM t")
+
+    assert schema["n"] == dt.Int64(nullable=True)
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        # psycopg's name for OID 1186 with a precision.
+        pytest.param("interval(6)", id="interval-with-precision"),
+        pytest.param("numeric(0,0)", id="zero-precision"),
+        pytest.param("numeric(10,20)", id="scale-above-precision"),
+        pytest.param("timestamp(10)", id="timestamp-scale-out-of-range"),
+    ],
+)
+def test_a_modifier_the_dtype_rejects_binds_the_column_as_unknown(
+    spelling: str,
+) -> None:
+    """The dtype constructors reject these with ``ValueError``,
+    ``XorqTypeError`` or a validation error, none of which named the column.
+    They escaped ``_column_dtype`` -- the binder both introspection paths
+    share -- so one such column failed its whole table. Some
+    are version-dependent: ``interval(6)`` maps at sqlglot 23.6.3 and raises
+    at 28.6.0, so both outcomes are accepted and only the escape is not."""
+    dtype = RedshiftBackend._column_dtype(spelling, nullable=True)
+
+    assert isinstance(dtype, (dt.NamedUnknown, dt.Interval))
+    if spelling != "interval(6)":
+        assert dtype == dt.NamedUnknown(raw_type=spelling, nullable=True)
+
+
+def test_a_type_the_mapper_resolves_by_table_keeps_its_nullability() -> None:
+    """``PostgresType.unknown_type_strings`` hits return a dtype built with the
+    mapper's default nullability, whatever was asked for: upstream,
+    ``name NOT NULL`` -- ``pg_class.relname`` -- comes back nullable. The
+    mapper restores what it was given."""
+    mapper = RedshiftBackend.compiler.type_mapper
+
+    assert mapper.from_string("name", nullable=False) == dt.String(nullable=False)
+    assert mapper.from_string("name", nullable=True) == dt.String(nullable=True)
+
+
 # --- an unmappable column fails where it is used, not where it is bound -----
 
 
@@ -1567,19 +1736,54 @@ def test_a_table_with_an_unmappable_column_binds_and_reads_its_other_columns(
             lambda con, t: con.create_table("copy", schema=t.schema()),
             id="create-table-from-schema",
         ),
+        # ``insert`` truncates before it runs the pre-execute hooks, so with
+        # ``overwrite`` a refusal from there left the target empty.
+        pytest.param(
+            lambda con, t: con.insert("copy", t, overwrite=True),
+            id="insert-overwrite",
+        ),
+        pytest.param(lambda con, t: con.insert("copy", t), id="insert"),
+        # What Redshift's cast makes of a non-scalar SUPER value is unmeasured,
+        # and a NULL in its place would be silent.
+        pytest.param(
+            lambda con, t: t.select("id", p=t.payload.cast("string")).execute(),
+            id="cast",
+        ),
+        # Nothing returned is unmappable, but the struct has to be compiled
+        # with the column's type, which fails with a KeyError naming no column.
+        pytest.param(
+            lambda con, t: (
+                t.select(s=xo.struct({"p": t.payload, "i": t.id}))
+                .unpack("s")
+                .select("i")
+                .execute()
+            ),
+            id="struct-unpacked-and-dropped",
+        ),
+        # The local side is uploaded into a placeholder on Redshift by a
+        # transform pass, which used to run before the refusal did.
+        pytest.param(
+            lambda con, t: (
+                xo.memtable({"id": [1], "z": [3]})
+                .into_backend(con, "lz")
+                .join(t, "id")
+                .execute()
+            ),
+            id="join-with-a-local-table",
+        ),
     ],
 )
 def test_touching_an_unmappable_column_raises_naming_it(
     offers: Offers, read: Callable[[RedshiftBackend, ir.Table], object]
 ) -> None:
-    """Nothing downstream refuses an ``unknown`` column on its own:
-    ``Schema.to_pyarrow`` maps it to ``string``, so a read that got as far as
-    the Arrow conversion would return SUPER data as strings. The refusal is
-    therefore explicit, on every entry point, and before any statement is
-    issued.
+    """Nothing downstream refuses an ``unknown`` column by name: the Arrow
+    conversion raises naming only the type, and DDL fails with a bare
+    ``KeyError``. The refusal is therefore explicit, on every entry point, and
+    before anything reaches the connection -- a ``TRUNCATE``, an upload, or a
+    read.
     """
     con, t = offers
-    before = len(executed(con))
+    before = len(con.con.log)
 
     with pytest.raises(
         exc.UnmappableColumnError, match="'payload' \\(redshift type 'super'\\)"
@@ -1587,7 +1791,7 @@ def test_touching_an_unmappable_column_raises_naming_it(
         read(con, t)
 
     assert excinfo.value.columns == ("payload",)
-    assert executed(con)[before:] == []
+    assert con.con.log[before:] == []
 
 
 def test_a_column_that_is_referenced_but_not_returned_is_not_refused(
@@ -1623,8 +1827,6 @@ def test_fake_column_type_displays_match_psycopg() -> None:
     ``_FakeColumn`` takes ``type_display`` as a literal, which is only safe
     while those literals are what a live cursor would actually report.
     """
-    psycopg = pytest.importorskip("psycopg")
-
     expected = {
         (23, -1): "int4",
         (1043, -1): "varchar",
@@ -1632,6 +1834,9 @@ def test_fake_column_type_displays_match_psycopg() -> None:
         (1114, -1): "timestamp",
         (1042, 3 + 4): "bpchar(3)",
         (26, -1): "oid",
+        (18, -1): '"char"',
+        (20, -1): "int8",
+        (1002, -1): '"char"[]',
         # The array case, and the reason ``type_display`` replaced
         # ``info.name``: the latter renders OID 1182 as ``date``, which
         # would silently turn every array column into its element type.
@@ -1647,16 +1852,16 @@ def test_fake_column_type_displays_match_psycopg() -> None:
 
 
 @pytest.mark.parametrize(
-    "query",
+    ("query", "match"),
     [
-        pytest.param("VALUES (1, 2)", id="values"),
-        pytest.param("TABLE t", id="table"),
-        pytest.param("", id="empty"),
-        pytest.param("-- just a comment", id="comment-only"),
+        pytest.param("VALUES (1, 2)", "cannot introspect Values", id="values"),
+        pytest.param("TABLE t", "cannot introspect Alias", id="table"),
+        pytest.param("", "single statement.*got 0", id="empty"),
+        pytest.param("-- just a comment", "single statement.*got 0", id="comment-only"),
     ],
 )
 def test_get_schema_using_query_refuses_statements_with_no_result_shape(
-    query: str,
+    query: str, match: str
 ) -> None:
     """These parse to something that is not ``sge.Query``, and an earlier
     version wrapped them by hand so ``.subquery()`` would not raise
@@ -1671,7 +1876,7 @@ def test_get_schema_using_query_refuses_statements_with_no_result_shape(
     """
     con = make_introspection_con(description=(_FakeColumn("a", 23, "int4"),))
 
-    with pytest.raises(exc.XorqError):
+    with pytest.raises(exc.XorqError, match=match):
         con._get_schema_using_query(query)
 
     assert not issued(con), "a statement was sent for a query that cannot work"
@@ -1704,9 +1909,9 @@ def test_get_schema_using_query_accepts_one_statement_with_trailing_noise(
 
 
 def test_get_schema_using_query_rejects_more_than_one_statement() -> None:
-    """``parse_one`` silently probes the first statement while
-    ``ops.SQLQueryResult`` stores and executes the whole string, so the schema
-    would describe a different statement than the one that runs."""
+    """``ops.SQLQueryResult`` keeps the whole string, and compiling it takes
+    ``parse_one``'s first statement and drops the rest, so a multi-statement
+    ``con.sql`` would silently run less than it said. Refused instead."""
     con = make_introspection_con(description=(_FakeColumn("a", 23, "int4"),))
 
     with pytest.raises(exc.XorqError, match="single statement"):
@@ -1747,9 +1952,32 @@ def test_an_unmappable_array_element_does_not_escape_the_guard() -> None:
     assert mapper.from_string("bpchar[]", nullable=True) == dt.Array(
         dt.String(nullable=True), nullable=True
     )
-    # This one is not, and must not come back as Array(Unknown).
-    with pytest.raises(exc.UnsupportedBackendType):
-        mapper.from_string("xid[]", nullable=True)
+    # These are not, and must not come back as Array(Unknown) or Array(Point).
+    # ``xid[]`` is not among them: it maps to a top-level ``Unknown``, which
+    # the top-level check catches without the recursion this test is for.
+    for spelling in ("xml[]", "bit[]", "point[]"):
+        with pytest.raises(exc.UnsupportedBackendType):
+            mapper.from_string(spelling, nullable=True)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        pytest.param(dt.Array(dt.Array(dt.unknown)), id="nested-array"),
+        pytest.param(dt.Map(dt.string, dt.unknown), id="map-value"),
+        pytest.param(dt.Map(dt.unknown, dt.string), id="map-key"),
+        pytest.param(dt.Struct({"a": dt.int32, "b": dt.unknown}), id="struct"),
+        pytest.param(dt.Array(dt.point), id="geo-element"),
+    ],
+)
+def test_the_guard_finds_an_unmappable_part_anywhere_in_a_type(
+    dtype: dt.DataType,
+) -> None:
+    """No spelling the mapper parses produces these today; the refusal on a
+    bound schema walks them all the same, so the walk is pinned directly."""
+    part = RedshiftBackend.compiler.type_mapper.unmappable_part(dtype)
+
+    assert isinstance(part, (dt.Unknown, dt.GeoSpatial))
 
 
 def test_geo_types_raise_however_they_are_spelled() -> None:
@@ -2095,6 +2323,16 @@ def test_an_unmappable_column_round_trips_through_yaml_with_its_spelling() -> No
 
     assert loaded == schema
     assert loaded["payload"] == dt.NamedUnknown(raw_type="super", nullable=False)
+
+
+def test_an_unmappable_column_is_named_unknown_and_renders_its_spelling() -> None:
+    """``name`` is ``Unknown``'s on purpose: ``SqlglotType.from_ibis``
+    dispatches on it, so a backend's ``_from_ibis_Unknown`` reaches this class
+    too. The rendering is what a schema shows a user."""
+    dtype = dt.NamedUnknown(raw_type="super", nullable=False)
+
+    assert dtype.name == dt.unknown.name == "Unknown"
+    assert str(dtype) == "!unknown('super')"
 
 
 def test_an_unmappable_column_refuses_arrow_conversion_on_its_own() -> None:

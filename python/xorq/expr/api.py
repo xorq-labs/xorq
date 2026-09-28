@@ -21,7 +21,7 @@ from xorq.common.utils.defer_utils import (  # noqa: F403
     deferred_read_csv,
     deferred_read_parquet,
 )
-from xorq.common.utils.graph_utils import replace_nodes, walk_nodes
+from xorq.common.utils.graph_utils import replace_nodes, to_node, walk_nodes
 from xorq.common.utils.io_utils import (
     extract_suffix,
     maybe_open,
@@ -42,6 +42,7 @@ from xorq.expr.relations import (
     FlightUDXF,
     HashingTag,
     Read,
+    RemoteTable,
     Tag,
     TeeNode,
 )
@@ -497,6 +498,43 @@ _PASSES = (
 )
 
 
+# The opaque ops whose payload runs on a backend of its own, keyed to the field
+# holding that payload.
+_EXECUTED_PAYLOADS = {
+    RemoteTable: "remote_expr",
+    CachedNode: "parent",
+    FlightExpr: "input_expr",
+    FlightUDXF: "input_expr",
+}
+
+
+def _refuse_before_transform(expr: ir.Expr) -> None:
+    """Let each backend refuse what it will be asked to run, before any pass
+    does work on its behalf.
+
+    The passes are effectful: they upload remote tables into placeholders,
+    build caches and start upstream readers. A refusal raised from inside a
+    backend's own read path therefore lands after that work, which is then
+    thrown away -- a whole upstream uploaded for nothing, and a placeholder
+    leaked if the process dies before the scope closes. So every expression
+    that will execute -- ``expr`` itself and each opaque payload in it -- is
+    offered to each backend it reads from first.
+    """
+    units = (
+        expr,
+        *(
+            to_node(getattr(node, field)).to_expr()
+            for node in walk_nodes(tuple(_EXECUTED_PAYLOADS), expr)
+            for typ, field in _EXECUTED_PAYLOADS.items()
+            if isinstance(node, typ)
+        ),
+    )
+    for unit in units:
+        tables = unit.op().find((ops.DatabaseTable, ops.SQLQueryResult))
+        for source in dict.fromkeys(table.source for table in tables):
+            source.refuse_before_execute(unit)
+
+
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(
     expr: ir.Expr, params: dict | None = None, **kwargs: Any
@@ -511,6 +549,7 @@ def _transform_expr(
     -- not just its own. The driver (``run_transform_passes``) selects each
     pass's traversal from its record and asserts the ``after`` ordering.
     """
+    _refuse_before_transform(expr)
     ctx = TransformCtx(
         scope=RemoteTableScope(),
         name_values=_resolve_params(params),

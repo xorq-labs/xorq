@@ -3,6 +3,7 @@ from __future__ import annotations
 import xorq.common.exceptions as exc
 from xorq.backends.postgres.compiler import PostgresCompiler
 from xorq.vendor.ibis.backends.sql.datatypes import PostgresType
+from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.expr import datatypes as dt
 
 
@@ -60,11 +61,22 @@ class RedshiftType(PostgresType):
     # column, measured on a live warehouse (2026-09-24) -- the view definition
     # rewrites it. Both are sent to ``varbinary``, which the inherited mapper
     # maps to ``dt.Binary``.
+    #
+    # ``int8`` and ``float`` are spellings sqlglot *does* parse, but not as
+    # Redshift means them on every supported version: at 23.6.3 ``int8`` is an
+    # 8-bit integer and ``float`` a 32-bit one, where Redshift's are ``BIGINT``
+    # and ``DOUBLE PRECISION``. ``int8`` is what psycopg names OID 20, so without
+    # this every ``BIGINT`` through ``con.sql`` -- ``COUNT(*)`` included --
+    # bound as ``int8`` there. ``int8`` is the only name in psycopg's registry
+    # whose mapping differs between 23.6.3 and 28.6.0; ``float`` is not in the
+    # registry, and is aliased because Redshift documents it as a synonym.
     _TYPE_ALIASES = {
         "bpchar": "character",
         '"char"': "character",
         "varbyte": "varbinary",
         "binary varying": "varbinary",
+        "int8": "bigint",
+        "float": "double precision",
     }
 
     @staticmethod
@@ -117,9 +129,13 @@ class RedshiftType(PostgresType):
 
         try:
             dtype = super().from_string(text, nullable=nullable)
-        except AttributeError as e:
-            # The upstream mapper's own failure, re-raised as something that
-            # names the type it choked on.
+        except (AttributeError, TypeError, ValueError, ValidationError) as e:
+            # The upstream mapper's own failures, re-raised as something that
+            # names the type it choked on, so the column binds as unknown
+            # rather than failing its whole table. The ``AttributeError`` is
+            # ``oid``'s; the rest are a type whose modifier the dtype rejects
+            # -- ``interval(6)``, psycopg's name for an interval with a
+            # precision, and ``numeric(0,0)`` or ``timestamp(10)``.
             raise exc.UnsupportedBackendType(
                 f"redshift type {text!r} could not be mapped by the postgres "
                 f"type mapper"

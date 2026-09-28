@@ -10,6 +10,7 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 
 import xorq.common.exceptions as exc
+import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.redshift.compiler import compiler
@@ -242,9 +243,23 @@ ORDER BY ordinal_position ASC"""
     # measured on a live warehouse, see ``_temp_table_schema`` -- and the two
     # expose the same column names, so one row-to-schema conversion serves both.
     #
-    # ``LIKE 'pg^_temp^_%%' ESCAPE '^'`` is the whole scoping, and it is exact:
+    # ``LIKE 'pg^_temp^_%%' ESCAPE '^'`` separates temporary from permanent --
     # Redshift puts every session's temporary tables in a ``pg_temp_<N>``
-    # schema. The escape character is ``^`` rather than the SQL default
+    # schema -- but it is deliberately *not* what scopes this to one session,
+    # and the two must not be confused: the pattern matches every session's
+    # temp schema, so if the view exposed other sessions' rows this query,
+    # which filters only on ``table_name``, could return another session's
+    # table or two rows for one column name.
+    #
+    # It cannot, because ``svv_columns`` is itself session-filtered. Measured
+    # 2026-09-25 with two concurrent connections as the same superuser: each
+    # saw exactly one temp schema and it was its own (``pg_temp_6`` vs
+    # ``pg_temp_8``); a table created only in the first was invisible to the
+    # second; and with the *same* temporary table name created in both, this
+    # query returned a single row, carrying the querying session's own column.
+    # A superuser seeing only its own bounds every lesser-privileged user too.
+    #
+    # The escape character is ``^`` rather than the SQL default
     # backslash because a backslash inside a psycopg-bound statement has to
     # survive two layers of quoting; ``%%`` is a literal ``%`` to psycopg.
     _SVV_TEMP_COLUMNS_QUERY = f"""\
@@ -338,6 +353,18 @@ ORDER BY ordinal_position ASC"""
         is the deliberate trade: a ``TableNotFound`` naming a table you can
         re-address is recoverable, and a silently wrong schema is not.
 
+        **The cross-database half of that argument is reasoned, not measured.**
+        It rests on the ``SVV_REDSHIFT_COLUMNS`` reference text and on reading
+        ``pg_get_viewdef('svv_all_columns')``; no external or datashare row was
+        ever seen. The warehouse this backend was verified against carries
+        none -- 0 external schemas, 0 external tables, 0 datashares, and
+        ``svv_all_columns`` spanning exactly one database (measured
+        2026-09-25) -- so
+        the scoping predicate was never exercised against a row it would
+        actually exclude. Read the rest of this docstring as measured and this
+        paragraph's subject as inferred. The filter is still the safe
+        direction: it costs a recoverable error if the reasoning is wrong.
+
         Temporary tables are **not** in this view at all -- measured on a live
         warehouse, not inferred -- so an unqualified lookup that finds nothing
         falls through to ``_temp_table_schema``, which reads the one catalog
@@ -415,20 +442,21 @@ ORDER BY ordinal_position ASC"""
             )
             return dt.NamedUnknown(raw_type=type_string, nullable=nullable)
 
-    def _raise_on_unmappable_columns(self, schema: sch.Schema, action: str) -> None:
-        """Refuse an operation whose schema carries an unmappable column.
+    def _raise_on_unmappable_columns(
+        self, columns: dict[str, dt.DataType], action: str
+    ) -> None:
+        """Refuse an operation that touches an unmappable column.
 
         This is where an unmappable column fails, since binding no longer
-        does. It must be explicit: nothing downstream refuses on its own.
-        ``Schema.to_pyarrow`` maps ``dt.Unknown`` to ``string``, so a read
-        that reached the Arrow conversion would hand back ``SUPER`` data as
-        strings; and ``Schema.to_sqlglot`` fails with a bare ``KeyError``
-        naming a Python class rather than the column.
+        does. It must be explicit: nothing downstream refuses in a way that
+        names the column. ``Schema.to_pyarrow`` raises ``NotImplementedError``
+        naming only the type, and ``Schema.to_sqlglot`` fails with a bare
+        ``KeyError`` naming a Python class.
         """
         mapper = self.compiler.type_mapper
         unmappable = {
             name: part
-            for name, dtype in schema.items()
+            for name, dtype in columns.items()
             if (part := mapper.unmappable_part(dtype)) is not None
         }
         if unmappable:
@@ -440,23 +468,83 @@ ORDER BY ordinal_position ASC"""
             )
             raise exc.UnmappableColumnError(
                 f"cannot {action} column(s) {described}: the type has no xorq "
-                f"equivalent, so the column is bound as unknown and cannot be "
-                f"read or created. Select the other columns instead.",
+                f"equivalent, so the column is bound as unknown. Select the "
+                f"other columns -- before into_backend, which moves every "
+                f"column it is given -- or convert it to text server side "
+                f"through con.sql (for SUPER, JSON_SERIALIZE).",
                 columns=tuple(unmappable),
             )
+
+    def _derived_unmappable_values(self, expr: ir.Expr) -> dict[str, dt.DataType]:
+        """The unmappable columns ``expr`` casts or computes from, returned or
+        not.
+
+        Two kinds pass the returned-schema check and still have to be refused.
+
+        A cast returns a mappable type, but what Redshift's cast makes of a
+        ``SUPER`` value that is not a scalar of the target type is unmeasured;
+        a ``NULL`` in place of the data is plausible, and would be silent.
+
+        A value built *from* such a column -- a struct holding it, say, later
+        unpacked and dropped -- is compiled with its type, which this backend
+        cannot spell, so it fails in the compiler with a bare ``KeyError``
+        naming no column.
+
+        A column reference is neither, and neither is an alias of one, so a
+        filter on the column is not refused.
+
+        Each is reported by the unmappable columns it is built from, which is
+        what a caller can act on, and by its own name only if it has none.
+        """
+        unmappable = self.compiler.type_mapper.unmappable_part
+        derived = (
+            op.arg if isinstance(op, (ops.Cast, ops.TryCast)) else op
+            for op in expr.op().find(ops.Value)
+            if isinstance(op, (ops.Cast, ops.TryCast))
+            or not isinstance(op, (ops.Field, ops.Alias))
+        )
+        found = {}
+        for value in derived:
+            if unmappable(value.dtype) is None:
+                continue
+            # A bound column that cannot be mapped is a top-level unknown; a
+            # field whose type merely *contains* one, like the struct above
+            # once projected, is derived and would name the wrong thing.
+            fields = {
+                field.name: field.dtype
+                for field in value.find(ops.Field)
+                if isinstance(field.dtype, dt.Unknown)
+            }
+            found.update(fields or {value.name: value.dtype})
+        return found
+
+    def refuse_before_execute(self, expr: ir.Expr) -> None:
+        """Refuse a read before any work is done for it if it would return an
+        unmappable column, or cast or compute one.
+
+        Called by xorq's execution entry points before their transform passes
+        run, and by ``_run_pre_execute_hooks`` for the backend's own entry
+        points. A column referenced but not returned, as in a filter on it,
+        is not refused: that is evaluated server side on Redshift's own type,
+        and the data returned is still correctly typed.
+        """
+        self._raise_on_unmappable_columns(
+            dict(expr.as_table().schema().items()), "read"
+        )
+        self._raise_on_unmappable_columns(
+            self._derived_unmappable_values(expr), "cast or compute"
+        )
 
     def _run_pre_execute_hooks(self, expr: ir.Expr) -> None:
         """Refuse a read before it is issued if it returns an unmappable column.
 
         Every inherited read entry point -- ``execute``, ``to_pyarrow``,
         ``to_pyarrow_batches``, and so a ``RemoteTable`` or cache read drawing
-        on this backend -- and ``create_table`` from an expression call this
-        before compiling, so one check covers them all. ``compile`` does not,
-        so an expression carrying such a column still compiles. A column
-        referenced but not returned, as in a filter on it, is not refused:
-        the data returned is still correctly typed.
+        on this backend -- calls this before compiling, so one check covers
+        them all. ``compile`` does not, so an expression carrying such a column
+        still compiles.
         """
-        self._raise_on_unmappable_columns(expr.as_table().schema(), "read")
+        self.refuse_before_execute(expr)
         super()._run_pre_execute_hooks(expr)
 
     def create_table(
@@ -468,11 +556,57 @@ ORDER BY ordinal_position ASC"""
         schema: sch.SchemaLike | None = None,
         **kwargs: Any,
     ) -> ir.Table:
-        # A table created from an expression is checked by
-        # ``_run_pre_execute_hooks``; one created from a schema never reaches it.
+        """Refuse a table that would carry an unmappable column, before any DDL.
+
+        Refused even from an expression on this backend, which Redshift could
+        copy server side: the inherited implementation spells the new table's
+        columns out through ``Schema.to_sqlglot``, and an unmappable column has
+        no type to spell.
+        """
         if schema is not None:
-            self._raise_on_unmappable_columns(sch.schema(schema), "create")
+            self._raise_on_unmappable_columns(
+                dict(sch.schema(schema).items()), "create"
+            )
+        if isinstance(obj, ir.Expr):
+            self._raise_on_unmappable_columns(
+                dict(obj.as_table().schema().items()), "create"
+            )
         return super().create_table(name, obj, schema=schema, **kwargs)
+
+    def insert(
+        self,
+        table_name: str,
+        obj: Any,
+        schema: str | None = None,
+        database: str | None = None,
+        overwrite: bool = False,
+    ) -> None:
+        """Refuse an insert that would carry an unmappable column, before the
+        target is touched.
+
+        The inherited implementation truncates first for ``overwrite=True``
+        and only then runs ``_run_pre_execute_hooks``, where the read check
+        lives -- so the refusal left the target empty, and Redshift's
+        ``TRUNCATE`` commits on its own. The check therefore runs here, ahead
+        of the truncate.
+
+        An ``INSERT ... SELECT`` of such a column is a server-side copy that
+        Redshift could run. It is refused anyway, for the reason
+        ``create_table`` is: this backend cannot tell a server-side copy from a
+        read of the same expression, and a column whose type it cannot name is
+        one it cannot vouch for at either end.
+        """
+        if isinstance(obj, ir.Expr):
+            self._raise_on_unmappable_columns(
+                dict(obj.as_table().schema().items()), "insert"
+            )
+        return super().insert(
+            table_name,
+            obj,
+            schema=schema,
+            database=database,
+            overwrite=overwrite,
+        )
 
     def _temp_table_schema(self, name: str) -> sch.Schema:
         """The schema of a *temporary* table, which ``svv_all_columns`` omits.
@@ -582,18 +716,15 @@ ORDER BY ordinal_position ASC"""
         The obvious repair -- swap the temporary view for a temporary table
         created ``LIMIT 0`` and dropped in a ``finally`` -- was rejected rather
         than merely passed over. It would have to be introspected back through
-        ``get_schema`` above, and ``svv_all_columns`` is not documented to list
-        temporary tables; that repair would trade a syntax error for a
-        ``TableNotFound`` while looking like a fix in every offline test.
-        Reading ``cursor.description`` consults no catalog at all, so it does
-        not depend on that unsettled question. It also needs no create
-        privilege and leaves nothing behind, so there is no cleanup path to get
-        wrong.
+        ``get_schema`` above, which reaches a temporary table only through its
+        ``svv_columns`` fallback, so the probe would round-trip a catalog it
+        does not need. Reading ``cursor.description`` consults no catalog at
+        all. It also needs no create privilege and leaves nothing behind, so
+        there is no cleanup path to get wrong.
 
-        That property is why ``get_schema`` above borrows this method for a
-        table its catalog query did not find: the same "no catalog at all" that
-        makes this the right probe for a *query* makes it the only reliable way
-        to reach a *temporary table*. See ``_temp_table_schema``.
+        ``get_schema`` does *not* borrow this method for a table its catalog
+        query missed: a probe resolves through ``search_path`` and would
+        report a permanent table of the same name. See ``_temp_table_schema``.
 
         The query is *wrapped* in a derived table rather than suffixed with
         ``LIMIT 0``. Not because appending would be a syntax error -- sqlglot's
@@ -634,8 +765,9 @@ ORDER BY ordinal_position ASC"""
             if stmt is not None and not isinstance(stmt, _NOT_A_STATEMENT)
         ]
         if len(statements) != 1:
-            # ``parse_one`` would silently probe the first statement while
-            # ``ops.SQLQueryResult`` stores and executes the whole string.
+            # ``ops.SQLQueryResult`` keeps the whole string, and compiling it
+            # takes ``parse_one``'s first statement and drops the rest, so a
+            # multi-statement ``con.sql`` would silently run less than it said.
             raise exc.XorqError(
                 f"expected a single statement to introspect, got {len(statements)}"
             )
