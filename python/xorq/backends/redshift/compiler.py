@@ -408,8 +408,27 @@ class RedshiftCompiler(PostgresCompiler):
         This mirrors the shape ``visit_EndsWith`` already has in the postgres
         compiler (``compilers/postgres.py:561``), which is immune for the same
         reason: it compares extracted text rather than building a pattern.
+
+        Guarded by length, because Redshift's compute nodes compare strings
+        with trailing blanks insignificant: measured 2026-09-28, ``title =
+        title || ' '`` is true on every row of ``offers``, so unguarded,
+        ``'ab'.startswith('ab ')`` was true. ``LENGTH`` does count trailing
+        blanks (measured), so once ``s`` is at least as long as ``p`` the two
+        sides of ``=`` have equal length, and equal-length strings that differ
+        only in trailing blanks are identical. (A constant-only probe runs on
+        the leader node, which compares blanks as significant and so hides
+        this.)
         """
-        return self.f.left(arg, self.f.length(start)).eq(start)
+        return self._affix_matches(arg, start, self.f.left)
+
+    def visit_EndsWith(self, op, *, arg, end):
+        """``RIGHT(s, LENGTH(p)) = p``, guarded by length for the trailing-blank
+        reason ``visit_StartsWith`` gives. ``'ab'.endswith('ab ')`` was true."""
+        return self._affix_matches(arg, end, self.f.right)
+
+    def _affix_matches(self, arg, affix, take):
+        length = self.f.length(affix)
+        return sge.and_(self.f.length(arg) >= length, take(arg, length).eq(affix))
 
     def visit_DateFromYMD(self, op, *, year, month, day):
         """Redshift has no ``make_date``.

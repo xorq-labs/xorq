@@ -777,6 +777,21 @@ def test_approx_nunique_where_keeps_distinct_outside_the_case(t):
     sqlglot.parse_one(sql, dialect="redshift")
 
 
+@pytest.mark.parametrize(
+    ("build", "take"),
+    [
+        pytest.param(lambda t: t.s.startswith("ab "), "LEFT", id="startswith"),
+        pytest.param(lambda t: t.s.endswith("ab "), "RIGHT", id="endswith"),
+    ],
+)
+def test_affix_tests_are_guarded_by_length(t, build, take):
+    """Redshift's compute nodes ignore trailing blanks when comparing strings
+    (measured 2026-09-28), so without the guard ``'ab'.startswith('ab ')`` was
+    true. ``LENGTH`` counts them, which makes the guard sufficient."""
+    sql = to_sql(t.select(o=build(t)))
+    assert f'LENGTH("t0"."s") >= LENGTH(\'ab \') AND {take}(' in sql
+
+
 def test_startswith_does_not_build_an_unescaped_like_pattern(t):
     """``STARTS_WITH`` does not exist on Redshift and sqlglot lowers it to a
     ``LIKE`` whose pattern is the operand plus ``'%'``, unescaped.
