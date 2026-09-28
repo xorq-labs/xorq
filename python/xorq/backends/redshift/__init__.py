@@ -69,6 +69,24 @@ class Backend(PostgresBackend):
     # authenticator work.
     _top_level_methods = ()
 
+    def _clone_credential_default_password(self) -> str | None:
+        """Redshift has no environment default, and must not borrow one.
+
+        The same reasoning that empties ``_top_level_methods`` above: the
+        inherited fallback is ``$POSTGRES_PASSWORD``, so a Redshift connection
+        with no password in ``_con_kwargs`` -- which is every connection built
+        by ``from_connection`` -- either refused with a message naming a
+        service the caller never used, or, on a developer machine where
+        ``POSTGRES_PASSWORD`` happens to be set, dialled the *warehouse* with
+        a local postgres password.
+
+        ``None`` rather than a ``$REDSHIFT_PASSWORD`` of our own invention:
+        that would be a new public convention, and nothing else in xorq reads
+        such a variable. Redshift's own auth modes arrive with the
+        authenticator work, and this hook is where they will attach.
+        """
+        return None
+
     def do_connect(
         self,
         host: str | None = None,

@@ -812,3 +812,128 @@ def test_redshift_exposes_no_module_level_connect() -> None:
     in ``backends/postgres/tests/test_connect_and_clone.py``."""
     assert not hasattr(redshift_module, "connect")
     assert redshift_module.__all__ == ["Backend"]
+
+
+def test_clone_keeps_a_client_encoding_the_caller_passed(
+    postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sibling test above covers the IMPLICIT case -- nobody passed one, so
+    the DSN's value must not be reacquired. This is the other half, and it was
+    broken: ``_clone_drop_dsn_params`` was dissoc-ed from the MERGED dict,
+    which already held ``_con_kwargs``, so a caller who *did* ask for
+    ``latin1`` got a clone silently dialling ``utf8``.
+
+    That is the failure the mechanism exists to prevent, arrived at from the
+    other direction: source and clone disagree about a connection setting, so
+    a cloned-then-built artifact hashes differently from one built off the
+    source. ``test_clone_keeps_a_hostaddr_the_caller_passed`` in the postgres
+    suite states exactly this invariant for the DSN dissoc; nothing restated
+    it for the second, later mechanism.
+    """
+
+    class _FakeInfo:
+        def __init__(self, parameters: dict) -> None:
+            self._parameters = parameters
+
+        def get_parameters(self) -> dict:
+            return dict(self._parameters)
+
+    con = make_offline_con(
+        password="static", user="u", database="d", client_encoding="latin1"
+    )
+    con.con.info = _FakeInfo(
+        {
+            "host": "example.invalid",
+            "port": str(redshift_module.DEFAULT_PORT),
+            "user": "u",
+            "dbname": "d",
+            "client_encoding": "UNICODE",
+        }
+    )
+    con.con.autocommit = True
+
+    recorded = {}
+
+    def fake_connect(**kwargs):
+        recorded.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    clone = con.clone()
+
+    # The caller asked for it, so it is theirs to keep -- on the wire ...
+    assert recorded["client_encoding"] == "latin1"
+    # ... and in the clone's own kwargs, so the profile agrees with the source.
+    assert clone._con_kwargs["client_encoding"] == "latin1"
+    # The DSN's ``UNICODE`` is still what gets dropped, not the caller's value.
+    assert clone._con_kwargs["client_encoding"] != "UNICODE"
+
+
+def test_clone_refuses_rather_than_borrowing_the_postgres_env_password(
+    postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Redshift backend with no password in ``_con_kwargs`` -- which is every
+    one built by ``from_connection`` -- inherited postgres's
+    ``make_credential_defaults()``, i.e. ``$POSTGRES_PASSWORD``.
+
+    Two bad outcomes, and the second is the dangerous one: on a machine with
+    no ``POSTGRES_PASSWORD`` it refused with a message naming a service the
+    caller never used, and on a developer machine where that variable happens
+    to be set it dialled the *warehouse* with a local postgres password.
+
+    Asserted with the variable POPULATED, because that is the case the old
+    code passed silently. A test that only unset it would see an error either
+    way and could not tell the two apart.
+    """
+    monkeypatch.setenv("POSTGRES_PASSWORD", "a-local-postgres-password")
+
+    class _FakeInfo:
+        def __init__(self, parameters: dict) -> None:
+            self._parameters = parameters
+
+        def get_parameters(self) -> dict:
+            return dict(self._parameters)
+
+    con = RedshiftBackend()
+    type(con).__init__(con)
+    con.con = _FakeConnection()
+    con.con.info = _FakeInfo(
+        {
+            "host": "example.invalid",
+            "port": str(redshift_module.DEFAULT_PORT),
+            "user": "u",
+            "dbname": "d",
+        }
+    )
+    con.con.autocommit = True
+
+    dialled = {}
+
+    def fake_connect(**kwargs):
+        dialled.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    with pytest.raises(ValueError, match="password is required"):
+        con.clone()
+
+    # The message names redshift and not some other service's env var.
+    with pytest.raises(ValueError) as excinfo:
+        con.clone()
+    assert "redshift" in str(excinfo.value)
+    assert "POSTGRES_PASSWORD" not in str(excinfo.value)
+    # And nothing was dialled with the borrowed credential.
+    assert dialled == {}
+
+
+def test_postgres_clone_still_falls_back_to_its_own_env_password(
+    postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hook must not change postgres. Redshift returning ``None`` is an
+    override, not a removal of the base behaviour."""
+    con = PostgresBackend()
+    assert con._clone_credential_default_password() == "$POSTGRES_PASSWORD"
