@@ -618,6 +618,21 @@ class RedshiftType(PostgresType):
             "the column to a string before ingest."
         )
 
+    # A column the read side could not map binds as ``Unknown`` so the rest
+    # of its table stays usable; emitting DDL for it must still fail. Without
+    # this the base falls through to ``_to_sqlglot_types[type(dtype)]`` and
+    # raises a bare ``KeyError: <class Unknown>`` naming neither the type nor
+    # why. ``raw_type`` is read defensively: only an ``Unknown`` subclass
+    # that recorded the warehouse's spelling carries it.
+    @classmethod
+    def _from_ibis_Unknown(cls, dtype: dt.Unknown) -> NoReturn:
+        raw_type = getattr(dtype, "raw_type", None)
+        source = f"redshift type {raw_type!r}" if raw_type else "an unknown type"
+        raise com.UnsupportedBackendType(
+            f"cannot emit a Redshift type for a column of {source}: "
+            "it has no xorq equivalent. Drop or cast the column first."
+        )
+
 
 class RisingWaveType(PostgresType):
     dialect = "risingwave"

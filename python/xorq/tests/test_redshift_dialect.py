@@ -125,6 +125,8 @@ pytest.importorskip("psycopg")
 
 import xorq.api as xo  # noqa: E402
 import xorq.common.exceptions as com  # noqa: E402
+import xorq.vendor.ibis.expr.datatypes as dt  # noqa: E402
+import xorq.vendor.ibis.expr.schema as sch  # noqa: E402
 from xorq.backends.redshift.compiler import RedshiftCompiler  # noqa: E402
 from xorq.backends.redshift.compiler import (  # noqa: E402
     compiler as redshift_compiler,
@@ -500,6 +502,39 @@ def test_compiler_type_mapper_is_redshifts(t):
     assert redshift_compiler.type_mapper is RedshiftType
     assert str(RedshiftType.from_string("varbyte")) == "binary"
     assert str(PostgresType.from_string("varbyte")) == "unknown"
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param("varbyte", id="varbyte"),
+        pytest.param("varbyte(16)", id="varbyte-sized"),
+        pytest.param("binary varying", id="binary-varying"),
+        pytest.param("binary varying(16)", id="binary-varying-sized"),
+    ],
+)
+def test_both_varbyte_spellings_parse_to_binary(spelling: str) -> None:
+    """``binary varying`` is the spelling ``svv_all_columns`` reports for a
+    ``VARBYTE`` column; ``varbyte`` is the one a user writes. Both are
+    variable-length binary data with an exact xorq equivalent, so neither may
+    come back ``unknown`` and neither may raise."""
+    assert RedshiftType.from_string(spelling) == dt.Binary()
+
+
+@pytest.mark.parametrize(
+    "nullable",
+    [
+        pytest.param(True, id="nullable"),
+        pytest.param(False, id="not-null"),
+    ],
+)
+def test_unknown_column_refuses_ddl_with_a_typed_error(nullable: bool) -> None:
+    """A column the read side could not map binds as ``Unknown``; a CREATE
+    from that schema must refuse with ``UnsupportedBackendType``, not the bare
+    ``KeyError: <class Unknown>`` the base mapper's table lookup raised."""
+    schema = sch.Schema({"id": dt.int64, "payload": dt.Unknown(nullable=nullable)})
+    with pytest.raises(com.UnsupportedBackendType, match="no xorq equivalent"):
+        schema.to_sqlglot("redshift")
 
 
 def test_last_raises_like_first(t):
