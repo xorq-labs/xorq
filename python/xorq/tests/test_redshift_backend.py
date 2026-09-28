@@ -212,6 +212,55 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
     assert "client_encoding" not in con._con_kwargs
 
 
+def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Redshift rejects ``DEALLOCATE ALL``, which psycopg sends on rollback to
+    clear the statements it has prepared; measured live, the error rolled back
+    a ``drop_table`` and left an ``into_backend`` placeholder in the schema.
+    With the threshold ``None`` nothing is prepared, so nothing is sent.
+
+    Defaulted in ``do_connect``, like ``client_encoding``, so it reaches the
+    driver and not ``_con_kwargs``."""
+    recorded = {}
+
+    def fake_connect(**kwargs):
+        recorded.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    con = RedshiftBackend()
+    con.do_connect(host="example.invalid", user="u", password="p", database="d")
+
+    assert "prepare_threshold" in recorded
+    assert recorded["prepare_threshold"] is None
+    assert "prepare_threshold" not in con._con_kwargs
+
+
+def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded = {}
+
+    def fake_connect(**kwargs):
+        recorded.update(kwargs)
+        return _FakeConnection()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+
+    con = RedshiftBackend()
+    con.do_connect(
+        host="example.invalid",
+        user="u",
+        password="p",
+        database="d",
+        prepare_threshold=3,
+    )
+
+    assert recorded["prepare_threshold"] == 3
+
+
 def test_client_encoding_is_not_inherited_from_postgres(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -231,6 +280,7 @@ def test_client_encoding_is_not_inherited_from_postgres(
     con.do_connect(host="example.invalid", user="u", password="p", database="d")
 
     assert "client_encoding" not in recorded
+    assert "prepare_threshold" not in recorded
 
 
 def test_default_port_is_redshifts():
@@ -328,8 +378,30 @@ def executed(con):
     return [sql for (kind, sql, *_) in con.con.log if kind == "execute"]
 
 
-def raise_get_conn(self, **kwargs):
+def raise_get_conn(*args, **kwargs):
     raise RuntimeError("FATAL: password authentication failed for user")
+
+
+class _FakeLibpqInfo:
+    """What ``PgADBC.params`` reads off the live psycopg connection."""
+
+    user = "u"
+    host = "example.invalid"
+    port = 5439
+    dbname = "d"
+
+
+def capture_adbc_uris(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> list[str]:
+    uris: list[str] = []
+
+    def connect(uri):
+        uris.append(uri)
+        return "adbc-conn"
+
+    monkeypatch.setattr(postgres_utils.adbc_driver_postgresql.dbapi, "connect", connect)
+    return uris
 
 
 def test_psycopg_ingest_creates_and_inserts():
@@ -586,8 +658,11 @@ def test_auth_failure_is_not_swallowed_as_a_missing_driver(
     same silence hides an expired password behind a working query.
     """
     con = make_offline_con(password="rotating")
+    con.con.info = _FakeLibpqInfo()
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
-    monkeypatch.setattr(postgres_utils.PgADBC, "get_conn", raise_get_conn)
+    monkeypatch.setattr(
+        postgres_utils.adbc_driver_postgresql.dbapi, "connect", raise_get_conn
+    )
 
     with pytest.raises(RuntimeError, match="password authentication failed"):
         con._open_adbc_conn_or_none()
@@ -601,7 +676,9 @@ def test_an_unavailable_driver_is_not_dialled_at_all(
     then a real failure."""
     con = make_offline_con()
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
-    monkeypatch.setattr(postgres_utils.PgADBC, "get_conn", raise_get_conn)
+    monkeypatch.setattr(
+        postgres_utils.adbc_driver_postgresql.dbapi, "connect", raise_get_conn
+    )
 
     assert con._open_adbc_conn_or_none() is None
 
@@ -618,6 +695,74 @@ def test_the_postgres_seam_keeps_swallowing(
     monkeypatch.setattr(postgres_utils.PgADBC, "get_conn", raise_get_conn)
 
     assert con._open_adbc_conn_or_none() is None
+
+
+_BASE_URI = "postgresql://u:static@example.invalid:5439/d"
+
+
+@pytest.mark.parametrize(
+    ("schema", "options"),
+    [
+        pytest.param("xorq_test", "-csearch_path%3Dxorq_test", id="plain"),
+        pytest.param("s1,public", "-csearch_path%3Ds1%2Cpublic", id="list"),
+        pytest.param("a b", "-csearch_path%3Da%5C%20b", id="space-escaped"),
+        pytest.param("x\\y", "-csearch_path%3Dx%5C%5Cy", id="backslash-escaped"),
+    ],
+)
+def test_adbc_read_connection_carries_the_schema(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_utils: ModuleType,
+    schema: str,
+    options: str,
+) -> None:
+    """psycopg gets ``schema`` from ``_post_connect``'s ``set_config``; the
+    ADBC read connection is a second connection and used to get nothing, so it
+    ran with ``'$user, public'``. The compiler emits unqualified table names,
+    so every table-bound read raised "relation does not exist" there and was
+    re-run on psycopg by the execute-stage catch -- right rows, and an
+    accelerator that never served a table-bound read.
+
+    The escaping cases are libpq's rule for ``options`` (whitespace splits
+    arguments unless backslash-escaped); each value's effective
+    ``search_path`` was measured against a local postgres to match what
+    ``set_config`` gives the same string.
+    """
+    con = make_offline_con(password="static", schema=schema)
+    con.con.info = _FakeLibpqInfo()
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+    uris = capture_adbc_uris(monkeypatch, postgres_utils)
+
+    assert con._open_adbc_conn_or_none() == "adbc-conn"
+    assert uris == [f"{_BASE_URI}?options={options}"]
+
+
+def test_adbc_read_connection_without_a_schema_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
+    con = make_offline_con(password="static")
+    con.con.info = _FakeLibpqInfo()
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+    uris = capture_adbc_uris(monkeypatch, postgres_utils)
+
+    con._open_adbc_conn_or_none()
+
+    assert uris == [_BASE_URI]
+
+
+def test_postgres_adbc_read_connection_is_not_given_the_schema(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
+    """The fix is Redshift's alone. Postgres has the same gap, but its read
+    path is shared by every postgres user and is a separate change."""
+    con = PostgresBackend()
+    type(con).__init__(con, host="example.invalid", password="static", schema="s")
+    con.con = _FakeConnection()
+    con.con.info = _FakeLibpqInfo()
+    uris = capture_adbc_uris(monkeypatch, postgres_utils)
+
+    con._open_adbc_conn_or_none()
+
+    assert uris == [_BASE_URI]
 
 
 def test_ingest_modes_are_the_adbc_ingest_modes():
@@ -849,6 +994,11 @@ def test_clone_does_not_carry_client_encoding(
 
     # ``do_connect`` still defaults it, so the wire is configured ...
     assert recorded["client_encoding"] == "utf8"
+    # ``prepare_threshold`` is not a DSN setting, so the clone gets it only by
+    # going back through ``do_connect``; it must, or the clone's rollbacks
+    # send ``DEALLOCATE ALL`` again.
+    assert "prepare_threshold" in recorded
+    assert recorded["prepare_threshold"] is None
     # ... and the clone did not inherit the DSN's value as a caller argument.
     assert "client_encoding" not in clone._con_kwargs
     assert "client_encoding" not in clone._profile.kwargs_dict
