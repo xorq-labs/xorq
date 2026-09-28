@@ -88,6 +88,17 @@ _UNNEST_DEPENDENT_ARRAY_OPS = (
     ops.Unnest,
 )
 
+# These lower without ``UNNEST`` but cast an operand to an array type, and the
+# type mapper refuses every array type: Redshift rejects ``BIGINT[]`` (measured,
+# see ``RedshiftType``). Left to the mapper they fail at compile anyway, with
+# the ingest message and without naming the op; the only SQL they ever
+# produced, ``ARRAY_CONCAT(CAST(arr AS BIGINT[]), ...)``, could not run.
+_ARRAY_CASTING_OPS = (
+    ops.ArrayConcat,
+    ops.ArrayContains,
+    ops.IntegerRange,
+)
+
 
 class RedshiftCompiler(PostgresCompiler):
     """Redshift, compiled as Redshift rather than as PostgreSQL.
@@ -137,6 +148,7 @@ class RedshiftCompiler(PostgresCompiler):
     UNSUPPORTED_OPS = (
         *PostgresCompiler.UNSUPPORTED_OPS,
         *_UNNEST_DEPENDENT_ARRAY_OPS,
+        *_ARRAY_CASTING_OPS,
         # ``ARRAY_AGG`` is the same absent function ``visit_ArgMinMax`` raises
         # over; leaving ``collect()`` compiling to it while ``argmax`` raises
         # for want of it was one premise with two answers.

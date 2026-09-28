@@ -69,6 +69,7 @@ import pathlib
 import subprocess
 import sys
 import textwrap
+from collections.abc import Callable
 
 import pytest
 import sqlglot
@@ -127,6 +128,7 @@ import xorq.api as xo  # noqa: E402
 import xorq.common.exceptions as com  # noqa: E402
 import xorq.vendor.ibis.expr.datatypes as dt  # noqa: E402
 import xorq.vendor.ibis.expr.schema as sch  # noqa: E402
+import xorq.vendor.ibis.expr.types as ir  # noqa: E402
 from xorq.backends.redshift.compiler import RedshiftCompiler  # noqa: E402
 from xorq.backends.redshift.compiler import (  # noqa: E402
     compiler as redshift_compiler,
@@ -607,11 +609,36 @@ def test_unnest_dependent_ops_raise_instead_of_emitting_holes(t, build):
 
 
 @pytest.mark.parametrize(
+    ("build", "op"),
+    [
+        pytest.param(lambda t: t.select(o=t.arr + t.arr), "ArrayConcat", id="concat"),
+        pytest.param(
+            lambda t: t.select(o=t.arr.contains(1)), "ArrayContains", id="contains"
+        ),
+        pytest.param(
+            lambda t: t.select(o=xo.range(0, t.id)), "IntegerRange", id="integer-range"
+        ),
+    ],
+)
+def test_array_casting_ops_raise_naming_the_op(
+    t: ir.Table, build: Callable[[ir.Table], ir.Table], op: str
+) -> None:
+    """These lower without ``UNNEST`` but cast an operand to an array type.
+
+    The type mapper refuses every array type, so they already failed at
+    compile -- with the ingest message ("before ingest") and without naming
+    the op. The only SQL they ever produced, ``ARRAY_CONCAT(CAST(arr AS
+    BIGINT[]), ...)``, could not run: Redshift rejects ``BIGINT[]``.
+    """
+    with pytest.raises(com.OperationNotDefinedError, match=op):
+        to_sql(build(t))
+
+
+@pytest.mark.parametrize(
     ("build", "kept"),
     [
         pytest.param(lambda t: t.arr.length(), "GET_ARRAY_LENGTH", id="length"),
         pytest.param(lambda t: t.arr[0], "[", id="index"),
-        pytest.param(lambda t: t.arr + t.arr, "ARRAY_CONCAT", id="concat"),
         pytest.param(lambda t: t.s.split(","), "SPLIT_TO_ARRAY", id="split"),
     ],
 )
