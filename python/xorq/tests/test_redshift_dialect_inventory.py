@@ -136,7 +136,7 @@ INVENTORY: dict[str, tuple[str, str]] = {
         "PERCENTILE_CONT regardless -- the more general spelling, and the one "
         "whose WITHIN GROUP carries the filter predicate. Both were verified "
         "2026-09-24 to run and to respect the folded predicate (0.02750 "
-        "filtered vs 0.02875 unfiltered over xorq_test.offers). Note "
+        "filtered vs 0.02875 unfiltered over a test table). Note "
         "PERCENTILE_DISC, the non-numeric branch, is unsupported outright -- "
         "visit_Quantile raises there.",
     ),
@@ -445,6 +445,6 @@ def test_known_open_entries_are_the_documented_ones():
     """
     known_open = {k for k, (tag, _) in INVENTORY.items() if tag == KNOWN_OPEN}
     assert known_open == set(), (
-        "every dialect difference was settled against the xorq-test warehouse "
+        "every dialect difference was settled against a test warehouse "
         f"on 2026-09-24; these are newly open and need an answer: {known_open}"
     )

@@ -7,7 +7,7 @@ marker, so a test placed under the backend directory would run only in the
 credential-gated workflow. Everything here is ``to_sql`` on an unbound table
 and needs no warehouse.
 
-Each test below corresponds to an expression form the rc16 transcript observed
+Each test below corresponds to an expression form a user report observed
 Redshift *rejecting at execution*, after a successful build. The failure mode
 these guard against is therefore not "xorq raises" -- it is "xorq emits
 confident SQL that the warehouse refuses", which is only visible in the
@@ -23,11 +23,10 @@ SETTLED AGAINST A LIVE WAREHOUSE, 2026-09-24
 --------------------------------------------
 
 Three claims in this module once rested on AWS's documented grammar rather than
-on an observed rejection. All three were settled against the xorq-test
-warehouse (Redshift Serverless, us-east-2) on 2026-09-24, and all three came
-back confirming the behaviour this module already had. The queries live in
-``scripts/2026-09-24-redshift-settle-open-questions.sh`` and its round-2
-companion, so the answers are reproducible rather than remembered.
+on an observed rejection. All three were settled against a test
+warehouse (Redshift Serverless) on 2026-09-24, and all three came
+back confirming the behaviour this module already had. The answers are
+recorded below.
 
 1. **Does Redshift decode ``\t`` in a plain string literal? YES.**
    ``SELECT LENGTH('\t')`` is 1 and ``'\t' = CHR(9)`` is true. So the escape
@@ -167,7 +166,7 @@ def t():
 
 
 def test_date_from_ymd_does_not_emit_make_date(t):
-    """:4549 -- ``function make_date(integer,integer,integer) does not exist``.
+    """Observed: ``function make_date(integer,integer,integer) does not exist``.
 
     ``make_date`` reaches the SQL through the *dialect* layer, not the compiler:
     ``dialects.py`` does ``Postgres.Generator.TRANSFORMS |= {sge.DateFromParts:
@@ -219,9 +218,9 @@ def test_date_literal_does_not_emit_date_from_parts(t):
 
 
 def test_sum_where_does_not_emit_filter_clause(t):
-    """:6725 -- ``FILTER(WHERE ...)`` unsupported.
+    """Observed: ``FILTER(WHERE ...)`` unsupported.
 
-    ``where=`` is the idiom xorq's own skills teach (:3977), so this is a
+    ``where=`` is the idiom xorq's own skills teach, so this is a
     documented construction that could not run. ``AggGen`` already knows how to
     lower it: with ``supports_filter=False`` it rewrites to ``CASE WHEN``
     (``compilers/base.py:139``).
@@ -232,7 +231,7 @@ def test_sum_where_does_not_emit_filter_clause(t):
 
 
 def test_nunique_where_does_not_emit_filter_clause(t):
-    """:6725, the ``COUNT(DISTINCT ...)`` spelling of the same defect.
+    """The ``COUNT(DISTINCT ...)`` spelling of the same defect.
 
     Worth its own test: the count path builds its aggregate differently from
     ``sum``, so a fix that only covered plain aggregates would leave this one
@@ -254,10 +253,10 @@ def test_nunique_where_does_not_emit_filter_clause(t):
 
 
 def test_ranking_window_emits_no_frame_clause(t):
-    """:5440 -- ``Frame clause should not be specified for ranking window
+    """Observed: ``Frame clause should not be specified for ranking window
     functions``.
 
-    :5475 records that *both* the windowed and unwindowed spellings emitted
+    The report records that *both* the windowed and unwindowed spellings emitted
     ``ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING``, so no API
     spelling avoided it -- which is why this is a compiler fix rather than a
     documentation note.
@@ -288,7 +287,7 @@ def test_non_ranking_window_keeps_its_frame_clause(t):
 
 
 def test_distinct_on_raises_rather_than_emitting_first(t):
-    """:5507 -- ``.distinct(on=[...])`` compiled to ``FIRST()``, which Redshift
+    """Observed: ``.distinct(on=[...])`` compiled to ``FIRST()``, which Redshift
     has no aggregate for.
 
     Redshift *does* have ``FIRST_VALUE``, but only as a window function, and
@@ -400,7 +399,7 @@ def test_count_star_without_a_predicate_stays_count_star(t):
 def test_table_nunique_raises_in_either_spelling(t):
     """``Table.nunique()`` has no Redshift lowering at all.
 
-    VERIFIED on the xorq-test warehouse 2026-09-24: ``COUNT(DISTINCT a, b)``
+    VERIFIED on a test warehouse 2026-09-24: ``COUNT(DISTINCT a, b)``
     is "function count(bigint, varchar) does not exist" and
     ``COUNT(DISTINCT (a, b))`` is "could not identify an equality operator for
     type record". sqlglot's ``MULTI_ARG_DISTINCT = True`` for Redshift claims
@@ -473,7 +472,7 @@ def test_ordered_set_aggregates_emit_no_filter_clause(t, build):
 def test_mode_raises(t):
     """Redshift has no ``MODE`` in any spelling.
 
-    VERIFIED on the xorq-test warehouse 2026-09-24: ``MODE() WITHIN GROUP`` is
+    VERIFIED on a test warehouse 2026-09-24: ``MODE() WITHIN GROUP`` is
     a syntax error at "WITHIN", and ``MODE(title)`` is "function mode(varchar)
     does not exist".
 
@@ -497,7 +496,7 @@ def test_quantile_over_a_non_numeric_column_raises(t, column):
     """``percentile_disc`` is rejected outright, and ``percentile_cont`` is not
     the discrete percentile.
 
-    VERIFIED on the xorq-test warehouse 2026-09-24: PERCENTILE_DISC gives
+    VERIFIED on a test warehouse 2026-09-24: PERCENTILE_DISC gives
     'Aggregate function "percentile_disc" is not supported; use approximate
     percentile_disc or percentile_cont instead', and PERCENTILE_CONT over a
     varchar gives 'Non supported data-type in order-by expression'.

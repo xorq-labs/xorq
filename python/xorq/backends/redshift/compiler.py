@@ -34,7 +34,7 @@ _RANKING_OPS = (
 # row at a fixed displacement from the current one and is frame-insensitive in
 # every engine that accepts the clause, PostgreSQL included.
 #
-# Measured on the xorq-test warehouse: "Frame clause should not be specified
+# Measured on a test warehouse: "Frame clause should not be specified
 # for window function lag".
 _OFFSET_OPS = (
     ops.Lag,
@@ -54,7 +54,7 @@ _NO_FRAME_OPS = _RANKING_OPS + _OFFSET_OPS
 # which ``OVER (PARTITION BY ...)`` cannot express, so ``visit_WindowFunction``
 # raises on one rather than widening it to the whole partition.
 #
-# Measured on the xorq-test warehouse: "window specification should not contain
+# Measured on a test warehouse: "window specification should not contain
 # frame clause and order-by for window function median".
 _PARTITION_ONLY_OPS = (
     ops.GroupConcat,
@@ -106,7 +106,7 @@ class RedshiftCompiler(PostgresCompiler):
 
     Redshift is PostgreSQL-derived at the wire level, which is why the backend
     subclasses the postgres one, but it is *not* PostgreSQL at the SQL level.
-    Every override below corresponds to a construct the rc16 transcript observed
+    Every override below corresponds to a construct a user report observed
     Redshift rejecting at execution time, after a successful build -- the
     expensive failure mode, because the models were already written and
     documented by then.
@@ -272,7 +272,7 @@ class RedshiftCompiler(PostgresCompiler):
     def visit_CountDistinctStar(self, op, *, arg, where):
         """``Table.nunique()`` has no Redshift lowering in any spelling.
 
-        VERIFIED on the xorq-test warehouse 2026-09-24. Both candidates are
+        VERIFIED on a test warehouse 2026-09-24. Both candidates are
         rejected at execution:
 
             COUNT(DISTINCT id, title)    -> function count(bigint, varchar)
@@ -308,9 +308,9 @@ class RedshiftCompiler(PostgresCompiler):
         """Ordered-set aggregates never reach ``AggGen``, so ``supports_filter``
         does not reach them either.
 
-        VERIFIED on the xorq-test warehouse 2026-09-24: the emitted form
+        VERIFIED on a test warehouse 2026-09-24: the emitted form
         runs and the predicate changes the answer (0.02750 filtered against
-        0.02875 unfiltered over ``xorq_test.offers``), and the ``FILTER``
+        0.02875 unfiltered over a test table), and the ``FILTER``
         spelling it replaced is rejected.
 
         ``visit_Quantile``, ``visit_Median``, ``visit_ApproxMedian`` and the
@@ -354,7 +354,7 @@ class RedshiftCompiler(PostgresCompiler):
     def visit_Mode(self, op, *, arg, where):
         """Redshift has no ``MODE`` in any spelling.
 
-        VERIFIED on the xorq-test warehouse 2026-09-24::
+        VERIFIED on a test warehouse 2026-09-24::
 
             MODE() WITHIN GROUP (ORDER BY x)  -> syntax error at or near
                                                  "WITHIN"
@@ -549,7 +549,7 @@ class RedshiftCompiler(PostgresCompiler):
     def visit_WindowFunction(self, op, *, how, func, start, end, group_by, order_by):
         """Drop the frame clause where Redshift's grammar has no slot for one.
 
-        :5475 in the transcript records that both the windowed and the
+        A user report recorded that both the windowed and the
         unwindowed spellings emitted ``ROWS BETWEEN UNBOUNDED PRECEDING AND
         UNBOUNDED FOLLOWING``, so there was no API-level way for a user to avoid
         this -- it had to be fixed in the compiler.
