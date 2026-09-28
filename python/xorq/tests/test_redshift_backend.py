@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
+import re
 import sys
 from collections.abc import Callable
 from types import ModuleType
@@ -1126,7 +1127,11 @@ def test_get_schema_sql_parses_and_selects_from_svv_all_columns():
     con.get_schema("sales", database="public")
 
     (sql, _params) = last_call(con)
-    parsed = sg.parse_one(sql, read=con.dialect)
+    # The statement carries psycopg's named placeholders, which psycopg binds
+    # and sqlglot 23.6.3 -- the supported floor -- cannot parse. Each becomes a
+    # literal so the shape is what gets checked; that the values are bound
+    # rather than interpolated is asserted separately.
+    parsed = sg.parse_one(re.sub(r"%\((\w+)\)s", r"'\1'", sql), read=con.dialect)
 
     assert isinstance(parsed, sge.Select)
     assert parsed.find(sge.Table).name == "svv_all_columns"

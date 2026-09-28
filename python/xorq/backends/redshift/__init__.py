@@ -46,6 +46,13 @@ INGEST_CHUNKSIZE = 10_000
 # alias makes the emitted SQL assertable.
 PROBE_ALIAS = "redshift_probe"
 
+# What ``sg.parse`` may yield for trailing noise rather than for a statement.
+# ``sge.Semicolon`` is absent from sqlglot 23.6.3 -- within the supported range,
+# and the version CI's lowest-direct job installs -- and present by 23.17.0.
+# Where it is absent, a trailing comment attaches to the statement before it,
+# so there is nothing to drop and an empty tuple matches nothing.
+_NOT_A_STATEMENT = tuple(filter(None, (getattr(sge, "Semicolon", None),)))
+
 
 def _search_path_option(schema: str) -> str:
     r"""``schema`` as a percent-encoded libpq ``options`` value setting
@@ -624,7 +631,7 @@ ORDER BY ordinal_position ASC"""
         statements = [
             stmt
             for stmt in sg.parse(query, read=self.dialect)
-            if stmt is not None and not isinstance(stmt, sge.Semicolon)
+            if stmt is not None and not isinstance(stmt, _NOT_A_STATEMENT)
         ]
         if len(statements) != 1:
             # ``parse_one`` would silently probe the first statement while
