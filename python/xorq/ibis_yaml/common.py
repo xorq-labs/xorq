@@ -126,8 +126,8 @@ class Registry:
 def reachable_node_refs(registry: Registry, yaml_obj) -> frozenset[str]:
     """Every registered node ref reachable from yaml_obj, found without recursion.
 
-    A mapping counts as a ref only if its node_ref names a registered node, so a
-    literal that happens to carry a "node_ref" key is walked as plain data.
+    Literal values and parameter defaults are data, even when they contain a
+    node_ref that names a registered node.
     """
     reachable = set()
     pending = [yaml_obj]
@@ -139,7 +139,14 @@ def reachable_node_refs(registry: Registry, yaml_obj) -> frozenset[str]:
                     if node_ref not in reachable:
                         reachable.add(node_ref)
                         pending.append(registry.nodes[node_ref])
-                pending.extend(value.values())
+                pending.extend(
+                    child
+                    for key, child in value.items()
+                    if not (value.get("op") == "Literal" and key == "value")
+                    and not (
+                        value.get("op") == "NamedScalarParameter" and key == "default"
+                    )
+                )
             case tuple() | list():
                 pending.extend(value)
     return frozenset(reachable)

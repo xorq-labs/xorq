@@ -48,6 +48,7 @@ from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
+from xorq.ibis_yaml.common import Registry, reachable_node_refs
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -2206,6 +2207,29 @@ def test_map_literal_with_node_ref_key_round_trips(compiler):
     restored = compiler.from_yaml(compiler.to_yaml(expr))
 
     assert restored.op().value == value
+
+
+def test_map_literal_does_not_reach_unused_node_definition(compiler):
+    value = {"node_ref": "@unused"}
+    expr = ibis.literal(value, type="map<string, string>")
+    yaml_dict = toolz.assoc_in(
+        compiler.to_yaml(expr),
+        ["definitions", RegistryEnum.nodes, "@unused"],
+        {"op": "DatabaseTable", "profile": "missing"},
+    )
+
+    restored = compiler.from_yaml(yaml_dict)
+
+    assert restored.op().value == value
+
+
+def test_parameter_default_does_not_reach_node_definition():
+    registry = Registry(
+        nodes={"@unused": {"op": "DatabaseTable", "profile": "missing"}}
+    )
+    param = {"op": "NamedScalarParameter", "default": {"node_ref": "@unused"}}
+
+    assert reachable_node_refs(registry, param) == frozenset()
 
 
 def test_from_yaml_ignores_unreachable_node_definitions(compiler):
