@@ -46,6 +46,7 @@ from xorq.common.utils.dasher._paths import (
 
 
 if TYPE_CHECKING:
+    from xorq.expr.relations import Read
     from xorq.vendor.ibis.expr import operations as ops
 
 
@@ -116,7 +117,14 @@ def _normalize_single_path(path, read_kwargs, read):
         raise FileNotFoundError(f"local path does not exist: {path!r}")
 
 
-def _read_extra_kwargs(read):
+def _read_extra_kwargs(read: Read) -> tuple:
+    """Fold the identity-bearing read kwargs in (global regime).
+
+    ``snapshot_normalize_read`` in ``xorq.caching.strategy`` filters the same
+    set for the snapshot regime; keep the two in step. See
+    ``constants.READ_IDENTITY_KEYS`` for why the set is an allow-list and what
+    that costs (gh-2206, gh-2217).
+    """
     return tuple((k, v) for k, v in read.read_kwargs if k in READ_IDENTITY_KEYS)
 
 
