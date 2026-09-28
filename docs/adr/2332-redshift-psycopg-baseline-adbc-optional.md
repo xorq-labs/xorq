@@ -256,6 +256,17 @@ that builds its batches positionally and cannot see a mismatch. Any driver
 handing back the folded name meets it identically, the Columnar driver included,
 and swapping accelerators neither causes nor cures it.
 
+A further read-path defect is closed rather than carried: on a connection opened
+with `schema=`, the ADBC read connection ran with the server's default
+`search_path`, because `PgADBC`'s URI names no schema and only the psycopg
+connection runs `_post_connect`'s `set_config`. The compiler emits unqualified
+table names, so every table-bound read failed on ADBC and was re-run on psycopg
+by the execute-stage catch: correct rows, and an accelerator that never served
+one. The Redshift read connection now carries the search path in libpq
+`options`. Its consequence is that table-bound reads on such connections now
+reach the alias failure above instead of falling back past it. The postgres
+backend has the same gap and is untouched here.
+
 The second caveat is that **which read branch serves a query is decided per
 connection, not per install.** The availability predicate returns a reason
 whenever the connection's `_con_kwargs` carry no password, which is every
