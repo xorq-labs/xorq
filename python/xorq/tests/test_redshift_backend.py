@@ -328,8 +328,30 @@ def executed(con):
     return [sql for (kind, sql, *_) in con.con.log if kind == "execute"]
 
 
-def raise_get_conn(self, **kwargs):
+def raise_get_conn(*args, **kwargs):
     raise RuntimeError("FATAL: password authentication failed for user")
+
+
+class _FakeLibpqInfo:
+    """What ``PgADBC.params`` reads off the live psycopg connection."""
+
+    user = "u"
+    host = "example.invalid"
+    port = 5439
+    dbname = "d"
+
+
+def capture_adbc_uris(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> list[str]:
+    uris: list[str] = []
+
+    def connect(uri):
+        uris.append(uri)
+        return "adbc-conn"
+
+    monkeypatch.setattr(postgres_utils.adbc_driver_postgresql.dbapi, "connect", connect)
+    return uris
 
 
 def test_psycopg_ingest_creates_and_inserts():
@@ -576,8 +598,11 @@ def test_auth_failure_is_not_swallowed_as_a_missing_driver(
     same silence hides an expired password behind a working query.
     """
     con = make_offline_con(password="rotating")
+    con.con.info = _FakeLibpqInfo()
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
-    monkeypatch.setattr(postgres_utils.PgADBC, "get_conn", raise_get_conn)
+    monkeypatch.setattr(
+        postgres_utils.adbc_driver_postgresql.dbapi, "connect", raise_get_conn
+    )
 
     with pytest.raises(RuntimeError, match="password authentication failed"):
         con._open_adbc_conn_or_none()
@@ -591,7 +616,9 @@ def test_an_unavailable_driver_is_not_dialled_at_all(
     then a real failure."""
     con = make_offline_con()
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
-    monkeypatch.setattr(postgres_utils.PgADBC, "get_conn", raise_get_conn)
+    monkeypatch.setattr(
+        postgres_utils.adbc_driver_postgresql.dbapi, "connect", raise_get_conn
+    )
 
     assert con._open_adbc_conn_or_none() is None
 
@@ -608,6 +635,74 @@ def test_the_postgres_seam_keeps_swallowing(
     monkeypatch.setattr(postgres_utils.PgADBC, "get_conn", raise_get_conn)
 
     assert con._open_adbc_conn_or_none() is None
+
+
+_BASE_URI = "postgresql://u:static@example.invalid:5439/d"
+
+
+@pytest.mark.parametrize(
+    ("schema", "options"),
+    [
+        pytest.param("xorq_test", "-csearch_path%3Dxorq_test", id="plain"),
+        pytest.param("s1,public", "-csearch_path%3Ds1%2Cpublic", id="list"),
+        pytest.param("a b", "-csearch_path%3Da%5C%20b", id="space-escaped"),
+        pytest.param("x\\y", "-csearch_path%3Dx%5C%5Cy", id="backslash-escaped"),
+    ],
+)
+def test_adbc_read_connection_carries_the_schema(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_utils: ModuleType,
+    schema: str,
+    options: str,
+) -> None:
+    """psycopg gets ``schema`` from ``_post_connect``'s ``set_config``; the
+    ADBC read connection is a second connection and used to get nothing, so it
+    ran with ``'$user, public'``. The compiler emits unqualified table names,
+    so every table-bound read raised "relation does not exist" there and was
+    re-run on psycopg by the execute-stage catch -- right rows, and an
+    accelerator that never served a table-bound read.
+
+    The escaping cases are libpq's rule for ``options`` (whitespace splits
+    arguments unless backslash-escaped); each value's effective
+    ``search_path`` was measured against a local postgres to match what
+    ``set_config`` gives the same string.
+    """
+    con = make_offline_con(password="static", schema=schema)
+    con.con.info = _FakeLibpqInfo()
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+    uris = capture_adbc_uris(monkeypatch, postgres_utils)
+
+    assert con._open_adbc_conn_or_none() == "adbc-conn"
+    assert uris == [f"{_BASE_URI}?options={options}"]
+
+
+def test_adbc_read_connection_without_a_schema_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
+    con = make_offline_con(password="static")
+    con.con.info = _FakeLibpqInfo()
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+    uris = capture_adbc_uris(monkeypatch, postgres_utils)
+
+    con._open_adbc_conn_or_none()
+
+    assert uris == [_BASE_URI]
+
+
+def test_postgres_adbc_read_connection_is_not_given_the_schema(
+    monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
+) -> None:
+    """The fix is Redshift's alone. Postgres has the same gap, but its read
+    path is shared by every postgres user and is a separate change."""
+    con = PostgresBackend()
+    type(con).__init__(con, host="example.invalid", password="static", schema="s")
+    con.con = _FakeConnection()
+    con.con.info = _FakeLibpqInfo()
+    uris = capture_adbc_uris(monkeypatch, postgres_utils)
+
+    con._open_adbc_conn_or_none()
+
+    assert uris == [_BASE_URI]
 
 
 def test_ingest_modes_are_the_adbc_ingest_modes():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import re
+import urllib.parse
 from typing import Any
 
 import pyarrow as pa
@@ -36,6 +38,20 @@ APPEND_ONLY_MODES = ("append", "create_append")
 
 # Rows per ``executemany`` for a ``pa.Table``, which carries no batch size.
 INGEST_CHUNKSIZE = 10_000
+
+
+def _search_path_option(schema: str) -> str:
+    r"""``schema`` as a percent-encoded libpq ``options`` value setting
+    ``search_path``.
+
+    libpq splits ``options`` on whitespace unless it is backslash-escaped,
+    and reads ``\\`` as one backslash, so both are escaped before encoding.
+    The value is otherwise passed as ``_post_connect`` passes it to
+    ``set_config``: a ``search_path`` string, so a comma list keeps its
+    meaning.
+    """
+    escaped = re.sub(r"([\\\s])", r"\\\1", schema)
+    return urllib.parse.quote(f"-csearch_path={escaped}", safe="")
 
 
 class Backend(PostgresBackend):
@@ -202,6 +218,17 @@ class Backend(PostgresBackend):
         ordinary consequence of a ``.pgpass`` connection, but here it would
         swallow a rejected temporary credential and quietly downgrade to
         psycopg -- reporting nothing while the IAM path is broken.
+
+        It also carries ``schema`` onto the ADBC connection. psycopg gets it
+        from ``_post_connect``'s ``set_config('search_path', ...)``; ADBC is a
+        second connection, and ``PgADBC``'s URI names no schema, so it ran
+        with the server default ``'$user, public'``. The compiler emits
+        unqualified table names, so every table-bound read raised "relation
+        does not exist" there and was silently re-run on psycopg by the
+        inherited execute-stage catch: correct rows, and an accelerator that
+        never served a table-bound read. The search path therefore goes in the
+        URI's libpq ``options``, taken from the same ``_con_kwargs["schema"]``
+        ``_post_connect`` reads, so the two connections agree.
         """
         if (reason := self._adbc_unavailable_reason()) is not None:
             logger.debug(
@@ -214,9 +241,15 @@ class Backend(PostgresBackend):
         # Below the probe: ``postgres_utils`` imports
         # ``adbc_driver_postgresql`` at module scope, so an import above it
         # raises in exactly the case the probe exists to detect.
-        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
+        from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
+            PgADBC,
+            adbc_driver_postgresql,
+        )
 
-        return PgADBC(self).get_conn()
+        uri = PgADBC(self).get_uri()
+        if schema := self._con_kwargs.get("schema"):
+            uri = f"{uri}?options={_search_path_option(schema)}"
+        return adbc_driver_postgresql.dbapi.connect(uri)
 
     def read_record_batches(
         self,
