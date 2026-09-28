@@ -64,6 +64,7 @@ widths in ``test_redshift_backend.py`` (unbounded ``VARCHAR``, the
 from __future__ import annotations
 
 import ast
+import datetime
 import inspect
 import pathlib
 import subprocess
@@ -174,6 +175,19 @@ def test_date_from_ymd_does_not_emit_make_date(t):
     sql = to_sql(t.mutate(dt=xo.date(t.y, t.m, t.d)))
     assert "MAKE_DATE" not in sql.upper()
     assert "TO_DATE" in sql.upper()
+
+
+def test_date_literal_does_not_emit_date_from_parts(t):
+    """A date *literal* never reaches ``visit_DateFromYMD``.
+
+    ``visit_DefaultLiteral`` (``compilers/base.py:763``) builds its own
+    ``datefromparts``, which the Redshift dialect spells ``DATE_FROM_PARTS`` --
+    absent on Redshift. The test above builds the date from columns, so it
+    could not see this, while every ``t.d > date(...)`` filter hit it.
+    """
+    sql = to_sql(t.filter(xo.literal(datetime.date(2020, 1, 2)) < xo.now().date()))
+    assert "DATE_FROM_PARTS" not in sql.upper()
+    assert "CAST('2020-01-02' AS DATE)" in sql
 
 
 def test_sum_where_does_not_emit_filter_clause(t):
@@ -839,6 +853,57 @@ def test_partition_only_window_functions_drop_order_by_and_frame(t, build, func)
     assert "ROWS BETWEEN" not in sql
 
 
+@pytest.mark.parametrize(
+    "window",
+    [
+        pytest.param(
+            lambda t: xo.window(
+                group_by=t.grp, order_by=t.id, preceding=2, following=0
+            ),
+            id="rolling",
+        ),
+        pytest.param(
+            lambda t: xo.cumulative_window(group_by=t.grp, order_by=t.id),
+            id="cumulative",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.grp.group_concat(","), id="listagg"),
+        pytest.param(lambda t: t.amt.median(), id="median"),
+        pytest.param(lambda t: t.amt.quantile(0.9), id="quantile"),
+    ],
+)
+def test_partition_only_window_functions_refuse_a_bounded_frame(t, build, window):
+    """Dropping a bounded frame would aggregate the whole partition instead.
+
+    ``OVER (PARTITION BY ...)`` is the only window Redshift accepts for these,
+    and it equals the requested one only when the frame is unbounded both
+    ways. A rolling or cumulative median widened to the partition median is
+    a wrong number with no error, so it must raise.
+    """
+    with pytest.raises(com.UnsupportedOperationError, match="whole partition"):
+        to_sql(t.mutate(o=build(t).over(window(t))))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.amt.quantile([0.25, 0.75]), id="multi_quantile"),
+        pytest.param(
+            lambda t: t.amt.approx_quantile([0.25, 0.75]), id="approx_multi_quantile"
+        ),
+    ],
+)
+def test_multi_quantile_raises(t, build):
+    """``PERCENTILE_CONT(ARRAY[...])`` returns an array, and Redshift has
+    neither the argument nor the result type."""
+    with pytest.raises(com.OperationNotDefinedError):
+        to_sql(t.aggregate(o=build(t)))
+
+
 def test_arbitrary_over_a_window_raises(t):
     """``ANY_VALUE`` is an aggregate on Redshift, not a window function."""
     w = xo.window(group_by=t.grp, order_by=t.id)
@@ -997,7 +1062,7 @@ def test_no_hand_written_override_is_clobbered_by_simple_ops():
     for node in class_def.body:
         if isinstance(node, ast.FunctionDef) and node.name.startswith("visit_"):
             written.add(node.name)
-        elif isinstance(node, ast.Assign):  # e.g. visit_MultiQuantile = visit_Quantile
+        elif isinstance(node, ast.Assign):  # e.g. visit_ApproxQuantile = visit_Quantile
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id.startswith("visit_"):
                     written.add(target.id)

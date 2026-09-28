@@ -34,10 +34,8 @@ _RANKING_OPS = (
 # row at a fixed displacement from the current one and is frame-insensitive in
 # every engine that accepts the clause, PostgreSQL included.
 #
-# UNVERIFIED against a live warehouse. This one rests on AWS's documented
-# grammar rather than on an observed rejection, which is weaker evidence than
-# the rest of this module carries; the frame it removes is one no user asked
-# for, so the downside of being wrong is bounded.
+# Measured on the xorq-test warehouse: "Frame clause should not be specified
+# for window function lag".
 _OFFSET_OPS = (
     ops.Lag,
     ops.Lead,
@@ -49,16 +47,19 @@ _NO_FRAME_OPS = _RANKING_OPS + _OFFSET_OPS
 # -- no ``ORDER BY`` and no frame, because their ordering is carried by the
 # ``WITHIN GROUP`` clause instead. So unlike ``_NO_FRAME_OPS``, where only the
 # frame is dropped, the whole ``OVER`` body below ``PARTITION BY`` has to go.
-# Dropping the ``ORDER BY`` is not a loss: for every op here the ordering the
-# user asked for is already emitted inside ``WITHIN GROUP``.
+# That is only lossless when the frame spans the whole partition: then the
+# window ``ORDER BY`` cannot change which rows the aggregate sees, and the
+# ordering the aggregate itself needs is already inside ``WITHIN GROUP``. A
+# bounded frame (rolling or cumulative) asks for a different row set per row,
+# which ``OVER (PARTITION BY ...)`` cannot express, so ``visit_WindowFunction``
+# raises on one rather than widening it to the whole partition.
 #
-# UNVERIFIED against a live warehouse, on AWS's documented grammar.
+# Measured on the xorq-test warehouse: "window specification should not contain
+# frame clause and order-by for window function median".
 _PARTITION_ONLY_OPS = (
     ops.GroupConcat,
     ops.Quantile,
-    ops.MultiQuantile,
     ops.ApproxQuantile,
-    ops.ApproxMultiQuantile,
     ops.Median,
     ops.ApproxMedian,
 )
@@ -158,6 +159,11 @@ class RedshiftCompiler(PostgresCompiler):
         # only moves it to ``REGEXP_SPLIT``, which no engine has. Redshift has
         # no regex-split-to-array at all.
         ops.RegexSplit,
+        # A list of quantiles lowers to ``PERCENTILE_CONT(ARRAY[...])``, and the
+        # result is an array: neither exists on Redshift. Redshift's
+        # ``PERCENTILE_CONT`` takes one scalar fraction.
+        ops.MultiQuantile,
+        ops.ApproxMultiQuantile,
     )
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
@@ -290,9 +296,7 @@ class RedshiftCompiler(PostgresCompiler):
     # Rebound rather than inherited: the postgres aliases bind to *that* class's
     # function object at class-creation time, so they would keep the
     # ``sge.Filter`` version even with the override above in place.
-    visit_MultiQuantile = visit_Quantile
     visit_ApproxQuantile = visit_Quantile
-    visit_ApproxMultiQuantile = visit_Quantile
 
     def visit_Mode(self, op, *, arg, where):
         """Redshift has no ``MODE`` in any spelling.
@@ -413,6 +417,21 @@ class RedshiftCompiler(PostgresCompiler):
             sge.convert("YYYY-MM-DD"),
         )
 
+    def visit_NonNullLiteral(self, op, *, value, dtype):
+        """``CAST('2020-01-02' AS DATE)`` for a date literal.
+
+        A date *literal* never reaches ``visit_DateFromYMD``: the base
+        ``visit_DefaultLiteral`` (``compilers/base.py:763``) builds its own
+        ``datefromparts`` call, which the Redshift dialect renders as
+        ``DATE_FROM_PARTS`` -- absent on Redshift, like ``MAKE_DATE``. So every
+        ``t.d > date(...)`` filter compiled to a function the warehouse
+        rejects. ``isoformat`` is always zero-padded ``YYYY-MM-DD``, the same
+        shape timestamp literals are already cast from.
+        """
+        if dtype.is_date():
+            return self.cast(value.isoformat(), dtype)
+        return super().visit_NonNullLiteral(op, value=value, dtype=dtype)
+
     def visit_WindowFunction(self, op, *, how, func, start, end, group_by, order_by):
         """Drop the frame clause where Redshift's grammar has no slot for one.
 
@@ -444,6 +463,15 @@ class RedshiftCompiler(PostgresCompiler):
                 "pick a row explicitly with a `row_number()` window."
             )
         if isinstance(op.func, _PARTITION_ONLY_OPS):
+            if op.start is not None or op.end is not None:
+                raise com.UnsupportedOperationError(
+                    f"Redshift accepts `{type(op.func).__name__}` in window "
+                    "position only over a whole partition -- no ORDER BY and "
+                    "no frame -- so a rolling or cumulative window cannot be "
+                    "compiled for this backend. Dropping the frame would "
+                    "silently aggregate the whole partition instead. Use an "
+                    "unbounded window, or a self-join over the rows you need."
+                )
             window.set("spec", None)
             window.set("order", None)
         elif isinstance(op.func, _NO_FRAME_OPS):
