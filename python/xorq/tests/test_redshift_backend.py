@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
+import inspect
 import sys
+import typing
 from types import ModuleType
 
 import pyarrow as pa
 import pytest
-import sqlglot as sg
 
 
 # Must run BEFORE the xorq imports below. Neither driver named here is a core
@@ -52,6 +53,8 @@ import sqlglot as sg
 # which arrives with PR #2335.
 pytest.importorskip("adbc_driver_manager")
 psycopg = pytest.importorskip("psycopg")
+
+import adbc_driver_manager.dbapi  # noqa: E402
 
 import xorq  # noqa: E402
 import xorq.api as xo  # noqa: E402
@@ -93,9 +96,14 @@ def test_secret_keys_match_postgres_and_the_mirror():
     )
 
 
-def test_exposed_secret_check_is_not_narrowed():
-    """``sslkey``/``passfile`` must raise, not just ``password``."""
-    for key in RedshiftBackend._secret_keys:
+def test_exposed_secret_check_catches_every_postgres_secret_key() -> None:
+    """``sslkey``/``passfile`` must raise, not just ``password``.
+
+    ``check_for_exposed_secrets`` reads the static mirror, not the class, so a
+    narrowed ``_secret_keys`` declaration is caught by the test above, not
+    here. This one iterates the postgres keys so that it fails if the
+    mirror's redshift entry is narrowed."""
+    for key in PostgresBackend._secret_keys:
         try:
             check_for_exposed_secrets("redshift", {key: "a-literal-value"})
         except ValueError:
@@ -168,14 +176,16 @@ def test_current_schema_is_called_with_parentheses():
     assert executed(con) == ["SELECT CURRENT_SCHEMA()"]
 
 
-def test_current_catalog_needs_no_override():
-    """``CURRENT_DATABASE()`` already renders parenthesised, so only
-    ``current_database`` (which selects the *schema*) needed overriding."""
-    dialect = RedshiftBackend.compiler.dialect
-    assert (
-        sg.select(sg.func("current_database")).sql(dialect)
-        == "SELECT CURRENT_DATABASE()"
-    )
+def test_current_catalog_needs_no_override() -> None:
+    """The inherited ``current_catalog`` already emits ``CURRENT_DATABASE()``
+    parenthesised, so only ``current_database`` (which selects the *schema*)
+    needed overriding. Asserted on the SQL the backend sends, like the test
+    above, so it fails if the inherited query ever renders bare."""
+    con = make_offline_con()
+    con.con = _FakeConnection(rows=[("d",)])
+
+    assert con.current_catalog == "d"
+    assert executed(con) == ["SELECT CURRENT_DATABASE()"]
 
 
 def test_client_encoding_defaults_without_entering_the_build_hash(
@@ -191,7 +201,10 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
 
     ``_con_kwargs`` alone cannot see the first half: it is populated by
     ``BaseBackend.__init__``, so it holds with ``do_connect`` deleted. The
-    kwarg is caught where it lands, at ``psycopg.connect``.
+    kwarg is caught where it lands, at ``psycopg.connect``. The second half is
+    asserted on the profile, which ``Profile.from_con`` fills from
+    ``do_connect``'s signature defaults as well as the caller's arguments --
+    so moving the default into the signature fails here.
     """
     recorded = {}
 
@@ -202,14 +215,15 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
     monkeypatch.setattr(psycopg, "connect", fake_connect)
     monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
 
-    con = RedshiftBackend()
-    con.do_connect(host="example.invalid", user="u", password="p", database="d")
+    con = RedshiftBackend().connect(
+        host="example.invalid", user="u", password="p", database="d"
+    )
 
     # Reached the driver ...
     assert recorded["client_encoding"] == "utf8"
     assert recorded["port"] == redshift_module.DEFAULT_PORT
     # ... and did not reach the build hash.
-    assert "client_encoding" not in con._con_kwargs
+    assert "client_encoding" not in con._profile.kwargs_dict
 
 
 def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
@@ -221,7 +235,7 @@ def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
     With the threshold ``None`` nothing is prepared, so nothing is sent.
 
     Defaulted in ``do_connect``, like ``client_encoding``, so it reaches the
-    driver and not ``_con_kwargs``."""
+    driver and not the profile."""
     recorded = {}
 
     def fake_connect(**kwargs):
@@ -231,12 +245,13 @@ def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
     monkeypatch.setattr(psycopg, "connect", fake_connect)
     monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
 
-    con = RedshiftBackend()
-    con.do_connect(host="example.invalid", user="u", password="p", database="d")
+    con = RedshiftBackend().connect(
+        host="example.invalid", user="u", password="p", database="d"
+    )
 
     assert "prepare_threshold" in recorded
     assert recorded["prepare_threshold"] is None
-    assert "prepare_threshold" not in con._con_kwargs
+    assert "prepare_threshold" not in con._profile.kwargs_dict
 
 
 def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -528,8 +543,10 @@ def test_ingest_never_dispatches_to_adbc_even_when_it_is_available(monkeypatch):
     answering ``None`` is the case that used to select the branch that cannot
     run; this pins that it no longer selects anything.
 
-    Every other ingest test describes the psycopg branch and would keep passing
-    if a dispatch were reintroduced, so this is the only one that would fail.
+    The other ingest tests that patch the predicate to ``None`` would also
+    fail on a reintroduced dispatch, but only incidentally (their fake
+    connection has no ``info`` for ``PgADBC`` to read); this is the one that
+    names it.
     """
     con = make_offline_con(password="static")
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
@@ -627,10 +644,10 @@ def test_adbc_is_unavailable_without_a_password(con_kwargs):
 
 
 def test_adbc_is_available_when_installed_and_credentialed():
-    """A ``None`` reason means installed *and* credentialed -- not that the
-    driver is known to work against Redshift. Whether
-    ``adbc_driver_postgresql`` speaks to Redshift at all is untested and needs
-    a live endpoint; see the alternative recorded in ADR-2332."""
+    """A ``None`` reason means installed *and* credentialed -- a local fact,
+    not a check that the driver works against Redshift. That was measured
+    against a live endpoint and is recorded in ADR-2332; no offline test can
+    reach it."""
     pytest.importorskip("adbc_driver_postgresql")
     con = make_offline_con(password="static")
     assert con._adbc_unavailable_reason() is None
@@ -696,6 +713,7 @@ _BASE_URI = "postgresql://u:static@example.invalid:5439/d"
         pytest.param("xorq_test", "-csearch_path%3Dxorq_test", id="plain"),
         pytest.param("s1,public", "-csearch_path%3Ds1%2Cpublic", id="list"),
         pytest.param("a b", "-csearch_path%3Da%5C%20b", id="space-escaped"),
+        pytest.param('"a b"', "-csearch_path%3D%22a%5C%20b%22", id="quoted"),
         pytest.param("x\\y", "-csearch_path%3Dx%5C%5Cy", id="backslash-escaped"),
     ],
 )
@@ -755,13 +773,16 @@ def test_postgres_adbc_read_connection_is_not_given_the_schema(
     assert uris == [_BASE_URI]
 
 
-def test_ingest_modes_are_the_adbc_ingest_modes():
-    assert redshift_module.INGEST_MODES == (
-        "create",
-        "append",
-        "replace",
-        "create_append",
+def test_ingest_modes_are_the_adbc_ingest_modes() -> None:
+    """Compared against what ``adbc_ingest`` declares, so a driver release
+    that adds or drops a mode fails here rather than drifting silently."""
+    annotation = (
+        inspect.signature(adbc_driver_manager.dbapi.Cursor.adbc_ingest)
+        .parameters["mode"]
+        .annotation
     )
+
+    assert set(redshift_module.INGEST_MODES) == set(typing.get_args(annotation))
 
 
 def test_ingest_ddl_pins_two_unverified_redshift_type_widths():

@@ -44,10 +44,12 @@ _NOT_REMOTE_PUT = frozenset(
         "sqlite",
         # remote, but no ``read_record_batches`` to take the out-of-core path
         "trino",
-        "pyiceberg",
-        "gizmosql",
         "databricks",
         "bigquery",
+        # remote, with a ``read_record_batches``, but not yet evaluated for the
+        # server-side path (see the FIXME on ``REMOTE_PUT_BACKENDS``)
+        "pyiceberg",
+        "gizmosql",
     )
 )
 
@@ -67,8 +69,13 @@ def test_every_registered_backend_is_classified_for_remote_put() -> None:
     assert not (_NOT_REMOTE_PUT - registered)
 
 
-def test_redshift_takes_the_server_side_put_path() -> None:
+def test_redshift_is_registered_for_the_server_side_put_path() -> None:
     """It has both a ``read_record_batches`` and a server-side CTAS, so the
     client-memory branch would pull a warehouse-sized result down only to send
-    it straight back."""
+    it straight back.
+
+    Registry membership only: ``SourceStorage.put`` is not exercised. On
+    Redshift it cannot complete yet either way -- ``put`` ends in
+    ``self.get(key)``, which binds through ``con.table()``, and Redshift's
+    table introspection is not in this backend yet."""
     assert "redshift" in REMOTE_PUT_BACKENDS

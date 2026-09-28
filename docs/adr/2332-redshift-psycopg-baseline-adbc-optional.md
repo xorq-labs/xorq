@@ -13,8 +13,8 @@ about what xorq does when the best driver for a source is distributed in a way
 that no `[project.optional-dependencies]` entry can express.
 
 Backends declare their Python drivers as PyPI extras in `pyproject.toml`; the
-one driver installed out of band today is bigquery's, by `dbc install` (see
-*Alternatives*). The Columnar ADBC Redshift driver cannot be declared as an
+drivers installed out of band today are bigquery's and databricks', by `dbc
+install` (see *Alternatives*). The Columnar ADBC Redshift driver cannot be declared as an
 extra:
 
 | | |
@@ -185,14 +185,14 @@ build hook because purity is a build-time value.
 
 ### `dbc install redshift`, out-of-band, as the primary mechanism
 
-The pattern the bigquery backend uses today.
+The pattern the bigquery and databricks backends use today.
 
 Rejected as *primary*. It cannot be captured in `uv.lock`, so the environment is
 not reproducible from the lockfile, and the installed driver version is whatever
 the last out-of-band run left. It also requires that step before the
 accelerator exists at all.
 
-It remains a precedent for *another* backend, not a working Redshift path: no
+It remains a precedent from *other* backends, not a working Redshift path: no
 code here accepts a `driver=` name, and the availability probe looks for
 `adbc_driver_postgresql` alone.
 
@@ -343,7 +343,7 @@ one on every connection.
   ADBC-first read path discussed above
 - `python/xorq/common/utils/adbc_utils.py` — the bulk-ingest capability probe
   the postgres ingest path consults; Redshift's ingest never reaches it
-- `.github/workflows/ci-test-bigquery.yml` — the out-of-band `dbc install`
-  fallback pattern, already in use for another backend
+- `.github/workflows/ci-test-bigquery.yml`, `.github/workflows/ci-test-databricks.yml`
+  — the out-of-band `dbc install` pattern, already in use for two backends
 - [ADR-0003](0003-optional-git-annex-backend.md) — making an external
   dependency optional behind an abstraction

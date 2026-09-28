@@ -27,9 +27,10 @@ __all__ = [
 # Redshift listens on 5439; the postgres backend defaults to 5432.
 DEFAULT_PORT = 5439
 
-# The modes ``adbc_ingest`` accepts, restated so the psycopg path accepts
-# exactly the same set: whichever branch runs must be an implementation detail,
-# and it stops being one the moment the two disagree about what ``mode`` means.
+# The modes ``adbc_ingest`` accepts -- and so the postgres backend's
+# ``read_record_batches`` -- restated so this psycopg ingest accepts exactly
+# the same set: callers such as ``defer_utils`` pass ``mode`` to either backend
+# alike, so the two must not disagree about what it means.
 INGEST_MODES = ("create", "append", "replace", "create_append")
 
 # Modes that append to a table this call did not create, so ``temporary`` has
@@ -200,8 +201,8 @@ class Backend(PostgresBackend):
 
         This method is also the seam the accelerator work extends, but it is
         not the whole of it: swapping accelerators changes a clause here, the
-        extras, and the connection factory below (``PgADBC``, which hardcodes
-        ``adbc_driver_postgresql``).
+        extras, and ``_open_adbc_conn_or_none`` below, which imports and dials
+        ``adbc_driver_postgresql`` itself and borrows only ``PgADBC``'s URI.
 
         ADR-2332 settled the open question this docstring used to carry:
         measured against a live endpoint, ``adbc_driver_postgresql`` connects
@@ -304,6 +305,11 @@ class Backend(PostgresBackend):
         ``kwargs`` are likewise accepted and dropped -- those two callers
         forward their *own* reader kwargs here, so rejecting unknown ones would
         break them.
+
+        The return value is ``self.table(table_name)``, and on a live Redshift
+        that raises until the backend has its own table introspection: the
+        inherited one reads ``pg_catalog`` objects Redshift lacks. The ingest
+        commits before that call, so the table exists when it raises.
         """
         if table_name is None:
             raise ValueError("table_name is required")
