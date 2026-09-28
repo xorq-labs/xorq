@@ -71,9 +71,9 @@ from xorq.vendor.ibis.expr.datatypes import Unknown  # noqa: E402
 
 # Anything that writes, not merely anything that says CREATE. Every statement
 # the probe is allowed is a read: the statistics-catalog read, the
-# current_schema() resolution, the pg_my_temp_schema() check that resolution
+# current_schema() resolution, the svv_columns temp-table check that resolution
 # makes, and the pg_class relkind read -- the last reached only on the error
-# path or when a session temp schema actually exists.
+# path.
 DDL_TOKENS = (
     "CHECKPOINT",
     "ANALYZE",
@@ -116,7 +116,7 @@ class RecordingConnection:
         current_schema: str = SESSION_SCHEMA,
         relkind: tuple = (("r",),),
         temp_schema: str | None = None,
-        temp_relkind: tuple = (),
+        temp_names: tuple[str, ...] = (),
     ) -> None:
         # (sql, params) rather than sql alone. Recording only the statement
         # meant the schema and name actually BOUND were asserted nowhere, so a
@@ -127,11 +127,10 @@ class RecordingConnection:
         self._rows = rows
         self._current_schema = current_schema
         self._relkind = relkind
-        # ``None`` is the default because it is the default on a real
-        # connection: ``pg_my_temp_schema()`` answers nothing until the session
-        # has actually created a temp table.
+        # The session's ``pg_temp_<N>`` schema and the temp tables in it. None
+        # by default, as on a real connection that has created no temp table.
         self._temp_schema = temp_schema
-        self._temp_relkind = temp_relkind
+        self._temp_names = temp_names
 
     @property
     def statements(self) -> list[str]:
@@ -165,6 +164,10 @@ class _RecordingCursor:
     def execute(self, sql: object, *args: object, **kwargs: object) -> _RecordingCursor:
         self._last = str(sql)
         self._con.calls.append((self._last, args[0] if args else kwargs.get("params")))
+        if "pg_my_temp_schema" in self._last.lower():
+            # Redshift does not have it. A fake that answered it is how the
+            # probe came to call it: every unqualified key raised live.
+            raise make_undefined_function("pg_my_temp_schema()")
         return self
 
     def fetchall(self) -> list[tuple]:
@@ -181,26 +184,17 @@ class _RecordingCursor:
         lowered = self._last.lower()
         if "current_schema" in lowered:
             return [(self._con._current_schema,)]
-        if "pg_my_temp_schema" in lowered:
-            # ``_session_temp_db`` reads this and returns row[0], so serving the
-            # counters here -- which the fallthrough below used to do -- handed
-            # the resolver a row count as a schema name.
+        if "svv_columns" in lowered:
+            # Routed on the name actually BOUND: an open temp schema holding
+            # other tables must not make every unqualified name temporary.
+            _, params = self._con.calls[-1]
             temp = self._con._temp_schema
-            return [(temp,)] if temp is not None else []
+            if temp is not None and params["name"] in self._con._temp_names:
+                return [(temp,)]
+            return []
         if "pg_statistic_indicator" in lowered:
             return list(self._con._rows)
         if "relkind" in lowered:
-            # Routed on the schema actually BOUND: the temp-schema probe and
-            # the error-path probe issue the same statement, and answering both
-            # from one canned value would make "present in pg_temp_N" and
-            # "present in the session schema" indistinguishable.
-            _, params = self._con.calls[-1]
-            if (
-                self._con._temp_schema is not None
-                and isinstance(params, dict)
-                and params.get("schema") == self._con._temp_schema
-            ):
-                return list(self._con._temp_relkind)
             return list(self._con._relkind)
         return list(self._con._rows)
 
@@ -214,7 +208,7 @@ def make_con(
     current_schema: str = SESSION_SCHEMA,
     relkind: tuple = (("r",),),
     temp_schema: str | None = None,
-    temp_relkind: tuple = (),
+    temp_names: tuple[str, ...] = (),
 ) -> RedshiftBackend:
     con = RedshiftBackend(host="example.invalid", port=PORT)
     con.con = RecordingConnection(
@@ -222,7 +216,7 @@ def make_con(
         current_schema=current_schema,
         relkind=relkind,
         temp_schema=temp_schema,
-        temp_relkind=temp_relkind,
+        temp_names=temp_names,
     )
     return con
 
@@ -445,6 +439,13 @@ class RaisingConnection(RecordingConnection):
         return _RaisingCursor(self, self._exc)
 
 
+def make_undefined_function(name: str) -> Exception:
+    """Stands in for ``psycopg.errors.UndefinedFunction``, as Redshift raises it."""
+    exc = Exception(f"function {name} does not exist")
+    exc.sqlstate = "42883"
+    return exc
+
+
 def make_insufficient_privilege() -> Exception:
     """Stands in for ``psycopg.errors.InsufficientPrivilege``.
 
@@ -656,15 +657,15 @@ TEMP_SCHEMA = "pg_temp_3"
 def test_a_name_resolving_into_the_session_temp_schema_is_refused() -> None:
     """``table()`` accepts a temp-only name; this probe must not mis-resolve it.
 
-    ``get_schema`` appends ``_session_temp_db`` to its candidate schemas
-    whenever ``database is None``, and this backend mints temp tables itself via
+    ``table()`` accepts a name that exists only in the session's temp schema,
+    and this backend mints temp tables itself via
     ``create_table(..., temporary=True)``. Resolving such a name to
     ``current_schema()`` -- which is what this did -- probes a *different*,
     permanent relation that merely shares the name, and keys the cache on its
     counters. That is the silent staleness the whole module exists to prevent,
     so the refusal has to be loud and has to name the schema.
     """
-    con = make_con(temp_schema=TEMP_SCHEMA, temp_relkind=(("r",),))
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("offers",))
     dt = make_dt(con, database=None)
     with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
         resolve_redshift_schema(dt)
@@ -681,7 +682,7 @@ def test_the_temp_schema_refusal_reaches_the_cache_key_path() -> None:
     a guard that only ``resolve_redshift_schema``'s direct callers see would
     leave the actual ``.cache()`` path mis-resolving exactly as before.
     """
-    con = make_con(temp_schema=TEMP_SCHEMA, temp_relkind=(("r",),))
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("offers",))
     with pytest.raises(RedshiftFreshnessUnavailable):
         _databasetable_dispatcher(make_dt(con, database=None))
 
@@ -693,22 +694,48 @@ def test_a_permanent_table_is_unaffected_by_an_open_temp_schema() -> None:
     which says nothing about the table being probed. Only a name that actually
     resolves there is ambiguous.
     """
-    con = make_con(temp_schema=TEMP_SCHEMA, temp_relkind=())
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("staging",))
     dt = make_dt(con, database=None)
     assert resolve_redshift_schema(dt) == SESSION_SCHEMA
 
 
-def test_resolving_costs_no_extra_read_without_a_temp_schema() -> None:
-    """``pg_my_temp_schema()`` answers ``None`` in an ordinary session.
+def test_resolving_costs_one_read_and_no_relkind_without_a_temp_table() -> None:
+    """The common case on the cache-key path: no temp table of this name.
 
-    That is the common case on the cache-key path, and it must not pay for the
-    ``pg_class`` lookup the ambiguous case needs.
+    It pays for one temp-table lookup, bound to the probed name, and not for
+    the ``pg_class`` read the error path needs.
     """
     con = make_con()
     assert resolve_redshift_schema(make_dt(con, database=None)) == SESSION_SCHEMA
+    assert con.con.params_for("svv_columns") == {"name": "offers"}
     assert not any("relkind" in s.lower() for s in con.con.statements), (
-        "the ordinary session paid for the temp-schema disambiguation read"
+        "the ordinary session paid for the error path's relkind read"
     )
+
+
+@pytest.mark.parametrize(
+    "temp_names",
+    (pytest.param((), id="no-temp-table"), pytest.param(("offers",), id="temp-table")),
+)
+def test_the_key_path_never_calls_pg_my_temp_schema(
+    temp_names: tuple[str, ...],
+) -> None:
+    """Redshift has no ``pg_my_temp_schema()``; calling it fails every key.
+
+    The inherited postgres ``_session_temp_db`` issues it, so reading that
+    property made every unqualified Redshift table's key raise
+    ``UndefinedFunction`` on a live warehouse. The fake raises on it as
+    Redshift does, so either outcome here, a key or the temp-table refusal,
+    proves the call was never made.
+    """
+    con = make_con(temp_schema=TEMP_SCHEMA, temp_names=temp_names)
+    dt = make_dt(con, database=None)
+    if temp_names:
+        with pytest.raises(RedshiftFreshnessUnavailable, match=TEMP_SCHEMA):
+            HASHER.tokenize(dt)
+    else:
+        assert HASHER.tokenize(dt)
+    assert not any("pg_my_temp_schema" in s.lower() for s in con.con.statements)
 
 
 def test_a_table_with_several_indicator_rows_is_summed_not_refused() -> None:

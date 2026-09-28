@@ -128,6 +128,17 @@ WHERE c.relname = %(name)s
   AND n.nspname = %(schema)s
 """
 
+# The session temp schema holding a table of this name. ``^`` is the LIKE
+# escape because a backslash would have to survive psycopg's quoting as well as
+# SQL's; ``%%`` is a literal ``%`` to psycopg.
+SESSION_TEMP_RELATION_SQL = """
+SELECT table_schema
+FROM svv_columns
+WHERE table_schema LIKE 'pg^_temp^_%%' ESCAPE '^'
+  AND table_name = %(name)s
+LIMIT 1
+"""
+
 # pg_class.relkind for an ordinary table. Every other value is a relation the
 # statistics catalog does not track row counters for.
 RELKIND_ORDINARY_TABLE = "r"
@@ -155,36 +166,28 @@ def resolve_redshift_schema(dt: ops.DatabaseTable) -> str:
     table reachable only via a later ``search_path`` entry raises
     ``TableNotFound`` at ``table()`` time; it never becomes a stale key.
 
-    The session-temporary schema IS a hazard, and is why this can raise. That
-    same ``get_schema`` appends ``self._session_temp_db`` to its candidate
-    schemas whenever ``database is None``, so ``table()`` also accepts a name
-    that exists only in ``pg_temp_N`` -- and this backend mints such tables
-    itself, through ``create_table(..., temporary=True)``. An earlier version of
-    this docstring asserted that "any table ``table()`` accepted lives in the
-    schema this reads", and the temp schema is the case where that is false.
+    The session-temporary schema IS a hazard, and is why this can raise.
+    ``table()`` also accepts a name that exists only in the session's
+    ``pg_temp_<N>`` schema, and this backend mints such tables itself, through
+    ``create_table(..., temporary=True)``.
 
     Resolving such a name to ``current_schema()`` would probe a *different*,
     permanent relation that merely shares the name and key the cache on its
     counters -- the silent staleness this module exists to prevent, reached from
     a third direction. Nor can a temp table be keyed on its own terms: it is
-    invisible to every other session, so a key computed here would describe
+    invisible to every other session, so a key computed from it would describe
     something no other reader can see. Refuse instead.
+
+    Redshift has no ``pg_my_temp_schema()``, so the inherited postgres
+    ``_session_temp_db`` cannot answer which schema that is: it raises
+    ``UndefinedFunction``. See ``_session_temp_schema_of``.
     """
     if (database := dt.namespace.database) is not None:
         return database
     con = dt.source
     schema = con.current_database
-    # Cheap twice over, and only on the unqualified path: the property is a
-    # single ``pg_my_temp_schema()`` read, and it answers ``None`` -- costing no
-    # second query -- in every session that has never created a temp table.
-    # Reading the same private property ``get_schema`` reads, deliberately: the
-    # point is to resolve the way it resolves, and duplicating its
-    # ``pg_my_temp_schema()`` query here would be a second copy free to drift
-    # from the one that decides what ``table()`` accepts.
-    temp_schema = con._session_temp_db  # xorq-style: disable=protected-access
+    temp_schema = _session_temp_schema_of(con.con, dt.name)
     if temp_schema is None:
-        return schema
-    if not _relation_exists(con.con, dt.name, temp_schema):
         return schema
     raise RedshiftFreshnessUnavailable(
         f"{dt.name!r} resolves to the session-temporary schema {temp_schema}, "
@@ -199,16 +202,18 @@ def resolve_redshift_schema(dt: ops.DatabaseTable) -> str:
     )
 
 
-def _relation_exists(raw: Any, name: str, schema: str) -> bool:
-    """Whether ``schema.name`` is in ``pg_class``. Reads relkind, ignores it.
+def _session_temp_schema_of(raw: Any, name: str) -> str | None:
+    """The ``pg_temp_<N>`` schema holding a temp table ``name``, if any.
 
-    Shares ``RELKIND_SQL`` with ``_no_counters`` rather than issuing a narrower
-    ``SELECT 1``: it is the same question against the same PUBLIC-readable
-    catalogs, and one statement is easier to keep honest than two.
+    Matched by pattern because the schema cannot be looked up first: Redshift
+    has no ``pg_my_temp_schema()``. ``svv_columns`` because it lists temporary
+    tables where ``svv_all_columns`` does not. Binding a temp table by name
+    needs the same view and pattern, for the same two reasons, so the probe
+    and ``table()`` can agree on which names are temporary.
     """
     with raw.cursor() as cursor, raw.transaction():
-        rows = cursor.execute(RELKIND_SQL, {"name": name, "schema": schema}).fetchall()
-    return bool(rows)
+        row = cursor.execute(SESSION_TEMP_RELATION_SQL, {"name": name}).fetchone()
+    return row[0] if row else None
 
 
 def get_redshift_row_counts(
