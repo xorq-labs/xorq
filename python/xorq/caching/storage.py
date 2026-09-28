@@ -546,7 +546,7 @@ class SourceStorage(CacheStorage):
             else:
                 assert hasattr(self.source, "read_record_batches")
                 # read_record_batches will create durable table in out-of-core fashion
-                # works for snowflake and postgres
+                # every backend in REMOTE_PUT_BACKENDS has one
                 self.source.read_record_batches(
                     value.to_expr().to_pyarrow_batches(),
                     key,
