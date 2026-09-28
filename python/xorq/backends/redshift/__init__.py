@@ -178,9 +178,10 @@ class Backend(PostgresBackend):
         ``adbc_driver_postgresql``).
 
         ADR-2332 settled the open question this docstring used to carry:
-        measured against a live endpoint, ``adbc_driver_postgresql``
-        works against Redshift for every read path, and the feared
-        ``pg_catalog`` failures are in xorq's own psycopg path instead. A "no
+        measured against a live endpoint, ``adbc_driver_postgresql`` connects
+        to Redshift and passed every read that was exercised (the ADR lists
+        them, and one known alias failure), and the feared ``pg_catalog``
+        failures are in xorq's own psycopg path instead. A "no
         reason" answer still means only *installed and credentialed* -- and for
         ingest it is the wrong question entirely, since neither ADBC driver can
         ingest into Redshift. That is why ingest no longer asks it.

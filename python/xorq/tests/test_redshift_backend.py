@@ -3,9 +3,9 @@
 Sited here, not under ``python/xorq/backends/redshift/tests/``, on purpose.
 ``xorq/backends/conftest.py`` auto-applies ``pytest.mark.<backend>`` by path and
 adds ``core`` only outside ``backends/``, and every CI job selects by marker, so
-a test placed under the backend directory would be Redshift-marked and would
-run only in the credential-gated workflow. These need no credentials and should
-run in the default sweep.
+a test placed under the backend directory would be Redshift-marked, and no CI
+job selects that marker -- it would run nowhere. These need no credentials and
+should run in the default sweep.
 
 Every trap these cover is silent: each one produces a working-looking backend
 that is wrong, so the assertions are on the specific observable, not on
@@ -738,7 +738,9 @@ def test_clone_does_not_carry_client_encoding(
             "user": "u",
             "dbname": "d",
             "options": "-c search_path=myschema",
-            "client_encoding": "UNICODE",
+            # What libpq echoes back: the value the client passed, which
+            # ``do_connect`` defaulted -- not the server's ``UNICODE``.
+            "client_encoding": "utf8",
         }
     )
     con.con.autocommit = True
@@ -847,6 +849,9 @@ def test_clone_keeps_a_client_encoding_the_caller_passed(
             "port": str(redshift_module.DEFAULT_PORT),
             "user": "u",
             "dbname": "d",
+            # A sentinel distinct from the caller's ``latin1``, so the
+            # assertions below can tell which dict a value came from. Live
+            # libpq would echo ``latin1`` here.
             "client_encoding": "UNICODE",
         }
     )
