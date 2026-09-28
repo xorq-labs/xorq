@@ -78,6 +78,7 @@ from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 if TYPE_CHECKING:
     from xorq.api import Expr
+    from xorq.vendor.ibis.backends import BaseBackend
 
 
 logger = get_logger(__name__)
@@ -748,13 +749,21 @@ class Catalog:
         catalog_entry = CatalogEntry(name, self)
         return catalog_entry
 
-    def load(self, name_or_alias, con=None):
+    def maybe_alias(self, name_or_alias: str) -> str | None:
+        """Return *name_or_alias* if it names a registered alias, else None.
+
+        The return value is what ``_make_source_tag`` wants for its ``alias``
+        argument: the alias the caller actually addressed the entry by, or
+        None to let the tag fall back to the entry's first alias.
+        """
+        return name_or_alias if name_or_alias in self.list_aliases() else None
+
+    def load(self, name_or_alias: str, con: "BaseBackend | None" = None) -> "Expr":
         """Return a tagged RemoteTable expression for a catalog entry (by hash or alias)."""
         from xorq.catalog.bind import _make_source_expr  # noqa: PLC0415
 
         entry = self.get_catalog_entry(name_or_alias, maybe_alias=True)
-        alias = name_or_alias if name_or_alias in self.list_aliases() else None
-        return _make_source_expr(entry, con=con, alias=alias)
+        return _make_source_expr(entry, con=con, alias=self.maybe_alias(name_or_alias))
 
     def bind(self, source_entry, *transforms, con=None):
         """Bind a source entry through one or more transform entries."""
