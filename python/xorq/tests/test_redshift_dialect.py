@@ -178,6 +178,33 @@ def test_date_from_ymd_does_not_emit_make_date(t):
     assert "TO_DATE" in sql.upper()
 
 
+def test_date_from_ymd_is_strict_and_never_truncates(t):
+    """Two silent wrong dates, both measured on the warehouse 2026-09-28.
+
+    ``TO_DATE`` rolls ``2026-02-30`` over to ``2026-03-02`` unless its
+    ``is_strict`` argument is set, and ``LPAD`` truncates to its width, so an
+    unconditional ``LPAD(day, 2, '0')`` turned a day of 100 into 10.
+    """
+    sql = to_sql(t.mutate(dt=xo.date(t.y, t.m, t.d)))
+    assert sql.count("'YYYY-MM-DD', TRUE)") == 1
+    assert sql.count("THEN LPAD(") == 3
+
+
+def test_time_literal_does_not_emit_make_time(t):
+    """Redshift has no ``MAKE_TIME`` (measured)."""
+    sql = to_sql(t.select(o=xo.literal(datetime.time(1, 2, 3, 4))))
+    assert "MAKE_TIME" not in sql.upper()
+    assert "CAST('01:02:03.000004' AS TIME)" in sql
+
+
+def test_binary_literal_is_decoded_from_hex(t):
+    """``CAST('\\x61\\x62' AS VARBYTE)`` stores the text's own eight bytes
+    on Redshift, not ``b"ab"`` (measured: ``5c7836315c783632``)."""
+    sql = to_sql(t.select(o=xo.literal(b"ab")))
+    assert "FROM_HEX('6162')" in sql
+    assert "VARBYTE" not in sql.upper()
+
+
 def test_date_literal_does_not_emit_date_from_parts(t):
     """A date *literal* never reaches ``visit_DateFromYMD``.
 

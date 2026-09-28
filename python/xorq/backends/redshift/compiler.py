@@ -418,9 +418,25 @@ class RedshiftCompiler(PostgresCompiler):
         documents for this. The zero-padding matters: ``TO_DATE('2026-9-3',
         'YYYY-MM-DD')`` is not reliably parsed, so each part is padded to its
         fixed width before concatenation.
+
+        Two measured traps (2026-09-28), both silent wrong dates:
+
+        * ``TO_DATE`` is lenient by default: ``TO_DATE('2026-02-30',
+          'YYYY-MM-DD')`` is 2026-03-02. The third argument, ``is_strict``,
+          makes it raise ``date value out of range`` instead, which is what
+          PostgreSQL's ``make_date`` does.
+        * ``LPAD`` truncates to its width: ``LPAD('10000', 4, '0')`` is
+          ``'1000'``, and a day of 100 would become 10 and pass the strict
+          check. So a part is only padded when it is shorter than its width.
         """
         to_str = partial(self.cast, to=dt.string)
-        pad = lambda value, width: self.f.lpad(to_str(value), width, "0")  # noqa: E731
+
+        def pad(value, width):
+            text = to_str(value)
+            return self.if_(
+                self.f.length(text) < width, self.f.lpad(text, width, "0"), text
+            )
+
         return self.f.to_date(
             self.f.concat(
                 pad(year, 4),
@@ -430,10 +446,14 @@ class RedshiftCompiler(PostgresCompiler):
                 pad(day, 2),
             ),
             sge.convert("YYYY-MM-DD"),
+            sge.true(),
         )
 
     def visit_NonNullLiteral(self, op, *, value, dtype):
-        """``CAST('2020-01-02' AS DATE)`` for a date literal.
+        """Date, time and binary literals, each of which the inherited
+        visitors spell in a way Redshift gets wrong.
+
+        ``CAST('2020-01-02' AS DATE)`` for a date literal.
 
         A date *literal* never reaches ``visit_DateFromYMD``: the base
         ``visit_DefaultLiteral`` (``compilers/base.py:763``) builds its own
@@ -442,9 +462,20 @@ class RedshiftCompiler(PostgresCompiler):
         ``t.d > date(...)`` filter compiled to a function the warehouse
         rejects. ``isoformat`` is always zero-padded ``YYYY-MM-DD``, the same
         shape timestamp literals are already cast from.
+
+        ``CAST('01:02:03' AS TIME)`` for a time literal: the postgres visitor
+        emits ``MAKE_TIME``, which Redshift does not have (measured).
+
+        ``FROM_HEX('6162')`` for a binary literal. The postgres visitor casts
+        ``'\\x61\\x62'`` to ``VARBYTE``, which is right on PostgreSQL, where
+        ``\\x`` is bytea's hex format. Redshift casts the string's own bytes
+        instead, so the literal ``b"ab"`` became the eight bytes of the text
+        ``\\x61\\x62`` (measured: ``5c7836315c783632``). Silent wrong data.
         """
-        if dtype.is_date():
+        if dtype.is_date() or dtype.is_time():
             return self.cast(value.isoformat(), dtype)
+        if dtype.is_binary():
+            return self.f.from_hex(value.hex())
         return super().visit_NonNullLiteral(op, value=value, dtype=dtype)
 
     def visit_WindowFunction(self, op, *, how, func, start, end, group_by, order_by):
