@@ -907,7 +907,6 @@ def test_redshift_names_the_xorq_dialect_process_wide():
     ("build", "kept"),
     [
         pytest.param(lambda t: t.arr.length(), "GET_ARRAY_LENGTH", id="length"),
-        pytest.param(lambda t: t.arr[0], "[", id="index"),
         pytest.param(lambda t: t.s.split(","), "SPLIT_TO_ARRAY", id="split"),
     ],
 )
@@ -961,12 +960,38 @@ def test_group_concat_over_an_ordered_window_keeps_the_order(t):
     assert 'WITHIN GROUP (ORDER BY "t0"."id" ASC) OVER (PARTITION BY "t0"."grp")' in sql
 
 
-def test_negative_array_index_uses_get_array_length(t):
-    """``CARDINALITY`` is called by name in the postgres visitor, out of reach
-    of the dialect's ``ArraySize`` rename, and Redshift has no such function."""
-    sql = to_sql(t.select(o=t.s.split(",")[-1]))
-    assert "CARDINALITY" not in sql.upper()
-    assert "GET_ARRAY_LENGTH(" in sql
+@pytest.mark.parametrize(
+    ("build", "op"),
+    [
+        pytest.param(lambda t: t.s.split(",")[0], "ArrayIndex", id="index"),
+        pytest.param(lambda t: t.s.split(",")[-1], "ArrayIndex", id="negative"),
+        pytest.param(lambda t: t.s.split(",")[0:1], "ArraySlice", id="slice"),
+    ],
+)
+def test_array_subscripts_raise(t, build, op):
+    """Measured: "applying array subscript on complex expression of SUPER type
+    is currently not supported". The inherited forms also called
+    ``CARDINALITY``, which Redshift lacks."""
+    with pytest.raises(com.OperationNotDefinedError, match=op):
+        to_sql(t.select(o=build(t)))
+
+
+@pytest.mark.parametrize(
+    ("build", "func"),
+    [
+        pytest.param(lambda t: t.s.cast("binary"), "TO_VARBYTE(", id="to-binary"),
+        pytest.param(
+            lambda t: xo.literal(b"ab").cast("string"), "FROM_VARBYTE(", id="to-string"
+        ),
+        pytest.param(lambda t: t.s.try_cast("binary"), "TO_VARBYTE(", id="try-cast"),
+    ],
+)
+def test_string_binary_casts_use_varbyte_functions(t, build, func):
+    """``DECODE(s, 'escape')`` and ``ENCODE(b, 'escape')`` are PostgreSQL's
+    spellings, and Redshift rejects both (measured)."""
+    sql = to_sql(t.select(o=build(t)))
+    assert f"{func}" in sql and "'utf8')" in sql
+    assert "ESCAPE" not in sql.upper()
 
 
 @pytest.mark.parametrize(

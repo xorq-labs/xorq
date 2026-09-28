@@ -185,6 +185,12 @@ class RedshiftCompiler(PostgresCompiler):
         ops.TimestampFromYMDHMS,
         ops.TimestampBucket,
         ops.BitXor,
+        # Measured on a test warehouse: "applying array subscript on complex
+        # expression of SUPER type is currently not supported". An array here
+        # only ever comes from an expression such as ``split``, because the
+        # mapper refuses array columns, so a subscript can never apply.
+        ops.ArrayIndex,
+        ops.ArraySlice,
     )
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
@@ -433,6 +439,25 @@ class RedshiftCompiler(PostgresCompiler):
     # copy, which also means a future change to one cannot skip the other.
     visit_ApproxCountDistinct = visit_CountDistinct
 
+    def visit_Cast(self, op, *, arg, to):
+        """``TO_VARBYTE``/``FROM_VARBYTE`` for casts between string and binary.
+
+        The postgres visitor spells these ``DECODE(s, 'escape')`` and
+        ``ENCODE(b, 'escape')``. Measured on a test warehouse, Redshift
+        rejects both: its ``DECODE`` is the CASE-style function ("must have at
+        least three arguments"), and it has no ``ENCODE``. The utf8 forms were
+        measured to round-trip, and they are what a Python str/bytes cast
+        means.
+        """
+        from_ = op.arg.dtype
+        if from_.is_string() and to.is_binary():
+            return self.f.to_varbyte(arg, "utf8")
+        if from_.is_binary() and to.is_string():
+            return self.f.from_varbyte(arg, "utf8")
+        return super().visit_Cast(op, arg=arg, to=to)
+
+    visit_TryCast = visit_Cast
+
     def visit_StartsWith(self, op, *, arg, start):
         """``LEFT(s, LENGTH(p)) = p``, not ``s LIKE p || '%'``.
 
@@ -467,17 +492,6 @@ class RedshiftCompiler(PostgresCompiler):
     def _affix_matches(self, arg, affix, take):
         length = self.f.length(affix)
         return sge.and_(self.f.length(arg) >= length, take(arg, length).eq(affix))
-
-    def visit_ArrayIndex(self, op, *, arg, index):
-        """A negative index counts from the end via the array's length.
-
-        The postgres visitor calls ``cardinality`` by name, which the
-        dialect's ``ArraySize`` rename cannot reach, so ``s.split(",")[-1]``
-        emitted ``CARDINALITY``, which Redshift lacks. ``sge.ArraySize``
-        renders through that rename as ``GET_ARRAY_LENGTH``.
-        """
-        index = self.if_(index < 0, sge.ArraySize(this=arg) + index, index)
-        return sge.paren(arg, copy=False)[index]
 
     def visit_DateFromYMD(self, op, *, year, month, day):
         """Redshift has no ``make_date``.
