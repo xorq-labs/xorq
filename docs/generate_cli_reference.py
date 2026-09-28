@@ -125,6 +125,8 @@ CATALOG_GROUPS = (
             "set-remote",
             "embed-readonly",
             "check",
+            "check-sources",
+            "rebase",
             "gc",
             "log",
             "replay",
@@ -232,6 +234,18 @@ SEE_ALSO = {
     ),
     "catalog/get": (
         "[`catalog add`](add.qmd)—re-add an exported archive to another catalog",
+    ),
+    "catalog/check-sources": (
+        "[Check catalog entries for source drift](../../../how_to/check_source_drift.qmd)"
+        "—when to run it, how to read each verdict, and what the exit codes mean",
+        "[`catalog schema`](schema.qmd)—the schemas an entry recorded",
+        "[`catalog check`](check.qmd)—verify the catalog's own integrity",
+    ),
+    "catalog/rebase": (
+        "[`catalog check-sources`](check-sources.qmd)—find the entries whose "
+        "sources moved",
+        "[Check catalog entries for source drift](../../../how_to/check_source_drift.qmd)"
+        "—what each verdict means",
     ),
     "catalog/init": (
         "[`catalog clone`](clone.qmd)—clone an existing catalog from a URL",

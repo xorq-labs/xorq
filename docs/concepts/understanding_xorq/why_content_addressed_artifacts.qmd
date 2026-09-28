@@ -67,10 +67,10 @@ different artifact.
 Build hashes and cache keys are separate. Cache keys are computed by the
 [cache strategies](intelligent_caching_system.qmd) and are deliberately
 neutral to *which rules are registered*, so adding, removing or replacing a
-rule moves build hashes and leaves cache keys alone. That is the case below,
-and it is the common one for an upgrade.
+rule moves build hashes and leaves cache keys alone. That's the case below,
+and it's the common one for an upgrade.
 
-It is not a blanket guarantee: cache keys are computed *by* those rules, so an
+It's not a blanket guarantee: cache keys are computed *by* those rules, so an
 upgrade that changes what an existing normalizer actually does moves both.
 
 ::: {.callout-note}
@@ -84,7 +84,7 @@ Concretely:
   and aliases point at hashes produced under the new regime.
 - The `xorq:expr_hash` value recorded in cached-Parquet provenance metadata
   changes for the same reason.
-- **Cache keys do not change.** Existing cache entries still hit, and nothing
+- **Cache keys don't change.** Existing cache entries still hit, and nothing
   recomputes.
 - **Existing builds still load and run.** A build's hash is read from its
   directory name and never recompared, so artifacts built before this release

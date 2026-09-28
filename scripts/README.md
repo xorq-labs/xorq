@@ -11,6 +11,7 @@ of them breaks:
 | Script | Kind | Invoked by |
 | --- | --- | --- |
 | `adr_check.py` | guard | `ci-adr.yml` on every pull request, and by hand |
+| `check-style-diff.sh` | guard | `ci-lint.yml` on every pull request, and the pre-commit hook |
 | `adr_index.py` | workflow | by hand, to read the ADRs as a list |
 | `adr_new.py` | workflow | by hand, when starting an ADR |
 | `adr_rename.py` | workflow | by hand, once the pull request exists |

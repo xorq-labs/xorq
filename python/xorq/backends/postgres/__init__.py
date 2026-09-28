@@ -16,6 +16,7 @@ from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
+from xorq.common.utils.env_utils import maybe_substitute_env_var
 from xorq.common.utils.logging_utils import get_logger
 from xorq.config import default_backend
 from xorq.vendor.ibis import util
@@ -37,6 +38,13 @@ __all__ = [
 
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
+    # Connection settings a subclass injects *below* the caller's kwargs, and
+    # which ``clone`` must therefore not carry back out of the live DSN. Empty
+    # here: postgres injects none, so the dissoc in ``clone`` is a no-op. A
+    # subclass that defaults a libqp setting inside ``do_connect`` -- to keep
+    # it out of ``_con_kwargs``, the profile and the build hash -- has to name
+    # it here too, or the clone reacquires it from ``get_parameters``.
+    _clone_drop_dsn_params: tuple[str, ...] = ()
     _secret_keys = (
         "password",
         "sslcert",
@@ -117,11 +125,17 @@ class Backend(IbisPostgresBackend):
         """Open an ADBC connection for the Arrow paths, or ``None`` if there is
         not one to be had.
 
-        A seam rather than a behaviour change. Postgres keeps the catch-all on
-        purpose: an absent ``password`` in ``_con_kwargs`` is an ordinary way
-        for the ADBC URI to be unbuildable while psycopg is perfectly
-        connected -- a ``.pgpass``, a service file, ``PGPASSWORD`` -- and for a
-        static credential, quietly using the psycopg path is the right answer.
+        A seam, with one narrow behaviour change: this import used to run when
+        ``to_pyarrow_batches`` was called, and now runs on the first batch
+        read, because the only caller is inside the generator. A missing
+        ``adbc_driver_postgresql`` still raises -- the import is above the
+        ``try``, not inside it -- just later, and from inside iteration.
+
+        Postgres keeps the catch-all on purpose: an absent ``password`` in
+        ``_con_kwargs`` is an ordinary way for the ADBC URI to be unbuildable
+        while psycopg is perfectly connected -- a ``.pgpass``, a service file,
+        ``PGPASSWORD`` -- and for a static credential, quietly using the
+        psycopg path is the right answer.
 
         A subclass whose credentials rotate cannot afford that catch-all,
         because driver-absent and auth-failed arrive here as the same
@@ -298,34 +312,107 @@ class Backend(IbisPostgresBackend):
             pass
         self.con.autocommit = prev_autocommit
 
-    def clone(self, password=None, **kwargs):
-        """necessary because "UnsupportedOperationError: postgres does not support creating a database in a different catalog" """
+    def _clone_credential_default_password(self) -> str | None:
+        """The env reference ``clone`` falls back to when no password is known.
+
+        A hook rather than a direct call because the fallback is
+        service-specific and a wrong one is worse than none: a subclass that
+        inherited this method unchanged would dial ITS warehouse with whatever
+        ``$POSTGRES_PASSWORD`` happens to hold locally, or refuse with a
+        message naming a service the caller never mentioned. Returning ``None``
+        means "this backend has no environment default", which ``clone`` turns
+        into an error that names the backend.
+        """
         from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
             make_credential_defaults,  # noqa: PLC0415
         )
 
-        password = password or make_credential_defaults()["password"]
-        if password is None:
-            raise ValueError(
-                "password is required if POSTGRES_PASSWORD env var is not populated"
-            )
+        return make_credential_defaults()["password"]
+
+    def clone(self, password: str | None = None, **kwargs: Any) -> Backend:
+        """necessary because "UnsupportedOperationError: postgres does not support creating a database in a different catalog" """
         dsn_parameters = self.con.info.get_parameters()
         dct = {
+            # ``get_parameters`` reports libpq conninfo keywords only, so
+            # settings that never reach libpq cannot come back out of it:
+            # ``schema`` is applied by ``_post_connect``. Take those from the
+            # kwargs this connection was opened with; the live DSN wins where
+            # they overlap, with the one exception of ``hostaddr`` (below).
+            **self._con_kwargs,
+            # ``autocommit`` is a psycopg ``Connection`` setting, so it is not
+            # in the DSN either -- and it is absent from ``_con_kwargs`` too
+            # whenever the source was built by ``from_connection`` or
+            # positionally. The live connection knows it on every path, and
+            # ``create_catalog`` above already treats it as the truth.
+            "autocommit": self.con.autocommit,
+            # ``options`` is kept: it carries libpq runtime settings, most
+            # importantly ``search_path``, and dropping it silently changed
+            # which schema unqualified names in the clone resolved against.
+            #
+            # ``hostaddr`` is dropped: psycopg resolves ``host`` when it opens
+            # a connection and records the IP it picked as ``hostaddr``
+            # (``psycopg._conninfo_attempts._resolve_hostnames``), so what the
+            # DSN reports there is resolver output, not something the caller
+            # asked for. Carrying it over bakes that IP into the clone's
+            # profile, ``dehydrate_cons`` persists the profile into a build,
+            # and a later hydration then targets a stale address after DNS
+            # failover. A ``hostaddr`` the caller did pass is in
+            # ``_con_kwargs`` and survives.
+            #
+            # ``_clone_drop_dsn_params`` is dropped here, from the DSN
+            # specifically, rather than from the merged result below: the
+            # merged result also holds ``_con_kwargs``, so dissoc-ing it there
+            # discarded a value the CALLER passed and silently reconnected on
+            # the subclass's ``do_connect`` default. That divergence is
+            # precisely the profile mismatch this mechanism exists to prevent,
+            # so dropping it from the wrong dict inverted the guard.
             **toolz.dissoc(
                 dsn_parameters,
                 "dbname",
-                "options",
+                "hostaddr",
+                *self._clone_drop_dsn_params,
             ),
+            # ...but the DSN reports secrets as literals, and ``Profile.from_con``
+            # bakes whatever is in here into the clone's profile, which
+            # ``xo.build`` writes to disk without a secret check. The source's
+            # profile kept the env reference the caller actually passed, so for
+            # a declared secret that form wins over the resolved one.
             **{
-                "database": dsn_parameters["dbname"],
-                "password": password,
+                key: value
+                for key, value in (
+                    self._profile.kwargs_dict if self._profile is not None else {}
+                ).items()
+                if key in self._secret_keys and value is not None
             },
+            "database": dsn_parameters["dbname"],
             **kwargs,
         }
+        # Password precedence: explicit > the source's own > the env default.
+        # The DSN never reports the password, so "the source's own" is whatever
+        # ``_con_kwargs`` and the secret merge left in ``dct``: the env
+        # reference the caller passed, where they passed one.
+        password = (
+            password or dct.get("password") or self._clone_credential_default_password()
+        )
+        if password is None:
+            raise ValueError(
+                f"password is required: {self.name} has no environment default "
+                f"to fall back on, and neither this call nor the source "
+                f"connection supplied one"
+            )
+        # ``BaseBackend.__init__`` resolves env references with a bare
+        # ``ctx[name]``, so an unpopulated one would surface as a ``KeyError``
+        # from inside ``connect``. Name what is actually missing instead.
+        try:
+            maybe_substitute_env_var(password)
+        except KeyError as exc:
+            raise ValueError(
+                f"password is required if {exc.args[0]} env var is not populated"
+            ) from exc
         # ``self.connect``, not the module-level ``connect``: the inherited
         # ``BaseBackend.connect`` instantiates ``self.__class__``, so a
         # subclass clones into its own class rather than into this one.
-        return self.connect(**dct)
+        return self.connect(**{**dct, "password": password})
 
 
 def connect(**kwargs: Any) -> Backend:

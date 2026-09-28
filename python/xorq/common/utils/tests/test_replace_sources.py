@@ -1,3 +1,5 @@
+from copy import copy
+
 import pandas as pd
 import pyarrow.compute as pc
 import pytest
@@ -9,7 +11,9 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import ParquetCache, SourceCache
 from xorq.common.utils.graph_utils import (
     _find_missing_tables,
+    _missing_tables_message,
     _namespace_to_database,
+    _probe_key,
     find_all_sources,
     replace_sources,
 )
@@ -491,4 +495,143 @@ def test_replace_sources_catalog_and_schema():
     con2.raw_sql("CREATE TABLE other_cat.my_schema.t AS SELECT 42 AS val")
 
     result = replace_sources({id(con): con2}, t)
+    assert result.execute()["val"].tolist() == [42]
+
+
+# ---------------------------------------------------------------------------
+# Rebinding onto a clone that shares one connection (xorq#5pcd)
+# ---------------------------------------------------------------------------
+
+
+def _clone_sharing_con(con):
+    """Mimic normalize_profiles: copy the backend, keep the same live ``con``."""
+    cloned = copy(con)
+    cloned._profile = con._profile.clone(idx=con._profile.idx + 1)
+    if hasattr(con, "con"):
+        cloned.con = con.con
+    return cloned
+
+
+def test_rebind_onto_clone_sharing_connection_transfers_nothing():
+    con = xo.duckdb.connect()
+    con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
+    ns = ops.Namespace(catalog=None, database=None)
+
+    assert _find_missing_tables([(con, _clone_sharing_con(con), "t", ns)]) == []
+
+
+def test_rebind_onto_clone_survives_broken_introspection():
+    """The short-circuit must fire before any probe; ``explode`` mimics Redshift."""
+    con = xo.duckdb.connect()
+    con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
+    clone = _clone_sharing_con(con)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError('relation "pg_catalog.pg_enum" does not exist')
+
+    clone.table = explode
+    ns = ops.Namespace(catalog=None, database=None)
+
+    assert _find_missing_tables([(con, clone, "t", ns)]) == []
+
+
+def test_wholly_unintrospectable_backend_names_the_probe_failure():
+    from_con, to_con = xo.duckdb.connect(), xo.duckdb.connect()
+    from_con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
+    t = from_con.table("t")
+
+    def explode(*args, **kwargs):
+        raise RuntimeError('relation "pg_catalog.pg_enum" does not exist')
+
+    to_con.table = explode
+    to_con.list_tables = explode
+
+    with pytest.raises(ValueError) as excinfo:
+        replace_sources({id(from_con): to_con}, t)
+
+    message = str(excinfo.value)
+    assert "Could not determine whether" in message
+    assert "pg_catalog.pg_enum" in message
+    assert "would need to be materialized" not in message
+    # _transfer_tables does not handle a table that turns out to exist.
+    assert "fails outright if a table is in fact already there" in message
+
+
+def test_listed_table_survives_a_pg_enum_probe_failure():
+    """Redshift's shape: only ``.table()`` raises; ``list_tables`` still lists ``t``."""
+    from_con, to_con = xo.duckdb.connect(), xo.duckdb.connect()
+    from_con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
+    to_con.raw_sql("CREATE TABLE t AS SELECT 1 AS x")
+    t = from_con.table("t")
+
+    def explode(*args, **kwargs):
+        raise RuntimeError('relation "pg_catalog.pg_enum" does not exist')
+
+    to_con.table = explode
+    ns = ops.Namespace(catalog=None, database=None)
+
+    assert _find_missing_tables([(from_con, to_con, "t", ns)]) == []
+    result = replace_sources({id(from_con): to_con}, t)
+    assert find_all_sources(result) == (to_con,)
+
+
+def test_absent_table_is_not_hidden_by_another_backends_broken_probe():
+    broken, healthy = xo.duckdb.connect(), xo.duckdb.connect()
+    from_con = xo.duckdb.connect()
+    ns = ops.Namespace(catalog=None, database=None)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError('relation "pg_catalog.pg_enum" does not exist')
+
+    broken.table = explode
+    broken.list_tables = explode
+
+    errors = {}
+    missing = _find_missing_tables(
+        [(from_con, broken, "events", ns), (from_con, healthy, "events", ns)],
+        errors=errors,
+    )
+
+    assert len(missing) == 2
+    assert list(errors) == [_probe_key(broken, "events", ns)]
+
+    message = _missing_tables_message(missing, errors)
+    assert "would need to be materialized" in message
+    assert "deferred_read_parquet" in message
+    assert "Could not determine whether" not in message
+    assert "Presence could not be confirmed" in message
+
+
+def test_probe_errors_are_reported_to_the_caller():
+    from_con, to_con = xo.duckdb.connect(), xo.duckdb.connect()
+    ns = ops.Namespace(catalog=None, database=None)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("introspection is unavailable")
+
+    to_con.table = explode
+    to_con.list_tables = explode
+    errors = {}
+    missing = _find_missing_tables([(from_con, to_con, "t", ns)], errors=errors)
+
+    key = _probe_key(to_con, "t", ns)
+    assert len(missing) == 1
+    assert key in errors and "introspection is unavailable" in str(errors[key])
+
+    other = xo.duckdb.connect()
+    errors = {}
+    _find_missing_tables([(from_con, other, "no_such_table", ns)], errors=errors)
+    assert errors == {}
+
+
+def test_transfer_lands_in_the_nodes_namespace():
+    src_con, dst_con = xo.duckdb.connect(), xo.duckdb.connect()
+    src_con.raw_sql("CREATE SCHEMA s")
+    src_con.raw_sql("CREATE TABLE s.t AS SELECT 42 AS val")
+    dst_con.raw_sql("CREATE SCHEMA s")
+
+    t = src_con.table("t", database="s")
+    result = replace_sources({id(src_con): dst_con}, t, transfer_tables=True)
+
+    assert dst_con.list_tables(database="s") == ["t"]
     assert result.execute()["val"].tolist() == [42]

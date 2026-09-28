@@ -52,7 +52,7 @@ Install the latest development version from GitHub:
 pip install git+https://github.com/xorq-labs/xorq.git
 ```
 
-For local development, clone and install in editable mode:
+To develop locally, clone the repository and install in editable mode:
 
 ```bash
 git clone https://github.com/xorq-labs/xorq.git
@@ -102,6 +102,7 @@ Each extra adds support for one backend or feature set. Install only what you ne
 | `datafusion` | `pip install "xorq[datafusion]"` | Standalone DataFusion backend (an embedded one is already included) |
 | `sqlite` | `pip install "xorq[sqlite]"` | SQLite backend |
 | `pyiceberg` | `pip install "xorq[pyiceberg]"` | Apache Iceberg tables |
+| Delta Lake | `pip install deltalake` | Delta Lake tables via `read_delta` / `to_delta` (separate package, not an extra) |
 | Trino | `pip install trino` | Trino client (separate package, not an extra) |
 
 To install everything at once:

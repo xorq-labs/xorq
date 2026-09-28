@@ -22,6 +22,12 @@ A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claud
 
 ## Skills
 
+<!-- vale Google.WordList = NO -->
+<!-- `ingest` is the name of a skill, not a verb choice: it has to match
+     the SKILL.md it links to and what the user types. Scoped to the table
+     rather than the whole section, and a comment between two rows breaks
+     the table, so the two tables carrying the name are wrapped separately. -->
+
 | Skill | What it does |
 |-------|--------------|
 | [**ingest**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/ingest/SKILL.md) | Bring data not yet catalogued (csv, parquet, or a DuckDB / SQLite / Postgres table) into a `source`. |
@@ -31,9 +37,13 @@ A SessionStart hook loads the [essentials.md](https://github.com/xorq-labs/claud
 | [**builder**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/builder/SKILL.md) | Round-trip tagged objects (semantic models, fitted pipelines, your own) through the catalog. |
 | [**diagnose**](https://github.com/xorq-labs/claude-plugins/blob/main/xorq/skills/diagnose/SKILL.md) | Failed, slow, or stale runs, and caching. |
 
+<!-- vale Google.WordList = YES -->
+
 ## Example
 
 A session, one line per turn—what you say, and the skill Claude reaches for.
+
+<!-- vale Google.WordList = NO -->
 
 | You ask | Skill |
 |---------|-------|
@@ -43,5 +53,7 @@ A session, one line per turn—what you say, and the skill Claude reaches for.
 | "From `customers`, keep `age > 30`, select name and age." | composer |
 | "Fit a classifier on `transactions` for `is_fraud`, save it." | ml |
 | "That run was slow, what happened?" | diagnose |
+
+<!-- vale Google.WordList = YES -->
 
 Full command-line and Python API index: <https://docs.xorq.dev/llms.txt>

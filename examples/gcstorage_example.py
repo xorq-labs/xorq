@@ -26,11 +26,18 @@ expr = xo.deferred_read_csv(
 
 
 if __name__ == "__pytest_main__":
+    # The cache key is input-addressed, so every run of this fixed expression
+    # targets the same object. A run that dies between the write and the drop
+    # below strands exactly that object and would leave the assertion that
+    # follows failing for every later run, so clear it first.
+    if expr.ls.cache_exists():
+        cache.drop(expr)
     assert not expr.ls.cache_exists()
     df = expr.execute()
     assert expr.ls.cache_exists()
-    listing = cache.cache.cache.fs.ls(cache.get_path(expr), detail=True)
+    key = cache.calc_key(expr)
+    listing = cache.storage.fs.ls(cache.storage.get_path(key), detail=True)
     print(listing)
-    cache.cache.drop(expr)
+    cache.drop(expr)
     assert not expr.ls.cache_exists()
     pytest_examples_passed = True
