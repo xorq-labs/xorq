@@ -471,6 +471,27 @@ class Unknown(DataType, Singleton):
 
 
 @public
+class NamedUnknown(Unknown):
+    """An unknown type that keeps the backend's own name for it.
+
+    A column typed this way binds, so its table stays usable through its
+    other columns, and an error refusing a read of it can say what the
+    backend called it. ``name`` is ``Unknown``'s, so everything that dispatches
+    on it treats the two alike.
+    """
+
+    raw_type: str
+
+    @property
+    def name(self) -> str:
+        return "Unknown"
+
+    @property
+    def _pretty_piece(self) -> str:
+        return f"({self.raw_type!r})"
+
+
+@public
 class Primitive(DataType, Singleton):
     """Values with known size."""
 

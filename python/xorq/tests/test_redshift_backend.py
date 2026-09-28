@@ -59,9 +59,11 @@ import xorq  # noqa: E402
 import xorq.api as xo  # noqa: E402
 import xorq.backends.redshift as redshift_module  # noqa: E402
 import xorq.common.exceptions as exc  # noqa: E402
+import xorq.ibis_yaml.translate  # noqa: E402, F401 -- registers the yaml rules
 import xorq.vendor.ibis.expr.datatypes as dt  # noqa: E402
 from xorq.backends.postgres import Backend as PostgresBackend  # noqa: E402
 from xorq.backends.redshift import Backend as RedshiftBackend  # noqa: E402
+from xorq.ibis_yaml.common import TranslationContext  # noqa: E402
 from xorq.vendor.ibis.backends.profiles import (  # noqa: E402
     Profile,
     check_for_exposed_secrets,
@@ -1209,14 +1211,19 @@ def test_get_schema_using_query_wraps_rather_than_appends():
     assert inner.args["limit"].expression.this == "5"
 
 
-def test_get_schema_using_query_rejects_an_unmappable_oid_loudly():
+def test_get_schema_using_query_binds_an_unknown_oid_by_its_number() -> None:
     """Redshift's own types (SUPER, VARBYTE, GEOMETRY) carry OIDs psycopg does
-    not know. Mapping them to ``unknown`` would hand back a schema that looks
-    fine and is wrong; the OID is named so a live session can add it."""
-    con = make_introspection_con(description=(_FakeColumn("s", 4000),))
+    not know. Raising here failed the whole query for one such column, as the
+    catalog path once did; it binds instead, named by its OID, and is refused
+    where it is read."""
+    con = make_introspection_con(
+        description=(_FakeColumn("id", 23, "int4"), _FakeColumn("s", 4000))
+    )
 
-    with pytest.raises(exc.UnsupportedBackendType, match="4000"):
-        con._get_schema_using_query("SELECT s FROM t")
+    schema = con._get_schema_using_query("SELECT id, s FROM t")
+
+    assert schema["id"] == dt.Int32(nullable=True)
+    assert schema["s"] == dt.NamedUnknown(raw_type="type OID 4000", nullable=True)
 
 
 def test_neither_introspection_path_creates_a_temporary_view():
@@ -1362,7 +1369,8 @@ def test_get_schema_binds_a_redshift_only_type_as_unknown(
 ) -> None:
     """One unmappable column used to fail the whole table, so a table carrying
     a ``SUPER`` column could not be bound at all. It now binds, with that
-    column present and typed ``unknown``; touching it is what fails.
+    column present and typed ``unknown`` under its catalog spelling; touching
+    it is what fails.
 
     ``geometry`` and ``geography`` are here although they *parse*, into ibis
     ``GeoSpatial`` types: this backend still compiles as PostgreSQL, so a geo
@@ -1384,7 +1392,7 @@ def test_get_schema_binds_a_redshift_only_type_as_unknown(
 
     assert schema.names == ("id", "c")
     assert schema["id"] == dt.Int32(nullable=False)
-    assert schema["c"] == dt.Unknown(nullable=nullable)
+    assert schema["c"] == dt.NamedUnknown(raw_type=data_type, nullable=nullable)
 
 
 @pytest.mark.parametrize(
@@ -1405,7 +1413,7 @@ def test_get_schema_maps_varbyte_to_binary(data_type: str) -> None:
     assert con.get_schema("t", database="public")["c"] == dt.Binary(nullable=False)
 
 
-def test_query_path_rejects_an_oid_psycopg_names_but_cannot_map() -> None:
+def test_query_path_binds_an_oid_psycopg_names_but_cannot_map() -> None:
     """The guard tested only ``info is None`` -- whether psycopg could *name*
     the OID -- and not whether the type mapper could use the name.
 
@@ -1416,8 +1424,9 @@ def test_query_path_rejects_an_oid_psycopg_names_but_cannot_map() -> None:
     """
     con = make_introspection_con(description=(_FakeColumn("oid", 26, "oid"),))
 
-    with pytest.raises(exc.UnsupportedBackendType, match="oid"):
-        con._get_schema_using_query("SELECT oid FROM pg_class")
+    schema = con._get_schema_using_query("SELECT oid FROM pg_class")
+
+    assert schema["oid"] == dt.NamedUnknown(raw_type="oid", nullable=True)
 
 
 def test_unsupported_type_keeps_the_nullability_it_was_given() -> None:
@@ -1502,7 +1511,7 @@ def test_a_table_with_an_unmappable_column_binds_and_reads_its_other_columns(
     table, without hand-building a source that leaves the SUPER column out."""
     con, t = offers
 
-    assert t.schema()["payload"] == dt.Unknown(nullable=False)
+    assert t.schema()["payload"] == dt.NamedUnknown(raw_type="super", nullable=False)
     result = t.select("id", "name").to_pyarrow()
 
     assert result.to_pylist() == [{"id": 1, "name": "a"}, {"id": 2, "name": None}]
@@ -1540,7 +1549,9 @@ def test_touching_an_unmappable_column_raises_naming_it(
     con, t = offers
     before = len(executed(con))
 
-    with pytest.raises(exc.UnmappableColumnError, match="'payload'") as excinfo:
+    with pytest.raises(
+        exc.UnmappableColumnError, match="'payload' \\(redshift type 'super'\\)"
+    ) as excinfo:
         read(con, t)
 
     assert excinfo.value.columns == ("payload",)
@@ -2025,3 +2036,38 @@ def test_postgres_clone_still_falls_back_to_its_own_env_password(
     override, not a removal of the base behaviour."""
     con = PostgresBackend()
     assert con._clone_credential_default_password() == "$POSTGRES_PASSWORD"
+
+
+def test_a_query_with_an_unmappable_column_is_refused_where_it_is_read() -> None:
+    """``con.sql`` binds such a column as the catalog path does, so the same
+    refusal has to catch it, naming the OID it has in place of a spelling."""
+    con = make_introspection_con(
+        description=(_FakeColumn("id", 23, "int4"), _FakeColumn("s", 4000))
+    )
+    t = con.sql("SELECT id, s FROM t")
+
+    with pytest.raises(exc.UnmappableColumnError, match="type OID 4000"):
+        con.to_pyarrow_batches(t)
+
+
+def test_an_unmappable_column_round_trips_through_yaml_with_its_spelling() -> None:
+    """A bound table is serialised into every build. The yaml loader resolves
+    a dtype by its class name in the datatypes module, so a class defined
+    anywhere else would serialise and then fail to load."""
+    schema = RedshiftBackend._schema_from_catalog_rows(OFFERS_CATALOG_ROWS)
+    context = TranslationContext()
+
+    loaded = context.translate_from_yaml(context.translate_to_yaml(schema))
+
+    assert loaded == schema
+    assert loaded["payload"] == dt.NamedUnknown(raw_type="super", nullable=False)
+
+
+def test_an_unmappable_column_refuses_arrow_conversion_on_its_own() -> None:
+    """Behind the explicit refusal, not instead of it: plain ``dt.Unknown``
+    converts to Arrow ``string``, which is how a SUPER read would come back
+    mistyped. ``NamedUnknown`` has no Arrow mapping at all."""
+    schema = RedshiftBackend._schema_from_catalog_rows(OFFERS_CATALOG_ROWS)
+
+    with pytest.raises(NotImplementedError, match="super"):
+        schema.to_pyarrow()

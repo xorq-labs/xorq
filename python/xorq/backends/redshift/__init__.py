@@ -369,10 +369,10 @@ ORDER BY ordinal_position ASC"""
         rather than returning a schema short a column.
 
         A column the type mapper refuses -- ``SUPER`` above all -- is typed
-        ``dt.Unknown`` with its catalog nullability rather than failing the
-        whole table, and ``_raise_on_unmappable_columns`` refuses any read or
-        create that touches it. Dropping it instead would bind a schema
-        silently short a column.
+        ``dt.NamedUnknown``, keeping its catalog spelling and nullability,
+        rather than failing the whole table, and ``_raise_on_unmappable_columns``
+        refuses any read or create that touches it. Dropping it instead would
+        bind a schema silently short a column.
         """
         return sch.Schema.from_tuples(
             [
@@ -395,10 +395,10 @@ ORDER BY ordinal_position ASC"""
 
     @classmethod
     def _column_dtype(cls, type_string: str, nullable: bool) -> dt.DataType:
-        """One catalog column's dtype, or ``dt.Unknown`` if it has none.
+        """One column's dtype, or ``dt.NamedUnknown`` if it has none.
 
-        ``dt.Unknown`` is built here rather than taken from the mapper's own
-        fallback, which drops ``nullable=``.
+        Built here rather than taken from the mapper's own ``unknown``
+        fallback, which drops ``nullable=`` and the type's name.
         """
         try:
             return cls.compiler.type_mapper.from_string(type_string, nullable=nullable)
@@ -406,7 +406,7 @@ ORDER BY ordinal_position ASC"""
             logger.debug(
                 "binding an unmappable column as unknown", type_string=type_string
             )
-            return dt.Unknown(nullable=nullable)
+            return dt.NamedUnknown(raw_type=type_string, nullable=nullable)
 
     def _raise_on_unmappable_columns(self, schema: sch.Schema, action: str) -> None:
         """Refuse an operation whose schema carries an unmappable column.
@@ -419,18 +419,23 @@ ORDER BY ordinal_position ASC"""
         naming a Python class rather than the column.
         """
         mapper = self.compiler.type_mapper
-        columns = tuple(
-            name
+        unmappable = {
+            name: part
             for name, dtype in schema.items()
-            if mapper.unmappable_part(dtype) is not None
-        )
-        if columns:
+            if (part := mapper.unmappable_part(dtype)) is not None
+        }
+        if unmappable:
+            described = ", ".join(
+                f"{name!r} ({self.name} type {part.raw_type!r})"
+                if isinstance(part, dt.NamedUnknown)
+                else repr(name)
+                for name, part in unmappable.items()
+            )
             raise exc.UnmappableColumnError(
-                f"cannot {action} column(s) {', '.join(map(repr, columns))}: "
-                f"their {self.name} type has no xorq equivalent, so they are "
-                f"bound as unknown and cannot be read or created. Select the "
-                f"other columns instead.",
-                columns=columns,
+                f"cannot {action} column(s) {described}: the type has no xorq "
+                f"equivalent, so the column is bound as unknown and cannot be "
+                f"read or created. Select the other columns instead.",
+                columns=tuple(unmappable),
             )
 
     def _run_pre_execute_hooks(self, expr: ir.Expr) -> None:
@@ -508,20 +513,19 @@ ORDER BY ordinal_position ASC"""
         return self._schema_from_catalog_rows(rows)
 
     @classmethod
-    def _type_string_from_column(cls, column: Any) -> str:
-        """The type name for one ``psycopg.Column`` of a result description.
+    def _column_dtype_from_description(cls, column: Any) -> dt.DataType:
+        """The dtype of one ``psycopg.Column`` of a result description.
 
         ``type_code`` is a PostgreSQL type OID. Redshift is a PostgreSQL 8.0
         derivative and reports the standard OIDs, which psycopg's builtin
         registry resolves without a round trip.
 
         An OID the registry does not know -- Redshift's own ``SUPER``,
-        ``VARBYTE`` and ``GEOMETRY`` are the expected cases -- raises rather
-        than degrading to ``unknown``. A schema that is quietly wrong is the
-        failure mode this backend's tests exist to prevent, and the OID goes in
-        the message so a live session can map it. An OID the registry *can*
-        name but the type mapper cannot use raises too, one layer down, in
-        ``RedshiftType.from_string``.
+        ``VARBYTE`` and ``GEOMETRY`` are the expected cases -- binds as
+        ``dt.NamedUnknown`` named by its OID, exactly as the catalog path binds
+        a type it cannot map, and is refused where it is used. So is an OID the
+        registry *can* name but the type mapper cannot use. Nullability is not
+        in a result description, so every column is nullable.
 
         The type string itself comes from psycopg's own ``Column.type_display``
         rather than from ``info.name``. They differ in two ways that matter:
@@ -540,12 +544,10 @@ ORDER BY ordinal_position ASC"""
         import psycopg  # noqa: PLC0415
 
         if psycopg.postgres.types.get(column.type_code) is None:
-            raise exc.UnsupportedBackendType(
-                f"{cls.name} returned column {column.name!r} with type OID "
-                f"{column.type_code}, which psycopg cannot name; it is most "
-                f"likely a Redshift-specific type (SUPER, VARBYTE, GEOMETRY)"
+            return dt.NamedUnknown(
+                raw_type=f"type OID {column.type_code}", nullable=True
             )
-        return column.type_display
+        return cls._column_dtype(column.type_display, nullable=True)
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         """Infer a query's schema from the result description, issuing no DDL.
@@ -634,7 +636,6 @@ ORDER BY ordinal_position ASC"""
         with con.cursor() as cursor, con.transaction():
             description = list(cursor.execute(probe).description)
 
-        type_mapper = self.compiler.type_mapper
         # ``from_tuples`` rather than a dict comprehension: a result set may
         # legitimately repeat a column name (``SELECT t1.id, t2.id``, or
         # ``SELECT 1, 2``, whose columns are both ``?column?``), and keying a
@@ -644,12 +645,7 @@ ORDER BY ordinal_position ASC"""
         # (``column "id" specified more than once``); this keeps that.
         return sch.Schema.from_tuples(
             [
-                (
-                    column.name,
-                    type_mapper.from_string(
-                        self._type_string_from_column(column), nullable=True
-                    ),
-                )
+                (column.name, self._column_dtype_from_description(column))
                 for column in description
             ]
         )
