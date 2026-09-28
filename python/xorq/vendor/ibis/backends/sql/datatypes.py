@@ -557,6 +557,20 @@ class RedshiftType(PostgresType):
             expressions=[sge.DataTypeParam(this=sge.convert(65535))],
         )
 
+    @classmethod
+    def _from_ibis_Decimal(cls, dtype: dt.Decimal) -> sge.DataType:
+        """Refuse a precision past Redshift's documented maximum of 38.
+
+        The inherited mapper spells ``DECIMAL(76, 38)`` verbatim, which the
+        ``CREATE`` or ``CAST`` rejects without naming the column.
+        """
+        if dtype.precision is not None and dtype.precision > 38:
+            raise com.UnsupportedBackendType(
+                f"Redshift decimals hold at most 38 digits; {dtype} does not "
+                "fit. Cast the column to a narrower decimal or to a float first."
+            )
+        return super()._from_ibis_Decimal(dtype)
+
     # Redshift has no unsigned integer types, so each widens to the smallest
     # signed type that holds its whole range -- the same ladder MySQLType uses
     # a few classes below, with one deliberate difference: UInt64 gets

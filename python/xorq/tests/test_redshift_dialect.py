@@ -424,16 +424,28 @@ def test_single_column_nunique_still_works(t):
     sqlglot.parse_one(sql, dialect="redshift")
 
 
-def test_arbitrary_emits_any_value_not_first(t):
-    """``ops.Arbitrary: "first"`` is inherited from the postgres ``SIMPLE_OPS``.
+@pytest.mark.parametrize(
+    ("build", "func"),
+    [
+        pytest.param(lambda t: t.amt.arbitrary(), "MAX(", id="float"),
+        pytest.param(lambda t: t.s.arbitrary(where=t.flag), "MAX(CASE", id="where"),
+        pytest.param(lambda t: t.flag.arbitrary(), "BOOL_OR(", id="boolean"),
+    ],
+)
+def test_arbitrary_emits_a_null_safe_aggregate(t, build, func):
+    """Neither ``FIRST()`` nor ``ANY_VALUE``.
 
-    ``__init_subclass__`` generates ``visit_Arbitrary`` from that mapping, so
-    ``.arbitrary()`` emitted the very ``FIRST()`` that ``visit_First`` raises
-    on -- a method raising does not stop a sibling being generated.
+    ``ops.Arbitrary: "first"`` is inherited from the postgres ``SIMPLE_OPS``,
+    and ``__init_subclass__`` generates ``visit_Arbitrary`` from that mapping,
+    so ``.arbitrary()`` emitted the very ``FIRST()`` that ``visit_First``
+    raises on. ``ANY_VALUE`` replaced it, but AWS documents that it may return
+    NULL when the input mixes NULL and non-NULL values -- which the ``where=``
+    fallback guarantees.
     """
-    sql = to_sql(t.group_by("grp").agg(a=t.amt.arbitrary()))
-    assert "ANY_VALUE(" in sql
+    sql = to_sql(t.group_by("grp").agg(a=build(t)))
+    assert func in sql
     assert "FIRST(" not in sql
+    assert "ANY_VALUE(" not in sql
 
 
 @pytest.mark.parametrize(
@@ -641,6 +653,7 @@ _INTENDED_TYPE_DIVERGENCES = {
     "struct<a: int64>": "no struct type; refused",
     "uuid": "no uuid type; refused",
     "inet": "no inet type; refused",
+    "decimal(76, 38)": "precision past 38; refused",
 }
 
 _PROBED_DTYPES = [
@@ -658,6 +671,7 @@ _PROBED_DTYPES = [
     dt.Decimal(),
     dt.Decimal(18, 3),
     dt.Decimal(38, 9),
+    dt.Decimal(76, 38),
     dt.string,
     dt.binary,
     dt.date,
@@ -937,6 +951,52 @@ def test_partition_only_window_functions_drop_order_by_and_frame(t, build, func)
     assert "ROWS BETWEEN" not in sql
 
 
+def test_group_concat_over_an_ordered_window_keeps_the_order(t):
+    """The window ORDER BY is the concatenation order of an aggregate over it.
+
+    Dropping it with the rest of the ``OVER`` body reordered the string with no
+    error; it moves into ``WITHIN GROUP``, where Redshift takes it.
+    """
+    w = xo.window(group_by=t.grp, order_by=t.id)
+    sql = to_sql(t.mutate(o=t.s.group_concat(",").over(w)))
+    assert 'WITHIN GROUP (ORDER BY "t0"."id" ASC) OVER (PARTITION BY "t0"."grp")' in sql
+
+
+def test_negative_array_index_uses_get_array_length(t):
+    """``CARDINALITY`` is called by name in the postgres visitor, out of reach
+    of the dialect's ``ArraySize`` rename, and Redshift has no such function."""
+    sql = to_sql(t.select(o=t.s.split(",")[-1]))
+    assert "CARDINALITY" not in sql.upper()
+    assert "GET_ARRAY_LENGTH(" in sql
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: xo.time(t.y, t.m, t.d), id="time_from_hms"),
+        pytest.param(
+            lambda t: xo.timestamp(t.y, t.m, t.d, t.y, t.m, t.d),
+            id="timestamp_from_ymdhms",
+        ),
+        pytest.param(
+            lambda t: t.id.cast("timestamp").bucket(minutes=5), id="timestamp_bucket"
+        ),
+    ],
+)
+def test_postgres_only_temporal_constructors_raise(t, build):
+    """``MAKE_TIME``, ``MAKE_TIMESTAMP`` and ``DATE_BIN`` have no Redshift
+    namesake; ``TimeFromHMS`` reached ``MAKE_TIME`` through ``SIMPLE_OPS``
+    even after the time literal stopped emitting it."""
+    with pytest.raises(com.OperationNotDefinedError):
+        to_sql(t.select(o=build(t)))
+
+
+def test_bit_xor_raises(t):
+    """Redshift has ``BIT_AND`` and ``BIT_OR`` but no ``BIT_XOR``."""
+    with pytest.raises(com.OperationNotDefinedError):
+        to_sql(t.aggregate(o=t.id.bit_xor()))
+
+
 @pytest.mark.parametrize(
     "window",
     [
@@ -991,7 +1051,7 @@ def test_multi_quantile_raises(t, build):
 def test_arbitrary_over_a_window_raises(t):
     """``ANY_VALUE`` is an aggregate on Redshift, not a window function."""
     w = xo.window(group_by=t.grp, order_by=t.id)
-    with pytest.raises(com.UnsupportedOperationError, match="(?i)any_value"):
+    with pytest.raises(com.UnsupportedOperationError, match="(?i)over"):
         to_sql(t.mutate(o=t.amt.arbitrary().over(w)))
 
 

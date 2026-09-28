@@ -143,8 +143,13 @@ class RedshiftCompiler(PostgresCompiler):
     # ``.arbitrary()`` compiled to ``FIRST(x)`` anyway, because
     # ``__init_subclass__`` generates ``visit_Arbitrary`` from ``SIMPLE_OPS``
     # and that generation happens whether or not a sibling method raises.
-    # Redshift does support ``ANY_VALUE``.
-    SIMPLE_OPS = PostgresCompiler.SIMPLE_OPS | {ops.Arbitrary: "any_value"}
+    # So the entry is removed, not replaced, and ``visit_Arbitrary`` below is
+    # hand-written: an entry here would regenerate over it.
+    SIMPLE_OPS = {
+        op: name
+        for op, name in PostgresCompiler.SIMPLE_OPS.items()
+        if op is not ops.Arbitrary
+    }
 
     UNSUPPORTED_OPS = (
         *PostgresCompiler.UNSUPPORTED_OPS,
@@ -171,6 +176,15 @@ class RedshiftCompiler(PostgresCompiler):
         ops.Hash,
         ops.RandomUUID,
         ops.RegexExtract,
+        # ``MAKE_TIME`` is the one ``visit_NonNullLiteral`` measured absent;
+        # ``TimeFromHMS`` reaches it through the inherited ``SIMPLE_OPS`` entry
+        # rather than the literal visitor. ``MAKE_TIMESTAMP``, ``DATE_BIN``
+        # (``TimestampBucket``) and ``BIT_XOR`` are absent from Redshift's
+        # function reference; not measured on the warehouse.
+        ops.TimeFromHMS,
+        ops.TimestampFromYMDHMS,
+        ops.TimestampBucket,
+        ops.BitXor,
     )
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
@@ -179,6 +193,30 @@ class RedshiftCompiler(PostgresCompiler):
     # idiom xorq's own skills teach, so leaving this True made a documented
     # construction unrunnable on this backend.
     agg = AggGen(supports_filter=False, supports_order_by=True)
+
+    def visit_Arbitrary(self, op, *, arg, where):
+        """``MAX``, or ``BOOL_OR`` for a boolean, rather than ``ANY_VALUE``.
+
+        ibis promises a non-NULL value unless every input is NULL. Redshift's
+        ``ANY_VALUE`` does not: AWS documents that "if the input contains NULL
+        values mixed with non-NULL values, NULL might be returned". The
+        ``where=`` fallback makes that the common case, because
+        ``supports_filter=False`` NULLs out every row that fails the predicate.
+        ``MAX`` ignores NULLs and returns a value that is present, which is an
+        arbitrary value by ibis's contract. It takes every type Redshift's
+        ``ANY_VALUE`` does except BOOLEAN, for which AWS names ``BOOL_OR`` as
+        the equivalent, and the interval and spatial types, which raise.
+        """
+        dtype = op.arg.dtype
+        if dtype.is_boolean():
+            return self.agg.bool_or(arg, where=where)
+        if dtype.is_interval() or dtype.is_geospatial():
+            raise com.UnsupportedOperationError(
+                f"`.arbitrary()` over a {dtype} column has no NULL-safe lowering "
+                "on Redshift: `MAX` does not take the type, and `ANY_VALUE` may "
+                "return NULL while non-NULL values exist."
+            )
+        return self.agg.max(arg, where=where)
 
     def visit_CountDistinct(self, op, *, arg, where):
         """``COUNT(DISTINCT CASE WHEN ... END)``, not ``COUNT(CASE WHEN ...
@@ -430,6 +468,17 @@ class RedshiftCompiler(PostgresCompiler):
         length = self.f.length(affix)
         return sge.and_(self.f.length(arg) >= length, take(arg, length).eq(affix))
 
+    def visit_ArrayIndex(self, op, *, arg, index):
+        """A negative index counts from the end via the array's length.
+
+        The postgres visitor calls ``cardinality`` by name, which the
+        dialect's ``ArraySize`` rename cannot reach, so ``s.split(",")[-1]``
+        emitted ``CARDINALITY``, which Redshift lacks. ``sge.ArraySize``
+        renders through that rename as ``GET_ARRAY_LENGTH``.
+        """
+        index = self.if_(index < 0, sge.ArraySize(this=arg) + index, index)
+        return sge.paren(arg, copy=False)[index]
+
     def visit_DateFromYMD(self, op, *, year, month, day):
         """Redshift has no ``make_date``.
 
@@ -522,10 +571,11 @@ class RedshiftCompiler(PostgresCompiler):
         )
         if isinstance(op.func, ops.Arbitrary):
             raise com.UnsupportedOperationError(
-                "`ANY_VALUE` is an aggregate on Redshift and not a window "
-                "function, so `.arbitrary()` cannot be used with `.over(...)` "
-                "on this backend. Aggregate it in a `group_by` instead, or "
-                "pick a row explicitly with a `row_number()` window."
+                "`.arbitrary()` cannot be used with `.over(...)` on this "
+                "backend: Redshift has no window form of `ANY_VALUE`, and its "
+                "NULL-safe lowering has not been checked in window position. "
+                "Aggregate it in a `group_by` instead, or pick a row "
+                "explicitly with a `row_number()` window."
             )
         if isinstance(op.func, _PARTITION_ONLY_OPS):
             if op.start is not None or op.end is not None:
@@ -539,6 +589,21 @@ class RedshiftCompiler(PostgresCompiler):
                 )
             window.set("spec", None)
             window.set("order", None)
+            # A window ORDER BY is the input order of an aggregate evaluated
+            # over it, so for ``group_concat`` it orders the concatenation.
+            # Dropping it with nowhere to go reorders the string silently;
+            # ``WITHIN GROUP`` is where Redshift takes it instead.
+            if (
+                isinstance(op.func, ops.GroupConcat)
+                and order_by
+                and not op.func.order_by
+            ):
+                window.set(
+                    "this",
+                    sge.WithinGroup(
+                        this=func, expression=sge.Order(expressions=list(order_by))
+                    ),
+                )
         elif isinstance(op.func, _NO_FRAME_OPS):
             window.set("spec", None)
         return window

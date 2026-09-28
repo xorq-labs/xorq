@@ -774,9 +774,7 @@ def test_ingest_modes_are_the_adbc_ingest_modes():
     )
 
 
-def test_ingest_ddl_emits_the_measured_redshift_spellings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_ingest_ddl_emits_the_measured_redshift_spellings() -> None:
     """The two divergences this used to pin as *suspected* are now measured.
 
     It was a tripwire, deliberately asserting the broken value so that fixing
