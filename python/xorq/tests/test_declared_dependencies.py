@@ -33,6 +33,7 @@ EXTRAS_GATED_MODULES = (
     "python/xorq/backends/postgres/__init__.py",
     "python/xorq/backends/pyiceberg/__init__.py",
     "python/xorq/backends/pyiceberg/compiler.py",
+    "python/xorq/backends/redshift/__init__.py",
     "python/xorq/common/utils/bigquery_utils.py",
     "python/xorq/common/utils/databricks_utils.py",
     "python/xorq/common/utils/gcloud_utils.py",
