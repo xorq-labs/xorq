@@ -512,6 +512,17 @@ ORDER BY ordinal_position ASC"""
             raise exc.TableNotFound(name)
         return self._schema_from_catalog_rows(rows)
 
+    # Redshift's own types carry OIDs psycopg's registry does not know, so a
+    # result description names them only by number. Read from ``pg_type`` on
+    # a live warehouse (2026-09-28).
+    _REDSHIFT_TYPE_OIDS = {
+        2935: "hllsketch",
+        3000: "geometry",
+        3001: "geography",
+        4000: "super",
+        6551: "varbyte",
+    }
+
     @classmethod
     def _column_dtype_from_description(cls, column: Any) -> dt.DataType:
         """The dtype of one ``psycopg.Column`` of a result description.
@@ -520,12 +531,14 @@ ORDER BY ordinal_position ASC"""
         derivative and reports the standard OIDs, which psycopg's builtin
         registry resolves without a round trip.
 
-        An OID the registry does not know -- Redshift's own ``SUPER``,
-        ``VARBYTE`` and ``GEOMETRY`` are the expected cases -- binds as
-        ``dt.NamedUnknown`` named by its OID, exactly as the catalog path binds
-        a type it cannot map, and is refused where it is used. So is an OID the
-        registry *can* name but the type mapper cannot use. Nullability is not
-        in a result description, so every column is nullable.
+        Redshift's own types are named from ``_REDSHIFT_TYPE_OIDS`` and then
+        mapped exactly as the catalog path maps their names, so ``VARBYTE`` is
+        ``dt.Binary`` on both paths and ``SUPER`` binds as ``dt.NamedUnknown``
+        on both. Any other OID the registry does not know binds as
+        ``dt.NamedUnknown`` named by its number, and so does an OID the registry
+        *can* name but the type mapper cannot use; either is refused where it is
+        used. Nullability is not in a result description, so every column is
+        nullable.
 
         The type string itself comes from psycopg's own ``Column.type_display``
         rather than from ``info.name``. They differ in two ways that matter:
@@ -543,6 +556,8 @@ ORDER BY ordinal_position ASC"""
         """
         import psycopg  # noqa: PLC0415
 
+        if (name := cls._REDSHIFT_TYPE_OIDS.get(column.type_code)) is not None:
+            return cls._column_dtype(name, nullable=True)
         if psycopg.postgres.types.get(column.type_code) is None:
             return dt.NamedUnknown(
                 raw_type=f"type OID {column.type_code}", nullable=True

@@ -1211,19 +1211,46 @@ def test_get_schema_using_query_wraps_rather_than_appends():
     assert inner.args["limit"].expression.this == "5"
 
 
+@pytest.mark.parametrize(
+    ("oid", "expected"),
+    [
+        pytest.param(4000, dt.NamedUnknown(raw_type="super"), id="super"),
+        pytest.param(6551, dt.Binary(), id="varbyte"),
+        pytest.param(3000, dt.NamedUnknown(raw_type="geometry"), id="geometry"),
+        pytest.param(3001, dt.NamedUnknown(raw_type="geography"), id="geography"),
+        pytest.param(2935, dt.NamedUnknown(raw_type="hllsketch"), id="hllsketch"),
+    ],
+)
+def test_query_path_maps_redshift_type_oids_as_the_catalog_path_maps_names(
+    oid: int, expected: dt.DataType
+) -> None:
+    """A result description names Redshift's own types only by OID, so the
+    query path needs the OIDs to agree with the catalog path: VARBYTE is binary
+    on both, and SUPER binds under its name on both."""
+    con = make_introspection_con(description=(_FakeColumn("c", oid),))
+
+    assert con._get_schema_using_query("SELECT c FROM t")["c"] == expected
+
+
+def test_redshift_type_oids_are_unknown_to_psycopg() -> None:
+    """The table is consulted first, so an OID psycopg also knew would be
+    silently renamed. Pins that none of them is in its registry."""
+    for oid in RedshiftBackend._REDSHIFT_TYPE_OIDS:
+        assert psycopg.postgres.types.get(oid) is None, oid
+
+
 def test_get_schema_using_query_binds_an_unknown_oid_by_its_number() -> None:
-    """Redshift's own types (SUPER, VARBYTE, GEOMETRY) carry OIDs psycopg does
-    not know. Raising here failed the whole query for one such column, as the
-    catalog path once did; it binds instead, named by its OID, and is refused
-    where it is read."""
+    """An OID neither psycopg nor this backend knows used to fail the whole
+    query for one such column, as the catalog path once did. It binds instead,
+    named by its number, and is refused where it is read."""
     con = make_introspection_con(
-        description=(_FakeColumn("id", 23, "int4"), _FakeColumn("s", 4000))
+        description=(_FakeColumn("id", 23, "int4"), _FakeColumn("s", 99999))
     )
 
     schema = con._get_schema_using_query("SELECT id, s FROM t")
 
     assert schema["id"] == dt.Int32(nullable=True)
-    assert schema["s"] == dt.NamedUnknown(raw_type="type OID 4000", nullable=True)
+    assert schema["s"] == dt.NamedUnknown(raw_type="type OID 99999", nullable=True)
 
 
 def test_neither_introspection_path_creates_a_temporary_view():
@@ -2040,13 +2067,15 @@ def test_postgres_clone_still_falls_back_to_its_own_env_password(
 
 def test_a_query_with_an_unmappable_column_is_refused_where_it_is_read() -> None:
     """``con.sql`` binds such a column as the catalog path does, so the same
-    refusal has to catch it, naming the OID it has in place of a spelling."""
+    refusal has to catch it."""
     con = make_introspection_con(
         description=(_FakeColumn("id", 23, "int4"), _FakeColumn("s", 4000))
     )
     t = con.sql("SELECT id, s FROM t")
 
-    with pytest.raises(exc.UnmappableColumnError, match="type OID 4000"):
+    with pytest.raises(
+        exc.UnmappableColumnError, match="'s' \\(redshift type 'super'\\)"
+    ):
         con.to_pyarrow_batches(t)
 
 
