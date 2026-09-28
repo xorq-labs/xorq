@@ -40,6 +40,8 @@ needs a warehouse -- it is pure class introspection.
 from __future__ import annotations
 
 import pytest
+import sqlglot
+from packaging.version import Version
 
 
 # Must run BEFORE the xorq.backends.redshift import below. That module reaches
@@ -286,6 +288,30 @@ INVENTORY: dict[str, tuple[str, str]] = {
     "TYPE_MAPPING.TIMETZ": (ACCEPTED, "Same as TIMESTAMPTZ; both accepted."),
 }
 
+# The sqlglot the INVENTORY above was recorded against: the version ``uv.lock``
+# pins, which every CI job but ``lowest-direct`` runs. The declared range is
+# ``>=23.4``, and the delta grows across it (measured: 44 entries at 23.6.3, 57
+# at 26.0.0, 67 at 28.6.0), because older sqlglot models fewer Redshift
+# differences. So the inventory is exact only here; below it, entries go
+# missing by design, and ``FLOOR_ONLY`` classifies the few that appear only
+# there. A bump past this version makes the exact check fail again, which is
+# the point: re-classify, then move this line.
+INVENTORY_RECORDED_AT = Version("28.6.0")
+
+# The smallest live delta anywhere in the declared range: 23.6.3, the version
+# ``uv lock --resolution lowest-direct`` resolves (no 23.4.x is published).
+FLOOR_DELTA_SIZE = 44
+
+FLOOR_ONLY: dict[str, tuple[str, str]] = {
+    "TRANSFORMS.differs.ParseJSON": (
+        ACCEPTED,
+        "Below 25.34 sqlglot's Redshift spells JSON_PARSE through a TRANSFORMS "
+        "rename_func rather than PARSE_JSON_NAME, so the entry reads as "
+        "'differs' instead of 'pg-only'. Same emitted SQL at 23.6.3 as at "
+        "28.6.0 (JSON_PARSE('{}'), measured); only the mechanism moved.",
+    ),
+}
+
 
 def _scalar_attrs(cls):
     out = {}
@@ -364,17 +390,26 @@ def test_the_dialect_delta_matches_the_inventory():
     """
     live = live_delta()
     recorded = set(INVENTORY)
-    unclassified = sorted(live - recorded)
-    stale = sorted(recorded - live)
+    unclassified = sorted(live - recorded - set(FLOOR_ONLY))
     assert not unclassified, (
         "the Redshift dialect differs from Postgres in ways nobody has "
         "classified -- tag each as accepted / overridden / known-open in "
         f"INVENTORY: {unclassified}"
     )
-    assert not stale, (
-        "INVENTORY records differences that no longer exist -- sqlglot "
-        f"probably changed underneath; re-check and remove: {stale}"
-    )
+    # Below the recorded version an absent entry is older sqlglot modelling
+    # less, not a change nobody looked at; the unclassified check above still
+    # makes any NEW difference there a decision. At or past it the inventory
+    # must be exact.
+    if Version(sqlglot.__version__) >= INVENTORY_RECORDED_AT:
+        stale = sorted(recorded - live)
+        assert not stale, (
+            "INVENTORY records differences that no longer exist -- sqlglot "
+            f"probably changed underneath; re-check and remove: {stale}"
+        )
+        assert not live & set(FLOOR_ONLY), (
+            "a FLOOR_ONLY entry is live at the recorded version -- move it "
+            f"into INVENTORY: {sorted(live & set(FLOOR_ONLY))}"
+        )
 
 
 def test_the_delta_is_large_enough_to_be_worth_inventorying():
@@ -383,8 +418,12 @@ def test_the_delta_is_large_enough_to_be_worth_inventorying():
     If ``live_delta`` silently degenerates -- an attribute rename upstream, a
     layer that stops existing -- the test above passes by comparing an empty
     set to an empty set. This is the tripwire for that.
+
+    The bound is the floor's delta, not the recorded version's: the delta
+    grows with sqlglot, so a threshold calibrated at 28.6.0 (it was ``> 50``
+    against 67) failed at 23.6.3 for being old rather than degenerate.
     """
-    assert len(live_delta()) > 50
+    assert len(live_delta()) >= FLOOR_DELTA_SIZE
 
 
 @pytest.mark.parametrize("tag", [ACCEPTED, OVERRIDDEN])
