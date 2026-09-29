@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-from types import MappingProxyType
 from typing import Any
 
 import psycopg
@@ -41,13 +40,6 @@ APPEND_ONLY_MODES = ("append", "create_append")
 INGEST_CHUNKSIZE = 10_000
 
 
-# Settings ``do_connect`` injects below the caller's kwargs, so they reach the
-# driver but never ``_con_kwargs``, the profile or the build hash. The live DSN
-# reports each back, so ``clone`` drops exactly these from it: one dict, so the
-# two cannot drift apart.
-CONNECT_DEFAULTS = MappingProxyType({"client_encoding": "utf8"})
-
-
 class Backend(PostgresBackend):
     """Redshift Serverless, over the PostgreSQL wire protocol.
 
@@ -59,8 +51,6 @@ class Backend(PostgresBackend):
 
     name = "redshift"
     compiler = compiler
-
-    _clone_drop_dsn_params = tuple(CONNECT_DEFAULTS)
 
     # ``_secret_keys`` is inherited, not restated: a literal copy drifts from
     # the ``con_name_to_secret_keys`` mirror, and ``()`` would narrow
@@ -118,8 +108,7 @@ class Backend(PostgresBackend):
         still wins. ``prepare_threshold`` is set in ``_post_connect``, which
         every construction path reaches.
         """
-        for key, value in CONNECT_DEFAULTS.items():
-            kwargs.setdefault(key, value)
+        kwargs.setdefault("client_encoding", "utf8")
         return super().do_connect(
             host=host,
             user=user,

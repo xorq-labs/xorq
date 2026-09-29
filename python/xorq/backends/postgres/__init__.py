@@ -29,6 +29,11 @@ from xorq.vendor.ibis.util import (
 
 logger = get_logger(__name__)
 
+# The DSN keys a clone always takes from the live connection, whatever the
+# caller passed: where to connect. ``dbname`` is carried separately, as
+# ``database``.
+_CLONE_ADDRESS_KEYS = frozenset(("host", "port", "user", "dbname"))
+
 
 __all__ = [
     "Backend",
@@ -38,13 +43,6 @@ __all__ = [
 
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
-    # Connection settings a subclass injects *below* the caller's kwargs, and
-    # which ``clone`` must therefore not carry back out of the live DSN. Empty
-    # here: postgres injects none, so the dissoc in ``clone`` is a no-op. A
-    # subclass that defaults a libqp setting inside ``do_connect`` -- to keep
-    # it out of ``_con_kwargs``, the profile and the build hash -- has to name
-    # it here too, or the clone reacquires it from ``get_parameters``.
-    _clone_drop_dsn_params: tuple[str, ...] = ()
     _secret_keys = (
         "password",
         "sslcert",
@@ -334,12 +332,31 @@ class Backend(IbisPostgresBackend):
     def clone(self, password: str | None = None, **kwargs: Any) -> Backend:
         """necessary because "UnsupportedOperationError: postgres does not support creating a database in a different catalog" """
         dsn_parameters = self.con.info.get_parameters()
+        # Which DSN settings the clone carries is decided by provenance.
+        # ``get_parameters`` reports every non-default libpq setting, including
+        # ones nobody asked for (libpq 17+ reports ``sslcertmode``), and reports
+        # resolved values where the caller passed an env reference such as
+        # ``$POSTGRES_USER``. A clone that took either hashed differently from
+        # its source. So when the source was opened with kwargs, those kwargs
+        # are the caller's values and win, and the DSN fills in only address
+        # keys the caller left out; a setting libpq derived from the
+        # environment is re-derived from the same environment. A
+        # ``from_connection`` source has no kwargs, so the DSN is all there is
+        # and it is carried whole.
+        if self._con_kwargs:
+            dsn_parameters = toolz.keyfilter(
+                lambda key: (
+                    key in _CLONE_ADDRESS_KEYS
+                    and key not in self._con_kwargs
+                    and not (key == "dbname" and "database" in self._con_kwargs)
+                ),
+                dsn_parameters,
+            )
         dct = {
             # ``get_parameters`` reports libpq conninfo keywords only, so
             # settings that never reach libpq cannot come back out of it:
             # ``schema`` is applied by ``_post_connect``. Take those from the
-            # kwargs this connection was opened with; the live DSN wins where
-            # they overlap, with the one exception of ``hostaddr`` (below).
+            # kwargs this connection was opened with.
             **self._con_kwargs,
             # ``autocommit`` is a psycopg ``Connection`` setting, so it is not
             # in the DSN either -- and it is absent from ``_con_kwargs`` too
@@ -347,9 +364,11 @@ class Backend(IbisPostgresBackend):
             # positionally. The live connection knows it on every path, and
             # ``create_catalog`` above already treats it as the truth.
             "autocommit": self.con.autocommit,
-            # ``options`` is kept: it carries libpq runtime settings, most
-            # importantly ``search_path``, and dropping it silently changed
-            # which schema unqualified names in the clone resolved against.
+            # For a ``from_connection`` source, ``options`` is kept: it carries
+            # libpq runtime settings, most importantly ``search_path``, and
+            # dropping it silently changed which schema unqualified names in
+            # the clone resolved against. A source with kwargs keeps it only as
+            # the caller passed it, which is where it came from.
             #
             # ``hostaddr`` is dropped: psycopg resolves ``host`` when it opens
             # a connection and records the IP it picked as ``hostaddr``
@@ -361,32 +380,28 @@ class Backend(IbisPostgresBackend):
             # failover. A ``hostaddr`` the caller did pass is in
             # ``_con_kwargs`` and survives.
             #
-            # ``_clone_drop_dsn_params`` is dropped here, from the DSN
-            # specifically, rather than from the merged result below: the
-            # merged result also holds ``_con_kwargs``, so dissoc-ing it there
-            # discarded a value the CALLER passed and silently reconnected on
-            # the subclass's ``do_connect`` default. That divergence is
-            # precisely the profile mismatch this mechanism exists to prevent,
-            # so dropping it from the wrong dict inverted the guard.
-            **toolz.dissoc(
-                dsn_parameters,
-                "dbname",
-                "hostaddr",
-                *self._clone_drop_dsn_params,
-            ),
-            # ...but the DSN reports secrets as literals, and ``Profile.from_con``
-            # bakes whatever is in here into the clone's profile, which
-            # ``xo.build`` writes to disk without a secret check. The source's
-            # profile kept the env reference the caller actually passed, so for
-            # a declared secret that form wins over the resolved one.
+            **toolz.dissoc(dsn_parameters, "dbname", "hostaddr"),
+            # ...but ``_con_kwargs`` and the DSN hold resolved values, and
+            # ``Profile.from_con`` bakes whatever is in here into the clone's
+            # profile, which ``xo.build`` writes to disk without a secret
+            # check. The source's profile kept the form the caller actually
+            # passed (an env reference such as ``$POSTGRES_USER``), so for every
+            # key the caller passed, and for every declared secret, that form
+            # wins: a secret stays out of the build, and the clone hashes as
+            # its source does.
             **{
                 key: value
                 for key, value in (
                     self._profile.kwargs_dict if self._profile is not None else {}
                 ).items()
-                if key in self._secret_keys and value is not None
+                if (key in self._secret_keys or key in self._con_kwargs)
+                and value is not None
             },
-            "database": dsn_parameters["dbname"],
+            **(
+                {"database": dsn_parameters["dbname"]}
+                if "dbname" in dsn_parameters
+                else {}
+            ),
             **kwargs,
         }
         # Password precedence: explicit > the source's own > the env default.

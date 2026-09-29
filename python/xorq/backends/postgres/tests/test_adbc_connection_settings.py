@@ -15,6 +15,7 @@ import pyarrow as pa
 import pytest
 
 from xorq.backends.postgres import Backend as PostgresBackend
+from xorq.backends.redshift import Backend as RedshiftBackend
 from xorq.common.utils.postgres_utils import (
     PgADBC,
     make_connection_defaults,
@@ -25,8 +26,10 @@ from xorq.common.utils.postgres_utils import (
 SCHEMA = "xorq_adbc_settings_probe"
 
 
-def connect(**kwargs: Any) -> PostgresBackend:
-    return PostgresBackend().connect(
+def connect(
+    backend_cls: type[PostgresBackend] = PostgresBackend, **kwargs: Any
+) -> PostgresBackend:
+    return backend_cls().connect(
         **make_credential_defaults(), **make_connection_defaults(), **kwargs
     )
 
@@ -111,3 +114,39 @@ def test_table_bound_read_on_a_schema_connection_is_served_by_adbc(
         )
     finally:
         con.disconnect()
+
+
+@pytest.mark.parametrize(
+    "backend_cls",
+    [
+        pytest.param(PostgresBackend, id="postgres"),
+        pytest.param(RedshiftBackend, id="redshift"),
+    ],
+)
+@pytest.mark.parametrize(
+    "caller_kwargs",
+    [
+        pytest.param({}, id="defaults"),
+        pytest.param({"schema": "public"}, id="schema"),
+        pytest.param({"client_encoding": "latin1"}, id="caller-encoding"),
+        pytest.param({"options": "-c statement_timeout=5000"}, id="caller-options"),
+    ],
+)
+def test_clone_hashes_equal_with_a_real_libpq(
+    backend_cls: type[PostgresBackend], caller_kwargs: dict
+) -> None:
+    """The offline clone tests fake ``get_parameters``; this one does not. The
+    libpq psycopg bundles reports settings nobody passed (``sslcertmode`` from
+    libpq 17), and a clone that carried them hashed differently from its
+    source and handed them to the ADBC URI. Redshift's class runs against the
+    postgres server here: connecting and cloning are client-side."""
+    source = connect(backend_cls, **caller_kwargs)
+    try:
+        clone = source.clone()
+        try:
+            assert clone._profile.content_hash == source._profile.content_hash
+            assert PgADBC(clone).settings == PgADBC(source).settings
+        finally:
+            clone.disconnect()
+    finally:
+        source.disconnect()

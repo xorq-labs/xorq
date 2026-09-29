@@ -922,23 +922,17 @@ def test_temporary_is_refused_for_replace(monkeypatch: pytest.MonkeyPatch) -> No
     assert con.con.log == []
 
 
-def test_clone_does_not_carry_client_encoding(
+def test_clone_carries_only_the_settings_the_caller_passed(
     postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``do_connect`` keeps ``client_encoding`` out of ``_con_kwargs``, the
-    profile and the build hash by defaulting it below the caller's kwargs.
+    """``clone`` reads the live connection's ``get_parameters``, which reports
+    every non-default libpq setting, asked for or not: ``client_encoding`` that
+    ``do_connect`` defaulted, ``sslcertmode`` that libpq 17+ reports unasked,
+    and anything libpq took from the environment. Carrying those made a clone
+    hash differently from its source, and put them in the clone's ADBC URI.
 
-    ``clone`` rebuilds its kwargs from the LIVE connection rather than from
-    ``_con_kwargs``, and ``get_parameters`` reports every setting the
-    connection actually has -- so without ``_clone_drop_dsn_params`` the clone
-    reacquires a setting nobody passed, and a cloned-then-built artifact hashes
-    differently from one built off the source.
-
-    Hash equality with the source is asserted by
-    ``test_clone_hashes_equal_to_its_source``, which builds the source through
-    ``connect`` rather than ``make_offline_con``. What is asserted here is the
-    claim the guard makes -- the setting is absent -- plus that the drop is
-    narrow: ``options`` carries ``search_path`` and must survive it.
+    So for a source opened with kwargs, the DSN contributes only the address
+    and the keys the caller passed. The fake below reports what libpq 18 does.
     """
 
     class _FakeInfo:
@@ -948,17 +942,22 @@ def test_clone_does_not_carry_client_encoding(
         def get_parameters(self) -> dict:
             return dict(self._parameters)
 
-    con = make_offline_con(password="static", user="u", database="d")
+    con = make_offline_con(
+        password="static", user="u", database="d", options="-c search_path=mine"
+    )
     con.con.info = _FakeInfo(
         {
             "host": "example.invalid",
             "port": str(redshift_module.DEFAULT_PORT),
             "user": "u",
             "dbname": "d",
-            "options": "-c search_path=myschema",
-            # What libpq echoes back: the value the client passed, which
-            # ``do_connect`` defaulted -- not the server's ``UNICODE``.
+            "options": "-c search_path=mine",
+            # Defaulted by ``do_connect``; libpq echoes the client's value.
             "client_encoding": "utf8",
+            # Reported by libpq 17+ although nobody set it.
+            "sslcertmode": "allow",
+            # As if from ``PGAPPNAME``: libpq re-derives it for the clone.
+            "application_name": "from-the-environment",
         }
     )
     con.con.autocommit = True
@@ -974,17 +973,16 @@ def test_clone_does_not_carry_client_encoding(
 
     clone = con.clone()
 
-    # ``do_connect`` still defaults it, so the wire is configured ...
+    # ``do_connect`` still defaults the encoding, so the wire is configured ...
     assert recorded["client_encoding"] == "utf8"
-    # ``prepare_threshold`` is not a DSN setting, so the clone gets it only
-    # from ``_post_connect``; it must, or the clone's rollbacks send
-    # ``DEALLOCATE ALL`` again.
+    # ... ``_post_connect`` still turns preparation off ...
     assert clone.con.prepare_threshold is None
-    # ... and the clone did not inherit the DSN's value as a caller argument.
-    assert "client_encoding" not in clone._con_kwargs
-    assert "client_encoding" not in clone._profile.kwargs_dict
-    # The drop is narrow: a DSN setting the caller does depend on survives.
-    assert clone._con_kwargs["options"] == "-c search_path=myschema"
+    # ... what the caller passed survives ...
+    assert clone._con_kwargs["options"] == "-c search_path=mine"
+    # ... and nothing the caller did not pass comes back as a caller argument.
+    for key in ("client_encoding", "sslcertmode", "application_name"):
+        assert key not in clone._con_kwargs
+        assert key not in clone._profile.kwargs_dict
 
 
 def test_null_typed_columns_are_refused_before_any_sql(
@@ -1066,9 +1064,9 @@ def test_clone_keeps_a_client_encoding_the_caller_passed(
 ) -> None:
     """The sibling test above covers the IMPLICIT case -- nobody passed one, so
     the DSN's value must not be reacquired. This is the other half, and it was
-    broken: ``_clone_drop_dsn_params`` was dissoc-ed from the MERGED dict,
-    which already held ``_con_kwargs``, so a caller who *did* ask for
-    ``latin1`` got a clone silently dialling ``utf8``.
+    broken once: a drop list was dissoc-ed from the MERGED dict, which already
+    held ``_con_kwargs``, so a caller who *did* ask for ``latin1`` got a clone
+    silently dialling ``utf8``.
 
     That is the failure the mechanism exists to prevent, arrived at from the
     other direction: source and clone disagree about a connection setting, so
@@ -1139,10 +1137,13 @@ def test_clone_hashes_equal_to_its_source(
     so ``_con_kwargs`` is what a caller actually gets, and the fake reports
     what libpq's ``get_parameters`` does: ``port`` as a string, ``schema``
     absent (``_post_connect`` applies it with ``set_config``, not libpq), and
-    ``client_encoding`` echoing the value the client sent. The string ``port``
-    is normalised by ``Profile.from_con``, so it is part of the path under
-    test, not noise. Without ``_clone_drop_dsn_params`` the ``defaults`` and
-    ``schema`` cases fail here: the clone's profile gains ``client_encoding``.
+    ``client_encoding`` echoing the value the client sent, and ``sslcertmode``
+    reported unasked, as libpq 17+ does. The string ``port`` is normalised by
+    ``Profile.from_con``, so it is part of the path under test, not noise. If
+    ``clone`` carries DSN keys the caller did not pass, every case fails here
+    on ``sslcertmode``, and the first two on ``client_encoding`` as well.
+    ``test_clone_hashes_equal_with_a_real_libpq`` checks the same against a
+    server.
     """
     connect_kwargs = {
         "host": "example.invalid",
@@ -1157,6 +1158,7 @@ def test_clone_hashes_equal_to_its_source(
         "user": "u",
         "dbname": "d",
         "client_encoding": caller_kwargs.get("client_encoding", "utf8"),
+        "sslcertmode": "allow",
     }
 
     class _FakeInfo:
