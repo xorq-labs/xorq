@@ -953,3 +953,42 @@ def test_a_flight_source_keys_without_a_profile() -> None:
         table = server.con.create_table("t", RECORDED)
         (kind, profile_key, name, _) = op_key(table.op())
     assert (kind, profile_key, name) == (LeafKind.DATABASE_TABLE, None, "t")
+
+
+RENAMED = pa.schema({"x": pa.int64(), "b": pa.string()})
+
+
+def test_a_rename_keeps_the_recorded_name_over_a_renamed_column(
+    con: SqliteBackend,
+) -> None:
+    t = con.table("t")
+    expr = t.filter(t.a > 1).mutate(a2=t.a * 2)
+    live = drift_the_table(expr, RENAMED)
+
+    refreshed = refresh_schemas(expr, live, {key: {"a": "x"} for key in live})
+    assert refreshed.schema() == expr.schema()
+    (table,) = (
+        node
+        for node in walk_nodes(ops.DatabaseTable, refreshed)
+        if type(node) is ops.DatabaseTable
+    )
+    assert list(table.schema) == ["x", "b"]
+
+
+def test_without_a_rename_a_renamed_column_names_the_field(
+    con: SqliteBackend,
+) -> None:
+    t = con.table("t")
+    expr = t.filter(t.a > 1)
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_schemas(expr, drift_the_table(expr, RENAMED))
+    assert excinfo.value.op_name == "Field"
+
+
+def test_a_rename_of_a_source_not_refreshed_is_refused(con: SqliteBackend) -> None:
+    expr = con.table("t")
+    (key,) = drift_the_table(expr)
+
+    with pytest.raises(SchemaRefreshError, match="renamed but not refreshed"):
+        refresh_schemas(expr, {}, {key: {"a": "x"}})

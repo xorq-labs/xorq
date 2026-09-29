@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import xorq.vendor.ibis.expr.operations as ops
@@ -206,11 +207,31 @@ def refuse(offenders: Iterable[tuple[str, str]], separator: str = ", ") -> None:
     raise SchemaRefreshError(op_name, LookupError(separator.join(details)))
 
 
-def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
+def with_renames(node: Node, renames: Mapping[str, str]) -> Node:
+    """``node`` under a rename that gives each live column its recorded name.
+
+    ``renames`` maps recorded name -> live name, as ``Table.rename`` takes it.
+    """
+    return to_node(node.to_expr().rename(dict(renames)))
+
+
+def refresh_schemas(
+    expr: Any,
+    live: Mapping[tuple, Schema],
+    renames: Mapping[tuple, Mapping[str, str]] = MappingProxyType({}),
+) -> Any:
     """``expr`` rebuilt over ``live`` (``leaf_key`` -> live schema).
 
-    Raises if a key matches no source: that source would stay stale silently.
+    ``renames`` (``leaf_key`` -> recorded name -> live name) puts a rename
+    above a refreshed source, so every op over it still sees its recorded
+    names. Raises if a key matches no source: that source would stay stale
+    silently.
     """
+    if stray := [key for key in renames if key not in live]:
+        refuse(
+            (kind, f"{name} is renamed but not refreshed")
+            for (kind, _, name, _) in stray
+        )
     if not live:
         return expr
     memo: dict[Node, Node] = {}
@@ -228,7 +249,10 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
             return node
         if source_identity(node) in candidates and (key := op_key(node)) in live:
             matched.add(key)
-            return rebuild(node, lambda: with_live_schema(node, live[key]))
+            refreshed = rebuild(node, lambda: with_live_schema(node, live[key]))
+            if (renamed := renames.get(key)) is None:
+                return refreshed
+            return rebuild(node, lambda: with_renames(refreshed, renamed))
         overrides = dict(kwargs or {})
         rebound = node
         # `replace_nodes`'s tripwires: an unregistered Expr field would be

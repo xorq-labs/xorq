@@ -42,8 +42,13 @@ from xorq.catalog.exceptions import (
     RebasePushError,
     RollbackError,
 )
-from xorq.catalog.inspection import BuildRecord
-from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
+from xorq.catalog.inspection import BuildRecord, SourceLeaf
+from xorq.catalog.refresh import (
+    check_refreshable,
+    leaf_key,
+    live_schemas,
+    refresh_schemas,
+)
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
 from xorq.common.exceptions import SchemaRefreshError
 from xorq.ibis_yaml.enums import DumpFiles
@@ -94,6 +99,19 @@ def output_changes(before: Schema, after: Schema) -> tuple[ColumnChange, ...]:
 
 
 @frozen
+class Rename:
+    """``--rename SOURCE OLD NEW``: the expression keeps seeing ``old``, now read
+    from the live column ``new``."""
+
+    source = field(validator=instance_of(str))
+    old = field(validator=instance_of(str))
+    new = field(validator=instance_of(str))
+
+    def __str__(self) -> str:
+        return f"{self.source}: {self.old} <- {self.new}"
+
+
+@frozen
 class RebaseResult:
     """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED``."""
 
@@ -122,6 +140,12 @@ class RebaseResult:
     )
     # The Python-minor check `ignore_mismatch` overrode, if any.
     venv_warning = field(default=None, validator=optional(instance_of(str)))
+    # REBASED only: the renames put above their refreshed sources.
+    renames = field(
+        default=(),
+        converter=tuple,
+        validator=deep_iterable(instance_of(Rename), instance_of(tuple)),
+    )
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -287,6 +311,113 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
     (build_path / DumpFiles.requirements).write_bytes(requirements)
 
 
+def refuse_rename(catalog_entry: CatalogEntry, detail: str) -> RebaseError:
+    return RebaseError(f"{catalog_entry.name}: --rename {detail}", RebaseExit.REFUSED)
+
+
+def renamed_leaf(
+    catalog_entry: CatalogEntry, record: BuildRecord, name: str
+) -> SourceLeaf:
+    """The one external source ``name`` is; refuses none, or more than one."""
+    by_key = {
+        leaf_key(leaf, record): leaf
+        for leaf in record.external_leaves
+        if leaf.name == name
+    }
+    if not by_key:
+        sources = ", ".join(sorted({leaf.name for leaf in record.external_leaves}))
+        raise refuse_rename(
+            catalog_entry, f"names no source {name!r}; its sources: {sources or '-'}"
+        )
+    if len(by_key) > 1:
+        raise refuse_rename(
+            catalog_entry,
+            f"{name!r} names {len(by_key)} sources (one name on different connections)",
+        )
+    (leaf,) = by_key.values()
+    return leaf
+
+
+def plan_renames(
+    catalog_entry: CatalogEntry,
+    record: BuildRecord,
+    renames: tuple[Rename, ...],
+    unprobed: tuple[str, ...],
+) -> dict[tuple, dict[str, str]]:
+    """``leaf_key`` -> recorded name -> live name, checked against the record.
+
+    The live side is checked after the sweep, by ``check_live_renames``.
+    """
+    if renames and unprobed:
+        raise refuse_rename(
+            catalog_entry,
+            f"needs a live schema, and no source can be probed ({', '.join(unprobed)})",
+        )
+    planned: dict[tuple, dict[str, str]] = {}
+    for rename in renames:
+        leaf = renamed_leaf(catalog_entry, record, rename.source)
+        if rename.old not in leaf.recorded:
+            raise refuse_rename(
+                catalog_entry,
+                f"{rename.source}: {rename.old!r} is not a recorded column",
+            )
+        by_old = planned.setdefault(leaf_key(leaf, record), {})
+        if rename.old in by_old or rename.new in by_old.values():
+            raise refuse_rename(
+                catalog_entry,
+                f"{rename.source}: {rename.old!r} or {rename.new!r} is renamed twice",
+            )
+        by_old[rename.old] = rename.new
+    return planned
+
+
+def check_live_renames(
+    catalog_entry: CatalogEntry,
+    record: BuildRecord,
+    reports: tuple[LeafReport, ...],
+    planned: dict[tuple, dict[str, str]],
+) -> None:
+    """Refuse a rename whose new column isn't live, or whose old one still is.
+
+    An unreachable or unreadable source is left to the sweep's own refusal.
+    """
+    for report in reports:
+        by_old = planned.get(leaf_key(report.leaf, record))
+        if not by_old or report.verdict not in (Verdict.EQUAL, Verdict.CHANGED):
+            continue
+        name = report.leaf.name
+        for old, new in by_old.items():
+            if new not in report.live:
+                raise refuse_rename(
+                    catalog_entry, f"{name}: {new!r} is not a live column"
+                )
+            if old in report.live:
+                raise refuse_rename(
+                    catalog_entry,
+                    f"{name}: {old!r} is still a live column, so nothing was renamed",
+                )
+
+
+def rename_hint(reports: tuple[LeafReport, ...]) -> str:
+    """The columns each changed source lost and gained; a mapping is not guessed."""
+    lines = []
+    for report in reports:
+        if report.verdict != Verdict.CHANGED:
+            continue
+        (recorded, live) = (report.leaf.recorded, report.live)
+        if gone := [name for name in recorded if name not in live]:
+            new = [name for name in live if name not in recorded]
+            lines.append(
+                f"{report.leaf.name}: recorded columns gone: {', '.join(gone)}; "
+                f"live columns new: {', '.join(new) or '-'}"
+            )
+    if not lines:
+        return ""
+    return "\n" + "\n".join(
+        (*lines, "if a column was renamed, pass --rename <source> <old> <new>")
+    )
+
+
 def refuse_aliases(e: AliasRefusedError) -> RebaseError:
     return RebaseError(str(e), RebaseExit.REFUSED)
 
@@ -331,11 +462,14 @@ def rebase_entry(
     ignore_mismatch: bool = False,
     cache_dir: str | Path | None = None,
     entry_alias: str | None = None,
+    renames: Iterable[tuple[str, str, str]] = (),
 ) -> RebaseResult:
     """``catalog_entry`` re-derived over its live sources, as a new entry.
 
     No alias moves unless asked: ``move_aliases`` moves all of the old
-    entry's, ``only_aliases`` just these; ``alias`` registers another. A no-op,
+    entry's, ``only_aliases`` just these; ``alias`` registers another.
+    ``renames`` (``(source, old, new)``) reads each recorded column ``old`` from
+    the live column ``new``, keeping the recorded name. A no-op,
     or an entry none of whose sources can be probed, returns ``catalog_entry``
     and commits nothing. ``entry_alias`` is the alias ``catalog_entry`` was
     named by, if any; a pull that moves or removes it refuses the rebase.
@@ -354,6 +488,7 @@ def rebase_entry(
     only_aliases = tuple(dict.fromkeys(only_aliases))
     if move_aliases and only_aliases:
         raise ValueError("move_aliases and only_aliases are mutually exclusive")
+    renames = tuple(Rename(*rename) for rename in renames)
     # `ExprDumper` validates `cache_dir` as a `Path`.
     cache_dir = Path(cache_dir) if cache_dir is not None else None
     # First: reading the record opens a `BuildZip`, which refuses a
@@ -374,6 +509,7 @@ def rebase_entry(
             f"{catalog_entry.name} has no alias {', '.join(unknown)}",
             RebaseExit.REFUSED,
         )
+    planned = plan_renames(catalog_entry, record, renames, unprobed)
     if unprobed:
         check_only_aliases(catalog_entry, only_aliases)
         # Nothing can be refreshed, so a load and dump could only return the
@@ -387,6 +523,8 @@ def rebase_entry(
             venv_warning=venv_warning,
         )
     reports = tuple(iter_leaf_reports(record))
+    # Before the no-op: a rename of an unchanged source is refused, not ignored.
+    check_live_renames(catalog_entry, record, reports, planned)
     if all(report.verdict == Verdict.EQUAL for report in reports):
         check_only_aliases(catalog_entry, only_aliases)
         return RebaseResult(
@@ -403,9 +541,11 @@ def rebase_entry(
         # which bundled reads point into, alive only as long as the expression.
         loaded = catalog_entry.load_expr(cache_dir=cache_dir)
         try:
-            expr = refresh_schemas(loaded, live)
+            expr = refresh_schemas(loaded, live, planned)
         except SchemaRefreshError as e:
-            raise RebaseError(f"{catalog_entry.name}: {e}", RebaseExit.CONFLICT) from e
+            raise RebaseError(
+                f"{catalog_entry.name}: {e}{rename_hint(reports)}", RebaseExit.CONFLICT
+            ) from e
         # `relocate_reads=False` keeps each read's recorded posture: a bundled
         # read stays bundled, an external one external.
         dumper = ExprDumper(
@@ -436,6 +576,7 @@ def rebase_entry(
                 pushed=derived.pushed,
                 output_changes=changes,
                 venv_warning=venv_warning,
+                renames=renames,
             )
 
         try:
