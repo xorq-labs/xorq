@@ -121,17 +121,17 @@ class Verdict(StrEnum):
 class RebaseStatus(StrEnum):
     """How a successful ``rebase_entry`` ended.
 
-    ``ATTEMPTED``: no source could be probed, so the entry was re-derived and
-    came back with its own hash; unlike ``NOOP``, that doesn't prove no drift.
+    ``UNPROBED``: no source can be probed, so nothing was done; unlike
+    ``NOOP``, that doesn't prove no drift.
     """
 
     NOOP = "noop"
-    ATTEMPTED = "attempted"
+    UNPROBED = "unprobed"
     REBASED = "rebased"
 
 
 class RebaseExit(IntEnum):
-    """The exit codes ``xorq catalog rebase`` refuses with."""
+    """The exit codes ``xorq catalog rebase`` refuses or fails with."""
 
     # Nothing of the rebase's own written (a sync's pull may have merged): a
     # property of the entry or the request; retrying won't help.
@@ -140,3 +140,5 @@ class RebaseExit(IntEnum):
     UNREACHABLE = 2
     # The re-derivation can't follow the drift; retrying won't help.
     CONFLICT = 4
+    # Rebased and committed locally, but the push failed; `xorq catalog push`.
+    PUSH_FAILED = 5
