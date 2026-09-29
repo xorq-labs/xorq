@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import zipfile
@@ -9,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
+import click
 import pyarrow as pa
 import pytest
 from click.testing import CliRunner, Result
@@ -352,11 +354,12 @@ def test_a_conflict_names_the_op_and_source_with_check_sources_schemas(
 
 def test_conflict_status_requires_conflict(world: SimpleNamespace) -> None:
     entry = world.catalog.get_catalog_entry(world.name)
+    record = drift.read_record(entry)
     conflict = RebaseConflict("gone", ())
     with pytest.raises(ValueError, match="conflict must be set"):
-        RebaseResult(RebaseStatus.CONFLICT, entry, entry, ())
+        RebaseResult(RebaseStatus.CONFLICT, entry, entry, (), record)
     with pytest.raises(ValueError, match="conflict must be set"):
-        RebaseResult(RebaseStatus.NOOP, entry, entry, (), conflict=conflict)
+        RebaseResult(RebaseStatus.NOOP, entry, entry, (), record, conflict=conflict)
 
 
 def test_unmatched_live_key_is_refused(
@@ -598,165 +601,167 @@ def test_gone_table_also_names_unreachable_source(
     assert "u is unreachable" in result.stderr
 
 
-@pytest.mark.parametrize(
-    "setup, exit_code, message",
-    (
-        pytest.param(refuse_unknown_alias, 1, "no alias nope", id="unknown-alias"),
-        pytest.param(
-            refuse_elsewhere_alias_without_drift,
-            1,
-            "no alias fresh",
-            id="elsewhere-alias-no-drift",
-        ),
-        pytest.param(
-            refuse_taken_alias,
-            1,
-            "alias 'fresh' points at",
-            id="taken-alias",
-        ),
-        pytest.param(
-            refuse_both_alias_flags,
-            2,
-            "--move-aliases and --only-alias are mutually exclusive",
-            id="both-alias-flags",
-        ),
-        pytest.param(refuse_pinned, 1, "xorq catalog unpin {name}", id="pinned"),
-        pytest.param(
-            refuse_python_minor,
-            1,
-            f"built on Python 3.0, this is {RUNNING}; its UDFs may not load; "
-            "pass --ignore-venv-mismatch",
-            id="python-minor",
-        ),
-        pytest.param(
-            refuse_no_python_minor,
-            1,
-            f"records no Python minor, this is {RUNNING}",
-            id="no-python-minor",
-        ),
-        pytest.param(
-            refuse_pull,
-            2,
-            "pull failed: OSError: remote gone; nothing written",
-            id="pull",
-        ),
-        pytest.param(
-            refuse_some_unprobed,
-            1,
-            "u cannot be probed without writing to it",
-            id="some-unprobed",
-        ),
-        pytest.param(
-            refuse_unreadable("recorded_python_minor"),
-            2,
-            UNREADABLE,
-            id="unreadable-metadata",
-        ),
-        pytest.param(
-            refuse_unreadable("harvest_entry_from_zip"),
-            2,
-            UNREADABLE,
-            id="unreadable-bundle",
-        ),
-        pytest.param(
-            refuse_unreadable("make_profile"), 2, UNREADABLE, id="unreadable-profile"
-        ),
-        pytest.param(
-            refuse_corrupt_metadata,
-            2,
-            "{name} is unreadable: JSONDecodeError",
-            id="corrupt-metadata",
-        ),
-        pytest.param(refuse_without(".whl"), 2, NO_WHEEL, id="no-wheel"),
-        pytest.param(
-            refuse_without(DumpFiles.requirements),
-            2,
-            NO_REQUIREMENTS,
-            id="no-requirements",
-        ),
-        pytest.param(
-            refuse_without(".whl", drift=False), 2, NO_WHEEL, id="no-wheel-no-drift"
-        ),
-        pytest.param(
-            refuse_dangling_profile(),
-            2,
-            "{name}: t is unreadable: ValueError: node",
-            id="dangling-profile",
-        ),
-        pytest.param(
-            refuse_dangling_profile("--rename", "t", "a", "x"),
-            2,
-            "{name}: t is unreadable: ValueError: node",
-            id="rename-dangling-profile",
-        ),
-        pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
-        pytest.param(
-            refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
-        ),
-        pytest.param(
-            refuse_rename(RENAMED, "nope", "a", "x"),
-            1,
-            "--rename names no source 'nope'; its sources: 't'",
-            id="rename-no-source",
-        ),
-        pytest.param(
-            refuse_rename_ambiguous,
-            1,
-            "--rename 't' names 2 sources",
-            id="rename-ambiguous",
-        ),
-        pytest.param(
-            refuse_rename(RENAMED, "t", "zz", "x"),
-            1,
-            "--rename t: 'zz' is not a recorded column",
-            id="rename-not-recorded",
-        ),
-        pytest.param(
-            refuse_rename_unprobed,
-            1,
-            "--rename needs a live schema, and no source can be probed ('t')",
-            id="rename-unprobed",
-        ),
-        pytest.param(
-            refuse_rename(RENAMED, "t", "a", "q"),
-            1,
-            "--rename t: 'q' is not a live column",
-            id="rename-not-live",
-        ),
-        pytest.param(
-            refuse_rename(None, "t", "a", "b"),
-            1,
-            "--rename t: 'a' is still a live column, so nothing was renamed",
-            id="rename-no-drift",
-        ),
-        pytest.param(
-            refuse_rename(RENAMED, "t", "a", "x", "--rename", "t", "a", "b"),
-            1,
-            "--rename t: 'a' is mapped to both 'x' and 'b'",
-            id="rename-twice",
-        ),
-        pytest.param(
-            refuse_rename_beside_a_lost_column,
-            4,
-            "t: recorded columns gone: b; live columns new: -\nif a gone column was renamed to a new one",
-            id="rename-hint-less-renames",
-        ),
-        pytest.param(refuse_dropped_column, 4, "cannot be rebuilt", id="column"),
-        pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
-        pytest.param(
-            refuse_beside_unreachable(lambda w: w.con.drop_table("t")),
-            4,
-            "table-missing",
-            id="gone-outranks-unreachable",
-        ),
-        pytest.param(
-            refuse_beside_unreachable(lambda w: replace_t(w, GROWN)),
-            2,
-            "unreachable",
-            id="unreachable-outranks-changed",
-        ),
+# `(setup, exit_code, message)`: each way a rebase ends without writing, short
+# of a no-op, and what stderr says.
+REFUSALS = (
+    pytest.param(refuse_unknown_alias, 1, "no alias nope", id="unknown-alias"),
+    pytest.param(
+        refuse_elsewhere_alias_without_drift,
+        1,
+        "no alias fresh",
+        id="elsewhere-alias-no-drift",
+    ),
+    pytest.param(
+        refuse_taken_alias,
+        1,
+        "alias 'fresh' points at",
+        id="taken-alias",
+    ),
+    pytest.param(
+        refuse_both_alias_flags,
+        2,
+        "--move-aliases and --only-alias are mutually exclusive",
+        id="both-alias-flags",
+    ),
+    pytest.param(refuse_pinned, 1, "xorq catalog unpin {name}", id="pinned"),
+    pytest.param(
+        refuse_python_minor,
+        1,
+        f"built on Python 3.0, this is {RUNNING}; its UDFs may not load; "
+        "pass --ignore-venv-mismatch",
+        id="python-minor",
+    ),
+    pytest.param(
+        refuse_no_python_minor,
+        1,
+        f"records no Python minor, this is {RUNNING}",
+        id="no-python-minor",
+    ),
+    pytest.param(
+        refuse_pull,
+        2,
+        "pull failed: OSError: remote gone; nothing written",
+        id="pull",
+    ),
+    pytest.param(
+        refuse_some_unprobed,
+        1,
+        "u cannot be probed without writing to it",
+        id="some-unprobed",
+    ),
+    pytest.param(
+        refuse_unreadable("recorded_python_minor"),
+        2,
+        UNREADABLE,
+        id="unreadable-metadata",
+    ),
+    pytest.param(
+        refuse_unreadable("harvest_entry_from_zip"),
+        2,
+        UNREADABLE,
+        id="unreadable-bundle",
+    ),
+    pytest.param(
+        refuse_unreadable("make_profile"), 2, UNREADABLE, id="unreadable-profile"
+    ),
+    pytest.param(
+        refuse_corrupt_metadata,
+        2,
+        "{name} is unreadable: JSONDecodeError",
+        id="corrupt-metadata",
+    ),
+    pytest.param(refuse_without(".whl"), 2, NO_WHEEL, id="no-wheel"),
+    pytest.param(
+        refuse_without(DumpFiles.requirements),
+        2,
+        NO_REQUIREMENTS,
+        id="no-requirements",
+    ),
+    pytest.param(
+        refuse_without(".whl", drift=False), 2, NO_WHEEL, id="no-wheel-no-drift"
+    ),
+    pytest.param(
+        refuse_dangling_profile(),
+        2,
+        "{name}: t is unreadable: ValueError: node",
+        id="dangling-profile",
+    ),
+    pytest.param(
+        refuse_dangling_profile("--rename", "t", "a", "x"),
+        2,
+        "{name}: t is unreadable: ValueError: node",
+        id="rename-dangling-profile",
+    ),
+    pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
+    pytest.param(
+        refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
+    ),
+    pytest.param(
+        refuse_rename(RENAMED, "nope", "a", "x"),
+        1,
+        "--rename names no source 'nope'; its sources: 't'",
+        id="rename-no-source",
+    ),
+    pytest.param(
+        refuse_rename_ambiguous,
+        1,
+        "--rename 't' names 2 sources",
+        id="rename-ambiguous",
+    ),
+    pytest.param(
+        refuse_rename(RENAMED, "t", "zz", "x"),
+        1,
+        "--rename t: 'zz' is not a recorded column",
+        id="rename-not-recorded",
+    ),
+    pytest.param(
+        refuse_rename_unprobed,
+        1,
+        "--rename needs a live schema, and no source can be probed ('t')",
+        id="rename-unprobed",
+    ),
+    pytest.param(
+        refuse_rename(RENAMED, "t", "a", "q"),
+        1,
+        "--rename t: 'q' is not a live column",
+        id="rename-not-live",
+    ),
+    pytest.param(
+        refuse_rename(None, "t", "a", "b"),
+        1,
+        "--rename t: 'a' is still a live column, so nothing was renamed",
+        id="rename-no-drift",
+    ),
+    pytest.param(
+        refuse_rename(RENAMED, "t", "a", "x", "--rename", "t", "a", "b"),
+        1,
+        "--rename t: 'a' is mapped to both 'x' and 'b'",
+        id="rename-twice",
+    ),
+    pytest.param(
+        refuse_rename_beside_a_lost_column,
+        4,
+        "t: recorded columns gone: b; live columns new: -\nif a gone column was renamed to a new one",
+        id="rename-hint-less-renames",
+    ),
+    pytest.param(refuse_dropped_column, 4, "cannot be rebuilt", id="column"),
+    pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
+    pytest.param(
+        refuse_beside_unreachable(lambda w: w.con.drop_table("t")),
+        4,
+        "table-missing",
+        id="gone-outranks-unreachable",
+    ),
+    pytest.param(
+        refuse_beside_unreachable(lambda w: replace_t(w, GROWN)),
+        2,
+        "unreachable",
+        id="unreachable-outranks-changed",
     ),
 )
+
+
+@pytest.mark.parametrize("setup, exit_code, message", REFUSALS)
 def test_a_refused_rebase_writes_nothing(
     runner: CliRunner,
     world: SimpleNamespace,
@@ -1272,3 +1277,247 @@ def test_a_chained_rename_moves_a_live_column_away(
     assert "Output: unchanged\n" in result.stderr
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert new.load_expr().execute().to_dict("records") == [{"a": 2, "b": "y"}]
+
+
+# `--json` (#2326).
+ROOT_KEYS = {
+    "state",
+    "exit_code",
+    "old_entry",
+    "new_entry",
+    "build_path",
+    "failing_op",
+    "drift",
+    "aliases",
+}
+NO_ALIASES = {"moved": []}
+FAILURE_STATES = {1: "refused", 2: "unreachable", 4: "conflict"}
+# A usage error exits before any rebase, so it prints no document.
+JSON_REFUSALS = tuple(p for p in REFUSALS if p.id != "both-alias-flags")
+
+
+def rebase_json(runner: CliRunner, world: SimpleNamespace, *args: str) -> tuple:
+    """``rebase --json``'s result and document, checked for what every one owes.
+
+    stdout is exactly one document and nothing else, stderr is empty, and the
+    document's exit code is the process's.
+    """
+    result = rebase(runner, world, *(args or (world.name,)), "--json")
+    document = json.loads(result.stdout)
+    assert result.stdout == json.dumps(document, indent=2) + "\n"
+    assert result.stderr == ""
+    assert document["exit_code"] == result.exit_code
+    assert set(document) - {"error"} == ROOT_KEYS
+    # Nothing on this branch keeps the build (#2325's `--no-add` will).
+    assert document["build_path"] is None
+    return result, document
+
+
+def check_sources_entry(runner: CliRunner, world: SimpleNamespace, name: str) -> dict:
+    checked = runner.invoke(
+        cli, ["--path", world.catalog_path, "check-sources", name, "--json"]
+    )
+    return json.loads(checked.stdout)["entries"][name]
+
+
+def json_noop(w: SimpleNamespace) -> tuple[str, ...]:
+    return ("-a", "v2")
+
+
+def json_unprobed(w: SimpleNamespace) -> tuple[str, ...]:
+    w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
+    return ()
+
+
+def json_rebased(w: SimpleNamespace) -> tuple[str, ...]:
+    w.other = other_entry(w)
+    replace_t(w, GROWN)
+    return ("--move-aliases", "-a", "fresh")
+
+
+@pytest.mark.parametrize(
+    "setup, state, drift_state, rebased",
+    (
+        pytest.param(json_noop, "noop", "equal", False, id="noop"),
+        pytest.param(json_unprobed, "unprobed", None, False, id="unprobed"),
+        pytest.param(json_rebased, "rebased", "changed", True, id="rebased"),
+    ),
+)
+def test_json_reports_a_completed_rebase(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    setup: Callable,
+    state: str,
+    drift_state: str | None,
+    rebased: bool,
+) -> None:
+    world.monkeypatch = monkeypatch
+    args = setup(world)
+    before = check_sources_entry(runner, world, world.name)
+
+    result, document = rebase_json(runner, world, world.name, *args)
+    assert (document["state"], result.exit_code) == (state, 0)
+    assert document["old_entry"] == world.name
+    assert document["failing_op"] is None
+    assert "error" not in document
+    # The sweep's own document, the one `check-sources --json` publishes.
+    assert document["drift"] == before
+    assert document["drift"]["state"] == drift_state
+    if not rebased:
+        # A no-op, proven or not, names the existing hash both times.
+        assert document["new_entry"] == world.name
+        assert document["aliases"] == NO_ALIASES
+        assert alias_target_hash(reopen(world), "live") == world.name
+        return
+    new = document["new_entry"]
+    assert new != world.name
+    assert set(reopen(world).list()) == {world.name, world.other, new}
+    assert document["aliases"] == {"moved": ["live", "staging"]}
+    assert targets(world, "live", "staging", "fresh") == (new, new, new)
+
+
+def test_json_reports_only_the_aliases_left_on_the_old_entry_after_the_pull(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = other_entry(world)
+    replace_t(world, GROWN)
+    pull_then(monkeypatch, lambda c: c.add_alias(other, "live", sync=False))
+
+    _, document = rebase_json(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert document["state"] == "rebased"
+    assert document["aliases"] == {"moved": ["staging"]}
+
+
+@pytest.mark.parametrize("setup, exit_code, message", JSON_REFUSALS)
+def test_json_reports_a_rebase_that_wrote_nothing(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    setup: Callable,
+    exit_code: int,
+    message: str,
+) -> None:
+    world.monkeypatch = monkeypatch
+    name, args, gone = setup(world)
+    old_entry = reopen(world).get_catalog_entry(name, maybe_alias=True).name
+    entries, commits = reopen(world).list(), commit_count(world.catalog)
+
+    result, document = rebase_json(runner, world, name, *args)
+    assert result.exit_code == exit_code
+    assert document["state"] == FAILURE_STATES[exit_code]
+    assert (document["old_entry"], document["new_entry"]) == (old_entry, None)
+    assert document["aliases"] == NO_ALIASES
+    if exit_code == 4:
+        # The headline's facts are the drift document; `error` is the detail.
+        assert document["drift"]["state"] in ("changed", "table-missing")
+        assert document["error"]
+    else:
+        # A refusal returns no sweep to report.
+        assert document["drift"] is None
+        assert document["failing_op"] is None
+        assert message.format(name=name, gone=gone) in document["error"]
+    assert reopen(world).list() == entries
+    assert commit_count(reopen(world)) == commits
+    assert not any(path.exists() for path in gone)
+
+
+@pytest.mark.parametrize(
+    "drift_t, failing_op, error",
+    (
+        pytest.param(
+            lambda w: replace_t(w, pa.table({"b": ["x", "y"]})),
+            "Field",
+            "XorqTypeError: Column 'a' is not found",
+            id="dropped-column",
+        ),
+        pytest.param(lambda w: w.con.drop_table("t"), None, "t", id="gone-table"),
+    ),
+)
+def test_json_conflict_embeds_the_check_sources_entry_document(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    drift_t: Callable,
+    failing_op: str | None,
+    error: str,
+) -> None:
+    drift_t(world)
+    checked = check_sources_entry(runner, world, world.name)
+
+    result, document = rebase_json(runner, world, world.name, "-a", "v2")
+    assert (document["state"], result.exit_code) == ("conflict", 4)
+    assert document["failing_op"] == failing_op
+    assert document["drift"] == checked
+    assert error in document["error"]
+    assert "v2" not in reopen(world).list_aliases()
+
+
+def test_json_reports_a_failed_write_as_one_document(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write that fails midway still ends in one whole document."""
+    replace_t(world, GROWN)
+    fail_nth_alias_move(monkeypatch, 2)
+    result, document = rebase_json(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+
+    assert (document["state"], result.exit_code) == ("failed", 1)
+    assert (document["old_entry"], document["new_entry"]) == (world.name, None)
+    assert document["error"] == "RuntimeError: alias move failed"
+    assert reopen(world).list() == [world.name]
+
+
+def test_json_prints_nothing_until_the_rebase_ends(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    ended = []
+    echoed = []
+    real_rebase_entry = rebase_module.rebase_entry
+    real_echo = click.echo
+
+    def rebasing(*args: object, **kwargs: object) -> RebaseResult:
+        result = real_rebase_entry(*args, **kwargs)
+        ended.append(True)
+        return result
+
+    def echoing(*args: object, **kwargs: object) -> None:
+        echoed.append(bool(ended))
+        real_echo(*args, **kwargs)
+
+    monkeypatch.setattr(rebase_module, "rebase_entry", rebasing)
+    monkeypatch.setattr(click, "echo", echoing)
+    _, document = rebase_json(runner, world)
+    assert document["state"] == "rebased"
+    assert echoed == [True]
+
+
+@pytest.mark.parametrize(
+    "args, exit_code",
+    (
+        pytest.param(("nope",), 1, id="unresolved-name"),
+        pytest.param(("--bogus",), 2, id="usage-error"),
+    ),
+)
+@pytest.mark.parametrize(
+    "command",
+    (
+        pytest.param("rebase", id="rebase"),
+        pytest.param("check-sources", id="check-sources"),
+    ),
+)
+def test_json_never_started_prints_no_document_like_check_sources(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    command: str,
+    args: tuple[str, ...],
+    exit_code: int,
+) -> None:
+    """No entry resolved, so there is no rebase whose outcome to report."""
+    result = runner.invoke(
+        cli, ["--path", world.catalog_path, command, *args, "--json"]
+    )
+    assert result.exit_code == exit_code
+    assert result.stdout == ""
+    assert result.stderr

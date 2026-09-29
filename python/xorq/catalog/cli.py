@@ -1157,6 +1157,7 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     "the name OLD (repeatable).",
 )
 @ignore_venv_mismatch_option
+@json_option
 @click.pass_context
 def rebase(
     ctx: click.Context,
@@ -1168,6 +1169,7 @@ def rebase(
     only_aliases: tuple[str, ...],
     renames: tuple[tuple[str, str, str], ...],
     ignore_venv_mismatch: bool,
+    as_json: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
 
@@ -1235,6 +1237,15 @@ def rebase(
       5  rebased and committed locally, but the push failed; the name is
          still printed; run `xorq catalog push`
 
+    With --json, stdout is one document, printed once the rebase has ended
+    and nothing else; its `state` and `exit_code` sit at the root, and the
+    exit code is the process's. Every outcome of rebasing a resolved entry
+    prints one, a failed write included. As with `check-sources --json`, a
+    rebase that never started prints none: a name that does not resolve or a
+    catalog that does not open exits 1, and invalid options exit click's own
+    2, with the error on stderr. Its shape is documented in
+    `xorq.catalog.rebase`.
+
     \b
     Arguments:
       ENTRY  An entry name or alias.
@@ -1245,6 +1256,7 @@ def rebase(
       xorq catalog rebase prod-matches --move-aliases
       xorq catalog rebase prod-matches --only-alias prod -a matches-v2
       xorq catalog rebase prod-matches --rename matches team_id team
+      xorq catalog rebase prod-matches --json
     """
     if move_aliases and only_aliases:
         raise click.UsageError("--move-aliases and --only-alias are mutually exclusive")
@@ -1255,9 +1267,13 @@ def rebase(
         entry_alias = entry if entry in catalog.list_aliases() else None
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
-    from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
     from xorq.catalog.exceptions import RebaseError, RebasePushError  # noqa: PLC0415
-    from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
+    from xorq.catalog.rebase import (  # noqa: PLC0415
+        rebase_document,
+        rebase_entry,
+        rebase_state,
+    )
 
     with click_context_catalog(ctx):
         try:
@@ -1275,13 +1291,28 @@ def rebase(
         except RebaseError as e:
             # Kept from the handler, which collapses every error to exit 1.
             result = e
+        except Exception as e:
+            # The handler's exit 1 prints no document; with --json, a failure
+            # after the entry resolved is an outcome the document reports.
+            if not as_json or _pdb_active(ctx):
+                raise
+            result = e
+    if as_json:
+        # Printed once the rebase has ended, not during it, and alone: the
+        # document carries what stderr would, so nothing else is printed. The
+        # process exits with the document's own code, as `check-sources` does.
+        document = rebase_document(catalog_entry, result)
+        click.echo(json.dumps(document, indent=2))
+        ctx.exit(document["exit_code"])
     failure = result if isinstance(result, RebaseError) else None
+    # The same state the document reads its `exit_code` off.
+    exit_code = rebase_state(result).exit_code
     if isinstance(failure, RebasePushError):
         # Committed locally: report it as done, then the push that wasn't.
         result = failure.result
     elif failure is not None:
         click.echo(str(failure), err=True)
-        ctx.exit(failure.exit_code)
+        ctx.exit(exit_code)
     if result.venv_warning:
         click.echo(result.venv_warning, err=True)
     if (conflict := result.conflict) is not None:
@@ -1305,7 +1336,7 @@ def rebase(
             click.echo(f"Alias {alias!r} not added: the rebase conflicted", err=True)
         if move_aliases or only_aliases:
             click.echo("Aliases not moved: the rebase conflicted", err=True)
-        ctx.exit(RebaseExit.CONFLICT)
+        ctx.exit(exit_code)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
             for line in format_leaf_report(report):
@@ -1345,7 +1376,7 @@ def rebase(
     click.echo(new)
     if failure is not None:
         click.echo(str(failure), err=True)
-        ctx.exit(failure.exit_code)
+    ctx.exit(exit_code)
 
 
 def _resolve_lineage(dag: LineageDAG, handle: str, name: str) -> tuple[dict, ...]:
