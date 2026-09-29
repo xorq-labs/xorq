@@ -76,6 +76,13 @@ class WheelCollisionError(ValueError):
     """Raised when two entries carry same-named wheels that differ."""
 
 
+class RebaseOptionsError(ValueError):
+    """Rebase options that contradict each other, or one that would do nothing.
+
+    The CLI reports it as a usage error, before resolving the entry.
+    """
+
+
 class RebaseError(XorqError):
     """A rebase refused before its own first write; ``failure`` says how, and
     its exit code is the CLI's. One raised after the sweep carries the sweep's

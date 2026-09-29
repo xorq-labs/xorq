@@ -18,7 +18,9 @@ way a rebase of a resolved entry can end, buffered and emitted once::
       "state": "conflict",         # a RebaseStatus or a RebaseFailure
       "exit_code": 4,              # what the command exits with
       "old_entry": "b0e5f7bd7d78",
-      "new_entry": null,           # old_entry on a no-op or an attempted entry
+      "new_entry": null,           # old_entry on a no-op; null unless cataloged
+      "new_hash": null,            # the rebased build's hash, cataloged or not
+      "build_path": null,          # where `--no-add` wrote the build
       "failing_op": "Field",       # null unless an op could not be rebuilt
       "drift": {...},              # this entry's `check-sources --json` document
       "aliases": {"moved": [], "added": [], "already": [], "unmoved": [], "left": []},
@@ -32,16 +34,25 @@ disagree. ``drift`` is the document ``check-sources --json`` publishes under
 a refusal after the sweep carries it too, so it is ``null`` only when nothing
 was swept or the rebase failed rather than refused. ``aliases`` is what the
 rebase did to them, as stderr reports it, so it is empty unless a new entry was
-written (``rebased`` or ``push-failed``). ``error`` is present only when there
-is one, always as ``Type: message``: what refused or failed the rebase, what a
-conflict's op or source raised, or what a failed push raised. ``warnings`` holds
-each warning the rebase raised, as ``Category: message``, so stderr stays empty.
-On ``push-failed`` the new entry and its aliases are committed locally, and
-`xorq catalog sync` publishes them.
+written (``rebased`` or ``push-failed``), or on ``preview``, where it is what
+the rebase would do (before the sync's pull, which a preview does not run).
+``new_hash`` is the hash the rebase derived: ``new_entry`` once cataloged, the
+hash ``--dry-run`` (``preview``) or ``--no-add`` (``built``) did not catalog,
+and ``null`` on a conflict or a failure. ``build_path`` is set only on
+``built``. ``error`` is present only when there is one, always as ``Type:
+message``: what refused or failed the rebase, what a conflict's op or source
+raised, or what a failed push raised. ``warnings`` holds each warning the
+rebase raised, as ``Category: message``, so stderr stays empty. On
+``push-failed`` the new entry and its aliases are committed locally, and `xorq
+catalog sync` publishes them.
 """
 
 from __future__ import annotations
 
+import contextlib
+import json
+import os
+import shutil
 import sys
 import tempfile
 import warnings
@@ -50,7 +61,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from attr import asdict, field, frozen
+from attr import Factory, asdict, converters, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 from git.exc import GitCommandError
 
@@ -62,6 +73,7 @@ from xorq.catalog.catalog import (
     CatalogMergeConflict,
     CatalogPullError,
 )
+from xorq.catalog.constants import REBASED_FROM
 from xorq.catalog.drift import (
     LeafReport,
     format_error,
@@ -80,6 +92,7 @@ from xorq.catalog.exceptions import (
     ContentIntegrityError,
     ContentStoreError,
     RebaseError,
+    RebaseOptionsError,
 )
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
@@ -91,6 +104,67 @@ from xorq.common.exceptions import (
 )
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
+
+
+def alias_names(only_aliases: Iterable[str]) -> tuple[str, ...]:
+    # A bare string would be read as one alias per character.
+    if isinstance(only_aliases, str):
+        raise TypeError("only_aliases is an iterable of alias names, not one name")
+    # Materialized first: an empty iterator is truthy.
+    return tuple(dict.fromkeys(only_aliases))
+
+
+def check_move_aliases(instance: object, attribute: object, value: object) -> None:
+    # 0.4.5 took the names to move as `move_aliases`; any such call is truthy
+    # and would now move every alias.
+    if not isinstance(value, bool):
+        raise TypeError("move_aliases is a bool; pass alias names as only_aliases")
+
+
+def builds_path(builds_dir: str | Path) -> Path:
+    # `Path("")` is `.`, which would write the build beside the caller's files.
+    if not str(builds_dir):
+        raise RebaseOptionsError("--builds-dir names no directory")
+    return Path(builds_dir)
+
+
+@frozen
+class RebaseOptions:
+    """What a rebase is asked to do, refused if it contradicts itself.
+
+    The one place the option rules live: the CLI builds it before resolving
+    the entry and reports ``RebaseOptionsError`` as a usage error, and
+    ``rebase_entry`` builds it from its own arguments.
+    """
+
+    alias = field(default=None, validator=optional(instance_of(str)))
+    move_aliases = field(default=False, validator=check_move_aliases)
+    only_aliases = field(default=(), converter=alias_names)
+    dry_run = field(default=False, validator=instance_of(bool))
+    add = field(default=True, validator=instance_of(bool))
+    # Only with `add=False`, which writes there, `builds` by default.
+    builds_dir = field(default=None, converter=converters.optional(builds_path))
+
+    def __attrs_post_init__(self) -> None:
+        if self.move_aliases and self.only_aliases:
+            raise RebaseOptionsError(
+                "--move-aliases and --only-alias are mutually exclusive"
+            )
+        if self.dry_run and not self.add:
+            raise RebaseOptionsError("--dry-run and --no-add are mutually exclusive")
+        if not self.add and (self.alias or self.move_aliases or self.only_aliases):
+            raise RebaseOptionsError(
+                "--no-add takes no --alias, --move-aliases or --only-alias: there "
+                "is no entry to name"
+            )
+        if self.add and self.builds_dir is not None:
+            raise RebaseOptionsError(
+                "--builds-dir applies only with --no-add, which writes the build there"
+            )
+
+    @property
+    def build_target_dir(self) -> Path:
+        return self.builds_dir if self.builds_dir is not None else Path("builds")
 
 
 @frozen
@@ -116,7 +190,11 @@ class RebaseConflict:
 @frozen
 class RebaseResult:
     """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED`` or
-    ``PUSH_FAILED``."""
+    ``PUSH_FAILED``.
+
+    ``new_hash`` is the rebased build's: ``new_entry``'s, or on ``PREVIEW``
+    and ``BUILT`` the one a rebase would catalog.
+    """
 
     status = field(validator=in_(tuple(RebaseStatus)))
     old_entry = field(validator=instance_of(CatalogEntry))
@@ -127,8 +205,8 @@ class RebaseResult:
     )
     # The record ``reports`` were probed from.
     record = field(validator=instance_of(BuildRecord))
-    # Empty unless REBASED or PUSH_FAILED: nothing moves onto an entry that
-    # already was.
+    # Empty unless REBASED or PUSH_FAILED, or PREVIEW, where it is what the
+    # rebase would do: nothing moves onto an entry that already was.
     aliases = field(factory=AliasOutcome, validator=instance_of(AliasOutcome))
     # The sources no probe could compare, when none could; never on REBASED.
     unprobed = str_tuple()
@@ -137,6 +215,12 @@ class RebaseResult:
     conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
     # Set exactly when ``status`` is ``PUSH_FAILED``: what the push raised.
     push_error = field(default=None, validator=optional(instance_of(Exception)))
+    new_hash = field(
+        default=Factory(lambda self: self.new_entry.name, takes_self=True),
+        validator=instance_of(str),
+    )
+    # Set exactly when ``status`` is ``BUILT``: the build directory written.
+    build_path = field(default=None, validator=optional(instance_of(Path)))
 
     def __attrs_post_init__(self) -> None:
         conflicted = self.status == RebaseStatus.CONFLICT
@@ -145,6 +229,25 @@ class RebaseResult:
         if (self.status == RebaseStatus.PUSH_FAILED) != (self.push_error is not None):
             raise ValueError(
                 f"a {self.status} rebase has push_error={self.push_error!r}"
+            )
+        if (self.status == RebaseStatus.BUILT) != (self.build_path is not None):
+            raise ValueError(
+                f"a {self.status} rebase has build_path={self.build_path!r}"
+            )
+        # A preview or a build catalogs nothing, under a hash of its own; any
+        # other outcome's hash is its entry's.
+        if self.status in (RebaseStatus.PREVIEW, RebaseStatus.BUILT):
+            uncataloged = self.new_entry is self.old_entry
+            if not uncataloged or self.new_hash == self.old_entry.name:
+                raise ValueError(f"a {self.status} rebase has new_hash={self.new_hash}")
+            if self.build_path is not None and self.build_path.name != self.new_hash:
+                raise ValueError(
+                    f"build_path {self.build_path} is not named {self.new_hash}"
+                )
+        elif self.new_hash != self.new_entry.name:
+            raise ValueError(
+                f"a {self.status} rebase has new_hash={self.new_hash}, "
+                f"not {self.new_entry.name}"
             )
 
     @property
@@ -180,10 +283,16 @@ class RebaseResult:
         conflict = self.conflict
         conflicted = self.status == RebaseStatus.CONFLICT
         _, drift = reports_document(self.record, self.reports)
+        # Nothing new is cataloged on a conflict, a preview or a build.
+        uncataloged = (RebaseStatus.PREVIEW, RebaseStatus.BUILT)
         document = make_rebase_document(
             self.status,
             self.old_entry.name,
-            new_entry=None if conflicted else self.new_entry.name,
+            new_entry=None
+            if conflicted or self.status in uncataloged
+            else self.new_entry.name,
+            new_hash=None if conflicted else self.new_hash,
+            build_path=self.build_path,
             failing_op=conflict.op_name if conflicted else None,
             drift=drift,
             aliases=self.aliases,
@@ -199,6 +308,8 @@ def make_rebase_document(
     old_entry: str,
     *,
     new_entry: str | None = None,
+    new_hash: str | None = None,
+    build_path: Path | None = None,
     failing_op: str | None = None,
     drift: dict | None = None,
     aliases: AliasOutcome | None = None,
@@ -213,6 +324,8 @@ def make_rebase_document(
         **state_and_code(state),
         "old_entry": old_entry,
         "new_entry": new_entry,
+        "new_hash": new_hash,
+        "build_path": None if build_path is None else str(build_path),
         "failing_op": failing_op,
         "drift": drift,
         "aliases": {
@@ -476,6 +589,97 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
     (build_path / DumpFiles.requirements).write_bytes(requirements)
 
 
+def stamp_rebased_from(build_path: Path, ancestor: str) -> None:
+    """Record ``ancestor`` in ``build_path``'s ``build_metadata.json``.
+
+    In the archive rather than only the sidecar: a catalog copy re-derives
+    each sidecar from its archive. The build hash reads ``expr.yaml`` only.
+    """
+    path = build_path / DumpFiles.build_metadata
+    metadata = json.loads(path.read_text())
+    path.write_text(json.dumps(metadata | {REBASED_FROM: ancestor}, indent=2))
+
+
+# POSIX `rename(2)` replaces an empty directory, so `publish_build` claims the
+# target with `mkdir` first; Windows refuses any existing target, so needs none.
+CLAIM_BEFORE_RENAME = os.name != "nt"
+
+
+def free_build_target(catalog_entry: CatalogEntry, builds_dir: Path, name: str) -> Path:
+    """Where ``--no-add`` writes the build named ``name``, refused if taken.
+
+    Whatever is there (an earlier ``xorq build`` of the same expression, which
+    shares the ``builds`` default, or a build since edited) is never replaced; a
+    dangling link counts as there. A ``builds_dir`` that is not a directory is
+    refused here too, before anything is built.
+    """
+    if builds_dir.exists() and not builds_dir.is_dir():
+        raise RebaseError(
+            f"{catalog_entry.name}: {builds_dir} is not a directory; --no-add "
+            "writes its build there",
+            RebaseFailure.REFUSED,
+        )
+    target = builds_dir / name
+    if target.is_symlink() or target.exists():
+        raise RebaseError(
+            f"{catalog_entry.name}: {target} exists; --no-add does not replace it",
+            RebaseFailure.REFUSED,
+        )
+    return target
+
+
+def publish_build(
+    catalog_entry: CatalogEntry, build_path: Path, builds_dir: Path
+) -> Path:
+    """Move the complete ``build_path`` to ``builds_dir``, under its hash.
+
+    Moved first into a hidden directory in ``builds_dir``, on the target's
+    filesystem, then renamed into place, so the target appears whole or not at
+    all: a copy that fails partway leaves nothing behind. The target is claimed
+    with an exclusive ``mkdir`` before the rename, since a rename alone would
+    replace an empty directory; so a directory that appeared since the check
+    (another ``--no-add``, an ``xorq build``) is refused, never nested in or
+    replaced, and one written into after the claim fails the rename.
+
+    Windows never renames onto an existing directory, so there the absent
+    target is its own claim (a path the catalog CI, on Linux, does not run). A
+    process killed mid-copy can leave its stage, ``.<hash>.*`` in
+    ``builds_dir``, which nothing reads and is safe to delete.
+    """
+    target = free_build_target(catalog_entry, builds_dir, build_path.name)
+    builds_dir.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{build_path.name}.", dir=builds_dir))
+    claimed = published = False
+    try:
+        staged = Path(shutil.move(build_path, stage / build_path.name))
+        if CLAIM_BEFORE_RENAME:
+            try:
+                target.mkdir()
+            except FileExistsError:
+                # Taken since the check: refused as the check refuses.
+                free_build_target(catalog_entry, builds_dir, build_path.name)
+                raise
+            claimed = True
+        try:
+            # Onto the empty claim, or (Windows) onto no directory at all.
+            staged.rename(target)
+        except OSError:
+            if not (claimed and target.is_dir() and not any(target.iterdir())):
+                # Taken since: written into the claim, or there on Windows.
+                free_build_target(catalog_entry, builds_dir, build_path.name)
+            raise
+        published = True
+    finally:
+        if claimed and not published:
+            # Given back on any failure, an interrupt included, so a retry is
+            # not refused; `rmdir` leaves a claim someone wrote into, or one
+            # already gone.
+            with contextlib.suppress(OSError):
+                target.rmdir()
+        shutil.rmtree(stage, ignore_errors=True)
+    return target
+
+
 def rebase_entry(
     catalog_entry: CatalogEntry,
     *,
@@ -486,6 +690,9 @@ def rebase_entry(
     ignore_mismatch: bool = False,
     cache_dir: str | Path | None = None,
     entry_alias: str | None = None,
+    dry_run: bool = False,
+    add: bool = True,
+    builds_dir: str | Path | None = None,
 ) -> RebaseResult:
     """``catalog_entry`` re-derived over its live sources, as a new entry.
 
@@ -497,20 +704,26 @@ def rebase_entry(
     the rebase's first write; before that it may fetch the entry's archive into
     the working tree and the content cache. With ``sync``, an alias refusal can
     come after the pull.
+
+    ``dry_run`` stops where the new entry would be written, as ``PREVIEW``.
+    ``add=False`` writes the rebased build into ``builds_dir`` (``builds`` by
+    default) instead, with the old entry's bundle, and returns it as ``BUILT``;
+    it takes no aliases and does not sync. Neither pulls first, so a synced
+    rebase can still refuse an alias the pull moved. ``RebaseOptions`` states
+    which arguments combine. Either way the new build records ``catalog_entry``
+    as its ancestor.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
-    # 0.4.5 took the names to move as `move_aliases`; any such call is truthy
-    # and would now move every alias.
-    if not isinstance(move_aliases, bool):
-        raise TypeError("move_aliases is a bool; pass alias names as only_aliases")
-    # A bare string would be read as one alias per character.
-    if isinstance(only_aliases, str):
-        raise TypeError("only_aliases is an iterable of alias names, not one name")
-    # Materialized first: an empty iterator is truthy.
-    only_aliases = tuple(dict.fromkeys(only_aliases))
-    if move_aliases and only_aliases:
-        raise ValueError("move_aliases and only_aliases are mutually exclusive")
+    options = RebaseOptions(
+        alias=alias,
+        move_aliases=move_aliases,
+        only_aliases=only_aliases,
+        dry_run=dry_run,
+        add=add,
+        builds_dir=builds_dir,
+    )
+    only_aliases, builds_dir = options.only_aliases, options.build_target_dir
     # `ExprDumper` validates `cache_dir` as a `Path`.
     cache_dir = Path(cache_dir) if cache_dir is not None else None
     # Every check below opens the archive, which a pointer or annex catalog
@@ -605,8 +818,35 @@ def rebase_entry(
             # The new name is known now: an alias on another entry is refused
             # before the dump and the sync's pull, not after them.
             plan = plan.evolved(new=dumper.expr_hash)
+            if not add:
+                # Refused before the dump: nothing is built over a taken path.
+                free_build_target(catalog_entry, builds_dir, dumper.expr_hash)
+            if dry_run:
+                return RebaseResult(
+                    RebaseStatus.PREVIEW,
+                    catalog_entry,
+                    catalog_entry,
+                    reports,
+                    record,
+                    # What the rebase would do to them, before any pull.
+                    aliases=AliasOutcome.of(plan, plan),
+                    new_hash=dumper.expr_hash,
+                )
             build_path = dumper.dump_expr()
+            stamp_rebased_from(build_path, catalog_entry.name)
             stage_bundle(catalog_entry, build_path)
+            if not add:
+                return RebaseResult(
+                    RebaseStatus.BUILT,
+                    catalog_entry,
+                    catalog_entry,
+                    reports,
+                    record,
+                    new_hash=build_path.name,
+                    build_path=publish_build(
+                        catalog_entry, build_path, builds_dir
+                    ).resolve(),
+                )
             catalog = catalog_entry.catalog
             if sync:
                 pull_before(catalog)

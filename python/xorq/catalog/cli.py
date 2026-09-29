@@ -1224,6 +1224,23 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     help="Move only this alias of the source entry onto the new entry (repeatable).",
 )
 @ignore_venv_mismatch_option
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Report the hash a rebase would produce, and catalog nothing.",
+)
+@click.option(
+    "--add/--no-add",
+    default=True,
+    show_default=True,
+    help="Catalog the rebased build; --no-add only writes its build directory.",
+)
+@click.option(
+    "--builds-dir",
+    default=None,
+    help="Where --no-add writes the build directory (default: builds); only "
+    "with --no-add.",
+)
 @json_option
 @click.pass_context
 def rebase(
@@ -1235,6 +1252,9 @@ def rebase(
     move_aliases: bool,
     only_aliases: tuple[str, ...],
     ignore_venv_mismatch: bool,
+    dry_run: bool,
+    add: bool,
+    builds_dir: str | None,
     as_json: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
@@ -1242,7 +1262,22 @@ def rebase(
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. The new entry keeps the old one's
-    wheels and requirements.
+    wheels and requirements, and records the old one as its ancestor, which
+    `xorq catalog show` prints.
+
+    --dry-run writes nothing to the catalog (it may fetch the entry's archive,
+    as any rebase does): it prints the hash a rebase would produce, says what
+    it would do to the aliases, and exits 3. It does not run the sync's pull,
+    so a synced rebase can still refuse an alias the pull moved. --no-add
+    writes the rebased build to BUILDS_DIR/<hash>, bundle and ancestor
+    included, and prints its path instead of cataloging it, and exits 3; `xorq
+    catalog add` on that directory yields the same hash, as long as the
+    directory keeps its name, which add takes as the entry's. A directory
+    already at that path is never replaced: the rebase is refused before
+    building. It does not sync, and takes no --alias, --move-aliases or
+    --only-alias, since there is no entry to name. An interrupted --no-add can
+    leave a hidden BUILDS_DIR/.<hash>.* stage, safe to delete. With no drift,
+    neither writes anything and both print the entry's own name.
 
     No alias moves unless asked. --move-aliases moves every alias the old
     entry has once the sync's pull is in, and names any the pull took off it;
@@ -1274,14 +1309,18 @@ def rebase(
          unregistered one before the sweep), --alias names an alias on
          another entry than the old or new one (once there is a new entry),
          ENTRY is an alias the pull moved or removed, a probed source
-         matched no source of the loaded expression, or a write failed
+         matched no source of the loaded expression, --no-add found its
+         BUILDS_DIR/<hash> taken, or a write failed
          (the new entry and its alias moves are rolled back locally, a
          failed rollback is logged)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; the sync's pull
          failed; or the options were invalid (--move-aliases with
-         --only-alias); nothing written
+         --only-alias, --no-add with --dry-run or an alias option,
+         --builds-dir without --no-add); nothing written
+      3  a rebase was derived but not cataloged: --dry-run printed its
+         hash, or --no-add its build directory
       4  conflict: an op no longer fits its new inputs, or a source's
          table is gone; stderr names the op (if one failed) and the
          sources involved, with their recorded and live schemas;
@@ -1309,13 +1348,33 @@ def rebase(
       xorq catalog rebase prod-matches --move-aliases
       xorq catalog rebase prod-matches --only-alias prod -a matches-v2
       xorq catalog rebase prod-matches --json
+      xorq catalog rebase prod-matches --dry-run
+      xorq catalog rebase prod-matches --no-add --builds-dir builds
     """
-    if move_aliases and only_aliases:
-        raise click.UsageError("--move-aliases and --only-alias are mutually exclusive")
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
-    from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
-    from xorq.catalog.rebase import rebase_document, rebase_entry  # noqa: PLC0415
+    from xorq.catalog.exceptions import (  # noqa: PLC0415
+        RebaseError,
+        RebaseOptionsError,
+    )
+    from xorq.catalog.rebase import (  # noqa: PLC0415
+        RebaseOptions,
+        rebase_document,
+        rebase_entry,
+    )
+
+    # Checked before the entry resolves, so a bad combination is a usage error.
+    try:
+        RebaseOptions(
+            alias=alias,
+            move_aliases=move_aliases,
+            only_aliases=only_aliases,
+            dry_run=dry_run,
+            add=add,
+            builds_dir=builds_dir,
+        )
+    except RebaseOptionsError as e:
+        raise click.UsageError(str(e)) from e
 
     document = None
     # One scope from resolving the entry to printing the document: under --json
@@ -1338,6 +1397,9 @@ def rebase(
                 ignore_mismatch=ignore_venv_mismatch,
                 cache_dir=_get_cache_dir(cache_dir),
                 entry_alias=entry_alias,
+                dry_run=dry_run,
+                add=add,
+                builds_dir=builds_dir,
             )
         except Exception as e:
             # The handler prints an error and no document; with --json, a
@@ -1405,6 +1467,27 @@ def rebase(
             click.echo(f"Alias {alias!r} not added: nothing to rebase", err=True)
         if move_aliases or only_aliases:
             click.echo("Aliases not moved: nothing to rebase", err=True)
+    elif result.status == RebaseStatus.PREVIEW:
+        click.echo(
+            f"Would rebase {old} -> {result.new_hash}; nothing cataloged", err=True
+        )
+        _report_aliases(
+            result.aliases,
+            old,
+            result.new_hash,
+            "--move-aliases or --only-alias",
+            would=True,
+        )
+        click.echo(result.new_hash)
+        ctx.exit(result.status.exit_code)
+    elif result.status == RebaseStatus.BUILT:
+        click.echo(
+            f"Built {old} -> {result.new_hash}, not cataloged; "
+            f"`xorq catalog add {result.build_path}` adds it",
+            err=True,
+        )
+        click.echo(result.build_path)
+        ctx.exit(result.status.exit_code)
     else:
         if result.push_error is None:
             click.echo(f"Rebased {old} -> {new}", err=True)
@@ -1650,8 +1733,9 @@ def lineage(
 def show(ctx: click.Context, name: str, as_json: bool, as_raw: bool) -> None:
     """Show full metadata for a catalog entry.
 
-    Prints name, aliases, kind, backends, schemas, parameters, builders,
-    cache key, and more. `--json` and `--raw` are mutually exclusive.
+    Prints name, aliases, kind, backends, the entry it was rebased from,
+    schemas, parameters, builders, cache key, and more. `--json` and `--raw`
+    are mutually exclusive.
 
     \b
     Arguments:
@@ -1705,6 +1789,8 @@ def show(ctx: click.Context, name: str, as_json: bool, as_raw: bool) -> None:
         click.echo(
             f"{'Content local:':<15} {'yes' if entry.is_content_local else 'no'}"
         )
+        if entry.rebased_from:
+            click.echo(f"{'Rebased from:':<15} {entry.rebased_from}")
         if meta.composed_from:
             click.echo(f"{'Composed from:':<15} {len(meta.composed_from)}")
         if meta.projected_cache_key and meta.projected_cache_key.key:
@@ -1986,13 +2072,21 @@ def _given_alias(catalog: Catalog, entry: str) -> str | None:
     return entry if entry in catalog.list_aliases() else None
 
 
-def _report_aliases(aliases: AliasOutcome, old: str, new: str, move_hint: str) -> None:
+def _report_aliases(
+    aliases: AliasOutcome, old: str, new: str, move_hint: str, *, would: bool = False
+) -> None:
     """One stderr line per alias named, or seen on ``old``, for the entry derived
-    from it; ``move_hint`` names the command's options that move what was left."""
+    from it; ``move_hint`` names the command's options that move what was left.
+    ``would`` reports a plan not carried out, as a preview's."""
+    moved, added, left = (
+        ("Would move", "Would add", "would stay")
+        if would
+        else ("Moved", "Added", "left")
+    )
     for name in aliases.moved:
-        click.echo(f"Moved alias {name!r} -> {new}", err=True)
+        click.echo(f"{moved} alias {name!r} -> {new}", err=True)
     for name in aliases.added:
-        click.echo(f"Added alias {name!r} -> {new}", err=True)
+        click.echo(f"{added} alias {name!r} -> {new}", err=True)
     for name in aliases.already:
         click.echo(f"Alias {name!r} already on {new}", err=True)
     for name in aliases.unmoved:
@@ -2002,7 +2096,7 @@ def _report_aliases(aliases: AliasOutcome, old: str, new: str, move_hint: str) -
     # 0.4.5's rebase moved every alias by default; what stays behind is said.
     if aliases.left:
         click.echo(
-            f"Aliases left on {old}: {', '.join(aliases.left)}; pass {move_hint} "
+            f"Aliases {left} on {old}: {', '.join(aliases.left)}; pass {move_hint} "
             "to move them",
             err=True,
         )

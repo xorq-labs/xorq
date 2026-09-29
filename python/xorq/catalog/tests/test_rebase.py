@@ -455,6 +455,473 @@ def test_a_conflict_says_the_aliases_were_not_moved(
     assert targets(world, "live") == (name,)
 
 
+# Preview, build-only, and provenance (#2325).
+@pytest.fixture
+def cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An empty working directory, for `./builds` and to show nothing lands."""
+    path = tmp_path / "cwd"
+    path.mkdir()
+    monkeypatch.chdir(path)
+    return path
+
+
+@ALL_BACKENDS
+def test_a_preview_of_a_drifted_entry_reports_both_hashes_and_writes_nothing(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    replace_t(world, GROWN)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, "--dry-run", "-a", "v2")
+    assert result.exit_code == 3, result.output
+    new = result.stdout.strip()
+    assert new != world.name
+    assert f"Would rebase {world.name} -> {new}; nothing cataloged" in result.stderr
+    assert f"Would add alias 'v2' -> {new}" in result.stderr
+    assert (
+        f"Aliases would stay on {world.name}: live, staging; pass --move-aliases "
+        "or --only-alias to move them"
+    ) in result.stderr
+    assert reopen(world).list() == [world.name]
+    assert "v2" not in reopen(world).list_aliases()
+    assert targets(world, "live", "staging") == (world.name, world.name)
+    assert commit_count(reopen(world)) == commits
+    assert not any(cwd.iterdir())
+    # The hash previewed is the one the rebase then catalogs.
+    rebased = rebase(runner, world)
+    assert rebased.exit_code == 0, rebased.output
+    assert rebased.stdout.strip() == new
+
+
+@ALL_BACKENDS
+@pytest.mark.parametrize(
+    "drift_t, exit_code",
+    (
+        pytest.param(lambda w: None, 0, id="undrifted"),
+        pytest.param(
+            lambda w: replace_t(w, pa.table({"b": ["x", "y"]})), 4, id="conflicted"
+        ),
+    ),
+)
+def test_a_preview_without_a_rebase_to_make_exits_as_the_rebase_would(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    drift_t: Callable,
+    exit_code: int,
+) -> None:
+    drift_t(world)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, "--dry-run")
+    assert result.exit_code == exit_code, result.output
+    assert "Would rebase" not in result.stderr
+    assert result.stdout == ("" if exit_code else f"{world.name}\n")
+    assert reopen(world).list() == [world.name]
+    assert commit_count(reopen(world)) == commits
+    assert not any(cwd.iterdir())
+
+
+def test_a_result_cannot_name_a_hash_its_status_contradicts(
+    world: SimpleNamespace,
+) -> None:
+    """A preview of the old hash, or a rebase under another entry's hash, would
+    print a document that disagrees with itself."""
+    replace_t(world, GROWN)
+    previewed = rebase_old(world, dry_run=True)
+    with pytest.raises(ValueError, match="new_hash"):
+        evolve(previewed, new_hash=world.name)
+    rebased = rebase_old(world, sync=False)
+    with pytest.raises(ValueError, match="new_hash"):
+        evolve(rebased, new_hash=previewed.new_hash + "x")
+
+
+def test_a_preview_result_names_the_new_hash(world: SimpleNamespace) -> None:
+    replace_t(world, GROWN)
+
+    previewed = rebase_old(world, dry_run=True)
+    assert previewed.status == RebaseStatus.PREVIEW
+    assert previewed.new_entry.name == world.name
+    assert previewed.build_path is None
+    assert previewed.new_hash == rebase_old(world).new_entry.name
+
+
+@ALL_BACKENDS
+def test_build_only_prints_a_directory_that_adds_to_the_same_hash(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    replace_t(world, GROWN)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, "--no-add")
+    assert result.exit_code == 3, result.output
+    build_path = Path(result.stdout.strip())
+    assert build_path == cwd / "builds" / build_path.name
+    assert (build_path / DumpFiles.expr).is_file()
+    assert f"Built {world.name} -> {build_path.name}, not cataloged" in result.stderr
+    assert reopen(world).list() == [world.name]
+    assert targets(world, "live", "staging") == (world.name, world.name)
+    assert commit_count(reopen(world)) == commits
+
+    # Adding it by hand needs nothing from the cwd: the bundle is staged.
+    added = runner.invoke(cli, ["--path", world.catalog_path, "add", str(build_path)])
+    assert added.exit_code == 0, added.output
+    catalog = reopen(world)
+    assert set(catalog.list()) == {world.name, build_path.name}
+    entry = catalog.get_catalog_entry(build_path.name)
+    assert entry.columns == ("a", "b", "c")
+    assert entry.rebased_from == world.name
+    # And a rebase lands on that same entry.
+    rebased = rebase(runner, world)
+    assert rebased.exit_code == 0, rebased.output
+    assert rebased.stdout.strip() == build_path.name
+
+
+def test_build_only_keeps_an_external_read_external_through_add(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path, cwd: Path
+) -> None:
+    """`catalog add` of the directory (a Path) relocates nothing, so the hash
+    holds even where relocating the read would move it into the archive."""
+    path = tmp_path / "t.parquet"
+    RECORDED.to_pandas().to_parquet(path, index=False)
+    read = deferred_read_parquet(path, xo.connect(), table_name="t")
+    name = world.catalog.add(read.filter(read.a > 1), relocate_reads=False).name
+    GROWN.to_pandas().to_parquet(path, index=False)
+
+    result = rebase(runner, world, name, "--no-add")
+    assert result.exit_code == 3, result.output
+    build_path = Path(result.stdout.strip())
+    added = runner.invoke(cli, ["--path", world.catalog_path, "add", str(build_path)])
+    assert added.exit_code == 0, added.output
+
+    entry = reopen(world).get_catalog_entry(build_path.name)
+    assert entry.columns == ("a", "b", "c")
+    assert entry.rebased_from == name
+    (leaf,) = drift.read_record(entry).external_leaves
+    assert leaf.name == str(path)
+    rebased = rebase(runner, world, name)
+    assert rebased.exit_code == 0, rebased.output
+    assert rebased.stdout.strip() == build_path.name
+
+
+def test_build_only_writes_into_builds_dir(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path, cwd: Path
+) -> None:
+    replace_t(world, GROWN)
+    builds_dir = tmp_path / "elsewhere"
+
+    result = rebase(
+        runner, world, world.name, "--no-add", "--builds-dir", str(builds_dir)
+    )
+    assert result.exit_code == 3, result.output
+    build_path = Path(result.stdout.strip())
+    assert build_path.parent == builds_dir
+    assert not any(cwd.iterdir())
+    again = tmp_path / "again"
+    built = rebase_old(world, add=False, builds_dir=again)
+    assert (built.status, built.build_path) == (
+        RebaseStatus.BUILT,
+        again / build_path.name,
+    )
+    assert built.new_hash == build_path.name
+
+
+def test_build_only_refuses_a_taken_build_directory(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    """An earlier build under the same hash (`xorq build` shares the default) is
+    kept, and nothing is built over it."""
+    replace_t(world, GROWN)
+    new = rebase(runner, world, world.name, "--dry-run").stdout.strip()
+    taken = cwd / "builds" / new
+    taken.mkdir(parents=True)
+    (taken / "edited.txt").write_text("mine")
+
+    result = rebase(runner, world, world.name, "--no-add")
+    assert result.exit_code == 1, result.output
+    assert f"builds/{new} exists; --no-add does not replace it" in result.stderr
+    assert result.stdout == ""
+    assert [p.name for p in taken.iterdir()] == ["edited.txt"]
+    assert reopen(world).list() == [world.name]
+
+
+@pytest.mark.parametrize(
+    "occupy, message",
+    (
+        pytest.param(
+            lambda builds, new: (builds.mkdir(), (builds / new).symlink_to("gone")),
+            "exists; --no-add does not replace it",
+            id="dangling-link",
+        ),
+        pytest.param(
+            lambda builds, new: builds.write_text("a file"),
+            "is not a directory",
+            id="builds-dir-is-a-file",
+        ),
+    ),
+)
+def test_build_only_refuses_an_unusable_target_before_building(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    occupy: Callable,
+    message: str,
+) -> None:
+    """Refused where the hash is known, not after the dump."""
+    replace_t(world, GROWN)
+    new = rebase(runner, world, world.name, "--dry-run").stdout.strip()
+    occupy(cwd / "builds", new)
+    staged = []
+    real_stage = rebase_module.stage_bundle
+    monkeypatch.setattr(
+        rebase_module,
+        "stage_bundle",
+        lambda *args: staged.append(args) or real_stage(*args),
+    )
+    result = rebase(runner, world, world.name, "--no-add")
+    assert result.exit_code == 1, result.output
+    assert message in result.stderr
+    assert staged == []
+
+
+def test_build_only_interrupted_after_its_claim_can_be_retried(
+    world: SimpleNamespace, cwd: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Ctrl-C between the claim and the rename gives the claim back."""
+    real_rename = Path.rename
+
+    def interrupted(self: Path, target: Path) -> None:
+        raise KeyboardInterrupt
+
+    replace_t(world, GROWN)
+    monkeypatch.setattr(Path, "rename", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        rebase_old(world, add=False)
+    monkeypatch.setattr(Path, "rename", real_rename)
+    assert list((cwd / "builds").iterdir()) == []
+    assert rebase_old(world, add=False).status == RebaseStatus.BUILT
+
+
+def test_build_only_without_a_claim_publishes_onto_the_absent_target(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows' path, run here: no mkdir claim, the rename itself publishes."""
+    monkeypatch.setattr(rebase_module, "CLAIM_BEFORE_RENAME", False)
+    replace_t(world, GROWN)
+    result = rebase(runner, world, world.name, "--no-add")
+    assert result.exit_code == 3, result.output
+    build_path = Path(result.stdout.strip())
+    assert (build_path / DumpFiles.expr).is_file()
+    assert [p.name for p in (cwd / "builds").iterdir()] == [build_path.name]
+
+
+def test_build_only_that_fails_after_the_dump_leaves_builds_dir_alone(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The build moves into BUILDS_DIR only once complete."""
+
+    def unreadable(catalog_entry: object, build_path: Path) -> None:
+        raise RebaseError("bundle unreadable", RebaseFailure.UNREACHABLE)
+
+    replace_t(world, GROWN)
+    monkeypatch.setattr(rebase_module, "stage_bundle", unreadable)
+    result = rebase(runner, world, world.name, "--no-add")
+    assert result.exit_code == 2, result.output
+    assert not (cwd / "builds").exists()
+
+
+def test_build_only_whose_copy_fails_leaves_builds_dir_empty(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A move that copies (across filesystems) and fails partway leaves no
+    partial build for a retry to be refused over."""
+    real_move = shutil.move
+
+    def partial_move(src: Path, dst: Path) -> object:
+        Path(dst).mkdir()
+        (Path(dst) / DumpFiles.expr).write_text("half")
+        raise OSError(28, "No space left on device")
+
+    replace_t(world, GROWN)
+    monkeypatch.setattr(rebase_module.shutil, "move", partial_move)
+    result = rebase(runner, world, world.name, "--no-add")
+    monkeypatch.setattr(rebase_module.shutil, "move", real_move)
+    assert result.exit_code == 1, result.output
+    assert list((cwd / "builds").iterdir()) == []
+    retried = rebase(runner, world, world.name, "--no-add")
+    assert retried.exit_code == 3, retried.output
+
+
+def test_build_only_refuses_a_claim_written_into_before_the_rename(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A writer that fills the claimed directory first keeps it; this run is
+    refused and leaves no stage behind."""
+    real_rename = Path.rename
+
+    def written_into(self: Path, target: Path) -> None:
+        (Path(target) / "theirs.txt").write_text("first")
+        raise OSError(39, "Directory not empty")
+
+    replace_t(world, GROWN)
+    monkeypatch.setattr(Path, "rename", written_into)
+    result = rebase(runner, world, world.name, "--no-add")
+    monkeypatch.setattr(Path, "rename", real_rename)
+    assert result.exit_code == 1, result.output
+    assert "exists; --no-add does not replace it" in result.stderr
+    (claimed,) = (cwd / "builds").iterdir()
+    assert [p.name for p in claimed.iterdir()] == ["theirs.txt"]
+
+
+def test_build_only_whose_final_rename_fails_can_be_retried(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The claimed directory is given back, and the error is the rename's own."""
+
+    real_rename = Path.rename
+
+    def full(self: Path, target: Path) -> None:
+        raise OSError(28, "No space left on device")
+
+    replace_t(world, GROWN)
+    monkeypatch.setattr(Path, "rename", full)
+    result = rebase(runner, world, world.name, "--no-add")
+    # Not `undo`, which would also leave the `cwd` fixture's directory.
+    monkeypatch.setattr(Path, "rename", real_rename)
+    assert result.exit_code == 1, result.output
+    assert "No space left on device" in result.stderr
+    assert list((cwd / "builds").iterdir()) == []
+    retried = rebase(runner, world, world.name, "--no-add")
+    assert retried.exit_code == 3, retried.output
+
+
+@pytest.mark.parametrize(
+    "theirs",
+    (pytest.param(("theirs.txt",), id="built"), pytest.param((), id="just-made")),
+)
+def test_build_only_refuses_a_directory_taken_while_it_built(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    theirs: tuple[str, ...],
+) -> None:
+    """Another --no-add or `xorq build` that gets there first wins, even with
+    a directory still empty; this one is refused, not nested inside it nor
+    renamed over it."""
+    real_move = shutil.move
+
+    def move_then_lose_the_race(src: Path, dst: Path) -> object:
+        moved = real_move(src, dst)
+        other = cwd / "builds" / Path(src).name
+        other.mkdir()
+        for name in theirs:
+            (other / name).write_text("first")
+        return moved
+
+    replace_t(world, GROWN)
+    monkeypatch.setattr(rebase_module.shutil, "move", move_then_lose_the_race)
+    result = rebase(runner, world, world.name, "--no-add")
+    # Not `undo`, which would also leave the `cwd` fixture's directory.
+    monkeypatch.setattr(rebase_module.shutil, "move", real_move)
+    assert result.exit_code == 1, result.output
+    assert "exists; --no-add does not replace it" in result.stderr
+    (other,) = (cwd / "builds").iterdir()
+    assert tuple(p.name for p in other.iterdir()) == theirs
+
+
+def test_build_only_without_drift_writes_nothing(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    result = rebase(runner, world, world.name, "--no-add")
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{world.name}\n"
+    assert "no drift" in result.stderr
+    assert not any(cwd.iterdir())
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        pytest.param({"add": False, "alias": "v2"}, id="alias"),
+        pytest.param({"add": False, "move_aliases": True}, id="move-aliases"),
+        pytest.param({"add": False, "dry_run": True}, id="dry-run"),
+    ),
+)
+def test_build_only_refuses_contradicting_arguments(
+    world: SimpleNamespace, kwargs: dict
+) -> None:
+    replace_t(world, GROWN)
+    with pytest.raises(ValueError):
+        rebase_old(world, **kwargs)
+
+
+def test_a_rebased_entry_shows_its_ancestor(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, GROWN)
+    new = rebase_old(world).new_entry
+
+    shown = runner.invoke(cli, ["--path", world.catalog_path, "show", new.name])
+    assert shown.exit_code == 0, shown.output
+    assert f"{'Rebased from:':<15} {world.name}" in shown.stdout.splitlines()
+    as_json = runner.invoke(
+        cli, ["--path", world.catalog_path, "show", new.name, "--json"]
+    )
+    assert as_json.exit_code == 0, as_json.output
+    assert json.loads(as_json.stdout)["rebased_from"] == world.name
+    # Recorded in the archive, where a catalog copy reads it from.
+    with zipfile.ZipFile(new.catalog_path) as zf:
+        (member,) = (m for m in zf.namelist() if m.endswith(DumpFiles.build_metadata))
+        assert json.loads(zf.read(member))["rebased_from"] == world.name
+
+    old = runner.invoke(cli, ["--path", world.catalog_path, "show", world.name])
+    assert "Rebased from:" not in old.stdout
+    old_json = runner.invoke(
+        cli, ["--path", world.catalog_path, "show", world.name, "--json"]
+    )
+    assert "rebased_from" not in json.loads(old_json.stdout)
+    assert reopen(world).get_catalog_entry(world.name).rebased_from is None
+
+
+@pytest.mark.parametrize("copy", ("replay", "clone"))
+def test_the_ancestor_survives_a_catalog_copy(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path, copy: str
+) -> None:
+    replace_t(world, GROWN)
+    new = rebase_old(world).new_entry.name
+    target = str(tmp_path / "copied")
+
+    if copy == "replay":
+        args = ["--path", world.catalog_path, "replay", target]
+    else:
+        args = ["clone", world.catalog_path, "--path", target]
+    copied = runner.invoke(cli, args)
+    assert copied.exit_code == 0, copied.output
+
+    entry = Catalog.from_kwargs(path=target, init=False).get_catalog_entry(new)
+    assert entry.rebased_from == world.name
+    shown = runner.invoke(cli, ["--path", target, "show", new, "--json"])
+    assert shown.exit_code == 0, shown.output
+    assert json.loads(shown.stdout)["rebased_from"] == world.name
+
+
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
 RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
@@ -497,6 +964,22 @@ def refuse_alias_add_failing(w: SimpleNamespace) -> Setup:
     alias_path.parent.mkdir(exist_ok=True)
     alias_path.write_text("not a symlink")
     return w.name, ("--only-alias", "live", "-a", "fresh"), ()
+
+
+def refuse_options(*args: str) -> Callable:
+    """Options that contradict each other, over a drifted source."""
+
+    def setup(w: SimpleNamespace) -> Setup:
+        replace_t(w, GROWN)
+        return w.name, args, ()
+
+    return setup
+
+
+NO_ENTRY_TO_NAME = (
+    "--no-add takes no --alias, --move-aliases or --only-alias: there is no "
+    "entry to name"
+)
 
 
 def refuse_pinned(w: SimpleNamespace) -> Setup:
@@ -652,6 +1135,42 @@ REFUSALS = (
         2,
         "--move-aliases and --only-alias are mutually exclusive",
         id="both-alias-flags",
+    ),
+    pytest.param(
+        refuse_options("--no-add", "-a", "v2"),
+        2,
+        NO_ENTRY_TO_NAME,
+        id="no-add-alias",
+    ),
+    pytest.param(
+        refuse_options("--no-add", "--only-alias", "live"),
+        2,
+        NO_ENTRY_TO_NAME,
+        id="no-add-only-alias",
+    ),
+    pytest.param(
+        refuse_options("--no-add", "--dry-run"),
+        2,
+        "--dry-run and --no-add are mutually exclusive",
+        id="no-add-dry-run",
+    ),
+    pytest.param(
+        refuse_options("--no-add", "--move-aliases"),
+        2,
+        NO_ENTRY_TO_NAME,
+        id="no-add-move-aliases",
+    ),
+    pytest.param(
+        refuse_options("--builds-dir", "out"),
+        2,
+        "--builds-dir applies only with --no-add",
+        id="builds-dir-without-no-add",
+    ),
+    pytest.param(
+        refuse_options("--no-add", "--builds-dir", ""),
+        2,
+        "--builds-dir names no directory",
+        id="empty-builds-dir",
     ),
     pytest.param(
         refuse_alias_add_failing,
@@ -1195,6 +1714,8 @@ ROOT_KEYS = {
     "exit_code",
     "old_entry",
     "new_entry",
+    "new_hash",
+    "build_path",
     "failing_op",
     "drift",
     "aliases",
@@ -1203,7 +1724,18 @@ ROOT_KEYS = {
 ALIAS_KEYS = ("moved", "added", "already", "unmoved", "left")
 FAILURE_STATES = {1: "refused", 2: "unreachable", 4: "conflict"}
 # A usage error exits before the entry resolves, so it prints no document.
-JSON_REFUSALS = tuple(p for p in REFUSALS if p.id != "both-alias-flags")
+USAGE_ERRORS = frozenset(
+    (
+        "both-alias-flags",
+        "no-add-alias",
+        "no-add-only-alias",
+        "no-add-dry-run",
+        "no-add-move-aliases",
+        "builds-dir-without-no-add",
+        "empty-builds-dir",
+    )
+)
+JSON_REFUSALS = tuple(p for p in REFUSALS if p.id not in USAGE_ERRORS)
 # The refusals that come after the sweep, so their document carries it.
 SWEPT_REFUSALS = frozenset(
     (
@@ -1236,6 +1768,9 @@ def rebase_json(runner: CliRunner, world: SimpleNamespace, *args: str) -> tuple:
     assert result.stderr == ""
     assert document["exit_code"] == result.exit_code
     assert set(document) - {"error"} == ROOT_KEYS
+    # A cataloged entry is the hash the rebase derived.
+    if document["new_entry"] is not None:
+        assert document["new_hash"] == document["new_entry"]
     return result, document
 
 
@@ -1557,6 +2092,51 @@ def test_json_prints_nothing_until_the_rebase_ends(
     assert echoed == [True]
 
 
+@pytest.mark.parametrize(
+    "args, state, exit_code",
+    (
+        pytest.param(("--dry-run",), "preview", 3, id="preview"),
+        pytest.param(("--no-add",), "built", 3, id="built"),
+    ),
+)
+def test_json_reports_a_rebase_it_did_not_catalog(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    args: tuple[str, ...],
+    state: str,
+    exit_code: int,
+) -> None:
+    """No new entry, but the hash it would have, and where --no-add wrote it."""
+    replace_t(world, GROWN)
+    result, document = rebase_json(runner, world, world.name, *args)
+    assert (document["state"], result.exit_code) == (state, exit_code)
+    assert document["new_entry"] is None
+    assert document["new_hash"] not in (None, world.name)
+    built = document["build_path"]
+    assert (built is None) == (state == "preview")
+    if built is not None:
+        assert Path(built) == cwd / "builds" / document["new_hash"]
+    assert document["drift"]["state"] == "changed"
+    assert reopen(world).list() == [world.name]
+
+
+def test_json_preview_reports_what_the_rebase_would_do_to_aliases(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    """The plan the preview checked, as stderr reports it, not empty lists."""
+    replace_t(world, GROWN)
+    result, document = rebase_json(
+        runner, world, world.name, "--dry-run", "--only-alias", "live", "-a", "v2"
+    )
+    assert (document["state"], result.exit_code) == ("preview", 3)
+    assert document["aliases"] == aliases_document(
+        moved=["live"], added=["v2"], left=["staging"]
+    )
+    assert targets(world, "live", "staging") == (world.name, world.name)
+    assert "v2" not in reopen(world).list_aliases()
+
+
 def test_json_puts_what_resolving_the_entry_warned_in_the_document(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1662,7 +2242,7 @@ def test_a_rebase_error_keeps_its_sweep_across_processes(
     assert restored.reports == reports
 
 
-def test_every_rebase_state_has_its_own_exit_code() -> None:
+def test_every_rebase_state_names_its_exit_code() -> None:
     """Only a completed rebase exits 0; a new state must name its code."""
     assert {state: state.exit_code for state in (*RebaseStatus, *RebaseFailure)} == {
         RebaseStatus.NOOP: 0,
@@ -1670,6 +2250,8 @@ def test_every_rebase_state_has_its_own_exit_code() -> None:
         RebaseStatus.REBASED: 0,
         RebaseStatus.CONFLICT: RebaseExit.CONFLICT,
         RebaseStatus.PUSH_FAILED: RebaseExit.PUSH_FAILED,
+        RebaseStatus.PREVIEW: RebaseExit.UNCATALOGED,
+        RebaseStatus.BUILT: RebaseExit.UNCATALOGED,
         RebaseFailure.REFUSED: RebaseExit.REFUSED,
         RebaseFailure.UNREACHABLE: RebaseExit.UNREACHABLE,
         RebaseFailure.FAILED: RebaseExit.REFUSED,
