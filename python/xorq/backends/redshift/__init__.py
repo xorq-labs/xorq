@@ -276,7 +276,7 @@ class Backend(PostgresBackend):
         **Deliberately not dispatched on ``_adbc_unavailable_reason()``.** That
         predicate answers "is the accelerator installed and credentialed",
         which is the right question for ``to_pyarrow_batches`` and the wrong
-        one here: it returns ``None`` on every credentialed install, so
+        one here: it returns ``None`` for every connection given a password, so
         dispatching on it selected the branch that cannot run and left the one
         that works as dead code. The two paths' correct answers are inversely
         correlated, so they must not share a predicate -- and after this method

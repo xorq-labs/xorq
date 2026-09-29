@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-28
 - **Deciders:** dlovell
-- **Related:** ADR-0003
+- **Related:** —
 
 ## Context
 
@@ -48,21 +48,23 @@ connection can only have gone through IAM.
 
 Two parts, and the second only makes sense because of the first.
 
-**1. psycopg is the baseline.** Connect, DDL and query run over psycopg, and it
-is the only ingest (below). The read path falls back to it when the accelerator
-is absent; a failed connect raises instead, and execute keeps one narrow catch
-(see *Degrading*).
+**1. psycopg is the baseline.** Connect, DDL and introspection run over psycopg,
+and it is the only ingest (below). Reads that produce Arrow (`execute`,
+`to_pyarrow`, `to_pyarrow_batches`) use the accelerator when a connection can
+have it and psycopg otherwise; *Degrading* says when each happens.
 
 **2. The accelerator is `adbc_driver_postgresql`.** Redshift speaks the
 PostgreSQL wire protocol, and that driver is an ordinary PyPI dependency already
-declared for the postgres backend: `pyproject.toml` lists the extras that carry
-it. It publishes wheels for more platforms than Columnar, Intel Mac included,
+declared for the postgres backend, and the `redshift` extra installs it too
+(`pyproject.toml`), so on a declared install the accelerator is always present
+and "optional" is decided per connection; whether a psycopg-only extra should
+exist is left open there. It publishes wheels for more platforms than Columnar, Intel Mac included,
 and it is what the inherited `to_pyarrow_batches` already reaches for.
 
 | Path | Driver | Role |
 |---|---|---|
-| connect, DDL, introspection, query | psycopg | baseline, PyPI-installable |
-| `to_pyarrow_batches` | `adbc_driver_postgresql` | accelerator, optional |
+| connect, DDL, introspection | psycopg | baseline, PyPI-installable |
+| `to_pyarrow_batches` (and so `execute`) | `adbc_driver_postgresql` | accelerator, per connection |
 | `read_record_batches` (ingest) | psycopg | the only ingest; **must not dispatch on the read path's availability predicate** |
 
 What the choice of driver rests on, measured against live Redshift Serverless:
@@ -72,8 +74,9 @@ and `to_pyarrow_batches` all returned values matching psycopg. Redshift
 `numeric` arrives as an opaque extension type that the per-batch cast converts
 to the ibis schema's decimal. The one read failure seen live is not the
 driver's: Redshift lower-cases an auto-generated upper-case alias even when it
-is quoted, and xorq's per-batch cast matches fields by name, so any driver
-returning the folded name meets it. The feared failures on Redshift's incomplete
+is quoted, and the accelerated branch's per-batch cast matches fields by name,
+so any driver returning the folded name meets it there. The psycopg branch
+builds batches by position and does not. The feared failures on Redshift's incomplete
 `pg_catalog` were all in xorq's own psycopg introspection, not in the driver.
 
 ### Ingest has no accelerator, and must not pretend otherwise
@@ -113,15 +116,18 @@ connect. Under an optional driver a blanket `except` is the mechanism itself: it
 makes an expired credential or a rejected login indistinguishable from an absent
 driver, and the operator sees a slow query instead of an error. So the Redshift
 backend decides availability from local facts before dialling, and does not
-wrap the connect; a failed connect raises. `_open_adbc_conn_or_none` and
+wrap the connect; a failed connect raises, on the first read of the batches.
+`_open_adbc_conn_or_none` and
 `_adbc_unavailable_reason` in `python/xorq/backends/redshift/__init__.py` are
 the implementation.
 
 Execute is different. The inherited `to_pyarrow_batches`
-(`python/xorq/backends/postgres/__init__.py`) keeps a narrow catch around the
-ADBC query that re-runs it on psycopg. It is what reads session-local temporary
-tables, which a separate ADBC connection cannot see and a `temporary=True`
-ingest creates, so it stays. Its cost is recorded under *Negative*.
+(`python/xorq/backends/postgres/__init__.py`) catches every
+`ADBCProgrammingError` from the ADBC query and re-runs the query on psycopg.
+That covers what the separate ADBC connection cannot see (session-local
+temporary tables, which a `temporary=True` ingest creates, and any session
+state set through psycopg), and also syntax, permission and missing-relation
+errors. Its cost is under *Negative*.
 
 The accelerator is a second connection, opened per read, so it must be
 configured like the first. `PgADBC` (`python/xorq/common/utils/postgres_utils.py`)
@@ -151,8 +157,9 @@ The pattern the backends with `dbc install` steps in `.github/workflows/` use.
 
 Rejected as *primary*. It cannot be captured in `uv.lock`, so the environment is
 not reproducible from the lockfile, and the installed driver version is whatever
-the last out-of-band run left. Nothing here accepts a `driver=` name, so it is a
-precedent, not a working Redshift path.
+the last out-of-band run left. Those backends open their driver by name
+(`dbapi.connect(driver=...)` in `python/xorq/common/utils/databricks_utils.py`);
+this one has no such path, so it is a precedent, not a working Redshift path.
 
 ### Make the driver mandatory
 
@@ -188,8 +195,16 @@ the Columnar driver on Redshift is recorded.
   compatibility is a courtesy, so a release could regress against Redshift with
   nobody upstream treating it as a bug. `pyproject.toml` gives it no upper bound,
   so such a release would install automatically. A live-Redshift job would only
-  catch it by asserting which branch served each read, because the execute-stage
-  catch re-runs some failures on psycopg without notice.
+  catch it by asserting which branch served each read.
+- **The execute-stage catch hides and repeats failures.** A query that fails on
+  ADBC for any server-side reason runs a second time on psycopg, without a log
+  line, and the error the caller sees is psycopg's. A read that silently lands
+  on psycopg looks the same as one ADBC served.
+- **A temporary IAM password is read at connect and reused.** The accelerator
+  dials with the password in the connection's kwargs on every read, so once it
+  expires every accelerated read raises while the psycopg session stays
+  authenticated. `clone` reuses it too, unless it was passed as an environment
+  reference, which `clone` resolves again. Nothing here refreshes it.
 - **Which read branch serves a query is decided per connection, not per
   install.** `_adbc_unavailable_reason` rules the accelerator out for a
   connection with no password to hand it, which includes every backend built by
@@ -218,5 +233,3 @@ the Columnar driver on Redshift is recorded.
   the import requirement
 - `python/xorq/backends/postgres/tests/test_adbc_connection_settings.py` — the
   two connections agreeing, against a server
-- [ADR-0003](0003-optional-git-annex-backend.md) — making an external
-  dependency optional behind an abstraction

@@ -42,9 +42,10 @@ def make_offline_con(user: str, password: str) -> PostgresBackend:
     ],
 )
 def test_get_uri_round_trips_userinfo_through_libpq(user: str, password: str) -> None:
-    """libpq splits userinfo on the first ``:`` and the last ``@``, so raw
-    interpolation shifts the components silently: ``IAMR:MyRole`` with
-    ``p@ss/w0rd`` parsed as user ``IAMR``, and ``%`` is a parse error. The
+    """libpq ends userinfo at the first ``@`` and splits user from password
+    at the first ``:``, so raw interpolation shifts the components silently:
+    ``IAMR:MyRole`` with ``p@ss/w0rd`` parsed as user ``IAMR``, and ``%`` is a
+    parse error. The
     parse is libpq's own, through psycopg, because that is what the ADBC
     driver hands the URI to."""
     uri = PgADBC(make_offline_con(user, password)).get_uri()
@@ -57,3 +58,31 @@ def test_get_uri_round_trips_userinfo_through_libpq(user: str, password: str) ->
         "5432",
         "d",
     )
+
+
+def test_get_uri_carries_the_callers_libpq_settings() -> None:
+    """The settings a caller passes reach the ADBC URI and parse back through
+    libpq; ``sslmode`` and ``sslrootcert`` are the ones a verified TLS
+    connection depends on. Keys only libpq reported are not the caller's and
+    are not in ``_con_kwargs``, so they cannot appear."""
+    con = PostgresBackend()
+    type(con).__init__(
+        con,
+        host="example.invalid",
+        user="u",
+        password="p",
+        sslmode="verify-full",
+        sslrootcert="/etc/ssl/ca.pem",
+        connect_timeout=7,
+        schema="s",
+        options="-c statement_timeout=5000",
+    )
+    con.con = _FakeConnection("u")
+
+    parsed = psycopg.conninfo.conninfo_to_dict(PgADBC(con).get_uri())
+
+    assert parsed["sslmode"] == "verify-full"
+    assert parsed["sslrootcert"] == "/etc/ssl/ca.pem"
+    assert parsed["connect_timeout"] == "7"
+    assert parsed["options"] == "-c statement_timeout=5000 -csearch_path=s"
+    assert "sslcertmode" not in parsed

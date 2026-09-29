@@ -28,8 +28,10 @@ from xorq.vendor.ibis.backends.sql.compilers.base import STAR, AlterTable, Renam
 # libpq keywords a caller may pass through ``connect`` beyond the ones the URI's
 # authority carries. Taken from psycopg's libpq, and forwarded only when the
 # caller passed them: the live connection's ``get_parameters()`` also reports
-# settings nobody asked for (libpq 17+ reports ``sslcertmode``), and an older
-# libpq inside the ADBC driver rejects those as invalid URI parameters.
+# settings nobody asked for (libpq 17+ reports ``sslcertmode``), and libpq
+# rejects a URI parameter it does not know, so a key from psycopg's newer libpq
+# could fail against the driver's. Measured with an unknown keyword; whether any
+# driver release this project allows predates ``sslcertmode`` is not.
 LIBPQ_SETTING_KEYWORDS = frozenset(
     option.keyword.decode() for option in psycopg.pq.Conninfo.get_defaults()
 ) - {"user", "password", "host", "port", "dbname"}
