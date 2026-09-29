@@ -559,7 +559,8 @@ class RedshiftType(PostgresType):
 
     @classmethod
     def _from_ibis_Decimal(cls, dtype: dt.Decimal) -> sge.DataType:
-        """Refuse a precision past Redshift's documented maximum of 38.
+        """Refuse a precision past Redshift's documented maximum of 38, and
+        give an unparameterized decimal an explicit precision.
 
         The inherited mapper spells ``DECIMAL(76, 38)`` verbatim, which the
         ``CREATE`` or ``CAST`` rejects without naming the column.
@@ -568,6 +569,20 @@ class RedshiftType(PostgresType):
             raise com.UnsupportedBackendType(
                 f"Redshift decimals hold at most 38 digits; {dtype} does not "
                 "fit. Cast the column to a narrower decimal or to a float first."
+            )
+        if dtype.precision is None and dtype.scale is None:
+            # A bare DECIMAL is arbitrary-precision in PostgreSQL and
+            # DECIMAL(18, 0) -- an integer -- in Redshift. The inherited
+            # visitors upcast to it before ROUND and %, so round(2) of 0.0312
+            # came back 0 and a float modulus divided by a truncated operand
+            # (measured on compute, 2026-09-28). The widest precision, with
+            # scale split evenly, keeps both sides of the point.
+            return sge.DataType(
+                this=typecode.DECIMAL,
+                expressions=[
+                    sge.DataTypeParam(this=sge.convert(38)),
+                    sge.DataTypeParam(this=sge.convert(18)),
+                ],
             )
         return super()._from_ibis_Decimal(dtype)
 

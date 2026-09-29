@@ -34,6 +34,12 @@ MEASURED_ABSENT_FUNCTIONS: dict[str, str] = {
     "hashtextextended": "rejected 2026-09-28",
     "gen_random_uuid": "rejected 2026-09-28",
     "encode": "rejected on compute 2026-09-28",
+    "pg_typeof": "rejected on compute 2026-09-28",
+    "array_remove": "rejected on compute 2026-09-28",
+    "cardinality": "rejected on compute 2026-09-28",
+    "corr": "rejected on compute for bigint and double, 2026-09-28",
+    "covar_pop": "rejected on compute 2026-09-28",
+    "map": "MAP( is a syntax error on compute, 2026-09-28",
 }
 
 # The same facts on the RENDERED side, plus forms that exist but are wrong here.
@@ -56,6 +62,17 @@ ABSENT_OR_UNSAFE_SQL: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"\bHASHTEXTEXTENDED\s*\(", "absent"),
         (r"\bGEN_RANDOM_UUID\s*\(", "absent"),
         (r"\bENCODE\s*\(", "absent"),
+        (r"\bPG_TYPEOF\s*\(", "absent"),
+        (r"\bARRAY_REMOVE\s*\(", "absent"),
+        (r"\bCARDINALITY\s*\(", "absent"),
+        (r"\bCORR\s*\(", "absent"),
+        (r"\bCOVAR_(POP|SAMP)\s*\(", "absent"),
+        (r"\bMAP\s*\(", "absent"),
+        (r"\bTO_TIMESTAMP\s*\([^,()]*\)", "one-argument form absent"),
+        (
+            r"\bREGEXP_REPLACE\s*\((?:[^()]|\([^()]*\))*,\s*'g'\s*\)",
+            "4th argument is a position",
+        ),
         (r"\bSTARTS_WITH\s*\(", "absent"),
         (r"\bFILTER\s*\(\s*WHERE\b", "no aggregate FILTER clause (2026-09-24)"),
         (r"'escape'\s*\)", "bytea escape format; DECODE is CASE-style here"),

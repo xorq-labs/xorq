@@ -662,6 +662,7 @@ _INTENDED_TYPE_DIVERGENCES = {
     "uuid": "no uuid type; refused",
     "inet": "no inet type; refused",
     "decimal(76, 38)": "precision past 38; refused",
+    "decimal": "bare DECIMAL is DECIMAL(18, 0) on Redshift; DECIMAL(38, 18)",
 }
 
 _PROBED_DTYPES = [
@@ -751,10 +752,15 @@ def test_redshift_type_casts_diverge_from_postgres_only_where_intended(
     assert diverging == set(_INTENDED_TYPE_DIVERGENCES)
 
 
-def test_only_typeof_diverges_among_ops_that_cast_internally(t: ir.Table) -> None:
+def test_only_the_decimal_upcasts_diverge_among_ops_that_cast_internally(
+    t: ir.Table,
+) -> None:
     """Ops whose visitors cast through the mapper with no cast in the user's
-    expression. ``TypeOf`` casts ``pg_typeof`` to ``string``, so it picks up
-    ``VARCHAR(65535)``, which is harmless."""
+    expression. ``Round(digits)`` and ``%`` over floats upcast to a bare
+    decimal, which is ``DECIMAL(18, 0)`` on Redshift, so the mapper spells it
+    ``DECIMAL(38, 18)``: that is the divergence, and it is the fix (measured,
+    ``round(2)`` of 0.0312 came back 0). ``TypeOf`` used to diverge through
+    its string cast and is now refused outright, identically on both."""
     exprs = {
         "Literal[binary]": t.select(o=xo.literal(b"\x01")),
         "Literal[json]": t.select(o=xo.literal('{"a": 1}', type="json")),
@@ -766,14 +772,14 @@ def test_only_typeof_diverges_among_ops_that_cast_internally(t: ir.Table) -> Non
         "TryCast[decimal]": t.select(o=t.s.try_cast("decimal(18, 3)")),
         "EpochSeconds": t.select(o=t.s.cast("timestamp").epoch_seconds()),
         "Mean[bool]": t.select(o=t.flag.mean()),
-        "TypeOf": t.select(o=t.id.typeof()),
+        "Modulus[float]": t.select(o=t.amt % 0.5),
     }
     diverging = {
         name
         for name, expr in exprs.items()
         if _cast_sql(redshift_compiler, expr) != _cast_sql(_POSTGRES_MAPPED, expr)
     }
-    assert diverging == {"TypeOf"}
+    assert diverging == {"Round(digits)", "Modulus[float]"}
 
 
 def test_last_raises_like_first(t):
@@ -902,6 +908,79 @@ def test_postgres_only_functions_raise_naming_the_op(
 ) -> None:
     """The inherited visitors emit ``HASHTEXTEXTENDED``, ``GEN_RANDOM_UUID`` and
     ``REGEXP_MATCH(...)[n]``, none of which Redshift has."""
+    with pytest.raises(com.OperationNotDefinedError, match=op):
+        to_sql(build(t))
+
+
+def test_find_in_set_is_a_case_over_the_values(t):
+    """Redshift's ARRAY_POSITION is 0-based over SUPER and returns -1 when
+    missing, so the inherited lowering answered -2 for a missing value
+    (measured). ibis wants the 0-based position, or -1."""
+    sql = to_sql(t.select(o=t.s.find_in_set(["a", "b"])))
+    assert "ARRAY_POSITION" not in sql.upper()
+    assert (
+        'CASE WHEN "t0"."s" = \'a\' THEN 1 WHEN "t0"."s" = \'b\' THEN 2 ELSE 0 END - 1'
+        in sql
+    )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").ln(), id="ln"),
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log10(), id="log10"),
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log2(), id="log2"),
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log(3), id="log-base"),
+    ],
+)
+def test_logarithms_of_decimals_run_over_double_precision(t, build):
+    """LN and LOG over NUMERIC are leader-node-only, and the two-argument LOG is
+    for every type (measured on compute)."""
+    sql = to_sql(t.select(o=build(t)))
+    assert "LN(CAST(" in sql and "AS DOUBLE PRECISION))" in sql
+    assert "LOG(" not in sql.upper()
+
+
+def test_integer_to_timestamp_counts_seconds_from_the_epoch(t):
+    """Redshift has no one-argument TO_TIMESTAMP (measured)."""
+    sql = to_sql(t.select(o=t.id.cast("timestamp")))
+    assert 'DATEADD(second, "t0"."id", CAST(\'1970-01-01\' AS TIMESTAMP))' in sql
+    with pytest.raises(com.UnsupportedOperationError, match="time-zone-aware"):
+        to_sql(t.select(o=t.id.cast("timestamp('UTC')")))
+
+
+def test_regex_replace_takes_three_arguments(t):
+    """The fourth argument is a start position on Redshift, so the inherited
+    'g' flag failed as "invalid input syntax for integer" (measured)."""
+    sql = to_sql(t.select(o=t.s.re_replace("a", "b")))
+    assert "REGEXP_REPLACE(\"t0\".\"s\", 'a', 'b')" in sql
+
+
+@pytest.mark.parametrize(
+    ("build", "op"),
+    [
+        pytest.param(lambda t: t.select(o=t.id.typeof()), "TypeOf", id="typeof"),
+        pytest.param(
+            lambda t: t.aggregate(o=t.id.corr(t.amt, how="pop")),
+            "Correlation",
+            id="corr",
+        ),
+        pytest.param(
+            lambda t: t.aggregate(o=t.id.cov(t.amt, how="pop")),
+            "Covariance",
+            id="cov",
+        ),
+        pytest.param(
+            lambda t: t.select(o=xo.map(xo.array(["a"]), xo.array([t.id]))),
+            "Map",
+            id="map",
+        ),
+        pytest.param(
+            lambda t: t.select(o=xo.struct({"a": t.id})), "StructColumn", id="struct"
+        ),
+    ],
+)
+def test_ops_measured_absent_on_compute_raise(t, build, op):
     with pytest.raises(com.OperationNotDefinedError, match=op):
         to_sql(build(t))
 

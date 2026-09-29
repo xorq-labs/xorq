@@ -191,6 +191,33 @@ class RedshiftCompiler(PostgresCompiler):
         # mapper refuses array columns, so a subscript can never apply.
         ops.ArrayIndex,
         ops.ArraySlice,
+        # Measured on compute through the live probe harness: ``PG_TYPEOF``,
+        # ``ARRAY_REMOVE`` and ``CARDINALITY`` do not exist, and a ``ROW``
+        # expression "is not supported in target list".
+        ops.TypeOf,
+        ops.ArrayRemove,
+        ops.ArrayRepeat,
+        ops.StructColumn,
+        # ``CORR`` and ``COVAR_POP`` do not exist, for any argument type
+        # (measured on compute), and neither does a ``MAP`` constructor: the
+        # mapper already refuses map types, and these are the ops over them.
+        ops.Correlation,
+        ops.Covariance,
+        ops.Map,
+        ops.MapConcat,
+        ops.MapContains,
+        ops.MapGet,
+        ops.MapKeys,
+        ops.MapLength,
+        ops.MapMerge,
+        ops.MapValueForKey,
+        ops.MapValueOrDefaultForKey,
+        ops.MapValues,
+        # Both can only produce or read a type the mapper refuses -- an array
+        # and a struct -- and ``TimestampRange`` is also the last route to
+        # ``ARRAY_REMOVE`` (measured absent) and ``GENERATE_SERIES``.
+        ops.TimestampRange,
+        ops.StructField,
     )
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
@@ -450,6 +477,22 @@ class RedshiftCompiler(PostgresCompiler):
         means.
         """
         from_ = op.arg.dtype
+        if from_.is_integer() and to.is_timestamp():
+            # Redshift has no one-argument TO_TIMESTAMP (measured on compute).
+            # The epoch plus that many seconds is the documented idiom; the
+            # time-zone-aware form would depend on the session's zone, so it
+            # raises instead.
+            if to.timezone is not None:
+                raise com.UnsupportedOperationError(
+                    "Casting an integer to a time-zone-aware timestamp is not "
+                    "supported on Redshift; cast to a naive timestamp, which is "
+                    "read as UTC seconds since the epoch."
+                )
+            return self.f.dateadd(
+                sge.Var(this="second"),
+                arg,
+                self.cast(sge.convert("1970-01-01"), dt.timestamp),
+            )
         if from_.is_string() and to.is_binary():
             return self.f.to_varbyte(arg, "utf8")
         if from_.is_binary() and to.is_string():
@@ -457,6 +500,61 @@ class RedshiftCompiler(PostgresCompiler):
         return super().visit_Cast(op, arg=arg, to=to)
 
     visit_TryCast = visit_Cast
+
+    def _ln(self, op_arg, arg):
+        """``LN`` of ``arg``, cast to double first when it is a decimal.
+
+        Measured on compute: ``LN`` and ``LOG`` over a ``NUMERIC`` are
+        leader-node-only ("not supported on Redshift tables"), so they fail on
+        any query that reads a table, while over ``DOUBLE PRECISION`` or an
+        integer they run. ``EXP``, ``SQRT``, ``POWER`` and the trigonometric
+        functions take ``NUMERIC`` on compute and need nothing.
+        """
+        if op_arg.dtype.is_decimal():
+            arg = self.cast(arg, dt.float64)
+        return self.f.ln(arg)
+
+    def visit_Ln(self, op, *, arg):
+        return self._ln(op.arg, arg)
+
+    def visit_Log10(self, op, *, arg):
+        return self._ln(op.arg, arg) / self.f.ln(10)
+
+    def visit_Log(self, op, *, arg, base):
+        """``LN(x) / LN(b)``, not PostgreSQL's two-argument ``LOG(b, x)``,
+        which is leader-node-only for every argument type (measured)."""
+        if base is None:
+            return self._ln(op.arg, arg)
+        return self.cast(self._ln(op.arg, arg) / self._ln(op.base, base), op.dtype)
+
+    def visit_Log2(self, op, *, arg):
+        return self.cast(self._ln(op.arg, arg) / self.f.ln(2), op.dtype)
+
+    def visit_RegexReplace(self, op, *, arg, pattern, replacement):
+        """Three arguments. Redshift replaces every match by default, and its
+        fourth argument is a start POSITION: the base visitor's ``'g'`` flag
+        landed there and failed with ``invalid input syntax for integer: "g"``
+        (measured on compute). The call is anonymous because sqlglot's
+        generator appends ``'g'`` to every ``RegexpReplace`` node it renders."""
+        return sge.Anonymous(
+            this="REGEXP_REPLACE", expressions=[arg, pattern, replacement]
+        )
+
+    def visit_FindInSet(self, op, *, needle, values):
+        """A ``CASE`` over the values, giving the 1-based position or 0.
+
+        The postgres visitor uses ``ARRAY_POSITION``, which on Redshift takes a
+        SUPER array, is 0-based, and returns -1 for a missing value. Measured
+        on compute, ``find_in_set`` of a missing value came back -2 rather than
+        -1: silent wrong answers, and off by one when the value is present.
+        """
+        return sge.Case(
+            ifs=[
+                self.if_(needle.eq(value), position)
+                for position, value in enumerate(values, start=1)
+            ],
+            default=sge.convert(0),
+        )
 
     def visit_StartsWith(self, op, *, arg, start):
         """``LEFT(s, LENGTH(p)) = p``, not ``s LIKE p || '%'``.
