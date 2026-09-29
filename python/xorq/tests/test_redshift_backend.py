@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
+import json
 import re
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from types import ModuleType
 
 import pyarrow as pa
@@ -1498,6 +1500,119 @@ def test_get_schema_does_not_look_for_a_temp_table_when_the_lookup_was_explicit(
 
 
 # --- types neither path may quietly get wrong -------------------------------
+
+
+# One row per Redshift type the warehouse actually holds: how svv_all_columns
+# spells it (with the precision and scale it reports), how a result
+# description reports the same column (OID and psycopg type_display), and the
+# dtype both introspection paths must bind. Every row was read off one real
+# column on a live warehouse, both sides from that column, except the two
+# interval rows, whose catalog spelling was read from svv_columns for a
+# temporary table (svv_all_columns lists none). A type with no row here is
+# unmeasured on at least one side; add it only from a measurement.
+TYPE_PARITY_ROWS = (
+    ("bigint", 64, 0, 20, "int8", dt.Int64(nullable=True)),
+    ("integer", 32, 0, 23, "int4", dt.Int32(nullable=True)),
+    ("numeric", 12, 4, 1700, "numeric(12,4)", dt.Decimal(12, 4, nullable=True)),
+    ("boolean", None, None, 16, "bool", dt.Boolean(nullable=True)),
+    ("character varying", None, None, 1043, "varchar(32)", dt.String(nullable=True)),
+    ("date", None, None, 1082, "date", dt.Date(nullable=True)),
+    (
+        "timestamp without time zone",
+        None,
+        None,
+        1114,
+        "timestamp",
+        dt.Timestamp(scale=6, nullable=True),
+    ),
+    ("binary varying", None, None, 6551, "6551", dt.Binary(nullable=True)),
+    ("super", None, None, 4000, "4000", dt.NamedUnknown(raw_type="super")),
+    (
+        "intervaly2m",
+        None,
+        None,
+        1188,
+        "1188",
+        dt.NamedUnknown(raw_type="intervaly2m"),
+    ),
+    (
+        "intervald2s",
+        None,
+        None,
+        1190,
+        "1190",
+        dt.NamedUnknown(raw_type="intervald2s"),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("data_type", "precision", "scale", "oid", "type_display", "expected"),
+    [pytest.param(*row, id=row[0]) for row in TYPE_PARITY_ROWS],
+)
+def test_both_introspection_paths_bind_a_measured_type_alike(
+    data_type: str,
+    precision: int | None,
+    scale: int | None,
+    oid: int,
+    type_display: str,
+    expected: dt.DataType,
+) -> None:
+    """``con.table`` and ``con.sql`` reach one column's dtype by different
+    routes -- a catalog spelling on one, an OID and psycopg's name for it on
+    the other -- and the two drifted apart once per type this backend learned
+    about: ``bpchar``, ``VARBYTE``, an unknown OID, the interval types. One
+    table, asserted through both, is what keeps them together."""
+    from_catalog = RedshiftBackend._schema_from_catalog_rows(
+        [("c", data_type, "YES", precision, scale)]
+    )["c"]
+    query_con = make_introspection_con(
+        description=(_FakeColumn("c", oid, type_display),)
+    )
+    from_query = query_con._get_schema_using_query("SELECT c FROM t")["c"]
+
+    assert from_catalog == expected
+    assert from_query == expected
+
+
+QUERY_PATH_TYPE_MAPPING = json.loads(
+    (
+        Path(__file__).parent / "fixtures" / "redshift_query_path_type_mapping.json"
+    ).read_text()
+)
+
+
+@pytest.mark.parametrize(
+    ("oid", "type_display", "expected"),
+    [
+        pytest.param(*entry, id=f"{entry[0]}-{entry[1]}")
+        for entry in QUERY_PATH_TYPE_MAPPING["entries"]
+    ],
+)
+def test_the_query_path_maps_every_pinned_type_alike_on_every_sqlglot(
+    oid: int, type_display: str, expected: str
+) -> None:
+    """Every name psycopg's registry can put in a result description, pinned
+    with the dtype it binds as. The inputs are pinned too, not read from the
+    installed psycopg, so only sqlglot and this backend can move a result --
+    which is the point: the lowest-direct CI job runs this at sqlglot 23.6.3,
+    where ``int8`` used to bind as an 8-bit integer while the locked version
+    got it right, and nothing else looked at every name.
+
+    A failure here is a changed mapping. If the change is intended,
+    regenerate the fixture and review its diff line by line::
+
+        for info in psycopg.postgres.types:
+            for oid in (info.oid, info.array_oid):
+                display = info.get_type_display(oid=oid, fmod=-1)
+                ...repr(RedshiftBackend._column_dtype_from_description(column))
+
+    plus one entry per ``RedshiftBackend._REDSHIFT_TYPE_OIDS`` OID, whose
+    display psycopg renders as the bare number.
+    """
+    column = _FakeColumn("c", oid, type_display)
+
+    assert repr(RedshiftBackend._column_dtype_from_description(column)) == expected
 
 
 def test_both_paths_agree_on_a_char_column() -> None:
