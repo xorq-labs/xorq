@@ -57,6 +57,7 @@ from xorq.catalog.constants import (
     MAIN_BRANCH,
     METADATA_APPEND,
     PREFERRED_SUFFIX,
+    REBASED_FROM,
 )
 from xorq.catalog.content_store import ContentStoreConfig, atomic_write
 from xorq.catalog.enums import CatalogInfix
@@ -1317,6 +1318,20 @@ class Catalog:
         return repo
 
 
+def read_rebased_from(text: str) -> str | None:
+    """The ancestor ``build_metadata.json`` text names, if it is a rebase.
+
+    ``None`` for malformed metadata too: the ancestor is provenance, and an
+    archive that fails to record it still adds.
+    """
+    try:
+        metadata = json.loads(text)
+    except ValueError:
+        return None
+    rebased_from = metadata.get(REBASED_FROM) if isinstance(metadata, dict) else None
+    return rebased_from if isinstance(rebased_from, str) else None
+
+
 @frozen
 class CatalogAddition:
     """Encapsulates the operation of adding a build archive to a catalog.
@@ -1346,12 +1361,18 @@ class CatalogAddition:
         backends = [
             v["con_name"] for v in profiles_data.values() if isinstance(v, dict)
         ]
+        # Lifted from the archive, so a catalog copy, which re-adds from the
+        # archive, keeps it.
+        rebased_from = self.build_zip.read_dump_file(
+            DumpFiles.build_metadata, read_rebased_from
+        )
         return {
             k: v
             for k, v in {
                 "md5sum": self.build_zip.md5sum,
                 "backends": backends,
                 "expr_metadata": expr_data,
+                REBASED_FROM: rebased_from,
             }.items()
             if v is not None
         }
@@ -1507,6 +1528,11 @@ class CatalogEntry:
     @cached_property
     def backends(self) -> tuple[str, ...]:
         return tuple(self.sidecar_metadata.get("backends", ()))
+
+    @cached_property
+    def rebased_from(self) -> str | None:
+        """The entry this one was rebased from, ``None`` if it wasn't."""
+        return self.sidecar_metadata.get(REBASED_FROM)
 
     @property
     def aliases(self):

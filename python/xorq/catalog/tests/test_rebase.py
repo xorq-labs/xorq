@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import zipfile
@@ -296,6 +297,229 @@ def test_rebase_entry_checks_its_alias_arguments(world: SimpleNamespace) -> None
     assert noop.status == RebaseStatus.NOOP
 
 
+# Preview, build-only, and provenance (#2325).
+@pytest.fixture
+def cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An empty working directory, for `./builds` and to show nothing lands."""
+    path = tmp_path / "cwd"
+    path.mkdir()
+    monkeypatch.chdir(path)
+    return path
+
+
+def test_a_preview_of_a_drifted_entry_reports_both_hashes_and_writes_nothing(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    replace_t(world, GROWN)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, "--dry-run", "-a", "v2")
+    assert result.exit_code == 3, result.output
+    new = result.stdout.strip()
+    assert new != world.name
+    assert f"Would rebase {world.name} -> {new}; nothing written" in result.stderr
+    assert "Alias 'v2' not added" in result.stderr
+    assert reopen(world).list() == [world.name]
+    assert "v2" not in reopen(world).list_aliases()
+    assert targets(world, "live", "staging") == (world.name, world.name)
+    assert commit_count(reopen(world)) == commits
+    assert not any(cwd.iterdir())
+    # The hash previewed is the one the rebase then catalogs.
+    rebased = rebase(runner, world)
+    assert rebased.exit_code == 0, rebased.output
+    assert rebased.stdout.strip() == new
+
+
+@pytest.mark.parametrize(
+    "drift_t, exit_code",
+    (
+        pytest.param(lambda w: None, 0, id="undrifted"),
+        pytest.param(
+            lambda w: replace_t(w, pa.table({"b": ["x", "y"]})), 4, id="conflicted"
+        ),
+    ),
+)
+def test_a_preview_without_a_rebase_to_make_exits_as_the_rebase_would(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    drift_t: Callable,
+    exit_code: int,
+) -> None:
+    drift_t(world)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, "--dry-run")
+    assert result.exit_code == exit_code, result.output
+    assert "Would rebase" not in result.stderr
+    assert result.stdout == ("" if exit_code else f"{world.name}\n")
+    assert reopen(world).list() == [world.name]
+    assert commit_count(reopen(world)) == commits
+    assert not any(cwd.iterdir())
+
+
+def test_a_preview_result_names_the_new_hash(world: SimpleNamespace) -> None:
+    replace_t(world, GROWN)
+
+    previewed = rebase_old(world, dry_run=True)
+    assert previewed.status == RebaseStatus.PREVIEW
+    assert previewed.new_entry.name == world.name
+    assert previewed.build_path is None
+    assert previewed.new_hash == rebase_old(world).new_entry.name
+
+
+@ALL_BACKENDS
+def test_build_only_prints_a_directory_that_adds_to_the_same_hash(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    replace_t(world, GROWN)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, "--no-add")
+    assert result.exit_code == 0, result.output
+    build_path = Path(result.stdout.strip())
+    assert build_path == cwd / "builds" / build_path.name
+    assert (build_path / DumpFiles.expr).is_file()
+    assert f"Built {world.name} -> {build_path.name}, not cataloged" in result.stderr
+    assert reopen(world).list() == [world.name]
+    assert targets(world, "live", "staging") == (world.name, world.name)
+    assert commit_count(reopen(world)) == commits
+
+    # Adding it by hand needs nothing from the cwd: the bundle is staged.
+    added = runner.invoke(cli, ["--path", world.catalog_path, "add", str(build_path)])
+    assert added.exit_code == 0, added.output
+    catalog = reopen(world)
+    assert set(catalog.list()) == {world.name, build_path.name}
+    entry = catalog.get_catalog_entry(build_path.name)
+    assert entry.columns == ("a", "b", "c")
+    assert entry.rebased_from == world.name
+    # And a rebase lands on that same entry.
+    rebased = rebase(runner, world)
+    assert rebased.exit_code == 0, rebased.output
+    assert rebased.stdout.strip() == build_path.name
+
+
+def test_build_only_keeps_an_external_read_external_through_add(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path, cwd: Path
+) -> None:
+    """`catalog add` of the directory (a Path) relocates nothing, so the hash
+    holds even where relocating the read would move it into the archive."""
+    path = tmp_path / "t.parquet"
+    RECORDED.to_pandas().to_parquet(path, index=False)
+    read = deferred_read_parquet(path, xo.connect(), table_name="t")
+    name = world.catalog.add(read.filter(read.a > 1), relocate_reads=False).name
+    GROWN.to_pandas().to_parquet(path, index=False)
+
+    result = rebase(runner, world, name, "--no-add")
+    assert result.exit_code == 0, result.output
+    build_path = Path(result.stdout.strip())
+    added = runner.invoke(cli, ["--path", world.catalog_path, "add", str(build_path)])
+    assert added.exit_code == 0, added.output
+
+    entry = reopen(world).get_catalog_entry(build_path.name)
+    assert entry.columns == ("a", "b", "c")
+    assert entry.rebased_from == name
+    (leaf,) = drift.read_record(entry).external_leaves
+    assert leaf.name == str(path)
+    rebased = rebase(runner, world, name)
+    assert rebased.exit_code == 0, rebased.output
+    assert rebased.stdout.strip() == build_path.name
+
+
+def test_build_only_writes_into_builds_dir(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path, cwd: Path
+) -> None:
+    replace_t(world, GROWN)
+    builds_dir = tmp_path / "elsewhere"
+
+    result = rebase(
+        runner, world, world.name, "--no-add", "--builds-dir", str(builds_dir)
+    )
+    assert result.exit_code == 0, result.output
+    build_path = Path(result.stdout.strip())
+    assert build_path.parent == builds_dir
+    assert not any(cwd.iterdir())
+    built = rebase_old(world, add=False, builds_dir=builds_dir)
+    assert (built.status, built.build_path) == (RebaseStatus.BUILT, build_path)
+    assert built.new_hash == build_path.name
+
+
+def test_build_only_without_drift_writes_nothing(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    result = rebase(runner, world, world.name, "--no-add")
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{world.name}\n"
+    assert "no drift" in result.stderr
+    assert not any(cwd.iterdir())
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        pytest.param({"add": False, "alias": "v2"}, id="alias"),
+        pytest.param({"add": False, "move_aliases": True}, id="move-aliases"),
+        pytest.param({"add": False, "dry_run": True}, id="dry-run"),
+    ),
+)
+def test_build_only_refuses_contradicting_arguments(
+    world: SimpleNamespace, kwargs: dict
+) -> None:
+    replace_t(world, GROWN)
+    with pytest.raises(ValueError):
+        rebase_old(world, **kwargs)
+
+
+def test_a_rebased_entry_shows_its_ancestor(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, GROWN)
+    new = rebase_old(world).new_entry
+
+    shown = runner.invoke(cli, ["--path", world.catalog_path, "show", new.name])
+    assert shown.exit_code == 0, shown.output
+    assert f"{'Rebased from:':<15} {world.name}" in shown.stdout.splitlines()
+    as_json = runner.invoke(
+        cli, ["--path", world.catalog_path, "show", new.name, "--json"]
+    )
+    assert as_json.exit_code == 0, as_json.output
+    assert json.loads(as_json.stdout)["rebased_from"] == world.name
+    # Recorded in the archive, where a catalog copy reads it from.
+    with zipfile.ZipFile(new.catalog_path) as zf:
+        (member,) = (m for m in zf.namelist() if m.endswith(DumpFiles.build_metadata))
+        assert json.loads(zf.read(member))["rebased_from"] == world.name
+
+    old = runner.invoke(cli, ["--path", world.catalog_path, "show", world.name])
+    assert "Rebased from:" not in old.stdout
+    old_json = runner.invoke(
+        cli, ["--path", world.catalog_path, "show", world.name, "--json"]
+    )
+    assert "rebased_from" not in json.loads(old_json.stdout)
+    assert reopen(world).get_catalog_entry(world.name).rebased_from is None
+
+
+@pytest.mark.parametrize("copy", ("replay", "clone"))
+def test_the_ancestor_survives_a_catalog_copy(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path, copy: str
+) -> None:
+    replace_t(world, GROWN)
+    new = rebase_old(world).new_entry.name
+    target = str(tmp_path / "copied")
+
+    if copy == "replay":
+        args = ["--path", world.catalog_path, "replay", target]
+    else:
+        args = ["clone", world.catalog_path, "--path", target]
+    copied = runner.invoke(cli, args)
+    assert copied.exit_code == 0, copied.output
+
+    entry = Catalog.from_kwargs(path=target, init=False).get_catalog_entry(new)
+    assert entry.rebased_from == world.name
+    shown = runner.invoke(cli, ["--path", target, "show", new, "--json"])
+    assert shown.exit_code == 0, shown.output
+    assert json.loads(shown.stdout)["rebased_from"] == world.name
+
+
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
 RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
@@ -327,6 +551,22 @@ def refuse_taken_alias(w: SimpleNamespace) -> Setup:
 def refuse_both_alias_flags(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
     return w.name, ("--move-aliases", "--only-alias", "live"), ()
+
+
+def refuse_options(*args: str) -> Callable:
+    """Options that contradict each other, over a drifted source."""
+
+    def setup(w: SimpleNamespace) -> Setup:
+        replace_t(w, GROWN)
+        return w.name, args, ()
+
+    return setup
+
+
+NO_ENTRY_TO_NAME = (
+    "--no-add takes no --alias, --move-aliases or --only-alias: there is no "
+    "entry to name"
+)
 
 
 def refuse_pinned(w: SimpleNamespace) -> Setup:
@@ -530,6 +770,30 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             2,
             "--move-aliases and --only-alias are mutually exclusive",
             id="both-alias-flags",
+        ),
+        pytest.param(
+            refuse_options("--no-add", "-a", "v2"),
+            2,
+            NO_ENTRY_TO_NAME,
+            id="no-add-alias",
+        ),
+        pytest.param(
+            refuse_options("--no-add", "--only-alias", "live"),
+            2,
+            NO_ENTRY_TO_NAME,
+            id="no-add-only-alias",
+        ),
+        pytest.param(
+            refuse_options("--no-add", "--dry-run"),
+            2,
+            "--dry-run and --no-add are mutually exclusive",
+            id="no-add-dry-run",
+        ),
+        pytest.param(
+            refuse_options("--no-add", "--move-aliases"),
+            2,
+            NO_ENTRY_TO_NAME,
+            id="no-add-move-aliases",
         ),
         pytest.param(refuse_pinned, 1, "xorq catalog unpin {name}", id="pinned"),
         pytest.param(
