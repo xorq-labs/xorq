@@ -150,3 +150,19 @@ def test_clone_hashes_equal_with_a_real_libpq(
             clone.disconnect()
     finally:
         source.disconnect()
+
+
+def test_a_from_connection_clone_dials_the_port_it_came_from() -> None:
+    """libpq omits a default port from ``get_parameters``, so a clone of a
+    ``from_connection`` backend used to fall back to the subclass's
+    ``do_connect`` default: Redshift's 5439 for a connection on 5432."""
+    raw = connect().con
+    source = RedshiftBackend.from_connection(raw)
+    try:
+        clone = source.clone(password=make_credential_defaults()["password"])
+        try:
+            assert clone.con.info.port == raw.info.port
+        finally:
+            clone.disconnect()
+    finally:
+        source.disconnect()

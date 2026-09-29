@@ -29,9 +29,8 @@ from xorq.vendor.ibis.util import (
 
 logger = get_logger(__name__)
 
-# The DSN keys a clone always takes from the live connection, whatever the
-# caller passed: where to connect. ``dbname`` is carried separately, as
-# ``database``.
+# Where to connect: the DSN keys a clone may fill in when the caller left them
+# out (see ``clone``). ``dbname`` is carried separately, as ``database``.
 _CLONE_ADDRESS_KEYS = frozenset(("host", "port", "user", "dbname"))
 
 
@@ -343,7 +342,11 @@ class Backend(IbisPostgresBackend):
         # environment is re-derived from the same environment. A
         # ``from_connection`` source has no kwargs, so the DSN is all there is
         # and it is carried whole.
-        if self._con_kwargs:
+        if not self._con_kwargs:
+            # libpq omits a default port from ``get_parameters``, so without
+            # this a subclass with a different default port dials that one.
+            dsn_parameters = {**dsn_parameters, "port": self.con.info.port}
+        else:
             dsn_parameters = toolz.keyfilter(
                 lambda key: (
                     key in _CLONE_ADDRESS_KEYS

@@ -931,8 +931,9 @@ def test_clone_carries_only_the_settings_the_caller_passed(
     and anything libpq took from the environment. Carrying those made a clone
     hash differently from its source, and put them in the clone's ADBC URI.
 
-    So for a source opened with kwargs, the DSN contributes only the address
-    and the keys the caller passed. The fake below reports what libpq 18 does.
+    So for a source opened with kwargs, the caller's values win and the DSN
+    fills in only address keys the caller left out. The fake reports the keys
+    libpq 18 reports that matter here.
     """
 
     class _FakeInfo:
@@ -1202,6 +1203,8 @@ def test_clone_refuses_rather_than_borrowing_the_postgres_env_password(
     monkeypatch.setenv("POSTGRES_PASSWORD", "a-local-postgres-password")
 
     class _FakeInfo:
+        port = redshift_module.DEFAULT_PORT
+
         def __init__(self, parameters: dict) -> None:
             self._parameters = parameters
 

@@ -21,6 +21,10 @@ import xorq.backends.postgres as postgres_module
 
 
 class FakeConnectionInfo:
+    # psycopg's ``ConnectionInfo.port`` is always set, even where libpq's
+    # ``get_parameters`` omits a default port.
+    port = 5432
+
     def __init__(self, parameters: dict[str, str]) -> None:
         self.parameters = parameters
 
