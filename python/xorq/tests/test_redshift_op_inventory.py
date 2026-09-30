@@ -175,7 +175,17 @@ def _inherited_names(op):
     """Every function name this op's visitor can emit through inherited code:
     the visitor, each helper it calls, and each implementation it reaches
     through ``super()``, transitively."""
+    return _walk(op)[0]
+
+
+def _inherited_sources(op):
+    """The source of every inherited implementation ``_inherited_names`` reads."""
+    return _walk(op)[1]
+
+
+def _walk(op):
     names = []
+    sources = []
     seen = set()
     pending = [(f"visit_{op.__name__}", 0)]
     while pending:
@@ -190,13 +200,14 @@ def _inherited_names(op):
         source = inspect.getsource(impl)
         if RedshiftCompiler.__mro__[i].__module__ != RedshiftCompiler.__module__:
             names.extend(a or b for a, b in _CALL.findall(source))
+            sources.append(source)
         pending.extend(
             (helper, 0)
             for helper in _HELPER.findall(source)
             if helper not in _NOT_FOLLOWED
         )
         pending.extend((parent, i + 1) for parent in _SUPER.findall(source))
-    return names
+    return names, sources
 
 
 def _compilable_inherited_ops():
@@ -260,6 +271,19 @@ def test_no_compilable_op_reaches_a_measured_absent_function():
         "these ops still compile through a function Redshift lacks; override "
         f"or refuse them: {live}"
     )
+
+
+def test_no_compilable_op_builds_an_unnest():
+    """Redshift has no ``UNNEST``, and sqlglot's Redshift generator drops the
+    node with a warning instead of raising, so an inherited visitor that builds
+    one compiles to SQL with a hole in it or a join onto a bare column. A
+    function-name scan cannot see this: ``sge.Unnest`` is a node, not a call."""
+    live = sorted(
+        op.__name__
+        for op in _compilable_ops()
+        if any("sge.Unnest(" in source for source in _inherited_sources(op))
+    )
+    assert not live, f"these ops still compile through UNNEST; refuse them: {live}"
 
 
 def test_no_absent_function_is_also_classified():

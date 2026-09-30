@@ -74,7 +74,10 @@ _PARTITION_ONLY_OPS = (
 # what they cost is the diagnosis, since none of them names the backend or the
 # operation. Listing them here converts each into the same
 # ``OperationNotDefinedError`` every other unsupported op raises.
+# ``test_no_compilable_op_builds_an_unnest`` holds the list complete.
 _UNNEST_DEPENDENT_ARRAY_OPS = (
+    ops.ArrayAll,
+    ops.ArrayAny,
     ops.ArrayDistinct,
     ops.ArrayFilter,
     ops.ArrayIntersect,
@@ -87,6 +90,9 @@ _UNNEST_DEPENDENT_ARRAY_OPS = (
     ops.ArraySum,
     ops.ArrayUnion,
     ops.Unnest,
+    # ``Table.unnest``: the dropped node leaves ``CROSS JOIN "t1"."a"``, a join
+    # onto a bare column.
+    ops.TableUnnest,
 )
 
 # These lower without ``UNNEST`` but cast an operand to an array type, and the
@@ -520,11 +526,18 @@ class RedshiftCompiler(PostgresCompiler):
             arg = self.cast(arg, dt.float64)
         return self.f.ln(arg)
 
+    def _as_declared(self, op, result):
+        """Cast a double ``_ln`` result back to a decimal ``op.dtype``, as
+        ``visit_Log`` does. A double where the schema says decimal breaks the
+        psycopg fetch path, whose pyarrow conversion refuses a float in a
+        decimal field."""
+        return self.cast(result, op.dtype) if op.dtype.is_decimal() else result
+
     def visit_Ln(self, op, *, arg):
-        return self._ln(op.arg, arg)
+        return self._as_declared(op, self._ln(op.arg, arg))
 
     def visit_Log10(self, op, *, arg):
-        return self._ln(op.arg, arg) / self.f.ln(10)
+        return self._as_declared(op, self._ln(op.arg, arg) / self.f.ln(10))
 
     def visit_Log(self, op, *, arg, base):
         """``LN(x) / LN(b)``, not PostgreSQL's two-argument ``LOG(b, x)``,

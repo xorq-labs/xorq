@@ -848,6 +848,15 @@ def test_startswith_does_not_build_an_unescaped_like_pattern(t):
         pytest.param(lambda t: t.select(o=t.arr.index(1)), id="index"),
         pytest.param(lambda t: t.group_by("grp").agg(c=t.amt.collect()), id="collect"),
         pytest.param(lambda t: t.select(o=t.s.re_split(",")), id="re_split"),
+        pytest.param(lambda t: t.select(o=xo.literal([True, False]).anys()), id="anys"),
+        pytest.param(lambda t: t.select(o=xo.literal([True, False]).alls()), id="alls"),
+        pytest.param(
+            lambda t: t.select(a=t.s.split(",")).unnest("a"), id="table_unnest"
+        ),
+        pytest.param(
+            lambda t: t.select(a=t.s.split(",")).unnest("a", keep_empty=True),
+            id="table_unnest_keep_empty",
+        ),
     ],
 )
 def test_unnest_dependent_ops_raise_instead_of_emitting_holes(t, build):
@@ -939,6 +948,26 @@ def test_logarithms_of_decimals_run_over_double_precision(t, build):
     sql = to_sql(t.select(o=build(t)))
     assert "LN(CAST(" in sql and "AS DOUBLE PRECISION))" in sql
     assert "LOG(" not in sql.upper()
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").ln(), id="ln"),
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log10(), id="log10"),
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log2(), id="log2"),
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log(3), id="log-base"),
+    ],
+)
+def test_logarithms_of_decimals_return_the_declared_type(t, build):
+    """The double the logarithm is taken over is cast back to the decimal the
+    expression declares; otherwise the psycopg fetch path hands pyarrow a
+    float for a decimal field, and ``to_pyarrow()`` raises after the query
+    ran."""
+    expr = build(t)
+    assert expr.type().is_decimal()
+    sql = to_sql(t.select(o=expr))
+    assert sql.startswith("SELECT CAST(") and 'AS DECIMAL(18, 4)) AS "o"' in sql
 
 
 def test_integer_to_timestamp_counts_seconds_from_the_epoch(t):
