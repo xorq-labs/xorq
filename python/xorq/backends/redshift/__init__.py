@@ -955,10 +955,11 @@ ORDER BY ordinal_position ASC"""
         forward their *own* reader kwargs here, so rejecting unknown ones would
         break them.
 
-        The return value is ``self.table(table_name)``, and on a live Redshift
-        that raises until the backend has its own table introspection: the
-        inherited one reads ``pg_catalog`` objects Redshift lacks. The ingest
-        commits before that call, so the table exists when it raises.
+        The return value is ``self.table(table_name)``, bound over the same
+        connection the ingest wrote through. A ``temporary=True`` table is
+        absent from ``svv_all_columns``, so the unqualified bind finds it
+        through ``get_schema``'s ``svv_columns`` lookup, which is scoped to the
+        session's temporary schemas.
         """
         if table_name is None:
             raise ValueError("table_name is required")

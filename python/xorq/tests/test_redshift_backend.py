@@ -1598,6 +1598,43 @@ def test_table_reaches_the_temp_fallback_unqualified() -> None:
     assert any("svv_columns" in sql for sql in issued(con))
 
 
+def test_a_temporary_ingest_binds_the_table_it_created() -> None:
+    """The round trip the two tests above cover in halves: a
+    ``temporary=True`` ingest ends in ``self.table(name)``, and that bind must
+    find the table the ingest just created.
+
+    ``make_offline_con`` stubs ``table`` so the ingest tests never reach the
+    bind; this one removes the stub, so the real ``table`` runs against the
+    same connection the ``CREATE TEMPORARY TABLE`` went over. The catalog rows
+    are how ``svv_columns`` reports the two columns that ``CREATE`` declares.
+    """
+    con = make_introspection_con(
+        rows=(),
+        temp_rows=(
+            ("a", "bigint", "YES", 64, 0),
+            ("b", "character varying", "YES", None, None),
+        ),
+    )
+    del con.table
+
+    t = con.read_record_batches(
+        make_reader({"a": [1], "b": ["x"]}), table_name="t", temporary=True
+    )
+
+    assert t.get_name() == "t"
+    assert t.schema() == xo.schema({"a": dt.Int64(), "b": dt.String()})
+    create, insert, lookup = [(kind, sql) for (kind, sql, *_) in con.con.log]
+    assert create == (
+        "execute",
+        'CREATE TEMPORARY TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))',
+    )
+    assert insert[0] == "executemany"
+    # Resolved in the temporary catalog, for the name the ingest created.
+    assert "svv_columns" in lookup[1]
+    ((_bound, values),) = con.con.bound
+    assert values == [b"t"]
+
+
 @pytest.mark.parametrize(
     "database",
     [
