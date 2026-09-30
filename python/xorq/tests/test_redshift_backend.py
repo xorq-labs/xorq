@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
+import inspect
+import subprocess
 import sys
+import typing
 from types import ModuleType
 
 import pyarrow as pa
 import pytest
-import sqlglot as sg
 
 
 # Must run BEFORE the xorq imports below. Neither driver named here is a core
@@ -52,6 +54,8 @@ import sqlglot as sg
 # which arrives with PR #2335.
 pytest.importorskip("adbc_driver_manager")
 psycopg = pytest.importorskip("psycopg")
+
+import adbc_driver_manager.dbapi  # noqa: E402
 
 import xorq  # noqa: E402
 import xorq.api as xo  # noqa: E402
@@ -93,9 +97,14 @@ def test_secret_keys_match_postgres_and_the_mirror():
     )
 
 
-def test_exposed_secret_check_is_not_narrowed():
-    """``sslkey``/``passfile`` must raise, not just ``password``."""
-    for key in RedshiftBackend._secret_keys:
+def test_exposed_secret_check_catches_every_postgres_secret_key() -> None:
+    """``sslkey``/``passfile`` must raise, not just ``password``.
+
+    ``check_for_exposed_secrets`` reads the static mirror, not the class, so a
+    narrowed ``_secret_keys`` declaration is caught by the test above, not
+    here. This one iterates the postgres keys so that it fails if the
+    mirror's redshift entry is narrowed."""
+    for key in PostgresBackend._secret_keys:
         try:
             check_for_exposed_secrets("redshift", {key: "a-literal-value"})
         except ValueError:
@@ -168,14 +177,16 @@ def test_current_schema_is_called_with_parentheses():
     assert executed(con) == ["SELECT CURRENT_SCHEMA()"]
 
 
-def test_current_catalog_needs_no_override():
-    """``CURRENT_DATABASE()`` already renders parenthesised, so only
-    ``current_database`` (which selects the *schema*) needed overriding."""
-    dialect = RedshiftBackend.compiler.dialect
-    assert (
-        sg.select(sg.func("current_database")).sql(dialect)
-        == "SELECT CURRENT_DATABASE()"
-    )
+def test_current_catalog_needs_no_override() -> None:
+    """The inherited ``current_catalog`` already emits ``CURRENT_DATABASE()``
+    parenthesised, so only ``current_database`` (which selects the *schema*)
+    needed overriding. Asserted on the SQL the backend sends, like the test
+    above, so it fails if the inherited query ever renders bare."""
+    con = make_offline_con()
+    con.con = _FakeConnection(rows=[("d",)])
+
+    assert con.current_catalog == "d"
+    assert executed(con) == ["SELECT CURRENT_DATABASE()"]
 
 
 def test_client_encoding_defaults_without_entering_the_build_hash(
@@ -191,7 +202,10 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
 
     ``_con_kwargs`` alone cannot see the first half: it is populated by
     ``BaseBackend.__init__``, so it holds with ``do_connect`` deleted. The
-    kwarg is caught where it lands, at ``psycopg.connect``.
+    kwarg is caught where it lands, at ``psycopg.connect``. The second half is
+    asserted on the profile, which ``Profile.from_con`` fills from
+    ``do_connect``'s signature defaults as well as the caller's arguments --
+    so moving the default into the signature fails here.
     """
     recorded = {}
 
@@ -200,16 +214,17 @@ def test_client_encoding_defaults_without_entering_the_build_hash(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
-    con = RedshiftBackend()
-    con.do_connect(host="example.invalid", user="u", password="p", database="d")
+    con = RedshiftBackend().connect(
+        host="example.invalid", user="u", password="p", database="d"
+    )
 
     # Reached the driver ...
     assert recorded["client_encoding"] == "utf8"
     assert recorded["port"] == redshift_module.DEFAULT_PORT
     # ... and did not reach the build hash.
-    assert "client_encoding" not in con._con_kwargs
+    assert "client_encoding" not in con._profile.kwargs_dict
 
 
 def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
@@ -220,8 +235,8 @@ def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
     a ``drop_table`` and left an ``into_backend`` placeholder in the schema.
     With the threshold ``None`` nothing is prepared, so nothing is sent.
 
-    Defaulted in ``do_connect``, like ``client_encoding``, so it reaches the
-    driver and not ``_con_kwargs``."""
+    Set on the connection by ``_post_connect``, the hook every construction
+    path reaches, so it never enters the caller's kwargs or the profile."""
     recorded = {}
 
     def fake_connect(**kwargs):
@@ -229,14 +244,15 @@ def test_prepare_threshold_defaults_off_without_entering_the_build_hash(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
-    con = RedshiftBackend()
-    con.do_connect(host="example.invalid", user="u", password="p", database="d")
+    con = RedshiftBackend().connect(
+        host="example.invalid", user="u", password="p", database="d"
+    )
 
-    assert "prepare_threshold" in recorded
-    assert recorded["prepare_threshold"] is None
-    assert "prepare_threshold" not in con._con_kwargs
+    assert con.con.prepare_threshold is None
+    assert "prepare_threshold" not in recorded
+    assert "prepare_threshold" not in con._profile.kwargs_dict
 
 
 def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -244,13 +260,13 @@ def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> No
 
     def fake_connect(**kwargs):
         recorded.update(kwargs)
-        return _FakeConnection()
+        # psycopg applies the kwarg to the connection it returns.
+        return _FakeConnection(prepare_threshold=kwargs.get("prepare_threshold", 5))
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
-    con = RedshiftBackend()
-    con.do_connect(
+    con = RedshiftBackend().connect(
         host="example.invalid",
         user="u",
         password="p",
@@ -259,6 +275,53 @@ def test_a_callers_prepare_threshold_wins(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
     assert recorded["prepare_threshold"] == 3
+    assert con.con.prepare_threshold == 3
+
+
+class _FakeEncodingInfo:
+    def __init__(self, encoding: str | None) -> None:
+        self._encoding = encoding
+
+    @property
+    def encoding(self) -> str:
+        if self._encoding is None:
+            # What psycopg raises for Redshift's ``UNICODE``.
+            raise psycopg.NotSupportedError("codec not available in Python: 'UNICODE'")
+        return self._encoding
+
+
+def test_from_connection_turns_off_statement_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``from_connection`` skips ``do_connect``; ``_post_connect``, which it
+    does reach, sets the threshold on the connection it was given."""
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
+    raw = _FakeConnection(prepare_threshold=5)
+
+    con = RedshiftBackend.from_connection(raw)
+
+    assert con.con is raw
+    assert raw.prepare_threshold is None
+
+
+def test_from_connection_refuses_an_undecodable_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection opened without ``client_encoding`` reports Redshift's
+    ``UNICODE``, which psycopg cannot decode, so every query on it would fail.
+    It is refused before any SQL, naming the setting."""
+    post_connected = []
+    monkeypatch.setattr(
+        PostgresBackend, "_post_connect", lambda self: post_connected.append(self)
+    )
+    raw = _FakeConnection()
+    raw.info = _FakeEncodingInfo(None)
+
+    with pytest.raises(ValueError, match="client_encoding='utf8'"):
+        RedshiftBackend.from_connection(raw)
+
+    assert post_connected == []
+    assert raw.log == []
 
 
 def test_client_encoding_is_not_inherited_from_postgres(
@@ -339,9 +402,12 @@ class _FakeCursor:
 
 
 class _FakeConnection:
-    def __init__(self, rows: tuple = ()) -> None:
+    def __init__(self, rows: tuple = (), prepare_threshold: int | None = 5) -> None:
         self.log: list = []
         self.rows = rows
+        # psycopg's defaults: a decodable encoding, and a threshold of 5.
+        self.info = _FakeEncodingInfo("utf-8")
+        self.prepare_threshold = prepare_threshold
 
     def cursor(self, *args, **kwargs):
         return _FakeCursor(self.log, self.rows)
@@ -538,8 +604,10 @@ def test_ingest_never_dispatches_to_adbc_even_when_it_is_available(monkeypatch):
     answering ``None`` is the case that used to select the branch that cannot
     run; this pins that it no longer selects anything.
 
-    Every other ingest test describes the psycopg branch and would keep passing
-    if a dispatch were reintroduced, so this is the only one that would fail.
+    The other ingest tests that patch the predicate to ``None`` would also
+    fail on a reintroduced dispatch, but only incidentally (their fake
+    connection has no ``info`` for ``PgADBC`` to read); this is the one that
+    names it.
     """
     con = make_offline_con(password="static")
     monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
@@ -637,10 +705,10 @@ def test_adbc_is_unavailable_without_a_password(con_kwargs):
 
 
 def test_adbc_is_available_when_installed_and_credentialed():
-    """A ``None`` reason means installed *and* credentialed -- not that the
-    driver is known to work against Redshift. Whether
-    ``adbc_driver_postgresql`` speaks to Redshift at all is untested and needs
-    a live endpoint; see the alternative recorded in ADR-2332."""
+    """A ``None`` reason means installed *and* credentialed -- a local fact,
+    not a check that the driver works against Redshift. That was measured
+    against a live endpoint and is recorded in ADR-2332; no offline test can
+    reach it."""
     pytest.importorskip("adbc_driver_postgresql")
     con = make_offline_con(password="static")
     assert con._adbc_unavailable_reason() is None
@@ -706,6 +774,7 @@ _BASE_URI = "postgresql://u:static@example.invalid:5439/d"
         pytest.param("xorq_test", "-csearch_path%3Dxorq_test", id="plain"),
         pytest.param("s1,public", "-csearch_path%3Ds1%2Cpublic", id="list"),
         pytest.param("a b", "-csearch_path%3Da%5C%20b", id="space-escaped"),
+        pytest.param('"a b"', "-csearch_path%3D%22a%5C%20b%22", id="quoted"),
         pytest.param("x\\y", "-csearch_path%3Dx%5C%5Cy", id="backslash-escaped"),
     ],
 )
@@ -749,11 +818,12 @@ def test_adbc_read_connection_without_a_schema_is_unchanged(
     assert uris == [_BASE_URI]
 
 
-def test_postgres_adbc_read_connection_is_not_given_the_schema(
+def test_postgres_adbc_read_connection_is_given_the_schema_too(
     monkeypatch: pytest.MonkeyPatch, postgres_utils: ModuleType
 ) -> None:
-    """The fix is Redshift's alone. Postgres has the same gap, but its read
-    path is shared by every postgres user and is a separate change."""
+    """The search path is ``PgADBC``'s, so postgres gets it as well: it had
+    the same gap, and its table-bound reads on a ``schema=`` connection fell
+    back to psycopg in the same way."""
     con = PostgresBackend()
     type(con).__init__(con, host="example.invalid", password="static", schema="s")
     con.con = _FakeConnection()
@@ -762,16 +832,19 @@ def test_postgres_adbc_read_connection_is_not_given_the_schema(
 
     con._open_adbc_conn_or_none()
 
-    assert uris == [_BASE_URI]
+    assert uris == [f"{_BASE_URI}?options=-csearch_path%3Ds"]
 
 
-def test_ingest_modes_are_the_adbc_ingest_modes():
-    assert redshift_module.INGEST_MODES == (
-        "create",
-        "append",
-        "replace",
-        "create_append",
+def test_ingest_modes_are_the_adbc_ingest_modes() -> None:
+    """Compared against what ``adbc_ingest`` declares, so a driver release
+    that adds or drops a mode fails here rather than drifting silently."""
+    annotation = (
+        inspect.signature(adbc_driver_manager.dbapi.Cursor.adbc_ingest)
+        .parameters["mode"]
+        .annotation
     )
+
+    assert set(redshift_module.INGEST_MODES) == set(typing.get_args(annotation))
 
 
 def test_ingest_ddl_emits_the_measured_redshift_spellings() -> None:
@@ -938,23 +1011,18 @@ def test_temporary_is_refused_for_replace(monkeypatch: pytest.MonkeyPatch) -> No
     assert con.con.log == []
 
 
-def test_clone_does_not_carry_client_encoding(
+def test_clone_carries_only_the_settings_the_caller_passed(
     postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``do_connect`` keeps ``client_encoding`` out of ``_con_kwargs``, the
-    profile and the build hash by defaulting it below the caller's kwargs.
+    """``clone`` reads the live connection's ``get_parameters``, which reports
+    every non-default libpq setting, asked for or not: ``client_encoding`` that
+    ``do_connect`` defaulted, ``sslcertmode`` that libpq 17+ reports unasked,
+    and anything libpq took from the environment. Carrying those made a clone
+    hash differently from its source, and put them in the clone's ADBC URI.
 
-    ``clone`` rebuilds its kwargs from the LIVE connection rather than from
-    ``_con_kwargs``, and ``get_parameters`` reports every setting the
-    connection actually has -- so without ``_clone_drop_dsn_params`` the clone
-    reacquires a setting nobody passed, and a cloned-then-built artifact hashes
-    differently from one built off the source.
-
-    Hash equality with the source is deliberately NOT asserted here: this fake
-    DSN reports ``port`` as a string, as libpq does, so an equality assertion
-    would pin unrelated coercions rather than this guard. What is asserted is
-    the claim the guard makes -- the setting is absent -- plus that the drop is
-    narrow: ``options`` carries ``search_path`` and must survive it.
+    So for a source opened with kwargs, the caller's values win and the DSN
+    fills in only address keys the caller left out. The fake reports the keys
+    libpq 18 reports that matter here.
     """
 
     class _FakeInfo:
@@ -964,17 +1032,22 @@ def test_clone_does_not_carry_client_encoding(
         def get_parameters(self) -> dict:
             return dict(self._parameters)
 
-    con = make_offline_con(password="static", user="u", database="d")
+    con = make_offline_con(
+        password="static", user="u", database="d", options="-c search_path=mine"
+    )
     con.con.info = _FakeInfo(
         {
             "host": "example.invalid",
             "port": str(redshift_module.DEFAULT_PORT),
             "user": "u",
             "dbname": "d",
-            "options": "-c search_path=myschema",
-            # What libpq echoes back: the value the client passed, which
-            # ``do_connect`` defaulted -- not the server's ``UNICODE``.
+            "options": "-c search_path=mine",
+            # Defaulted by ``do_connect``; libpq echoes the client's value.
             "client_encoding": "utf8",
+            # Reported by libpq 17+ although nobody set it.
+            "sslcertmode": "allow",
+            # As if from ``PGAPPNAME``: libpq re-derives it for the clone.
+            "application_name": "from-the-environment",
         }
     )
     con.con.autocommit = True
@@ -986,22 +1059,20 @@ def test_clone_does_not_carry_client_encoding(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     clone = con.clone()
 
-    # ``do_connect`` still defaults it, so the wire is configured ...
+    # ``do_connect`` still defaults the encoding, so the wire is configured ...
     assert recorded["client_encoding"] == "utf8"
-    # ``prepare_threshold`` is not a DSN setting, so the clone gets it only by
-    # going back through ``do_connect``; it must, or the clone's rollbacks
-    # send ``DEALLOCATE ALL`` again.
-    assert "prepare_threshold" in recorded
-    assert recorded["prepare_threshold"] is None
-    # ... and the clone did not inherit the DSN's value as a caller argument.
-    assert "client_encoding" not in clone._con_kwargs
-    assert "client_encoding" not in clone._profile.kwargs_dict
-    # The drop is narrow: a DSN setting the caller does depend on survives.
-    assert clone._con_kwargs["options"] == "-c search_path=myschema"
+    # ... ``_post_connect`` still turns preparation off ...
+    assert clone.con.prepare_threshold is None
+    # ... what the caller passed survives ...
+    assert clone._con_kwargs["options"] == "-c search_path=mine"
+    # ... and nothing the caller did not pass comes back as a caller argument.
+    for key in ("client_encoding", "sslcertmode", "application_name"):
+        assert key not in clone._con_kwargs
+        assert key not in clone._profile.kwargs_dict
 
 
 def test_null_typed_columns_are_refused_before_any_sql(
@@ -1055,14 +1126,37 @@ def test_redshift_exposes_no_module_level_connect() -> None:
     assert redshift_module.__all__ == ["Backend"]
 
 
+@pytest.mark.parametrize(
+    ("blocked", "imports"),
+    [
+        pytest.param("adbc_driver_postgresql", True, id="without-the-driver"),
+        pytest.param("adbc_driver_manager", False, id="without-the-manager"),
+    ],
+)
+def test_import_needs_the_driver_manager_but_not_the_driver(
+    blocked: str, imports: bool
+) -> None:
+    """The psycopg baseline is only real if the backend imports without the
+    accelerator. A fresh process, because this one has already imported both;
+    ``None`` in ``sys.modules`` makes the import raise as an absent package
+    does. The manager half pins the limit the ADR records: the postgres
+    backend imports it at module scope."""
+    code = f"import sys; sys.modules[{blocked!r}] = None; import xorq.backends.redshift"
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
+
+    assert (result.returncode == 0) is imports, result.stderr
+
+
 def test_clone_keeps_a_client_encoding_the_caller_passed(
     postgres_utils: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The sibling test above covers the IMPLICIT case -- nobody passed one, so
     the DSN's value must not be reacquired. This is the other half, and it was
-    broken: ``_clone_drop_dsn_params`` was dissoc-ed from the MERGED dict,
-    which already held ``_con_kwargs``, so a caller who *did* ask for
-    ``latin1`` got a clone silently dialling ``utf8``.
+    broken once: a drop list was dissoc-ed from the MERGED dict, which already
+    held ``_con_kwargs``, so a caller who *did* ask for ``latin1`` got a clone
+    silently dialling ``utf8``.
 
     That is the failure the mechanism exists to prevent, arrived at from the
     other direction: source and clone disagree about a connection setting, so
@@ -1103,7 +1197,7 @@ def test_clone_keeps_a_client_encoding_the_caller_passed(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     clone = con.clone()
 
@@ -1113,6 +1207,70 @@ def test_clone_keeps_a_client_encoding_the_caller_passed(
     assert clone._con_kwargs["client_encoding"] == "latin1"
     # The DSN's ``UNICODE`` is still what gets dropped, not the caller's value.
     assert clone._con_kwargs["client_encoding"] != "UNICODE"
+
+
+@pytest.mark.parametrize(
+    "caller_kwargs",
+    [
+        pytest.param({}, id="defaults"),
+        pytest.param({"schema": "s"}, id="schema"),
+        pytest.param({"client_encoding": "latin1"}, id="caller-encoding"),
+    ],
+)
+def test_clone_hashes_equal_to_its_source(
+    monkeypatch: pytest.MonkeyPatch, caller_kwargs: dict
+) -> None:
+    """The invariant the two tests above guard piecewise: a cloned-then-built
+    artifact hashes the same as one built off the source.
+
+    Both connections go through the real ``connect`` -> ``do_connect`` path,
+    so ``_con_kwargs`` is what a caller actually gets, and the fake reports
+    what libpq's ``get_parameters`` does: ``port`` as a string, ``schema``
+    absent (``_post_connect`` applies it with ``set_config``, not libpq), and
+    ``client_encoding`` echoing the value the client sent, and ``sslcertmode``
+    reported unasked, as libpq 17+ does. The string ``port`` is normalised by
+    ``Profile.from_con``, so it is part of the path under test, not noise. If
+    ``clone`` carries DSN keys the caller did not pass, every case fails here
+    on ``sslcertmode``, and the first two on ``client_encoding`` as well.
+    ``test_clone_hashes_equal_with_a_real_libpq`` checks the same against a
+    server.
+    """
+    connect_kwargs = {
+        "host": "example.invalid",
+        "user": "u",
+        "password": "static",
+        "database": "d",
+        **caller_kwargs,
+    }
+    dsn = {
+        "host": "example.invalid",
+        "port": str(redshift_module.DEFAULT_PORT),
+        "user": "u",
+        "dbname": "d",
+        "client_encoding": caller_kwargs.get("client_encoding", "utf8"),
+        "sslcertmode": "allow",
+    }
+
+    class _FakeInfo:
+        encoding = "utf-8"
+
+        def get_parameters(self) -> dict:
+            return dict(dsn)
+
+    def fake_connect(**kwargs):
+        con = _FakeConnection()
+        con.info = _FakeInfo()
+        con.autocommit = kwargs["autocommit"]
+        return con
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
+
+    source = RedshiftBackend().connect(**connect_kwargs)
+    clone = source.clone()
+
+    assert clone._profile.kwargs_dict == source._profile.kwargs_dict
+    assert clone._profile.content_hash == source._profile.content_hash
 
 
 def test_clone_refuses_rather_than_borrowing_the_postgres_env_password(
@@ -1134,6 +1292,8 @@ def test_clone_refuses_rather_than_borrowing_the_postgres_env_password(
     monkeypatch.setenv("POSTGRES_PASSWORD", "a-local-postgres-password")
 
     class _FakeInfo:
+        port = redshift_module.DEFAULT_PORT
+
         def __init__(self, parameters: dict) -> None:
             self._parameters = parameters
 
@@ -1160,7 +1320,7 @@ def test_clone_refuses_rather_than_borrowing_the_postgres_env_password(
         return _FakeConnection()
 
     monkeypatch.setattr(psycopg, "connect", fake_connect)
-    monkeypatch.setattr(RedshiftBackend, "_post_connect", lambda self: None)
+    monkeypatch.setattr(PostgresBackend, "_post_connect", lambda self: None)
 
     with pytest.raises(ValueError, match="password is required"):
         con.clone()
