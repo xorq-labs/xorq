@@ -43,6 +43,7 @@ from xorq.common.utils.dasher._paths import (
     _normalize_path_stat,
     _stat_or_canonical,
 )
+from xorq.common.utils.redshift_utils import normalize_redshift_databasetable
 
 
 if TYPE_CHECKING:
@@ -473,6 +474,15 @@ def _dispatch_databasetable(dt: ops.DatabaseTable) -> tuple:
     # column label and crashes on every table; use the fixed xorq version.
     if dt.source.name == BackendName.BIGQUERY:
         return _normalize_bigquery_databasetable_xorq(dt)
+    # Redshift is absent from dasher's dispatch dict, which is a bare lookup
+    # with no default -- so without this it raises KeyError: 'redshift' before
+    # any SQL is sent. It must not fall through to the postgres normalizer
+    # either: that one calls get_postgres_n_reltuples, which issues CHECKPOINT
+    # (not Redshift syntax) and ANALYZE (a write-privileged operation Redshift
+    # does accept). The rule refuses instead: see redshift_utils for why no
+    # Redshift catalog read can serve as a freshness signal.
+    if dt.source.name == BackendName.REDSHIFT:
+        return normalize_redshift_databasetable(dt)
     # pandas-backend tables and in-memory sqlite are memory-resident:
     # xorq_dasher's dispatch hashes the IPC bytes of their
     # ``to_pyarrow_batches()`` stream, which is pyarrow-version-coupled
