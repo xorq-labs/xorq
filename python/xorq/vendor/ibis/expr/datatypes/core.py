@@ -471,6 +471,32 @@ class Unknown(DataType, Singleton):
 
 
 @public
+class NamedUnknown(Unknown):
+    """An unknown type that keeps the backend's own name for it.
+
+    A column typed this way binds, so its table stays usable through its
+    other columns, and an error refusing a read of it can say what the
+    backend called it.
+
+    ``name`` is ``Unknown``'s, so dispatch keyed on the name -- such as
+    ``SqlglotType.from_ibis``'s ``_from_ibis_<name>`` lookup -- treats the two
+    alike. Dispatch keyed on the class does not: the Arrow conversion maps
+    ``Unknown`` to ``string`` and has no entry for this class, so it raises
+    rather than handing the backend's data back as strings.
+    """
+
+    raw_type: str
+
+    @property
+    def name(self) -> str:
+        return "Unknown"
+
+    @property
+    def _pretty_piece(self) -> str:
+        return f"({self.raw_type!r})"
+
+
+@public
 class Primitive(DataType, Singleton):
     """Values with known size."""
 
