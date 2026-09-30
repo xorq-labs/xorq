@@ -207,3 +207,111 @@ def test_a_from_connection_clone_dials_the_port_it_came_from() -> None:
             clone.disconnect()
     finally:
         source.disconnect()
+
+
+# Every way this repo builds a backend. Each defect in this family so far was
+# one path dropping or inventing a setting another path kept, found one review
+# round at a time; this matrix is meant to find the next one instead.
+def via_connect(backend_cls, kwargs, opened):
+    opened.append(con := connect(backend_cls, **kwargs))
+    return con
+
+
+def via_from_connection(backend_cls, kwargs, opened):
+    opened.append(raw := connect(**kwargs))
+    opened.append(con := backend_cls.from_connection(raw.con))
+    return con
+
+
+def via_clone(build):
+    def clone_of(backend_cls, kwargs, opened):
+        source = build(backend_cls, kwargs, opened)
+        opened.append(
+            con := source.clone(password=make_credential_defaults()["password"])
+        )
+        return con
+
+    clone_of.__name__ = f"clone_of_{build.__name__}"
+    return clone_of
+
+
+CONSTRUCTION_PATHS = (
+    via_connect,
+    via_from_connection,
+    via_clone(via_connect),
+    via_clone(via_from_connection),
+)
+
+# (caller kwargs, the server settings they must produce)
+REQUESTED_SETTINGS = (
+    pytest.param({}, {}, id="defaults"),
+    pytest.param({"schema": SCHEMA}, {"search_path": SCHEMA}, id="schema"),
+    pytest.param(
+        {"options": "-c statement_timeout=12345"},
+        {"statement_timeout": "12345ms"},
+        id="options",
+    ),
+    pytest.param(
+        {"application_name": "xorq-matrix-probe"},
+        {"application_name": "xorq-matrix-probe"},
+        id="libpq-keyword",
+    ),
+)
+
+
+def psycopg_setting(con: PostgresBackend, name: str) -> str:
+    with con.con.cursor() as cursor:
+        cursor.execute("SELECT current_setting(%s)", (name,))
+        (value,) = cursor.fetchone()
+    return value
+
+
+@pytest.mark.parametrize("build", CONSTRUCTION_PATHS, ids=lambda f: f.__name__)
+@pytest.mark.parametrize(("caller_kwargs", "expected"), REQUESTED_SETTINGS)
+@pytest.mark.parametrize(
+    "backend_cls",
+    [
+        pytest.param(PostgresBackend, id="postgres"),
+        pytest.param(RedshiftBackend, id="redshift"),
+    ],
+)
+def test_every_construction_path_keeps_the_requested_settings(
+    backend_cls: type[PostgresBackend],
+    caller_kwargs: dict,
+    expected: dict,
+    build,
+    request: pytest.FixtureRequest,
+) -> None:
+    """Whatever path built it, a backend's psycopg connection runs with what
+    was asked for; its ADBC connection, where it has one, runs with the same;
+    and the ADBC URI carries nothing libpq derived by itself. Redshift's
+    connection invariant holds on every path too."""
+    if build.__name__ == "clone_of_via_from_connection" and "schema" in caller_kwargs:
+        request.applymarker(
+            pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "a schema reaches the wrapped connection as a set_config, "
+                    "not a DSN setting, so a clone built from the DSN resolves "
+                    "names against the server default search_path"
+                ),
+            )
+        )
+    opened = []
+    try:
+        con = build(backend_cls, caller_kwargs, opened)
+        for name, value in expected.items():
+            assert psycopg_setting(con, name) == value, name
+
+        adbc = con._open_adbc_conn_or_none()
+        if adbc is not None:
+            adbc.close()
+            for name in ("search_path", "statement_timeout", "application_name"):
+                assert adbc_setting(con, name) == psycopg_setting(con, name), name
+        assert not set(PgADBC(con).settings) - {*caller_kwargs, "options"}
+
+        if backend_cls is RedshiftBackend:
+            assert con.con.prepare_threshold is None
+    finally:
+        for backend in reversed(opened):
+            backend.disconnect()
