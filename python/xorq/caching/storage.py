@@ -141,8 +141,8 @@ _VERIFY_BATCH_SIZE = 8192
 # Module-level and named rather than a literal inside ``put``: as a closure
 # constant it could not be imported, so nothing could assert that it agrees
 # with the other per-backend registries, and it silently fell a backend behind
-# ``defer_utils._ADBC_BACKENDS``. ``test_storage_registry`` asserts the
-# agreement now.
+# ``defer_utils._ADBC_BACKENDS``. ``caching/tests/test_storage.py`` now
+# requires every registered backend to be classified for it, in or out.
 # FIXME: add pyiceberg, trino
 REMOTE_PUT_BACKENDS = frozenset(("postgres", "snowflake", "redshift"))
 
