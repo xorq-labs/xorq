@@ -13,15 +13,19 @@ sampling it. This test makes the surface a classified list instead:
   to the function, not just the one a fix was made at: ``time(h, m, s)`` still
   reached ``MAKE_TIME`` through ``SIMPLE_OPS`` after the literal path was fixed.
 
-Names are read statically from each inherited visitor's source (``self.f.X``,
-``self.f["X"]``, ``self.agg.X``) and from ``SIMPLE_OPS``, BEFORE the dialect
-renders them -- ``datefromparts`` is what reaches the wire as
-``DATE_FROM_PARTS``. A name reached only through a helper method the visitor
-calls is not seen; the rendered-SQL check in ``redshift_evidence`` covers the
-wire side. A hand-written override that delegates with ``super()`` is followed
-into the implementation it delegates to, because that is inherited code too:
-``visit_Cast`` handles the binary casts itself and passes every other cast on
-to PostgreSQL's.
+Names are read statically, BEFORE the dialect renders them -- ``datefromparts``
+is what reaches the wire as ``DATE_FROM_PARTS``. A visitor generated from a
+``SIMPLE_OPS`` entry, at any level of the hierarchy, carries its name as the
+``_name`` default; any other inherited implementation is read from its source
+(``self.f.X``, ``self.f["X"]``, ``self.agg.X``). The scan follows what an
+implementation calls, because that is inherited code too: a helper method
+(``visit_IntervalFromInteger`` emits nothing itself, ``_make_interval`` emits
+``MAKE_INTERVAL``), and ``super()``, into the implementation it delegates to
+(``visit_Cast`` handles the binary casts itself and passes every other cast on
+to PostgreSQL's). Code in the Redshift module is followed but not read: its
+names are the Redshift compiler's own choices, which the dialect tests assert.
+A name built some other way (an ``sge`` node rendered by the dialect) is not
+seen; the rendered-SQL check in ``redshift_evidence`` covers the wire side.
 """
 
 from __future__ import annotations
@@ -47,6 +51,7 @@ PRESENT = "present"  # ran on a compute node, reading a table
 UNVERIFIED = "unverified"  # inherited and never asked of the warehouse
 
 _GEO = "geospatial; not probed"
+_SIMPLE = "inherited SIMPLE_OPS target; not probed"
 
 INVENTORY: dict[str, tuple[str, str]] = {
     "array": (PRESENT, "ARRAY() builds a SUPER on compute; live corpus, 2026-09-28"),
@@ -95,19 +100,47 @@ INVENTORY: dict[str, tuple[str, str]] = {
         "st_linelocatepoint st_linemerge st_linesubstring st_npoints "
         "st_orderingequals st_overlaps st_perimeter st_setsrid st_simplify "
         "st_srid st_startpoint st_touches st_transform st_union st_within "
-        "st_x st_y".split(),
+        "st_x st_y st_geomfromtext".split(),
         (UNVERIFIED, _GEO),
     ),
+    **dict.fromkeys(
+        "abs acos asin atan atan2 cos cot degrees pi radians sign sin sqrt tan "
+        "ascii lower lpad repeat replace reverse right rpad translate upper "
+        "count nullif cume_dist dense_rank nth_value ntile percent_rank rank "
+        "row_number".split(),
+        (UNVERIFIED, _SIMPLE),
+    ),
+    "array_size": (UNVERIFIED, f"renders GET_ARRAY_LENGTH; {_SIMPLE}"),
+    "date": (UNVERIFIED, f"renders DATE(...); {_SIMPLE}"),
+    "if": (UNVERIFIED, f"renders CASE WHEN; {_SIMPLE}"),
+    "json_extract": (
+        UNVERIFIED,
+        "renders JSON_EXTRACT_PATH_TEXT; reached through PostgreSQL's super()",
+    ),
+    "split": (UNVERIFIED, f"renders SPLIT_TO_ARRAY; {_SIMPLE}"),
+    "str_to_date": (UNVERIFIED, f"renders TO_DATE; {_SIMPLE}"),
+    "str_to_time": (UNVERIFIED, f"renders TO_TIMESTAMP(s, format); {_SIMPLE}"),
 }
 
-# Names a hand-written override reaches only through ``super()``, but which it
-# intercepts before delegating. A static scan cannot see the branch, so each one
-# is listed with the override that shadows it.
-SHADOWED_BY_OVERRIDE: dict[str, str] = {
-    "decode": "visit_Cast lowers string->binary to TO_VARBYTE before super()",
-    "encode": "visit_Cast lowers binary->string to FROM_VARBYTE before super()",
-    "to_timestamp": "visit_Cast lowers integer->timestamp to DATEADD before super()",
-    "timezone": "visit_Cast refuses integer->timestamptz before super()",
+# Names an op reaches only through a hand-written override that intercepts
+# them before delegating. A static scan cannot see the branch, so each is
+# listed with the op and the override that shadows it; keying on the op keeps
+# the name visible on every other path to it.
+_CASTS = ("Cast", "TryCast")
+SHADOWED_BY_OVERRIDE: dict[tuple[str, str], str] = {
+    **{
+        (op, name): reason
+        for op in _CASTS
+        for name, reason in {
+            "decode": "visit_Cast lowers string->binary to TO_VARBYTE before super()",
+            "encode": "visit_Cast lowers binary->string to FROM_VARBYTE before super()",
+            "to_timestamp": "visit_Cast lowers integer->timestamp to DATEADD before super()",
+            "timezone": "visit_Cast refuses integer->timestamptz before super()",
+        }.items()
+    },
+    ("Literal", "datefromparts"): "visit_NonNullLiteral casts a date string first",
+    ("Literal", "make_time"): "visit_NonNullLiteral casts a time string first",
+    ("Literal", "map"): "visit_NonNullLiteral refuses a map before super()",
 }
 
 _CALL = re.compile(r"""self\.(?:f|agg)\.(\w+)\s*\(|self\.(?:f|agg)\[["'](\w+)["']\]""")
@@ -122,27 +155,48 @@ def _compilable_ops():
             yield op
 
 
-def _inherited_sources(op):
-    """The source of every inherited implementation this op's visitor can run:
-    the visitor itself when it is inherited, and each implementation a
-    hand-written one reaches through ``super()``."""
-    name = f"visit_{op.__name__}"
+_HELPER = re.compile(r"\bself\.(\w+)\s*\(")
+_SUPER = re.compile(r"\bsuper\(\)\.(\w+)\s*\(")
+# Attributes that build SQL nodes rather than name methods, and the dispatcher,
+# which reaches every visitor.
+_NOT_FOLLOWED = frozenset({"f", "agg", "v", "visit_node"})
+
+
+def _resolve(name, start=0):
+    """The first definition of ``name`` in the MRO from ``start``, with its index."""
     mro = RedshiftCompiler.__mro__
-    for i, cls in enumerate(mro):
-        if name not in vars(cls):
+    for i in range(start, len(mro)):
+        if name in vars(mro[i]):
+            return i, vars(mro[i])[name]
+    return None, None
+
+
+def _inherited_names(op):
+    """Every function name this op's visitor can emit through inherited code:
+    the visitor, each helper it calls, and each implementation it reaches
+    through ``super()``, transitively."""
+    names = []
+    seen = set()
+    pending = [(f"visit_{op.__name__}", 0)]
+    while pending:
+        name, start = pending.pop()
+        i, impl = _resolve(name, start)
+        if impl is None or not inspect.isfunction(impl) or (name, i) in seen:
             continue
-        source = inspect.getsource(vars(cls)[name])
-        if cls.__module__ != RedshiftCompiler.__module__:
-            yield source
-            return
-        if "super()." not in source:
-            return
-        mro = mro[i + 1 :]
-        for parent in mro:
-            if name in vars(parent):
-                yield inspect.getsource(vars(parent)[name])
-                return
-        return
+        seen.add((name, i))
+        if "_name" in (impl.__kwdefaults__ or {}):
+            names.append(impl.__kwdefaults__["_name"])
+            continue
+        source = inspect.getsource(impl)
+        if RedshiftCompiler.__mro__[i].__module__ != RedshiftCompiler.__module__:
+            names.extend(a or b for a, b in _CALL.findall(source))
+        pending.extend(
+            (helper, 0)
+            for helper in _HELPER.findall(source)
+            if helper not in _NOT_FOLLOWED
+        )
+        pending.extend((parent, i + 1) for parent in _SUPER.findall(source))
+    return names
 
 
 def _compilable_inherited_ops():
@@ -155,25 +209,33 @@ def _compilable_inherited_ops():
 def _reachable_functions() -> dict[str, set[str]]:
     reached = defaultdict(set)
     for op in _compilable_ops():
-        if op in RedshiftCompiler.SIMPLE_OPS:
-            names = [RedshiftCompiler.SIMPLE_OPS[op]]
-        else:
-            names = [
-                a or b
-                for source in _inherited_sources(op)
-                for a, b in _CALL.findall(source)
-            ]
-        for name in names:
-            if name.lower() not in SHADOWED_BY_OVERRIDE:
+        for name in _inherited_names(op):
+            if (op.__name__, name.lower()) not in SHADOWED_BY_OVERRIDE:
                 reached[name.lower()].add(op.__name__)
     return reached
 
 
 def test_the_sweep_sees_the_inherited_surface():
-    """Guards the two tests below against a scan that silently finds nothing."""
+    """Guards the two tests below against a scan that silently finds nothing:
+    one name read from source, one from a generated ``SIMPLE_OPS`` visitor
+    defined on ``SQLGlotCompiler`` itself, and one reached only by following
+    ``super()`` and a helper (``visit_Literal`` -> ``visit_NonNullLiteral`` ->
+    ``visit_DefaultLiteral``)."""
     reached = _reachable_functions()
     assert len(list(_compilable_inherited_ops())) > 200
-    assert {"coalesce", "date_trunc", "st_area"} <= set(reached)
+    assert {"coalesce", "lower", "st_geomfromtext"} <= set(reached)
+
+
+def test_every_shadowed_name_is_reached():
+    """A shadow entry for a path the scan no longer finds would hide the name
+    the day a new path reaches it."""
+    scanned = {
+        (op.__name__, name.lower())
+        for op in _compilable_ops()
+        for name in _inherited_names(op)
+    }
+    stale = sorted(set(SHADOWED_BY_OVERRIDE) - scanned)
+    assert not stale, f"SHADOWED_BY_OVERRIDE names a path nothing reaches: {stale}"
 
 
 def test_every_inherited_function_is_classified():

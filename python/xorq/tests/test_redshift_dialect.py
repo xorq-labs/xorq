@@ -1110,6 +1110,44 @@ def test_bit_xor_raises(t):
 
 
 @pytest.mark.parametrize(
+    ("build", "op"),
+    [
+        pytest.param(lambda t: t.s.levenshtein("abc"), "Levenshtein", id="levenshtein"),
+        pytest.param(lambda t: t.s.split(",").join("-"), "ArrayStringJoin", id="join"),
+    ],
+)
+def test_simple_ops_absent_from_the_function_reference_raise(t, build, op):
+    """Inherited ``SIMPLE_OPS`` entries emit ``LEVENSHTEIN`` and
+    ``ARRAY_TO_STRING``, neither of which Redshift has."""
+    with pytest.raises(com.OperationNotDefinedError, match=op):
+        to_sql(t.select(o=build(t)))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda t: t.id.cast("timestamp") + t.d.as_interval("D"), id="as_interval"
+        ),
+        pytest.param(lambda t: t.id.cast("interval('s')"), id="cast"),
+    ],
+)
+def test_an_interval_from_a_value_raises_rather_than_emitting_make_interval(t, build):
+    with pytest.raises(com.UnsupportedOperationError, match="MAKE_INTERVAL"):
+        to_sql(t.select(o=build(t)))
+
+
+def test_a_literal_interval_still_compiles(t):
+    """The refusal is of ``MAKE_INTERVAL``, not of intervals."""
+    to_sql(t.select(o=t.id.cast("timestamp") + xo.interval(days=1)))
+
+
+def test_a_map_literal_raises_rather_than_emitting_map(t):
+    with pytest.raises(com.UnsupportedOperationError, match="MAP"):
+        to_sql(t.select(o=xo.literal({"a": 1})))
+
+
+@pytest.mark.parametrize(
     "window",
     [
         pytest.param(

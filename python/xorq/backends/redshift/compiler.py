@@ -218,6 +218,12 @@ class RedshiftCompiler(PostgresCompiler):
         # ``ARRAY_REMOVE`` (measured absent) and ``GENERATE_SERIES``.
         ops.TimestampRange,
         ops.StructField,
+        # Inherited ``SIMPLE_OPS`` targets absent from Redshift's function
+        # reference; not measured on the warehouse. ``LEVENSHTEIN`` is an
+        # extension on PostgreSQL, and Redshift's SUPER array functions have no
+        # ``ARRAY_TO_STRING``.
+        ops.Levenshtein,
+        ops.ArrayStringJoin,
     )
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
@@ -656,7 +662,29 @@ class RedshiftCompiler(PostgresCompiler):
             return self.cast(value.isoformat(), dtype)
         if dtype.is_binary():
             return self.f.from_hex(value.hex())
+        if dtype.is_map():
+            # The inherited visitor emits ``MAP(...)``, measured absent; the
+            # map ops are refused in ``UNSUPPORTED_OPS``, and this is the one
+            # route to the constructor they do not cover.
+            raise com.UnsupportedOperationError(
+                "Redshift has no map type and no MAP constructor"
+            )
         return super().visit_NonNullLiteral(op, value=value, dtype=dtype)
+
+    def _make_interval(self, arg, unit):
+        """Refuse a non-literal interval.
+
+        Every route that turns a value into an interval -- ``as_interval``
+        (``visit_IntervalFromInteger``) and a cast to an interval -- goes
+        through this helper, and PostgreSQL's emits ``MAKE_INTERVAL(days =>
+        ...)``: absent from Redshift's function reference (not measured on the
+        warehouse), in a named-argument syntax Redshift does not have. A
+        literal interval does not come here.
+        """
+        raise com.UnsupportedOperationError(
+            f"Redshift cannot build an interval of {unit.plural} from a value: "
+            "it has no MAKE_INTERVAL"
+        )
 
     def visit_WindowFunction(self, op, *, how, func, start, end, group_by, order_by):
         """Drop the frame clause where Redshift's grammar has no slot for one.
