@@ -1080,3 +1080,25 @@ def test_a_renamed_entry_keeps_following_its_source(
     new = reopen(world).get_catalog_entry(twice.stdout.strip())
     assert new.columns == ("a", "c")
     assert list(new.load_expr().execute()["a"]) == [2]
+
+
+def test_a_rename_onto_a_recorded_column_is_allowed_with_a_warning(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`b` looks unchanged, so rebase can't tell a typo from `b` dropped and
+    `a` renamed to `b`: it does what it was told, and says so."""
+    name = world.catalog.add(world.con.table("t").select("a")).name
+    replace_t(world, pa.table({"b": pa.array([1, 2], pa.int64())}))
+
+    result = rebase(runner, world, name, "--rename", "t", "a", "b")
+    assert result.exit_code == 0, result.output
+    assert (
+        "Renamed t: a <- b\n"
+        "WARNING: t: b was already a recorded column; a now reads b's data, and "
+        "the expression no longer has a column b. Check that a was really "
+        "renamed to b\n"
+        "Output: unchanged\n"
+    ) in result.stderr
+    entry = world.catalog.get_catalog_entry(name)
+    (rename,) = rebase_entry(entry, renames=[("t", "a", "b")]).renames
+    assert rename.consumes

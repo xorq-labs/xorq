@@ -18,7 +18,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from attr import field, frozen
+from attr import evolve, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 
 from xorq.catalog.catalog import CatalogEntry
@@ -106,9 +106,23 @@ class Rename:
     source = field(validator=instance_of(str))
     old = field(validator=instance_of(str))
     new = field(validator=instance_of(str))
+    # ``new`` was itself a recorded column: it now feeds ``old``, and the
+    # expression no longer sees it under its own name. Set by ``rebase_entry``.
+    consumes = field(default=False, validator=instance_of(bool))
 
     def __str__(self) -> str:
         return f"{self.source}: {self.old} <- {self.new}"
+
+    @property
+    def warning(self) -> str | None:
+        if not self.consumes:
+            return None
+        return (
+            f"WARNING: {self.source}: {self.new} was already a recorded column; "
+            f"{self.old} now reads {self.new}'s data, and the expression no "
+            f"longer has a column {self.new}. Check that {self.old} was really "
+            f"renamed to {self.new}"
+        )
 
 
 @frozen
@@ -355,12 +369,15 @@ def plan_renames(
     record: BuildRecord,
     renames: tuple[Rename, ...],
     unprobed: tuple[str, ...],
-) -> dict[tuple, dict[str, str]]:
-    """``leaf_key`` -> recorded name -> live name, checked against the record.
+) -> tuple[dict[tuple, dict[str, str]], tuple[Rename, ...]]:
+    """``leaf_key`` -> recorded name -> live name, checked against the record,
+    and ``renames`` with ``consumes`` set.
 
     A source recorded at several schemas is renamed under each that records
     ``old``. The live side is checked after the sweep, by
-    ``check_live_renames``.
+    ``check_live_renames``. A ``new`` the source also recorded is allowed and
+    warned about: from the schemas alone, a column that looks unchanged can't
+    be told apart from one that was dropped and replaced by the renamed one.
     """
     if renames and unprobed:
         raise refuse_rename(
@@ -385,7 +402,19 @@ def plan_renames(
                     f"{rename.source}: {rename.old!r} or {rename.new!r} is renamed twice",
                 )
             by_old[rename.old] = rename.new
-    return planned
+    checked = tuple(
+        evolve(
+            rename,
+            consumes=any(
+                rename.new in leaf.recorded
+                for leaf in renamed_source(
+                    catalog_entry, record, rename.source
+                ).values()
+            ),
+        )
+        for rename in renames
+    )
+    return planned, checked
 
 
 def check_live_renames(
@@ -545,7 +574,7 @@ def rebase_entry(
             f"{catalog_entry.name} has no alias {', '.join(unknown)}",
             RebaseExit.REFUSED,
         )
-    planned = plan_renames(catalog_entry, record, renames, unprobed)
+    (planned, renames) = plan_renames(catalog_entry, record, renames, unprobed)
     if unprobed:
         check_only_aliases(catalog_entry, only_aliases)
         # Nothing can be refreshed, so a load and dump could only return the

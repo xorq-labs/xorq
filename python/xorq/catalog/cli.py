@@ -1197,7 +1197,9 @@ def rebase(
     A renamed column is a removed one to rebase, unless --rename says which
     live column it is now: `--rename t a b` reads t's recorded column a from
     its live column b, and every op over t still sees a. SOURCE is a source's
-    name as `check-sources` prints it. Rebase never guesses a rename; a
+    name as `check-sources` prints it. A NEW the source had recorded too is
+    allowed, with a warning: rebase can't tell a mistyped NEW from a column
+    dropped and replaced by the renamed one. Rebase never guesses a rename; a
     conflict over a lost column lists what each source lost and gained. A
     --rename is refused when SOURCE names no source, or sources on several
     connections; when OLD is not recorded, or is still live (so also with no
@@ -1299,6 +1301,8 @@ def rebase(
     else:
         for rename in result.renames:
             click.echo(f"Renamed {rename}", err=True)
+            if rename.warning:
+                click.echo(rename.warning, err=True)
         changes = ", ".join(map(str, result.output_changes)) or "unchanged"
         click.echo(f"Output: {changes}", err=True)
         kept = "" if result.created else " (already cataloged; existing archive kept)"
