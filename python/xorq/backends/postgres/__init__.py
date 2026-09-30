@@ -340,12 +340,27 @@ class Backend(IbisPostgresBackend):
         # are the caller's values and win, and the DSN fills in only address
         # keys the caller left out; a setting libpq derived from the
         # environment is re-derived from the same environment. A
-        # ``from_connection`` source has no kwargs, so the DSN is all there is
-        # and it is carried whole.
+        # ``from_connection`` source has no kwargs, so the DSN is all there is:
+        # it is carried less the settings libpq derived on its own, which the
+        # clone's libpq derives again, and which would otherwise enter
+        # ``_con_kwargs`` as caller settings and the ADBC URI with them.
         if not self._con_kwargs:
-            # libpq omits a default port from ``get_parameters``, so without
-            # this a subclass with a different default port dials that one.
-            dsn_parameters = {**dsn_parameters, "port": self.con.info.port}
+            from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
+                libpq_derived_settings,
+            )
+
+            derived = libpq_derived_settings()
+            dsn_parameters = {
+                **{
+                    key: value
+                    for key, value in dsn_parameters.items()
+                    if key in _CLONE_ADDRESS_KEYS or derived.get(key) != value
+                },
+                # libpq omits a default port from ``get_parameters``, so
+                # without this a subclass with a different default port dials
+                # that one.
+                "port": self.con.info.port,
+            }
         else:
             dsn_parameters = toolz.keyfilter(
                 lambda key: (

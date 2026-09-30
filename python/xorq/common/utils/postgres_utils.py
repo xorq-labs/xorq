@@ -37,6 +37,28 @@ LIBPQ_SETTING_KEYWORDS = frozenset(
 ) - {"user", "password", "host", "port", "dbname"}
 
 
+def libpq_derived_settings() -> dict[str, str]:
+    """What psycopg's libpq sets on a connection nobody configured.
+
+    ``get_parameters`` hides a value equal to its compiled default, but libpq
+    fills some settings in at connect time instead (``sslcertmode`` from libpq
+    17), and those it reports as though they were chosen. Measured rather than
+    listed, so it keeps up with the libpq psycopg bundles: ``connect_start``
+    processes the options before dialling, and a socket directory that does
+    not exist fails without touching the network. The environment is read
+    here as at any connect, so a ``PGSSLMODE`` counts as derived too.
+    """
+    probe = psycopg.pq.PGconn.connect_start(b"host=/nonexistent-xorq-libpq-probe")
+    try:
+        return {
+            option.keyword.decode(): option.val.decode()
+            for option in probe.info
+            if option.val is not None
+        }
+    finally:
+        probe.finish()
+
+
 def search_path_option(schema: str) -> str:
     r"""A libpq ``options`` argument setting ``search_path`` to ``schema``.
 

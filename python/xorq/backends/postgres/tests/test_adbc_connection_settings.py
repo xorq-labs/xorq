@@ -152,6 +152,47 @@ def test_clone_hashes_equal_with_a_real_libpq(
         source.disconnect()
 
 
+@pytest.mark.parametrize(
+    "backend_cls",
+    [
+        pytest.param(PostgresBackend, id="postgres"),
+        pytest.param(RedshiftBackend, id="redshift"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("wrapped_kwargs", "expected_settings"),
+    [
+        pytest.param({}, {}, id="defaults"),
+        pytest.param(
+            {"sslmode": "disable", "options": "-c statement_timeout=5000"},
+            {"sslmode": "disable", "options": "-c statement_timeout=5000"},
+            id="configured",
+        ),
+    ],
+)
+def test_a_from_connection_clone_carries_only_what_the_connection_was_given(
+    backend_cls: type[PostgresBackend],
+    wrapped_kwargs: dict,
+    expected_settings: dict,
+) -> None:
+    """A ``from_connection`` source has no kwargs, so its clone takes its
+    settings from the live DSN -- which also reports what libpq derived by
+    itself (``sslcertmode`` from libpq 17). Those reached the clone's
+    ``_con_kwargs`` as if the caller had passed them, and from there the ADBC
+    URI, whose older libpq may reject them. What the wrapped connection was
+    actually opened with must still survive."""
+    raw = connect(**wrapped_kwargs).con
+    source = backend_cls.from_connection(raw)
+    try:
+        clone = source.clone(password=make_credential_defaults()["password"])
+        try:
+            assert PgADBC(clone).settings == expected_settings
+        finally:
+            clone.disconnect()
+    finally:
+        source.disconnect()
+
+
 def test_a_from_connection_clone_dials_the_port_it_came_from() -> None:
     """libpq omits a default port from ``get_parameters``, so a clone of a
     ``from_connection`` backend used to fall back to the subclass's
