@@ -255,13 +255,33 @@ def test_an_unmappable_column_is_refused_on_read(
         con.to_pyarrow(t)
 
 
+SHAPES = [
+    # A temporary table of its own shape: a read that resolves to the wrong
+    # table fails on the column names.
+    pytest.param("(temp_only integer)", "(42)", [{"temp_only": 42}], id="own-shape"),
+    # One LIKE the permanent table: a read that resolves to the wrong table
+    # matches its schema and returns the permanent rows, silently.
+    pytest.param(
+        f"(LIKE {{schema}}.{MATRIX_TABLE})",
+        "(99" + ", NULL" * (len(MATRIX_COLUMNS) - 1) + ")",
+        [{"id": 99}],
+        id="same-shape",
+    ),
+]
+
+
+@pytest.mark.parametrize(("ddl", "values", "expected"), SHAPES)
 @pytest.mark.parametrize("entry", ENTRIES)
 def test_a_temporary_table_shadows_the_permanent_one_it_is_named_after(
     con: RedshiftBackend,
     live_config: RedshiftLiveConfig,
     schema: str,
     entry: str,
+    ddl: str,
+    values: str,
+    expected: list[dict[str, Any]],
     read_path: dict[str, Any],
+    request: pytest.FixtureRequest,
 ) -> None:
     """Unqualified, the name means the temporary table, on every path.
 
@@ -269,21 +289,39 @@ def test_a_temporary_table_shadows_the_permanent_one_it_is_named_after(
     before the search path, and ADBC reads on a connection of its own, which
     cannot see that table.
     """
+    if read_path["path"] == "adbc":
+        # Inherited from the postgres backend, and measured there too: the
+        # compiled SQL leaves the name unqualified, so ADBC's own session
+        # resolves it to the permanent table. The psycopg fallback exists for
+        # a temporary table ADBC cannot see, but only runs when ADBC raises;
+        # a same-shape permanent table raises nothing and its rows come back.
+        request.applymarker(
+            pytest.mark.xfail(
+                strict=True,
+                reason="ADBC reads a shadowed temporary table's permanent namesake",
+            )
+        )
     shadowing = connect(live_config, schema)
     try:
         with shadowing.con.cursor() as cursor:
-            cursor.execute(f"CREATE TEMPORARY TABLE {MATRIX_TABLE} (temp_only integer)")
-            cursor.execute(f"INSERT INTO {MATRIX_TABLE} VALUES (42)")
+            cursor.execute(
+                f"CREATE TEMPORARY TABLE {MATRIX_TABLE} {ddl.format(schema=schema)}"
+            )
+            cursor.execute(f"INSERT INTO {MATRIX_TABLE} VALUES {values}")
         t = (
             shadowing.table(MATRIX_TABLE)
             if entry == "table"
             else shadowing.sql(f"SELECT * FROM {MATRIX_TABLE}")
         )
+        t = t.select(*(c for c in t.columns if c not in UNMAPPABLE))
 
-        assert t.columns == ("temp_only",)
-        assert shadowing.to_pyarrow(t).to_pylist() == [{"temp_only": 42}]
-        assert shadowing.table(MATRIX_TABLE, database=schema).columns == tuple(
-            name for name, *_ in MATRIX_COLUMNS
+        rows = shadowing.to_pyarrow(t).to_pylist()
+
+        assert [{k: v for k, v in row.items() if v is not None} for row in rows] == (
+            expected
         )
+        assert list(shadowing.table(MATRIX_TABLE, database=schema).columns) == [
+            name for name, *_ in MATRIX_COLUMNS
+        ]
     finally:
         shadowing.disconnect()
