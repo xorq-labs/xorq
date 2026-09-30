@@ -31,6 +31,8 @@ import re
 from collections import defaultdict
 
 import pytest
+import sqlglot.expressions as sge
+from sqlglot.dialects import Redshift as SqlglotRedshift
 
 
 # Must run before the xorq.backends.redshift import; see the matching guard in
@@ -41,6 +43,7 @@ pytest.importorskip("psycopg")
 import xorq.vendor.ibis.expr.operations as ops  # noqa: E402
 from xorq.backends.redshift.compiler import RedshiftCompiler  # noqa: E402
 from xorq.tests.redshift_evidence import MEASURED_ABSENT_FUNCTIONS  # noqa: E402
+from xorq.vendor.ibis.backends.sql.dialects import Redshift  # noqa: E402
 
 
 PRESENT = "present"  # ran on a compute node, reading a table
@@ -97,6 +100,18 @@ INVENTORY: dict[str, tuple[str, str]] = {
         "st_srid st_startpoint st_touches st_transform st_union st_within "
         "st_x st_y".split(),
         (UNVERIFIED, _GEO),
+    ),
+}
+
+# Function names the xorq Redshift dialect's own TRANSFORMS rename a typed
+# sqlglot node to. A visitor that builds ``sge.Split`` names no function, so
+# the static read above never sees what reaches the wire; these are read from
+# the dialect instead, by rendering each transform the xorq class adds.
+DIALECT_RENAMED: dict[str, tuple[str, str]] = {
+    "split_to_array": (PRESENT, "sge.Split; live corpus, 2026-09-30"),
+    "get_array_length": (
+        PRESENT,
+        "sge.ArraySize; over ARRAY() and over SPLIT_TO_ARRAY; live corpus, 2026-09-30",
     ),
 }
 
@@ -169,6 +184,39 @@ def _reachable_functions() -> dict[str, set[str]]:
     return reached
 
 
+def _dialect_renamed_functions() -> dict[str, str]:
+    """Each function name a transform in the xorq ``Redshift`` generator renders,
+    for every transform that class adds or replaces over sqlglot's own."""
+    ours = Redshift.Generator.TRANSFORMS
+    theirs = SqlglotRedshift.Generator.TRANSFORMS
+    generator = Redshift().generator()
+    renamed = {}
+    for node, transform in ours.items():
+        if theirs.get(node) is transform:
+            continue
+        sql = transform(
+            generator, node(this=sge.column("a"), expression=sge.column("b"))
+        )
+        match = re.match(r"(\w+)\(", sql)
+        if match:
+            renamed[match.group(1).lower()] = node.__name__
+    return renamed
+
+
+def test_every_dialect_renamed_function_is_classified():
+    """A transform the xorq class adds emits a name no inherited visitor names,
+    so the inventory above cannot see it: ``SPLIT_TO_ARRAY`` and
+    ``GET_ARRAY_LENGTH`` shipped unprobed that way."""
+    renamed = _dialect_renamed_functions()
+    assert renamed, "the dialect scan found no renames; the scan is broken"
+    assert set(renamed) == set(DIALECT_RENAMED), (
+        f"dialect renames {sorted(renamed)} against classified "
+        f"{sorted(DIALECT_RENAMED)}. Probe each new one on a compute node."
+    )
+    absent = sorted(set(renamed) & set(MEASURED_ABSENT_FUNCTIONS))
+    assert not absent, f"the dialect renames to a measured-absent function: {absent}"
+
+
 def test_the_sweep_sees_the_inherited_surface():
     """Guards the two tests below against a scan that silently finds nothing."""
     reached = _reachable_functions()
@@ -206,4 +254,5 @@ def test_no_absent_function_is_also_classified():
 
 
 def test_every_tag_is_known():
-    assert {tag for tag, _ in INVENTORY.values()} <= {PRESENT, UNVERIFIED}
+    tags = {tag for tag, _ in (*INVENTORY.values(), *DIALECT_RENAMED.values())}
+    assert tags <= {PRESENT, UNVERIFIED}

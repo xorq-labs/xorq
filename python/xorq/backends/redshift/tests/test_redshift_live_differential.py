@@ -78,6 +78,15 @@ TARGETED = {
         "id", v=t.title.re_replace("a", "_")
     ).order_by("id"),
     "log_base": lambda t: t.select("id", v=(t.fee_rate + 1).log(3)).order_by("id"),
+    "split_length": lambda t: t.select("id", v=t.title.split(" ").length()).order_by(
+        "id"
+    ),
+    "split_length_empty": lambda t: t.select(
+        "id", v=_t(t).split(" ").length()
+    ).order_by("id"),
+    "array_length": lambda t: t.select(
+        "id", v=ibis.array([t.id, t.id, t.id]).length()
+    ).order_by("id"),
 }
 
 # Nondeterministic, so not comparable by value.

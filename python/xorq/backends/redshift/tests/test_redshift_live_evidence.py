@@ -15,13 +15,18 @@ from xorq.backends.redshift.compiler import compiler as redshift_compiler
 from xorq.backends.redshift.tests.redshift_live_corpus import (
     INHERITED,
     RECHECK,
+    RENAMED,
     compile_inherited,
 )
 from xorq.backends.redshift.tests.redshift_live_harness import (
     PROBE_TABLE_SCHEMA,
     refuse_unless_compute_select,
 )
-from xorq.tests.test_redshift_op_inventory import INVENTORY, PRESENT
+from xorq.tests.test_redshift_op_inventory import (
+    DIALECT_RENAMED,
+    INVENTORY,
+    PRESENT,
+)
 
 
 # Corpus entries whose op the compiler refuses at compile time. Refusing is a
@@ -63,13 +68,18 @@ def test_inherited_function_is_refused_at_compile(name):
         compile_inherited(name, table, redshift_compiler)
 
 
+@pytest.mark.parametrize("name", sorted(RENAMED))
+def test_dialect_renamed_function_runs_on_compute(name, probe_table, run_select):
+    run_select(compile_inherited(name, probe_table, redshift_compiler, RENAMED))
+
+
 def test_every_present_classification_has_a_live_probe():
     """A PRESENT entry in the op inventory must be backed by a probe here."""
-    probed = {name.split("/")[0] for name in INHERITED}
+    probed = {name.split("/")[0] for name in (*INHERITED, *RENAMED)}
     measured_elsewhere = {"bool_or", "length", "max"}
     unbacked = sorted(
         name
-        for name, (tag, _) in INVENTORY.items()
+        for name, (tag, _) in (*INVENTORY.items(), *DIALECT_RENAMED.items())
         if tag == PRESENT and name not in probed | measured_elsewhere
     )
     assert not unbacked, f"PRESENT with no live probe: {unbacked}"
