@@ -7,6 +7,7 @@ import psycopg
 import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
+from psycopg.adapt import Loader
 
 import xorq.common.exceptions as exc
 import xorq.vendor.ibis.expr.operations as ops
@@ -56,6 +57,13 @@ PROBE_ALIAS = "redshift_probe"
 # Where it is absent, a trailing comment attaches to the statement before it,
 # so there is nothing to drop and an empty tuple matches nothing.
 _NOT_A_STATEMENT = tuple(filter(None, (getattr(sge, "Semicolon", None),)))
+
+
+class VarbyteLoader(Loader):
+    """Decode ``VARBYTE``'s unprefixed hex text; see ``Backend._post_connect``."""
+
+    def load(self, data: bytes | bytearray | memoryview) -> bytes:
+        return bytes.fromhex(bytes(data).decode("ascii"))
 
 
 class Backend(PostgresBackend):
@@ -168,12 +176,6 @@ class Backend(PostgresBackend):
         the ADBC path returned ``b"\\xab"`` and psycopg ``b"ab"`` for the same
         row. The loader decodes the hex.
         """
-        from psycopg.adapt import Loader  # noqa: PLC0415
-
-        class VarbyteLoader(Loader):
-            def load(self, data: bytes | bytearray | memoryview) -> bytes:
-                return bytes.fromhex(bytes(data).decode("ascii"))
-
         con = self.con
         try:
             con.info.encoding
@@ -730,15 +732,7 @@ ORDER BY ordinal_position ASC"""
         that ``_type_string`` already owns; and it renders an array as
         ``date[]``, where ``info.name`` on an array OID gives the *element*
         name and silently turns every array column into its element type.
-
-        ``psycopg`` is imported here rather than at module level because it is
-        an optional extra: this module is imported when the backend entry point
-        is resolved, and a module-level import would make that fail wherever
-        the postgres extra is not installed. ``test_core_module_imports_are_
-        declared`` enforces exactly this.
         """
-        import psycopg  # noqa: PLC0415
-
         if (name := cls._REDSHIFT_TYPE_OIDS.get(column.type_code)) is not None:
             return cls._column_dtype(name, nullable=True)
         if psycopg.postgres.types.get(column.type_code) is None:
