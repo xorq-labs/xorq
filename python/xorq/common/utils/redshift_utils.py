@@ -51,6 +51,7 @@ __all__ = [
     "normalize_redshift_backend",
     "normalize_redshift_databasetable",
     "resolve_redshift_schema",
+    "session_temp_schema_of",
 ]
 
 
@@ -102,7 +103,7 @@ def resolve_redshift_schema(dt: ops.DatabaseTable, memo: dict | None = None) -> 
 
     Redshift has no ``pg_my_temp_schema()``, so the inherited postgres
     ``_session_temp_db`` cannot answer which schema that is: it raises
-    ``UndefinedFunction``. See ``_session_temp_schema_of``.
+    ``UndefinedFunction``. See ``session_temp_schema_of``.
 
     A table qualified with a temp schema (``pg_temp_<N>``, or the ``pg_temp``
     alias for the session's own) is refused for the same reason, with no round
@@ -117,7 +118,7 @@ def resolve_redshift_schema(dt: ops.DatabaseTable, memo: dict | None = None) -> 
         return database
     con = dt.source
     schema = _current_schema_of(con, memo)
-    temp_schema = _session_temp_schema_of(con.con, dt.name)
+    temp_schema = session_temp_schema_of(con.con, dt.name)
     if temp_schema is None:
         return schema
     raise _session_temp_refusal(
@@ -158,14 +159,15 @@ def _current_schema_of(con: RedshiftBackend, memo: dict | None) -> str:
     return memo[key]
 
 
-def _session_temp_schema_of(raw: Any, name: str) -> str | None:
+def session_temp_schema_of(raw: Any, name: str) -> str | None:
     """The ``pg_temp_<N>`` schema holding a temp table ``name``, if any.
 
     Matched by pattern because the schema cannot be looked up first: Redshift
     has no ``pg_my_temp_schema()``. ``svv_columns`` because it lists temporary
     tables where ``svv_all_columns`` does not. Binding a temp table by name
     needs the same view and pattern, for the same two reasons, so the key and
-    ``table()`` can agree on which names are temporary.
+    ``table()`` can agree on which names are temporary, and the ingest's
+    temporary ``replace`` drops only the table this finds.
     """
     with raw.cursor() as cursor, raw.transaction():
         row = cursor.execute(SESSION_TEMP_RELATION_SQL, {"name": name}).fetchone()
