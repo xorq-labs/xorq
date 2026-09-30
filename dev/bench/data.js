@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790788119879,
+  "lastUpdate": 1790794353862,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -42450,6 +42450,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.13732872561914564",
             "extra": "mean: 1.2780180266000003 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1ec4a1a96493edabf2ce400add84ee21428d8949",
+          "message": "fix(cache): refuse Redshift freshness keys and make its snapshot key schema-aware (#2335)\n\nMakes caching over the dedicated `redshift` backend safe.\nFreshness-keyed caches (`ParquetCache` and every other\n`ModificationTimeStrategy` cache) are refused with an actionable error,\nbecause Redshift has no change signal a cache key can rely on.\n`ParquetSnapshotCache` works, and its key now identifies the relation\ncompletely. Nothing on either path issues DDL or needs a grant.\n\n> [!WARNING]\n> **Behaviour change for Redshift users of `ParquetCache` and `xorq\nrun-cached`.** Both now raise `RedshiftFreshnessUnavailable`.\n`run-cached` defaults to `--cache-type modification-time`\n(`ParquetCache`), so over a Redshift build it needs `--cache-type\nsnapshot`. The error message says so. Making `run-cached` choose that\ndefault itself is left to a follow-up.\n\n## Two failures, one fixed here\n\nDasher picks a table normalizer by backend **name**, so Redshift fails\ndifferently depending on which backend reaches it.\n\n- **Through the dedicated `redshift` backend (fixed here).** Dasher's\ndispatch is a bare `dispatch[dt.source.name](dt)` with no `redshift`\nkey, so computing a cache key raised `KeyError: 'redshift'` before any\nSQL was sent. Once that is fixed, dasher's backend rule raises `no\nnormalization rule for backend 'redshift'` one layer out, including on\nthe `ParquetSnapshotCache` path. This PR registers both rules.\n- **Through a postgres profile pointed at Redshift (not fixed, not\ntested here).** Dispatch reaches `get_postgres_n_reltuples`, which\nissues `CHECKPOINT` (a syntax error on Redshift) and `ANALYZE\n\"<table>\"`. Redshift *accepts* the latter, which is worse: a\nwrite-privileged operation run to compute a cache key. A postgres-named\nprofile reports `postgres`, and telling a Redshift endpoint apart behind\nthat name needs a signal this change does not establish.\n\n## Why freshness keys are refused\n\nA freshness key needs a per-table signal that moves whenever the data\ndoes, never returns to an earlier value, and is readable by a user\nholding only `USAGE` + `SELECT`. Redshift has none:\n\n- **`pg_statistic_indicator` counters.** `PUBLIC`-readable (measured).\nBut its insert and delete counters count changes \"since the last\nANALYZE\" and reset on every one, including background auto-analyze.\nAfter an `UPDATE` followed by an analyze, the counters, and so a key\nbuilt on them, return to their values from before the `UPDATE`. The\nentry cached then is still in storage and is served. A dropped and\nrecreated table reloaded to the same row count reproduces its\npredecessor's counters the same way. An earlier revision of this PR\nkeyed on these counters. It was withdrawn for this reason.\n- **`pg_class.reltuples`.** Readable by anyone, but not maintained on\nwrite: measured, it sat at 0.001 in one run while a table reached five\nrows, and in another stayed at 12 while the table went 12 -> 17.\n- **`svv_table_info`** is superuser-only (measured). **`stl_analyze`,\n`sys_analyze_history` and `stv_tbl_perm`** are documented as\nsuperuser-only, and `stl_*` logs show a regular user only its own rows.\n- **`count(*)`** is correct but a full scan per key computation.\n\nRouting Redshift to dasher's identity-only\n`normalize_remote_databasetable` (where trino and gizmosql go) would\navoid the error and let those caches serve stale results forever. So the\nglobal rule raises `RedshiftFreshnessUnavailable` (exported from\n`xorq.common.exceptions`) before any statement is sent. The message\nexplains why and names `.cache(ParquetSnapshotCache.from_kwargs())` and\n`xorq run-cached --cache-type snapshot`.\n\n## The snapshot key\n\n`SnapshotStrategy`'s fallback keys a table on its name, column schema,\nsource and namespace, and the Redshift source identity is host, port and\ndatabase only. For an unqualified `con.table(\"offers\")` the namespace is\nempty. So `a.offers` and `b.offers`, read through connections scoped to\ndifferent schemas on one cluster, shared a key, and one schema's\nsnapshot was served for the other.\n`SnapshotStrategy.normalize_databasetable` now adds the resolved schema\nfor Redshift tables:\n\n- **Qualified tables** use the namespace's schema, with no round trip. A\ntable qualified with a temp schema (`pg_temp_<N>` or `pg_temp`) is\nrefused, also with no round trip.\n- **Unqualified tables** resolve through `current_schema()`, the schema\n`table()` resolves them in, never `public`, read once per connection per\nkey, plus one `svv_columns` lookup for a session temp table of that\nname.\n- **A session temp table** is refused, even when a permanent table\nshares its name. Keying the permanent one would describe a relation the\nquery is not reading, and a temp table is invisible to every other\nsession. Redshift has no `pg_my_temp_schema()`, so the inherited\npostgres `_session_temp_db` cannot find the temp schema; it raises\n`UndefinedFunction`. The lookup matches `table_schema LIKE\n'pg^_temp^_%'` by name.\n\nSnapshot keys and build hashes for Redshift expressions change once,\nqualified or not, because the resolved schema is now part of every\nRedshift table's key.\n\n## This moves every build hash\n\nRegistering the Redshift backend rule changes `rules_fingerprint()`,\nwhich ADR-0020 folds into build identity. Every build directory name\nchanges once. The two snapshot files this PR updates each change one\nline: an expression hash in one, a `build_dir_name` in the other. It\ncannot be avoided while fixing `ParquetSnapshotCache`, which normalizes\nthe backend object itself. Withdrawing the counter probe does not move\nthem again: the fingerprint covers rule names, not their bodies.\n\n## Evidence\n\n- **Offline:** `python/xorq/tests/test_redshift_cache_freshness.py`, 20\ntests. It is sited outside `backends/redshift/` so every CI job runs it,\nand skipped where `psycopg` is absent.\n- The recording fake connection raises on any statement it does not\nrecognise, rather than answering it, and raises `UndefinedFunction` on\n`pg_my_temp_schema()` as Redshift does. An earlier fake answered that\ncall, and the probe then failed live.\n- The tests assert at the tokenize boundary and at the strategies\n(`ModificationTimeStrategy().calc_key`, `SnapshotStrategy().calc_key`).\n- Negative control: with the snapshot rule reverted, the two-schema test\nand both temp-table tests fail. With the temp-qualified and\n`current_schema()` fixes reverted, their four tests fail.\n- **Tables with an unmappable column:** a schema holding `Unknown`\n(nullable or not) gets a stable snapshot key that differs from the same\nschema with `string`.\n- **Live, least-privilege:** a direct login holding only `USAGE` +\n`SELECT`, no `TEMP` and no `CREATE`. The `svv_columns` temp lookup and\n`current_schema()` resolution passed there, and the privilege map and\n`reltuples` staleness were measured there. A re-run with the\n`ParquetCache` cases expecting the refusal passed on this PR's head\nbefore main was merged in. On the current head, a read-only key check\npassed as that user (switched with `SET SESSION AUTHORIZATION`) and as\nthe admin: an unqualified table resolves to the session schema, two\ntables in one key read `current_schema()` once, a qualified or\n`pg_temp`-qualified table sends no statement, and `ParquetCache`'s key\nis refused with no statement. Keys match across the two users. Not\ncovered by that check: the ADBC read path and `run-cached`, which\nreconnect as the admin, and a real session temp table.\n- `svv_columns` is session-filtered, measured with two concurrent\nsessions as a superuser and as the least-privilege user: each sees only\nits own temp tables, so a name another session holds as temp does not\nrefuse this one. The lookup adds roughly 50-85 ms per unqualified table,\nmeasured.\n- `ruff check`, `ruff format --check` and `xorq-check-style` are clean\non the changed lines.\n\n## Known limitations\n\n- The postgres-profile path above is unfixed.\n- A snapshot cache never invalidates on its own: drop the entry when the\ntable changes.\n- `xorq run-unbound` with `--to_unbind_hash` hashes through the global\nrule, so over a Redshift build it raises too. It already did for views.\n`serve-unbound` and the catalog path use the snapshot strategy and are\nunaffected. Pipeline step naming (`Pipeline.fit`'s training hash) hashes\nthe same way, so over a Redshift expression it logs \"provenance will be\nunavailable\". Both died with `KeyError: 'redshift'` before this PR. The\nrefusal's message no longer assumes a cache.\n- **PostgreSQL has the same snapshot collision, unfixed here.** An\nunqualified postgres table read through connections with different\n`schema=` values gets one snapshot key. Fixing it changes every postgres\nuser's snapshot key for unqualified tables, so it belongs with a\nper-backend rule table rather than in a Redshift PR.\n- **Merge order with #2336.** On this PR alone, an unqualified\n`con.table()` on Redshift still binds through the inherited postgres\n`get_schema`, which calls `pg_my_temp_schema()` and fails live, so the\nunqualified key path is reached only by YAML reconstruction or a\nhand-built table. #2336 fixes `table()` with its own copy of the same\n`svv_columns` temp lookup; the two copies should become one, with a test\nthat `table()` and the key resolve the same schema, once both have\nmerged.\n- **Backend identity is the live host and port**, as for postgres.\nBehind an SSH tunnel that is `localhost` and the tunnel's port, so\nsnapshot entries do not carry across tunnels with different local ports.\nNo replacement signal has been measured yet.\n- Not measured: that a Redshift session temp table shadows a permanent\ntable of the same name for an unqualified name, as it does in\nPostgreSQL. The refusal does not depend on it (it refuses whenever a\ntemp table of that name exists), but the docs' explanation of it assumes\nit.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-30T14:46:53-04:00",
+          "tree_id": "9da9948af158a530020530519bd49ff37c3bde60",
+          "url": "https://github.com/xorq-labs/xorq/commit/1ec4a1a96493edabf2ce400add84ee21428d8949"
+        },
+        "date": 1790794348355,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.221261192813982,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002823942704211823",
+            "extra": "mean: 97.83528481818333 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.6658326760472293,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025391882110597067",
+            "extra": "mean: 272.7893191999897 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.989092184762308,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09914534650737493",
+            "extra": "mean: 1.0110281077999956 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.9062447631905677,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0042565407847312",
+            "extra": "mean: 256.00034320000304 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.417794184493163,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05466128350562935",
+            "extra": "mean: 292.58637180000164 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.119945142878173,
+            "unit": "iter/sec",
+            "range": "stddev: 0.042096471685787284",
+            "extra": "mean: 320.5184559999964 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 185.01159829783595,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015268859959597838",
+            "extra": "mean: 5.405066542856286 msec\nrounds: 315"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.615136236866876,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04118911026328494",
+            "extra": "mean: 216.67832728571415 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 15.930474512701833,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01439198008944409",
+            "extra": "mean: 62.77276921052607 msec\nrounds: 19"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 16.202639595347758,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003885272025873054",
+            "extra": "mean: 61.71833880000198 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 12.970594848961905,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003268507291045704",
+            "extra": "mean: 77.0974663571451 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 8.90891049717414,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004315371167927732",
+            "extra": "mean: 112.24717099999992 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 6.3001134763837365,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0046846895620038615",
+            "extra": "mean: 158.72729971429018 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.909056125700544,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004332826824091115",
+            "extra": "mean: 169.23176540000213 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 3.1072565088673305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04137618818780334",
+            "extra": "mean: 321.8273087999819 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.8791466809539377,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03877617326816671",
+            "extra": "mean: 257.7886535999937 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 2.1185452547165418,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07899696218755893",
+            "extra": "mean: 472.02201500000456 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 2.194131280182625,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08044959333482656",
+            "extra": "mean: 455.76124319998144 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.868228910469961,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0790536145048411",
+            "extra": "mean: 535.2663126000152 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.9699413590102184,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08216009950465543",
+            "extra": "mean: 507.62932379999484 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.6488954752794396,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08520883425082637",
+            "extra": "mean: 606.466580200015 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.5109384446113596,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11207666249922929",
+            "extra": "mean: 661.840330799987 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.205685164168056,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09218539016966813",
+            "extra": "mean: 829.4039187999942 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.7505955857378747,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16485892205478755",
+            "extra": "mean: 1.3322753543999966 sec\nrounds: 5"
           }
         ]
       }
