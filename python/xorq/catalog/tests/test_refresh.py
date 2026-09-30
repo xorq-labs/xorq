@@ -1083,3 +1083,17 @@ def test_compose_renames(
     held: dict[str, str], declared: dict[str, str], composed: dict[str, str]
 ) -> None:
     assert compose_renames(held, declared) == composed
+
+
+def test_a_rename_onto_a_live_column_nothing_moves_is_refused(
+    con: SqliteBackend,
+) -> None:
+    """`Table.rename` would keep the live `a` and silently drop `x`."""
+    t = con.table("t")
+    expr = t.filter(t.a > 1)
+    live = drift_the_table(
+        expr, pa.schema({"x": pa.int64(), "a": pa.int64(), "b": pa.string()})
+    )
+
+    with pytest.raises(SchemaRefreshError, match="'a' is still a live column"):
+        refresh_schemas(expr, live, {key: {"a": "x"} for key in live})

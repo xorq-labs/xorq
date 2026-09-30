@@ -329,10 +329,31 @@ def refuse_rename(catalog_entry: CatalogEntry, detail: str) -> RebaseError:
     return RebaseError(f"{catalog_entry.name}: --rename {detail}", RebaseExit.REFUSED)
 
 
+def refuse_renames(catalog_entry: CatalogEntry, details: Iterable[str]) -> None:
+    """Refuse every failed ``--rename`` at once, so one run shows them all."""
+    match tuple(dict.fromkeys(details)):
+        case ():
+            return
+        case (detail,):
+            raise refuse_rename(catalog_entry, detail)
+        case many:
+            raise RebaseError(
+                f"{catalog_entry.name}: --rename refused:\n"
+                + "\n".join(f"  {detail}" for detail in many),
+                RebaseExit.REFUSED,
+            )
+
+
+def quoted(names: Iterable[str]) -> str:
+    """Each name quoted: a multi-path read's own name holds ``", "``."""
+    return ", ".join(map(repr, names)) or "-"
+
+
 def renamed_source(
     catalog_entry: CatalogEntry, record: BuildRecord, name: str
-) -> dict[tuple, SourceLeaf]:
-    """``leaf_key`` -> leaf for the one external source ``name`` is.
+) -> dict[tuple, SourceLeaf] | str:
+    """``leaf_key`` -> leaf for the one external source ``name`` is, or why
+    there is none.
 
     One source can hold several keys: a table bound before and after it grew
     is recorded at two schemas. One name on two connections is two sources,
@@ -351,16 +372,11 @@ def renamed_source(
             RebaseExit.UNREACHABLE,
         ) from e
     if not by_key:
-        sources = ", ".join(sorted({leaf.name for leaf in record.external_leaves}))
-        raise refuse_rename(
-            catalog_entry, f"names no source {name!r}; its sources: {sources or '-'}"
-        )
+        sources = sorted({leaf.name for leaf in record.external_leaves})
+        return f"names no source {name!r}; its sources: {quoted(sources)}"
     # `leaf_key` less its recorded schema: kind, profile, name.
     if (count := len({key[:3] for key in by_key})) > 1:
-        raise refuse_rename(
-            catalog_entry,
-            f"{name!r} names {count} sources (one name on different connections)",
-        )
+        return f"{name!r} names {count} sources (one name on different connections)"
     return by_key
 
 
@@ -371,7 +387,7 @@ def plan_renames(
     unprobed: tuple[str, ...],
 ) -> tuple[dict[tuple, dict[str, str]], tuple[Rename, ...]]:
     """``leaf_key`` -> recorded name -> live name, checked against the record,
-    and ``renames`` with ``consumes`` set.
+    and ``renames`` with ``consumes`` set. Every failure is refused at once.
 
     A source recorded at several schemas is renamed under each that records
     ``old``. The live side is checked after the sweep, by
@@ -382,39 +398,51 @@ def plan_renames(
     if renames and unprobed:
         raise refuse_rename(
             catalog_entry,
-            f"needs a live schema, and no source can be probed ({', '.join(unprobed)})",
+            f"needs a live schema, and no source can be probed ({quoted(unprobed)})",
         )
     planned: dict[tuple, dict[str, str]] = {}
+    checked = []
+    details = []
+    # Per source: old -> new, and new -> old, as declared so far.
+    by_old: dict[tuple[str, str], str] = {}
+    by_new: dict[tuple[str, str], str] = {}
     for rename in renames:
-        by_key = renamed_source(catalog_entry, record, rename.source)
-        if not (
-            keys := [key for key, leaf in by_key.items() if rename.old in leaf.recorded]
-        ):
-            raise refuse_rename(
-                catalog_entry,
-                f"{rename.source}: {rename.old!r} is not a recorded column",
+        (source, old, new) = (rename.source, rename.old, rename.new)
+        if isinstance(by_key := renamed_source(catalog_entry, record, source), str):
+            details.append(by_key)
+            continue
+        if not (keys := [key for key, leaf in by_key.items() if old in leaf.recorded]):
+            recorded = dict.fromkeys(
+                name for leaf in by_key.values() for name in leaf.recorded
             )
+            details.append(
+                f"{source}: {old!r} is not a recorded column "
+                f"(recorded: {quoted(recorded)})"
+            )
+            continue
+        # Refused, not collapsed, even when identical: as with `git mv a a d/`
+        # ("multiple sources for the same target"), a repeat is most likely a
+        # copied `--rename` left unedited, and collapsing it would silently
+        # drop the mapping that was meant.
+        if (earlier := by_old.get((source, old))) is not None:
+            details.append(
+                f"{source} {old} {new} is given twice"
+                if earlier == new
+                else f"{source}: {old!r} is mapped to both {earlier!r} and {new!r}"
+            )
+            continue
+        if (earlier := by_new.get((source, new))) is not None:
+            details.append(
+                f"{source}: {earlier!r} and {old!r} are both mapped to {new!r}"
+            )
+            continue
+        (by_old[source, old], by_new[source, new]) = (new, old)
         for key in keys:
-            by_old = planned.setdefault(key, {})
-            if rename.old in by_old or rename.new in by_old.values():
-                raise refuse_rename(
-                    catalog_entry,
-                    f"{rename.source}: {rename.old!r} or {rename.new!r} is renamed twice",
-                )
-            by_old[rename.old] = rename.new
-    checked = tuple(
-        evolve(
-            rename,
-            consumes=any(
-                rename.new in leaf.recorded
-                for leaf in renamed_source(
-                    catalog_entry, record, rename.source
-                ).values()
-            ),
-        )
-        for rename in renames
-    )
-    return planned, checked
+            planned.setdefault(key, {})[old] = new
+        consumes = any(new in leaf.recorded for leaf in by_key.values())
+        checked.append(evolve(rename, consumes=consumes))
+    refuse_renames(catalog_entry, details)
+    return planned, tuple(checked)
 
 
 def check_live_renames(
@@ -423,29 +451,33 @@ def check_live_renames(
     reports: tuple[LeafReport, ...],
     planned: dict[tuple, dict[str, str]],
 ) -> None:
-    """Refuse a rename whose new column isn't live, or whose old one still is.
+    """Refuse, all at once, each rename whose new column isn't live, or whose
+    old one still is and no other rename of that source moves it away (a
+    chain, ``a <- x, b <- a``, or a swap).
 
     An unreachable or unreadable source is left to the sweep's own refusal,
     and never keyed: its profile may be what made it unreadable.
     """
     if not planned:
         return
+    details = []
     for report in reports:
         if report.verdict not in (Verdict.EQUAL, Verdict.CHANGED):
             continue
         if not (by_old := planned.get(leaf_key(report.leaf, record))):
             continue
-        name = report.leaf.name
+        (name, live) = (report.leaf.name, report.live)
+        claimed = set(by_old.values())
         for old, new in by_old.items():
-            if new not in report.live:
-                raise refuse_rename(
-                    catalog_entry, f"{name}: {new!r} is not a live column"
+            if new not in live:
+                details.append(
+                    f"{name}: {new!r} is not a live column (live: {quoted(live)})"
                 )
-            if old in report.live:
-                raise refuse_rename(
-                    catalog_entry,
-                    f"{name}: {old!r} is still a live column, so nothing was renamed",
+            if old in live and old not in claimed:
+                details.append(
+                    f"{name}: {old!r} is still a live column, so nothing was renamed"
                 )
+    refuse_renames(catalog_entry, details)
 
 
 def rename_hint(
@@ -454,7 +486,7 @@ def rename_hint(
     planned: dict[tuple, dict[str, str]],
 ) -> str:
     """The columns each changed source lost and gained, less those a
-    ``--rename`` already maps; a mapping is not guessed."""
+    ``--rename`` already maps; a mapping is not guessed, nor a fix promised."""
     lines = []
     for report in reports:
         if report.verdict != Verdict.CHANGED:
@@ -476,7 +508,11 @@ def rename_hint(
     if not lines:
         return ""
     return "\n" + "\n".join(
-        (*lines, "if a column was renamed, pass --rename <source> <old> <new>")
+        (
+            *lines,
+            "if a gone column was renamed to a new one, "
+            "--rename <source> <old> <new> maps it",
+        )
     )
 
 

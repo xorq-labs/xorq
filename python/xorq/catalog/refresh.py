@@ -219,6 +219,20 @@ def with_renames(node: Node, renames: Mapping[str, str]) -> Node:
     """
     if not renames:
         return node
+    # `Table.rename` over a live column no rename moves away would keep that
+    # column and silently drop the renamed one: refuse it. A chain or swap
+    # (`a <- x, b <- a`) moves it, and is fine.
+    moved = set(renames.values())
+    if clashes := [
+        name for name in renames if name in node.schema and name not in moved
+    ]:
+        refuse(
+            (
+                type(node).__name__,
+                f"{name!r} is still a live column, and no rename moves it away",
+            )
+            for name in clashes
+        )
     renamed = node.to_expr().rename(dict(renames))
     marked = renamed.hashing_tag(
         RebaseTag.RENAME, renames=tuple(sorted(renames.items()))
