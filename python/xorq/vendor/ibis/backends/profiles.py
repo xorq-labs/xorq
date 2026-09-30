@@ -469,6 +469,17 @@ con_name_to_secret_keys = MappingProxyType(
             "options",
             "passfile",
         ),
+        # Redshift subclasses the postgres backend and inherits its
+        # _secret_keys unchanged, so the mirror must carry the same seven.
+        "redshift": (
+            "password",
+            "sslcert",
+            "sslkey",
+            "sslrootcert",
+            "sslcrl",
+            "options",
+            "passfile",
+        ),
         "snowflake": (
             "password",
             "user",

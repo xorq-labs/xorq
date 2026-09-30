@@ -144,6 +144,18 @@ postgres = [
     "psycopg[binary]>=3.2.0; python_version < '3.13'",
     "psycopg[binary]>=3.2.2; python_version >= '3.13'",  # 3.2.2 is first psycopg-binary with cp313 wheels
 ]
+redshift = [
+    # Mirrors postgres: the backend subclasses it. Importing the backend needs
+    # adbc_driver_manager (imported at module scope by xorq.backends.postgres)
+    # and psycopg -- but NOT adbc_driver_postgresql, which is reached only
+    # through the lazily imported postgres_utils. So a psycopg-only extra is
+    # possible: it would declare adbc-driver-manager and omit the driver.
+    # Whether it should exist is open; this one only stops the entry point
+    # installing with no extra.
+    "adbc-driver-postgresql>=1.4.0",
+    "psycopg[binary]>=3.2.0; python_version < '3.13'",
+    "psycopg[binary]>=3.2.2; python_version >= '3.13'",  # 3.2.2 is first psycopg-binary with cp313 wheels
+]
 sqlite = [
     "adbc-driver-sqlite>=1.4.0",
 ]
@@ -240,6 +252,7 @@ sqlite = "xorq.backends.sqlite"
 gizmosql = "xorq.backends.gizmosql"
 databricks = "xorq.backends.databricks"
 bigquery = "xorq.backends.bigquery"
+redshift = "xorq.backends.redshift"
 
 [project.scripts]
 xorq = "xorq.cli:main"
@@ -350,6 +363,7 @@ markers = [
     "uv_export: tests that call uv export against the project lockfile",
     "bare_install: tests that build the wheel and drive the CLI against declared dependencies only",
     "bigquery: BigQuery tests",
+    "redshift: Redshift tests",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

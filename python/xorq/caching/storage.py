@@ -133,6 +133,19 @@ def _write_parquet(path, batch_reader, parquet_metadata=None):
 # batches could fail its own read-back.
 _VERIFY_BATCH_SIZE = 8192
 
+# Backends whose ``SourceStorage.put`` can stay server-side: each has both a
+# ``read_record_batches`` for the out-of-core path and a ``create_table`` that
+# accepts an expression for the single-backend CTAS. Anything absent here is
+# cached by materialising the whole result in client memory.
+#
+# Module-level and named rather than a literal inside ``put``: as a closure
+# constant it could not be imported, so nothing could assert that it agrees
+# with the other per-backend registries, and it silently fell a backend behind
+# ``defer_utils._ADBC_BACKENDS``. ``caching/tests/test_storage.py`` now
+# requires every registered backend to be classified for it, in or out.
+# FIXME: add pyiceberg, trino
+REMOTE_PUT_BACKENDS = frozenset(("postgres", "snowflake", "redshift"))
+
 
 def _corruption_types() -> tuple[type[BaseException], ...]:
     """The pyarrow exceptions that mean "this artifact is bad".
@@ -514,8 +527,7 @@ class SourceStorage(CacheStorage):
     def put(self, key, value, parquet_metadata=None):
         def is_remote(value):
             name = value.to_expr()._find_backend().name
-            # FIXME: add pyiceberg, trino
-            return name in ("postgres", "snowflake")
+            return name in REMOTE_PUT_BACKENDS
 
         def is_single_backend(storage, value):
             from xorq.common.utils.graph_utils import find_all_sources  # noqa: PLC0415
@@ -534,7 +546,7 @@ class SourceStorage(CacheStorage):
             else:
                 assert hasattr(self.source, "read_record_batches")
                 # read_record_batches will create durable table in out-of-core fashion
-                # works for snowflake and postgres
+                # every backend in REMOTE_PUT_BACKENDS has one
                 self.source.read_record_batches(
                     value.to_expr().to_pyarrow_batches(),
                     key,
