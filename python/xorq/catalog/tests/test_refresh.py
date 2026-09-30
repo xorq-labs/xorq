@@ -992,3 +992,12 @@ def test_a_rename_of_a_source_not_refreshed_is_refused(con: SqliteBackend) -> No
 
     with pytest.raises(SchemaRefreshError, match="renamed but not refreshed"):
         refresh_schemas(expr, {}, {key: {"a": "x"}})
+
+
+def test_an_empty_rename_adds_no_op(con: SqliteBackend) -> None:
+    """`Table.rename({})` would still project every column."""
+    expr = con.table("t")
+    live = drift_the_table(expr)
+
+    refreshed = refresh_schemas(expr, live, {key: {} for key in live})
+    assert refreshed.op() == refresh_schemas(expr, live).op()

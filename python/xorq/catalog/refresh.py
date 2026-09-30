@@ -208,10 +208,13 @@ def refuse(offenders: Iterable[tuple[str, str]], separator: str = ", ") -> None:
 
 
 def with_renames(node: Node, renames: Mapping[str, str]) -> Node:
-    """``node`` under a rename that gives each live column its recorded name.
+    """``node`` under a rename that gives each live column its recorded name;
+    ``node`` itself when there is none (``Table.rename({})`` still projects).
 
     ``renames`` maps recorded name -> live name, as ``Table.rename`` takes it.
     """
+    if not renames:
+        return node
     return to_node(node.to_expr().rename(dict(renames)))
 
 
@@ -249,10 +252,12 @@ def refresh_schemas(
             return node
         if source_identity(node) in candidates and (key := op_key(node)) in live:
             matched.add(key)
-            refreshed = rebuild(node, lambda: with_live_schema(node, live[key]))
-            if (renamed := renames.get(key)) is None:
-                return refreshed
-            return rebuild(node, lambda: with_renames(refreshed, renamed))
+            return rebuild(
+                node,
+                lambda: with_renames(
+                    with_live_schema(node, live[key]), renames.get(key, {})
+                ),
+            )
         overrides = dict(kwargs or {})
         rebound = node
         # `replace_nodes`'s tripwires: an unregistered Expr field would be

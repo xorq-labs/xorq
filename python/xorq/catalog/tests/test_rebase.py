@@ -376,6 +376,14 @@ def refuse_rename_unprobed(w: SimpleNamespace) -> Setup:
     return w.name, ("--rename", "t", "a", "x"), ()
 
 
+def refuse_rename_beside_a_lost_column(w: SimpleNamespace) -> Setup:
+    """`a` renamed to `x` and `b` dropped: the hint names `b` only."""
+    t = w.con.table("t")
+    name = w.catalog.add(t.filter(t.a > 1).select("b")).name
+    replace_t(w, pa.table({"x": pa.array([1, 2], pa.int64())}))
+    return name, ("--rename", "t", "a", "x"), ()
+
+
 def refuse_rename_ambiguous(w: SimpleNamespace) -> Setup:
     """One table name `t` on two connections."""
     other = SqliteBackend().connect(str(w.tmp_path / "other.sqlite"))
@@ -439,6 +447,19 @@ def refuse_corrupt_metadata(w: SimpleNamespace) -> Setup:
         lambda name, byts: b"{corrupt" if name == DumpFiles.build_metadata else byts,
     )
     return w.name, (), ()
+
+
+def refuse_dangling_profile(*args: str) -> Callable:
+    """`t`'s profile gone from the record: unreadable, with ``args`` or not."""
+
+    def setup(w: SimpleNamespace) -> Setup:
+        replace_t(w, RENAMED)
+        rewrite_archive(
+            w, lambda name, byts: b"{}\n" if name == DumpFiles.profiles else byts
+        )
+        return w.name, args, ()
+
+    return setup
 
 
 def refuse_deleted_db(w: SimpleNamespace) -> Setup:
@@ -567,6 +588,18 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
         pytest.param(
             refuse_without(".whl", drift=False), 2, NO_WHEEL, id="no-wheel-no-drift"
         ),
+        pytest.param(
+            refuse_dangling_profile(),
+            2,
+            "{name}: t is unreadable: ValueError: node",
+            id="dangling-profile",
+        ),
+        pytest.param(
+            refuse_dangling_profile("--rename", "t", "a", "x"),
+            2,
+            "{name}: t is unreadable: ValueError: node",
+            id="rename-dangling-profile",
+        ),
         pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
         pytest.param(
             refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
@@ -612,6 +645,12 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             1,
             "--rename t: 'a' or 'b' is renamed twice",
             id="rename-twice",
+        ),
+        pytest.param(
+            refuse_rename_beside_a_lost_column,
+            4,
+            "t: recorded columns gone: b; live columns new: -\nif a column was renamed",
+            id="rename-hint-less-renames",
         ),
         pytest.param(refuse_dropped_column, 4, "could not rebuild", id="column"),
         pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
@@ -987,9 +1026,24 @@ def test_a_renamed_column_is_followed_under_its_recorded_name(
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert new.columns == ("a", "b")
     assert list(new.load_expr().execute()["a"]) == [2]
-    assert rebase_old(world, renames=[("t", "a", "x")]).renames == (
-        rebase_module.Rename("t", "a", "x"),
-    )
+    # The API takes the `Rename`s a result hands back.
+    renames = (rebase_module.Rename("t", "a", "x"),)
+    assert rebase_old(world, renames=renames).renames == renames
+
+
+def test_a_source_recorded_at_two_schemas_is_renamed_under_both(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`t` bound before and after it grew: one source, two records."""
+    before = world.con.table("t")
+    replace_t(world, GROWN)
+    after = world.con.table("t")
+    name = world.catalog.add(before.select("a", "b").union(after.select("a", "b"))).name
+    replace_t(world, RENAMED)
+
+    result = rebase(runner, world, name, "--rename", "t", "a", "x")
+    assert result.exit_code == 0, result.output
+    assert "Renamed t: a <- x\nOutput: unchanged\n" in result.stderr
 
 
 def test_a_conflict_over_a_lost_column_lists_what_changed(
