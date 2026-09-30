@@ -15,6 +15,7 @@ import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.redshift.compiler import compiler
 from xorq.common.utils.logging_utils import get_logger
+from xorq.common.utils.redshift_utils import session_temp_schema_of
 from xorq.vendor.ibis.expr import datatypes as dt
 from xorq.vendor.ibis.expr import types as ir
 
@@ -955,10 +956,11 @@ ORDER BY ordinal_position ASC"""
         forward their *own* reader kwargs here, so rejecting unknown ones would
         break them.
 
-        The return value is ``self.table(table_name)``, and on a live Redshift
-        that raises until the backend has its own table introspection: the
-        inherited one reads ``pg_catalog`` objects Redshift lacks. The ingest
-        commits before that call, so the table exists when it raises.
+        The return value is ``self.table(table_name)``, bound over the same
+        connection the ingest wrote through. A ``temporary=True`` table is
+        absent from ``svv_all_columns``, so the unqualified bind finds it
+        through ``get_schema``'s ``svv_columns`` lookup, which is scoped to the
+        session's temporary schemas.
         """
         if table_name is None:
             raise ValueError("table_name is required")
@@ -973,18 +975,6 @@ ORDER BY ordinal_position ASC"""
                 f"temporary=True is not supported with mode={mode!r}: "
                 f"{APPEND_ONLY_MODES} append to a table this call does not "
                 "create, so there is nothing for temporary to apply to"
-            )
-        if temporary and mode == "replace":
-            # ``replace`` emits an unqualified ``DROP TABLE IF EXISTS`` before
-            # the ``CREATE``, and it resolves through ``search_path``: with no
-            # temporary table of that name in the session yet, it drops the
-            # PERMANENT one, then replaces it with a table that disappears at
-            # disconnect. The guard above refuses shadowing, which ends with
-            # the session; this refuses destruction, which does not.
-            raise ValueError(
-                "temporary=True is not supported with mode='replace': the "
-                "DROP it emits is unqualified, so it would resolve to a "
-                "permanent table of the same name and destroy it"
             )
 
         # Unguarded, a null column renders as the column type ``NULL``, which
@@ -1051,7 +1041,22 @@ ORDER BY ordinal_position ASC"""
         table = sg.table(table_name, quoted=quoted)
 
         statements = []
-        if mode == "replace":
+        if mode == "replace" and temporary:
+            # An unqualified ``DROP`` resolves through ``search_path``, so with
+            # no temporary table of this name in the session yet it would land
+            # on a PERMANENT one and destroy it. Drop only the session's own
+            # temporary table, named by the schema it was found in; with none,
+            # there is nothing to replace. Measured on a live warehouse with a
+            # temporary table shadowing a permanent one of the same name: this
+            # qualified ``DROP`` is accepted and removes only the temporary one.
+            if temp_schema := session_temp_schema_of(self.con, table_name):
+                statements.append(
+                    sge.Drop(
+                        this=sg.table(table_name, db=temp_schema, quoted=quoted),
+                        kind="TABLE",
+                    )
+                )
+        elif mode == "replace":
             statements.append(sge.Drop(this=table, kind="TABLE", exists=True))
         if mode != "append":
             statements.append(

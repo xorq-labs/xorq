@@ -27,6 +27,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -1033,10 +1034,19 @@ class _IntrospectionCursor(_FakeCursor):
         # The permanent and temporary lookups hit different views, so the fake
         # answers them separately: a test that supplies only ``temp_rows`` must
         # not see them returned for a ``svv_all_columns`` query, or the
-        # fallback would look exercised when it was not.
-        if "svv_columns" in (self._last or ""):
+        # fallback would look exercised when it was not. The temp-schema
+        # lookup reads ``svv_columns`` too, but selects only ``table_schema``,
+        # and is answered from the connection's ``temp_schemas``, which a test
+        # may change between calls.
+        last = self._last or ""
+        if "SELECT table_schema" in last:
+            return [(schema,) for schema in self._con.temp_schemas]
+        if "svv_columns" in last:
             return list(self._temp_rows)
         return list(self._rows)
+
+    def fetchone(self) -> tuple | None:
+        return next(iter(self.fetchall()), None)
 
 
 class _IntrospectionConnection(_FakeConnection):
@@ -1045,8 +1055,10 @@ class _IntrospectionConnection(_FakeConnection):
         rows: tuple = (),
         description: tuple | None = None,
         temp_rows: tuple = (),
+        temp_schemas: tuple = (),
     ) -> None:
         super().__init__()
+        self.temp_schemas = list(temp_schemas)
         self.params = []
         self.bound = []
         self._rows = rows
@@ -1084,10 +1096,14 @@ def make_introspection_con(
     rows: tuple = (),
     description: tuple | None = None,
     temp_rows: tuple = (),
+    temp_schemas: tuple = (),
 ) -> RedshiftBackend:
     con = make_offline_con()
     con.con = _IntrospectionConnection(
-        rows=rows, description=description, temp_rows=temp_rows
+        rows=rows,
+        description=description,
+        temp_rows=temp_rows,
+        temp_schemas=temp_schemas,
     )
     return con
 
@@ -1596,6 +1612,43 @@ def test_table_reaches_the_temp_fallback_unqualified() -> None:
 
     assert t.schema() == xo.schema({"a": dt.Int32(nullable=False)})
     assert any("svv_columns" in sql for sql in issued(con))
+
+
+def test_a_temporary_ingest_binds_the_table_it_created() -> None:
+    """The round trip the two tests above cover in halves: a
+    ``temporary=True`` ingest ends in ``self.table(name)``, and that bind must
+    find the table the ingest just created.
+
+    ``make_offline_con`` stubs ``table`` so the ingest tests never reach the
+    bind; this one removes the stub, so the real ``table`` runs against the
+    same connection the ``CREATE TEMPORARY TABLE`` went over. The catalog rows
+    are how ``svv_columns`` reports the two columns that ``CREATE`` declares.
+    """
+    con = make_introspection_con(
+        rows=(),
+        temp_rows=(
+            ("a", "bigint", "YES", 64, 0),
+            ("b", "character varying", "YES", None, None),
+        ),
+    )
+    del con.table
+
+    t = con.read_record_batches(
+        make_reader({"a": [1], "b": ["x"]}), table_name="t", temporary=True
+    )
+
+    assert t.get_name() == "t"
+    assert t.schema() == xo.schema({"a": dt.Int64(), "b": dt.String()})
+    create, insert, lookup = [(kind, sql) for (kind, sql, *_) in con.con.log]
+    assert create == (
+        "execute",
+        'CREATE TEMPORARY TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))',
+    )
+    assert insert[0] == "executemany"
+    # Resolved in the temporary catalog, for the name the ingest created.
+    assert "svv_columns" in lookup[1]
+    ((_bound, values),) = con.con.bound
+    assert values == [b"t"]
 
 
 @pytest.mark.parametrize(
@@ -2372,31 +2425,80 @@ def test_temporary_is_refused_for_the_append_modes(
     assert con.con.log == []
 
 
-def test_temporary_is_refused_for_replace(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``replace`` emits an unqualified ``DROP TABLE IF EXISTS`` before the
-    ``CREATE``, and it resolves through ``search_path``. With no temporary
-    table of that name in the session yet, the DROP lands on the PERMANENT
-    one, and what replaces it disappears at disconnect.
+def test_temporary_replace_drops_only_the_sessions_temp_table() -> None:
+    """An unqualified ``DROP`` resolves through ``search_path``, so the one
+    ``replace`` emits for a permanent table would, for a temporary ingest with
+    no temporary table of that name yet, land on a PERMANENT table and destroy
+    it. A temporary ``replace`` therefore looks the name up in the session's
+    temporary schemas and drops only what it finds there, qualified by that
+    schema -- the form measured live to remove the temporary table and leave a
+    same-named permanent one intact."""
+    con = make_introspection_con(temp_schemas=("pg_temp_5",))
 
-    Separate from the append-mode guard above because the harm differs in kind,
-    not degree: that one refuses SHADOWING, which ends with the session, and
-    this one refuses DESTRUCTION, which does not.
+    con.read_record_batches(
+        make_reader({"a": [1], "b": ["x"]}),
+        table_name="t",
+        temporary=True,
+        mode="replace",
+    )
 
-    Probed with a driver available, which is the configuration that used to
-    divert to ADBC: the rejection must come from this method."""
-    con = make_offline_con(password="static")
-    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: None)
+    lookup, drop, create = issued(con)
+    assert "svv_columns" in lookup
+    assert drop == 'DROP TABLE "pg_temp_5"."t"'
+    assert create == 'CREATE TEMPORARY TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))'
+    ((_bound, values),) = con.con.bound
+    assert values == [b"t"]
 
-    with pytest.raises(ValueError, match="temporary=True is not supported"):
-        con.read_record_batches(
-            make_reader({"a": [1], "b": ["x"]}),
-            table_name="t",
-            temporary=True,
-            mode="replace",
-        )
 
-    # The DROP is the whole point: nothing may reach the server.
-    assert con.con.log == []
+def test_temporary_replace_with_no_temp_table_drops_nothing() -> None:
+    """The case the old refusal existed for: no temporary table of this name in
+    the session, so an unqualified ``DROP`` would have reached a permanent one.
+    With nothing to replace, no ``DROP`` is sent at all."""
+    con = make_introspection_con(temp_schemas=())
+
+    con.read_record_batches(
+        make_reader({"a": [1], "b": ["x"]}),
+        table_name="t",
+        temporary=True,
+        mode="replace",
+    )
+
+    lookup, create = issued(con)
+    assert "svv_columns" in lookup
+    assert create == 'CREATE TEMPORARY TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))'
+
+
+def test_a_deferred_temporary_read_executes_twice(tmp_path: Path) -> None:
+    """``deferred_read_parquet`` defaults ``mode="replace"`` for this backend,
+    and every execution of the expression re-runs the read under the same
+    generated name. With ``temporary=True`` that used to be refused outright,
+    so the standard temporary-read API failed on Redshift alone. The first run
+    finds no temporary table and drops nothing; the second drops the one the
+    first run created, and only that one."""
+    path = tmp_path / "t.parquet"
+    pq.write_table(pa.table({"a": [1], "b": ["x"]}), path)
+    con = make_introspection_con(
+        temp_rows=(
+            ("a", "bigint", "YES", 64, 0),
+            ("b", "character varying", "YES", None, None),
+        ),
+    )
+    del con.table
+    read = xo.deferred_read_parquet(path, con, temporary=True).op()
+    name = read.name
+
+    read.make_dt()
+    assert not any(sql.startswith("DROP") for sql in issued(con))
+
+    con.con.log.clear()
+    con.con.temp_schemas.append("pg_temp_5")
+    dt_ = read.make_dt()
+
+    assert dt_.name == name
+    assert f'DROP TABLE "pg_temp_5"."{name}"' in issued(con)
+    assert not any(
+        sql.startswith("DROP") and "pg_temp_5" not in sql for sql in issued(con)
+    )
 
 
 def test_clone_carries_only_the_settings_the_caller_passed(
