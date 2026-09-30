@@ -756,10 +756,12 @@ def test_only_the_decimal_upcasts_diverge_among_ops_that_cast_internally(
     t: ir.Table,
 ) -> None:
     """Ops whose visitors cast through the mapper with no cast in the user's
-    expression. ``Round(digits)`` and ``%`` over floats upcast to a bare
-    decimal, which is ``DECIMAL(18, 0)`` on Redshift, so the mapper spells it
-    ``DECIMAL(38, 18)``: that is the divergence, and it is the fix (measured,
-    ``round(2)`` of 0.0312 came back 0). ``TypeOf`` used to diverge through
+    expression. ``%`` over floats upcasts to a bare decimal, which is
+    ``DECIMAL(18, 0)`` on Redshift, so the mapper spells it ``DECIMAL(38,
+    18)``: that is the divergence, and it is the fix (measured, ``round(2)`` of
+    0.0312 came back 0 when ``Round`` took the same path). ``Round(digits)``
+    no longer casts at all -- ``visit_Round`` rounds the float itself -- so it
+    is here as a case that must NOT diverge. ``TypeOf`` used to diverge through
     its string cast and is now refused outright, identically on both."""
     exprs = {
         "Literal[binary]": t.select(o=xo.literal(b"\x01")),
@@ -779,7 +781,7 @@ def test_only_the_decimal_upcasts_diverge_among_ops_that_cast_internally(
         for name, expr in exprs.items()
         if _cast_sql(redshift_compiler, expr) != _cast_sql(_POSTGRES_MAPPED, expr)
     }
-    assert diverging == {"Round(digits)", "Modulus[float]"}
+    assert diverging == {"Modulus[float]"}
 
 
 def test_last_raises_like_first(t):
@@ -968,6 +970,14 @@ def test_logarithms_of_decimals_return_the_declared_type(t, build):
     assert expr.type().is_decimal()
     sql = to_sql(t.select(o=expr))
     assert sql.startswith("SELECT CAST(") and 'AS DECIMAL(18, 4)) AS "o"' in sql
+
+
+def test_rounding_a_float_does_not_pass_through_a_decimal(t):
+    """The inherited visitor rounds ``CAST(x AS DECIMAL(38, 18))``, which
+    overflows for any float from 1e20 up; Redshift rounds a float itself."""
+    sql = to_sql(t.select(o=t.amt.round(2)))
+    assert 'ROUND("t0"."amt", 2)' in sql
+    assert "DECIMAL" not in sql
 
 
 def test_integer_to_timestamp_counts_seconds_from_the_epoch(t):

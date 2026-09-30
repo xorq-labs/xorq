@@ -43,6 +43,10 @@ INHERITED = {
     "floor": ("Floor", lambda t: t.fee_rate.floor()),
     "round": ("Round", lambda t: t.fee_rate.round(2)),
     "round/float": ("Round", lambda t: (t.fee_rate.cast("float64") + 0.5).round(2)),
+    "round/float-large": (
+        "Round",
+        lambda t: (t.fee_rate.cast("float64") * 1e25).round(2),
+    ),
     "modulus/float": ("Modulus", lambda t: (t.fee_rate.cast("float64") + 7) % 0.5),
     "modulus/decimal": ("Modulus", lambda t: (t.fee_rate + 7) % 2),
     "exp": ("E", lambda t: t.fee_rate + ibis.e),

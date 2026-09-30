@@ -549,6 +549,20 @@ class RedshiftCompiler(PostgresCompiler):
     def visit_Log2(self, op, *, arg):
         return self.cast(self._ln(op.arg, arg) / self.f.ln(2), op.dtype)
 
+    def visit_Round(self, op, *, arg, digits):
+        """``ROUND(x, n)`` over the float itself.
+
+        PostgreSQL's ``ROUND`` takes a digits argument only for ``NUMERIC``,
+        so the inherited visitor round-trips a float through a bare decimal,
+        which the mapper renders ``DECIMAL(38, 18)``: 20 integer digits, so any
+        float from 1e20 up overflowed. Redshift's ``ROUND`` takes the digits
+        argument over ``FLOAT8`` and returns ``FLOAT8`` (the ``round/float``
+        entries of the live corpus run it on compute).
+        """
+        if digits is not None and op.arg.dtype.is_floating():
+            return self.f.round(arg, digits)
+        return super().visit_Round(op, arg=arg, digits=digits)
+
     def visit_RegexReplace(self, op, *, arg, pattern, replacement):
         """Three arguments. Redshift replaces every match by default, and its
         fourth argument is a start POSITION: the base visitor's ``'g'`` flag
