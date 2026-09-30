@@ -137,7 +137,7 @@ The signals that exist all fall short:
 
 The PostgreSQL row's advice to run `ANALYZE` does not apply to Redshift: an `ANALYZE` is what resets the counters.
 
-A snapshot key over an unqualified table includes the schema it resolves to, so `con.table("offers")` read through connections scoped to two different schemas gets two keys. A name that resolves to a session-temporary table raises `RedshiftFreshnessUnavailable` even under `ParquetSnapshotCache`: the table is invisible to every other session, and keying a permanent table that shares its name would describe a relation you are not reading. Qualify the name with a schema if the permanent table is what you meant.
+A snapshot key over an unqualified table includes the schema it resolves to, so `con.table("offers")` read through connections scoped to two different schemas gets two keys. A name that resolves to a session-temporary table, or is qualified with a temporary schema (`pg_temp_<N>` or `pg_temp`), raises `RedshiftFreshnessUnavailable` even under `ParquetSnapshotCache`: the table is invisible to every other session, and keying a permanent table that shares its name would describe a relation you are not reading. Qualify the name with a permanent schema if that table is what you meant.
 
 ## See also
 

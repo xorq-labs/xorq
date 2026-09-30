@@ -201,7 +201,7 @@ class SnapshotStrategy(CacheStrategy):
             lookup_view_normalizer,
         )
         from xorq.common.utils.redshift_utils import (  # noqa: PLC0415
-            normalize_redshift_snapshot_databasetable,
+            resolve_redshift_schema,
         )
 
         memo = _snapshot_dt_normalize_memo.get()
@@ -210,14 +210,17 @@ class SnapshotStrategy(CacheStrategy):
         normalizer = lookup_view_normalizer(dt, snapshot=True)
         if normalizer is not None:
             result = normalizer(dt)
-        elif dt.source.name == BackendName.REDSHIFT:
-            # An unqualified Redshift table's namespace is empty, and the
-            # connection identity carries no schema, so the fallback below
-            # would give same-named tables in two schemas one key.
-            result = normalize_redshift_snapshot_databasetable(dt)
         else:
             keys = ("name", "schema", "source", "namespace")
             result = tuple((k, getattr(dt, k)) for k in keys)
+            if dt.source.name == BackendName.REDSHIFT:
+                # An unqualified Redshift table's namespace is empty, and the
+                # connection identity carries no schema, so the fallback alone
+                # would give same-named tables in two schemas one key.
+                result = (
+                    *result,
+                    ("resolved_schema", resolve_redshift_schema(dt, memo)),
+                )
         if memo is not None:
             memo[dt] = result
         return result

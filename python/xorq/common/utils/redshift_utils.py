@@ -50,7 +50,6 @@ if TYPE_CHECKING:
 __all__ = [
     "normalize_redshift_backend",
     "normalize_redshift_databasetable",
-    "normalize_redshift_snapshot_databasetable",
     "resolve_redshift_schema",
 ]
 
@@ -67,8 +66,13 @@ LIMIT 1
 """
 
 
-def resolve_redshift_schema(dt: ops.DatabaseTable) -> str:
-    """The schema an unqualified ``dt`` actually names.
+def resolve_redshift_schema(dt: ops.DatabaseTable, memo: dict | None = None) -> str:
+    """The schema ``dt`` actually names, for its snapshot key.
+
+    ``SnapshotStrategy``'s fallback keys on ``name``, ``schema``, ``source`` and
+    ``namespace``, and this backend's ``source`` identity is host, port and
+    database only, so for an unqualified table this is what tells two schemas
+    apart.
 
     An unqualified ``con.table("offers")`` produces ``Namespace(catalog=None,
     database=None)`` -- the backend's ``table()`` passes through whatever the
@@ -99,23 +103,59 @@ def resolve_redshift_schema(dt: ops.DatabaseTable) -> str:
     Redshift has no ``pg_my_temp_schema()``, so the inherited postgres
     ``_session_temp_db`` cannot answer which schema that is: it raises
     ``UndefinedFunction``. See ``_session_temp_schema_of``.
+
+    A table qualified with a temp schema (``pg_temp_<N>``, or the ``pg_temp``
+    alias for the session's own) is refused for the same reason, with no round
+    trip.
+
+    ``memo`` is the caller's per-call memo; ``current_schema()`` cannot change
+    within one key computation, so it is read once per connection there.
     """
     if (database := dt.namespace.database) is not None:
+        if _is_session_temp_schema(database):
+            raise _session_temp_refusal(dt.name, database)
         return database
     con = dt.source
-    schema = con.current_database
+    schema = _current_schema_of(con, memo)
     temp_schema = _session_temp_schema_of(con.con, dt.name)
     if temp_schema is None:
         return schema
-    raise RedshiftFreshnessUnavailable(
-        f"{dt.name!r} resolves to the session-temporary schema {temp_schema}, "
+    raise _session_temp_refusal(
+        dt.name,
+        temp_schema,
+        f"Keying {schema}.{dt.name} instead would be worse -- it would describe "
+        f"a different, permanent relation that happens to share the name. ",
+    )
+
+
+def _is_session_temp_schema(schema: str) -> bool:
+    # Lowered because Redshift folds unquoted identifiers; refusing a
+    # mixed-case permanent schema named like this errs in the loud direction.
+    lowered = schema.lower()
+    return lowered == "pg_temp" or lowered.startswith("pg_temp_")
+
+
+def _session_temp_refusal(
+    name: str, temp_schema: str, alternative: str = ""
+) -> RedshiftFreshnessUnavailable:
+    return RedshiftFreshnessUnavailable(
+        f"{name!r} resolves to the session-temporary schema {temp_schema}, "
         f"which no cache key can describe: the table is invisible to every "
-        f"other session and is dropped when this one ends. Keying "
-        f"{schema}.{dt.name} instead would be worse -- it would describe a "
-        f"different, permanent relation that happens to share the name. "
+        f"other session and is dropped when this one ends. {alternative}"
         f"Qualify the table with a permanent schema if that is what you meant, "
         f"or cache the query that populates the temp table instead."
     )
+
+
+def _current_schema_of(con: RedshiftBackend, memo: dict | None) -> str:
+    # Keyed by ``id``: backends compare equal by profile, and the memo lives
+    # only as long as the call whose tables keep every ``con`` alive.
+    if memo is None:
+        return con.current_database
+    key = (_current_schema_of, id(con))
+    if key not in memo:
+        memo[key] = con.current_database
+    return memo[key]
 
 
 def _session_temp_schema_of(raw: Any, name: str) -> str | None:
@@ -154,7 +194,10 @@ def normalize_redshift_databasetable(dt: ops.DatabaseTable) -> tuple:
     """Always raises: Redshift has no signal a freshness key can rely on.
 
     This is the global (data-sensitive) rule, reached by ``ParquetCache`` and
-    every other ``ModificationTimeStrategy`` cache. Refusing here, before any
+    every other ``ModificationTimeStrategy`` cache, and also by anything else
+    that hashes through the global ``HASHER`` (``xorq run-unbound
+    --to_unbind_hash``, pipeline step naming), which is why the message does not
+    assume a cache. Refusing here, before any
     statement is sent, is the alternative to routing Redshift to dasher's
     identity-only ``normalize_remote_databasetable`` (as trino and gizmosql are
     routed), which would let those caches serve stale results forever -- a
@@ -162,32 +205,15 @@ def normalize_redshift_databasetable(dt: ops.DatabaseTable) -> tuple:
     why no Redshift catalog read can do better.
     """
     raise RedshiftFreshnessUnavailable(
-        f"cannot compute a freshness cache key for Redshift table {dt.name!r}: "
-        f"Redshift exposes no per-table change signal that a cache key can "
+        f"cannot compute a data-sensitive hash of Redshift table {dt.name!r}: "
+        f"Redshift exposes no per-table change signal that such a hash can "
         f"rely on. The counters a least-privilege user can read "
         f"(pg_statistic_indicator) reset on every ANALYZE, background "
         f"auto-analyze included, so after a change that leaves the row count "
-        f"unchanged the key can return to its value from before the change, "
-        f"and the result cached then would be served. Use "
-        f"`.cache(ParquetSnapshotCache.from_kwargs())` instead -- from the "
-        f"command line, `xorq run-cached --cache-type snapshot` -- and drop the "
-        f"cached entry when the table's data changes. To handle this in code, "
-        f"catch `xorq.common.exceptions.RedshiftFreshnessUnavailable`."
-    )
-
-
-def normalize_redshift_snapshot_databasetable(dt: ops.DatabaseTable) -> tuple:
-    """Snapshot identity for a Redshift table: the fallback's, plus the schema.
-
-    ``SnapshotStrategy``'s fallback keys on ``name``, ``schema``, ``source`` and
-    ``namespace``, and this backend's ``source`` identity is host, port and
-    database only. For an unqualified table the namespace is empty, so two
-    connections scoped to different schemas gave ``a.offers`` and ``b.offers``
-    one key, and the snapshot of one was served for the other. The resolved
-    schema closes that, and resolving it also refuses a session temp table.
-    """
-    keys = ("name", "schema", "source", "namespace")
-    return (
-        *((k, getattr(dt, k)) for k in keys),
-        ("resolved_schema", resolve_redshift_schema(dt)),
+        f"unchanged the hash can return to its value from before the change. "
+        f"If this came from a cache (`ParquetCache`, or `xorq run-cached` by "
+        f"default), use `.cache(ParquetSnapshotCache.from_kwargs())` instead -- "
+        f"from the command line, `xorq run-cached --cache-type snapshot` -- and "
+        f"drop the cached entry when the table's data changes. To handle this "
+        f"in code, catch `xorq.common.exceptions.RedshiftFreshnessUnavailable`."
     )

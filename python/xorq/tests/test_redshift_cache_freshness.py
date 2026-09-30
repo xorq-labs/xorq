@@ -308,6 +308,47 @@ def test_a_name_resolving_into_the_session_temp_schema_is_refused() -> None:
     assert "ParquetSnapshotCache" not in message
 
 
+@pytest.mark.parametrize(
+    "database",
+    (
+        pytest.param(TEMP_SCHEMA, id="numbered"),
+        pytest.param("pg_temp", id="alias"),
+        pytest.param(TEMP_SCHEMA.upper(), id="upper-case"),
+    ),
+)
+def test_a_table_qualified_with_a_temp_schema_is_refused_without_a_statement(
+    database: str,
+) -> None:
+    """Qualifying the name must not be a way around the temp-table refusal.
+
+    ``con.table("staging", database="pg_temp_3")`` names the same invisible,
+    session-scoped relation an unqualified temp name does; the namespace says so
+    on its own, so nothing is sent to find out.
+    """
+    con = make_con()
+    with pytest.raises(RedshiftFreshnessUnavailable) as excinfo:
+        snapshot_token(make_dt(con, database=database))
+    assert database in str(excinfo.value)
+    assert not con.con.calls
+
+
+def test_one_key_reads_the_session_schema_once_per_connection() -> None:
+    """``current_schema()`` cannot change within one key computation.
+
+    The temp lookup stays per table, since it is bound by name.
+    """
+    con = make_con()
+    expr = (
+        make_dt(con, database=None)
+        .to_expr()
+        .union(make_dt(con, name="returns", database=None).to_expr())
+    )
+    assert SnapshotStrategy().calc_key(expr)
+    lowered = [sql.lower() for sql in con.con.statements]
+    assert sum("current_schema" in sql for sql in lowered) == 1
+    assert sum("svv_columns" in sql for sql in lowered) == 2
+
+
 def test_a_permanent_table_is_unaffected_by_an_open_temp_schema() -> None:
     """Having *a* temp schema must not refuse every unqualified table."""
     con = make_con(temp_schema=TEMP_SCHEMA, temp_names=("staging",))
