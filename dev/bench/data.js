@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790794353862,
+  "lastUpdate": 1790799893312,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -42642,6 +42642,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.16485892205478755",
             "extra": "mean: 1.3322753543999966 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2e96a2dbfe04b994334c51897ce92fcb27b5fc7c",
+          "message": "fix(redshift): introspect through svv_all_columns, not pg_catalog (#2336)\n\n⚠️ **Stacked on #2332 (`feat/backends/redshift`), which must merge\nfirst.** This\nbranch has merged #2332 up to 5399ea14, so the PR's diff against `main`\ncarries\n#2332's commits up to that point. #2332 has moved on since. The change\nproper is\nthe seven files in\n`git diff\norigin/feat/backends/redshift...fix/redshift/table-introspection`.\nThis repo deletes head branches on merge, so rebase onto `main` once\n#2332 lands.\nSibling of #2333 and #2335.\n\n## What was broken\n\nBoth failures are on the *documented* binding path, which is why the\ncustomer\nabandoned it and hand-wrote their own binding code:\n\n| call | error | cause |\n|---|---|---|\n| `con.table(...)` | `UndefinedTable: relation \"pg_catalog.pg_enum\" does\nnot exist` | the postgres `get_schema` joins `pg_enum` purely to label\nenum columns |\n| `con.sql(...)` | `syntax error at or near \"VIEW\"` | the postgres\n`_get_schema_using_query` builds `CREATE TEMPORARY VIEW` |\n\nThe first fails for a plain single-schema `con.table(\"t\", database=\"s\")`\ntoo, so\nit is not only a three-part-naming problem. Once both were fixed, one\nmore gap\nshowed: a single `SUPER` column made `con.table()` raise for the whole\ntable,\nand many of the tables the customer needs have one.\n\n## The fix\n\n**`get_schema`** reads `svv_all_columns`, the view Redshift documents\nfor this.\nDropping only the enum arm would not have been enough, because the rest\nof that\nquery filters with `= ANY(<array>)` and Redshift has no array type.\n- It is always scoped to one database. `svv_all_columns` spans datashare\ndatabases, and scoping only when a catalog is passed let two same-named\ntables\n  interleave into one wrong schema.\n- Temporary tables are **not** in `svv_all_columns` (measured). An\nunqualified\nlookup reads `svv_columns`, limited to `pg_temp_%` schemas, which does\nlist\n  them and keeps `NOT NULL`.\n- It reads the temporary catalog **first**, because SQL does: measured\nlive, a\ntemporary table shadows a permanent one of the same name for unqualified\nSQL.\nChecking the permanent catalog first bound the permanent table's columns\nto a\nquery that then read the temporary one. A qualified lookup is unchanged.\nThe\ncost is a second round trip for an unqualified lookup of a permanent\ntable.\n\n**`_get_schema_using_query`** issues **no DDL at all**. It runs `SELECT\n* FROM\n(<query>) AS redshift_probe LIMIT 0` and reads `cursor.description`.\n- One statement only. A trailing `;` or comment is not counted as a\nstatement.\nCompiling `con.sql` keeps only the first statement of what it was given,\nso\n  more than one would silently run less than was asked.\n- `VALUES` and `TABLE` are refused locally; Redshift rejects both.\n\n**Types Redshift adds** are handled by `RedshiftType` for both paths. It\nis\nthe vendored class in `vendor/ibis/backends/sql/datatypes.py` that #2333\nadded for the write direction; this PR adds its read direction there,\nand it\nparses under sqlglot's Redshift dialect:\n- The type mapper never quietly substitutes a type: a string it cannot\nmap\nraises rather than becoming `unknown`, and `geometry`/`geography` raise\nrather than becoming ibis `GeoSpatial`, whose operations would compile\nto\nPostGIS calls Redshift lacks. The binder then decides what a raise means\n  (next section).\n- `bpchar` and `\"char\"` map to `string` on both paths.\n- `int8` and `float` map to `BIGINT` and `DOUBLE PRECISION` on every\nsupported\nsqlglot. At 23.6.3 sqlglot reads them as 8- and 32-bit, and `int8` is\nwhat\npsycopg calls every `BIGINT`, so `COUNT(*)` through `con.sql` bound as\nint8.\n- A type modifier the dtype rejects (`interval(6)`, `numeric(0,0)`)\nbinds the\n  column as unknown instead of failing its whole table.\n- `VARBYTE` maps to `dt.Binary`, under either spelling (`varbyte` as\nwritten,\n  `binary varying` as `svv_all_columns` reports it).\n\n**Unmappable columns bind, and fail only when used.** `SUPER`,\n`HLLSKETCH`,\n`GEOMETRY` and `GEOGRAPHY` columns bind as `dt.NamedUnknown`, keeping\nthe\ncatalog spelling and nullability. The schema shows `payload\n!unknown('super')`.\n- An operation that would return such a column, cast it, compute from\nit, or\nwrite it raises `UnmappableColumnError`, naming each column and its\nRedshift\n  type, before anything reaches the connection. That covers:\n- reads: `execute`, `to_pyarrow`, `to_pyarrow_batches`, `into_backend`;\n  - writes: `create_table` from an expression or a schema, and `insert`.\n- The check runs before xorq's transform passes, so a join with a local\ntable\n  is refused before the local rows are uploaded to Redshift, not after.\n- `insert(..., overwrite=True)` is refused before its `TRUNCATE`. The\ninherited\n`insert` truncates first and checks after, which left the target empty.\n- A cast is refused because it loses the data silently: measured live,\n`CAST`\nof a `SUPER` object or array to `VARCHAR` is `NULL`. The error points to\nconverting server side through `con.sql` instead; `JSON_SERIALIZE`\nreturned\n  the text.\n- A value computed from such a column is refused even when it is not\nreturned: a struct holding it, unpacked and then dropped, otherwise\nfailed\n  in the compiler with a `KeyError` naming no column.\n- Selecting the other columns works. Compiling does not raise. Filtering\non the\ncolumn without returning it is not refused, because the data returned is\n  still correctly typed.\n- Writes are refused even when Redshift could copy server side.\n`create_table`\nhas to spell each column's type in its DDL, and `insert` cannot tell a\ncopy\n  from a read of the same expression.\n- `NamedUnknown` lives in the vendored datatypes module because the yaml\nbuild\nloader resolves a dtype by its class name there. Its `name` is\n`Unknown`'s,\nso name-keyed dispatch treats the two alike. It has no Arrow mapping,\nwhere\n  plain `dt.Unknown` converts to `string`.\n- `con.sql` binds such columns the same way. A result description names\nRedshift's own types only by OID, which psycopg does not know, so the\nOIDs\nmap to their names first: 2935, 3000, 3001, 4000 and 6551 from\n`pg_type`,\n  plus three a live description reports that `pg_type` does not suggest:\n3999 for a `GEOMETRY` value, and 1188/1190 for the interval column\ntypes,\nnamed as `svv_columns` spells them (`intervaly2m`, `intervald2s`) and\nrefused\n  because their values arrive as text. Any other unknown\n  OID binds as `type OID <n>` and is refused on use.\n\n**`VARBYTE` reads its bytes on the psycopg path.** psycopg has no loader\nfor\nOID 6551, so it returned the hex text Redshift sends, and the binary\ncast\nturned that text into its ASCII bytes: measured live, `b\"\\xab\"` read\nback as\n`b\"ab\"` whenever the psycopg baseline served the read, through\n`con.table` and\n`con.sql` alike. The connection now registers a loader that decodes the\nhex.\n\nTwo files outside the backend carry the pre-transform check:\n`BaseBackend.refuse_before_execute`, a no-op every backend inherits, and\nthe\ncall to it at the top of `_transform_expr`.\n\n### Traps in Redshift's catalog views that the obvious implementation\nhits\n\n1. **`is_nullable` is `varchar(3)`, not boolean.** The\n`SVV_REDSHIFT_COLUMNS`\nreference gives a third value, `\" \"`, meaning no information. Passing it\nthrough as `nullable=` marks everything nullable; testing `== \"YES\"`\nmarks\nthe unknown case `NOT NULL`, which fails the first batch carrying a\nnull. It\n   tests `!= \"no\"`.\n2. **`data_type` is unparameterised.** Precision and scale are in\nseparate\n   columns, and AWS's own example shows `numeric_precision = 32` on an\n**`integer`**, which would emit `integer(32)`. Reassembly is gated to\nthe\n   decimal types.\n3. **`svv_all_columns` reports `VARBYTE(16)` as `binary varying`**, not\n   `varbyte`.\n\n## Evidence\n\n- `python/xorq/tests/test_redshift_backend.py`: 356 offline tests\ncollected\n(107 test functions, 57 of them added by this PR). Two of them hold the\n  paths together:\n- `test_both_introspection_paths_bind_a_measured_type_alike`: one row\nper\n    type the live warehouse holds, both sides read off one real column,\n    asserted through `con.table` and `con.sql`;\n- `test_the_query_path_maps_every_pinned_type_alike_on_every_sqlglot`:\nevery\nname in psycopg's registry plus this backend's OIDs, pinned with the\ndtype\nit binds as (`tests/fixtures/redshift_query_path_type_mapping.json`), so\n    the lowest-direct job catches a mapping that moves with sqlglot.\n- They pass on sqlglot 23.6.3, 25.0, 26.0 and the locked 28.6.0. 23.6.3\nis\nwhat the `lowest-direct` job installs. The declared floor, 23.4, is not\n    tested.\n- The fake cursor binds every parameterised statement through psycopg's\nown\nplaceholder binder, so a placeholder psycopg would refuse fails offline.\n- The fixes in the latest revision were each checked by undoing them in\nmemory and watching a test fail. Earlier fixes had no such check\nrecorded.\n- The pre-transform check was run on and off over 16 transform, cache,\n`into_backend`, params and Flight test modules: 537 passed both ways,\nwith no\n  failures on either side.\n- CI: see the checks on this revision.\n- **Verified live against a Redshift Serverless warehouse:**\n- the introspection facts above: temp tables, `binary varying`,\nVALUES/TABLE\n    rejected, trailing-comment SQL;\n- an unqualified lookup of an out-of-schema table raises `TableNotFound`\n    rather than resolving elsewhere;\n  - both paths agree on a real table.\n- **Verified live with a table holding `SUPER NOT NULL`, nullable\n`SUPER` and\n  `VARBYTE` columns:**\n  - it binds with the right types and nullability;\n  - the other columns read correctly (`VARBYTE` as bytes);\n  - reading a `SUPER` column is refused, naming it;\n  - a filter on one runs server-side;\n  - `con.sql` returning one is refused.\nAll of this also passed as a least-privilege user (no TEMP, no CREATE)\non the\n  combined stack of this PR, #2332, #2333 and #2335.\n- **Verified live on this revision, read-only:** the OID and\n`type_display`\nof a bare literal (`varchar`), `BIGINT`/`COUNT(*)` (`int8`), the float\nand\ninteger widths, `bpchar`, `SUPER` (4000), `GEOMETRY` (3999), `VARBYTE`\n(6551)\nand the interval types (1188/1190); the `SUPER` casts above; temp-table\nshadowing, before and after the fix (two temporary tables, ended with\nthe\n  session); and a `VARBYTE`\ncolumn reading `b\"\\xab\"` through `con.table` and `con.sql`, with ADBC on\nand\n  off.\n- The `insert`, computed-value and pre-transform refusals are tested\noffline\n  only.\n- **Live type matrix**\n(`backends/redshift/tests/test_redshift_live_introspection.py`,\nmarked `redshift`, skipped without a configured warehouse): one real\ncolumn\nof each of 16 types, read through `con.table` and `con.sql` with ADBC on\nand\nforced off, asserting which path served each read, and compared value by\nvalue with what was inserted; `SUPER` refused on read; a temporary table\nshadowing its permanent namesake, in its own shape and in the permanent\ntable's. Run live on this revision: 12 passed, 4 xfailed. The fixture's\nDDL\n  is in the module.\n\n## Not verified, or out of scope\n\n- How `svv_all_columns` spells a *permanent* interval column.\n`svv_columns`\nspells a temporary one `intervaly2m`/`intervald2s` (measured), and both\nthat\nand the DDL spelling are refused. Every plausible spelling fails on read\n  rather than silently.\n- `GEOGRAPHY`'s and `HLLSKETCH`'s OIDs in a live description. Only\n`pg_type`'s\n  are mapped.\n- Binding a temporary table after `read_record_batches(temporary=True)`,\nend to\n  end. The fallback is covered at unit level only.\n- The cross-database scoping is reasoned from the AWS reference, not\nobserved:\nthe warehouse measured had no external tables or datashares, so no row\nit\nwould exclude was ever seen. The filter is the safe direction either\nway.\n- The cache path on a table with an unmappable column. Tokenising a\nRedshift\ntable fails first on this branch, and live it failed on the combined\nstack\n  for an unrelated reason in #2335's freshness probe. That the cache's\nserver-side put is refused follows from `create_table` being refused,\nand is\n  not tested.\n- An ADBC read of a temporary table that shadows a permanent one reads\nthe\npermanent table: ADBC's own session resolves the unqualified name there.\nWith the same columns it returns the permanent rows and raises nothing.\npsycopg reads the right table. This is inherited from the postgres\nbackend\n(reproduced against a local postgres), is left for a separate PR, and\nits\n  live cases are strict xfails here.\n- Calling `con.execute(expr)` directly, rather than `expr.execute()`,\nimports\nupstream `ibis` from the vendored postgres backend, a problem that is on\n  `main` too. It is not fixed here.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-30T16:18:52-04:00",
+          "tree_id": "135ef8d3ff33aac50932bef28d5a357b92677ae6",
+          "url": "https://github.com/xorq-labs/xorq/commit/2e96a2dbfe04b994334c51897ce92fcb27b5fc7c"
+        },
+        "date": 1790799889747,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 5.994270073240916,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01448100184766209",
+            "extra": "mean: 166.82598344444148 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.8244368388573586,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010361370393779669",
+            "extra": "mean: 354.0528810000069 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7632186968837179,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14482330891398945",
+            "extra": "mean: 1.310240438400001 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.386896935266873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03543787428277398",
+            "extra": "mean: 418.95399219999945 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.616601384703671,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04995115708062018",
+            "extra": "mean: 382.17513980000035 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.730374294960267,
+            "unit": "iter/sec",
+            "range": "stddev: 0.052309402176310506",
+            "extra": "mean: 366.2501517999942 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 115.68271902413352,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021117887589932497",
+            "extra": "mean: 8.644333470337793 msec\nrounds: 236"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.625250768927567,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12114711587756205",
+            "extra": "mean: 275.84298680000643 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 14.822950528461464,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009742803316244409",
+            "extra": "mean: 67.462952000002 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.702448995012134,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0126655200331323",
+            "extra": "mean: 103.06676185714382 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.901955671818898,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017960799834317115",
+            "extra": "mean: 126.55095036363531 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.039547777203709,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02318179076564342",
+            "extra": "mean: 165.57531075000398 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.559804031113527,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029995244454193205",
+            "extra": "mean: 219.30767049999625 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.578530771617196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005979681334244036",
+            "extra": "mean: 218.41067579999844 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.2817796391457708,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05897485161025606",
+            "extra": "mean: 438.2544145999873 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.1884919743686755,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009005128280994546",
+            "extra": "mean: 313.62788679999767 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.8077180388621228,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0794107802353557",
+            "extra": "mean: 553.1836151999983 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.704689734835484,
+            "unit": "iter/sec",
+            "range": "stddev: 0.083927769670662",
+            "extra": "mean: 586.6170127999908 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.433018684962116,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10324377049196205",
+            "extra": "mean: 697.8276071999971 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5146073662937927,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12100208162378044",
+            "extra": "mean: 660.2371163999919 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.1974514090832784,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12105491196128729",
+            "extra": "mean: 835.1069550000034 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1494440399412995,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09908829178594464",
+            "extra": "mean: 869.9858063999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9854757759705702,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12206223210145169",
+            "extra": "mean: 1.0147382862000085 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5699077261568503,
+            "unit": "iter/sec",
+            "range": "stddev: 0.2901138436990049",
+            "extra": "mean: 1.7546700178000036 sec\nrounds: 5"
           }
         ]
       }
