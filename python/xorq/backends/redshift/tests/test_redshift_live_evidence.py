@@ -79,6 +79,8 @@ def test_every_present_classification_has_a_live_probe():
     # ``split`` and ``array_size`` are the names the visitors ask for; the
     # dialect renders them as the DIALECT_RENAMED names, which RENAMED probes.
     measured_elsewhere = {"bool_or", "length", "max", "split", "array_size"}
+    # RECHECK asks LAG and LEAD on compute, by SQL rather than by op.
+    measured_elsewhere |= {"lag", "lead"}
     unbacked = sorted(
         name
         for name, (tag, _) in (*INVENTORY.items(), *DIALECT_RENAMED.items())
@@ -134,6 +136,11 @@ def test_recheck_runs_on_compute(name, live_config, run_select):
             'SELECT pg_terminate_backend(1) FROM "s"."t"', id="terminate-backend"
         ),
         pytest.param('SELECT PG_CANCEL_BACKEND(id) FROM "s"."t"', id="cancel-backend"),
+        pytest.param(
+            "SELECT 'a\\'', pg_terminate_backend(1) FROM \"s\".\"t\" WHERE x = 'y'",
+            id="backslash-escaped-quote",
+        ),
+        pytest.param("SELECT 1 WHERE 'x' = 'FROM s.t'", id="table-only-in-a-literal"),
         pytest.param(
             "SELECT set_config('search_path', 'x', false) FROM \"s\".\"t\"",
             id="set-config",

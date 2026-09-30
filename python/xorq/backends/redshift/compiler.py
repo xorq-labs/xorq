@@ -230,6 +230,15 @@ class RedshiftCompiler(PostgresCompiler):
         # ``ARRAY_TO_STRING``.
         ops.Levenshtein,
         ops.ArrayStringJoin,
+        # The inherited JSON visitors build ``JSON_ARRAY_ELEMENTS``,
+        # ``JSON_TYPEOF`` and ``JSON_EXTRACT_PATH_TEXT(j, VARIADIC
+        # ARRAY[]::TEXT[])``: no set-returning JSON function, ``JSON_TYPEOF``
+        # only over SUPER, and no ``VARIADIC`` or ``TEXT[]`` on Redshift.
+        ops.ToJSONArray,
+        ops.UnwrapJSONString,
+        ops.UnwrapJSONInt64,
+        ops.UnwrapJSONFloat64,
+        ops.UnwrapJSONBoolean,
     )
 
     # Redshift has no aggregate FILTER clause. AggGen already knows the
@@ -528,7 +537,7 @@ class RedshiftCompiler(PostgresCompiler):
 
     def _as_declared(self, op, result):
         """Cast a double ``_ln`` result back to a decimal ``op.dtype``, as
-        ``visit_Log`` does. A double where the schema says decimal breaks the
+        ``visit_Log`` with a base and ``visit_Log2`` do. A double where the schema says decimal breaks the
         psycopg fetch path, whose pyarrow conversion refuses a float in a
         decimal field."""
         return self.cast(result, op.dtype) if op.dtype.is_decimal() else result
@@ -543,7 +552,7 @@ class RedshiftCompiler(PostgresCompiler):
         """``LN(x) / LN(b)``, not PostgreSQL's two-argument ``LOG(b, x)``,
         which is leader-node-only for every argument type (measured)."""
         if base is None:
-            return self._ln(op.arg, arg)
+            return self._as_declared(op, self._ln(op.arg, arg))
         return self.cast(self._ln(op.arg, arg) / self._ln(op.base, base), op.dtype)
 
     def visit_Log2(self, op, *, arg):
@@ -556,11 +565,17 @@ class RedshiftCompiler(PostgresCompiler):
         so the inherited visitor round-trips a float through a bare decimal,
         which the mapper renders ``DECIMAL(38, 18)``: 20 integer digits, so any
         float from 1e20 up overflowed. Redshift's ``ROUND`` takes the digits
-        argument over ``FLOAT8`` and returns ``FLOAT8`` (the ``round/float``
-        entries of the live corpus run it on compute).
+        argument over ``FLOAT8`` (the ``round/float`` entries of the live
+        corpus run it on compute).
+
+        It returns the type of its input, though, and an ibis float is not
+        always a Redshift float: ``t.id * 1.5`` and a float literal are
+        ``DECIMAL`` on the wire. So the result is cast to double, as the
+        inherited visitor's was, or the psycopg fetch path would hand pyarrow a
+        ``Decimal`` for a float64 field.
         """
         if digits is not None and op.arg.dtype.is_floating():
-            return self.f.round(arg, digits)
+            return self.cast(self.f.round(arg, digits), dt.float64)
         return super().visit_Round(op, arg=arg, digits=digits)
 
     def visit_RegexReplace(self, op, *, arg, pattern, replacement):

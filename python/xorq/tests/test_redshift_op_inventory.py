@@ -24,12 +24,16 @@ implementation calls, because that is inherited code too: a helper method
 (``visit_Cast`` handles the binary casts itself and passes every other cast on
 to PostgreSQL's). Code in the Redshift module is followed but not read: its
 names are the Redshift compiler's own choices, which the dialect tests assert.
+A name computed at run time (``self.f[f"json{b}_typeof"]``, ``self.agg[funcname]``)
+cannot be read, so an op whose inherited code has one must be declared in
+``DYNAMIC_NAMES`` with the names it can produce, and a new one fails the scan.
 A name built some other way (an ``sge`` node rendered by the dialect) is not
 seen; the rendered-SQL check in ``redshift_evidence`` covers the wire side.
 """
 
 from __future__ import annotations
 
+import functools
 import inspect
 import re
 from collections import defaultdict
@@ -114,6 +118,12 @@ INVENTORY: dict[str, tuple[str, str]] = {
         (UNVERIFIED, _SIMPLE),
     ),
     "array_size": (PRESENT, "renders GET_ARRAY_LENGTH; see DIALECT_RENAMED"),
+    "lag": (PRESENT, "RECHECK lag_takes_no_frame, on compute"),
+    "lead": (PRESENT, "RECHECK lead_takes_no_frame, on compute"),
+    **dict.fromkeys(
+        "stddev_pop stddev_samp var_pop var_samp".split(),
+        (UNVERIFIED, "computed name; see DYNAMIC_NAMES; not probed"),
+    ),
     "date": (UNVERIFIED, f"renders DATE(...); {_SIMPLE}"),
     "if": (UNVERIFIED, f"renders CASE WHEN; {_SIMPLE}"),
     "json_extract": (
@@ -173,9 +183,23 @@ def _compilable_ops():
 
 _HELPER = re.compile(r"\bself\.(\w+)\s*\(")
 _SUPER = re.compile(r"\bsuper\(\)\.(\w+)\s*\(")
-# Attributes that build SQL nodes rather than name methods, and the dispatcher,
-# which reaches every visitor.
-_NOT_FOLLOWED = frozenset({"f", "agg", "v", "visit_node"})
+# A function name that is not a literal: ``self.f[<expression>]``.
+_DYNAMIC = re.compile(r"""self\.(?:f|agg)\[(?!["'])""")
+# The dispatcher, which reaches every visitor.
+_NOT_FOLLOWED = frozenset({"visit_node"})
+
+# Ops whose inherited code computes a function name at run time, with every
+# name it can produce. Each name then counts as reached, so it must be
+# classified like any other; an empty tuple is a name that is not ours to
+# classify.
+DYNAMIC_NAMES: dict[str, tuple[tuple[str, ...], str]] = {
+    "AggUDF": ((), "the user's own UDF name"),
+    "ScalarUDF": ((), "the user's own UDF name"),
+    "Lag": (("lag",), "type(op).__name__.lower()"),
+    "Lead": (("lead",), "type(op).__name__.lower()"),
+    "StandardDev": (("stddev_pop", "stddev_samp"), "f'{func}_{how}'"),
+    "Variance": (("var_pop", "var_samp"), "f'{func}_{how}'"),
+}
 
 
 def _resolve(name, start=0):
@@ -199,6 +223,7 @@ def _inherited_sources(op):
     return _walk(op)[1]
 
 
+@functools.cache
 def _walk(op):
     names = []
     sources = []
@@ -223,7 +248,11 @@ def _walk(op):
             if helper not in _NOT_FOLLOWED
         )
         pending.extend((parent, i + 1) for parent in _SUPER.findall(source))
-    return names, sources
+    return tuple(names), tuple(sources)
+
+
+def _has_dynamic_name(op) -> bool:
+    return any(_DYNAMIC.search(source) for source in _inherited_sources(op))
 
 
 def _compilable_inherited_ops():
@@ -236,7 +265,8 @@ def _compilable_inherited_ops():
 def _reachable_functions() -> dict[str, set[str]]:
     reached = defaultdict(set)
     for op in _compilable_ops():
-        for name in _inherited_names(op):
+        dynamic = DYNAMIC_NAMES.get(op.__name__, ((), ""))[0]
+        for name in (*_inherited_names(op), *dynamic):
             if (op.__name__, name.lower()) not in SHADOWED_BY_OVERRIDE:
                 reached[name.lower()].add(op.__name__)
     return reached
@@ -285,6 +315,18 @@ def test_the_sweep_sees_the_inherited_surface():
     reached = _reachable_functions()
     assert len(list(_compilable_inherited_ops())) > 200
     assert {"coalesce", "lower", "st_geomfromtext"} <= set(reached)
+
+
+def test_every_computed_function_name_is_declared():
+    """A name computed at run time is invisible to the scan above, so the op
+    that computes one must say what it can produce. The JSON array and unwrap
+    ops built ``JSON_ARRAY_ELEMENTS`` and ``JSON_TYPEOF`` that way, unseen,
+    until they were refused."""
+    computed = {op.__name__ for op in _compilable_ops() if _has_dynamic_name(op)}
+    assert computed == set(DYNAMIC_NAMES), (
+        f"undeclared: {sorted(computed - set(DYNAMIC_NAMES))}; "
+        f"stale: {sorted(set(DYNAMIC_NAMES) - computed)}"
+    )
 
 
 def test_every_shadowed_name_is_reached():

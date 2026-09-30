@@ -761,7 +761,8 @@ def test_only_the_decimal_upcasts_diverge_among_ops_that_cast_internally(
     ``DECIMAL(18, 0)`` on Redshift, so the mapper spells it ``DECIMAL(38,
     18)``: that is the divergence, and it is the fix (measured, ``round(2)`` of
     0.0312 came back 0 when ``Round`` took the same path). ``Round(digits)``
-    no longer casts at all -- ``visit_Round`` rounds the float itself -- so it
+    over a float no longer passes through a decimal -- ``visit_Round`` rounds
+    the float itself; over a decimal it still does -- so it
     is here as a case that must NOT diverge. ``TypeOf`` used to diverge through
     its string cast and is now refused outright, identically on both."""
     exprs = {
@@ -960,6 +961,7 @@ def test_logarithms_of_decimals_run_over_double_precision(t, build):
         pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log10(), id="log10"),
         pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log2(), id="log2"),
         pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log(3), id="log-base"),
+        pytest.param(lambda t: t.amt.cast("decimal(18, 4)").log(), id="log-no-base"),
     ],
 )
 def test_logarithms_of_decimals_return_the_declared_type(t, build):
@@ -979,6 +981,22 @@ def test_rounding_a_float_does_not_pass_through_a_decimal(t):
     sql = to_sql(t.select(o=t.amt.round(2)))
     assert 'ROUND("t0"."amt", 2)' in sql
     assert "DECIMAL" not in sql
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda t: t.amt.round(2), id="float-column"),
+        pytest.param(lambda t: (t.id * 1.5).round(2), id="int-times-float-literal"),
+        pytest.param(lambda t: xo.literal(2.567).round(2), id="float-literal"),
+    ],
+)
+def test_rounding_a_float_returns_a_double(t, build):
+    """``ROUND`` returns its input's type, and ``t.id * 1.5`` or a float
+    literal is ``DECIMAL`` on Redshift although ibis types it float64: the
+    psycopg fetch path would hand pyarrow a ``Decimal`` for a float field."""
+    sql = to_sql(t.select(o=build(t)))
+    assert sql.startswith("SELECT CAST(ROUND(") and 'AS DOUBLE PRECISION) AS "o"' in sql
 
 
 def test_integer_to_timestamp_counts_seconds_from_the_epoch(t):
@@ -1180,6 +1198,24 @@ def test_an_interval_from_a_value_raises_rather_than_emitting_make_interval(t, b
 def test_a_literal_interval_still_compiles(t):
     """The refusal is of ``MAKE_INTERVAL``, not of intervals."""
     to_sql(t.select(o=t.id.cast("timestamp") + xo.interval(days=1)))
+
+
+@pytest.mark.parametrize(
+    ("build", "op"),
+    [
+        pytest.param(lambda j: j.array, "ToJSONArray", id="array"),
+        pytest.param(lambda j: j.str, "UnwrapJSONString", id="str"),
+        pytest.param(lambda j: j.int, "UnwrapJSONInt64", id="int"),
+        pytest.param(lambda j: j.float, "UnwrapJSONFloat64", id="float"),
+        pytest.param(lambda j: j.bool, "UnwrapJSONBoolean", id="bool"),
+    ],
+)
+def test_json_array_and_unwrap_ops_raise(t, build, op):
+    """The inherited visitors build ``JSON_ARRAY_ELEMENTS``, ``JSON_TYPEOF``
+    and ``VARIADIC ARRAY[]::TEXT[]``, none of which Redshift runs. They were
+    invisible to the op inventory, which could not read a computed name."""
+    with pytest.raises(com.OperationNotDefinedError, match=op):
+        to_sql(t.select(o=build(t.s.cast("json"))))
 
 
 def test_a_map_literal_raises_rather_than_emitting_map(t):

@@ -20,8 +20,8 @@ question. Three rules are therefore enforced rather than remembered:
 * **A probe is SELECT-only**, checked before it is sent. The check is a
   denylist over the statement text -- mutating keywords, ``SELECT ... INTO``
   (which creates a table), and the system functions with side effects -- so it
-  refuses what it names and nothing else. The runner connects as the admin
-  user, so the database grants nothing narrower behind it.
+  refuses what it names and nothing else. It is the only control when the
+  runner connects as an admin user, which the one runner in use does.
 * **One statement per test**, on an autocommit connection, so one rejection
   cannot mask the next.
 
@@ -79,12 +79,14 @@ def refuse_unless_compute_select(sql: str) -> None:
     """Raise unless ``sql`` is one read-only statement that reads a table."""
     if not _SELECT_ONLY.match(sql) or ";" in sql.rstrip().rstrip(";"):
         raise ValueError(f"not a single SELECT: {sql}")
-    unquoted = re.sub(r"'(?:[^']|'')*'", "''", sql)
+    # Redshift string literals take backslash escapes as well as a doubled
+    # quote, so both are consumed inside a literal: ``'a\''`` is one literal.
+    unquoted = re.sub(r"'(?:[^'\\]|''|\\.)*'", "''", sql)
     if _MUTATING.search(unquoted):
         raise ValueError(f"refusing a statement with a mutating keyword: {sql}")
     if _SIDE_EFFECTING.search(unquoted):
         raise ValueError(f"refusing a call made for its side effect: {sql}")
-    if not _READS_A_TABLE.search(sql):
+    if not _READS_A_TABLE.search(unquoted):
         raise ValueError(
             "refusing a probe that reads no table: the leader node would answer "
             f"it, and its acceptances do not hold on compute: {sql}"
