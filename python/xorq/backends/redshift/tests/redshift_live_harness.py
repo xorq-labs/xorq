@@ -17,7 +17,11 @@ question. Three rules are therefore enforced rather than remembered:
   evidence of absence, which is why ``redshift_evidence`` may record one; a
   probe here must reach compute, so a statement with no ``FROM schema.table``
   is refused before it is sent.
-* **A probe is SELECT-only**, checked before it is sent.
+* **A probe is SELECT-only**, checked before it is sent. The check is a
+  denylist over the statement text -- mutating keywords, ``SELECT ... INTO``
+  (which creates a table), and the system functions with side effects -- so it
+  refuses what it names and nothing else. The runner connects as the admin
+  user, so the database grants nothing narrower behind it.
 * **One statement per test**, on an autocommit connection, so one rejection
   cannot mask the next.
 
@@ -60,7 +64,13 @@ _READS_A_TABLE = re.compile(r'\bFROM\s+"?\w+"?\s*\.\s*"?\w+"?', re.IGNORECASE)
 _SELECT_ONLY = re.compile(r"^\s*(SELECT|WITH)\b", re.IGNORECASE)
 _MUTATING = re.compile(
     r"\b(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE|GRANT|REVOKE|"
-    r"COPY|UNLOAD|VACUUM|ANALYZE|SET|CALL)\b",
+    r"COPY|UNLOAD|VACUUM|ANALYZE|SET|CALL|INTO)\b",
+    re.IGNORECASE,
+)
+# Functions a SELECT can call for their side effect: ending or cancelling
+# another session, and changing a setting.
+_SIDE_EFFECTING = re.compile(
+    r"\b(PG_TERMINATE_BACKEND|PG_CANCEL_BACKEND|SET_CONFIG)\s*\(",
     re.IGNORECASE,
 )
 
@@ -69,8 +79,11 @@ def refuse_unless_compute_select(sql: str) -> None:
     """Raise unless ``sql`` is one read-only statement that reads a table."""
     if not _SELECT_ONLY.match(sql) or ";" in sql.rstrip().rstrip(";"):
         raise ValueError(f"not a single SELECT: {sql}")
-    if _MUTATING.search(re.sub(r"'(?:[^']|'')*'", "''", sql)):
+    unquoted = re.sub(r"'(?:[^']|'')*'", "''", sql)
+    if _MUTATING.search(unquoted):
         raise ValueError(f"refusing a statement with a mutating keyword: {sql}")
+    if _SIDE_EFFECTING.search(unquoted):
+        raise ValueError(f"refusing a call made for its side effect: {sql}")
     if not _READS_A_TABLE.search(sql):
         raise ValueError(
             "refusing a probe that reads no table: the leader node would answer "

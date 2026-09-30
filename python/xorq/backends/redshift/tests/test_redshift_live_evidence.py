@@ -129,6 +129,15 @@ def test_recheck_runs_on_compute(name, live_config, run_select):
         pytest.param("DELETE FROM s.t", id="delete"),
         pytest.param("SELECT 1 FROM s.t; DROP TABLE s.t", id="two-statements"),
         pytest.param("WITH x AS (SELECT 1) UPDATE s.t SET a = 1", id="cte-update"),
+        pytest.param('SELECT * INTO "new_t" FROM "s"."t"', id="select-into"),
+        pytest.param(
+            'SELECT pg_terminate_backend(1) FROM "s"."t"', id="terminate-backend"
+        ),
+        pytest.param('SELECT PG_CANCEL_BACKEND(id) FROM "s"."t"', id="cancel-backend"),
+        pytest.param(
+            "SELECT set_config('search_path', 'x', false) FROM \"s\".\"t\"",
+            id="set-config",
+        ),
     ],
 )
 def test_the_harness_refuses_leader_node_and_mutating_probes(sql):
@@ -139,3 +148,6 @@ def test_the_harness_refuses_leader_node_and_mutating_probes(sql):
 
 def test_the_harness_passes_a_compute_select():
     refuse_unless_compute_select('SELECT COUNT(*) FROM "s"."t" WHERE title = \'SET\'')
+    refuse_unless_compute_select(
+        'SELECT id FROM "s"."t" WHERE title = \'pg_terminate_backend(1) INTO\''
+    )
