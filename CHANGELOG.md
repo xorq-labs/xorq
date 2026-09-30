@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.5] - 2026-09-29
+### Details
+#### Added
+- Add xorq catalog rebase by @mesejo in [#2346](https://github.com/xorq-labs/xorq/pull/2346)
+
+#### Changed
+- Apply the new xorq.dev Quarto theme by @mesejo in [#2328](https://github.com/xorq-labs/xorq/pull/2328)
+- Refresh a loaded build over its drifted sources by @mesejo in [#2337](https://github.com/xorq-labs/xorq/pull/2337)
+- New landing page + header parity with xorq.dev, social cards, mobile logo fix by @hussainsultan in [#2343](https://github.com/xorq-labs/xorq/pull/2343)
+
+#### Fixed
+- The GCS example and its CI path were never exercised by @dlovell in [#2334](https://github.com/xorq-labs/xorq/pull/2334)
+- Give each cache writer its own temp path by @dlovell in [#2329](https://github.com/xorq-labs/xorq/pull/2329)
+- Don't treat a failed introspection probe as a missing table by @dlovell in [#2330](https://github.com/xorq-labs/xorq/pull/2330)
+- Pin that refresh leaves bundled sources as loaded by @mesejo in [#2344](https://github.com/xorq-labs/xorq/pull/2344)
+- Clone() and the module-level connect() both raised TypeError by @dlovell in [#2345](https://github.com/xorq-labs/xorq/pull/2345)
+
 ## [0.4.4] - 2026-09-22
 ### Details
 #### Added
