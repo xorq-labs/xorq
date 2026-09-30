@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790768565979,
+  "lastUpdate": 1790788119879,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -42258,6 +42258,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.1691840339601581",
             "extra": "mean: 1.7210842643999853 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6f524378c1a2e80cfb3f6723b555a9319e775a05",
+          "message": "fix(redshift): compile Redshift as Redshift, not as PostgreSQL (#2333)\n\nRedshift is PostgreSQL-derived at the wire level, which is why the\nbackend subclasses the Postgres compiler. It is not PostgreSQL at the\nSQL level, and this PR makes the compiler say so.\n\n## The problem\n\nFour expression forms compiled to SQL that Redshift rejects **at\nexecution**, after a successful build — the expensive failure mode,\nbecause the models are already written and documented by then:\n`make_date` date literals, a frame clause on ranking windows,\n`.distinct(on=...)` lowering to `FIRST()`, and `where=` lowering to\n`FILTER (WHERE ...)`. `where=` is the idiom xorq's own skills teach.\n\nA second class of the same failure sits below the query path: the\n`CREATE TABLE` the psycopg ingest emits was rendered with PostgreSQL's\ntype spellings, and Redshift rejects six of the thirteen types a\nrepresentative schema produces. A timestamp column is the common case\nfor `read_parquet`, so v1 ingest failed on most real files.\n\n## Why retargeting the dialect is necessary but nowhere near sufficient\n\nGenerating those forms under sqlglot's Redshift dialect instead of\nPostgres fixes **none** of them. `FILTER(WHERE)`, the ranking frame and\n`FIRST()` come out byte-identical, because they are decided in the\ncompiler, above sqlglot. The date literal is the one that changes — from\n`MAKE_DATE` to `DATE_FROM_PARTS` — and Redshift has neither, so the swap\nmoved it from one invalid spelling to another.\n\nThat is why this PR is compiler overrides and not a one-line `dialect`\nassignment.\n\nIt also turned out that the `dialect` line is the opposite of inert. The\ntwo dialects differ in **67** places. Auditing only the constructs that\nprompted the change would have missed consequences of it, among them the\n`startswith` pattern interpolation and the string-escape change (a fix;\nsee below), so this PR inventories all 67.\n\n## What changed\n\n**Aggregates.** `AggGen(supports_filter=False)` is the switch that\nreplaces `FILTER (WHERE c)` with a `CASE` fold. It is not a local change\n— it re-routes the lowering of *every* aggregate, and the fallback wraps\nevery positional argument without asking whether that argument is a\nvalue expression. Callers pass things that are not: `STAR`,\n`sge.Distinct`, `sge.Ordered`, and a `LISTAGG` delimiter that must stay\nconstant. Each needed its own override. The middle column is what the\nretarget plus the switch produce *without* those overrides; on `main`,\nevery `where=` row emitted `FILTER (WHERE c)`:\n\n| expression | switch alone | now |\n|---|---|---|\n| `count(where=)` | `COUNT(CASE WHEN c THEN *)` | `COUNT(CASE WHEN c\nTHEN 1 END)` |\n| `nunique(where=)` on a column | `COUNT(CASE WHEN c THEN DISTINCT x)` |\n`COUNT(DISTINCT CASE WHEN c THEN x END)` |\n| `approx_nunique(where=)` | `COUNT(CASE WHEN c THEN DISTINCT x)` | same\nas `nunique` |\n| `median`/`quantile(where=)` | `... FILTER (WHERE c)` | predicate\nfolded into `WITHIN GROUP` |\n| `group_concat(where=)` | delimiter CASE-wrapped | predicate on the\nvalue only |\n| `group_concat(order_by=)` | `LISTAGG(x, sep ORDER BY k)` | `LISTAGG(x,\nsep) WITHIN GROUP (ORDER BY k)` |\n| `.arbitrary()` | `FIRST(x)` | `MAX(x)`, or `BOOL_OR(x)` for a boolean\n|\n\n`.arbitrary()` is not `ANY_VALUE`: AWS documents that it \"might\" return\nNULL when the input mixes NULL and non-NULL values, which the `CASE`\nfold above guarantees, while ibis promises a non-NULL value whenever one\nexists. `MAX` and `BOOL_OR` ignore NULLs.\n\n**Windows.** Redshift's grammar has no frame slot for ranking functions\nor for `LAG`/`LEAD`, and `LISTAGG`/`PERCENTILE_CONT`/`MEDIAN` in window\nposition take `PARTITION BY` and nothing else. Both suppressions are\nscoped deliberately: cumulative aggregates keep their frame, because\ndropping one there would turn a loud error into wrong numbers. For the\nsame reason, a rolling or cumulative window over\n`LISTAGG`/`PERCENTILE_CONT`/`MEDIAN` raises: `OVER (PARTITION BY ...)`\nequals the requested window only when the frame is unbounded both ways,\nand widening a rolling median to the partition median would return a\ndifferent number with no error. A windowed `group_concat` keeps its\nwindow ordering by moving it into `WITHIN GROUP`, where Redshift takes\nit (measured).\n\n**Dates.** Redshift has neither `MAKE_DATE` nor `DATE_FROM_PARTS`. A\ndate literal compiles to `CAST('2020-01-02' AS DATE)`, and `date(y, m,\nd)` over columns to `TO_DATE` of the zero-padded ISO string. These are\nseparate paths: a literal never reaches `visit_DateFromYMD`, because the\nbase literal visitor builds its own `DATE_FROM_PARTS` call. The column\npath passes `TO_DATE`'s `is_strict` argument and pads a part only when\nit is short. Measured: lenient `TO_DATE` turns Feb 30 into Mar 2, and\n`LPAD` truncates, so a day of 100 became 10. With `is_strict`, the\nwarehouse now rejects both at execution, as PostgreSQL's `make_date`\ndoes, instead of returning a wrong date. Time literals are cast from\ntheir ISO string (Redshift has no `MAKE_TIME`). Binary literals are\n`FROM_HEX(...)`, because the inherited `CAST('\\\\x61…' AS VARBYTE)`\nstored the text's own bytes: silent wrong data.\n\n**Strings.** `startswith` now lowers to `LEFT(s, LENGTH(p)) = p` rather\nthan sqlglot's `s LIKE p || '%'`, which interpolates the operand into a\npattern unescaped — a `%` or `_` in the operand became a wildcard and\nthe predicate matched rows a prefix test would not. Both `startswith`\nand `endswith` are also guarded by `LENGTH(s) >= LENGTH(p)`. Measured on\nthe warehouse, Redshift's compute nodes compare strings with trailing\nblanks insignificant, so `'ab'.startswith('ab ')` was true. The guard\ngives both sides of the comparison equal length, which makes that\ninsignificance harmless. A probe of constants alone runs on the leader\nnode, which treats the blanks as significant, so it hides this. Casts\nbetween string and binary are `TO_VARBYTE(s, 'utf8')` and\n`FROM_VARBYTE(b, 'utf8')`. The inherited `DECODE`/`ENCODE` with\n`'escape'` is rejected (measured): Redshift's `DECODE` is the CASE-style\nfunction, and it has no `ENCODE`. `REGEXP_REPLACE`'s fourth argument is\na position, not flags, so the inherited `'g'` failed; it now takes three\narguments. `find_in_set` used `ARRAY_POSITION`, which on Redshift is\n0-based over SUPER and returns -1 for a missing value, so a missing\nvalue answered -2 (silent, found by the differential run below). It is\nnow a `CASE` over the values.\n\n**Numbers and epochs.** A bare `DECIMAL` is `DECIMAL(18, 0)` on\nRedshift, not arbitrary precision, and the inherited `ROUND` and `%`\nupcast to it: `round(2)` of 0.0312 was 0, and a float modulus divided by\na truncated operand. The mapper now spells an unparameterized decimal\n`DECIMAL(38, 18)`, which fixes every path that upcasts. A float no\nlonger takes that path for `ROUND`: Redshift's `ROUND(x, n)` takes a\n`FLOAT8`, so `round(n)` of a float rounds it directly and casts the\nresult to double (`ROUND` returns its input's type, and `t.id * 1.5` or\na float literal is `DECIMAL` on Redshift although ibis types it\nfloat64), where the `DECIMAL(38, 18)` round trip overflowed from 1e20 up\n(live, including a 1e25-scale case). The float `%` keeps the upcast,\nwhich Redshift needs, and with it that ceiling. `LN` and `LOG` over\n`NUMERIC` are leader-node-only, and so is two-argument `LOG` for every\ntype, so decimals are cast to double first and a log with a base is\n`LN(x) / LN(b)`. Every logarithm of a decimal is cast back to its\ndeclared decimal type, since the psycopg fetch path refuses a float in a\ndecimal field. PostgreSQL's compiler does that for `log(b)` and `log2`\nbut not `ln` and `log10`, so those two now differ from PostgreSQL by\nvalue past the declared scale, as `avg` already did; the differential\nlists both. Redshift has no one-argument `TO_TIMESTAMP`, so\ninteger-to-timestamp is `DATEADD` from the epoch; the time-zone-aware\nform raises.\n\n**Operations with no Redshift target now raise** at compile time rather\nthan compiling to something that cannot run. An op refused outright\nraises `OperationNotDefinedError`, a refusal that depends on the\nargument (a type, a frame, a unit) raises `UnsupportedOperationError`,\nand a type the mapper cannot spell raises `UnsupportedBackendType`. The\nrefusals: `.first()`/`.last()`/`.distinct(on=...)`, `argmin`/`argmax`\nand `collect()` (no `ARRAY_AGG`), `Table.nunique()`, `.mode()`,\n`.quantile()` over a non-numeric column or a list of quantiles\n(Redshift's `PERCENTILE_CONT` accepts a date, measured, but\ninterpolates, which is not the discrete percentile), `hash()`, `uuid()`,\n`re_extract`, `time(h, m, s)`, `timestamp(y, m, d, h, mi, s)`,\n`bucket()` and `bit_xor` (`MAKE_TIME`, `MAKE_TIMESTAMP`, `DATE_BIN` and\n`BIT_XOR` are all absent, measured), casts to UUID and INET and DDL for\neither (selecting such a column still compiles), decimals wider than 38\ndigits, subscripts and slices on an array (Redshift rejects a subscript\non a computed SUPER expression, and arrays only arise from expressions\nhere), `re_split`, `typeof()`, `corr`/`cov`, struct construction and\nfield access, every map op, `ArrayRemove`/`ArrayRepeat` and\n`TimestampRange` (`PG_TYPEOF`, `CORR`, `COVAR_POP`, `ROW`, `MAP()`,\n`ARRAY_REMOVE` and `CARDINALITY` are absent on compute, measured),\n`levenshtein` and `split(...).join(...)` (`LEVENSHTEIN` and\n`ARRAY_TO_STRING` are absent from Redshift's function reference; not\nmeasured), `as_interval` and casts to an interval (`MAKE_INTERVAL`, also\nabsent from the reference, and `=>` named-argument syntax), a map\nliteral (the one route to `MAP()` the map ops did not cover), the JSON\narray and unwrap ops (`.array`, `.str`, `.int`, `.float`, `.bool` on a\nJSON value, which built `JSON_ARRAY_ELEMENTS`, `JSON_TYPEOF` and\n`VARIADIC ARRAY[]::TEXT[]`), the fifteen operations that depend on\n`UNNEST` (including `.anys()`/`.alls()` on an array and `Table.unnest`),\nand the three that cast an operand to an array type (`ArrayConcat`,\n`ArrayContains`, `IntegerRange`). The `UNNEST` group mattered most for\ndiagnosis: sqlglot's Redshift generator does not raise on `UNNEST` — it\nwarns and returns the empty string, which flows back into expression\nbuilding and produces either an `AttributeError` from inside sqlglot or\nSQL with a hole in it (`SELECT AS \"o\"`, `ARRAY(SELECT UNION SELECT)`).\nNone would have run on Redshift, which has no array type; what they cost\nwas the diagnosis, since none named the backend or the operation.\n\nThe three array-casting ops fell out of the type work below rather than\nthe compiler work. The type mapper is also the compiler's cast target,\nso once `RedshiftType` refused array types for ingest DDL, these ops\nstarted failing at compile with the ingest message (\"before ingest\") and\nwithout naming the op. Before that they compiled to\n`ARRAY_CONCAT(CAST(arr AS BIGINT[]), ...)`, which could never run. They\nare now listed alongside the others and raise\n`OperationNotDefinedError`.\n\n**Types.** `RedshiftType` plus `RedshiftCompiler.type_mapper`. These are\ntwo separate bindings for one concept, and setting only the first left\nthe warehouse-to-ibis read path parsing type strings as PostgreSQL, so a\n`VARBYTE` column came back as `unknown`.\n\n`RedshiftType` now also carries the ibis-to-SQL direction, measured\nrather than derived. It began as a pass-through whose docstring said the\ntwo known divergences were suspected on AWS's documentation and that\nchanging them on documentation alone \"would swap a suspected bug for an\nunsuspected one\". The warehouse settled them, and the answer was worse\nthan the two suspects — six rejections, not two:\n\n| emitted before | Redshift |\n|---|---|\n| `TIMESTAMP(6)` | `FeatureNotSupported: timestamp column does not\nsupport precision.` |\n| `TIMESTAMPTZ(6)` | `SyntaxError` — and this PR's retarget merely\nrespells it `TIMESTAMP(6) WITH TIME ZONE`, which carries the same\nmodifier |\n| `BYTEA` | unsupported type |\n| `UTINYINT` | `type \"utinyint\" does not exist` |\n| `BIGINT[]` | unsupported type — Redshift has no arrays |\n| `STRUCT<...>` | `SyntaxError` — Redshift has no struct type |\n\nA bare `VARCHAR` is accepted and silently means `VARCHAR(256)`, so it is\nthe one divergence that fails at `INSERT` rather than `CREATE`, and only\npast 256 bytes — which is why every earlier probe missed it.\n\nWorth stating plainly, since \"retarget the dialect\" reads like it would\nfix a type problem wholesale: **the retarget alone fixes exactly one of\nthe six.** sqlglot's Redshift dialect renders `VARBINARY` as `VARBYTE`,\nso binary is repaired for free and nothing else is.\n\nThe replacements — `TIMESTAMP`/`TIMESTAMP WITH TIME ZONE` with no\nmodifier, `VARCHAR(65535)`, and\n`SMALLINT`/`INTEGER`/`BIGINT`/`DECIMAL(20, 0)` for the unsigned types\nRedshift does not have — were each executed against the warehouse,\n`CREATE` and `INSERT` round-trip both. `DECIMAL(20, 0)` for `uint64` is\ndeliberately not `TrinoType`'s `DECIMAL(19, 0)`: 19 digits cannot\nrepresent 18446744073709551615. `VARCHAR(65535)` has a real cost taken\ndeliberately — Redshift allocates query working memory from the declared\nwidth — but an ibis `String` carries no length, so the maximum is the\nonly spelling that cannot silently reject valid data.\n\nArray, map and struct **raise** instead, and that is measured rather\nthan cautious. `CREATE TABLE (c SUPER)` *is* accepted, so SUPER looks\nlike the answer; it is not, because the psycopg ingest binds\n`batch.to_pydict()` values directly and Redshift rejects a bound Python\nlist with `DatatypeMismatch: column \"c\" is of type super but expression\nis of type smallint[]`. SUPER takes a JSON string only, so emitting it\nwould move the failure from `CREATE` to `INSERT` and make it less\nlegible. Making nested types work means serialising in the ingest path,\nwhich lives on the backend PR, not here.\n\n`Unknown` raises too, with `UnsupportedBackendType`. Without that, a\n`CREATE` from a schema holding a column the read side could not map\nfailed with a bare `KeyError: <class Unknown>` naming neither the type\nnor the reason.\n\n**Dialect.** A `Redshift` subclass with `TRANSFORMS` pinned rather than\ninherited. sqlglot's own Redshift copies `Postgres.Generator.TRANSFORMS`\nat class-creation time while `dialects.py` mutates that dict in place,\nso which wins depends on import order. The eager import at the top of\n`dialects.py` forces the copy to be taken pre-mutation.\n\n## Verified against a live warehouse\n\nEvery claim that rested on AWS's documented grammar rather than an\nobserved rejection was measured against a Redshift Serverless warehouse.\nAll resolved in the code's favour, and the run found four further\ndefects no offline check could have caught (`Table.nunique()` in either\nspelling, `.mode()`, `PERCENTILE_DISC`, and confirmation that\n`ARRAY_AGG`/`FIRST`/`STARTS_WITH`/`MAKE_DATE`/`DATE_FROM_PARTS` are all\nabsent).\n\nThe type divergences above were the standing exception to that sentence\n— suspected on documentation, deliberately left unverified, and pinned\nas a tripwire rather than fixed. They have now been measured the same\nway, each `CREATE` inside a rolled-back transaction, and the tripwire is\nretired in favour of an acceptance assertion.\n\nOne result is worth calling out because it is a fix rather than a risk.\nRedshift decodes backslash escapes (`LENGTH('\\t')` is 1), and the\ndialect carries different escape rules from Postgres. Measured: `'1' ~\n'\\\\d'` matches, `'1' ~ '\\d'` does not, and `'d' ~ '\\d'` does. Under the\nPostgres dialect this backend was sending the regex *literal letter d*\nevery time a user wrote `\\d` — wrong answers, no error, for every\n`re_search`/`re_replace`/`re_extract`/`like` carrying a backslash class.\nThe retarget fixes that silently, and the fix is now pinned by a test.\n\n## Tests\n\n`test_redshift_dialect.py` covers each construct. Each fix's test was\nchecked to fail against the unfixed compiler; a few (`count()` with no\npredicate, a non-ranking window's frame, cumulative frames) guard\nbehaviour that did not change, and pass against it too. The standing\nguards, rather than point checks:\n\n- **A compile-and-parse sweep** over every `where=`-taking reduction\nacross dtypes (`test_every_filtered_reduction_parses`) — about a hundred\ncompilations per run, each fed to `sqlglot.parse_one`. Three separate\ndefects were one mechanism reached through three entry points; two were\nfound by inspection and the third only by compiling everything.\n- **A dialect-delta inventory** (`test_redshift_dialect_inventory.py`)\nclassifying all 67 differences between the Postgres and Redshift\ndialects as accepted or overridden (none may be left open), at sqlglot\n28.6.0, the locked version. A sqlglot upgrade that adds, drops or\nrewrites a Redshift transform now fails the test until someone\nclassifies it. The declared range starts at 23.4, and older sqlglot\nmodels fewer differences (44 at 23.6.3, what the `lowest-direct` job\nresolves). So below the locked version an absent entry is allowed. A\n*new* one still fails at every version, and the one difference that\nexists at 23.6.3 but not at 28.6.0 is classified in `FLOOR_ONLY`.\n\n- **A type-mapper divergence check** renders every probed dtype through\n`RedshiftType` and through `PostgresType`. It does this on the DDL path,\nand through a Redshift compiler whose only change is the mapper, which\nisolates the cast path. It asserts that the set of differences is\nexactly the 17 intended ones, each listed with its reason.\n`RedshiftType` was first validated only as ingest DDL, which is how its\narray refusal reached the compiler unnoticed. This makes a new\ndivergence, or an intended one that stops diverging, a test failure. The\nset is identical at sqlglot 23.6.3 and 28.6.0.\n\n- **A measured type table**\n(`test_ingest_ddl_renders_each_type_as_redshift_accepts_it`): the 14\ntypes that were rendered through the real mapper and executed on the\nwarehouse, replacing a tripwire that pinned two suspects while five of\nthe six rejections had no assertion at all. The probe that executed them\nis a local script, not part of this PR, so in CI the table checks the\nrendered strings only: it catches the code drifting from the record, not\nthe warehouse. The rest of the mapper's range is pinned offline by the\ndivergence check above.\n\n- **An inherited-function inventory** (`test_redshift_op_inventory.py`).\nThe compiler inherits PostgreSQL's lowering for most of the ops it\ncompiles, and review had been finding the gaps by sampling one call site\nat a time, so a fix at one site left its siblings emitting the same\nabsent function. The test statically reads every function name an\ninherited visitor can reach: `self.f`/`self.agg` calls, the `_name` of\nevery visitor generated from `SIMPLE_OPS` at any level of the hierarchy,\nand the helpers and `super()` implementations those call, transitively.\nA name computed at run time (`self.f[f\"json{b}_typeof\"]`,\n`self.agg[funcname]`) cannot be read, so an op whose inherited code\ncomputes one must be declared with the names it can produce\n(`DYNAMIC_NAMES`), and an undeclared one fails the test; that is how the\nJSON ops above were found. It requires each name to be classified as\npresent on compute or unverified, and fails when a compilable op reaches\na function measured absent. Overrides that intercept a name before\ndelegating are listed per op, so the name stays visible on every other\npath to it. A sibling test fails when any compilable op's inherited code\nbuilds an `UNNEST` node, which a name scan cannot see, and\n`DIALECT_RENAMED` classifies the names the dialect's own transforms\nrender (`SPLIT_TO_ARRAY`, `GET_ARRAY_LENGTH`, both run on compute). Run\nagainst the compiler before the second review round, it named exactly\nthe sibling paths that round had found by hand. An earlier version read\nonly call sites and was blind to the generated visitors; widening it\nsurfaced `LEVENSHTEIN`, `ARRAY_TO_STRING`, `MAKE_INTERVAL` and the map\nliteral's `MAP()`, all now refused. The geospatial names and 38 others,\nstandard functions reached through inherited `SIMPLE_OPS`, remain\nunverified.\n- **A measured-absent registry**\n(`python/xorq/tests/redshift_evidence.py`) holds those facts once, and\nthe dialect tests' `to_sql()` checks every string it compiles against\nit, so every test guards every emission path it reaches.\n\n**A live harness** (`python/xorq/backends/redshift/tests/`, marker\n`redshift`, which no CI job selects; it skips without `XORQ_REDSHIFT_*`)\nreplaces the one-off probe scripts. It refuses, before sending, any\nprobe that reads no table (the leader node answers those, and twice\nanswered wrongly), any that is not a single `SELECT`, any carrying a\nmutating keyword or `SELECT ... INTO`, and any calling\n`PG_TERMINATE_BACKEND`, `PG_CANCEL_BACKEND` or `SET_CONFIG`, treating a\nbackslash-escaped quote as inside its string literal. That is a denylist\nover the statement text, in front of a runner that connects as the admin\nuser. It asserts the inventory's classifications on compute, and runs a\n**differential** against local PostgreSQL: the probe table's rows are\nloaded into a temporary Postgres table, and every corpus expression runs\non both engines with values compared. Intended differences and\nPostgres-only failures are listed with reasons, and each list fails when\nan entry stops applying. That run found the decimal, `find_in_set`,\n`LN`/`LOG`, `REGEXP_REPLACE` and epoch defects above. It also runs the\ndialect's renames on compute (`SPLIT_TO_ARRAY` over a column,\n`GET_ARRAY_LENGTH` over `ARRAY()` and over a split) and compares split\nand array length, including an empty string's, against PostgreSQL by\nvalue. Live run on this PR's head: 159 passed.\n\nA further guard catches the `__init_subclass__` trap: it generates visit\nmethods from `SIMPLE_OPS` *after* the class body runs, so an op in both\n`SIMPLE_OPS` and a hand-written `visit_*` silently loses the\nhand-written one. That is the mechanism behind the\n`.arbitrary()`/`FIRST()` defect, and this backend now carries 54\ninherited `SIMPLE_OPS` entries against 26 hand-written visitors. The\nguard is `test_no_hand_written_override_is_clobbered_by_simple_ops`.\n\n## Notes for review\n\n- **Vendored files.**\n`python/xorq/vendor/ibis/backends/sql/{dialects,datatypes}.py` are\nvendored upstream ibis. Both additions are xorq-specific, including\nlisting `Redshift` in the `dialects` module's `__all__`, which the style\ncheck requires of an imported name, and will need re-applying on the\nnext vendor sync; `RedshiftType` is no longer a one-line stub, so that\nre-application now carries the measured type overrides with it.\n`RedshiftType` is genuinely hard to move out: `TYPE_MAPPERS` is\nmaterialized from `get_subclasses(SqlglotType)` at that module's import\ntime, so a subclass defined in the backend package would never appear in\nit.\n- **Process-global side effect.** Registering a class named `Redshift`\nreplaces sqlglot's `Dialect.classes[\"redshift\"]` for the whole process.\nThe adjacent `ClickHouse` subclass sets the same precedent.\n- **CI.** #2332 has merged and `main` is merged in, so the diff against\n`main` is this PR's own work, and `adr` no longer sees #2332's ADR. The\ndialect tests pass across the declared sqlglot range: the\n`lowest-direct` jobs run 23.6.3, and the rest run the locked 28.6.0.\n- **Follow-on work** is tracked separately:\n- A differential-compile snapshot against the Postgres compiler. That is\nthe one axis neither the parse sweep nor the inventory covers: output\nthat is well-formed, plausible, and semantically different. The\ntype-mapper divergence check above does not cover it either, since it\nholds the compiler fixed.\n- Lowering `ts + n.as_interval(unit)` to `DATEADD(unit, n, ts)`, which\nthis PR refuses. `DATEADD` over a column already runs on compute; a\nfree-standing interval value would stay refused.\n- Lowering the JSON unwrap ops to Redshift's JSON functions, which this\nPR refuses. An integer `JSONGetItem` (`j[0]`) still compiles, to\n`JSON_EXTRACT_PATH_TEXT(j, '0')`; whether Redshift reads that as an\narray index is not measured.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-30T13:02:57-04:00",
+          "tree_id": "650f0d2b0f9effa7120c23da1623196bda6167b6",
+          "url": "https://github.com/xorq-labs/xorq/commit/6f524378c1a2e80cfb3f6723b555a9319e775a05"
+        },
+        "date": 1790788114425,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.584932172636897,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0044337088436773074",
+            "extra": "mean: 94.47391666666505 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.4499586115021112,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0425486702623997",
+            "extra": "mean: 289.85854979999317 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 1.0179675049425476,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13742079827690243",
+            "extra": "mean: 982.3496282000065 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.064595319464213,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004544413982699793",
+            "extra": "mean: 246.02695259999905 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.653426613303603,
+            "unit": "iter/sec",
+            "range": "stddev: 0.046057084508224835",
+            "extra": "mean: 273.71563899999956 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.5219742740671327,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03716509276687783",
+            "extra": "mean: 283.93165940000245 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 160.15456879073528,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014579398281380159",
+            "extra": "mean: 6.243967983870895 msec\nrounds: 310"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 6.376388805036903,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004481094336910277",
+            "extra": "mean: 156.8285797142843 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 19.423215705957883,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007507819984099054",
+            "extra": "mean: 51.48478064284997 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 12.738903034347002,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013144920989487743",
+            "extra": "mean: 78.49969477778194 msec\nrounds: 18"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 11.297867852578452,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017091512404779078",
+            "extra": "mean: 88.51227621429254 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 8.897203677659677,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007734539611618043",
+            "extra": "mean: 112.39486429999772 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 6.118947994061798,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005137754278300393",
+            "extra": "mean: 163.426785285716 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.846699395677757,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002733990522147199",
+            "extra": "mean: 171.03667083333582 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 3.047793281543333,
+            "unit": "iter/sec",
+            "range": "stddev: 0.019937323895572536",
+            "extra": "mean: 328.10624199998983 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.886698367713843,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0336407791470947",
+            "extra": "mean: 257.2877813999753 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 2.0856368218734085,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05447244123161406",
+            "extra": "mean: 479.46986239999205 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 2.067085201313701,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08420640558614112",
+            "extra": "mean: 483.7729956000203 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.7664464337210244,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0900937048358348",
+            "extra": "mean: 566.1083070000018 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.9148659110300987,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07010402829319823",
+            "extra": "mean: 522.2297782000055 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.5793177031279595,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08469483956228568",
+            "extra": "mean: 633.1848228000126 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.4680766014841407,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11705219134965325",
+            "extra": "mean: 681.1633663999942 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.1983499628880763,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10792881571564299",
+            "extra": "mean: 834.4807702000139 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.7824615765869666,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13732872561914564",
+            "extra": "mean: 1.2780180266000003 sec\nrounds: 5"
           }
         ]
       }
