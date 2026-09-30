@@ -269,3 +269,13 @@ def mark_as_unsupported(f: Callable) -> Callable:
 
 class TableNotFound(XorqError):
     """TableNotFound."""
+
+
+class RedshiftFreshnessUnavailable(XorqError):
+    """No cache key can be built for a Redshift relation.
+
+    Raised for every freshness key, and for a snapshot key over a session
+    temp table. Defined here rather than beside the rules so that a user told
+    to catch it can import it from the module every other xorq exception lives
+    in. See ``xorq.common.utils.redshift_utils`` for why.
+    """

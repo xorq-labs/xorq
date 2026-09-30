@@ -1,198 +1,812 @@
 from __future__ import annotations
 
-import xorq.common.exceptions as exc
+from functools import partial
+
+import sqlglot.expressions as sge
+
+import xorq.common.exceptions as com
+import xorq.vendor.ibis.expr.datatypes as dt
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.postgres.compiler import PostgresCompiler
-from xorq.vendor.ibis.backends.sql.datatypes import PostgresType
-from xorq.vendor.ibis.common.annotations import ValidationError
-from xorq.vendor.ibis.expr import datatypes as dt
+from xorq.vendor.ibis.backends.sql.compilers.base import NULL, STAR, AggGen
+from xorq.vendor.ibis.backends.sql.datatypes import RedshiftType
+from xorq.vendor.ibis.backends.sql.dialects import Redshift
 
 
-class RedshiftType(PostgresType):
-    """PostgreSQL's type mapper, made loud about what Redshift adds to it.
+# Redshift rejects a frame clause on any ranking window function:
+#   "Frame clause should not be specified for ranking window functions"
+# The set is Redshift's documented ranking family, not everything that happens
+# to be orderable -- NthValue, First and Last are *value* functions on Redshift
+# and do take a frame.
+# ``RankBase`` covers RowNumber, MinRank and DenseRank; the other three are
+# ranking functions in Redshift's sense but sit directly under ``Analytic``.
+_RANKING_OPS = (
+    ops.RankBase,
+    ops.PercentRank,
+    ops.CumeDist,
+    ops.NTile,
+)
 
-    ``PostgresType.from_string`` has three behaviours this backend cannot
-    live with, and they are shared by *both* introspection paths -- the
-    ``svv_all_columns`` catalog read and the ``cursor.description`` probe --
-    which is why the repair lives in the mapper rather than in either caller:
+# ``LAG``/``LEAD`` are *offset* functions, not ranking ones, and Redshift
+# documents their syntax with no frame clause at all -- unlike ``FIRST_VALUE``,
+# ``LAST_VALUE`` and ``NTH_VALUE``, whose documented syntax does include one.
+# Suppressing the frame here cannot change a result: an offset function reads a
+# row at a fixed displacement from the current one and is frame-insensitive in
+# every engine that accepts the clause, PostgreSQL included.
+#
+# Measured on a test warehouse: "Frame clause should not be specified
+# for window function lag".
+_OFFSET_OPS = (
+    ops.Lag,
+    ops.Lead,
+)
 
-    1. An unparsable type string falls back to ``dt.unknown`` **and drops the
-       ``nullable=`` argument on the way** (``SqlglotType.from_string``), so a
-       ``SUPER NOT NULL`` column comes back with the wrong type *and* the
-       wrong nullability, and nothing says so.
-    2. ``geometry`` and ``geography`` parse cleanly into ibis ``GeoSpatial``
-       types. That is worse than ``unknown``: this compiler is still the
-       PostgreSQL one, so a geo operation on such a column compiles to a
-       PostGIS call Redshift does not implement -- a server-side error on SQL
-       that looked fine, which is the exact failure class this backend's
-       overrides exist to eliminate.
-    3. A handful of OIDs (``oid``, ``regclass``, ``regproc`` and friends)
-       make the upstream mapper raise a bare
-       ``AttributeError: 'str' object has no attribute 'name'`` from inside
-       ``to_ibis``, which names neither the column nor the type.
+_NO_FRAME_OPS = _RANKING_OPS + _OFFSET_OPS
 
-    The policy is the one the query path's docstring already stated and only
-    half-implemented: a type this backend cannot map raises
-    ``UnsupportedBackendType`` rather than degrading to a schema that looks
-    fine and is wrong.
-    """
+# Redshift documents these in window position as ``OVER ( [PARTITION BY ...] )``
+# -- no ``ORDER BY`` and no frame, because their ordering is carried by the
+# ``WITHIN GROUP`` clause instead. So unlike ``_NO_FRAME_OPS``, where only the
+# frame is dropped, the whole ``OVER`` body below ``PARTITION BY`` has to go.
+# That is only lossless when the frame spans the whole partition: then the
+# window ``ORDER BY`` cannot change which rows the aggregate sees, and the
+# ordering the aggregate itself needs is already inside ``WITHIN GROUP``. A
+# bounded frame (rolling or cumulative) asks for a different row set per row,
+# which ``OVER (PARTITION BY ...)`` cannot express, so ``visit_WindowFunction``
+# raises on one rather than widening it to the whole partition.
+#
+# Measured on a test warehouse: "window specification should not contain
+# frame clause and order-by for window function median".
+_PARTITION_ONLY_OPS = (
+    ops.GroupConcat,
+    ops.Quantile,
+    ops.ApproxQuantile,
+    ops.Median,
+    ops.ApproxMedian,
+)
 
-    # Redshift-only type names with no xorq equivalent. ``VARBYTE`` is not
-    # one: it is variable-length binary data, and maps to ``dt.Binary`` through
-    # ``_TYPE_ALIASES`` below.
-    #
-    # The two interval column types cannot be *read* as ibis intervals: a live
-    # result description carries them as OIDs 1188/1190, which psycopg has no
-    # loader for, so each value arrives as Redshift's text rendering
-    # (``'1 mon'``). ``svv_columns`` spells them ``intervaly2m`` and
-    # ``intervald2s`` (measured), which sqlglot does not parse; the DDL
-    # spellings are listed too because they *do* parse, into intervals, and
-    # ``svv_all_columns``' spelling for a permanent table is unmeasured.
-    _REDSHIFT_ONLY_TYPES = frozenset(
-        {
-            "super",
-            "hllsketch",
-            "geometry",
-            "geography",
-            "intervaly2m",
-            "intervald2s",
-            "interval year to month",
-            "interval day to second",
-        }
-    )
+# Redshift has no ``unnest``. sqlglot's Redshift generator does not raise on
+# one -- it warns and returns the empty string, which then flows back into
+# expression building as a ``str``. The result is either an internal
+# ``AttributeError: 'str' object has no attribute 'args'`` from inside sqlglot,
+# or SQL with a hole in it: ``SELECT  AS "o"``, ``ARRAY(SELECT DISTINCT)``,
+# ``ARRAY(SELECT UNION SELECT)``, or an array column used as a table. None of
+# these were ever going to run on Redshift, which has no array type at all --
+# what they cost is the diagnosis, since none of them names the backend or the
+# operation. Listing them here converts each into the same
+# ``OperationNotDefinedError`` every other unsupported op raises.
+# ``test_no_compilable_op_builds_an_unnest`` holds the list complete.
+_UNNEST_DEPENDENT_ARRAY_OPS = (
+    ops.ArrayAll,
+    ops.ArrayAny,
+    ops.ArrayDistinct,
+    ops.ArrayFilter,
+    ops.ArrayIntersect,
+    ops.ArrayMap,
+    ops.ArrayMax,
+    ops.ArrayMean,
+    ops.ArrayMin,
+    ops.ArrayPosition,
+    ops.ArraySort,
+    ops.ArraySum,
+    ops.ArrayUnion,
+    ops.Unnest,
+    # ``Table.unnest``: the dropped node leaves ``CROSS JOIN "t1"."a"``, a join
+    # onto a bare column.
+    ops.TableUnnest,
+)
 
-    # Spellings Redshift reports that sqlglot's postgres dialect does not
-    # parse. ``bpchar`` is not exotic: it is what PostgreSQL -- and so
-    # psycopg's OID registry, at OID 1042 -- calls every ``CHAR(n)`` column, so
-    # without this entry the *query* path types every ``CHAR`` column
-    # ``unknown`` while the *catalog* path (which sees ``character``) types the
-    # same column ``string``.
-    #
-    # ``VARBYTE`` has two spellings and sqlglot's postgres dialect parses
-    # neither: ``varbyte`` is the DDL keyword a user writes, and ``binary
-    # varying`` is what ``svv_all_columns`` reports for a ``VARBYTE(16)``
-    # column, measured on a live warehouse (2026-09-24) -- the view definition
-    # rewrites it. Both are sent to ``varbinary``, which the inherited mapper
-    # maps to ``dt.Binary``.
-    #
-    # ``int8`` and ``float`` are spellings sqlglot *does* parse, but not as
-    # Redshift means them on every supported version: at 23.6.3 ``int8`` is an
-    # 8-bit integer and ``float`` a 32-bit one, where Redshift's are ``BIGINT``
-    # and ``DOUBLE PRECISION``. ``int8`` is what psycopg names OID 20, so without
-    # this every ``BIGINT`` through ``con.sql`` -- ``COUNT(*)`` included --
-    # bound as ``int8`` there. ``int8`` is the only name in psycopg's registry
-    # whose mapping differs between 23.6.3 and 28.6.0; ``float`` is not in the
-    # registry, and is aliased because Redshift documents it as a synonym.
-    _TYPE_ALIASES = {
-        "bpchar": "character",
-        '"char"': "character",
-        "varbyte": "varbinary",
-        "binary varying": "varbinary",
-        "int8": "bigint",
-        "float": "double precision",
-    }
-
-    @staticmethod
-    def unmappable_part(dtype: dt.DataType) -> dt.DataType | None:
-        """The first component of ``dtype`` this backend cannot emit SQL for.
-
-        Checking only the top-level type is not enough, and the gap is
-        reachable: ``bpchar[]`` is a real spelling (psycopg names OID 1014
-        exactly that, and ``svv_all_columns`` shows ``"char"[]``/``integer[]``
-        for ``pg_catalog`` relations), and it maps to
-        ``Array(value_type=Unknown)`` -- an ``Unknown`` the top-level check
-        walks straight past.
-
-        ``GeoSpatial`` is rejected alongside ``Unknown`` for the reason in the
-        class docstring, and doing it structurally rather than by name also
-        catches ``point``/``line``/``polygon``, which reach a geo type through
-        ``PostgresType.unknown_type_strings`` and so never touch the name list.
-        """
-        if isinstance(dtype, (dt.Unknown, dt.GeoSpatial)):
-            return dtype
-        parts = ()
-        if isinstance(dtype, dt.Array):
-            parts = (dtype.value_type,)
-        elif isinstance(dtype, dt.Map):
-            parts = (dtype.key_type, dtype.value_type)
-        elif isinstance(dtype, dt.Struct):
-            parts = tuple(dtype.types)
-        for part in parts:
-            if (found := RedshiftType.unmappable_part(part)) is not None:
-                return found
-        return None
-
-    @classmethod
-    def from_string(cls, text: str, nullable: bool | None = None) -> dt.DataType:
-        base, _, _ = (text or "").strip().partition("(")
-        # Strip any array suffix before the alias lookup: the aliases are keyed
-        # on the element spelling, and ``bpchar[]`` must reach the ``bpchar``
-        # entry rather than missing it and degrading to an unknown element.
-        element = base.strip().rstrip("[]").strip()
-        lowered = element.lower()
-
-        if lowered in cls._REDSHIFT_ONLY_TYPES:
-            raise exc.UnsupportedBackendType(
-                f"redshift type {base.strip()!r} has no xorq equivalent; it is a "
-                f"Redshift-specific type this backend cannot map"
-            )
-
-        if (alias := cls._TYPE_ALIASES.get(lowered)) is not None:
-            text = text.replace(element, alias, 1)
-
-        try:
-            dtype = super().from_string(text, nullable=nullable)
-        except (AttributeError, TypeError, ValueError, ValidationError) as e:
-            # The upstream mapper's own failures, re-raised as something that
-            # names the type it choked on, so the column binds as unknown
-            # rather than failing its whole table. The ``AttributeError`` is
-            # ``oid``'s; the rest are a type whose modifier the dtype rejects
-            # -- ``interval(6)``, psycopg's name for an interval with a
-            # precision, and ``numeric(0,0)`` or ``timestamp(10)``.
-            raise exc.UnsupportedBackendType(
-                f"redshift type {text!r} could not be mapped by the postgres "
-                f"type mapper"
-            ) from e
-
-        if (bad := cls.unmappable_part(dtype)) is not None:
-            raise exc.UnsupportedBackendType(
-                f"redshift type {text!r} has no xorq equivalent (resolved to "
-                f"{bad!r}); mapping it would hand back a schema that looks fine "
-                f"and is wrong"
-            )
-
-        # ``unknown_type_strings`` hits and the ``dt.unknown`` fallback both
-        # return a dtype built with the mapper's *default* nullability, ignoring
-        # the argument. Nothing above can reach the fallback any more, but the
-        # copy is cheap and makes the postcondition unconditional.
-        if nullable is not None and dtype.nullable != nullable:
-            dtype = dtype.copy(nullable=nullable)
-        return dtype
+# These lower without ``UNNEST`` but cast an operand to an array type, and the
+# type mapper refuses every array type: Redshift rejects ``BIGINT[]`` (measured,
+# see ``RedshiftType``). Left to the mapper they fail at compile anyway, with
+# the ingest message and without naming the op; the only SQL they ever
+# produced, ``ARRAY_CONCAT(CAST(arr AS BIGINT[]), ...)``, could not run.
+_ARRAY_CASTING_OPS = (
+    ops.ArrayConcat,
+    ops.ArrayContains,
+    ops.IntegerRange,
+)
 
 
 class RedshiftCompiler(PostgresCompiler):
-    """Redshift compiles as PostgreSQL for now.
+    """Redshift, compiled as Redshift rather than as PostgreSQL.
 
-    The dialect is deliberately *not* retargeted to sqlglot's Redshift yet.
-    Retargeting looks free and is not: sqlglot's ``Redshift`` builds its
-    ``TRANSFORMS`` by inheriting from ``Postgres`` at class-creation time, while
-    ``xorq.vendor.ibis.backends.sql.dialects`` mutates
-    ``Postgres.Generator.TRANSFORMS`` in place afterwards, so which one wins
-    depends on import order. Retargeting therefore has to arrive together with
-    an explicit ``TRANSFORMS`` and with unsupported operations raising, rather
-    than compiling to structurally invalid SQL. That is its own change.
+    Redshift is PostgreSQL-derived at the wire level, which is why the backend
+    subclasses the postgres one, but it is *not* PostgreSQL at the SQL level.
+    Most overrides below correspond to a construct a user report observed
+    Redshift rejecting at execution time, after a successful build -- the
+    expensive failure mode, because the models were already written and
+    documented by then.
 
-    Redshift is PostgreSQL-derived, so the postgres dialect is the correct
-    conservative default in the meantime.
-
-    The *type mapper* is retargeted, which is a separate question from the
-    dialect: it decides what a catalog row or a result description means, not
-    what SQL is generated, so it can be made Redshift-aware without touching
-    the generator. See ``RedshiftType``.
+    Retargeting the dialect is necessary but nowhere near sufficient. Measured
+    2026-09-23: generating the reported forms under sqlglot's Redshift dialect
+    instead of Postgres *fixed* none of them. ``FILTER(WHERE)``, the ranking
+    frame clause and ``FIRST()`` came out byte-identical, because they are
+    decided here, above sqlglot. The date literal was the one exception -- it
+    did change, from ``MAKE_DATE`` to ``DATE_FROM_PARTS`` -- but Redshift has
+    neither function, so the dialect swap moved it from one invalid spelling to
+    another. That is why this class carries compiler overrides and not just a
+    ``dialect`` assignment, and why the date case is handled in
+    ``visit_DateFromYMD`` below rather than by a rename in the dialect.
     """
 
     __slots__ = ()
 
+    dialect = Redshift
+
+    # ``TYPE_MAPPERS`` is keyed by dialect name, so retargeting ``dialect``
+    # above also retargets which mapper ``Schema.to_sqlglot`` reaches. The
+    # compiler's own ``type_mapper`` is a *separate* binding, inherited as
+    # ``PostgresType`` from the vendored postgres compiler, and it is the one
+    # ``Backend.get_schema`` / ``_get_schema_using_query`` use to parse type
+    # strings coming back from the warehouse. Setting only the first left the
+    # read path on PostgreSQL's vocabulary: ``PostgresType.from_string(
+    # "varbyte")`` is ``unknown`` where ``RedshiftType.from_string("varbyte")``
+    # is ``binary``, so a ``VARBYTE`` column round-tripped as ``unknown``.
     type_mapper = RedshiftType
+
+    # ``first`` is PostgreSQL's spelling and Redshift has no such aggregate --
+    # ``visit_First`` below raises on exactly that. Inheriting this entry meant
+    # ``.arbitrary()`` compiled to ``FIRST(x)`` anyway, because
+    # ``__init_subclass__`` generates ``visit_Arbitrary`` from ``SIMPLE_OPS``
+    # and that generation happens whether or not a sibling method raises.
+    # So the entry is removed, not replaced, and ``visit_Arbitrary`` below is
+    # hand-written: an entry here would regenerate over it.
+    SIMPLE_OPS = {
+        op: name
+        for op, name in PostgresCompiler.SIMPLE_OPS.items()
+        if op is not ops.Arbitrary
+    }
+
+    UNSUPPORTED_OPS = (
+        *PostgresCompiler.UNSUPPORTED_OPS,
+        *_UNNEST_DEPENDENT_ARRAY_OPS,
+        *_ARRAY_CASTING_OPS,
+        # ``ARRAY_AGG`` is the same absent function ``visit_ArgMinMax`` raises
+        # over; leaving ``collect()`` compiling to it while ``argmax`` raises
+        # for want of it was one premise with two answers.
+        ops.ArrayCollect,
+        # The postgres block in ``dialects.py`` renames ``RegexpSplit`` to
+        # ``regexp_split_to_array``, which Redshift lacks. Declining the rename
+        # only moves it to ``REGEXP_SPLIT``, which no engine has. Redshift has
+        # no regex-split-to-array at all.
+        ops.RegexSplit,
+        # A list of quantiles lowers to ``PERCENTILE_CONT(ARRAY[...])``, and the
+        # result is an array: neither exists on Redshift. Redshift's
+        # ``PERCENTILE_CONT`` takes one scalar fraction.
+        ops.MultiQuantile,
+        ops.ApproxMultiQuantile,
+        # PostgreSQL-only functions the inherited visitors emit, with no
+        # Redshift namesake: ``HASHTEXTEXTENDED`` and its per-type siblings,
+        # ``GEN_RANDOM_UUID``, and ``REGEXP_MATCH(...)[n]``, which also indexes
+        # the array Redshift cannot return.
+        ops.Hash,
+        ops.RandomUUID,
+        ops.RegexExtract,
+        # ``MAKE_TIME`` is the one ``visit_NonNullLiteral`` measured absent;
+        # ``TimeFromHMS`` reaches it through the inherited ``SIMPLE_OPS`` entry
+        # rather than the literal visitor. ``MAKE_TIMESTAMP``, ``DATE_BIN``
+        # (``TimestampBucket``) and ``BIT_XOR`` were rejected on compute
+        # (``redshift_evidence``).
+        ops.TimeFromHMS,
+        ops.TimestampFromYMDHMS,
+        ops.TimestampBucket,
+        ops.BitXor,
+        # Measured on a test warehouse: "applying array subscript on complex
+        # expression of SUPER type is currently not supported". An array here
+        # only ever comes from an expression such as ``split``, because the
+        # mapper refuses array columns, so a subscript can never apply.
+        ops.ArrayIndex,
+        ops.ArraySlice,
+        # Measured on compute through the live probe harness: ``PG_TYPEOF``,
+        # ``ARRAY_REMOVE`` and ``CARDINALITY`` do not exist, and a ``ROW``
+        # expression "is not supported in target list".
+        ops.TypeOf,
+        ops.ArrayRemove,
+        ops.ArrayRepeat,
+        ops.StructColumn,
+        # ``CORR`` and ``COVAR_POP`` do not exist, for any argument type
+        # (measured on compute), and neither does a ``MAP`` constructor: the
+        # mapper already refuses map types, and these are the ops over them.
+        ops.Correlation,
+        ops.Covariance,
+        ops.Map,
+        ops.MapConcat,
+        ops.MapContains,
+        ops.MapGet,
+        ops.MapKeys,
+        ops.MapLength,
+        ops.MapMerge,
+        ops.MapValueForKey,
+        ops.MapValueOrDefaultForKey,
+        ops.MapValues,
+        # Both can only produce or read a type the mapper refuses -- an array
+        # and a struct -- and ``TimestampRange`` is also the last route to
+        # ``ARRAY_REMOVE`` (measured absent) and ``GENERATE_SERIES``.
+        ops.TimestampRange,
+        ops.StructField,
+        # Inherited ``SIMPLE_OPS`` targets absent from Redshift's function
+        # reference; not measured on the warehouse. ``LEVENSHTEIN`` is an
+        # extension on PostgreSQL, and Redshift's SUPER array functions have no
+        # ``ARRAY_TO_STRING``.
+        ops.Levenshtein,
+        ops.ArrayStringJoin,
+        # The inherited JSON visitors build ``JSON_ARRAY_ELEMENTS``,
+        # ``JSON_TYPEOF`` and ``JSON_EXTRACT_PATH_TEXT(j, VARIADIC
+        # ARRAY[]::TEXT[])``: no set-returning JSON function, ``JSON_TYPEOF``
+        # only over SUPER, and no ``VARIADIC`` or ``TEXT[]`` on Redshift.
+        ops.ToJSONArray,
+        ops.UnwrapJSONString,
+        ops.UnwrapJSONInt64,
+        ops.UnwrapJSONFloat64,
+        ops.UnwrapJSONBoolean,
+    )
+
+    # Redshift has no aggregate FILTER clause. AggGen already knows the
+    # fallback: with supports_filter=False it rewrites `agg(x, where=c)` to
+    # `agg(CASE WHEN c THEN x END)` (compilers/base.py:139). `where=` is the
+    # idiom xorq's own skills teach, so leaving this True made a documented
+    # construction unrunnable on this backend.
+    agg = AggGen(supports_filter=False, supports_order_by=True)
+
+    def visit_Arbitrary(self, op, *, arg, where):
+        """``MAX``, or ``BOOL_OR`` for a boolean, rather than ``ANY_VALUE``.
+
+        ibis promises a non-NULL value unless every input is NULL. Redshift's
+        ``ANY_VALUE`` does not: AWS documents that "if the input contains NULL
+        values mixed with non-NULL values, NULL might be returned". The
+        ``where=`` fallback makes that the common case, because
+        ``supports_filter=False`` NULLs out every row that fails the predicate.
+        ``MAX`` ignores NULLs and returns a value that is present, which is an
+        arbitrary value by ibis's contract. It takes every type Redshift's
+        ``ANY_VALUE`` does except BOOLEAN, for which AWS names ``BOOL_OR`` as
+        the equivalent, and the interval and spatial types, which raise.
+        """
+        dtype = op.arg.dtype
+        if dtype.is_boolean():
+            return self.agg.bool_or(arg, where=where)
+        if dtype.is_interval() or dtype.is_geospatial():
+            raise com.UnsupportedOperationError(
+                f"`.arbitrary()` over a {dtype} column has no NULL-safe lowering "
+                "on Redshift: `MAX` does not take the type, and `ANY_VALUE` may "
+                "return NULL while non-NULL values exist."
+            )
+        return self.agg.max(arg, where=where)
+
+    def visit_CountDistinct(self, op, *, arg, where):
+        """``COUNT(DISTINCT CASE WHEN ... END)``, not ``COUNT(CASE WHEN ...
+        THEN DISTINCT ... END)``.
+
+        The base implementation (``compilers/base.py:1031``) hands
+        ``sge.Distinct`` to ``AggGen`` as the argument. With
+        ``supports_filter=True`` that is fine -- the filter becomes a trailing
+        ``FILTER(WHERE ...)`` and never touches the argument. With
+        ``supports_filter=False`` the fallback wraps *the argument* in a
+        ``CASE``, which puts ``DISTINCT`` inside a ``CASE`` branch, where it is
+        not valid SQL anywhere.
+
+        So the conditional has to go inside the ``DISTINCT`` rather than around
+        it. Building the ``CASE`` here and passing it to a plain ``count``
+        keeps the null-skipping semantics identical: rows failing the predicate
+        become NULL, and ``COUNT(DISTINCT expr)`` does not count NULLs. Verified
+        2026-09-23 against ``COUNT(DISTINCT x) FILTER (WHERE c)`` over 2000
+        randomized tables with NULL values and three-valued predicates: zero
+        mismatches. The broken form is rejected by sqlite, duckdb and sqlglot's
+        own postgres and redshift parsers, all at the ``DISTINCT`` token.
+
+        Note this is not a Redshift quirk but a latent trap in the base class:
+        ``SQLGlotCompiler`` both defaults ``supports_filter`` to False
+        (``compilers/base.py:96``) and supplies the ``sge.Distinct`` version of
+        this method, so the two defaults compose into invalid SQL. Every other
+        backend escapes only by overriding one side or the other. A new
+        compiler that overrides neither inherits the bug.
+        """
+        if where is not None:
+            arg = self.if_(where, arg, NULL)
+        return self.f.count(sge.Distinct(expressions=[arg]))
+
+    def visit_CountStar(self, op, *, arg, where):
+        """``COUNT(CASE WHEN c THEN 1 END)``, not ``COUNT(CASE WHEN c THEN *)``.
+
+        The same ``supports_filter=False`` fallback that ``visit_CountDistinct``
+        works around also wraps ``STAR``, and ``THEN *`` is not a legal ``CASE``
+        branch in any dialect. This one is worse than the ``DISTINCT`` case
+        because ``count(where=...)`` is the single most common ``where=`` idiom
+        in the codebase, and because the pre-change spelling
+        (``COUNT(*) FILTER (WHERE c)``) was at least *parseable* -- so the
+        ``AggGen`` flip turned a Redshift-specific rejection into a universal
+        syntax error.
+
+        Counting a non-NULL constant is equivalent: ``COUNT(expr)`` skips NULLs,
+        so the rows surviving the predicate are exactly the rows counted.
+        """
+        if where is None:
+            return self.f.count(STAR)
+        return self.f.count(self.if_(where, 1, NULL))
+
+    def visit_CountDistinctStar(self, op, *, arg, where):
+        """``Table.nunique()`` has no Redshift lowering in any spelling.
+
+        VERIFIED on a test warehouse 2026-09-24. Both candidates are
+        rejected at execution:
+
+            COUNT(DISTINCT id, title)    -> function count(bigint, varchar)
+                                            does not exist
+            COUNT(DISTINCT (id, title))  -> could not identify an equality
+                                            operator for type record
+
+        sqlglot's ``MULTI_ARG_DISTINCT = True`` for Redshift says the first
+        form is available; the warehouse says otherwise. The postgres
+        row-constructor form is the second, and Redshift has no comparable
+        record type.
+
+        This is the one place where an earlier round of this work made things
+        *look* better without making them work: the filtered variant used to
+        emit ``DISTINCT`` inside a ``CASE``, which does not parse, and was
+        fixed into a form that parses cleanly and still cannot run. Parseable
+        was the strongest offline oracle available; it was not enough.
+
+        ``MD5(a || b)`` over the concatenated columns does run and is the usual
+        Redshift idiom, but it is a different computation -- it counts distinct
+        *digests*, collisions included -- so it is named here rather than
+        emitted silently.
+        """
+        raise com.UnsupportedOperationError(
+            "Redshift supports neither `COUNT(DISTINCT a, b, ...)` nor a row "
+            "constructor, so `Table.nunique()` cannot be lowered for this "
+            "backend. Count distinct values of a single column, or aggregate "
+            "over an explicit digest such as `md5` of the concatenated "
+            "columns, accepting that digest collisions undercount."
+        )
+
+    def visit_Quantile(self, op, *, arg, quantile, where):
+        """Ordered-set aggregates never reach ``AggGen``, so ``supports_filter``
+        does not reach them either.
+
+        VERIFIED on a test warehouse 2026-09-24: the emitted form
+        runs and the predicate changes the answer (0.02750 filtered against
+        0.02875 unfiltered over a test table), and the ``FILTER``
+        spelling it replaced is rejected.
+
+        ``visit_Quantile``, ``visit_Median``, ``visit_ApproxMedian`` and the
+        multi/approx aliases all build ``sge.Filter`` by hand
+        (``compilers/postgres.py:245``), which is why flipping ``AggGen`` left
+        ``PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY x) FILTER (WHERE c)``
+        emitting byte-identical PostgreSQL. The predicate folds into the
+        ordered argument instead: ``PERCENTILE_CONT`` ignores NULLs, so
+        nulling-out the filtered rows removes them from the ordering set
+        exactly as ``FILTER`` removed them from the input.
+
+        A non-numeric column raises even though ``PERCENTILE_CONT`` accepts a
+        date: measured 2026-09-28, the median of twelve consecutive dates came
+        back as a ``date``, interpolated and truncated. That is not the
+        discrete percentile ibis defines for a non-numeric quantile (and
+        PostgreSQL lowers to ``percentile_disc``), so emitting it would change
+        the answer silently.
+        """
+        if not op.arg.dtype.is_numeric():
+            raise com.UnsupportedOperationError(
+                "A quantile over a non-numeric column is the discrete "
+                "percentile, and Redshift has no `percentile_disc` -- it "
+                "rejects the function outright. `percentile_cont` accepts a "
+                "date but interpolates between values, so it would return a "
+                "value the column may not contain. Rank the values explicitly "
+                "with a `row_number()` window if you need the discrete "
+                "percentile."
+            )
+        if where is not None:
+            arg = self.if_(where, arg, NULL)
+        return sge.WithinGroup(
+            this=self.f.percentile_cont(quantile),
+            expression=sge.Order(expressions=[sge.Ordered(this=arg)]),
+        )
+
+    # Rebound rather than inherited: the postgres aliases bind to *that* class's
+    # function object at class-creation time, so they would keep the
+    # ``sge.Filter`` version even with the override above in place.
+    visit_ApproxQuantile = visit_Quantile
+
+    def visit_Mode(self, op, *, arg, where):
+        """Redshift has no ``MODE`` in any spelling.
+
+        VERIFIED on a test warehouse 2026-09-24::
+
+            MODE() WITHIN GROUP (ORDER BY x)  -> syntax error at or near
+                                                 "WITHIN"
+            MODE(title)                       -> function mode(varchar) does
+                                                 not exist
+
+        An earlier round of this work fixed the ``FILTER (WHERE ...)`` clause on
+        this method and deliberately declined to answer whether the function
+        existed, on the grounds that the narrower fix asserted less. That was
+        the right call with no warehouse; with one, the answer is that the
+        whole method had no target and the careful fix was polish on a
+        construct that could never run.
+        """
+        raise com.UnsupportedOperationError(
+            "Redshift has no `mode` aggregate and no `MODE() WITHIN GROUP` "
+            "syntax, so `.mode()` cannot be compiled for this backend. Express "
+            "it as a `group_by` on the value with a count, ordered descending "
+            "and limited to 1."
+        )
+
+    def visit_ArgMinMax(self, op, *, arg, key, where, desc: bool):
+        """``argmin``/``argmax`` have no Redshift lowering at all.
+
+        The postgres construction is ``(ARRAY_AGG(x ORDER BY k DESC))[1]``, and
+        Redshift has no ``ARRAY_AGG`` -- its only aggregate-to-many function is
+        ``LISTAGG``, which returns a string. So the inherited lowering was
+        already unrunnable here.
+
+        The ``AggGen`` flip then made it unparsable as well, and this is the
+        clearest demonstration of why that flag is not a local change:
+        ``visit_ArgMinMax`` synthesizes its own non-``None`` ``where`` for the
+        null-guards, so *every* ``argmax`` -- with or without a user predicate
+        -- took the fallback, which wrapped an ``sge.Ordered`` in a ``CASE`` and
+        produced ``CASE WHEN ... THEN x ORDER BY k DESC ELSE NULL END``.
+
+        Raising is consistent with ``visit_First``: a construct with no
+        lowering fails at compile time, where the message can name the
+        alternative, rather than at execution time in the warehouse.
+        """
+        raise com.UnsupportedOperationError(
+            "Redshift has no `array_agg`, so `argmin`/`argmax` cannot be "
+            "lowered into the aggregate position this construction requires. "
+            "Express the intent as an explicit `row_number()` window ordered "
+            "by the key and filtered to 1 instead."
+        )
+
+    def visit_GroupConcat(self, op, *, arg, sep, order_by, where):
+        """``LISTAGG``, with the predicate on the value and the ordering outside.
+
+        Two defects, both from the generated ``SIMPLE_OPS`` reduction impl
+        (``compilers/base.py:446``) handing *every* argument to ``AggGen``:
+
+        * ``where=`` CASE-wrapped the **separator** as well as the value, and
+          Redshift requires ``LISTAGG``'s delimiter to be a constant.
+        * ``order_by=`` went inside the argument list as PostgreSQL's
+          ``string_agg(x, sep ORDER BY k)``. Redshift spells this
+          ``LISTAGG(x, sep) WITHIN GROUP (ORDER BY k)``.
+
+        Only the value is conditional; the separator is passed through
+        untouched.
+        """
+        if where is not None:
+            arg = self.if_(where, arg, NULL)
+        out = self.f.group_concat(arg, sep)
+        if order_by:
+            out = sge.WithinGroup(
+                this=out, expression=sge.Order(expressions=list(order_by))
+            )
+        return out
+
+    # ``approx_nunique`` is the third entry point into the trap
+    # ``visit_CountDistinct`` documents, after ``visit_CountDistinctStar``.
+    # ``compilers/postgres.py:273`` hands ``sge.Distinct`` to ``AggGen`` exactly
+    # as the other two did. The lowering is identical -- postgres has no
+    # approximate count either -- so the override is an alias rather than a
+    # copy, which also means a future change to one cannot skip the other.
+    visit_ApproxCountDistinct = visit_CountDistinct
+
+    def visit_Cast(self, op, *, arg, to):
+        """``TO_VARBYTE``/``FROM_VARBYTE`` for casts between string and binary.
+
+        The postgres visitor spells these ``DECODE(s, 'escape')`` and
+        ``ENCODE(b, 'escape')``. Measured on a test warehouse, Redshift
+        rejects both: its ``DECODE`` is the CASE-style function ("must have at
+        least three arguments"), and it has no ``ENCODE``. The utf8 forms were
+        measured to round-trip, and they are what a Python str/bytes cast
+        means.
+        """
+        from_ = op.arg.dtype
+        if from_.is_integer() and to.is_timestamp():
+            # Redshift has no one-argument TO_TIMESTAMP (measured on compute).
+            # The epoch plus that many seconds is the documented idiom; the
+            # time-zone-aware form would depend on the session's zone, so it
+            # raises instead.
+            if to.timezone is not None:
+                raise com.UnsupportedOperationError(
+                    "Casting an integer to a time-zone-aware timestamp is not "
+                    "supported on Redshift; cast to a naive timestamp, which is "
+                    "read as UTC seconds since the epoch."
+                )
+            return self.f.dateadd(
+                sge.Var(this="second"),
+                arg,
+                self.cast(sge.convert("1970-01-01"), dt.timestamp),
+            )
+        if from_.is_string() and to.is_binary():
+            return self.f.to_varbyte(arg, "utf8")
+        if from_.is_binary() and to.is_string():
+            return self.f.from_varbyte(arg, "utf8")
+        return super().visit_Cast(op, arg=arg, to=to)
+
+    visit_TryCast = visit_Cast
+
+    def _ln(self, op_arg, arg):
+        """``LN`` of ``arg``, cast to double first when it is a decimal.
+
+        Measured on compute: ``LN`` and ``LOG`` over a ``NUMERIC`` are
+        leader-node-only ("not supported on Redshift tables"), so they fail on
+        any query that reads a table, while over ``DOUBLE PRECISION`` or an
+        integer they run. ``EXP``, ``SQRT``, ``POWER`` and the trigonometric
+        functions take ``NUMERIC`` on compute and need nothing.
+        """
+        if op_arg.dtype.is_decimal():
+            arg = self.cast(arg, dt.float64)
+        return self.f.ln(arg)
+
+    def _as_declared(self, op, result):
+        """Cast a double ``_ln`` result back to a decimal ``op.dtype``, as
+        ``visit_Log`` with a base and ``visit_Log2`` do. A double where the schema says decimal breaks the
+        psycopg fetch path, whose pyarrow conversion refuses a float in a
+        decimal field."""
+        return self.cast(result, op.dtype) if op.dtype.is_decimal() else result
+
+    def visit_Ln(self, op, *, arg):
+        return self._as_declared(op, self._ln(op.arg, arg))
+
+    def visit_Log10(self, op, *, arg):
+        return self._as_declared(op, self._ln(op.arg, arg) / self.f.ln(10))
+
+    def visit_Log(self, op, *, arg, base):
+        """``LN(x) / LN(b)``, not PostgreSQL's two-argument ``LOG(b, x)``,
+        which is leader-node-only for every argument type (measured)."""
+        if base is None:
+            return self._as_declared(op, self._ln(op.arg, arg))
+        return self.cast(self._ln(op.arg, arg) / self._ln(op.base, base), op.dtype)
+
+    def visit_Log2(self, op, *, arg):
+        return self.cast(self._ln(op.arg, arg) / self.f.ln(2), op.dtype)
+
+    def visit_Round(self, op, *, arg, digits):
+        """``ROUND(x, n)`` over the float itself.
+
+        PostgreSQL's ``ROUND`` takes a digits argument only for ``NUMERIC``,
+        so the inherited visitor round-trips a float through a bare decimal,
+        which the mapper renders ``DECIMAL(38, 18)``: 20 integer digits, so any
+        float from 1e20 up overflowed. Redshift's ``ROUND`` takes the digits
+        argument over ``FLOAT8`` (the ``round/float`` entries of the live
+        corpus run it on compute).
+
+        It returns the type of its input, though, and an ibis float is not
+        always a Redshift float: ``t.id * 1.5`` and a float literal are
+        ``DECIMAL`` on the wire. So the result is cast to double, as the
+        inherited visitor's was, or the psycopg fetch path would hand pyarrow a
+        ``Decimal`` for a float64 field.
+        """
+        if digits is not None and op.arg.dtype.is_floating():
+            return self.cast(self.f.round(arg, digits), dt.float64)
+        return super().visit_Round(op, arg=arg, digits=digits)
+
+    def visit_RegexReplace(self, op, *, arg, pattern, replacement):
+        """Three arguments. Redshift replaces every match by default, and its
+        fourth argument is a start POSITION: the base visitor's ``'g'`` flag
+        landed there and failed with ``invalid input syntax for integer: "g"``
+        (measured on compute). The call is anonymous because sqlglot's
+        generator appends ``'g'`` to every ``RegexpReplace`` node it renders."""
+        return sge.Anonymous(
+            this="REGEXP_REPLACE", expressions=[arg, pattern, replacement]
+        )
+
+    def visit_FindInSet(self, op, *, needle, values):
+        """A ``CASE`` over the values, giving the 1-based position or 0.
+
+        The postgres visitor uses ``ARRAY_POSITION``, which on Redshift takes a
+        SUPER array, is 0-based, and returns -1 for a missing value. Measured
+        on compute, ``find_in_set`` of a missing value came back -2 rather than
+        -1: silent wrong answers, and off by one when the value is present.
+        """
+        return sge.Case(
+            ifs=[
+                self.if_(needle.eq(value), position)
+                for position, value in enumerate(values, start=1)
+            ],
+            default=sge.convert(0),
+        )
+
+    def visit_StartsWith(self, op, *, arg, start):
+        """``LEFT(s, LENGTH(p)) = p``, not ``s LIKE p || '%'``.
+
+        Redshift has no ``STARTS_WITH``, and sqlglot's Redshift generator
+        lowers it to a ``LIKE`` whose pattern is the operand concatenated with
+        ``'%'`` -- unescaped. Any ``%`` or ``_`` in the operand then becomes a
+        wildcard, so ``t.s.startswith("a%")`` matches every string beginning
+        with ``a`` rather than the two literal characters. Silent wrong rows,
+        not an error.
+
+        This mirrors the shape ``visit_EndsWith`` already has in the postgres
+        compiler (``compilers/postgres.py:561``), which is immune for the same
+        reason: it compares extracted text rather than building a pattern.
+
+        Guarded by length, because Redshift's compute nodes compare strings
+        with trailing blanks insignificant: measured 2026-09-28, ``title =
+        title || ' '`` is true on every row of ``offers``, so unguarded,
+        ``'ab'.startswith('ab ')`` was true. ``LENGTH`` does count trailing
+        blanks (measured), so once ``s`` is at least as long as ``p`` the two
+        sides of ``=`` have equal length, and equal-length strings that differ
+        only in trailing blanks are identical. (A constant-only probe runs on
+        the leader node, which compares blanks as significant and so hides
+        this.)
+        """
+        return self._affix_matches(arg, start, self.f.left)
+
+    def visit_EndsWith(self, op, *, arg, end):
+        """``RIGHT(s, LENGTH(p)) = p``, guarded by length for the trailing-blank
+        reason ``visit_StartsWith`` gives. ``'ab'.endswith('ab ')`` was true."""
+        return self._affix_matches(arg, end, self.f.right)
+
+    def _affix_matches(self, arg, affix, take):
+        length = self.f.length(affix)
+        return sge.and_(self.f.length(arg) >= length, take(arg, length).eq(affix))
+
+    def visit_DateFromYMD(self, op, *, year, month, day):
+        """Redshift has no ``make_date``.
+
+        Composed from an ISO-8601 string instead, which is the construction AWS
+        documents for this. The zero-padding matters: ``TO_DATE('2026-9-3',
+        'YYYY-MM-DD')`` is not reliably parsed, so each part is padded to its
+        fixed width before concatenation.
+
+        Two measured traps (2026-09-28), both silent wrong dates:
+
+        * ``TO_DATE`` is lenient by default: ``TO_DATE('2026-02-30',
+          'YYYY-MM-DD')`` is 2026-03-02. The third argument, ``is_strict``,
+          makes it raise ``date value out of range`` instead, which is what
+          PostgreSQL's ``make_date`` does.
+        * ``LPAD`` truncates to its width: ``LPAD('10000', 4, '0')`` is
+          ``'1000'``, and a day of 100 would become 10 and pass the strict
+          check. So a part is only padded when it is shorter than its width.
+        """
+        to_str = partial(self.cast, to=dt.string)
+
+        def pad(value, width):
+            text = to_str(value)
+            return self.if_(
+                self.f.length(text) < width, self.f.lpad(text, width, "0"), text
+            )
+
+        return self.f.to_date(
+            self.f.concat(
+                pad(year, 4),
+                sge.convert("-"),
+                pad(month, 2),
+                sge.convert("-"),
+                pad(day, 2),
+            ),
+            sge.convert("YYYY-MM-DD"),
+            sge.true(),
+        )
+
+    def visit_NonNullLiteral(self, op, *, value, dtype):
+        """Date, time and binary literals, each of which the inherited
+        visitors spell in a way Redshift gets wrong.
+
+        ``CAST('2020-01-02' AS DATE)`` for a date literal.
+
+        A date *literal* never reaches ``visit_DateFromYMD``: the base
+        ``visit_DefaultLiteral`` (``compilers/base.py:763``) builds its own
+        ``datefromparts`` call, which the Redshift dialect renders as
+        ``DATE_FROM_PARTS`` -- absent on Redshift, like ``MAKE_DATE``. So every
+        ``t.d > date(...)`` filter compiled to a function the warehouse
+        rejects. ``isoformat`` is always zero-padded ``YYYY-MM-DD``, the same
+        shape timestamp literals are already cast from.
+
+        ``CAST('01:02:03' AS TIME)`` for a time literal: the postgres visitor
+        emits ``MAKE_TIME``, which Redshift does not have (measured).
+
+        ``FROM_HEX('6162')`` for a binary literal. The postgres visitor casts
+        ``'\\x61\\x62'`` to ``VARBYTE``, which is right on PostgreSQL, where
+        ``\\x`` is bytea's hex format. Redshift casts the string's own bytes
+        instead, so the literal ``b"ab"`` became the eight bytes of the text
+        ``\\x61\\x62`` (measured: ``5c7836315c783632``). Silent wrong data.
+        """
+        if dtype.is_date() or dtype.is_time():
+            return self.cast(value.isoformat(), dtype)
+        if dtype.is_binary():
+            return self.f.from_hex(value.hex())
+        if dtype.is_map():
+            # The inherited visitor emits ``MAP(...)``, measured absent; the
+            # map ops are refused in ``UNSUPPORTED_OPS``, and this is the one
+            # route to the constructor they do not cover.
+            raise com.UnsupportedOperationError(
+                "Redshift has no map type and no MAP constructor"
+            )
+        return super().visit_NonNullLiteral(op, value=value, dtype=dtype)
+
+    def _make_interval(self, arg, unit):
+        """Refuse a non-literal interval.
+
+        Every route that turns a value into an interval -- ``as_interval``
+        (``visit_IntervalFromInteger``) and a cast to an interval -- goes
+        through this helper, and PostgreSQL's emits ``MAKE_INTERVAL(days =>
+        ...)``: absent from Redshift's function reference (not measured on the
+        warehouse), in a named-argument syntax Redshift does not have. A
+        literal interval does not come here.
+        """
+        raise com.UnsupportedOperationError(
+            f"Redshift cannot build an interval of {unit.plural} from a value: "
+            "it has no MAKE_INTERVAL"
+        )
+
+    def visit_WindowFunction(self, op, *, how, func, start, end, group_by, order_by):
+        """Drop the frame clause where Redshift's grammar has no slot for one.
+
+        A user report recorded that both the windowed and the
+        unwindowed spellings emitted ``ROWS BETWEEN UNBOUNDED PRECEDING AND
+        UNBOUNDED FOLLOWING``, so there was no API-level way for a user to avoid
+        this -- it had to be fixed in the compiler.
+
+        Scoped deliberately to the ranking family plus ``LAG``/``LEAD``.
+        Suppressing the frame everywhere would silently change the result of
+        every cumulative aggregate, turning a loud error into wrong numbers.
+        Every op in ``_NO_FRAME_OPS`` is one whose value cannot depend on the
+        frame, so removing it is observable only in the emitted string.
+        """
+        window = super().visit_WindowFunction(
+            op,
+            how=how,
+            func=func,
+            start=start,
+            end=end,
+            group_by=group_by,
+            order_by=order_by,
+        )
+        if isinstance(op.func, ops.Arbitrary):
+            raise com.UnsupportedOperationError(
+                "`.arbitrary()` cannot be used with `.over(...)` on this "
+                "backend: Redshift has no window form of `ANY_VALUE`, and its "
+                "NULL-safe lowering has not been checked in window position. "
+                "Aggregate it in a `group_by` instead, or pick a row "
+                "explicitly with a `row_number()` window."
+            )
+        if isinstance(op.func, _PARTITION_ONLY_OPS):
+            if op.start is not None or op.end is not None:
+                raise com.UnsupportedOperationError(
+                    f"Redshift accepts `{type(op.func).__name__}` in window "
+                    "position only over a whole partition -- no ORDER BY and "
+                    "no frame -- so a rolling or cumulative window cannot be "
+                    "compiled for this backend. Dropping the frame would "
+                    "silently aggregate the whole partition instead. Use an "
+                    "unbounded window, or a self-join over the rows you need."
+                )
+            window.set("spec", None)
+            window.set("order", None)
+            # A window ORDER BY is the input order of an aggregate evaluated
+            # over it, so for ``group_concat`` it orders the concatenation.
+            # Dropping it with nowhere to go reorders the string silently;
+            # ``WITHIN GROUP`` is where Redshift takes it instead.
+            if (
+                isinstance(op.func, ops.GroupConcat)
+                and order_by
+                and not op.func.order_by
+            ):
+                window.set(
+                    "this",
+                    sge.WithinGroup(
+                        this=func, expression=sge.Order(expressions=list(order_by))
+                    ),
+                )
+        elif isinstance(op.func, _NO_FRAME_OPS):
+            window.set("spec", None)
+        return window
+
+    def visit_First(self, op, *, arg, where, order_by, include_null):
+        raise com.UnsupportedOperationError(
+            "Redshift has no `first` aggregate, so `.distinct(on=...)` and "
+            "`.first()` cannot be compiled for this backend. Redshift's "
+            "`first_value` is a window function and cannot be used in the "
+            "aggregate position this lowering requires. Express the intent as "
+            "an explicit `row_number()` window filtered to 1 instead."
+        )
+
+    def visit_Last(self, op, *, arg, where, order_by, include_null):
+        raise com.UnsupportedOperationError(
+            "Redshift has no `last` aggregate, so `.distinct(on=..., "
+            "keep='last')` and `.last()` cannot be compiled for this backend. "
+            "Redshift's `last_value` is a window function and cannot be used in "
+            "the aggregate position this lowering requires. Express the intent "
+            "as an explicit `row_number()` window filtered to 1 instead."
+        )
 
 
 compiler = RedshiftCompiler()

@@ -9,6 +9,7 @@ import sqlglot.expressions as sge
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.vendor.ibis.formats import TypeMapper
 from xorq.vendor.ibis.util import get_subclasses
@@ -476,6 +477,363 @@ class PostgresType(SqlglotType):
             text = "vector"
 
         return super().from_string(text, nullable=nullable)
+
+
+class RedshiftType(PostgresType):
+    """Redshift's type mapping, which is *nearly* PostgreSQL's.
+
+    Required in the first place because ``TYPE_MAPPERS`` is keyed by dialect
+    name and sqlglot's metaclass makes a dialect class hash equal to its name:
+    the moment the Redshift compiler stopped reporting ``"postgres"`` as its
+    dialect, ``Schema.to_sqlglot`` raised ``KeyError: Redshift`` for every
+    ``CREATE TABLE`` the backend emits. Retargeting the dialect without adding
+    this would break ingest while leaving all the SQL-generation tests green.
+
+    Note this mapper is reached by dialect *name*. The compiler's own
+    ``type_mapper`` attribute is a separate binding and must be set on
+    ``RedshiftCompiler`` as well, or the warehouse-to-ibis read path keeps
+    parsing type strings as PostgreSQL.
+
+    The overrides below were MEASURED against a live Redshift Serverless
+    warehouse on 2026-09-25 -- ``CREATE`` acceptance and an ``INSERT``
+    round-trip per candidate, each in a rolled-back transaction. This class
+    previously carried the PostgreSQL spellings unchanged, with a docstring
+    saying they were suspected-wrong but unverified; six of the thirteen types
+    a representative schema renders were in fact rejected outright:
+
+        TIMESTAMP(6)      FeatureNotSupported: timestamp column does not
+                          support precision.
+        TIMESTAMPTZ(6)    SyntaxError -- and the retargeted dialect's
+                          ``TIMESTAMP(6) WITH TIME ZONE`` spelling carries the
+                          same modifier, so it fails the same way.
+        BYTEA             unsupported type -- fixed by the dialect retarget
+                          alone, which renders VARBINARY as VARBYTE.
+        UTINYINT          type "utinyint" does not exist
+        BIGINT[]          unsupported type -- Redshift has no array types
+        STRUCT<...>       SyntaxError -- Redshift has no struct type
+
+    A bare ``VARCHAR`` is accepted and is ``VARCHAR(256)``, so it was the one
+    divergence that failed at ``INSERT`` rather than ``CREATE``, and only for
+    values over 256 bytes -- which is why every earlier probe missed it.
+    """
+
+    dialect = "redshift"
+
+    @classmethod
+    def _from_ibis_Timestamp(cls, dtype: dt.Timestamp) -> sge.DataType:
+        """No precision modifier, on either spelling.
+
+        ``PostgresType`` inherits ``default_temporal_scale = 6``, and the base
+        implementation renders that as ``TIMESTAMP(6)``. Redshift rejects the
+        modifier outright rather than ignoring it, and a timestamp column is
+        the common case for ``read_parquet``, so this is the override that
+        decides whether v1 ingest works on real files at all.
+
+        Dropping it costs nothing: Redshift's ``TIMESTAMP`` is microsecond
+        precision, which is exactly what the modifier asked for. Measured, a
+        value with ``.123456`` round-trips intact.
+        """
+        code = typecode.TIMESTAMP if dtype.timezone is None else typecode.TIMESTAMPTZ
+        return sge.DataType(this=code)
+
+    @classmethod
+    def _from_ibis_String(cls, dtype: dt.String) -> sge.DataType:
+        """``VARCHAR(65535)``, Redshift's maximum, rather than a bare
+        ``VARCHAR``.
+
+        In PostgreSQL a bare ``VARCHAR`` is unbounded; in Redshift it means
+        ``VARCHAR(256)``, and the 257th byte fails the ``INSERT`` -- measured,
+        ``Value too long for character type``. An ibis ``String`` carries no
+        length, so there is no width to propagate and the maximum is the only
+        spelling that cannot silently reject valid data.
+
+        The cost is real but is the right trade: Redshift allocates query
+        working memory from the DECLARED width, so max-width columns are a
+        documented performance anti-pattern. Truncating user data is worse
+        than a slow scan, and a narrower width would have to come from a
+        length ibis does not model.
+        """
+        return sge.DataType(
+            this=typecode.VARCHAR,
+            expressions=[sge.DataTypeParam(this=sge.convert(65535))],
+        )
+
+    @classmethod
+    def _from_ibis_Decimal(cls, dtype: dt.Decimal) -> sge.DataType:
+        """Refuse a precision past Redshift's documented maximum of 38, and
+        give an unparameterized decimal an explicit precision.
+
+        The inherited mapper spells ``DECIMAL(76, 38)`` verbatim, which the
+        ``CREATE`` or ``CAST`` rejects without naming the column.
+        """
+        if dtype.precision is not None and dtype.precision > 38:
+            raise com.UnsupportedBackendType(
+                f"Redshift decimals hold at most 38 digits; {dtype} does not "
+                "fit. Cast the column to a narrower decimal or to a float first."
+            )
+        if dtype.precision is None and dtype.scale is None:
+            # A bare DECIMAL is arbitrary-precision in PostgreSQL and
+            # DECIMAL(18, 0) -- an integer -- in Redshift. The inherited
+            # visitors upcast to it before ROUND and %, so round(2) of 0.0312
+            # came back 0 and a float modulus divided by a truncated operand
+            # (measured on compute, 2026-09-28). The widest precision, with
+            # scale split evenly, keeps both sides of the point.
+            return sge.DataType(
+                this=typecode.DECIMAL,
+                expressions=[
+                    sge.DataTypeParam(this=sge.convert(38)),
+                    sge.DataTypeParam(this=sge.convert(18)),
+                ],
+            )
+        return super()._from_ibis_Decimal(dtype)
+
+    # Redshift has no unsigned integer types, so each widens to the smallest
+    # signed type that holds its whole range -- the same ladder TrinoType uses
+    # below, with one deliberate difference: UInt64 gets
+    # ``DECIMAL(20, 0)`` rather than Trino's ``DECIMAL(19, 0)``, because 19
+    # digits cannot represent 18446744073709551615. Measured: the 20-digit
+    # maximum round-trips.
+    @classmethod
+    def _from_ibis_UInt64(cls, dtype: dt.UInt64) -> sge.DataType:
+        return sge.DataType(
+            this=typecode.DECIMAL,
+            expressions=[
+                sge.DataTypeParam(this=sge.convert(20)),
+                sge.DataTypeParam(this=sge.convert(0)),
+            ],
+        )
+
+    @classmethod
+    def _from_ibis_UInt32(cls, dtype: dt.UInt32) -> sge.DataType:
+        return sge.DataType(this=typecode.BIGINT)
+
+    @classmethod
+    def _from_ibis_UInt16(cls, dtype: dt.UInt16) -> sge.DataType:
+        return sge.DataType(this=typecode.INT)
+
+    @classmethod
+    def _from_ibis_UInt8(cls, dtype: dt.UInt8) -> sge.DataType:
+        return sge.DataType(this=typecode.SMALLINT)
+
+    # Nested types raise rather than render. Redshift's SUPER would take the
+    # DDL -- measured, ``CREATE TABLE (c SUPER)`` is accepted -- but it is not
+    # a fix: the psycopg ingest binds ``batch.to_pydict()`` values directly,
+    # and a bound Python list is rejected with
+    # ``DatatypeMismatch: column "c" is of type super but expression is of
+    # type smallint[]``. SUPER only accepts a JSON *string*, so making these
+    # work means serialising in the ingest path, not spelling a type here.
+    # Emitting SUPER would move the failure from CREATE to INSERT and make it
+    # harder to read; raising names the column and the reason up front. Same
+    # shape as SQLiteType below.
+    @classmethod
+    def _from_ibis_Array(cls, dtype: dt.Array) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no array type; SUPER would accept the DDL but not "
+            "the bound value. Flatten the column or serialise it to a string "
+            "before ingest."
+        )
+
+    @classmethod
+    def _from_ibis_Map(cls, dtype: dt.Map) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no map type; SUPER would accept the DDL but not "
+            "the bound value. Serialise the column to a string before ingest."
+        )
+
+    @classmethod
+    def _from_ibis_Struct(cls, dtype: dt.Struct) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no struct type; SUPER would accept the DDL but not "
+            "the bound value. Unpack the fields into columns, or serialise "
+            "the column to a string before ingest."
+        )
+
+    # --- the read direction: what a catalog row or a result description means.
+    #
+    # ``PostgresType.from_string`` has three behaviours this backend cannot
+    # live with, shared by *both* introspection paths -- the ``svv_all_columns``
+    # catalog read and the ``cursor.description`` probe -- which is why the
+    # repair lives in the mapper rather than in either caller:
+    #
+    # 1. An unparsable type string falls back to ``dt.unknown`` **and drops the
+    #    ``nullable=`` argument on the way** (``SqlglotType.from_string``), so a
+    #    ``SUPER NOT NULL`` column comes back with the wrong type *and* the
+    #    wrong nullability, and nothing says so.
+    # 2. ``geometry`` and ``geography`` parse cleanly into ibis ``GeoSpatial``
+    #    types. That is worse than ``unknown``: a geo operation on such a column
+    #    compiles to a PostGIS call Redshift does not implement -- a server-side
+    #    error on SQL that looked fine.
+    # 3. A handful of OIDs (``oid``, ``regclass``, ``regproc`` and friends)
+    #    make the upstream mapper raise a bare
+    #    ``AttributeError: 'str' object has no attribute 'name'`` from inside
+    #    ``to_ibis``, which names neither the column nor the type.
+    #
+    # So a type this backend cannot map raises ``UnsupportedBackendType``
+    # rather than degrading to a schema that looks fine and is wrong; the
+    # backend catches it and binds the column as ``dt.NamedUnknown``.
+
+    # Redshift-only type names with no xorq equivalent. ``VARBYTE`` is not
+    # one: it is variable-length binary data, and maps to ``dt.Binary`` through
+    # ``_TYPE_ALIASES`` below.
+    #
+    # The two interval column types cannot be *read* as ibis intervals: a live
+    # result description carries them as OIDs 1188/1190, which psycopg has no
+    # loader for, so each value arrives as Redshift's text rendering
+    # (``'1 mon'``). ``svv_columns`` spells them ``intervaly2m`` and
+    # ``intervald2s`` (measured), which sqlglot does not parse; the DDL
+    # spellings are listed too because they *do* parse, into intervals, and
+    # ``svv_all_columns``' spelling for a permanent table is unmeasured.
+    _REDSHIFT_ONLY_TYPES = frozenset(
+        {
+            "super",
+            "hllsketch",
+            "geometry",
+            "geography",
+            "intervaly2m",
+            "intervald2s",
+            "interval year to month",
+            "interval day to second",
+        }
+    )
+
+    # Spellings Redshift reports that sqlglot's postgres dialect does not
+    # parse. ``bpchar`` is not exotic: it is what PostgreSQL -- and so
+    # psycopg's OID registry, at OID 1042 -- calls every ``CHAR(n)`` column, so
+    # without this entry the *query* path types every ``CHAR`` column
+    # ``unknown`` while the *catalog* path (which sees ``character``) types the
+    # same column ``string``.
+    #
+    # ``VARBYTE`` has two spellings and sqlglot's postgres dialect parses
+    # neither: ``varbyte`` is the DDL keyword a user writes, and ``binary
+    # varying`` is what ``svv_all_columns`` reports for a ``VARBYTE(16)``
+    # column, measured on a live warehouse (2026-09-24) -- the view definition
+    # rewrites it. Both are sent to ``varbinary``, which the inherited mapper
+    # maps to ``dt.Binary``.
+    #
+    # ``int8`` and ``float`` are spellings sqlglot *does* parse, but not as
+    # Redshift means them on every supported version: at 23.6.3 ``int8`` is an
+    # 8-bit integer and ``float`` a 32-bit one, where Redshift's are ``BIGINT``
+    # and ``DOUBLE PRECISION``. ``int8`` is what psycopg names OID 20, so without
+    # this every ``BIGINT`` through ``con.sql`` -- ``COUNT(*)`` included --
+    # bound as ``int8`` there. ``int8`` is the only name in psycopg's registry
+    # whose mapping differs between 23.6.3 and 28.6.0; ``float`` is not in the
+    # registry, and is aliased because Redshift documents it as a synonym.
+    _TYPE_ALIASES = {
+        "bpchar": "character",
+        '"char"': "character",
+        "varbyte": "varbinary",
+        "binary varying": "varbinary",
+        "int8": "bigint",
+        "float": "double precision",
+    }
+
+    @staticmethod
+    def unmappable_part(dtype: dt.DataType) -> dt.DataType | None:
+        """The first component of ``dtype`` this backend cannot emit SQL for.
+
+        Checking only the top-level type is not enough, and the gap is
+        reachable: ``bpchar[]`` is a real spelling (psycopg names OID 1014
+        exactly that, and ``svv_all_columns`` shows ``"char"[]``/``integer[]``
+        for ``pg_catalog`` relations), and it maps to
+        ``Array(value_type=Unknown)`` -- an ``Unknown`` the top-level check
+        walks straight past.
+
+        ``GeoSpatial`` is rejected alongside ``Unknown`` for reason 2 above,
+        and doing it structurally rather than by name also
+        catches ``point``/``line``/``polygon``, which reach a geo type through
+        ``PostgresType.unknown_type_strings`` and so never touch the name list.
+        """
+        if isinstance(dtype, (dt.Unknown, dt.GeoSpatial)):
+            return dtype
+        parts = ()
+        if isinstance(dtype, dt.Array):
+            parts = (dtype.value_type,)
+        elif isinstance(dtype, dt.Map):
+            parts = (dtype.key_type, dtype.value_type)
+        elif isinstance(dtype, dt.Struct):
+            parts = tuple(dtype.types)
+        for part in parts:
+            if (found := RedshiftType.unmappable_part(part)) is not None:
+                return found
+        return None
+
+    @classmethod
+    def from_string(cls, text: str, nullable: bool | None = None) -> dt.DataType:
+        base, _, _ = (text or "").strip().partition("(")
+        # Strip any array suffix before the alias lookup: the aliases are keyed
+        # on the element spelling, and ``bpchar[]`` must reach the ``bpchar``
+        # entry rather than missing it and degrading to an unknown element.
+        element = base.strip().rstrip("[]").strip()
+        lowered = element.lower()
+
+        if lowered in cls._REDSHIFT_ONLY_TYPES:
+            raise com.UnsupportedBackendType(
+                f"redshift type {base.strip()!r} has no xorq equivalent; it is a "
+                f"Redshift-specific type this backend cannot map"
+            )
+
+        if (alias := cls._TYPE_ALIASES.get(lowered)) is not None:
+            text = text.replace(element, alias, 1)
+
+        try:
+            dtype = super().from_string(text, nullable=nullable)
+        except (AttributeError, TypeError, ValueError, ValidationError) as e:
+            # The upstream mapper's own failures, re-raised as something that
+            # names the type it choked on, so the column binds as unknown
+            # rather than failing its whole table. The ``AttributeError`` is
+            # ``oid``'s; the rest are a type whose modifier the dtype rejects
+            # -- ``interval(6)``, psycopg's name for an interval with a
+            # precision, and ``numeric(0,0)`` or ``timestamp(10)``.
+            raise com.UnsupportedBackendType(
+                f"redshift type {text!r} could not be mapped by the postgres "
+                f"type mapper"
+            ) from e
+
+        if (bad := cls.unmappable_part(dtype)) is not None:
+            raise com.UnsupportedBackendType(
+                f"redshift type {text!r} has no xorq equivalent (resolved to "
+                f"{bad!r}); mapping it would hand back a schema that looks fine "
+                f"and is wrong"
+            )
+
+        # ``unknown_type_strings`` hits and the ``dt.unknown`` fallback both
+        # return a dtype built with the mapper's *default* nullability, ignoring
+        # the argument. Nothing above can reach the fallback any more, but the
+        # copy is cheap and makes the postcondition unconditional.
+        if nullable is not None and dtype.nullable != nullable:
+            dtype = dtype.copy(nullable=nullable)
+        return dtype
+
+    # PostgreSQL types Redshift does not have, which the inherited mapper
+    # spells verbatim. Refused for the same reason as the nested types: the
+    # alternative is a CREATE or a CAST the warehouse rejects, naming neither
+    # the column nor a way out.
+    @classmethod
+    def _from_ibis_UUID(cls, dtype: dt.UUID) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no uuid type. Cast the column to a string first."
+        )
+
+    @classmethod
+    def _from_ibis_INET(cls, dtype: dt.INET) -> NoReturn:
+        raise com.UnsupportedBackendType(
+            "Redshift has no inet type. Cast the column to a string first."
+        )
+
+    # A column the read side could not map binds as ``Unknown`` so the rest
+    # of its table stays usable; emitting DDL for it must still fail. Without
+    # this the base falls through to ``_to_sqlglot_types[type(dtype)]`` and
+    # raises a bare ``KeyError: <class Unknown>`` naming neither the type nor
+    # why. ``raw_type`` is read defensively: only an ``Unknown`` subclass
+    # that recorded the warehouse's spelling carries it.
+    @classmethod
+    def _from_ibis_Unknown(cls, dtype: dt.Unknown) -> NoReturn:
+        raw_type = getattr(dtype, "raw_type", None)
+        source = f"redshift type {raw_type!r}" if raw_type else "an unknown type"
+        raise com.UnsupportedBackendType(
+            f"cannot emit a Redshift type for a column of {source}: "
+            "it has no xorq equivalent. Drop or cast the column first."
+        )
 
 
 class RisingWaveType(PostgresType):

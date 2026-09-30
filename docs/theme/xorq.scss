@@ -122,28 +122,237 @@ h3 {
   color:$xq-ink-3;
 }
 
-// navbar (Quarto's top bar)
-// Quarto wraps it in #quarto-header.fixed-top, which has no background of its
-// own; with $navbar-bg transparent the page would scroll visibly through the
-// bar. Paint the header with the body gradient's top stop: identical at
-// scroll-top, opaque once the page moves.
+// navbar (Quarto's top bar) — matched to the xorq.dev marketing header spec
+// (its `.xq-chrome` wrapper + `.xq-header` box), so the docs header has the SAME
+// height, width, gutters and logo sizing as the live site:
+//   .xq-chrome  = max-width:1320px; margin:0 auto; padding:12px 20px 0
+//   .xq-header  = padding:22px 36px; border:1px solid var(--xq-line-2)
+//   logo        = brandmark 34px + wordmark 20px, gap 14px
+// #quarto-header is the full-width fixed-top wrapper: paint it with the page bg
+// (so nothing scrolls through the gutters) and give it the chrome's top gap +
+// side padding. The VISIBLE bordered box is the capped .navbar-container below.
 #quarto-header {
   background:$xq-bg;
 }
-.navbar {
-  border-bottom:1px solid $xq-line;
-  padding:.75rem 0;
+// Reserve the scrollbar gutter exactly like xorq.dev (its <html> has
+// scrollbar-gutter:stable). Without this the docs page's usable width is 1440
+// while marketing's is 1430 (gutter reserved), so the 1320px centred header
+// lands 5px to the right — a visible shift when navigating marketing -> docs.
+// Matching the gutter makes both centre from the same width == no shift.
+html {
+  scrollbar-gutter: stable;
 }
-.navbar .navbar-brand img {
-  height:32px;
+// Match xorq.dev's scrollbar WIDTH too, or scrollbar-gutter:stable reserves a
+// different-sized gutter on each site and the centred header still lands a couple
+// px apart. Marketing styles a 6px webkit scrollbar + `scrollbar-width:thin`
+// (theme/xorq.scss), so its reserved gutter is ~10px and its body measures 1430
+// at a 1440 viewport. The docs, unstyled, got the classic 15px scrollbar → 15px
+// gutter → body 1425 → header 2px to the left of marketing. Adopting the exact
+// same scrollbar styling makes both reserve the identical gutter (body 1430 on
+// both) so the 1320px header centres from the same width == pixel-aligned. Colours
+// use this theme's ink so the thin thumb reads on the dark ground like marketing.
+::-webkit-scrollbar {
+  width:6px;
+  height:6px;
+}
+::-webkit-scrollbar-track {
+  background:transparent;
+}
+::-webkit-scrollbar-thumb {
+  background:rgba(193,240,255,.2);
+  border-radius:3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background:rgba(193,240,255,.4);
+}
+* {
+  scrollbar-width:thin;
+  scrollbar-color:rgba(193,240,255,.2) transparent;
+}
+// Match xorq.dev's `.xq-chrome` EXACTLY so there's no horizontal shift when
+// navigating marketing -> docs: a 1320px max-width wrapper, centred, with the
+// 12px top gap + 20px side gutters. Quarto paints #quarto-header full-width, so
+// we put the capped+centred wrapper on the inner `.navbar` (Quarto's element that
+// spans the header) rather than #quarto-header itself; #quarto-header only carries
+// the page-bg paint so nothing scrolls through the gutters.
+#quarto-header > .navbar {
+  max-width:1320px;
+  margin:0 auto;
+  padding:12px 20px 0;   // xorq.dev .xq-chrome: 12px top gap, 20px side gutters
+}
+// Our header is taller than Quarto's default 64px (chrome 12 + box border/pad
+// 22+34+22 + border = ~92px). Quarto's fixed-top navbar makes body.nav-fixed
+// pad the body by only 64px, so content tucks under the taller header. Bump the
+// offset to clear it on every page (most visible on the custom-layout home page).
+body.nav-fixed {
+  padding-top:96px;
+}
+.navbar {
+  padding:0;             // height comes from the box padding below, not here
+}
+// Logo: match xorq.dev EXACTLY. Marketing renders the lockup as TWO separate
+// images inside the brand link — a 34px-tall brandmark and a 20px-tall wordmark
+// with a 14px gap (see includes/header.html: Xorq_BrandMark + Xorq_WordMark).
+// The docs previously used a single combined lockup SVG; at a fixed 34px height
+// its intrinsic width is 175px, and Quarto/Bootstrap's `max-width:100%` on
+// navbar images scales the whole unit inside the narrow mobile header row, which
+// clipped the right side (the wordmark) on phones. Splitting it the same way as
+// marketing removes the clip: Quarto's `navbar.logo` is now the BRANDMARK ONLY
+// (34px square, no wordmark to clip), and the wordmark is painted as a separate
+// ::after element on the brand link — each piece sized in px, neither subject to
+// unit-scaling of a 175px img. This is a 1:1 structural match with xorq.dev.
+.navbar .navbar-brand img,
+.navbar .navbar-brand img.navbar-logo,
+.navbar .navbar-logo {
+  height:34px;
+  max-height:34px;   // Quarto's default .navbar-logo caps at 24px — lift it so
+  width:auto;        // the mark matches xorq.dev's 34px brandmark (drives row ht)
+  padding:0;         // Quarto puts padding-right:4px on the brand img to gap it
+                     // from a text title. With box-sizing:border-box that made the
+                     // 84.2px brandmark render 88.2px, widening the mark→wordmark
+                     // gap 4px vs marketing (and bulking the lockup). Zero it so
+                     // the mark is exactly 84.2px and the 14px ::after margin
+                     // yields the identical gap as xorq.dev.
+}
+// Wordmark as a separate element, exactly like marketing's second <img>. The
+// source SVG is 2220x576 → at 20px tall it is 77px wide (marketing's wordmark
+// height:20px). 14px gap == marketing's `gap:14px` on the brand flex row.
+.navbar .navbar-brand::after {
+  content:"";
+  display:block;
+  width:77px;
+  height:20px;
+  margin-left:14px;
+  flex:0 0 auto;
+  background:url("/images/Xorq_WordMark_RGB_BlueSky.svg") left center / contain no-repeat;
+}
+// Quarto's default `.navbar-brand { overflow:hidden; text-overflow:ellipsis }` is
+// meant to ellipsis a long text title. With our two-image lockup it CLIPS the
+// wordmark's right edge — on mobile the "q" tail was cut so it read "xor". And
+// Quarto caps the brand container at `max-width: calc(100% - 115px)`, which on a
+// 390px phone leaves too little room for brandmark(88) + gap(14) + wordmark(77) ≈
+// 179px and forces that clip. Let the lockup show in full: no overflow clip on the
+// brand, and give the container enough width for the whole lockup (it still can't
+// exceed the row, and the nav/search sit in their own columns).
+.navbar .navbar-brand {
+  overflow:visible;
+  text-overflow:clip;
+}
+.navbar .navbar-brand-container {
+  max-width:none;
+  min-width:0;
+  flex:0 0 auto;
+}
+// Search lives in the docs navbar (xorq.dev's header has none). Left unconstrained
+// its autocomplete form is taller than the 34px logo and pushes the whole header
+// box taller than the marketing one. Cap it to the logo row and centre it so the
+// header height stays logo-driven == exactly xorq.dev.
+.navbar #quarto-search {
+  display:flex;
+  align-items:center;
+}
+.navbar #quarto-search .aa-DetachedSearchButton,
+.navbar #quarto-search .aa-Autocomplete,
+.navbar #quarto-search .aa-Form {
+  height:34px;
+  min-height:0;
+}
+// The brand container/link render 44px (Bootstrap .navbar-brand default vertical
+// padding) even though the logo img is 34px — that becomes the tallest child and
+// keeps the box at 90px. Pin brand + container to the 34px logo row too so the
+// box is fully logo-driven (== marketing's 81px).
+.navbar .navbar-brand-container,
+.navbar .navbar-brand {
+  height:34px;
+  min-height:0;
+  padding-top:0;
+  padding-bottom:0;
+  margin-top:0;
+  margin-bottom:0;
+  display:flex;
+  align-items:center;
+}
+// Header layout — match the target docs design (and xorq.dev nav):
+//   [ logo hard-left ] ......... [ nav links centered ] ......... [ github right ]
+// Quarto centres the brand with `.navbar-brand-container.mx-auto` and pushes the
+// link group with `me-auto` / the tools with `ms-auto`. Left as-is the whole row
+// drifts to the middle and the header looks stretched. We pin the brand to the
+// left, let the collapse fill the remaining width, and centre the link <ul>
+// inside it so the links sit in the middle of the bar while GitHub stays right.
+//
+// Width + box: the visible bordered box = xorq.dev's `.xq-header`. Cap it to
+// 1280px, centre it, pad it 22px/36px (this sets the header HEIGHT, matching the
+// live site), and border it with $xq-line-2 (the exact marketing border colour).
+// NOTE: marketing's visible .xq-header box is 1280px — it lives INSIDE the 1320px
+// .xq-chrome wrapper which has 20px side padding (1320 - 40 = 1280). Our wrapper
+// (#quarto-header) already has that 20px padding, so cap the BOX at 1280, not
+// 1320, or the header reads ~40px wider than marketing. The page bg shows in the
+// side gutters.
+.navbar > .container-fluid,
+.navbar > .container {
+  justify-content:flex-start;
+  max-width:1280px;
+  margin-left:auto;
+  margin-right:auto;
+  padding:22px 36px;     // xorq.dev .xq-header — controls the header height
+  border:1px solid $xq-line-2;
+  box-sizing:border-box; // include the 1px borders in the height so min-height is
+                         // measured edge-to-edge like marketing's box
+  min-height:81px;       // marketing's box is 81px: 22+22 pad + 35px content row
+                         // (its <img> wordmark sits on a 35px line) + 2px border.
+                         // Our logo row is 34px → box computes to 80px, 1px shorter.
+                         // Floor it at 81 so the docs box is edge-identical to
+                         // xorq.dev; align-items:center keeps the logo centred in
+                         // the extra px so nothing shifts.
+  align-items:center;
+}
+// brand: cancel Quarto's mx-auto so the logo sits hard-left
+.navbar .navbar-brand-container.mx-auto {
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
+// collapse fills the space to the right of the brand
+.navbar .navbar-collapse {
+  flex-grow:1;
+}
+// centre the primary link group; neutralise me-auto so it doesn't hug the left.
+// ms-auto (right group / tools) keeps GitHub pinned to the far right.
+.navbar .navbar-nav.me-auto {
+  margin-left:auto !important;
+  margin-right:auto !important;
+}
+.navbar .navbar-nav.ms-auto {
+  margin-left:0 !important;
+}
+// Height parity with xorq.dev (measured): marketing's <nav> row is 35px, but our
+// nav ULs render 40-46px (the ms-auto GitHub UL is the tallest at 46px, plus
+// nav-links are 39px from 8px top/bottom padding + 21px line-height). That made
+// the whole header box 92px vs marketing's 81px. Pin the nav rows + collapse to
+// the 34px logo row and vertically centre them so the box height is logo-driven
+// (34 + 44 pad + 2 border = 80px == marketing).
+.navbar .navbar-collapse,
+.navbar .navbar-nav {
+  height:34px;
+  min-height:0;
+  align-items:center;
+}
+.navbar .nav-item {
+  display:flex;
+  align-items:center;
+  height:34px;
 }
 .navbar .nav-link {
   font-family:$font-family-monospace;
   font-size:14px;
   letter-spacing:.02em;
   color:$xq-ink-2;
-  padding:8px 14px;
+  padding:0 14px;              // no vertical padding — height comes from the 34px
+  height:34px;                 // row; keeps the item at the logo height
+  display:flex;
+  align-items:center;
+  line-height:1;
   border:1px solid transparent;
+  text-transform:lowercase;   // menus lowercase to match xorq.dev
 }
 .navbar .nav-link:hover, .navbar .nav-link.active {
   color:#c1f0ff;
@@ -394,6 +603,29 @@ tbody td {
   // it fill the span; max-width:1180px then caps it and the auto margins
   // centre it, exactly as on xorq.dev.
   width:100%;
+  // Own grid-row below the content so the footer occupies its own band and
+  // cannot share vertical space with the sticky sidebars. The grid row lines
+  // are [content-top] … [content-bottom] … [page-bottom]; the footer belongs in
+  // the last row (content-bottom → page-bottom). NB: `page-end` is a COLUMN
+  // line, not a row line — using it here would spawn an implicit extra row.
+  grid-row:content-bottom/page-bottom;
+}
+
+// Short-page fix: the left nav sidebar and right TOC are sticky with
+// `grid-row: content-top / page-bottom`, so on pages whose article content is
+// SHORTER than the sidebar, the sidebar's box extends down to the grid's
+// page-bottom line — i.e. right up against the footer band. The opaque footer
+// (z-index:3) covers them, but any sub-pixel/rounding gap let the sidebar tail
+// peek through near the footer's top edge on short pages (quickstart etc. were
+// tall enough to hide it; api_reference/reference index were not). Ending the
+// sidebars at `content-bottom` instead of `page-bottom` stops them well above
+// the footer band so there is nothing left to overlap on any page length.
+body.floating {
+  #quarto-sidebar,
+  .sidebar-navigation.floating,
+  #quarto-margin-sidebar {
+    grid-row:content-top/content-bottom;
+  }
 }
 
 // hide quarto's light/dark toggle (site is dark only)

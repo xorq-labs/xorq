@@ -109,6 +109,9 @@ from xorq.common.utils.dasher._relations import (  # noqa: E402, F401
     _databasetable_dispatcher,
     _normalize_read_xorq,
 )
+from xorq.common.utils.redshift_utils import (  # noqa: E402
+    normalize_redshift_backend,
+)
 
 
 _EXTRA_RULES: tuple[tuple[str, object], ...] = (
@@ -126,6 +129,13 @@ _EXTRA_RULES: tuple[tuple[str, object], ...] = (
         _databasetable_dispatcher,
     ),
     ("xorq.expr.relations.Read", _normalize_read_xorq),
+    # xorq_dasher's BaseBackend rule is a ``match con.name`` with no
+    # ``redshift`` case and a raising default, and rule lookup walks the MRO,
+    # so a Redshift connection would resolve to it and die with "no
+    # normalization rule for backend 'redshift'". Keyed on the concrete class
+    # so it wins that MRO walk; ``override`` prepends, so it also outranks the
+    # base rule on position.
+    ("xorq.backends.redshift.Backend", normalize_redshift_backend),
     ("xorq.vendor.ibis.expr.types.core.Expr", _normalize_expr_xorq),
     ("xorq.vendor.ibis.expr.schema.Schema", normalize_ibis_schema),
     ("xorq.vendor.ibis.expr.operations.udf.ScalarUDF", _normalize_scalar_udf_xorq),

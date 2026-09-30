@@ -1,4 +1,8 @@
+import re
+import urllib.parse
+
 import adbc_driver_postgresql.dbapi
+import psycopg
 import sqlglot as sg
 import sqlglot.expressions as sge
 from attr import (
@@ -21,6 +25,52 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.sql.compilers.base import STAR, AlterTable, RenameTable
 
 
+# libpq keywords a caller may pass through ``connect`` beyond the ones the URI's
+# authority carries. Taken from psycopg's libpq, and forwarded only when the
+# caller passed them: the live connection's ``get_parameters()`` also reports
+# settings nobody asked for (libpq 17+ reports ``sslcertmode``), and libpq
+# rejects a URI parameter it does not know, so a key from psycopg's newer libpq
+# could fail against the driver's. Measured with an unknown keyword; whether any
+# driver release this project allows predates ``sslcertmode`` is not.
+LIBPQ_SETTING_KEYWORDS = frozenset(
+    option.keyword.decode() for option in psycopg.pq.Conninfo.get_defaults()
+) - {"user", "password", "host", "port", "dbname"}
+
+
+def libpq_derived_settings() -> dict[str, str]:
+    """What psycopg's libpq sets on a connection nobody configured.
+
+    ``get_parameters`` hides a value equal to its compiled default, but libpq
+    fills some settings in at connect time instead (``sslcertmode`` from libpq
+    17), and those it reports as though they were chosen. Measured rather than
+    listed, so it keeps up with the libpq psycopg bundles: ``connect_start``
+    processes the options before dialling, and a socket directory that does
+    not exist fails without touching the network. The environment is read
+    here as at any connect, so a ``PGSSLMODE`` counts as derived too.
+    """
+    probe = psycopg.pq.PGconn.connect_start(b"host=/nonexistent-xorq-libpq-probe")
+    try:
+        return {
+            option.keyword.decode(): option.val.decode()
+            for option in probe.info
+            if option.val is not None
+        }
+    finally:
+        probe.finish()
+
+
+def search_path_option(schema: str) -> str:
+    r"""A libpq ``options`` argument setting ``search_path`` to ``schema``.
+
+    libpq splits ``options`` on whitespace unless it is backslash-escaped, and
+    reads ``\\`` as one backslash, so both are escaped. The value is otherwise
+    what ``_post_connect`` passes to ``set_config``: a ``search_path`` string,
+    so a comma list keeps its meaning.
+    """
+    escaped = re.sub(r"([\\\s])", r"\\\1", schema)
+    return f"-csearch_path={escaped}"
+
+
 @frozen
 class PgADBC(ADBCBase):
     con = field(validator=instance_of(PGBackend))
@@ -39,6 +89,30 @@ class PgADBC(ADBCBase):
         return dct
 
     @property
+    def settings(self):
+        """The query part of the URI: what psycopg's connection was configured
+        with beyond its address, so the two connections agree.
+
+        The caller's libpq settings (``sslmode``, ``sslrootcert``,
+        ``options``, ...) as passed to ``connect``, plus ``schema`` as a
+        ``search_path`` in ``options``. psycopg gets the schema from
+        ``_post_connect``'s ``set_config``, which the ADBC connection never
+        runs; without it the ADBC connection resolves unqualified names
+        against the server default ``'$user, public'``.
+        """
+        con_kwargs = self.con._con_kwargs  # xorq-style: disable=protected-access
+        settings = {
+            key: str(value)
+            for key, value in con_kwargs.items()
+            if key in LIBPQ_SETTING_KEYWORDS and value is not None
+        }
+        if schema := con_kwargs.get("schema"):
+            settings["options"] = " ".join(
+                filter(None, (settings.get("options"), search_path_option(schema)))
+            )
+        return settings
+
+    @property
     def uri(self):
         return self.get_uri()
 
@@ -48,7 +122,17 @@ class PgADBC(ADBCBase):
 
     def get_uri(self, **kwargs):
         params = {**self.params, **kwargs}
-        uri = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}"
+        # Userinfo is percent-encoded: libpq ends it at the first ``@`` and
+        # splits user from password at the first ``:``, so a raw Redshift IAM
+        # user (``IAMR:<role>``) or a password containing ``@ / # %`` parses
+        # into different credentials.
+        user, password = (
+            urllib.parse.quote(str(params[key]), safe="")
+            for key in ("user", "password")
+        )
+        uri = f"postgresql://{user}:{password}@{params['host']}:{params['port']}/{params['database']}"
+        if query := urllib.parse.urlencode(self.settings, quote_via=urllib.parse.quote):
+            uri = f"{uri}?{query}"
         return uri
 
     def get_conn(self, **kwargs):

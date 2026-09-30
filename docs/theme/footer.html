@@ -1,7 +1,15 @@
 <!-- include-after-body: site footer. Same structure as the marketing pages; edit links in one place. -->
 <style>
-.xq-foot{max-width:1180px;margin:0 auto;padding:64px 24px 28px;border-top:1px solid #1f3437;display:grid;gap:44px;font-family:"FK Grotesk Mono",ui-monospace,monospace}
+/* Full-bleed band: opaque page-coloured background sitting ABOVE Quarto's
+   sticky sidebars (which have z-index:1 and grid-rows that run to page-bottom),
+   so at the end of the page the footer cleanly covers the sidebar tails instead
+   of overlapping them. The inner .xq-foot-inner carries the centred max-width. */
+.xq-foot{position:relative;z-index:3;background:#091b1d;border-top:1px solid #1f3437;font-family:"FK Grotesk Mono",ui-monospace,monospace}
+.xq-foot-inner{max-width:1180px;margin:0 auto;padding:64px 24px 28px;display:grid;gap:44px}
 .xq-foot-top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:22px 48px;align-items:end}
+.xq-foot-actions{display:flex;align-items:center;gap:18px}
+.xq-social{color:#63848d;display:flex}
+.xq-social:hover{color:#c1f0ff}
 .xq-foot-top p{font-family:"ALT Riviera",Georgia,serif;font-size:14px;line-height:1.6;color:#9ec9d5;max-width:520px;margin:0}
 .xq-foot-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:32px 24px}
 .xq-foot-cols h4{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#63848d;padding-bottom:4px;border-bottom:1px dashed #284044;margin:0 0 12px;font-family:inherit;font-weight:400}
@@ -13,9 +21,15 @@
 .xq-hello:hover{border-color:#c1f0ff;color:#c1f0ff}
 </style>
 <footer class="xq-foot">
+  <div class="xq-foot-inner">
   <div class="xq-foot-top">
+
     <a href="https://xorq.dev/"><img src="https://xorq.dev/assets/Xorq_WordMark_RGB_BlueSky.svg" alt="Xorq" style="height:22px"></a>
-    <a class="xq-hello" href="https://xorq.dev/contact">./say hello</a>
+    <span class="xq-foot-actions">
+      <a class="xq-hello" href="https://xorq.dev/contact">./say hello</a>
+      <a class="xq-social" aria-label="GitHub" href="https://github.com/xorq-labs/xorq" rel="noopener" target="_blank"><svg fill="currentColor" height="18" viewBox="0 0 24 24" width="18"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2.17c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.26 5.67.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"></path></svg></a>
+      <a class="xq-social" aria-label="LinkedIn" href="https://www.linkedin.com/company/xorq-labs" rel="noopener" target="_blank"><svg fill="currentColor" height="18" viewBox="0 0 24 24" width="18"><path d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.73C24 .77 23.2 0 22.22 0z"></path></svg></a>
+    </span>
     <p>Verification for AI on your data. Run any model, verify every number, trace the lineage, spend fewer tokens.</p>
   </div>
   <div class="xq-foot-cols">
@@ -26,4 +40,5 @@
     <div><h4>company</h4><a href="https://xorq.dev/about">./about</a><a href="https://xorq.dev/blog/">./blog</a><a href="https://xorq.dev/privacy">./privacy</a></div>
   </div>
   <div class="xq-foot-bottom"><span>© 2026 xorq labs inc. · all rights reserved</span><span>built with <a href="https://quarto.org/" style="color:inherit">quarto</a></span></div>
+  </div>
 </footer>

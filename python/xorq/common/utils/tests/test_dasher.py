@@ -73,6 +73,10 @@ from xorq.common.utils.dasher._relations import (
     _normalize_bigquery_databasetable_xorq,
 )
 from xorq.common.utils.file_utils import normalize_read_path_stat
+from xorq.common.utils.tests._optional_backends import (
+    REDSHIFT_BACKEND_FQN,
+    redshift_backend,
+)
 from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.common.utils.toolz_utils import curry as xo_curry
 from xorq.expr import api
@@ -1088,6 +1092,12 @@ def test_extra_rules_fqn_strings() -> None:
         "sklearn.utils._param_validation._Constraint": _SklearnConstraint,
         "sklearn.utils._param_validation.Hidden": _SklearnHidden,
     }
+    # Checked only where its driver extra is installed. Keyed on a string so
+    # that the fqn is still compared against production below in every job,
+    # and only the class-identity half is conditional.
+    if (redshift_cls := redshift_backend()) is not None:
+        expected[REDSHIFT_BACKEND_FQN] = redshift_cls
+
     for literal, cls in expected.items():
         assert fqn(cls) == literal, (
             f"FQN drift: {cls!r} moved from {literal!r} to {fqn(cls)!r}; "
@@ -1095,8 +1105,12 @@ def test_extra_rules_fqn_strings() -> None:
         )
 
     production_fqns = {fqn_str for fqn_str, _ in _EXTRA_RULES}
-    assert production_fqns == set(expected), (
+    unchecked = production_fqns - set(expected)
+    assert unchecked <= {REDSHIFT_BACKEND_FQN}, (
         f"test/production mismatch: {production_fqns.symmetric_difference(set(expected))}"
+    )
+    assert not (set(expected) - production_fqns), (
+        f"test names rules production does not register: {set(expected) - production_fqns}"
     )
 
 
