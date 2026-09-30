@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1790671787258,
+  "lastUpdate": 1790768565979,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -42066,6 +42066,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.11867630435618848",
             "extra": "mean: 1.6284744220000449 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c03ccb924eeed709ade762f8d652a1d9a455ed31",
+          "message": "feat(redshift): minimal Redshift backend over a psycopg baseline (#2332)\n\nAdds a Redshift backend that reaches Redshift Serverless over the\nPostgreSQL\nwire protocol, with psycopg as the baseline driver and\n`adbc_driver_postgresql`\nas an optional read accelerator. ADR-2332\n(`docs/adr/2332-redshift-psycopg-baseline-adbc-optional.md`) records why\nthe\naccelerator is optional and the live measurements that decision rests\non.\n\nThe backend subclasses the xorq postgres backend. Several fixes it\nneeded are\nin shared postgres code, so **postgres behaviour changes too**; they are\nlisted\nunder *Changes that reach the postgres backend*.\n\nThis PR is the base of a family: #2333 (dialect), #2335 (cache\nfreshness) and\n#2336 (introspection) each build on it.\n\n## The Redshift backend\n\n`xorq.backends.redshift`, registered as the `redshift` entry point and\nthe\n`redshift` extra (`adbc-driver-postgresql` and `psycopg[binary]`, the\nsame\nbounds as `postgres`).\n\n**Connecting.** The default port is 5439. `client_encoding` defaults to\n`utf8`,\nbecause Redshift reports its encoding as `UNICODE`, which psycopg cannot\ndecode,\nso without it every query raises `NotSupportedError`. The default stays\nout of\n`_con_kwargs`, so it never reaches the profile or the build hash; a\ncaller's\nvalue wins.\n\n`_post_connect` is the one hook that `connect`, `from_connection` and\n`clone`\nall reach, and it does two things:\n\n- it refuses, before any SQL runs, a connection whose encoding psycopg\ncannot\n  decode, and names `client_encoding='utf8'` as the fix;\n- it sets `prepare_threshold` to `None` unless the caller passed one. On\na\nrollback psycopg sends `DEALLOCATE ALL`, which Redshift does not\nsupport.\nMeasured live, the resulting syntax error rolled back a `drop_table` and\nleft\nthe table in place. With no threshold psycopg prepares nothing, so it\nhas\nnothing to deallocate. A `from_connection` connection's own threshold is\noverwritten too, because psycopg's default of 5 cannot be told apart\nfrom a\n  choice.\n\n**`current_database`** is overridden to emit `CURRENT_SCHEMA()`.\nRedshift\nrejects the bare `CURRENT_SCHEMA` that the inherited implementation\nemits.\n\n**Reads** (`to_pyarrow_batches`) use ADBC when `adbc_driver_postgresql`\nis\ninstalled and the connection has a password, and psycopg otherwise. That\nis\ndecided from local facts before anything is dialled, so the postgres\ncatch-all around the ADBC connect is dropped: a rejected credential\nraises,\nrather than quietly downgrading to psycopg, which matters under rotating\nIAM\ncredentials.\n\n**Ingest** (`read_record_batches`) uses psycopg only: `CREATE TABLE`,\nthen\nparameterised `INSERT` in one transaction. It is not dispatched on\ndriver\navailability. Neither ADBC driver can ingest into Redshift, because both\ningest\nby `COPY` and Redshift's `COPY` reads only from S3. For\n`adbc_driver_postgresql` that is a parse error (`COPY ... FROM STDIN`,\nSQLSTATE\n42601), so no setting fixes it. The read path's availability check\n(`_adbc_unavailable_reason`) therefore has exactly one caller. `mode`\naccepts\nthe same four values as the postgres ADBC ingest. `temporary=True` is\nvalid only\nwith `mode=\"create\"`:\n\n- `append` and `create_append` are refused because they would shadow a\n  permanent table for the rest of the session;\n- `replace` is refused because its `DROP TABLE IF EXISTS` is\nunqualified. It\nresolves through `search_path`, so it would drop the permanent table of\nthat\nname and replace it with one that vanishes at disconnect. Qualifying the\nDROP\nas `pg_temp.\"t\"` was not chosen because nobody has measured whether\nRedshift\n  resolves that form.\n\n**`clone`** has no environment password to fall back on. The inherited\nfallback\nis `$POSTGRES_PASSWORD`, which would dial the warehouse with a local\npostgres\npassword. The fallback is now the `_clone_credential_default_password()`\nhook,\nwhich Redshift overrides to return `None`, so a clone with no known\npassword\nraises and names the backend.\n\n**The compiler** is `PostgresCompiler` unchanged. Its docstring explains\nwhy\nretargeting to sqlglot's Redshift dialect is its own change (#2333).\n\n**Secret keys** are inherited from postgres, and\n`con_name_to_secret_keys`\ngains a matching `redshift` entry.\n\n## Changes that reach the postgres backend\n\n**`PgADBC` URI** (`common/utils/postgres_utils.py`):\n\n- User and password are percent-encoded. libpq ends userinfo at the\nfirst `@`\n  and splits user from password at the first `:`, so a Redshift IAM user\n(`IAMR:<role>`) or a password containing `@ / # %` used to parse into\nthe\nwrong credentials. On postgres the failed connect was swallowed and the\nread\nran on psycopg. The URI changes only for credentials the old one got\nwrong.\n- The query string carries every libpq keyword the caller passed to\n`connect`\n(`sslmode`, `sslrootcert`, `connect_timeout`, `options`, ...). Before,\nonly\n  the address reached the ADBC connection, so a caller who asked for\n`sslmode=verify-full` got libpq's default there. The keywords come from\nthe\ncaller's kwargs, not `get_parameters()`: that reports settings nobody\nasked\nfor (`sslcertmode` in libpq 17+), and libpq rejects URI parameters it\ndoes not\n  know.\n- A `schema=` connection's schema is passed as `-csearch_path=...` in\n`options`, next to the caller's own `options`. The ADBC connection never\nruns\n`_post_connect`'s `set_config`, so it used to resolve unqualified names\nagainst `'$user, public'`. Every table-bound read then failed on ADBC\nand was\n  silently re-run on psycopg. The escaping was measured against a local\npostgres to give the same `search_path` as `set_config` for plain, list,\nspaced, quoted and backslashed values. On postgres, a table-bound read\non a\n`schema=` connection is now served by ADBC. `read_record_batches` on\nsuch a\nconnection now writes into that schema, where before it wrote into\n`public`\n  and then raised `TableNotFound`.\n\n**`clone` takes settings by provenance**\n(`backends/postgres/__init__.py`).\nIt used to rebuild its kwargs from `get_parameters()`, which reports\nsettings\nthe caller never passed (`client_encoding`, `sslcertmode`) and resolved\nvalues\nwhere the caller passed an env reference such as `$POSTGRES_USER`. Each\nof\nthese changed the clone's profile hash, and the unasked keys also\nreached its\nADBC URI. Now:\n\n- A source opened with kwargs keeps the caller's values, in the form the\ncaller\npassed them. From the live connection it takes only the address keys the\n  caller left out.\n- A `from_connection` source has no kwargs. It takes the connection's\nsettings,\nminus those libpq derived on its own. `libpq_derived_settings()` finds\nthose\n  by probing libpq rather than keeping a list. The port is read from the\n  connection, because libpq omits a default one.\n- If no password comes from the call, the source or the hook,\n  `clone` raises a `ValueError` that names the backend.\n\n**`_open_adbc_conn_or_none`** is a new overridable seam around the ADBC\nconnect.\nIt is the one narrow behaviour change on postgres: the `PgADBC` import\nmoved\nfrom the call to `to_pyarrow_batches` to the first batch read.\n\n**Caching.** `SourceStorage.put` chose server-side writes from a literal\ninside\na closure, which did not include `redshift`. The literal is now the\nmodule-level\n`REMOTE_PUT_BACKENDS` and includes `redshift`, so Redshift results are\nwritten\nby CTAS or `read_record_batches` rather than materialised in client\nmemory.\n`caching/tests/test_storage.py` requires every entry-point backend to be\nclassified as in or out (`_NOT_REMOTE_PUT`).\n\n**`defer_utils._ADBC_BACKENDS`** gains `redshift`, so deferred reads\ndefault\nto `mode=\"replace\"` there as on postgres. Its comment now says that\nmembership\nmeans \"accepts `mode`\", not \"uses ADBC\".\n\n## Known limitations\n\nThis PR does not make Redshift work end to end. The family PRs are the\nnext\nsteps:\n\n- **Introspection (#2336).** `con.table()` reads `pg_catalog.pg_enum`\nand\n`pg_my_temp_schema()`, and both fail on Redshift. `con.sql()` without a\nschema\n  fails on `CREATE TEMPORARY VIEW`. `con.list_tables()` works. As a\nconsequence, `read_record_batches` commits its rows and then raises from\nits\nfinal `self.table(table_name)`, and a cache `put` fails in its\nread-back.\n- **Cache freshness (#2335).** The default strategy has no Redshift\nfreshness\n  probe, and computing a cache key raises before any SQL is sent.\n- **Dialect (#2333).** SQL compiles as PostgreSQL.\n\nOther known gaps, deliberately left out of this PR:\n\n- `xo.deferred_read_parquet(path, con, temporary=True)` on Redshift\nraises the\n  temporary-`replace` refusal, because `defer_utils` defaults\n`mode=\"replace\"`. On postgres the same call destroys a permanent table\nof the\n  same name. That is pre-existing on main and filed separately.\n- A column with an auto-generated upper-case alias (e.g.\n`t.count().execute()`)\nraises `ValueError` on the ADBC read path. The ADR records it. The fix\nbelongs\nin the per-batch cast. On postgres, `schema=` connections now reach this\ntoo,\n  where before they fell back past it.\n- The ADBC and psycopg sessions can disagree on time zone.\n`_post_connect` sets\nthe psycopg session to UTC, while the ADBC session takes `TimeZone` from\nthe\ncaller's `options`, or else the server default. This is `PgADBC` code,\nso\n  postgres shares it.\n- A clone of a `from_connection` backend loses a `schema` given to the\nwrapped\nconnection, because `set_config` applies it and it never appears in the\nDSN.\n  This is marked strict xfail.\n- There is no `COPY`-from-S3 ingest, so large loads use row-oriented\n`INSERT`.\n- There is no live-Redshift CI job, which is the missing detector for\nthe\n  wire-compatibility risk the ADR records.\n- There is no upper bound on `adbc-driver-postgresql`, which every extra\nthat\n  declares it shares, and no `boto3` declaration. No backend code reads\n  `boto3`.\n\n## Testing\n\n- **Offline:** `python/xorq/tests/test_redshift_backend.py`, marked\n`core` by\nits location, so the default CI sweep runs it. Under the backend\ndirectory it\n  would be `redshift`-marked, and no job selects that marker.\n- **Against the `postgres` job's server**, covering Redshift's class.\nPostgreSQL\nis a faithful stand-in because these tests check client-side behaviour:\n- `test_prepared_statement_deallocation.py` asserts from libpq's\nprotocol\n    trace that a rollback on a Redshift backend, built by `connect` or\n`from_connection`, sends no `DEALLOCATE`. Plain postgres is the control\nthat\n    does.\n- `test_adbc_connection_settings.py` checks that the ADBC session runs\nwith\n    the caller's settings and schema. It also checks that `connect`,\n`from_connection` and a clone of each keep the requested settings, and\nthat\na clone hashes the same as its source (four ways, for both backends).\n- **Live Redshift Serverless**, at a2fc6261 merged with #2333, #2335 and\n#2336,\n  as a role with only schema `USAGE` and table `SELECT`:\n- table-bound reads on a `schema=` connection were served by ADBC with\nzero\npsycopg fallbacks, the snapshot cache hit, and `run-cached` reconnected\nas\n    the role;\n- with `sslmode=verify-full`, the ADBC read verified the certificate: an\n    untrusted root given to the ADBC connection alone was refused with\n    `certificate verify failed`;\n  - as an IAM user (`IAMR:<role>`), a read was served by ADBC, so the\n    percent-encoded userinfo holds on the wire.\n\nThe `drop_table` rollback fix was measured live at 5399ea14: the\nplaceholder\n  was dropped and no prepared statements were held. Its later move into\n`_post_connect` is covered by the offline libpq-trace test. The last two\n  commits (cf8bae18, e4266629) change only how `clone` treats a\n`from_connection` source. They were tested against the postgres server,\nnot\n  live.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-09-30T07:36:39-04:00",
+          "tree_id": "16dd685e9dea543760d861cb57e53fed22a9790a",
+          "url": "https://github.com/xorq-labs/xorq/commit/c03ccb924eeed709ade762f8d652a1d9a455ed31"
+        },
+        "date": 1790768562326,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.255036583983568,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005006068396401382",
+            "extra": "mean: 137.83528014284994 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.189088907085502,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07607483252282421",
+            "extra": "mean: 456.8110490000038 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7138388306803393,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20790657251578765",
+            "extra": "mean: 1.400876440199994 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.5660049290983435,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04113673570428007",
+            "extra": "mean: 389.7108648000085 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.5675288299416716,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05938807473276508",
+            "extra": "mean: 389.47956039999667 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.666075562877688,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04483321749250272",
+            "extra": "mean: 375.0831423999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 105.24032827650444,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02108202087677995",
+            "extra": "mean: 9.502060819998945 msec\nrounds: 200"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.6354214065215538,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10244266825102087",
+            "extra": "mean: 275.07127459999765 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 13.905824251461716,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004687841202916432",
+            "extra": "mean: 71.91231400000504 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.37436882039899,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013814978449597975",
+            "extra": "mean: 106.67384857143247 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.20453260148065,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021969475267740846",
+            "extra": "mean: 138.8015094545458 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 4.8512712742166455,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023603395750823278",
+            "extra": "mean: 206.13153614285855 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 3.9303916348149124,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06144416789086717",
+            "extra": "mean: 254.42757183333242 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.644264774394574,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011560186771794144",
+            "extra": "mean: 215.31933439999875 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.4169460595888332,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06717367873502536",
+            "extra": "mean: 413.7452699999926 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.0541436030797358,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07080598657019985",
+            "extra": "mean: 327.4240278000093 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7047664965066238,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10197729248494593",
+            "extra": "mean: 586.5905988000009 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.7301124771450094,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09121377581711726",
+            "extra": "mean: 577.9971032000049 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4792786199704326,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08021576619464998",
+            "extra": "mean: 676.005173399983 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.4763184808062073,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08969424488783316",
+            "extra": "mean: 677.3606189999782 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2583431247843295,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12278200022416665",
+            "extra": "mean: 794.6958029999905 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1571737833957756,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10975303149906437",
+            "extra": "mean: 864.174434600011 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9313074583069836,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14894613561549808",
+            "extra": "mean: 1.0737592522000114 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5810290760799128,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1691840339601581",
+            "extra": "mean: 1.7210842643999853 sec\nrounds: 5"
           }
         ]
       }
