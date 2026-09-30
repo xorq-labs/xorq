@@ -112,7 +112,7 @@ class RedshiftCompiler(PostgresCompiler):
 
     Redshift is PostgreSQL-derived at the wire level, which is why the backend
     subclasses the postgres one, but it is *not* PostgreSQL at the SQL level.
-    Every override below corresponds to a construct a user report observed
+    Most overrides below correspond to a construct a user report observed
     Redshift rejecting at execution time, after a successful build -- the
     expensive failure mode, because the models were already written and
     documented by then.
@@ -185,8 +185,8 @@ class RedshiftCompiler(PostgresCompiler):
         # ``MAKE_TIME`` is the one ``visit_NonNullLiteral`` measured absent;
         # ``TimeFromHMS`` reaches it through the inherited ``SIMPLE_OPS`` entry
         # rather than the literal visitor. ``MAKE_TIMESTAMP``, ``DATE_BIN``
-        # (``TimestampBucket``) and ``BIT_XOR`` are absent from Redshift's
-        # function reference; not measured on the warehouse.
+        # (``TimestampBucket``) and ``BIT_XOR`` were rejected on compute
+        # (``redshift_evidence``).
         ops.TimeFromHMS,
         ops.TimestampFromYMDHMS,
         ops.TimestampBucket,

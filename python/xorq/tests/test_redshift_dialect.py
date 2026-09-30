@@ -7,8 +7,9 @@ marker, so a test placed under the backend directory would run only in the
 credential-gated workflow. Everything here is ``to_sql`` on an unbound table
 and needs no warehouse.
 
-Each test below corresponds to an expression form a user report observed
-Redshift *rejecting at execution*, after a successful build. The failure mode
+Most tests below correspond to an expression form a user report observed
+Redshift *rejecting at execution*, after a successful build; the rest guard
+defects the live differential run against PostgreSQL found. The failure mode
 these guard against is therefore not "xorq raises" -- it is "xorq emits
 confident SQL that the warehouse refuses", which is only visible in the
 generated string.
@@ -55,9 +56,9 @@ column (PERCENTILE_DISC unsupported outright), and confirmation that
 ``ARRAY_AGG``, ``FIRST``, ``STARTS_WITH``, ``MAKE_DATE`` and
 ``DATE_FROM_PARTS`` are all absent, as the compiler already assumed.
 
-One item remains open and is NOT a dialect question: the two unverified type
-widths in ``test_redshift_backend.py`` (unbounded ``VARCHAR``, the
-``TIMESTAMP(6)`` precision modifier).
+The two type widths once left open here -- unbounded ``VARCHAR`` and the
+``TIMESTAMP(6)`` precision modifier -- were measured on 2026-09-25; the record
+is ``_MEASURED_REDSHIFT_DDL_TYPES`` in ``test_redshift_backend.py``.
 """
 
 from __future__ import annotations
@@ -1375,7 +1376,7 @@ def test_no_hand_written_override_is_clobbered_by_simple_ops():
     hand-written ``visit_*`` loses the hand-written one, with no error and no
     warning. ``UNSUPPORTED_OPS`` is applied later still and wins over both.
 
-    This backend now carries 54 inherited ``SIMPLE_OPS`` entries and a dozen
+    This backend carries dozens of inherited ``SIMPLE_OPS`` entries and of
     hand-written overrides, most of which exist to fix defects found in review.
     Nothing but this test stands between the next added spelling and the silent
     deletion of one of them.

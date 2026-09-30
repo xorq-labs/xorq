@@ -21,7 +21,7 @@ below. Every entry carries a tag:
     dialect subclass decides this above sqlglot. The note names where.
 ``KNOWN_OPEN``
     A difference whose correctness cannot be settled offline. Cross-referenced
-    to the OPEN WAREHOUSE QUESTIONS block in ``test_redshift_dialect.py``.
+    to the SETTLED AGAINST A LIVE WAREHOUSE block in ``test_redshift_dialect.py``.
 
 The test fails when the live set and the inventory disagree, in either
 direction. That is the point: a sqlglot upgrade that adds, drops or rewrites a
@@ -146,7 +146,10 @@ INVENTORY: dict[str, tuple[str, str]] = {
         "rs False -- consistent with Redshift having no array type. The array "
         "ops are in the compiler's UNSUPPORTED_OPS.",
     ),
-    "Generator.COPY_PARAMS_ARE_WRAPPED": (ACCEPTED, "COPY only; ingest uses ADBC."),
+    "Generator.COPY_PARAMS_ARE_WRAPPED": (
+        ACCEPTED,
+        "COPY only; ingest uses psycopg INSERTs.",
+    ),
     "Generator.EXCEPT_INTERSECT_SUPPORT_ALL_CLAUSE": (
         ACCEPTED,
         "rs False: no EXCEPT ALL / INTERSECT ALL. A real Redshift limit.",
@@ -167,7 +170,7 @@ INVENTORY: dict[str, tuple[str, str]] = {
     "Generator.VALUES_AS_TABLE": (
         ACCEPTED,
         "rs False: VALUES is not a standalone table on Redshift. Affects "
-        "memtable rendering; the backend ingests through ADBC instead.",
+        "memtable rendering; the backend ingests through psycopg instead.",
     ),
     "Generator.WITH_PROPERTIES_PREFIX": (ACCEPTED, "DDL properties only."),
     # -- TRANSFORMS present for Postgres and not for Redshift ----------------
@@ -185,8 +188,9 @@ INVENTORY: dict[str, tuple[str, str]] = {
     "TRANSFORMS.pg-only.AnyValue": (
         ACCEPTED,
         "Postgres renames AnyValue away because it lacked it before 16; "
-        "Redshift has ANY_VALUE natively, which is what SIMPLE_OPS now targets "
-        "for ops.Arbitrary.",
+        "Redshift has ANY_VALUE natively, but nothing emits it: ops.Arbitrary "
+        "is hand-written as MAX/BOOL_OR, because ANY_VALUE may return NULL "
+        "while non-NULL values exist (redshift_evidence).",
     ),
     "TRANSFORMS.pg-only.Pow": (
         ACCEPTED,

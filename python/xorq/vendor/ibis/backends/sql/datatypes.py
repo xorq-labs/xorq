@@ -587,9 +587,9 @@ class RedshiftType(PostgresType):
         return super()._from_ibis_Decimal(dtype)
 
     # Redshift has no unsigned integer types, so each widens to the smallest
-    # signed type that holds its whole range -- the same ladder MySQLType uses
-    # a few classes below, with one deliberate difference: UInt64 gets
-    # ``DECIMAL(20, 0)`` rather than MySQL's ``DECIMAL(19, 0)``, because 19
+    # signed type that holds its whole range -- the same ladder TrinoType uses
+    # below, with one deliberate difference: UInt64 gets
+    # ``DECIMAL(20, 0)`` rather than Trino's ``DECIMAL(19, 0)``, because 19
     # digits cannot represent 18446744073709551615. Measured: the 20-digit
     # maximum round-trips.
     @classmethod

@@ -880,11 +880,11 @@ def test_ingest_ddl_emits_the_measured_redshift_spellings() -> None:
 # executed against a live Redshift Serverless warehouse on 2026-09-25, as a
 # ``CREATE`` inside a rolled-back transaction, and accepted.
 #
-# The table is exhaustive over the mapper's range on purpose. The defect this
-# replaces was not that one mapping was wrong; it was that only two types had
-# any assertion at all, so five rejections had no tripwire, not even a wrong
-# one. A type added to xorq with no Redshift spelling should fail here by
-# name rather than at a customer's CREATE.
+# The table is what was measured on the warehouse, not the mapper's whole
+# range; the divergence tests in ``test_redshift_dialect.py`` pin the rest of
+# the range against ``PostgresType`` offline. The defect this replaces was not
+# that one mapping was wrong; it was that only two types had any assertion at
+# all, so five rejections had no tripwire, not even a wrong one.
 _MEASURED_REDSHIFT_DDL_TYPES = (
     (pa.string(), "VARCHAR(65535)"),
     (pa.timestamp("us"), "TIMESTAMP"),
