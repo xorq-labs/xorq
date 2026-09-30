@@ -484,7 +484,7 @@ def test_psycopg_ingest_creates_and_inserts():
     )
 
     assert con.con.log == [
-        ("execute", 'CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR)'),
+        ("execute", 'CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))'),
         (
             "executemany",
             'INSERT INTO "t" ("a", "b") VALUES (%s, %s)',
@@ -519,7 +519,7 @@ def test_psycopg_ingest_of_an_empty_batch_still_creates_the_table():
 
     con.read_record_batches(make_reader({"a": [], "b": []}), table_name="t")
 
-    assert executed(con) == ['CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR)']
+    assert executed(con) == ['CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))']
     assert not [entry for entry in con.con.log if entry[0] == "executemany"]
 
 
@@ -533,7 +533,7 @@ def test_psycopg_ingest_accepts_a_table_like_the_adbc_branch_does():
     con.read_record_batches(pa.table({"a": [1], "b": ["x"]}), table_name="t")
 
     assert con.con.log == [
-        ("execute", 'CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR)'),
+        ("execute", 'CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))'),
         ("executemany", 'INSERT INTO "t" ("a", "b") VALUES (%s, %s)', [(1, "x")]),
     ]
 
@@ -541,22 +541,30 @@ def test_psycopg_ingest_accepts_a_table_like_the_adbc_branch_does():
 @pytest.mark.parametrize(
     ("mode", "expected"),
     [
-        ("create", ['CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR)']),
-        ("append", []),
-        (
+        pytest.param(
+            "create",
+            ['CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))'],
+            id="create-creates",
+        ),
+        pytest.param("append", [], id="append-creates-nothing"),
+        pytest.param(
             "replace",
             [
                 'DROP TABLE IF EXISTS "t"',
-                'CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR)',
+                'CREATE TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))',
             ],
+            id="replace-drops-then-creates",
         ),
-        (
+        pytest.param(
             "create_append",
-            ['CREATE TABLE IF NOT EXISTS "t" ("a" BIGINT, "b" VARCHAR)'],
+            ['CREATE TABLE IF NOT EXISTS "t" ("a" BIGINT, "b" VARCHAR(65535))'],
+            id="create-append-tolerates-existing",
         ),
     ],
 )
-def test_psycopg_ingest_modes_match_their_adbc_meanings(mode, expected):
+def test_psycopg_ingest_modes_match_their_adbc_meanings(
+    mode: str, expected: list[str]
+) -> None:
     """Which branch runs has to stay an implementation detail, and it stops
     being one the moment the two disagree about what ``mode`` means:
     ``append`` must not create, ``create`` must not tolerate an existing table,
@@ -582,7 +590,9 @@ def test_psycopg_ingest_creates_the_temp_table_directly():
         make_reader({"a": [1], "b": ["x"]}), table_name="t", temporary=True
     )
 
-    assert executed(con) == ['CREATE TEMPORARY TABLE "t" ("a" BIGINT, "b" VARCHAR)']
+    assert executed(con) == [
+        'CREATE TEMPORARY TABLE "t" ("a" BIGINT, "b" VARCHAR(65535))'
+    ]
 
 
 def test_ingest_never_dispatches_to_adbc_even_when_it_is_available(monkeypatch):
@@ -837,21 +847,22 @@ def test_ingest_modes_are_the_adbc_ingest_modes() -> None:
     assert set(redshift_module.INGEST_MODES) == set(typing.get_args(annotation))
 
 
-def test_ingest_ddl_pins_two_unverified_redshift_type_widths():
-    """Not a passing feature -- a tripwire on a live-session checklist item.
+def test_ingest_ddl_emits_the_measured_redshift_spellings() -> None:
+    """The two divergences this used to pin as *suspected* are now measured.
 
-    The ``CREATE`` is rendered under the postgres dialect, and two of its types
-    are documented Redshift divergences that no offline test can settle:
+    It was a tripwire, deliberately asserting the broken value so that fixing
+    it would be a visible change -- ``VARCHAR`` and ``TIMESTAMP(6)``, both on
+    documentation rather than observation. A live warehouse settled them on
+    2026-09-25 and both are rejections, not stylistic differences:
+    ``TIMESTAMP(6)`` raises ``FeatureNotSupported: timestamp column does not
+    support precision``, and a bare ``VARCHAR`` is ``VARCHAR(256)``, so the
+    257th byte fails the ``INSERT``.
 
-    * bare ``VARCHAR`` is unbounded in PostgreSQL but documented as
-      ``VARCHAR(256)`` in Redshift, where ``TEXT`` is also an alias for it --
-      so a string longer than 256 would fail the insert, not the create.
-    * ``TIMESTAMP(6)`` carries a precision modifier that PostgreSQL accepts and
-      Redshift is not documented to.
-
-    Both are *suspected*, on documentation rather than observation. This pins
-    what is emitted today so that fixing either is a visible change, and so
-    the live session has a checklist entry rather than a discovery.
+    So this is now an acceptance assertion rather than a tripwire: the exact
+    string below was executed against Redshift and accepted. The tripwire had
+    done its job -- but note the lesson in how long it took to be read, since
+    the live session held the same day ingested ``bigint`` and ``'a'`` and
+    checked neither suspect.
     """
     con = make_offline_con()
 
@@ -861,7 +872,85 @@ def test_ingest_ddl_pins_two_unverified_redshift_type_widths():
     )
 
     (create,) = executed(con)
-    assert create == 'CREATE TABLE "t" ("s" VARCHAR, "ts" TIMESTAMP(6))'
+    assert create == 'CREATE TABLE "t" ("s" VARCHAR(65535), "ts" TIMESTAMP)'
+
+
+# Every Arrow type a caller can put through ingest, and the Redshift spelling
+# it must render to. The right-hand column is not derived -- each entry was
+# executed against a live Redshift Serverless warehouse on 2026-09-25, as a
+# ``CREATE`` inside a rolled-back transaction, and accepted.
+#
+# The table is what was measured on the warehouse, not the mapper's whole
+# range; the divergence tests in ``test_redshift_dialect.py`` pin the rest of
+# the range against ``PostgresType`` offline. The defect this replaces was not
+# that one mapping was wrong; it was that only two types had any assertion at
+# all, so five rejections had no tripwire, not even a wrong one.
+_MEASURED_REDSHIFT_DDL_TYPES = (
+    (pa.string(), "VARCHAR(65535)"),
+    (pa.timestamp("us"), "TIMESTAMP"),
+    (pa.timestamp("us", tz="UTC"), "TIMESTAMP WITH TIME ZONE"),
+    (pa.date32(), "DATE"),
+    (pa.time64("us"), "TIME"),
+    (pa.decimal128(10, 2), "DECIMAL(10, 2)"),
+    (pa.binary(), "VARBYTE"),
+    (pa.uint8(), "SMALLINT"),
+    (pa.uint16(), "INTEGER"),
+    (pa.uint32(), "BIGINT"),
+    (pa.uint64(), "DECIMAL(20, 0)"),
+    (pa.int64(), "BIGINT"),
+    (pa.float64(), "DOUBLE PRECISION"),
+    (pa.bool_(), "BOOLEAN"),
+)
+
+
+@pytest.mark.parametrize(
+    ("arrow_type", "expected"),
+    _MEASURED_REDSHIFT_DDL_TYPES,
+    ids=[str(t) for t, _ in _MEASURED_REDSHIFT_DDL_TYPES],
+)
+def test_ingest_ddl_renders_each_type_as_redshift_accepts_it(
+    monkeypatch: pytest.MonkeyPatch, arrow_type: pa.DataType, expected: str
+) -> None:
+    con = make_offline_con()
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
+
+    schema = pa.schema([("c", arrow_type)])
+    con.read_record_batches(make_reader({"c": [None]}, schema=schema), table_name="t")
+
+    (create,) = executed(con)
+    assert create == f'CREATE TABLE "t" ("c" {expected})'
+
+
+@pytest.mark.parametrize(
+    ("arrow_type", "match"),
+    [
+        pytest.param(pa.list_(pa.int64()), "no array type", id="list"),
+        pytest.param(pa.struct([("a", pa.int64())]), "no struct type", id="struct"),
+        pytest.param(pa.map_(pa.string(), pa.string()), "no map type", id="map"),
+    ],
+)
+def test_nested_types_raise_before_any_sql(
+    monkeypatch: pytest.MonkeyPatch, arrow_type: pa.DataType, match: str
+) -> None:
+    """Redshift has no array, map or struct type, and ``SUPER`` is not the
+    answer: measured, ``CREATE TABLE (c SUPER)`` is accepted but the psycopg
+    ingest binds ``batch.to_pydict()`` values directly and Redshift rejects a
+    bound Python list with ``DatatypeMismatch``.
+
+    So emitting SUPER would move the failure from CREATE to INSERT and make it
+    less legible. The mapper raises instead, naming the type and what to do --
+    and, like the null-column guard, before any statement is issued.
+    """
+    con = make_offline_con()
+    monkeypatch.setattr(con, "_adbc_unavailable_reason", lambda: "no driver")
+
+    schema = pa.schema([("c", arrow_type)])
+    with pytest.raises(exc.UnsupportedBackendType, match=match):
+        con.read_record_batches(
+            make_reader({"c": [None]}, schema=schema), table_name="t"
+        )
+
+    assert con.con.log == []
 
 
 @pytest.mark.parametrize(

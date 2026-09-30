@@ -1,0 +1,388 @@
+"""Every function name the Redshift compiler can reach through INHERITED code.
+
+The Redshift compiler subclasses the PostgreSQL one, so any op it does not
+override compiles to whatever PostgreSQL would emit -- 324 of the 341 ops it can
+compile, when this file was written. Every "Redshift has no such function"
+defect found in review sat in that inherited surface, and each was found by
+sampling it. This test makes the surface a classified list instead:
+
+* ``test_every_inherited_function_is_classified`` fails on a name nobody has
+  classified (an ibis bump, or a newly reachable path) and on a stale entry.
+* ``test_no_compilable_op_reaches_a_measured_absent_function`` fails when any
+  op still compiles through a function measured absent. That covers every path
+  to the function, not just the one a fix was made at: ``time(h, m, s)`` still
+  reached ``MAKE_TIME`` through ``SIMPLE_OPS`` after the literal path was fixed.
+
+Names are read statically, BEFORE the dialect renders them -- ``datefromparts``
+is what reaches the wire as ``DATE_FROM_PARTS``. A visitor generated from a
+``SIMPLE_OPS`` entry, at any level of the hierarchy, carries its name as the
+``_name`` default; any other inherited implementation is read from its source
+(``self.f.X``, ``self.f["X"]``, ``self.agg.X``). The scan follows what an
+implementation calls, because that is inherited code too: a helper method
+(``visit_IntervalFromInteger`` emits nothing itself, ``_make_interval`` emits
+``MAKE_INTERVAL``), and ``super()``, into the implementation it delegates to
+(``visit_Cast`` handles the binary casts itself and passes every other cast on
+to PostgreSQL's). Code in the Redshift module is followed but not read: its
+names are the Redshift compiler's own choices, which the dialect tests assert.
+A name computed at run time (``self.f[f"json{b}_typeof"]``, ``self.agg[funcname]``)
+cannot be read, so an op whose inherited code has one must be declared in
+``DYNAMIC_NAMES`` with the names it can produce, and a new one fails the scan.
+A name built some other way (an ``sge`` node rendered by the dialect) is not
+seen; the rendered-SQL check in ``redshift_evidence`` covers the wire side.
+"""
+
+from __future__ import annotations
+
+import functools
+import inspect
+import re
+from collections import defaultdict
+
+import pytest
+import sqlglot.expressions as sge
+from sqlglot.dialects import Redshift as SqlglotRedshift
+
+
+# Must run before the xorq.backends.redshift import; see the matching guard in
+# test_redshift_dialect.py for why both names are needed.
+pytest.importorskip("adbc_driver_manager")
+pytest.importorskip("psycopg")
+
+import xorq.vendor.ibis.expr.operations as ops  # noqa: E402
+from xorq.backends.redshift.compiler import RedshiftCompiler  # noqa: E402
+from xorq.tests.redshift_evidence import MEASURED_ABSENT_FUNCTIONS  # noqa: E402
+from xorq.vendor.ibis.backends.sql.dialects import Redshift  # noqa: E402
+
+
+PRESENT = "present"  # ran on a compute node, reading a table
+UNVERIFIED = "unverified"  # inherited and never asked of the warehouse
+
+_GEO = "geospatial; not probed"
+_SIMPLE = "inherited SIMPLE_OPS target; not probed"
+
+INVENTORY: dict[str, tuple[str, str]] = {
+    "array": (PRESENT, "ARRAY() builds a SUPER on compute; live corpus, 2026-09-28"),
+    "avg": (PRESENT, "live corpus, 2026-09-28"),
+    "bit_and": (PRESENT, "live corpus, 2026-09-28"),
+    "bit_or": (PRESENT, "live corpus, 2026-09-28"),
+    "bool_and": (PRESENT, "live corpus, 2026-09-28"),
+    "bool_or": (PRESENT, "arbitrary() over a boolean, 2026-09-28"),
+    "ceil": (PRESENT, "live corpus, 2026-09-28"),
+    "coalesce": (PRESENT, "live corpus, 2026-09-28"),
+    "concat_ws": (PRESENT, "live corpus, 2026-09-28"),
+    "date_trunc": (PRESENT, "live corpus, 2026-09-28"),
+    "exists": (
+        PRESENT,
+        "in WHERE; a correlated EXISTS in a projection is rejected; live corpus, 2026-09-28",
+    ),
+    "exp": (PRESENT, "live corpus, 2026-09-28"),
+    "extract": (PRESENT, "live corpus, 2026-09-28"),
+    "floor": (PRESENT, "live corpus, 2026-09-28"),
+    "greatest": (PRESENT, "live corpus, 2026-09-28"),
+    "jsonb_extract_path": (
+        PRESENT,
+        "renders JSON_EXTRACT_PATH_TEXT; live corpus, 2026-09-28",
+    ),
+    "least": (PRESENT, "live corpus, 2026-09-28"),
+    "length": (PRESENT, "counts trailing blanks, 2026-09-28"),
+    "ltrim": (PRESENT, "live corpus, 2026-09-28"),
+    "max": (PRESENT, "arbitrary(where=), 2026-09-28"),
+    "min": (PRESENT, "live corpus, 2026-09-28"),
+    "rand": (PRESENT, "live corpus, 2026-09-28"),
+    "regexp_like": (PRESENT, "live corpus, 2026-09-28"),
+    "round": (PRESENT, "live corpus, 2026-09-28"),
+    "rtrim": (PRESENT, "live corpus, 2026-09-28"),
+    "strpos": (PRESENT, "live corpus, 2026-09-28"),
+    "substr": (PRESENT, "live corpus, 2026-09-28"),
+    "substring": (PRESENT, "live corpus, 2026-09-28"),
+    "sum": (PRESENT, "live corpus, 2026-09-28"),
+    "to_char": (PRESENT, "live corpus, 2026-09-28"),
+    "trim": (PRESENT, "live corpus, 2026-09-28"),
+    **dict.fromkeys(
+        "st_area st_asbinary st_asewkb st_asewkt st_astext st_azimuth "
+        "st_buffer st_centroid st_contains st_coveredby st_covers st_crosses "
+        "st_dfullywithin st_difference st_disjoint st_distance st_dwithin "
+        "st_endpoint st_envelope st_equals st_geometryn st_geometrytype "
+        "st_intersection st_intersects st_isvalid st_length "
+        "st_linelocatepoint st_linemerge st_linesubstring st_npoints "
+        "st_orderingequals st_overlaps st_perimeter st_setsrid st_simplify "
+        "st_srid st_startpoint st_touches st_transform st_union st_within "
+        "st_x st_y st_geomfromtext".split(),
+        (UNVERIFIED, _GEO),
+    ),
+    **dict.fromkeys(
+        "abs acos asin atan atan2 cos cot degrees pi radians sign sin sqrt tan "
+        "ascii lower lpad repeat replace reverse right rpad translate upper "
+        "count nullif cume_dist dense_rank nth_value ntile percent_rank rank "
+        "row_number".split(),
+        (UNVERIFIED, _SIMPLE),
+    ),
+    "array_size": (PRESENT, "renders GET_ARRAY_LENGTH; see DIALECT_RENAMED"),
+    "lag": (PRESENT, "RECHECK lag_takes_no_frame, on compute"),
+    "lead": (PRESENT, "RECHECK lead_takes_no_frame, on compute"),
+    **dict.fromkeys(
+        "stddev_pop stddev_samp var_pop var_samp".split(),
+        (UNVERIFIED, "computed name; see DYNAMIC_NAMES; not probed"),
+    ),
+    "date": (UNVERIFIED, f"renders DATE(...); {_SIMPLE}"),
+    "if": (UNVERIFIED, f"renders CASE WHEN; {_SIMPLE}"),
+    "json_extract": (
+        UNVERIFIED,
+        "renders JSON_EXTRACT_PATH_TEXT; reached through PostgreSQL's super()",
+    ),
+    "split": (PRESENT, "renders SPLIT_TO_ARRAY; see DIALECT_RENAMED"),
+    "str_to_date": (UNVERIFIED, f"renders TO_DATE; {_SIMPLE}"),
+    "str_to_time": (UNVERIFIED, f"renders TO_TIMESTAMP(s, format); {_SIMPLE}"),
+}
+
+# Function names the xorq Redshift dialect's own TRANSFORMS rename a typed
+# sqlglot node to. The static read above sees the name a visitor asks for
+# (``split``, ``array_size``), not what the dialect renders it as, so what
+# reaches the wire is read from the dialect instead, by rendering each
+# transform the xorq class adds.
+DIALECT_RENAMED: dict[str, tuple[str, str]] = {
+    "split_to_array": (PRESENT, "sge.Split; live corpus, 2026-09-30"),
+    "get_array_length": (
+        PRESENT,
+        "sge.ArraySize; over ARRAY() and over SPLIT_TO_ARRAY; live corpus, 2026-09-30",
+    ),
+}
+
+# Names an op reaches only through a hand-written override that intercepts
+# them before delegating. A static scan cannot see the branch, so each is
+# listed with the op and the override that shadows it; keying on the op keeps
+# the name visible on every other path to it.
+_CASTS = ("Cast", "TryCast")
+SHADOWED_BY_OVERRIDE: dict[tuple[str, str], str] = {
+    **{
+        (op, name): reason
+        for op in _CASTS
+        for name, reason in {
+            "decode": "visit_Cast lowers string->binary to TO_VARBYTE before super()",
+            "encode": "visit_Cast lowers binary->string to FROM_VARBYTE before super()",
+            "to_timestamp": "visit_Cast lowers integer->timestamp to DATEADD before super()",
+            "timezone": "visit_Cast refuses integer->timestamptz before super()",
+        }.items()
+    },
+    ("Literal", "datefromparts"): "visit_NonNullLiteral casts a date string first",
+    ("Literal", "make_time"): "visit_NonNullLiteral casts a time string first",
+    ("Literal", "map"): "visit_NonNullLiteral refuses a map before super()",
+}
+
+_CALL = re.compile(r"""self\.(?:f|agg)\.(\w+)\s*\(|self\.(?:f|agg)\[["'](\w+)["']\]""")
+
+
+def _compilable_ops():
+    refused = set(RedshiftCompiler.UNSUPPORTED_OPS)
+    for op in vars(ops).values():
+        if not (inspect.isclass(op) and issubclass(op, ops.Node)) or op in refused:
+            continue
+        if hasattr(RedshiftCompiler, f"visit_{op.__name__}"):
+            yield op
+
+
+_HELPER = re.compile(r"\bself\.(\w+)\s*\(")
+_SUPER = re.compile(r"\bsuper\(\)\.(\w+)\s*\(")
+# A function name that is not a literal: ``self.f[<expression>]``.
+_DYNAMIC = re.compile(r"""self\.(?:f|agg)\[(?!["'])""")
+# The dispatcher, which reaches every visitor.
+_NOT_FOLLOWED = frozenset({"visit_node"})
+
+# Ops whose inherited code computes a function name at run time, with every
+# name it can produce. Each name then counts as reached, so it must be
+# classified like any other; an empty tuple is a name that is not ours to
+# classify.
+DYNAMIC_NAMES: dict[str, tuple[tuple[str, ...], str]] = {
+    "AggUDF": ((), "the user's own UDF name"),
+    "ScalarUDF": ((), "the user's own UDF name"),
+    "Lag": (("lag",), "type(op).__name__.lower()"),
+    "Lead": (("lead",), "type(op).__name__.lower()"),
+    "StandardDev": (("stddev_pop", "stddev_samp"), "f'{func}_{how}'"),
+    "Variance": (("var_pop", "var_samp"), "f'{func}_{how}'"),
+}
+
+
+def _resolve(name, start=0):
+    """The first definition of ``name`` in the MRO from ``start``, with its index."""
+    mro = RedshiftCompiler.__mro__
+    for i in range(start, len(mro)):
+        if name in vars(mro[i]):
+            return i, vars(mro[i])[name]
+    return None, None
+
+
+def _inherited_names(op):
+    """Every function name this op's visitor can emit through inherited code:
+    the visitor, each helper it calls, and each implementation it reaches
+    through ``super()``, transitively."""
+    return _walk(op)[0]
+
+
+def _inherited_sources(op):
+    """The source of every inherited implementation ``_inherited_names`` reads."""
+    return _walk(op)[1]
+
+
+@functools.cache
+def _walk(op):
+    names = []
+    sources = []
+    seen = set()
+    pending = [(f"visit_{op.__name__}", 0)]
+    while pending:
+        name, start = pending.pop()
+        i, impl = _resolve(name, start)
+        if impl is None or not inspect.isfunction(impl) or (name, i) in seen:
+            continue
+        seen.add((name, i))
+        if "_name" in (impl.__kwdefaults__ or {}):
+            names.append(impl.__kwdefaults__["_name"])
+            continue
+        source = inspect.getsource(impl)
+        if RedshiftCompiler.__mro__[i].__module__ != RedshiftCompiler.__module__:
+            names.extend(a or b for a, b in _CALL.findall(source))
+            sources.append(source)
+        pending.extend(
+            (helper, 0)
+            for helper in _HELPER.findall(source)
+            if helper not in _NOT_FOLLOWED
+        )
+        pending.extend((parent, i + 1) for parent in _SUPER.findall(source))
+    return tuple(names), tuple(sources)
+
+
+def _has_dynamic_name(op) -> bool:
+    return any(_DYNAMIC.search(source) for source in _inherited_sources(op))
+
+
+def _compilable_inherited_ops():
+    for op in _compilable_ops():
+        visitor = getattr(RedshiftCompiler, f"visit_{op.__name__}")
+        if visitor.__module__ != RedshiftCompiler.__module__:
+            yield op, visitor
+
+
+def _reachable_functions() -> dict[str, set[str]]:
+    reached = defaultdict(set)
+    for op in _compilable_ops():
+        dynamic = DYNAMIC_NAMES.get(op.__name__, ((), ""))[0]
+        for name in (*_inherited_names(op), *dynamic):
+            if (op.__name__, name.lower()) not in SHADOWED_BY_OVERRIDE:
+                reached[name.lower()].add(op.__name__)
+    return reached
+
+
+def _dialect_renamed_functions() -> dict[str, str]:
+    """Each function name a transform in the xorq ``Redshift`` generator renders,
+    for every transform that class adds or replaces over sqlglot's own."""
+    ours = Redshift.Generator.TRANSFORMS
+    theirs = SqlglotRedshift.Generator.TRANSFORMS
+    generator = Redshift().generator()
+    renamed = {}
+    for node, transform in ours.items():
+        if theirs.get(node) is transform:
+            continue
+        sql = transform(
+            generator, node(this=sge.column("a"), expression=sge.column("b"))
+        )
+        match = re.match(r"(\w+)\(", sql)
+        if match:
+            renamed[match.group(1).lower()] = node.__name__
+    return renamed
+
+
+def test_every_dialect_renamed_function_is_classified():
+    """A transform the xorq class adds emits a name no visitor names -- the
+    inventory above sees ``split``, not the ``SPLIT_TO_ARRAY`` that reaches the
+    wire -- and ``SPLIT_TO_ARRAY`` and ``GET_ARRAY_LENGTH`` shipped unprobed
+    that way."""
+    renamed = _dialect_renamed_functions()
+    assert renamed, "the dialect scan found no renames; the scan is broken"
+    assert set(renamed) == set(DIALECT_RENAMED), (
+        f"dialect renames {sorted(renamed)} against classified "
+        f"{sorted(DIALECT_RENAMED)}. Probe each new one on a compute node."
+    )
+    absent = sorted(set(renamed) & set(MEASURED_ABSENT_FUNCTIONS))
+    assert not absent, f"the dialect renames to a measured-absent function: {absent}"
+
+
+def test_the_sweep_sees_the_inherited_surface():
+    """Guards the two tests below against a scan that silently finds nothing:
+    one name read from source, one from a generated ``SIMPLE_OPS`` visitor
+    defined on ``SQLGlotCompiler`` itself, and one reached only by following
+    ``super()`` and a helper (``visit_Literal`` -> ``visit_NonNullLiteral`` ->
+    ``visit_DefaultLiteral``)."""
+    reached = _reachable_functions()
+    assert len(list(_compilable_inherited_ops())) > 200
+    assert {"coalesce", "lower", "st_geomfromtext"} <= set(reached)
+
+
+def test_every_computed_function_name_is_declared():
+    """A name computed at run time is invisible to the scan above, so the op
+    that computes one must say what it can produce. The JSON array and unwrap
+    ops built ``JSON_ARRAY_ELEMENTS`` and ``JSON_TYPEOF`` that way, unseen,
+    until they were refused."""
+    computed = {op.__name__ for op in _compilable_ops() if _has_dynamic_name(op)}
+    assert computed == set(DYNAMIC_NAMES), (
+        f"undeclared: {sorted(computed - set(DYNAMIC_NAMES))}; "
+        f"stale: {sorted(set(DYNAMIC_NAMES) - computed)}"
+    )
+
+
+def test_every_shadowed_name_is_reached():
+    """A shadow entry for a path the scan no longer finds would hide the name
+    the day a new path reaches it."""
+    scanned = {
+        (op.__name__, name.lower())
+        for op in _compilable_ops()
+        for name in _inherited_names(op)
+    }
+    stale = sorted(set(SHADOWED_BY_OVERRIDE) - scanned)
+    assert not stale, f"SHADOWED_BY_OVERRIDE names a path nothing reaches: {stale}"
+
+
+def test_every_inherited_function_is_classified():
+    reached = set(_reachable_functions())
+    unclassified = sorted(reached - set(INVENTORY))
+    stale = sorted(set(INVENTORY) - reached)
+    assert not unclassified, (
+        f"newly reachable through inherited code, and never classified: "
+        f"{unclassified}. Probe each on a compute node and add it to INVENTORY."
+    )
+    assert not stale, f"INVENTORY names no inherited visitor reaches: {stale}"
+
+
+def test_no_compilable_op_reaches_a_measured_absent_function():
+    reached = _reachable_functions()
+    live = {
+        name: sorted(reached[name])
+        for name in MEASURED_ABSENT_FUNCTIONS
+        if name in reached
+    }
+    assert not live, (
+        "these ops still compile through a function Redshift lacks; override "
+        f"or refuse them: {live}"
+    )
+
+
+def test_no_compilable_op_builds_an_unnest():
+    """Redshift has no ``UNNEST``, and sqlglot's Redshift generator drops the
+    node with a warning instead of raising, so an inherited visitor that builds
+    one compiles to SQL with a hole in it or a join onto a bare column. A
+    function-name scan cannot see this: ``sge.Unnest`` is a node, not a call."""
+    live = sorted(
+        op.__name__
+        for op in _compilable_ops()
+        if any("sge.Unnest(" in source for source in _inherited_sources(op))
+    )
+    assert not live, f"these ops still compile through UNNEST; refuse them: {live}"
+
+
+def test_no_absent_function_is_also_classified():
+    both = sorted(set(INVENTORY) & set(MEASURED_ABSENT_FUNCTIONS))
+    assert not both, f"classified as reachable AND measured absent: {both}"
+
+
+def test_every_tag_is_known():
+    tags = {tag for tag, _ in (*INVENTORY.values(), *DIALECT_RENAMED.values())}
+    assert tags <= {PRESENT, UNVERIFIED}
