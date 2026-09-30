@@ -1057,3 +1057,26 @@ def test_a_conflict_over_a_lost_column_lists_what_changed(
         "t: recorded columns gone: a; live columns new: x\n"
         "if a column was renamed, pass --rename <source> <old> <new>"
     ) in result.stderr
+
+
+def test_a_renamed_entry_keeps_following_its_source(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The rename is rebuilt from its mark on every rebase; a later rename
+    names source columns only, and composes with it."""
+    replace_t(world, RENAMED)
+    first = rebase(runner, world, world.name, "--rename", "t", "a", "x")
+    assert first.exit_code == 0, first.output
+
+    replace_t(world, RENAMED.append_column("c", pa.array([1.5, 2.5], pa.float64())))
+    grown = rebase(runner, world, first.stdout.strip())
+    assert grown.exit_code == 0, grown.output
+    assert "Output: c float64 added\n" in grown.stderr
+
+    replace_t(world, pa.table({"y": [1, 2], "c": [1.5, 2.5]}))
+    twice = rebase(runner, world, grown.stdout.strip(), "--rename", "t", "x", "y")
+    assert twice.exit_code == 0, twice.output
+    assert "Renamed t: x <- y\nOutput: b removed\n" in twice.stderr
+    new = reopen(world).get_catalog_entry(twice.stdout.strip())
+    assert new.columns == ("a", "c")
+    assert list(new.load_expr().execute()["a"]) == [2]

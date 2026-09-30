@@ -29,8 +29,10 @@ from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import (
     check_refreshable,
+    compose_renames,
     leaf_key,
     live_schemas,
+    marked_renames,
     op_key,
     refresh_build,
     refresh_schemas,
@@ -50,6 +52,7 @@ from xorq.expr.relations import (
     CachedNode,
     FlightExpr,
     FlightUDXF,
+    HashingTag,
     Read,
     RemoteTable,
     Tag,
@@ -1001,3 +1004,82 @@ def test_an_empty_rename_adds_no_op(con: SqliteBackend) -> None:
 
     refreshed = refresh_schemas(expr, live, {key: {} for key in live})
     assert refreshed.op() == refresh_schemas(expr, live).op()
+
+
+def renamed_once(con: SqliteBackend) -> xo.Expr:
+    """`t.filter(t.a > 1)`, refreshed over `t` whose `a` is now `x`."""
+    t = con.table("t")
+    expr = t.filter(t.a > 1)
+    live = drift_the_table(expr, RENAMED)
+    return refresh_schemas(expr, live, {key: {"a": "x"} for key in live})
+
+
+def the_mark(expr: xo.Expr) -> dict[str, str]:
+    (mark,) = (
+        held
+        for node in walk_nodes(HashingTag, expr)
+        if (held := marked_renames(node)) is not None
+    )
+    return mark
+
+
+@pytest.mark.parametrize(
+    "live, columns",
+    (
+        pytest.param(
+            pa.schema({"x": pa.int64(), "b": pa.string(), "c": pa.float64()}),
+            ["a", "b", "c"],
+            id="added",
+        ),
+        pytest.param(pa.schema({"x": pa.int64()}), ["a"], id="dropped"),
+    ),
+)
+def test_a_marked_rename_follows_its_source(
+    con: SqliteBackend, live: pa.Schema, columns: list[str]
+) -> None:
+    """Rebuilt from its mark, not recreated with the columns it had."""
+    once = renamed_once(con)
+    assert the_mark(once) == {"a": "x"}
+
+    refreshed = refresh_schemas(once, drift_the_table(once, live))
+    assert list(refreshed.schema()) == columns
+    assert the_mark(refreshed) == {"a": "x"}
+
+
+def test_a_rename_of_a_renamed_column_composes_with_the_mark(
+    con: SqliteBackend,
+) -> None:
+    """The user names source columns only: `x` -> `y`, never `a`."""
+    once = renamed_once(con)
+    live = drift_the_table(once, pa.schema({"y": pa.int64(), "b": pa.string()}))
+
+    twice = refresh_schemas(once, live, {key: {"x": "y"} for key in live})
+    assert list(twice.schema()) == ["a", "b"]
+    assert the_mark(twice) == {"a": "y"}
+
+
+def test_a_mark_over_an_unchanged_source_stands(con: SqliteBackend) -> None:
+    once = renamed_once(con)
+    u = con.create_table("u", RECORDED.to_pandas())
+    expr = once.union(u.select("a", "b"))
+    # Only `u` drifts; `t`, under the mark, is left as recorded.
+    (key,) = drift_the_table(u, GROWN.schema)
+
+    refreshed = refresh_schemas(expr, {key: xo.schema(GROWN.schema)})
+    assert the_mark(refreshed) == {"a": "x"}
+    assert list(refreshed.schema()) == ["a", "b"]
+
+
+@pytest.mark.parametrize(
+    "held, declared, composed",
+    (
+        pytest.param({"a": "x"}, {"x": "y"}, {"a": "y"}, id="chain"),
+        pytest.param({"a": "x"}, {"b": "z"}, {"a": "x", "b": "z"}, id="another"),
+        pytest.param({"a": "x"}, {"x": "a"}, {}, id="back-to-its-name"),
+        pytest.param({}, {"a": "x"}, {"a": "x"}, id="first"),
+    ),
+)
+def test_compose_renames(
+    held: dict[str, str], declared: dict[str, str], composed: dict[str, str]
+) -> None:
+    assert compose_renames(held, declared) == composed
