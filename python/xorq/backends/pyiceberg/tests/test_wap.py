@@ -1,10 +1,11 @@
 """WAP (Write-Audit-Publish) over the pyiceberg backend.
 
-Both strategies go through ``make_iceberg_wap_expr``:
+Both staging strategies go through ``make_backend_wap_expr``
+(``make_iceberg_wap_expr`` is its APPEND alias):
 
-  * branch-based (``make_iceberg_wap_expr(con, table_name)``): staging branch
+  * ``BRANCH`` (``make_iceberg_wap_expr(con, table_name)``): staging branch
     is fast-forwarded into main on pass, retained on fail.
-  * table-based (``make_iceberg_wap_expr(con)``): staging table is copied into
+  * ``TABLE`` (``make_iceberg_wap_expr(con)``): staging table is copied into
     final and dropped on pass, retained on fail.
 """
 
@@ -19,11 +20,11 @@ import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.pyiceberg import Backend
 from xorq.vendor.ibis import _
-from xorq.writes import make_iceberg_wap_expr
+from xorq.writes import PublishMode, StagingStrategy, make_iceberg_wap_expr
 from xorq.writes.wap import FINAL as FINAL_COL
 from xorq.writes.wap import PASSED as PASSED_COL
 from xorq.writes.wap import STAGING as STAGING_COL
-from xorq.writes.wap import make_publish_with_iceberg
+from xorq.writes.wap import make_backend_wap_expr, make_publish_with_iceberg
 
 
 FINAL = "final"
@@ -81,6 +82,20 @@ def test_branch_wap_append(fresh_con: Backend) -> None:
     _wap_expr(wap, good, "src2").execute()
 
     assert len(fresh_con.table(FINAL).execute()) == 8
+
+
+def test_branch_wap_via_backend_factory(fresh_con: Backend) -> None:
+    # BRANCH staging is a first-class strategy on the unified backend factory;
+    # the branch's table is `final` supplied at the pipe (no table_name binding).
+    wap = make_backend_wap_expr(
+        fresh_con, mode=PublishMode.APPEND, staging_strategy=StagingStrategy.BRANCH
+    )
+    out = _wap_expr(wap, good, "src_good").execute()
+
+    assert out["passed"].iloc[0]
+    assert out["published"].iloc[0]
+    assert STAGING not in _refs(fresh_con), "staging branch should be removed"
+    assert len(fresh_con.table(FINAL).execute()) == 4
 
 
 def test_table_wap_pass(fresh_con: Backend) -> None:
