@@ -2,7 +2,8 @@
 
 ``INHERITED`` holds one expression per function name the op inventory lists as
 reachable through inherited code, built over the probe table so that every
-compiled statement runs on compute. ``RECHECK`` holds the acceptances an
+compiled statement runs on compute; ``RENAMED`` does the same for the names
+the xorq Redshift dialect renames typed nodes to. ``RECHECK`` holds the acceptances an
 earlier record measured with constant-only queries, which ran on the leader
 node, re-asked against the probe table. ``{table}`` is filled in with the
 qualified probe table.
@@ -104,14 +105,26 @@ INHERITED = {
     ),
 }
 
+# One expression per function name the xorq Redshift dialect's own TRANSFORMS
+# rename a typed sqlglot node to. The op inventory's static read cannot see
+# these, because no visitor names them; see ``DIALECT_RENAMED`` there.
+RENAMED = {
+    "split_to_array": ("StringSplit", lambda t: t.title.split(" ")),
+    "get_array_length": ("ArrayLength", lambda t: ibis.array([t.id, t.id]).length()),
+    "get_array_length/split": (
+        "ArrayLength",
+        lambda t: t.title.split(" ").length(),
+    ),
+}
+
 # The kinds of expression the corpus builds. A reduction is compiled as an
 # aggregate, everything else as a projection alongside the id column.
 REDUCTIONS = frozenset({"avg", "bit_and", "bit_or", "bool_and", "min", "sum", "corr"})
 
 
-def compile_inherited(name, table, compiler):
-    """The statement ``INHERITED[name]`` compiles to over ``table``."""
-    _, build = INHERITED[name]
+def compile_inherited(name, table, compiler, corpus=INHERITED):
+    """The statement ``corpus[name]`` compiles to over ``table``."""
+    _, build = corpus[name]
     value = build(table)
     if isinstance(value, ir.Table):
         expr = value

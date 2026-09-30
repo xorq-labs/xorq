@@ -35,6 +35,8 @@ import re
 from collections import defaultdict
 
 import pytest
+import sqlglot.expressions as sge
+from sqlglot.dialects import Redshift as SqlglotRedshift
 
 
 # Must run before the xorq.backends.redshift import; see the matching guard in
@@ -45,6 +47,7 @@ pytest.importorskip("psycopg")
 import xorq.vendor.ibis.expr.operations as ops  # noqa: E402
 from xorq.backends.redshift.compiler import RedshiftCompiler  # noqa: E402
 from xorq.tests.redshift_evidence import MEASURED_ABSENT_FUNCTIONS  # noqa: E402
+from xorq.vendor.ibis.backends.sql.dialects import Redshift  # noqa: E402
 
 
 PRESENT = "present"  # ran on a compute node, reading a table
@@ -110,16 +113,29 @@ INVENTORY: dict[str, tuple[str, str]] = {
         "row_number".split(),
         (UNVERIFIED, _SIMPLE),
     ),
-    "array_size": (UNVERIFIED, f"renders GET_ARRAY_LENGTH; {_SIMPLE}"),
+    "array_size": (PRESENT, "renders GET_ARRAY_LENGTH; see DIALECT_RENAMED"),
     "date": (UNVERIFIED, f"renders DATE(...); {_SIMPLE}"),
     "if": (UNVERIFIED, f"renders CASE WHEN; {_SIMPLE}"),
     "json_extract": (
         UNVERIFIED,
         "renders JSON_EXTRACT_PATH_TEXT; reached through PostgreSQL's super()",
     ),
-    "split": (UNVERIFIED, f"renders SPLIT_TO_ARRAY; {_SIMPLE}"),
+    "split": (PRESENT, "renders SPLIT_TO_ARRAY; see DIALECT_RENAMED"),
     "str_to_date": (UNVERIFIED, f"renders TO_DATE; {_SIMPLE}"),
     "str_to_time": (UNVERIFIED, f"renders TO_TIMESTAMP(s, format); {_SIMPLE}"),
+}
+
+# Function names the xorq Redshift dialect's own TRANSFORMS rename a typed
+# sqlglot node to. The static read above sees the name a visitor asks for
+# (``split``, ``array_size``), not what the dialect renders it as, so what
+# reaches the wire is read from the dialect instead, by rendering each
+# transform the xorq class adds.
+DIALECT_RENAMED: dict[str, tuple[str, str]] = {
+    "split_to_array": (PRESENT, "sge.Split; live corpus, 2026-09-30"),
+    "get_array_length": (
+        PRESENT,
+        "sge.ArraySize; over ARRAY() and over SPLIT_TO_ARRAY; live corpus, 2026-09-30",
+    ),
 }
 
 # Names an op reaches only through a hand-written override that intercepts
@@ -226,6 +242,40 @@ def _reachable_functions() -> dict[str, set[str]]:
     return reached
 
 
+def _dialect_renamed_functions() -> dict[str, str]:
+    """Each function name a transform in the xorq ``Redshift`` generator renders,
+    for every transform that class adds or replaces over sqlglot's own."""
+    ours = Redshift.Generator.TRANSFORMS
+    theirs = SqlglotRedshift.Generator.TRANSFORMS
+    generator = Redshift().generator()
+    renamed = {}
+    for node, transform in ours.items():
+        if theirs.get(node) is transform:
+            continue
+        sql = transform(
+            generator, node(this=sge.column("a"), expression=sge.column("b"))
+        )
+        match = re.match(r"(\w+)\(", sql)
+        if match:
+            renamed[match.group(1).lower()] = node.__name__
+    return renamed
+
+
+def test_every_dialect_renamed_function_is_classified():
+    """A transform the xorq class adds emits a name no visitor names -- the
+    inventory above sees ``split``, not the ``SPLIT_TO_ARRAY`` that reaches the
+    wire -- and ``SPLIT_TO_ARRAY`` and ``GET_ARRAY_LENGTH`` shipped unprobed
+    that way."""
+    renamed = _dialect_renamed_functions()
+    assert renamed, "the dialect scan found no renames; the scan is broken"
+    assert set(renamed) == set(DIALECT_RENAMED), (
+        f"dialect renames {sorted(renamed)} against classified "
+        f"{sorted(DIALECT_RENAMED)}. Probe each new one on a compute node."
+    )
+    absent = sorted(set(renamed) & set(MEASURED_ABSENT_FUNCTIONS))
+    assert not absent, f"the dialect renames to a measured-absent function: {absent}"
+
+
 def test_the_sweep_sees_the_inherited_surface():
     """Guards the two tests below against a scan that silently finds nothing:
     one name read from source, one from a generated ``SIMPLE_OPS`` visitor
@@ -292,4 +342,5 @@ def test_no_absent_function_is_also_classified():
 
 
 def test_every_tag_is_known():
-    assert {tag for tag, _ in INVENTORY.values()} <= {PRESENT, UNVERIFIED}
+    tags = {tag for tag, _ in (*INVENTORY.values(), *DIALECT_RENAMED.values())}
+    assert tags <= {PRESENT, UNVERIFIED}
