@@ -99,6 +99,11 @@ INTENDED_DIFFERENCES = {
         "ibis types the mean of decimal(18, 4) as decimal(18, 4); Redshift "
         "truncates to that scale while PostgreSQL carries every digit"
     ),
+    # The same declared type, for logarithms: both compilers cast log(b) and
+    # log2 to decimal(18, 4), but PostgreSQL's ln and log10 skip the cast and
+    # carry every digit. Redshift casts all four.
+    "ln": "ibis types ln of decimal(18, 4) as decimal(18, 4); see avg",
+    "ln/log10": "ibis types log10 of decimal(18, 4) as decimal(18, 4); see avg",
     "extract/epoch": (
         "Redshift's EXTRACT(EPOCH) is whole seconds, ibis's integer type; "
         "PostgreSQL returns the fraction"
