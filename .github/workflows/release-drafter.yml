@@ -6,14 +6,19 @@ on:
       - main
   pull_request:
     types: [opened, reopened, synchronize, labeled, unlabeled]
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]  # edited: relabel on title/body edits
 
 permissions:
   contents: read
 
 jobs:
-  # v7 moved the autolabeler out of the drafter into its own action
+  # v7 moved the autolabeler out of the drafter into its own action. It runs
+  # on pull_request_target because fork PRs get a read-only token on
+  # pull_request. pull_request_target's token can write even for forks, so
+  # never check out or run PR code in this job.
   autolabel:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request_target'
     permissions:
       pull-requests: write  # to add labels to PRs
     runs-on: ubuntu-latest
@@ -23,6 +28,7 @@ jobs:
           config-name: release-drafter.yml
 
   update-release-draft:
+    if: github.event_name != 'pull_request_target'
     permissions:
       contents: write       # to create/update draft release
       pull-requests: read

@@ -1,7 +1,3 @@
-exclude-labels:
-  - ignore
-  - release
-  - dependencies
 name-template: 'xorq unreleased'
 version-template: unreleased
 
@@ -11,6 +7,8 @@ autolabeler:
   - label: 'breaking'
     title:
       - '/^\w+(\([^)]*\))?!:/'
+    body:
+      - '/^BREAKING[ -]CHANGE:/m'
   - label: 'release'
     title:
       - '/^release:/i'
@@ -45,15 +43,24 @@ autolabeler:
       - '/^spike(\(.*\))?!?:/i'
 
 categories:
-  # drop release PRs by title, so it doesn't depend on the "release" label
+  # v7 refuses the deprecated top-level exclude-labels next to a pre-exclude
+  # category, so the labels live here. The title condition drops release PRs
+  # even without the "release" label.
   - type: pre-exclude
     when:
-      conventional:
-        type: release
+      - labels:
+          - ignore
+          - release
+          - dependencies
+      - conventional:
+          type: release
+  # the title condition still catches "!" PRs the autolabeler never labelled
   - title: 💥 Breaking changes
     exclusive: true
-    labels:
-      - breaking
+    when:
+      - label: breaking
+      - conventional:
+          breaking: true
   - title: 🚀 Performance improvements
     labels:
       - performance
