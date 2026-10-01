@@ -7,8 +7,9 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, labeled, unlabeled]
   pull_request_target:
-    # edited labels title/body edits, but the autolabeler only adds labels.
-    # Remove a stale one by hand, e.g. "breaking" after dropping a "!".
+    # edited: re-run the autolabeler on title/body edits. It only adds
+    # labels, so remove a stale one by hand, e.g. "breaking" after dropping
+    # a "!".
     types: [opened, reopened, synchronize, edited]
 
 permissions:
