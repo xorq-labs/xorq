@@ -7,12 +7,14 @@ autolabeler:
   # The body rule matches a "BREAKING CHANGE:" line anywhere, because real
   # footers can sit mid-body (#1869). An unindented example in a code block
   # matches too. Indent it: the next push or edit re-adds a removed label
-  # while the line is there.
+  # while the line is there. The heading rule catches the "## Breaking change"
+  # sections PRs here use instead of footers (#1866, #1867, #2159).
   - label: 'breaking'
     title:
       - '/^\w+(\([^)]*\))?!:/'
     body:
       - '/^BREAKING[ -]CHANGE:/m'
+      - '/^#{2,6}[ \t]*BREAKING[ -]CHANGES?\b/im'
   # release and dependencies mirror the pre-exclude title conditions below,
   # which are authoritative. Change them together. The conditions match type
   # and scope case-sensitively and need a space after the colon, so these
@@ -138,6 +140,9 @@ categories:
             - ref
             - refactor
             - spike
+  # catch-all: without it, uncategorized PRs (test:, style:, build:, plain
+  # titles) render with no heading above Breaking changes
+  - title: 🧹 Other changes
 
 template: |
   ## Changes
