@@ -23,8 +23,9 @@ class WheelCollisionError(ValueError):
 
 
 class RebaseError(XorqError):
-    """A rebase refused before writing anything; ``exit_code`` is the CLI's,
-    a ``RebaseExit``."""
+    """A rebase refused before its own first write; ``exit_code`` is the
+    CLI's, a ``RebaseExit``. One raised after a sync's pull leaves what the
+    pull merged in place, unpushed."""
 
     def __init__(self, message: str, exit_code: int) -> None:
         super().__init__(message, exit_code)

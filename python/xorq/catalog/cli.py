@@ -538,10 +538,11 @@ def _catalog_pin_command(
 
 
 def _catalog_pin_shared_options(fn: _F) -> _F:
-    """Options common to `catalog pin` and `catalog unpin`.
+    """Options common to `catalog pin`, `catalog unpin` and `catalog rebase`.
 
-    The command's own docstring distinguishes the pinned/unpinned result, so the
-    help text here stays neutral ("the new entry").
+    Each command's own docstring distinguishes its result and what its alias
+    options do there, so the help text here stays neutral ("the new entry").
+    Every one of them must take each option added here.
     """
     return apply_in_help_order(
         fn,
@@ -1139,48 +1140,47 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
 
 
 @cli.command("rebase")
-@click.argument("entry", shell_complete=_complete_entry_or_alias_names)
-@click.option(
-    "-a",
-    "--alias",
-    default=None,
-    help="Also register this alias for the new entry.",
-)
+@_catalog_pin_shared_options
 @click.option(
     "--only-alias",
     "only_aliases",
     multiple=True,
-    help="Move only this alias onto the new entry (repeatable).",
+    help="Move only this alias of the source entry onto the new entry (repeatable).",
 )
-@sync_option
-@cache_dir_option
 @ignore_venv_mismatch_option
 @click.pass_context
 def rebase(
     ctx: click.Context,
     entry: str,
-    alias: str | None,
-    only_aliases: tuple[str, ...],
     sync: bool,
     cache_dir: str | None,
+    alias: str | None,
+    move_aliases: bool,
+    only_aliases: tuple[str, ...],
     ignore_venv_mismatch: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
 
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
-    old entry is never edited or removed. Every alias moves to the new entry
-    unless --only-alias names the ones that should; an --alias already on the
-    old entry moves too, and one on another entry is taken from it. An alias
-    the sync's pull has moved off the old entry stays where the pull put it.
-    The new entry keeps the old one's wheels and requirements.
+    old entry is never edited or removed. The new entry keeps the old one's
+    wheels and requirements.
+
+    No alias moves unless asked. --move-aliases moves every alias the old
+    entry has once the sync's pull is in; --only-alias moves just the ones it
+    names, each of which must be on the old entry or, after the pull, already
+    on the new one (a rerun after a failed push). --alias registers another,
+    and is refused if it points at any entry but the old or the new one; one
+    already on the old entry moves. Alias options apply only to a new entry:
+    with no drift nothing is written and they are ignored, which stderr says,
+    though --only-alias must still name the old entry's aliases.
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
-    no drift that name is the entry's own, and nothing is committed: not even
-    the --alias, which stderr says was not added. An entry none of whose
-    sources can be probed is re-derived anyway; if it comes back with its own
-    hash, stderr says that drift was not ruled out, and if it comes back with
-    a new hash, the rebase is refused, since nothing was refreshed.
+    no drift that name is the entry's own, and nothing is committed. An entry
+    none of whose sources can be probed is re-derived anyway; if it comes back
+    with its own hash, stderr says that drift was not ruled out, and if it
+    comes back with a new hash, the rebase is refused, since nothing was
+    refreshed.
 
     \b
     Exit codes:
@@ -1190,13 +1190,16 @@ def rebase(
          not open, the entry is pinned, some but not all of its sources
          cannot be probed, none could be but the entry re-derived to a new
          hash, the entry was built on another Python minor, --only-alias
-         names an alias the entry lacks, or a write failed (an alias
-         move is rolled back locally, a failed rollback is logged; a
-         failed push is not)
+         names an alias on neither the old entry nor the new one (an
+         unregistered one before the sweep), --alias names an alias on
+         another entry than the old or new one (once there is a new entry),
+         ENTRY is an alias the pull moved or removed, or a write failed
+         (an alias move is rolled back locally, a failed rollback is logged;
+         a failed push is not)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; or the options
-         were invalid; nothing written
+         were invalid (--move-aliases with --only-alias); nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
          table is gone; nothing written
 
@@ -1207,11 +1210,16 @@ def rebase(
     \b
     Examples:
       xorq catalog rebase prod-matches
+      xorq catalog rebase prod-matches --move-aliases
       xorq catalog rebase prod-matches --only-alias prod -a matches-v2
     """
+    if move_aliases and only_aliases:
+        raise click.UsageError("--move-aliases and --only-alias are mutually exclusive")
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
+        # Resolved before the pull, which may move it: checked again after.
+        entry_alias = entry if entry in catalog.list_aliases() else None
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
@@ -1223,10 +1231,12 @@ def rebase(
             result = rebase_entry(
                 catalog_entry,
                 alias=alias,
-                move_aliases=only_aliases or None,
+                move_aliases=move_aliases,
+                only_aliases=only_aliases,
                 sync=sync,
                 ignore_mismatch=ignore_venv_mismatch,
                 cache_dir=_get_cache_dir(cache_dir),
+                entry_alias=entry_alias,
             )
         except RebaseError as e:
             # Kept from the handler, which collapses every error to exit 1.
@@ -1254,14 +1264,20 @@ def rebase(
         )
         if alias:
             click.echo(f"Alias {alias!r} not added: nothing to rebase", err=True)
+        if move_aliases or only_aliases:
+            click.echo("Aliases not moved: nothing to rebase", err=True)
     else:
         click.echo(f"Rebased {old} -> {new}", err=True)
         for moved in result.moved_aliases:
             click.echo(f"Moved alias {moved!r} -> {new}", err=True)
-        for taken, other in result.taken_aliases:
-            click.echo(f"Moved alias {taken!r} from {other} -> {new}", err=True)
-        for skipped in result.skipped_aliases:
-            click.echo(f"Alias {skipped!r} not moved: no longer on {old}", err=True)
+        for added in result.added_aliases:
+            click.echo(f"Added alias {added!r} -> {new}", err=True)
+        # Each alias named gets one line: one neither moved nor added was
+        # on the new entry already (a pull or an earlier run put it there).
+        done = {*result.moved_aliases, *result.added_aliases}
+        for name in dict.fromkeys((*only_aliases, *((alias,) if alias else ()))):
+            if name not in done:
+                click.echo(f"Alias {name!r} already on {new}", err=True)
     click.echo(new)
 
 
