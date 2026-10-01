@@ -93,7 +93,11 @@ class Backend(IbisSQLiteBackend):
             cur.executemany(insert_stmt, data)
 
     def is_in_memory(self):
-        return "memory" in self.uri
+        # sqlite reports no file for a database held in memory, whichever
+        # spelling opened it (":memory:", "file::memory:", "mode=memory")
+        query = "SELECT file FROM pragma_database_list WHERE name = 'main'"
+        ((file,),) = self.con.execute(query).fetchall()
+        return not file
 
     def read_parquet(
         self,
@@ -111,8 +115,11 @@ class Backend(IbisSQLiteBackend):
         path: str | Path,
         table_name: str | None = None,
         mode: str = "create",
+        schema: Schema | None = None,
         **kwargs: Any,
     ) -> ir.Table:
         table_name = table_name or gen_name("xo_read_csv")
-        record_batches = default_backend().read_csv(path).to_pyarrow_batches()
+        record_batches = (
+            default_backend().read_csv(path, schema=schema).to_pyarrow_batches()
+        )
         return self.read_record_batches(record_batches, table_name, mode, **kwargs)
