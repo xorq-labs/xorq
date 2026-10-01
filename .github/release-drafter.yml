@@ -45,6 +45,11 @@ autolabeler:
       - '/^spike(\(.*\))?!?:/i'
 
 categories:
+  # drop release PRs by title, so it doesn't depend on the "release" label
+  - type: pre-exclude
+    when:
+      conventional:
+        type: release
   - title: 💥 Breaking changes
     exclusive: true
     labels:
