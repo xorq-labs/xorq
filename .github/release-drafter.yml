@@ -9,9 +9,11 @@ autolabeler:
       - '/^\w+(\([^)]*\))?!:/'
     body:
       - '/^BREAKING[ -]CHANGE:/m'
+  # release and dependencies mirror the pre-exclude title conditions below,
+  # which are authoritative. Change them together.
   - label: 'release'
     title:
-      - '/^release:/i'
+      - '/^release(\(.*\))?!?:/i'
   - label: 'dependencies'
     title:
       - '/^chore\(deps\):/i'
@@ -44,8 +46,8 @@ autolabeler:
 
 categories:
   # v7 refuses the deprecated top-level exclude-labels next to a pre-exclude
-  # category, so the labels live here. The title condition drops release PRs
-  # even without the "release" label.
+  # category, so the labels live here. The title conditions are authoritative:
+  # they drop release and deps PRs even when the autolabeler never ran.
   - type: pre-exclude
     when:
       - labels:
@@ -54,6 +56,13 @@ categories:
           - dependencies
       - conventional:
           type: release
+      # like the dependencies autolabel rule, "fix(deps)!:" stays in the draft
+      - conventional:
+          types:
+            - chore
+            - fix
+          scope: deps
+          breaking: false
   # the title condition still catches "!" PRs the autolabeler never labelled
   - title: 💥 Breaking changes
     exclusive: true
