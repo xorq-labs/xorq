@@ -133,18 +133,21 @@ def test_deferred_read_csv_keeps_schema(astronauts_csv_path, tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("database", "kwargs", "expected"),
+    ("database", "kwargs"),
     [
-        (None, {}, True),
-        ("file::memory:", {"uri": True}, True),
-        ("file:x?mode=memory", {"uri": True}, True),
-        ("memory/warehouse.sqlite", {}, False),
+        (None, {}),
+        ("file::memory:", {"uri": True}),
+        ("file:x?mode=memory", {"uri": True}),
     ],
 )
-def test_is_in_memory(database, kwargs, expected, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "memory").mkdir()
-    assert xo.sqlite.connect(database, **kwargs).is_in_memory() is expected
+def test_is_in_memory(database, kwargs):
+    assert xo.sqlite.connect(database, **kwargs).is_in_memory()
+
+
+def test_is_in_memory_false_for_file_under_memory_dir(tmp_path):
+    path = tmp_path / "memory" / "warehouse.sqlite"
+    path.parent.mkdir()
+    assert not xo.sqlite.connect(path).is_in_memory()
 
 
 def test_sqlite_snapshot(con_snapshot):

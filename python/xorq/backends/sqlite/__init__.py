@@ -96,7 +96,7 @@ class Backend(IbisSQLiteBackend):
         # sqlite reports no file for a database held in memory, whichever
         # spelling opened it (":memory:", "file::memory:", "mode=memory")
         query = "SELECT file FROM pragma_database_list WHERE name = 'main'"
-        ((file,),) = self.con.execute(query).fetchall()
+        (file,) = self.con.execute(query).fetchone()
         return not file
 
     def read_parquet(
