@@ -146,12 +146,13 @@ def test_move_aliases_moves_them_all(runner: CliRunner, world: SimpleNamespace) 
 
 
 @ALL_BACKENDS
+@pytest.mark.parametrize("moving", (("--move-aliases",), ("--only-alias", "live")))
 def test_no_drift_prints_the_same_hash_and_commits_nothing(
-    runner: CliRunner, world: SimpleNamespace
+    runner: CliRunner, world: SimpleNamespace, moving: tuple[str, ...]
 ) -> None:
     commits = commit_count(world.catalog)
 
-    result = rebase(runner, world, world.name, "-a", "v2", "--move-aliases")
+    result = rebase(runner, world, world.name, "-a", "v2", *moving)
     assert result.exit_code == 0, result.output
     assert result.stdout == f"{world.name}\n"
     assert "no drift" in result.stderr
@@ -186,6 +187,26 @@ def test_an_alias_already_on_the_entry_moves_and_is_reported(
     assert targets(world, "live", "staging") == (new, new)
 
 
+@pytest.mark.parametrize(
+    "args",
+    (
+        pytest.param(("--move-aliases", "-a", "live"), id="move-aliases"),
+        pytest.param(("--only-alias", "live", "-a", "live"), id="only-alias"),
+        pytest.param(("--only-alias", "live", "--only-alias", "live"), id="repeated"),
+    ),
+)
+def test_an_alias_named_twice_moves_once(
+    runner: CliRunner, world: SimpleNamespace, args: tuple[str, ...]
+) -> None:
+    replace_t(world, GROWN)
+
+    result = rebase(runner, world, world.name, *args)
+    assert result.exit_code == 0, result.output
+    new = result.stdout.strip()
+    assert result.stderr.count(f"Moved alias 'live' -> {new}") == 1
+    assert targets(world, "live") == (new,)
+
+
 def test_an_entry_with_only_unprobed_sources_is_attempted(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -199,6 +220,7 @@ def test_an_entry_with_only_unprobed_sources_is_attempted(
     assert "No source could be probed (t)" in result.stderr
     assert "drift not ruled out" in result.stderr
     assert "no drift" not in result.stderr
+    assert "Aliases not moved" not in result.stderr
     assert commit_count(reopen(world)) == commits
     attempted = rebase_old(world)
     assert (attempted.status, attempted.unprobed) == (RebaseStatus.ATTEMPTED, ("t",))
@@ -244,6 +266,18 @@ def test_a_python_minor_mismatch_is_overridable(
     assert result.stdout.strip() != world.name
 
 
+def test_rebase_entry_checks_its_alias_arguments(world: SimpleNamespace) -> None:
+    entry = world.catalog.get_catalog_entry(world.name)
+    # 0.4.5 took the names to move as `move_aliases`; they must not mean "all".
+    with pytest.raises(TypeError, match="only_aliases"):
+        rebase_entry(entry, move_aliases=("staging",))
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        rebase_entry(entry, move_aliases=True, only_aliases=("live",))
+    # An empty iterator names no alias.
+    noop = rebase_entry(entry, move_aliases=True, only_aliases=iter(()))
+    assert noop.status == RebaseStatus.NOOP
+
+
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
 RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
@@ -257,6 +291,12 @@ NO_REQUIREMENTS = "{name} carries no requirements.txt for the rebased entry"
 def refuse_unknown_alias(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
     return w.name, ("--only-alias", "nope"), ()
+
+
+def refuse_elsewhere_alias_without_drift(w: SimpleNamespace) -> Setup:
+    """With nothing to rebase, `--only-alias` must name one of the entry's."""
+    w.catalog.add_alias(other_entry(w), "fresh")
+    return w.name, ("--only-alias", "fresh"), ()
 
 
 def refuse_taken_alias(w: SimpleNamespace) -> Setup:
@@ -398,6 +438,12 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
     "setup, exit_code, message",
     (
         pytest.param(refuse_unknown_alias, 1, "no alias nope", id="unknown-alias"),
+        pytest.param(
+            refuse_elsewhere_alias_without_drift,
+            1,
+            "no alias fresh",
+            id="elsewhere-alias-no-drift",
+        ),
         pytest.param(
             refuse_taken_alias,
             1,
@@ -579,21 +625,22 @@ def test_a_rollback_keeps_an_entry_it_did_not_add(
 ) -> None:
     replace_t(world, GROWN)
     earlier = rebase_old(world).new_entry
-    catalog = reopen(world)
     if via == "pull":
         archive = Path(shutil.copy(earlier.catalog_path, tmp_path))
-        catalog.remove(earlier.name)
-    for alias in ("live", "staging"):
-        catalog.add_alias(world.name, alias)
-    if via == "pull":
+        # Before `pull_then`: `remove` syncs.
+        reopen(world).remove(earlier.name)
         pull_then(monkeypatch, lambda c: c.add(archive, sync=False))
 
+    # `-a fresh` lands on the kept entry through `catalog.add`, so only the
+    # rollback can take it off; the `staging` move after `live`'s fails.
     fail_nth_alias_move(monkeypatch, 2)
     with pytest.raises(RuntimeError, match="alias move failed"):
-        rebase_old(world, move_aliases=True)
+        rebase_old(world, alias="fresh", move_aliases=True)
     monkeypatch.undo()
 
-    assert set(reopen(world).list()) == {world.name, earlier.name}
+    catalog = reopen(world)
+    assert set(catalog.list()) == {world.name, earlier.name}
+    assert "fresh" not in catalog.list_aliases()
     assert targets(world, "live", "staging") == (world.name, world.name)
 
 
@@ -658,18 +705,28 @@ def test_move_aliases_moves_those_on_the_old_entry_after_the_pull(
 
 
 @pytest.mark.parametrize(
-    "args, message",
+    "entry, args, message",
     (
         pytest.param(
-            ("--only-alias", "live"), "{name} has no alias live", id="only-alias"
+            None, ("--only-alias", "live"), "{name} has no alias live", id="only-alias"
         ),
-        pytest.param(("-a", "live"), "alias 'live' points at {other}", id="alias"),
+        pytest.param(
+            None, ("-a", "live"), "alias 'live' points at {other};", id="alias"
+        ),
+        # ENTRY `live` meant the old entry before the pull, not after it.
+        pytest.param(
+            "live",
+            ("--move-aliases",),
+            "alias 'live' points at {other} after the pull, not {name}",
+            id="entry",
+        ),
     ),
 )
 def test_a_named_alias_the_pull_moved_away_is_refused(
     runner: CliRunner,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
+    entry: str | None,
     args: tuple[str, ...],
     message: str,
 ) -> None:
@@ -677,7 +734,7 @@ def test_a_named_alias_the_pull_moved_away_is_refused(
     replace_t(world, GROWN)
     pull_then(monkeypatch, lambda c: c.add_alias(other, "live", sync=False))
 
-    result = rebase(runner, world, world.name, *args)
+    result = rebase(runner, world, entry or world.name, *args)
     monkeypatch.undo()
     assert result.exit_code == 1, result.output
     assert message.format(name=world.name, other=other) in result.stderr
@@ -687,36 +744,35 @@ def test_a_named_alias_the_pull_moved_away_is_refused(
     assert targets(world, "live", "staging") == (other, world.name)
 
 
-def test_an_alias_already_on_the_new_entry_is_not_refused(
-    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "alias, args", (("fresh", ("-a",)), ("live", ("--only-alias",)))
+)
+def test_a_rerun_finds_the_alias_already_on_the_new_entry(
+    runner: CliRunner, world: SimpleNamespace, alias: str, args: tuple[str, ...]
 ) -> None:
-    """An earlier rebase, pulled in, already put `-a`'s alias on the new entry."""
+    """As after a failed push, or a pull of an earlier rebase of the entry."""
     replace_t(world, GROWN)
-    earlier = rebase_old(world, alias="fresh")
-    archive = Path(shutil.copy(earlier.new_entry.catalog_path, world.tmp_path))
-    catalog = reopen(world)
-    catalog.remove(earlier.new_entry.name)
-    catalog.add_alias(other_entry(world), "fresh")
+    new = rebase_old(world, alias="fresh", only_aliases=("live",)).new_entry.name
 
-    def pull(c: Catalog) -> None:
-        c.add(archive, sync=False, aliases=("fresh",))
-
-    pull_then(monkeypatch, pull)
-    result = rebase(runner, world, world.name, "-a", "fresh")
-    monkeypatch.undo()
+    result = rebase(runner, world, world.name, *args, alias)
     assert result.exit_code == 0, result.output
-    new = result.stdout.strip()
-    assert new == earlier.new_entry.name
-    assert alias_target_hash(reopen(world), "fresh") == new
+    assert result.stdout.strip() == new
+    assert "Moved alias" not in result.stderr
+    assert f"Alias {alias!r} already on {new}" in result.stderr
+    assert targets(world, alias) == (new,)
 
 
-def test_a_new_alias_is_not_reported_as_taken(
+def test_a_new_alias_is_reported_as_added(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     replace_t(world, GROWN)
     result = rebase(runner, world, world.name, "-a", "fresh")
     assert result.exit_code == 0, result.output
-    assert "'fresh'" not in result.stderr
+    new = result.stdout.strip()
+    # One line, the one `add-alias` prints.
+    assert [line for line in result.stderr.splitlines() if "'fresh'" in line] == [
+        f"Added alias 'fresh' -> {new}"
+    ]
 
 
 def test_a_failed_rollback_surfaces_the_error_that_caused_it(
