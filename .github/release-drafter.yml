@@ -8,16 +8,18 @@ autolabeler:
   # footers can sit mid-body (#1869). An unindented example in a code block
   # matches too. Indent it: the next push or edit re-adds a removed label
   # while the line is there. The heading rule catches the "## Breaking change"
-  # sections PRs here use instead of footers (#1866, #1867, #2159). It skips
-  # a section that says only "None" or "N/A". An empty section or any other
-  # wording, even "No breaking changes", still labels the PR, so write the
-  # heading only for a real break and keep it out of PR templates.
+  # sections PRs here use instead of footers (#1866, #1867, #2159), with an
+  # optional "s" or "(s)". It skips a section that says only "None" or "N/A".
+  # The (?![\w(]) guard stops the suffix backtracking past that check. An
+  # empty section or any other wording, even "No breaking changes", still
+  # labels the PR, so write the heading only for a real break and keep it out
+  # of PR templates.
   - label: 'breaking'
     title:
       - '/^\w+(\([^)]*\))?!:/'
     body:
       - '/^BREAKING[ -]CHANGE:/m'
-      - '/^#{2,6}[ \t]*BREAKING[ -]CHANGES?\b(?![^a-z]*(?:NONE|N\/A)[^a-z\n]*$)/im'
+      - '/^#{2,6}[ \t]*BREAKING[ -]CHANGE(?:S|\(S\))?(?![\w(])(?![^a-z]*(?:NONE|N\/A)[^a-z\n]*$)/im'
   # release and dependencies mirror the pre-exclude title conditions below,
   # which are authoritative. Change them together. The conditions match type
   # and scope case-sensitively and need a space after the colon, so these
