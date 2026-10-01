@@ -59,7 +59,13 @@ categories:
       - labels:
           - ignore
           - release
+      # The autolabeler never removes labels, so a deps PR retitled with "!"
+      # keeps dependencies. The label only counts on a conventional title
+      # without "!", so a plain "Bump x from 1 to 2" stays in the draft.
+      - labels:
           - dependencies
+        conventional:
+          breaking: false
       - conventional:
           type: release
       # breaking: false matches only titles without "!" (unset matches both),
@@ -77,32 +83,61 @@ categories:
       - label: breaking
       - conventional:
           breaking: true
+  # Each category below also matches PR titles by conventional type, so a PR
+  # the autolabeler never labelled still gets a section. Unlike the type rules
+  # above (perf to internal), these need a lowercase type followed by ": ".
   - title: 🚀 Performance improvements
-    labels:
-      - performance
-      - perf
+    when:
+      - labels:
+          - performance
+          - perf
+      - conventional:
+          type: perf
   - title: ✨ Enhancements
-    labels:
-      - feature
-      - enhancement
+    when:
+      - labels:
+          - feature
+          - enhancement
+      - conventional:
+          type: feat
   - title: 🐞 Bug fixes
-    labels:
-      - fix
-      - bugfix
-      - bug
+    when:
+      - labels:
+          - fix
+          - bugfix
+          - bug
+      - conventional:
+          type: fix
   - title: 📖 Documentation
-    labels:
-      - documentation
-      - docs
+    when:
+      - labels:
+          - documentation
+          - docs
+      - conventional:
+          type: docs
+      - conventional:
+          type: chore
+          scope: docs
   - title: 📦 Build system
-    labels:
-      - build
-      - ci
-      - chore
+    when:
+      - labels:
+          - build
+          - ci
+          - chore
+      - conventional:
+          types:
+            - ci
+            - chore
   - title: 🛠️ Other improvements
-    labels:
-      - internal
-      - maintenance
+    when:
+      - labels:
+          - internal
+          - maintenance
+      - conventional:
+          types:
+            - ref
+            - refactor
+            - spike
 
 template: |
   ## Changes
