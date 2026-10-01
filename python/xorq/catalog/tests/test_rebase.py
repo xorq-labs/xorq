@@ -6,7 +6,6 @@ import shutil
 import sys
 import zipfile
 from collections.abc import Callable
-from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,7 +18,7 @@ from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog import drift
 from xorq.catalog import rebase as rebase_module
-from xorq.catalog.catalog import Catalog, CatalogAlias
+from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.cli import cli
 from xorq.catalog.enums import RebaseStatus
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
@@ -30,7 +29,7 @@ from xorq.catalog.tests.conftest import (
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
-from xorq.ibis_yaml.compiler import ExprDumper, build_expr
+from xorq.ibis_yaml.compiler import build_expr
 from xorq.ibis_yaml.enums import DumpFiles
 
 
@@ -207,23 +206,28 @@ def test_an_alias_named_twice_moves_once(
     assert targets(world, "live") == (new,)
 
 
-def test_an_entry_with_only_unprobed_sources_is_attempted(
+def test_an_entry_with_only_unprobed_sources_is_not_loaded(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Re-derived and settled by the hash, but not declared drift-free."""
+    """Nothing can be refreshed, so nothing is done; not declared drift-free."""
     monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
+
+    def no_load(*_: object, **__: object) -> None:
+        raise AssertionError("an unprobed entry must not be loaded")
+
+    monkeypatch.setattr(CatalogEntry, "load_expr", no_load)
     commits = commit_count(world.catalog)
 
-    result = rebase(runner, world)
+    result = rebase(runner, world, world.name, "-a", "v2")
     assert result.exit_code == 0, result.output
     assert result.stdout == f"{world.name}\n"
-    assert "No source could be probed (t)" in result.stderr
-    assert "drift not ruled out" in result.stderr
+    assert f"{world.name}: no source can be probed (t); nothing done" in result.stderr
     assert "no drift" not in result.stderr
+    assert "Alias 'v2' not added: nothing to rebase" in result.stderr
     assert "Aliases not moved" not in result.stderr
     assert commit_count(reopen(world)) == commits
-    attempted = rebase_old(world)
-    assert (attempted.status, attempted.unprobed) == (RebaseStatus.ATTEMPTED, ("t",))
+    unprobed = rebase_old(world)
+    assert (unprobed.status, unprobed.unprobed) == (RebaseStatus.UNPROBED, ("t",))
 
 
 @ALL_BACKENDS
@@ -264,6 +268,18 @@ def test_a_python_minor_mismatch_is_overridable(
     result = rebase(runner, world, world.name, "--ignore-venv-mismatch")
     assert result.exit_code == 0, result.output
     assert result.stdout.strip() != world.name
+    assert f"WARNING: {world.name} was built on Python 3.0" in result.stderr
+
+
+def test_an_unrecorded_python_minor_is_overridable_with_a_warning(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: None)
+
+    result = rebase(runner, world, world.name, "--ignore-venv-mismatch")
+    assert result.exit_code == 0, result.output
+    assert f"WARNING: {world.name} records no Python minor" in result.stderr
 
 
 def test_rebase_entry_checks_its_alias_arguments(world: SimpleNamespace) -> None:
@@ -326,17 +342,26 @@ def refuse_python_minor(w: SimpleNamespace) -> Setup:
     return w.name, (), ()
 
 
+def refuse_no_python_minor(w: SimpleNamespace) -> Setup:
+    replace_t(w, GROWN)
+    w.monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: None)
+    return w.name, (), ()
+
+
+def refuse_pull(w: SimpleNamespace) -> Setup:
+    replace_t(w, GROWN)
+
+    def failing_pull(self: Catalog) -> None:
+        raise OSError("remote gone")
+
+    w.monkeypatch.setattr(Catalog, "pull", failing_pull)
+    return w.name, (), ()
+
+
 def refuse_some_unprobed(w: SimpleNamespace) -> Setup:
     u = w.con.create_table("u", RECORDED.to_pandas())
     w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: leaf.name != "u")
     return w.catalog.add(w.con.table("t").union(u)).name, (), ()
-
-
-def refuse_unprobed_new_hash(w: SimpleNamespace) -> Setup:
-    """No source probed, yet the re-derivation hashes anew: nothing to follow."""
-    w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
-    w.monkeypatch.setattr(ExprDumper, "expr_hash", property(lambda _: "0" * 12))
-    return w.name, (), ()
 
 
 def refuse_unreadable(target: str) -> Callable:
@@ -460,8 +485,21 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
         pytest.param(
             refuse_python_minor,
             1,
-            f"built on Python 3.0, this is {RUNNING}; pass --ignore-venv-mismatch",
+            f"built on Python 3.0, this is {RUNNING}; its UDFs may not load; "
+            "pass --ignore-venv-mismatch",
             id="python-minor",
+        ),
+        pytest.param(
+            refuse_no_python_minor,
+            1,
+            f"records no Python minor, this is {RUNNING}",
+            id="no-python-minor",
+        ),
+        pytest.param(
+            refuse_pull,
+            2,
+            "pull failed: OSError: remote gone; nothing written",
+            id="pull",
         ),
         pytest.param(
             refuse_some_unprobed,
@@ -503,12 +541,6 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
         pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
         pytest.param(
             refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
-        ),
-        pytest.param(
-            refuse_unprobed_new_hash,
-            1,
-            "no source could be probed (t)",
-            id="unprobed-new-hash",
         ),
         pytest.param(refuse_dropped_column, 4, "could not rebuild", id="column"),
         pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
@@ -576,14 +608,7 @@ def pull_then(
     monkeypatch: pytest.MonkeyPatch, change: Callable[[Catalog], object]
 ) -> None:
     """Stand in for a sync whose pull applies ``change`` to the catalog."""
-
-    @contextmanager
-    def pulling(self: Catalog, sync: bool):
-        if sync:
-            change(self)
-        yield
-
-    monkeypatch.setattr(Catalog, "maybe_synchronizing", pulling)
+    monkeypatch.setattr(Catalog, "pull", lambda self: change(self))
 
 
 @ALL_BACKENDS
@@ -787,4 +812,93 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     monkeypatch.setattr(Catalog, "remove", failing_remove)
     result = rebase(runner, world, world.name, "--move-aliases")
     assert result.exit_code == 1
-    assert "alias move failed" in result.stderr
+    assert "RuntimeError: alias move failed; rollback failed: OSError" in result.stderr
+    # It names what it left: the new entry, with the alias that moved.
+    assert "cataloged, aliases [live] -> " in result.stderr
+
+
+# Outcomes the output states: the output schema, a kept entry, the push.
+@pytest.mark.parametrize(
+    "build, table, output",
+    (
+        pytest.param(
+            lambda t: t.filter(t.a >= 1), GROWN, "Output: c float64 added", id="added"
+        ),
+        pytest.param(
+            lambda t: t.mutate(a2=t.a * 2),
+            pa.table({"a": [1.5, 2.5], "b": ["x", "y"]}),
+            "Output: a int64 -> float64, a2 int64 -> float64",
+            id="retyped",
+        ),
+        pytest.param(
+            lambda t: t.select("a"), GROWN, "Output: unchanged", id="unchanged"
+        ),
+    ),
+)
+def test_the_output_schema_change_is_reported(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    build: Callable,
+    table: pa.Table,
+    output: str,
+) -> None:
+    name = world.catalog.add(build(world.con.table("t"))).name
+    replace_t(world, table)
+
+    result = rebase(runner, world, name)
+    assert result.exit_code == 0, result.output
+    assert f"{output}\n" in result.stderr
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    changes = rebase_module.output_changes(
+        world.catalog.get_catalog_entry(name).load_expr().schema(),
+        new.load_expr().schema(),
+    )
+    assert output == f"Output: {', '.join(map(str, changes)) or 'unchanged'}"
+
+
+def test_an_entry_already_cataloged_is_kept_and_said_so(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, GROWN)
+    first = rebase_old(world)
+    assert first.created
+
+    result = rebase(runner, world, world.name, "--move-aliases")
+    assert result.exit_code == 0, result.output
+    new = first.new_entry.name
+    assert result.stdout == f"{new}\n"
+    assert (
+        f"Rebased {world.name} -> {new} (already cataloged; existing archive kept)"
+        in result.stderr
+    )
+    assert targets(world, "live", "staging") == (new, new)
+    assert not rebase_old(world).created
+
+
+def test_a_failed_push_exits_5_with_the_local_rebase_reported(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+
+    def failing_push(self: Catalog) -> None:
+        raise OSError("rejected")
+
+    monkeypatch.setattr(Catalog, "push", failing_push)
+    result = rebase(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert result.exit_code == 5, result.output
+    new = result.stdout.strip()
+    assert f"Rebased {world.name} -> {new}" in result.stderr
+    assert (
+        f"rebased to {new} locally; push failed: OSError: rejected; run "
+        "`xorq catalog push`" in result.stderr
+    )
+    # Committed locally, aliases moved; nothing rolled back.
+    assert set(reopen(world).list()) == {world.name, new}
+    assert targets(world, "live", "staging") == (new, new)
+
+
+def test_pushed_is_false_without_a_remote(world: SimpleNamespace) -> None:
+    replace_t(world, GROWN)
+    result = rebase_old(world)
+    assert (result.status, result.pushed) == (RebaseStatus.REBASED, False)

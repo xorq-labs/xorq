@@ -3,8 +3,10 @@
 The old entry is never edited or removed. Every refusal comes before the first
 write: the checks read only the archive, the sweep connects through ``drift``'s
 no-create guard, and nothing loads until the sweep has compared every source it
-can probe. With a sync, the alias checks run again after its pull, so a refusal
-there leaves what the pull merged in place, unpushed.
+can probe. The new entry keeps the old one's wheels, requirements, and each
+read's recorded posture (bundled or external); only schemas change. With a
+sync, the alias checks run again after its pull, so a refusal there leaves
+what the pull merged in place, unpushed.
 """
 
 from __future__ import annotations
@@ -12,14 +14,15 @@ from __future__ import annotations
 import sys
 import tempfile
 import zipfile
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from attr import field, frozen
-from attr.validators import deep_iterable, in_, instance_of
+from attr.validators import deep_iterable, in_, instance_of, optional
 
-from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
+from xorq.catalog.catalog import CatalogEntry
+from xorq.catalog.derive import Derived, add_derived, alias_targets, plan_aliases
 from xorq.catalog.drift import (
     LeafReport,
     format_error,
@@ -31,17 +34,21 @@ from xorq.catalog.drift import (
     unchecked_leaves,
 )
 from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict
-from xorq.catalog.exceptions import RebaseError
+from xorq.catalog.exceptions import (
+    AliasRefusedError,
+    PullError,
+    PushError,
+    RebaseError,
+    RebasePushError,
+    RollbackError,
+)
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
 from xorq.common.exceptions import SchemaRefreshError
-from xorq.common.utils.logging_utils import get_logger
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
-
-
-logger = get_logger(__name__)
+from xorq.vendor.ibis.expr.schema import Schema
 
 
 def str_tuple() -> Any:
@@ -50,6 +57,39 @@ def str_tuple() -> Any:
         default=(),
         converter=tuple,
         validator=deep_iterable(instance_of(str), instance_of(tuple)),
+    )
+
+
+@frozen
+class ColumnChange:
+    """One output column the rebase changed; ``None`` on the side it's absent."""
+
+    name = field(validator=instance_of(str))
+    before = field(validator=optional(instance_of(str)))
+    after = field(validator=optional(instance_of(str)))
+
+    def __str__(self) -> str:
+        if self.before is None:
+            return f"{self.name} {self.after} added"
+        if self.after is None:
+            return f"{self.name} removed"
+        return f"{self.name} {self.before} -> {self.after}"
+
+
+def output_changes(before: Schema, after: Schema) -> tuple[ColumnChange, ...]:
+    """The columns whose type ``after`` changed, added or removed, in order.
+
+    Types are spelled as ``format_schema`` spells them.
+    """
+    (old, new) = (dict(before.items()), dict(after.items()))
+    return tuple(
+        ColumnChange(
+            name,
+            None if name not in old else str(old[name]),
+            None if name not in new else str(new[name]),
+        )
+        for name in dict.fromkeys((*old, *new))
+        if old.get(name) != new.get(name)
     )
 
 
@@ -67,8 +107,21 @@ class RebaseResult:
     moved_aliases = str_tuple()
     # Registered by the rebase: an `alias` that was on no entry.
     added_aliases = str_tuple()
-    # The sources no probe could compare, when none could; never on REBASED.
+    # The sources no probe can compare, on UNPROBED.
     unprobed = str_tuple()
+    # REBASED only: false when the new entry was already cataloged, and its
+    # archive kept.
+    created = field(default=False, validator=instance_of(bool))
+    # REBASED only: false without a sync or a remote.
+    pushed = field(default=False, validator=instance_of(bool))
+    # REBASED only: how the entry's output schema changed; empty if it didn't.
+    output_changes = field(
+        default=(),
+        converter=tuple,
+        validator=deep_iterable(instance_of(ColumnChange), instance_of(tuple)),
+    )
+    # The Python-minor check `ignore_mismatch` overrode, if any.
+    venv_warning = field(default=None, validator=optional(instance_of(str)))
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -86,9 +139,8 @@ def check_rebasable(
 ) -> tuple[str, ...]:
     """The unprobed sources, when no source can be probed; refuses otherwise.
 
-    An entry whose sources are all unprobed is re-derived, and the hash
-    decides: the same hash is ``ATTEMPTED``, a new one is refused, since no
-    schema was refreshed to follow it. One with only some unprobed is refused:
+    An entry whose sources are all unprobed is ``UNPROBED``: nothing can be
+    refreshed, so it isn't loaded. One with only some unprobed is refused:
     those would come back unchanged beside the refreshed ones.
     """
     name = catalog_entry.name
@@ -120,8 +172,13 @@ def recorded_python_minor(catalog_entry: CatalogEntry) -> tuple[int, int] | None
     )
 
 
-def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> None:
-    """Refuse an entry built on another Python minor: its UDFs are cloudpickled."""
+def check_python_minor(
+    catalog_entry: CatalogEntry, ignore_mismatch: bool
+) -> str | None:
+    """Refuse an entry built on another Python minor, or on one it doesn't
+    record: its UDFs are cloudpickled. Returns the warning ``ignore_mismatch``
+    overrode, if any.
+    """
     name = catalog_entry.name
     try:
         recorded = recorded_python_minor(catalog_entry)
@@ -129,14 +186,24 @@ def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> No
         raise RebaseError(
             f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
         ) from e
-    running = tuple(sys.version_info[:2])
-    if recorded not in (None, running) and not ignore_mismatch:
+    running = ".".join(map(str, sys.version_info[:2]))
+    if recorded == tuple(sys.version_info[:2]):
+        return None
+    problem = (
+        f"{name} records no Python minor"
+        if recorded is None
+        else f"{name} was built on Python {'.'.join(map(str, recorded))}"
+    )
+    if not ignore_mismatch:
         raise RebaseError(
-            f"{name} was built on Python {'.'.join(map(str, recorded))}, this is "
-            f"{'.'.join(map(str, running))}; pass --ignore-venv-mismatch to rebase "
-            "anyway",
+            f"{problem}, this is {running}; its UDFs may not load; pass "
+            "--ignore-venv-mismatch to rebase anyway",
             RebaseExit.REFUSED,
         )
+    return (
+        f"WARNING: {problem}; rebasing under {running}, but cloudpickled UDFs "
+        "may SIGSEGV if built on a different minor"
+    )
 
 
 def check_bundle(catalog_entry: CatalogEntry) -> None:
@@ -159,49 +226,6 @@ def check_bundle(catalog_entry: CatalogEntry) -> None:
             f"{name} carries no {DumpFiles.requirements} for the rebased entry",
             RebaseExit.UNREACHABLE,
         )
-
-
-def plan_aliases(
-    old_entry: CatalogEntry,
-    alias: str | None,
-    move_aliases: bool,
-    only_aliases: tuple[str, ...],
-    new_name: str | None = None,
-) -> tuple[tuple[str, ...], dict[str, str | None]]:
-    """The aliases to move onto the new entry; refuses any the request can't have.
-
-    ``move_aliases`` moves every alias ``old_entry`` has now, ``only_aliases``
-    just these, each of which must be on it. ``alias`` must be unregistered or
-    on ``old_entry``: one on another entry is refused, not taken. An alias
-    already on ``new_name`` is where it was asked to be. Run after the sync's
-    pull, which can move an alias, or with no ``new_name`` when there is
-    nothing to rebase.
-
-    Returned with them: the entry each of them and ``alias`` points at now
-    (``None`` for an unregistered one), for a rollback to restore.
-    """
-    here = {old_entry.name, new_name} - {None}
-    added = (alias,) if alias else ()
-    targets = alias_targets(old_entry.catalog, (*only_aliases, *added))
-    if lacking := [name for name in only_aliases if targets[name] not in here]:
-        raise RebaseError(
-            f"{old_entry.name} has no alias {', '.join(sorted(lacking))}",
-            RebaseExit.REFUSED,
-        )
-    if alias and targets[alias] not in {None, *here}:
-        # `add-alias` moves it in one commit; removing it first would leave
-        # it resolving to nothing until a later rebase lands.
-        raise RebaseError(
-            f"alias {alias!r} points at {targets[alias]}; pick another name, "
-            "or rebase without it and then run "
-            f"`xorq catalog add-alias {new_name} {alias}`",
-            RebaseExit.REFUSED,
-        )
-    if move_aliases:
-        moving = tuple(catalog_alias.alias for catalog_alias in old_entry.aliases)
-        # Each was found on `old_entry`; no need to read it again.
-        return moving, {**targets, **dict.fromkeys(moving, old_entry.name)}
-    return only_aliases, targets
 
 
 def check_databases_exist(catalog_entry: CatalogEntry, record: BuildRecord) -> None:
@@ -263,112 +287,38 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
     (build_path / DumpFiles.requirements).write_bytes(requirements)
 
 
-def alias_targets(catalog: Catalog, aliases: Iterable[str]) -> dict[str, str | None]:
-    """The entry each of ``aliases`` points at, ``None`` for an unregistered one."""
-    registered = set(catalog.list_aliases())
-    return {
-        alias: CatalogAlias.from_name(alias, catalog).catalog_entry.name
-        if alias in registered
-        else None
-        for alias in aliases
-    }
+def refuse_aliases(e: AliasRefusedError) -> RebaseError:
+    return RebaseError(str(e), RebaseExit.REFUSED)
 
 
-def roll_back(
-    new_entry: CatalogEntry, prior: Mapping[str, str | None], added: bool
+def check_only_aliases(
+    catalog_entry: CatalogEntry, only_aliases: tuple[str, ...]
 ) -> None:
-    """Remove ``new_entry`` if ``added``, and point each alias back at ``prior``.
-
-    An alias ``prior`` maps to ``None`` did not exist, and is removed. Logged,
-    not raised, so the error that caused it is the one that surfaces.
-    """
-    catalog = new_entry.catalog
+    """With no new entry, each of ``only_aliases`` must be on ``catalog_entry``."""
     try:
-        # First: removing the entry takes the aliases on it along.
-        if added:
-            catalog.remove(new_entry.name, sync=False)
-        for alias, target in prior.items():
-            if target is not None:
-                if target != new_entry.name:
-                    catalog.add_alias(target, alias, sync=False)
-            elif alias in catalog.list_aliases():
-                catalog.remove_alias(alias, sync=False)
-    except Exception:
-        logger.exception("rebase rollback failed for %s", new_entry.name)
-
-
-def check_entry_alias(old_entry: CatalogEntry, entry_alias: str | None) -> None:
-    """Refuse if the pull took ``entry_alias``, which named ``old_entry``, off it.
-
-    The rebase would otherwise re-derive an entry the name no longer means.
-    """
-    if not entry_alias:
-        return
-    old = old_entry.name
-    now = alias_targets(old_entry.catalog, (entry_alias,))[entry_alias]
-    if now != old:
-        raise RebaseError(
-            f"alias {entry_alias!r} points at {now or 'nothing'} after the pull, "
-            f"not {old}; rerun with {old} to rebase {old}",
-            RebaseExit.REFUSED,
-        )
+        plan_aliases(catalog_entry, None, False, only_aliases)
+    except AliasRefusedError as e:
+        raise refuse_aliases(e) from e
 
 
 def add_rebased(
-    old_entry: CatalogEntry,
-    build_path: Path,
-    alias: str | None,
-    move_aliases: bool,
-    only_aliases: tuple[str, ...],
-    sync: bool,
-    entry_alias: str | None = None,
-) -> tuple[CatalogEntry, tuple[str, ...], tuple[str, ...]]:
-    """Catalog ``build_path`` and move the requested aliases onto it, all or nothing.
+    catalog_entry: CatalogEntry, build_path: Path, **kwargs: object
+) -> Derived:
+    """``add_derived``, its failures mapped to ``RebaseError``.
 
-    Returns the new entry, the aliases moved (an ``alias`` already on
-    ``old_entry`` counts as moved) and the ones added (an ``alias`` on no
-    entry).
+    A failed push is ``RebasePushError``, raised by the caller once the result
+    is known.
     """
-    catalog = old_entry.catalog
-    added_aliases = (alias,) if alias else ()
-    with catalog.maybe_synchronizing(sync):
-        # Planned again after the pull, which can move an alias: a refusal
-        # here still comes before the rebase's first write, though after
-        # whatever the pull merged. `catalog.add` and `add_alias` overwrite
-        # an alias, so each prior target is kept to restore.
-        check_entry_alias(old_entry, entry_alias)
-        moving, prior = plan_aliases(
-            old_entry, alias, move_aliases, only_aliases, build_path.name
-        )
-        # Read after the pull, which can bring in the entry. A rebase can land
-        # on an entry that already exists (an earlier rebase of the same
-        # entry); a rollback must not remove that one.
-        added = not catalog.contains(build_path.name)
-        # `catalog.add` moves `alias` itself; one already on the new entry stays.
-        moving = tuple(
-            name for name in moving if name != alias and prior[name] != build_path.name
-        )
-        new_entry = catalog.add(
-            build_path,
-            sync=False,
-            aliases=added_aliases,
-            exist_ok=True,
-        )
-        moved = [alias] if alias and prior[alias] == old_entry.name else []
-        added_alias = (alias,) if alias and prior[alias] is None else ()
-        attempted = []
-        try:
-            for name in moving:
-                # Recorded before the call: a move that fails after writing
-                # the symlink must be restored too.
-                attempted.append(name)
-                catalog.add_alias(new_entry.name, name, sync=False)
-                moved.append(name)
-        except Exception:
-            touched = (*added_aliases, *attempted)
-            roll_back(new_entry, {name: prior[name] for name in touched}, added)
-            raise
-    return new_entry, tuple(moved), added_alias
+    try:
+        return add_derived(catalog_entry, build_path, **kwargs)
+    except AliasRefusedError as e:
+        raise refuse_aliases(e) from e
+    except PullError as e:
+        raise RebaseError(
+            f"{catalog_entry.name}: {e}; nothing written", RebaseExit.UNREACHABLE
+        ) from e
+    except RollbackError as e:
+        raise RebaseError(f"{catalog_entry.name}: {e}", RebaseExit.REFUSED) from e
 
 
 def rebase_entry(
@@ -385,12 +335,14 @@ def rebase_entry(
     """``catalog_entry`` re-derived over its live sources, as a new entry.
 
     No alias moves unless asked: ``move_aliases`` moves all of the old
-    entry's, ``only_aliases`` just these; ``alias`` registers another. A no-op
-    returns ``catalog_entry`` and commits nothing. ``entry_alias`` is the
-    alias ``catalog_entry`` was named by, if any; a pull that moves or removes
-    it refuses the rebase. Raises ``RebaseError``
-    before the rebase's first write; with ``sync``, an alias refusal can come
-    after the pull.
+    entry's, ``only_aliases`` just these; ``alias`` registers another. A no-op,
+    or an entry none of whose sources can be probed, returns ``catalog_entry``
+    and commits nothing. ``entry_alias`` is the alias ``catalog_entry`` was
+    named by, if any; a pull that moves or removes it refuses the rebase.
+    Raises ``RebaseError`` before the rebase's first write (with ``sync``, an
+    alias refusal can come after the pull), except ``RebasePushError``
+    (committed locally, push failed) and a failed rollback, whose message
+    names what it left.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -409,7 +361,7 @@ def rebase_entry(
     check_bundle(catalog_entry)
     record = read_entry_record(catalog_entry)
     unprobed = check_rebasable(catalog_entry, record)
-    check_python_minor(catalog_entry, ignore_mismatch)
+    venv_warning = check_python_minor(catalog_entry, ignore_mismatch)
     # Only an unregistered name is sure to be refused this early: an alias
     # elsewhere may be on the new entry (a rerun after a failed push), whose
     # name only the dump knows.
@@ -422,12 +374,28 @@ def rebase_entry(
             f"{catalog_entry.name} has no alias {', '.join(unknown)}",
             RebaseExit.REFUSED,
         )
+    if unprobed:
+        check_only_aliases(catalog_entry, only_aliases)
+        # Nothing can be refreshed, so a load and dump could only return the
+        # entry's own hash, or a new one following no drift.
+        return RebaseResult(
+            RebaseStatus.UNPROBED,
+            catalog_entry,
+            catalog_entry,
+            (),
+            unprobed=unprobed,
+            venv_warning=venv_warning,
+        )
     reports = tuple(iter_leaf_reports(record))
-    # Only a sweep that probed every source can prove a no-op on its own.
-    if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
-        # No new entry, so each of `only_aliases` must be on this one.
-        plan_aliases(catalog_entry, None, False, only_aliases)
-        return RebaseResult(RebaseStatus.NOOP, catalog_entry, catalog_entry, reports)
+    if all(report.verdict == Verdict.EQUAL for report in reports):
+        check_only_aliases(catalog_entry, only_aliases)
+        return RebaseResult(
+            RebaseStatus.NOOP,
+            catalog_entry,
+            catalog_entry,
+            reports,
+            venv_warning=venv_warning,
+        )
     live = live_or_refuse(catalog_entry, record, reports)
     check_databases_exist(catalog_entry, record)
     with tempfile.TemporaryDirectory() as td:
@@ -444,37 +412,47 @@ def rebase_entry(
             expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
         )
         if dumper.expr_hash == catalog_entry.name:
-            plan_aliases(catalog_entry, None, False, only_aliases)
-            status = RebaseStatus.ATTEMPTED if unprobed else RebaseStatus.NOOP
+            check_only_aliases(catalog_entry, only_aliases)
             return RebaseResult(
-                status, catalog_entry, catalog_entry, reports, unprobed=unprobed
+                RebaseStatus.NOOP,
+                catalog_entry,
+                catalog_entry,
+                reports,
+                venv_warning=venv_warning,
             )
-        if unprobed:
-            # Nothing was refreshed, so the new hash follows no drift (the
-            # build hash reads a source's path, not its contents); a new entry
-            # would carry the old schemas under a rebased name.
-            raise RebaseError(
-                f"{catalog_entry.name}: re-derived to a new hash, but no source "
-                f"could be probed ({', '.join(unprobed)}), so nothing was "
-                "refreshed",
-                RebaseExit.REFUSED,
-            )
+        changes = output_changes(loaded.schema(), expr.schema())
         build_path = dumper.dump_expr()
         stage_bundle(catalog_entry, build_path)
-        new_entry, moved, added = add_rebased(
-            catalog_entry,
-            build_path,
-            alias,
-            move_aliases,
-            only_aliases,
-            sync,
-            entry_alias,
-        )
-    return RebaseResult(
-        RebaseStatus.REBASED,
-        catalog_entry,
-        new_entry,
-        reports,
-        moved,
-        added_aliases=added,
-    )
+
+        def result(derived: Derived) -> RebaseResult:
+            return RebaseResult(
+                RebaseStatus.REBASED,
+                catalog_entry,
+                derived.new_entry,
+                reports,
+                derived.moved_aliases,
+                added_aliases=derived.added_aliases,
+                created=derived.created,
+                pushed=derived.pushed,
+                output_changes=changes,
+                venv_warning=venv_warning,
+            )
+
+        try:
+            derived = add_rebased(
+                catalog_entry,
+                build_path,
+                alias=alias,
+                move_aliases=move_aliases,
+                only_aliases=only_aliases,
+                sync=sync,
+                entry_alias=entry_alias,
+            )
+        except PushError as e:
+            raise RebasePushError(
+                f"{catalog_entry.name}: rebased to {e.derived.new_entry.name} "
+                f"locally; {e}; run `xorq catalog push`",
+                RebaseExit.PUSH_FAILED,
+                result(e.derived),
+            ) from e
+    return result(derived)
