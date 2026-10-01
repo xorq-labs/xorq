@@ -14,14 +14,16 @@ autolabeler:
     body:
       - '/^BREAKING[ -]CHANGE:/m'
   # release and dependencies mirror the pre-exclude title conditions below,
-  # which are authoritative. Change them together.
+  # which are authoritative. Change them together. The conditions match type
+  # and scope case-sensitively and need a space after the colon, so these
+  # regexes have no /i and end in ": ".
   - label: 'release'
     title:
-      - '/^release(\(.*\))?!?:/i'
+      - '/^release(\(.*\))?!?: /'
   - label: 'dependencies'
     title:
-      - '/^chore\(deps\):/i'
-      - '/^fix\(deps\):/i'
+      - '/^chore\(deps\): /'
+      - '/^fix\(deps\): /'
   - label: 'perf'
     title:
       - '/^perf(\(.*\))?!?:/i'
@@ -60,7 +62,8 @@ categories:
           - dependencies
       - conventional:
           type: release
-      # like the dependencies autolabel rule, "fix(deps)!:" stays in the draft
+      # breaking: false matches only titles without "!" (unset matches both),
+      # so like the dependencies autolabel rule, "fix(deps)!:" stays in the draft
       - conventional:
           types:
             - chore
