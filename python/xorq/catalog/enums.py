@@ -131,21 +131,28 @@ class RebaseStatus(StrEnum):
 
     ``UNPROBED``: no source can be probed, so nothing was done; unlike
     ``NOOP``, that doesn't prove no drift.
+    ``PREVIEW``: a rebase would happen, and ``dry_run`` wrote nothing.
+    ``BUILT``: the rebased build was written, and ``add=False`` left the
+    catalog alone.
     """
 
     NOOP = "noop"
     UNPROBED = "unprobed"
     REBASED = "rebased"
+    PREVIEW = "preview"
+    BUILT = "built"
 
 
 class RebaseExit(IntEnum):
-    """The exit codes ``xorq catalog rebase`` refuses or fails with."""
+    """The exit codes ``xorq catalog rebase`` refuses, fails or previews with."""
 
     # Nothing of the rebase's own written (a sync's pull may have merged): a
     # property of the entry or the request; retrying won't help.
     REFUSED = 1
     # A source or the record could not be read; retryable.
     UNREACHABLE = 2
+    # `--dry-run` only: a rebase would happen; nothing written.
+    PREVIEW = 3
     # The re-derivation can't follow the drift; retrying won't help.
     CONFLICT = 4
     # Rebased and committed locally, but the push failed; `xorq catalog push`.

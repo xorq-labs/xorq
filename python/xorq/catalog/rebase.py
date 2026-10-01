@@ -11,6 +11,8 @@ what the pull merged in place, unpushed.
 
 from __future__ import annotations
 
+import json
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -18,10 +20,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from attr import evolve, field, frozen
+from attr import Factory, evolve, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 
 from xorq.catalog.catalog import CatalogEntry
+from xorq.catalog.constants import REBASED_FROM
 from xorq.catalog.derive import Derived, add_derived, alias_targets, plan_aliases
 from xorq.catalog.drift import (
     LeafReport,
@@ -127,7 +130,11 @@ class Rename:
 
 @frozen
 class RebaseResult:
-    """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED``."""
+    """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED``.
+
+    ``new_hash`` is the rebased build's: ``new_entry``'s, or on ``PREVIEW``
+    and ``BUILT`` the one a rebase would catalog.
+    """
 
     status = field(validator=in_(tuple(RebaseStatus)))
     old_entry = field(validator=instance_of(CatalogEntry))
@@ -160,6 +167,12 @@ class RebaseResult:
         converter=tuple,
         validator=deep_iterable(instance_of(Rename), instance_of(tuple)),
     )
+    new_hash = field(
+        default=Factory(lambda self: self.new_entry.name, takes_self=True),
+        validator=instance_of(str),
+    )
+    # The build directory ``BUILT`` wrote; ``None`` otherwise.
+    build_path = field(default=None, validator=optional(instance_of(Path)))
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -323,6 +336,47 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
             f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
         ) from e
     (build_path / DumpFiles.requirements).write_bytes(requirements)
+
+
+def stamp_rebased_from(build_path: Path, ancestor: str) -> None:
+    """Record ``ancestor`` in ``build_path``'s ``build_metadata.json``.
+
+    In the archive rather than only the sidecar: a catalog copy re-derives
+    each sidecar from its archive. The build hash reads ``expr.yaml`` only.
+    """
+    path = build_path / DumpFiles.build_metadata
+    metadata = json.loads(path.read_text())
+    path.write_text(json.dumps(metadata | {REBASED_FROM: ancestor}, indent=2))
+
+
+def publish_build(build_path: Path, builds_dir: Path) -> Path:
+    """Move the complete ``build_path`` to ``builds_dir``, under its hash.
+
+    Moved only once complete, so a failure leaves ``builds_dir`` as it was. A
+    directory already there under the same hash is replaced.
+    """
+    target = builds_dir / build_path.name
+    builds_dir.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        shutil.rmtree(target)
+    return Path(shutil.move(build_path, target))
+
+
+def check_request(
+    alias: str | None,
+    move_aliases: bool,
+    only_aliases: tuple[str, ...],
+    dry_run: bool,
+    add: bool,
+) -> None:
+    """Refuse options that contradict each other, before any work."""
+    if not add and dry_run:
+        raise ValueError("dry_run and add=False are mutually exclusive")
+    if not add and (alias or move_aliases or only_aliases):
+        raise ValueError(
+            "add=False takes no alias, move_aliases or only_aliases: there is "
+            "no entry to name"
+        )
 
 
 def refuse_rename(catalog_entry: CatalogEntry, detail: str) -> RebaseError:
@@ -561,6 +615,9 @@ def rebase_entry(
     cache_dir: str | Path | None = None,
     entry_alias: str | None = None,
     renames: Iterable[Rename | tuple[str, str, str]] = (),
+    dry_run: bool = False,
+    add: bool = True,
+    builds_dir: str | Path = "builds",
 ) -> RebaseResult:
     """``catalog_entry`` re-derived over its live sources, as a new entry.
 
@@ -576,6 +633,11 @@ def rebase_entry(
     alias refusal can come after the pull), except ``RebasePushError``
     (committed locally, push failed) and a failed rollback, whose message
     names what it left.
+
+    ``dry_run`` stops where the new entry would be written, as ``PREVIEW``.
+    ``add=False`` writes the rebased build into ``builds_dir`` instead, with
+    the old entry's bundle, and returns it as ``BUILT``; it takes no aliases.
+    Either way the new build records ``catalog_entry`` as its ancestor.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -587,6 +649,7 @@ def rebase_entry(
     only_aliases = tuple(dict.fromkeys(only_aliases))
     if move_aliases and only_aliases:
         raise ValueError("move_aliases and only_aliases are mutually exclusive")
+    check_request(alias, move_aliases, only_aliases, dry_run, add)
     renames = tuple(
         rename if isinstance(rename, Rename) else Rename(*rename) for rename in renames
     )
@@ -662,9 +725,31 @@ def rebase_entry(
                 reports,
                 venv_warning=venv_warning,
             )
+        if dry_run:
+            return RebaseResult(
+                RebaseStatus.PREVIEW,
+                catalog_entry,
+                catalog_entry,
+                reports,
+                new_hash=dumper.expr_hash,
+                venv_warning=venv_warning,
+                renames=renames,
+            )
         changes = output_changes(loaded.schema(), expr.schema())
         build_path = dumper.dump_expr()
+        stamp_rebased_from(build_path, catalog_entry.name)
         stage_bundle(catalog_entry, build_path)
+        if not add:
+            return RebaseResult(
+                RebaseStatus.BUILT,
+                catalog_entry,
+                catalog_entry,
+                reports,
+                new_hash=build_path.name,
+                build_path=publish_build(build_path, Path(builds_dir)).resolve(),
+                venv_warning=venv_warning,
+                renames=renames,
+            )
 
         def result(derived: Derived) -> RebaseResult:
             return RebaseResult(
