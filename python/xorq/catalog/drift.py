@@ -893,7 +893,19 @@ def record_document(
     writer of that key a source of ``ValueError`` -- raised after the whole
     sweep has been probed, discarding a complete document.
     """
-    reports = tuple(iter_leaf_reports(record, con_cache))
+    return reports_document(record, tuple(iter_leaf_reports(record, con_cache)))
+
+
+def reports_document(
+    record: BuildRecord, reports: Iterable[LeafReport]
+) -> tuple[Verdict | None, dict]:
+    """``record``'s document over ``reports`` already probed from it.
+
+    What ``record_document`` builds once it has swept, split out so a caller
+    that swept already (`rebase`) publishes the same document without probing
+    a second time.
+    """
+    reports = tuple(reports)
     unchecked = unchecked_leaves(record)
     # No verdict at all where nothing was probed and a source was left
     # unprobed: rolling those up to `equal` would state the strongest positive

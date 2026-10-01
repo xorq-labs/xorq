@@ -140,6 +140,10 @@ class RebaseStatus(StrEnum):
     REBASED = "rebased"
     CONFLICT = "conflict"
 
+    @property
+    def exit_code(self) -> int:
+        return RebaseExit.CONFLICT if self == RebaseStatus.CONFLICT else 0
+
 
 class RebaseExit(IntEnum):
     """The exit codes ``xorq catalog rebase`` refuses, fails or conflicts with."""
@@ -153,3 +157,29 @@ class RebaseExit(IntEnum):
     CONFLICT = 4
     # Rebased and committed locally, but the push failed; `xorq catalog push`.
     PUSH_FAILED = 5
+
+
+class RebaseFailure(StrEnum):
+    """How a rebase that returned no ``RebaseResult`` ended.
+
+    ``REFUSED``, ``UNREACHABLE`` and ``PUSH_FAILED`` are a ``RebaseError``'s
+    exit codes; ``FAILED`` is any other error, such as a write that failed.
+    ``PUSH_FAILED`` was committed locally.
+    """
+
+    REFUSED = "refused"
+    UNREACHABLE = "unreachable"
+    PUSH_FAILED = "push_failed"
+    FAILED = "failed"
+
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case RebaseFailure.REFUSED | RebaseFailure.FAILED:
+                return RebaseExit.REFUSED
+            case RebaseFailure.UNREACHABLE:
+                return RebaseExit.UNREACHABLE
+            case RebaseFailure.PUSH_FAILED:
+                return RebaseExit.PUSH_FAILED
+            case _:
+                raise ValueError(f"no exit code for failure {self}")

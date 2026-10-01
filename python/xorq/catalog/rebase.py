@@ -7,6 +7,29 @@ can probe. The new entry keeps the old one's wheels, requirements, and each
 read's recorded posture (bundled or external); only schemas change. With a
 sync, the alias checks run again after its pull, so a refusal there leaves
 what the pull merged in place, unpushed.
+
+The JSON document (``rebase_document``, behind ``rebase --json``, #2326) covers
+every way a rebase of a resolved entry can end, buffered and emitted once::
+
+    {
+      "state": "conflict",         # a RebaseStatus or a RebaseFailure
+      "exit_code": 4,              # what the command exits with
+      "old_entry": "b0e5f7bd7d78",
+      "new_entry": null,           # old_entry on a no-op or an unprobed entry
+      "build_path": null,          # always null: the build is not kept
+      "failing_op": "Field",       # null unless an op could not be rebuilt
+      "drift": {...},              # this entry's `check-sources --json` document
+      "aliases": {"moved": []},
+      "error": "XorqTypeError: ..."
+    }
+
+``state`` and ``exit_code`` come from one enum member, so the two cannot
+disagree. ``drift`` is the document ``check-sources --json`` publishes under
+``entries`` for this entry, built by the same code over the rebase's own sweep;
+it is ``null`` on a failure, which returns no sweep. ``aliases`` is what the
+rebase did to them, so it is empty unless ``state`` is ``rebased``. ``error``
+is present only when there is one: a failure's message, or what a conflict's
+op or source raised.
 """
 
 from __future__ import annotations
@@ -30,10 +53,11 @@ from xorq.catalog.drift import (
     make_profile,
     missing_database,
     read_record,
+    reports_document,
     roll_up,
     unchecked_leaves,
 )
-from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict
+from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus, Verdict
 from xorq.catalog.exceptions import (
     AliasRefusedError,
     PullError,
@@ -153,6 +177,8 @@ class RebaseResult:
         converter=tuple,
         validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
     )
+    # The record ``reports`` were probed from.
+    record = field(validator=instance_of(BuildRecord))
     moved_aliases = str_tuple()
     # Registered by the rebase: an `alias` that was on no entry.
     added_aliases = str_tuple()
@@ -183,6 +209,85 @@ class RebaseResult:
     def __attrs_post_init__(self) -> None:
         if (self.status == RebaseStatus.CONFLICT) != (self.conflict is not None):
             raise ValueError("conflict must be set exactly when status is CONFLICT")
+
+    def to_dict(self) -> dict:
+        """The ``rebase --json`` document; see the module docstring."""
+        conflict = self.conflict
+        _, drift = reports_document(self.record, self.reports)
+        document = make_rebase_document(
+            self.status,
+            self.old_entry.name,
+            new_entry=None if conflict is not None else self.new_entry.name,
+            failing_op=None if conflict is None else conflict.op_name,
+            drift=drift,
+            aliases={"moved": list(self.moved_aliases)},
+        )
+        if conflict is not None:
+            document["error"] = conflict.detail
+        return document
+
+
+def make_rebase_document(
+    state: RebaseStatus | RebaseFailure,
+    old_entry: str,
+    *,
+    new_entry: str | None = None,
+    failing_op: str | None = None,
+    drift: dict | None = None,
+    aliases: dict | None = None,
+) -> dict:
+    """The keys every ``rebase --json`` document carries, built in one place.
+
+    Every outcome comes through here, so the key set cannot grow on one and
+    not another, and ``exit_code`` is read off ``state``, the value the CLI
+    exits with.
+    """
+    return {
+        "state": str(state),
+        "exit_code": int(state.exit_code),
+        "old_entry": old_entry,
+        "new_entry": new_entry,
+        # Set by `--no-add` (#2325); until then no rebase keeps its build.
+        "build_path": None,
+        "failing_op": failing_op,
+        "drift": drift,
+        "aliases": aliases or {"moved": []},
+    }
+
+
+def rebase_failure(e: Exception) -> RebaseFailure:
+    """The failure ``e`` ends a rebase with: a ``RebaseError`` by its code."""
+    if not isinstance(e, RebaseError):
+        return RebaseFailure.FAILED
+    match e.exit_code:
+        case RebaseExit.REFUSED:
+            return RebaseFailure.REFUSED
+        case RebaseExit.UNREACHABLE:
+            return RebaseFailure.UNREACHABLE
+        case RebaseExit.PUSH_FAILED:
+            return RebaseFailure.PUSH_FAILED
+        case _:
+            raise ValueError(f"no failure for exit code {e.exit_code}")
+
+
+def rebase_state(outcome: RebaseResult | Exception) -> RebaseStatus | RebaseFailure:
+    """``outcome``'s ``state``, whose ``exit_code`` the CLI exits with."""
+    if isinstance(outcome, Exception):
+        return rebase_failure(outcome)
+    return outcome.status
+
+
+def rebase_document(
+    catalog_entry: CatalogEntry, outcome: RebaseResult | Exception
+) -> dict:
+    """``outcome`` of rebasing ``catalog_entry``, as ``rebase --json`` prints it."""
+    if not isinstance(outcome, Exception):
+        return outcome.to_dict()
+    document = make_rebase_document(rebase_state(outcome), catalog_entry.name)
+    document["error"] = (
+        str(outcome) if isinstance(outcome, RebaseError) else format_error(outcome)
+    )
+    return document
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -643,6 +748,7 @@ def rebase_entry(
             catalog_entry,
             catalog_entry,
             (),
+            record,
             unprobed=unprobed,
             venv_warning=venv_warning,
         )
@@ -656,6 +762,7 @@ def rebase_entry(
             catalog_entry,
             catalog_entry,
             reports,
+            record,
             venv_warning=venv_warning,
         )
 
@@ -665,6 +772,7 @@ def rebase_entry(
             catalog_entry,
             catalog_entry,
             reports,
+            record,
             conflict=conflict,
             venv_warning=venv_warning,
         )
@@ -700,6 +808,7 @@ def rebase_entry(
                 catalog_entry,
                 catalog_entry,
                 reports,
+                record,
                 venv_warning=venv_warning,
             )
         changes = output_changes(loaded.schema(), expr.schema())
@@ -712,6 +821,7 @@ def rebase_entry(
                 catalog_entry,
                 derived.new_entry,
                 reports,
+                record,
                 derived.moved_aliases,
                 added_aliases=derived.added_aliases,
                 created=derived.created,
