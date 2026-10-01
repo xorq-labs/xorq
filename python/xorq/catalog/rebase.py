@@ -50,7 +50,7 @@ from xorq.catalog.refresh import (
     refresh_schemas,
 )
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
-from xorq.common.exceptions import SchemaRefreshError
+from xorq.common.exceptions import SchemaRefreshError, UnmatchedSourceError
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
 from xorq.vendor.ibis.expr.schema import Schema
@@ -126,6 +126,23 @@ class Rename:
 
 
 @frozen
+class RebaseConflict:
+    """What a conflicted rebase could not follow.
+
+    ``op_name`` is the op that could not be rebuilt, ``None`` when a source is
+    gone. ``sources`` are the sweep's reports for all changed sources in the
+    entry on an op failure, or the gone sources on a missing-table conflict.
+    """
+
+    detail = field(validator=instance_of(str))
+    sources = field(
+        converter=tuple,
+        validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
+    )
+    op_name = field(default=None, validator=optional(instance_of(str)))
+
+
+@frozen
 class RebaseResult:
     """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED``."""
 
@@ -160,6 +177,12 @@ class RebaseResult:
         converter=tuple,
         validator=deep_iterable(instance_of(Rename), instance_of(tuple)),
     )
+    # Set exactly when ``status`` is ``CONFLICT``.
+    conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
+
+    def __attrs_post_init__(self) -> None:
+        if (self.status == RebaseStatus.CONFLICT) != (self.conflict is not None):
+            raise ValueError("conflict must be set exactly when status is CONFLICT")
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -290,21 +313,21 @@ def check_databases_exist(catalog_entry: CatalogEntry, record: BuildRecord) -> N
         )
 
 
-def live_or_refuse(
+def live_or_conflict(
     catalog_entry: CatalogEntry, record: BuildRecord, reports: tuple[LeafReport, ...]
-) -> dict:
+) -> dict | RebaseConflict:
+    """The live schemas to refresh over, or the conflict of a gone table."""
     try:
         return live_schemas(record, reports)
     except SchemaRefreshError as e:
         # Worst verdict wins, ranked as `check-sources` ranks it. Below
         # `table-missing`, what refused is an unreachable or unreadable source,
         # or two reads that disagree on a live schema.
-        worst = roll_up(report.verdict for report in reports)
+        if roll_up(report.verdict for report in reports) == Verdict.TABLE_MISSING:
+            gone = [r for r in reports if r.verdict == Verdict.TABLE_MISSING]
+            return RebaseConflict(str(e.cause), gone)
         raise RebaseError(
-            f"{catalog_entry.name}: {e.cause}",
-            RebaseExit.CONFLICT
-            if worst == Verdict.TABLE_MISSING
-            else RebaseExit.UNREACHABLE,
+            f"{catalog_entry.name}: {e.cause}", RebaseExit.UNREACHABLE
         ) from e
 
 
@@ -568,14 +591,14 @@ def rebase_entry(
     entry's, ``only_aliases`` just these; ``alias`` registers another.
     ``renames`` (``Rename``s, or ``(source, old, new)``) reads each recorded
     column ``old`` from the live column ``new``, keeping the recorded name. A
-    no-op, or an entry none of whose sources can be probed, returns
-    ``catalog_entry`` and commits nothing; with ``renames``, both are refused.
-    ``entry_alias`` is the alias ``catalog_entry`` was named by, if any; a
-    pull that moves or removes it refuses the rebase. Raises
-    ``RebaseError`` before the rebase's first write (with ``sync``, an
-    alias refusal can come after the pull), except ``RebasePushError``
-    (committed locally, push failed) and a failed rollback, whose message
-    names what it left.
+    no-op, a conflict, or an entry none of whose sources can be probed,
+    returns ``catalog_entry`` and commits nothing; with ``renames``, a no-op
+    and an unprobed entry are refused. ``entry_alias`` is the alias
+    ``catalog_entry`` was named by, if any; a pull that moves or removes it
+    refuses the rebase. Raises ``RebaseError`` before the rebase's first write
+    (with ``sync``, an alias refusal can come after the pull), except
+    ``RebasePushError`` (committed locally, push failed) and a failed
+    rollback, whose message names what it left.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -635,7 +658,20 @@ def rebase_entry(
             reports,
             venv_warning=venv_warning,
         )
-    live = live_or_refuse(catalog_entry, record, reports)
+
+    def conflicted(conflict: RebaseConflict) -> RebaseResult:
+        return RebaseResult(
+            RebaseStatus.CONFLICT,
+            catalog_entry,
+            catalog_entry,
+            reports,
+            conflict=conflict,
+            venv_warning=venv_warning,
+        )
+
+    live = live_or_conflict(catalog_entry, record, reports)
+    if isinstance(live, RebaseConflict):
+        return conflicted(live)
     check_databases_exist(catalog_entry, record)
     with tempfile.TemporaryDirectory() as td:
         # Loaded inside the block: `load_expr` keeps the archive's extract dir,
@@ -643,11 +679,15 @@ def rebase_entry(
         loaded = catalog_entry.load_expr(cache_dir=cache_dir)
         try:
             expr = refresh_schemas(loaded, live, planned)
-        except SchemaRefreshError as e:
+        except UnmatchedSourceError as e:
             raise RebaseError(
-                f"{catalog_entry.name}: {e}{rename_hint(record, reports, planned)}",
-                RebaseExit.CONFLICT,
+                f"{catalog_entry.name}: {e.cause}", RebaseExit.REFUSED
             ) from e
+        except SchemaRefreshError as e:
+            changed = [r for r in reports if r.verdict == Verdict.CHANGED]
+            # The cause alone: the CLI's headline already names the op.
+            detail = f"{format_error(e.cause)}{rename_hint(record, reports, planned)}"
+            return conflicted(RebaseConflict(detail, changed, e.op_name))
         # `relocate_reads=False` keeps each read's recorded posture: a bundled
         # read stays bundled, an external one external.
         dumper = ExprDumper(

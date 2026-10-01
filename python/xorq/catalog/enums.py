@@ -127,19 +127,22 @@ class Verdict(StrEnum):
 
 
 class RebaseStatus(StrEnum):
-    """How a successful ``rebase_entry`` ended.
+    """How a ``rebase_entry`` that raised no ``RebaseError`` ended.
 
     ``UNPROBED``: no source can be probed, so nothing was done; unlike
     ``NOOP``, that doesn't prove no drift.
+    ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
+    written.
     """
 
     NOOP = "noop"
     UNPROBED = "unprobed"
     REBASED = "rebased"
+    CONFLICT = "conflict"
 
 
 class RebaseExit(IntEnum):
-    """The exit codes ``xorq catalog rebase`` refuses or fails with."""
+    """The exit codes ``xorq catalog rebase`` refuses, fails or conflicts with."""
 
     # Nothing of the rebase's own written (a sync's pull may have merged): a
     # property of the entry or the request; retrying won't help.

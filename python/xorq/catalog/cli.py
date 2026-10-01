@@ -1220,7 +1220,8 @@ def rebase(
          the new one (an unregistered one before the sweep), --alias names
          an alias on another entry than the old or new one (once there is a
          new entry), ENTRY is an alias the pull moved or removed, a --rename
-         is refused (see above), or a write failed (rolled back locally; a
+         is refused (see above), a probed source matched no source of the
+         loaded expression, or a write failed (rolled back locally; a
          failed rollback says what it left)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
@@ -1228,7 +1229,9 @@ def rebase(
          or the options were invalid (--move-aliases with --only-alias);
          nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
-         table is gone; nothing written
+         table is gone; stderr names the op (if one failed) and the
+         sources involved, with their recorded and live schemas;
+         nothing written
       5  rebased and committed locally, but the push failed; the name is
          still printed; run `xorq catalog push`
 
@@ -1252,7 +1255,7 @@ def rebase(
         entry_alias = entry if entry in catalog.list_aliases() else None
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
-    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict  # noqa: PLC0415
     from xorq.catalog.exceptions import RebaseError, RebasePushError  # noqa: PLC0415
     from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
 
@@ -1281,6 +1284,28 @@ def rebase(
         ctx.exit(failure.exit_code)
     if result.venv_warning:
         click.echo(result.venv_warning, err=True)
+    if (conflict := result.conflict) is not None:
+        sources = ", ".join(f"{r.leaf.kind} {r.leaf.name}" for r in conflict.sources)
+        if conflict.op_name is None:
+            verb = "is" if len(conflict.sources) == 1 else "are"
+            click.echo(
+                f"{result.old_entry.name}: conflict: {sources} {verb} gone", err=True
+            )
+        else:
+            click.echo(
+                f"{result.old_entry.name}: conflict: {conflict.op_name} cannot be "
+                f"rebuilt; changed sources in entry: {sources}",
+                err=True,
+            )
+        for report in conflict.sources:
+            for line in format_leaf_report(report):
+                click.echo(line, err=True)
+        click.echo(conflict.detail, err=True)
+        if alias:
+            click.echo(f"Alias {alias!r} not added: the rebase conflicted", err=True)
+        if move_aliases or only_aliases:
+            click.echo("Aliases not moved: the rebase conflicted", err=True)
+        ctx.exit(RebaseExit.CONFLICT)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
             for line in format_leaf_report(report):

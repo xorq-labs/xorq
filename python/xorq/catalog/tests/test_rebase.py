@@ -21,12 +21,18 @@ from xorq.catalog import rebase as rebase_module
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.cli import cli
 from xorq.catalog.enums import RebaseStatus
-from xorq.catalog.rebase import rebase_entry, recorded_python_minor
+from xorq.catalog.rebase import (
+    RebaseConflict,
+    RebaseResult,
+    rebase_entry,
+    recorded_python_minor,
+)
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     _annex_available,
     alias_target_hash,
 )
+from xorq.common.exceptions import UnmatchedSourceError
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
 from xorq.ibis_yaml.compiler import build_expr
@@ -296,6 +302,78 @@ def test_rebase_entry_checks_its_alias_arguments(world: SimpleNamespace) -> None
     assert noop.status == RebaseStatus.NOOP
 
 
+@pytest.mark.parametrize(
+    "drift_t, headline, op_name",
+    (
+        pytest.param(
+            lambda w: replace_t(w, pa.table({"b": ["x", "y"]})),
+            "conflict: Field cannot be rebuilt; changed sources in entry: DatabaseTable t",
+            "Field",
+            id="dropped-column",
+        ),
+        pytest.param(
+            lambda w: w.con.drop_table("t"),
+            "conflict: DatabaseTable t is gone",
+            None,
+            id="gone-table",
+        ),
+    ),
+)
+def test_a_conflict_names_the_op_and_source_with_check_sources_schemas(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    drift_t: Callable,
+    headline: str,
+    op_name: str | None,
+) -> None:
+    drift_t(world)
+    checked = runner.invoke(
+        cli, ["--path", world.catalog_path, "check-sources", world.name]
+    )
+    assert checked.exit_code == 3, checked.output
+    pair = [line for line in checked.stdout.splitlines() if line.startswith("    ")]
+
+    result = rebase(runner, world, world.name, "-a", "v2")
+    assert result.exit_code == 4, result.output
+    assert f"{world.name}: {headline}" in result.stderr
+    assert pair and all(line in result.stderr.splitlines() for line in pair)
+    assert "could not rebuild" not in result.stderr
+    assert "Alias 'v2' not added" in result.stderr
+    if op_name is not None:
+        # Named once, by the headline; the cause follows it.
+        assert result.stderr.count(op_name) == 1
+        assert "XorqTypeError: Column 'a' is not found" in result.stderr
+    conflicted = rebase_old(world)
+    assert conflicted.status == RebaseStatus.CONFLICT
+    assert conflicted.new_entry.name == world.name
+    assert conflicted.conflict.op_name == op_name
+    assert [r.leaf.name for r in conflicted.conflict.sources] == ["t"]
+
+
+def test_conflict_status_requires_conflict(world: SimpleNamespace) -> None:
+    entry = world.catalog.get_catalog_entry(world.name)
+    conflict = RebaseConflict("gone", ())
+    with pytest.raises(ValueError, match="conflict must be set"):
+        RebaseResult(RebaseStatus.CONFLICT, entry, entry, ())
+    with pytest.raises(ValueError, match="conflict must be set"):
+        RebaseResult(RebaseStatus.NOOP, entry, entry, (), conflict=conflict)
+
+
+def test_unmatched_live_key_is_refused(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+
+    def unmatched(*_: object) -> None:
+        raise UnmatchedSourceError("DatabaseTable", LookupError("t matched no source"))
+
+    monkeypatch.setattr(rebase_module, "refresh_schemas", unmatched)
+    result = rebase(runner, world)
+    assert result.exit_code == 1, result.output
+    assert "t matched no source" in result.stderr
+    assert "conflict:" not in result.stderr
+
+
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
 RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
@@ -509,6 +587,17 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
     return setup
 
 
+def test_gone_table_also_names_unreachable_source(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    name, _, _ = refuse_beside_unreachable(lambda w: w.con.drop_table("t"))(world)
+
+    result = rebase(runner, world, name)
+    assert result.exit_code == 4, result.output
+    assert "DatabaseTable t is gone" in result.stderr
+    assert "u is unreachable" in result.stderr
+
+
 @pytest.mark.parametrize(
     "setup, exit_code, message",
     (
@@ -652,7 +741,7 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             "t: recorded columns gone: b; live columns new: -\nif a gone column was renamed to a new one",
             id="rename-hint-less-renames",
         ),
-        pytest.param(refuse_dropped_column, 4, "could not rebuild", id="column"),
+        pytest.param(refuse_dropped_column, 4, "cannot be rebuilt", id="column"),
         pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
         pytest.param(
             refuse_beside_unreachable(lambda w: w.con.drop_table("t")),
