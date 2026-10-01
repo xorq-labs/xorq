@@ -11,10 +11,21 @@ permissions:
   contents: read
 
 jobs:
+  # v7 moved the autolabeler out of the drafter into its own action
+  autolabel:
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write  # to add labels to PRs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter/autolabeler@v7
+        with:
+          config-name: release-drafter.yml
+
   update-release-draft:
     permissions:
       contents: write       # to create/update draft release
-      pull-requests: write  # to add labels to PRs
+      pull-requests: read
     runs-on: ubuntu-latest
     steps:
       - uses: release-drafter/release-drafter@v7

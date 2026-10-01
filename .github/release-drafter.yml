@@ -8,6 +8,9 @@ version-template: unreleased
 change-template: '- $TITLE (#$NUMBER)'
 
 autolabeler:
+  - label: 'breaking'
+    title:
+      - '/^\w+(\([^)]*\))?!:/'
   - label: 'release'
     title:
       - '/^release:/i'
@@ -17,31 +20,35 @@ autolabeler:
       - '/^fix\(deps\):/i'
   - label: 'perf'
     title:
-      - '/^perf(\(.*\))?:/i'
+      - '/^perf(\(.*\))?!?:/i'
   - label: 'feature'
     title:
-      - '/^feat(\(.*\))?:/i'
+      - '/^feat(\(.*\))?!?:/i'
   - label: 'fix'
     title:
-      - '/^fix(\(.*\))?:/i'
+      - '/^fix(\(.*\))?!?:/i'
   - label: 'docs'
     title:
-      - '/^docs(\(.*\))?:/i'
+      - '/^docs(\(.*\))?!?:/i'
       - '/^chore\(docs\):/i'
   - label: 'ci'
     title:
-      - '/^ci(\(.*\))?:/i'
+      - '/^ci(\(.*\))?!?:/i'
       - '/^chore\(ci\):/i'
   - label: 'chore'
     title:
-      - '/^chore(\(.*\))?:/i'
+      - '/^chore(\(.*\))?!?:/i'
   - label: 'internal'
     title:
-      - '/^ref(\(.*\))?:/i'
-      - '/^refactor(\(.*\))?:/i'
-      - '/^spike(\(.*\))?:/i'
+      - '/^ref(\(.*\))?!?:/i'
+      - '/^refactor(\(.*\))?!?:/i'
+      - '/^spike(\(.*\))?!?:/i'
 
 categories:
+  - title: 💥 Breaking changes
+    exclusive: true
+    labels:
+      - breaking
   - title: 🚀 Performance improvements
     labels:
       - performance
