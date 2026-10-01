@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import xorq.vendor.ibis.expr.operations as ops
@@ -19,7 +20,7 @@ from xorq.catalog.drift import (
     make_profile,
     unchecked_leaves,
 )
-from xorq.catalog.enums import LeafKind, Verdict
+from xorq.catalog.enums import LeafKind, RebaseTag, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf, join_read_path
 from xorq.common.exceptions import InternalError, SchemaRefreshError, XorqError
 from xorq.common.utils.graph_utils import (
@@ -35,6 +36,7 @@ from xorq.expr.relations import (
     CacheTag,
     FlightExpr,
     FlightUDXF,
+    HashingTag,
     Read,
     RemoteTable,
     Tag,
@@ -206,29 +208,132 @@ def refuse(offenders: Iterable[tuple[str, str]], separator: str = ", ") -> None:
     raise SchemaRefreshError(op_name, LookupError(separator.join(details)))
 
 
-def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
+def with_renames(node: Node, renames: Mapping[str, str]) -> Node:
+    """``node`` under a marked rename that gives each live column its
+    expression name; ``node`` itself when there is none.
+
+    ``renames`` maps expression name -> live name, as ``Table.rename`` takes
+    it. The rename is a Project listing every column of ``node``, so the
+    ``RebaseTag.RENAME`` mark above it holds the mapping: a later refresh
+    rebuilds the rename from it instead of recreating a stale column list.
+    """
+    if not renames:
+        return node
+    # `Table.rename` over a live column no rename moves away would keep that
+    # column and silently drop the renamed one: refuse it. A chain or swap
+    # (`a <- x, b <- a`) moves it, and is fine.
+    moved = set(renames.values())
+    if clashes := [
+        name for name in renames if name in node.schema and name not in moved
+    ]:
+        refuse(
+            (
+                type(node).__name__,
+                f"{name!r} is still a live column, and no rename moves it away",
+            )
+            for name in clashes
+        )
+    renamed = node.to_expr().rename(dict(renames))
+    marked = renamed.hashing_tag(
+        RebaseTag.RENAME, renames=tuple(sorted(renames.items()))
+    )
+    return to_node(marked)
+
+
+def marked_renames(node: Node) -> dict[str, str] | None:
+    """The mapping a ``with_renames`` mark holds, or ``None`` if ``node`` isn't one."""
+    if isinstance(node, HashingTag) and node.metadata.get("tag") == RebaseTag.RENAME:
+        return dict(node.metadata["renames"])
+    return None
+
+
+def compose_renames(
+    held: Mapping[str, str], declared: Mapping[str, str]
+) -> dict[str, str]:
+    """``held`` (expression name -> recorded column), then ``declared``
+    (recorded column -> live column): expression name -> live column.
+
+    ``declared`` names only source columns, as ``check-sources`` prints them;
+    one ``held`` doesn't cover keeps its name in the expression.
+    """
+    composed = {name: declared.get(column, column) for name, column in held.items()}
+    covered = set(held.values())
+    composed |= {old: new for old, new in declared.items() if old not in covered}
+    return {name: column for name, column in composed.items() if name != column}
+
+
+def refresh_schemas(
+    expr: Any,
+    live: Mapping[tuple, Schema],
+    renames: Mapping[tuple, Mapping[str, str]] = MappingProxyType({}),
+) -> Any:
     """``expr`` rebuilt over ``live`` (``leaf_key`` -> live schema).
 
-    Raises if a key matches no source: that source would stay stale silently.
+    ``renames`` (``leaf_key`` -> recorded name -> live name) puts a marked
+    rename above a refreshed source, so every op over it still sees its
+    recorded names. A source already under a mark gets that rename rebuilt
+    over its live columns, composed with any new ``renames``. Raises if a key
+    matches no source: that source would stay stale silently.
     """
+    if stray := [key for key in renames if key not in live]:
+        refuse(
+            (kind, f"{name} is renamed but not refreshed")
+            for (kind, _, name, _) in stray
+        )
     if not live:
         return expr
     memo: dict[Node, Node] = {}
     matched: set[tuple] = set()
     # Screen before `op_key`: resolving a profile connects a lazy backend.
     candidates = {(kind, name, schema) for (kind, _, name, schema) in live}
+    # The Project under each mark: `replace` is bottom-up and would recreate
+    # it over the refreshed source, stale column list and all, so the walk
+    # stops there and the mark rebuilds it.
+    marked_projects: set[Node] = set()
+
+    def refreshed_key(node: Node) -> tuple | None:
+        if source_identity(node) in candidates and (key := op_key(node)) in live:
+            return key
+        return None
 
     def rewrite(node: Node) -> Node:
         if node not in memo:
-            memo[node] = node.replace(replacer)
+            marked_projects.update(
+                mark.parent
+                for mark in node.find(HashingTag)
+                if marked_renames(mark) is not None
+                and isinstance(mark.parent, ops.Project)
+                and source_identity(mark.parent.parent) is not None
+            )
+            memo[node] = node.replace(
+                replacer, filter=lambda sub: sub not in marked_projects
+            )
         return memo[node]
 
     def replacer(node: Node, kwargs: dict | None) -> Node:
         if isinstance(node, CacheTag):
             return node
-        if source_identity(node) in candidates and (key := op_key(node)) in live:
+        if (
+            held := marked_renames(node)
+        ) is not None and node.parent in marked_projects:
+            source = node.parent.parent
+            if (key := refreshed_key(source)) is None:
+                # Its source is unchanged: the rename stands as recorded.
+                return node
             matched.add(key)
-            return rebuild(node, lambda: with_live_schema(node, live[key]))
+            composed = compose_renames(held, renames.get(key, {}))
+            return rebuild(
+                node,
+                lambda: with_renames(with_live_schema(source, live[key]), composed),
+            )
+        if (key := refreshed_key(node)) is not None:
+            matched.add(key)
+            return rebuild(
+                node,
+                lambda: with_renames(
+                    with_live_schema(node, live[key]), renames.get(key, {})
+                ),
+            )
         overrides = dict(kwargs or {})
         rebound = node
         # `replace_nodes`'s tripwires: an unregistered Expr field would be

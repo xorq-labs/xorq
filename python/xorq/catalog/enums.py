@@ -15,6 +15,14 @@ class CatalogTag(StrEnum):
     CODE = "catalog-code"
 
 
+class RebaseTag(StrEnum):
+    """``HashingTag`` names ``xorq catalog rebase`` writes. Apart from
+    ``CatalogTag``, which bind and replay strip."""
+
+    # Over a `--rename`: holds the mapping, so a later refresh can rebuild it.
+    RENAME = "rebase-rename"
+
+
 class ContentStoreType(StrEnum):
     DIRECTORY = "directory"
     S3 = "s3"

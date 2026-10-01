@@ -1147,6 +1147,15 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     multiple=True,
     help="Move only this alias of the source entry onto the new entry (repeatable).",
 )
+@click.option(
+    "--rename",
+    "renames",
+    nargs=3,
+    multiple=True,
+    metavar="SOURCE OLD NEW",
+    help="Read SOURCE's recorded column OLD from its live column NEW, keeping "
+    "the name OLD (repeatable).",
+)
 @ignore_venv_mismatch_option
 @click.pass_context
 def rebase(
@@ -1157,6 +1166,7 @@ def rebase(
     alias: str | None,
     move_aliases: bool,
     only_aliases: tuple[str, ...],
+    renames: tuple[tuple[str, str, str], ...],
     ignore_venv_mismatch: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
@@ -1184,6 +1194,18 @@ def rebase(
     nothing is done. If the new entry was already cataloged (an earlier
     rebase, pulled in), its archive is kept, and stderr says so.
 
+    A renamed column is a removed one to rebase, unless --rename says which
+    live column it is now: `--rename t a b` reads t's recorded column a from
+    its live column b, and every op over t still sees a. SOURCE is a source's
+    name as `check-sources` prints it. A NEW the source had recorded too is
+    allowed, with a warning: rebase can't tell a mistyped NEW from a column
+    dropped and replaced by the renamed one. Rebase never guesses a rename; a
+    conflict over a lost column lists what each source lost and gained. A
+    --rename is refused when SOURCE names no source, or sources on several
+    connections; when OLD is not recorded, or is still live (so also with no
+    drift); when NEW is not live; when a column is renamed twice; or when no
+    source can be probed.
+
     An entry built on another Python minor, or one that records none, is
     refused: its cloudpickled UDFs may not load. --ignore-venv-mismatch
     rebases it anyway, with a warning; rebase compares no wheels.
@@ -1197,8 +1219,9 @@ def rebase(
          minor, --only-alias names an alias on neither the old entry nor
          the new one (an unregistered one before the sweep), --alias names
          an alias on another entry than the old or new one (once there is a
-         new entry), ENTRY is an alias the pull moved or removed, or a write
-         failed (rolled back locally; a failed rollback says what it left)
+         new entry), ENTRY is an alias the pull moved or removed, a --rename
+         is refused (see above), or a write failed (rolled back locally; a
+         failed rollback says what it left)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; the pull failed;
@@ -1218,6 +1241,7 @@ def rebase(
       xorq catalog rebase prod-matches
       xorq catalog rebase prod-matches --move-aliases
       xorq catalog rebase prod-matches --only-alias prod -a matches-v2
+      xorq catalog rebase prod-matches --rename matches team_id team
     """
     if move_aliases and only_aliases:
         raise click.UsageError("--move-aliases and --only-alias are mutually exclusive")
@@ -1243,6 +1267,7 @@ def rebase(
                 ignore_mismatch=ignore_venv_mismatch,
                 cache_dir=_get_cache_dir(cache_dir),
                 entry_alias=entry_alias,
+                renames=renames,
             )
         except RebaseError as e:
             # Kept from the handler, which collapses every error to exit 1.
@@ -1274,6 +1299,10 @@ def rebase(
         if move_aliases or only_aliases:
             click.echo("Aliases not moved: nothing to rebase", err=True)
     else:
+        for rename in result.renames:
+            click.echo(f"Renamed {rename}", err=True)
+            if rename.warning:
+                click.echo(rename.warning, err=True)
         changes = ", ".join(map(str, result.output_changes)) or "unchanged"
         click.echo(f"Output: {changes}", err=True)
         kept = "" if result.created else " (already cataloged; existing archive kept)"

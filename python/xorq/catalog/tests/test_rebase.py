@@ -59,6 +59,8 @@ def backend_type() -> str:
 
 RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
 GROWN = RECORDED.append_column("c", pa.array([1.5, 2.5], pa.float64()))
+# `a` renamed to `x`.
+RENAMED = RECORDED.rename_columns(["x", "b"])
 
 
 def replace_t(world: SimpleNamespace, table: pa.Table) -> None:
@@ -358,6 +360,41 @@ def refuse_pull(w: SimpleNamespace) -> Setup:
     return w.name, (), ()
 
 
+def refuse_rename(table: pa.Table | None, *args: str) -> Callable:
+    """``--rename args`` over `t` replaced by ``table`` (left as is for ``None``)."""
+
+    def setup(w: SimpleNamespace) -> Setup:
+        if table is not None:
+            replace_t(w, table)
+        return w.name, ("--rename", *args), ()
+
+    return setup
+
+
+def refuse_rename_unprobed(w: SimpleNamespace) -> Setup:
+    w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
+    return w.name, ("--rename", "t", "a", "x"), ()
+
+
+def refuse_rename_beside_a_lost_column(w: SimpleNamespace) -> Setup:
+    """`a` renamed to `x` and `b` dropped: the hint names `b` only."""
+    t = w.con.table("t")
+    name = w.catalog.add(t.filter(t.a > 1).select("b")).name
+    replace_t(w, pa.table({"x": pa.array([1, 2], pa.int64())}))
+    return name, ("--rename", "t", "a", "x"), ()
+
+
+def refuse_rename_ambiguous(w: SimpleNamespace) -> Setup:
+    """One table name `t` on two connections."""
+    other = SqliteBackend().connect(str(w.tmp_path / "other.sqlite"))
+    other.create_table("t", RECORDED.to_pandas())
+    name = w.catalog.add(
+        w.con.table("t").union(other.table("t").into_backend(w.con))
+    ).name
+    replace_t(w, RENAMED)
+    return name, ("--rename", "t", "a", "x"), ()
+
+
 def refuse_some_unprobed(w: SimpleNamespace) -> Setup:
     u = w.con.create_table("u", RECORDED.to_pandas())
     w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: leaf.name != "u")
@@ -410,6 +447,19 @@ def refuse_corrupt_metadata(w: SimpleNamespace) -> Setup:
         lambda name, byts: b"{corrupt" if name == DumpFiles.build_metadata else byts,
     )
     return w.name, (), ()
+
+
+def refuse_dangling_profile(*args: str) -> Callable:
+    """`t`'s profile gone from the record: unreadable, with ``args`` or not."""
+
+    def setup(w: SimpleNamespace) -> Setup:
+        replace_t(w, RENAMED)
+        rewrite_archive(
+            w, lambda name, byts: b"{}\n" if name == DumpFiles.profiles else byts
+        )
+        return w.name, args, ()
+
+    return setup
 
 
 def refuse_deleted_db(w: SimpleNamespace) -> Setup:
@@ -538,9 +588,69 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
         pytest.param(
             refuse_without(".whl", drift=False), 2, NO_WHEEL, id="no-wheel-no-drift"
         ),
+        pytest.param(
+            refuse_dangling_profile(),
+            2,
+            "{name}: t is unreadable: ValueError: node",
+            id="dangling-profile",
+        ),
+        pytest.param(
+            refuse_dangling_profile("--rename", "t", "a", "x"),
+            2,
+            "{name}: t is unreadable: ValueError: node",
+            id="rename-dangling-profile",
+        ),
         pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
         pytest.param(
             refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
+        ),
+        pytest.param(
+            refuse_rename(RENAMED, "nope", "a", "x"),
+            1,
+            "--rename names no source 'nope'; its sources: 't'",
+            id="rename-no-source",
+        ),
+        pytest.param(
+            refuse_rename_ambiguous,
+            1,
+            "--rename 't' names 2 sources",
+            id="rename-ambiguous",
+        ),
+        pytest.param(
+            refuse_rename(RENAMED, "t", "zz", "x"),
+            1,
+            "--rename t: 'zz' is not a recorded column",
+            id="rename-not-recorded",
+        ),
+        pytest.param(
+            refuse_rename_unprobed,
+            1,
+            "--rename needs a live schema, and no source can be probed ('t')",
+            id="rename-unprobed",
+        ),
+        pytest.param(
+            refuse_rename(RENAMED, "t", "a", "q"),
+            1,
+            "--rename t: 'q' is not a live column",
+            id="rename-not-live",
+        ),
+        pytest.param(
+            refuse_rename(None, "t", "a", "b"),
+            1,
+            "--rename t: 'a' is still a live column, so nothing was renamed",
+            id="rename-no-drift",
+        ),
+        pytest.param(
+            refuse_rename(RENAMED, "t", "a", "x", "--rename", "t", "a", "b"),
+            1,
+            "--rename t: 'a' is mapped to both 'x' and 'b'",
+            id="rename-twice",
+        ),
+        pytest.param(
+            refuse_rename_beside_a_lost_column,
+            4,
+            "t: recorded columns gone: b; live columns new: -\nif a gone column was renamed to a new one",
+            id="rename-hint-less-renames",
         ),
         pytest.param(refuse_dropped_column, 4, "could not rebuild", id="column"),
         pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
@@ -902,3 +1012,174 @@ def test_pushed_is_false_without_a_remote(world: SimpleNamespace) -> None:
     replace_t(world, GROWN)
     result = rebase_old(world)
     assert (result.status, result.pushed) == (RebaseStatus.REBASED, False)
+
+
+# `--rename`: a renamed column followed under its recorded name.
+def test_a_renamed_column_is_followed_under_its_recorded_name(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, RENAMED)
+
+    result = rebase(runner, world, world.name, "--rename", "t", "a", "x")
+    assert result.exit_code == 0, result.output
+    assert "Renamed t: a <- x\nOutput: unchanged\n" in result.stderr
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert new.columns == ("a", "b")
+    assert list(new.load_expr().execute()["a"]) == [2]
+    # The API takes the `Rename`s a result hands back.
+    renames = (rebase_module.Rename("t", "a", "x"),)
+    assert rebase_old(world, renames=renames).renames == renames
+
+
+def test_a_source_recorded_at_two_schemas_is_renamed_under_both(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`t` bound before and after it grew: one source, two records."""
+    before = world.con.table("t")
+    replace_t(world, GROWN)
+    after = world.con.table("t")
+    name = world.catalog.add(before.select("a", "b").union(after.select("a", "b"))).name
+    replace_t(world, RENAMED)
+
+    result = rebase(runner, world, name, "--rename", "t", "a", "x")
+    assert result.exit_code == 0, result.output
+    assert "Renamed t: a <- x\nOutput: unchanged\n" in result.stderr
+
+
+def test_a_conflict_over_a_lost_column_lists_what_changed(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, RENAMED)
+
+    result = rebase(runner, world)
+    assert result.exit_code == 4, result.output
+    assert (
+        "t: recorded columns gone: a; live columns new: x\n"
+        "if a gone column was renamed to a new one, --rename <source> <old> <new> maps it"
+    ) in result.stderr
+
+
+def test_a_renamed_entry_keeps_following_its_source(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The rename is rebuilt from its mark on every rebase; a later rename
+    names source columns only, and composes with it."""
+    replace_t(world, RENAMED)
+    first = rebase(runner, world, world.name, "--rename", "t", "a", "x")
+    assert first.exit_code == 0, first.output
+
+    replace_t(world, RENAMED.append_column("c", pa.array([1.5, 2.5], pa.float64())))
+    grown = rebase(runner, world, first.stdout.strip())
+    assert grown.exit_code == 0, grown.output
+    assert "Output: c float64 added\n" in grown.stderr
+
+    replace_t(world, pa.table({"y": [1, 2], "c": [1.5, 2.5]}))
+    twice = rebase(runner, world, grown.stdout.strip(), "--rename", "t", "x", "y")
+    assert twice.exit_code == 0, twice.output
+    assert "Renamed t: x <- y\nOutput: b removed\n" in twice.stderr
+    new = reopen(world).get_catalog_entry(twice.stdout.strip())
+    assert new.columns == ("a", "c")
+    assert list(new.load_expr().execute()["a"]) == [2]
+
+
+def test_a_rename_onto_a_recorded_column_is_allowed_with_a_warning(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`b` looks unchanged, so rebase can't tell a typo from `b` dropped and
+    `a` renamed to `b`: it does what it was told, and says so."""
+    name = world.catalog.add(world.con.table("t").select("a")).name
+    replace_t(world, pa.table({"b": pa.array([1, 2], pa.int64())}))
+
+    result = rebase(runner, world, name, "--rename", "t", "a", "b")
+    assert result.exit_code == 0, result.output
+    assert (
+        "Renamed t: a <- b\n"
+        "WARNING: t: b was already a recorded column; a now reads b's data, and "
+        "the expression no longer has a column b. Check that a was really "
+        "renamed to b\n"
+        "Output: unchanged\n"
+    ) in result.stderr
+    entry = world.catalog.get_catalog_entry(name)
+    (rename,) = rebase_entry(entry, renames=[("t", "a", "b")]).renames
+    assert rename.consumes
+
+
+def test_every_rename_refusal_is_reported_at_once(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, RENAMED)
+
+    before = rebase(
+        runner,
+        world,
+        world.name,
+        "--rename",
+        "t",
+        "zz",
+        "x",
+        "--rename",
+        "nope",
+        "a",
+        "x",
+    )
+    assert before.exit_code == 1, before.output
+    assert (
+        f"{world.name}: --rename refused:\n"
+        "  t: 'zz' is not a recorded column (recorded: 'a', 'b')\n"
+        "  names no source 'nope'; its sources: 't'\n"
+    ) in before.stderr
+
+    after = rebase(
+        runner, world, world.name, "--rename", "t", "a", "q", "--rename", "t", "b", "r"
+    )
+    assert after.exit_code == 1, after.output
+    assert (
+        f"{world.name}: --rename refused:\n"
+        "  t: 'q' is not a live column (live: 'x', 'b')\n"
+        "  t: 'r' is not a live column (live: 'x', 'b')\n"
+        "  t: 'b' is still a live column, so nothing was renamed\n"
+    ) in after.stderr
+
+
+@pytest.mark.parametrize(
+    "args, message",
+    (
+        pytest.param(
+            ("t", "a", "x", "t", "a", "x"), "--rename t a x is given twice", id="twice"
+        ),
+        pytest.param(
+            ("t", "a", "x", "t", "b", "x"),
+            "--rename t: 'a' and 'b' are both mapped to 'x'",
+            id="one-new",
+        ),
+    ),
+)
+def test_a_repeated_rename_is_refused_not_collapsed(
+    runner: CliRunner, world: SimpleNamespace, args: tuple[str, ...], message: str
+) -> None:
+    """Like `git mv a a d/`: a repeat is most likely a copied `--rename`."""
+    replace_t(world, RENAMED)
+    (first, second) = (args[:3], args[3:])
+
+    result = rebase(runner, world, world.name, "--rename", *first, "--rename", *second)
+    assert result.exit_code == 1, result.output
+    assert message in result.stderr
+
+
+def test_a_chained_rename_moves_a_live_column_away(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`a` renamed to `x`, then `b` renamed to `a`: `a` is live only because
+    the second rename claims it, and that one is warned about."""
+    replace_t(world, pa.table({"x": pa.array([1, 2], pa.int64()), "a": ["x", "y"]}))
+
+    result = rebase(
+        runner, world, world.name, "--rename", "t", "a", "x", "--rename", "t", "b", "a"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Renamed t: a <- x\nRenamed t: b <- a\nWARNING: t: a was already" in (
+        result.stderr
+    )
+    assert "Output: unchanged\n" in result.stderr
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert new.load_expr().execute().to_dict("records") == [{"a": 2, "b": "y"}]
