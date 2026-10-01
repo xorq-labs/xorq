@@ -4,6 +4,10 @@ version-template: unreleased
 change-template: '- $TITLE (#$NUMBER)'
 
 autolabeler:
+  # The body rule matches a "BREAKING CHANGE:" line anywhere, because real
+  # footers can sit mid-body (#1869). An unindented example in a code block
+  # matches too. Indent it: the next push or edit re-adds a removed label
+  # while the line is there.
   - label: 'breaking'
     title:
       - '/^\w+(\([^)]*\))?!:/'
