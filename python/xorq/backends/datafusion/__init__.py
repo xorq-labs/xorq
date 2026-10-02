@@ -31,6 +31,10 @@ __all__ = [
 
 
 class Backend(IbisDatafusionBackend):
+    # deferred_read_* rejects a list/tuple of paths up front: the readers
+    # take a single path
+    reads_single_path = True
+
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         self.con.from_arrow(
             drop_pandas_schema_metadata(op.data.to_pyarrow(op.schema)), op.name
