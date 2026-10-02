@@ -40,6 +40,7 @@ from xorq.common.exceptions import UnboundExpressionError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
+    is_multi_read_path,
     relocatable_read_path,
     relocatable_read_path_str,
 )
@@ -114,7 +115,7 @@ def _is_relocatable_candidate(node: Any) -> bool:
     if kw.get(ReadKwarg.relocatable, False):
         return False
     hash_path = kw.get(ReadKwarg.hash_path)
-    if hash_path is None:
+    if hash_path is None or is_multi_read_path(hash_path):
         return False
     return not str(hash_path).startswith(REMOTE_SCHEMES)
 

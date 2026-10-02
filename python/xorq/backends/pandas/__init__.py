@@ -311,6 +311,9 @@ class BasePandasBackend(BaseBackend, NoUrl):
 
 class Backend(BasePandasBackend):
     name = "pandas"
+    # deferred_read_* rejects a list/tuple of paths up front: the readers
+    # take a single path
+    reads_single_path = True
 
     def execute(self, query, params=None, limit="default", **kwargs):
         from xorq.backends.pandas.executor import PandasExecutor  # noqa: PLC0415
