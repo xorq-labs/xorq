@@ -14,6 +14,7 @@ import xorq.expr.datatypes as dt
 import xorq.flight.action as A
 import xorq.flight.exchanger as E
 from xorq.common.utils import classproperty
+from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.rbr_utils import instrument_reader
 from xorq.common.utils.tls_utils import TLSKwargs
 from xorq.flight import (
@@ -246,6 +247,14 @@ def test_read_parquet(connection, port, parquet_dir):
         con = main.con
         batting = con.read_parquet(parquet_dir / "batting.parquet")
         assert xo.execute(batting) is not None
+
+
+def test_deferred_read_parquet_sequence_of_paths(parquet_dir):
+    path = parquet_dir / "astronauts.parquet"
+    with FlightServer(flight_url=make_flight_url(None), verify_client=False) as main:
+        expr = deferred_read_parquet((path, path), main.con, table_name="t")
+        single = deferred_read_parquet(path, main.con, table_name="u")
+        assert len(expr.execute()) == 2 * len(single.execute())
 
 
 @pytest.mark.parametrize(
