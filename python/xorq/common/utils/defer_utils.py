@@ -4,7 +4,7 @@ import itertools
 from functools import cache, partial
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypeGuard
 
 import toolz
 
@@ -46,16 +46,48 @@ _ADBC_BACKENDS = frozenset(("sqlite", "postgres", "databricks", "redshift"))
 _PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
 
 
+def is_multi_read_path(path: object) -> TypeGuard[list | tuple]:
+    return isinstance(path, (list, tuple))
+
+
+def freeze_read_path(path: Any) -> Any:
+    # Read hashes its args, so a multi-path read must be a tuple, not a list;
+    # a one-element sequence is the single path it holds
+    if not is_multi_read_path(path):
+        return path
+    return path[0] if len(path) == 1 else tuple(path)
+
+
+def validate_relocatable_path(path: Any) -> None:
+    if is_multi_read_path(path) and len(path) > 1:
+        raise ValueError(f"relocatable=True needs a single path, got {len(path)} paths")
+
+
+def validate_backend_path(con: Backend, path: Any) -> None:
+    if is_multi_read_path(path) and not path:
+        raise ValueError("At least one path is required")
+    # a backend whose reader takes one path sets `reads_single_path = True`;
+    # unflagged backends get the sequence and fail at execution if they can't
+    if (
+        getattr(con, "reads_single_path", False)
+        and is_multi_read_path(path)
+        and len(path) > 1
+    ):
+        raise ValueError(
+            f"the {con.name} backend reads a single path, got {len(path)} paths"
+        )
+
+
 def make_read_kwargs(f, *args, **kwargs):
     # FIXME: if any kwarg is a dictionary, we'll fail Concrete's hashable requirement, so just pickle
     read_kwargs = get_arguments(f, *args, **kwargs)
     kwargs = read_kwargs.pop("kwargs", {})
     # Normalize backend-specific path parameter names to "hash_path" so that
     # Read nodes are portable across backends.
-    read_kwargs = {
-        ("hash_path" if k in _PATH_PARAM_NAMES else k): v
+    read_kwargs = dict(
+        ("hash_path", freeze_read_path(v)) if k in _PATH_PARAM_NAMES else (k, v)
         for k, v in read_kwargs.items()
-    }
+    )
     tpl = tuple(read_kwargs.items()) + tuple(kwargs.items())
     return tpl
 
@@ -198,7 +230,7 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
 
 
 def deferred_read_csv(
-    path: str | Path,
+    path: str | Path | list[str | Path] | tuple[str | Path, ...],
     con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
@@ -219,7 +251,7 @@ def deferred_read_csv(
 
     Parameters
     ----------
-    path : str or Path
+    path : str, Path, or list or tuple of str or Path
         The path to the CSV file to be read. This can be a local file path or a URL.
 
     con : Backend, optional
@@ -254,6 +286,7 @@ def deferred_read_csv(
 
     if con is None:
         con = default_backend()
+    validate_backend_path(con, path)
 
     method = getattr(con, method_name)
 
@@ -280,6 +313,7 @@ def deferred_read_csv(
 
     validate(normalize_method)
     if relocatable:
+        validate_relocatable_path(path)
         read_kwargs = read_kwargs + (("relocatable", True),)
         normalize_method = normalize_read_path_md5sum
     return Read(
@@ -293,7 +327,7 @@ def deferred_read_csv(
 
 
 def deferred_read_parquet(
-    path: str | Path,
+    path: str | Path | list[str | Path] | tuple[str | Path, ...],
     con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
@@ -310,7 +344,7 @@ def deferred_read_parquet(
 
     Parameters
     ----------
-    path : str or Path
+    path : str, Path, or list or tuple of str or Path
         The path to the Parquet file or directory to be read.
 
     con : Backend, optional
@@ -339,6 +373,7 @@ def deferred_read_parquet(
     method_name = "read_parquet"
     if con is None:
         con = default_backend()
+    validate_backend_path(con, path)
     method = getattr(con, method_name)
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
@@ -353,6 +388,7 @@ def deferred_read_parquet(
 
     validate(normalize_method)
     if relocatable:
+        validate_relocatable_path(path)
         read_kwargs = read_kwargs + (("relocatable", True),)
         normalize_method = normalize_read_path_md5sum
     return Read(

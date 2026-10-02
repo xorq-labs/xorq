@@ -25,6 +25,10 @@ from xorq.common.utils.defer_utils import (
 from xorq.common.utils.inspect_utils import (
     get_partial_arguments,
 )
+from xorq.ibis_yaml.compiler import (
+    build_expr,
+    load_expr,
+)
 from xorq.tests.util import assert_frame_equal
 
 
@@ -368,6 +372,117 @@ def test_deferred_read_csv_multiple_paths(csv_dir):
     expr = deferred_read_csv((path, path), con, schema=t.schema())
 
     assert not expr.execute().empty
+
+
+deferred_read_params = (
+    pytest.param(deferred_read_parquet, "parquet", id="parquet"),
+    pytest.param(deferred_read_csv, "csv", id="csv"),
+)
+
+
+@pytest.mark.parametrize("deferred_read,suffix", deferred_read_params)
+@pytest.mark.parametrize(
+    "to_paths",
+    (pytest.param(list, id="list"), pytest.param(tuple, id="tuple")),
+)
+def test_deferred_read_sequence_of_paths(
+    data_dir, tmp_path, deferred_read, suffix, to_paths
+):
+    path = data_dir / suffix / f"astronauts.{suffix}"
+    paths = (path, str(path))
+    expr = deferred_read(to_paths(paths), xo.connect(), table_name="t")
+    single = deferred_read(path, xo.connect()).execute()
+    expected = pd.concat((single, single), ignore_index=True)
+
+    assert tokenize(expr) == tokenize(
+        deferred_read(paths, xo.connect(), table_name="t")
+    )
+    assert_frame_equal(expr.execute(), expected)
+    build_path = build_expr(expr, builds_dir=tmp_path / "builds")
+    assert_frame_equal(load_expr(build_path).execute(), expected)
+
+
+@pytest.mark.parametrize("deferred_read,suffix", deferred_read_params)
+def test_deferred_read_relocatable_rejects_sequence_of_paths(
+    data_dir, deferred_read, suffix
+):
+    path = data_dir / suffix / f"astronauts.{suffix}"
+    with pytest.raises(ValueError, match="needs a single path"):
+        deferred_read([path, path], xo.connect(), relocatable=True)
+
+
+@pytest.mark.parametrize("deferred_read,suffix", deferred_read_params)
+@pytest.mark.parametrize("relocatable", (False, True))
+@pytest.mark.parametrize(
+    "to_paths",
+    (pytest.param(list, id="list"), pytest.param(tuple, id="tuple")),
+)
+def test_deferred_read_rejects_empty_paths_with_schema(
+    data_dir, deferred_read, suffix, relocatable, to_paths
+):
+    path = data_dir / suffix / f"astronauts.{suffix}"
+    schema = deferred_read(path, xo.connect()).schema()
+    with pytest.raises(ValueError, match="At least one path is required"):
+        deferred_read(
+            to_paths(()), xo.connect(), schema=schema, relocatable=relocatable
+        )
+
+
+@pytest.mark.parametrize("deferred_read,suffix", deferred_read_params)
+@pytest.mark.parametrize("backend_name", ("pandas", "datafusion"))
+def test_deferred_read_single_path_backend_rejects_sequence_of_paths(
+    data_dir, deferred_read, suffix, backend_name
+):
+    path = data_dir / suffix / f"astronauts.{suffix}"
+    con = getattr(xo, backend_name).connect()
+    with pytest.raises(
+        ValueError, match=f"the {backend_name} backend reads a single path, got 2"
+    ):
+        deferred_read([path, path], con, table_name="t")
+
+
+@pytest.mark.parametrize("deferred_read,suffix", deferred_read_params)
+def test_deferred_read_pandas_one_element_sequence_is_single_path(
+    data_dir, deferred_read, suffix
+):
+    path = data_dir / suffix / f"astronauts.{suffix}"
+    expr = deferred_read([path], xo.pandas.connect())
+    assert_frame_equal(
+        expr.execute(), deferred_read(path, xo.pandas.connect()).execute()
+    )
+
+
+@pytest.mark.parametrize("deferred_read,suffix", deferred_read_params)
+def test_deferred_read_sequence_of_paths_build_warning(
+    data_dir, tmp_path, deferred_read, suffix
+):
+    path = data_dir / suffix / f"astronauts.{suffix}"
+    expr = deferred_read([path, path], xo.connect(), table_name="t")
+    with pytest.warns(UserWarning, match="Multi-path reads cannot be relocated") as rec:
+        build_expr(expr, builds_dir=tmp_path / "builds")
+    (message,) = (str(w.message) for w in rec if "Multi-path reads" in str(w.message))
+    assert "machine-local paths" in message
+    assert not any("relocatable=True" in str(w.message) for w in rec)
+
+
+@pytest.mark.parametrize("deferred_read,suffix", deferred_read_params)
+@pytest.mark.parametrize(
+    "to_paths",
+    (pytest.param(list, id="list"), pytest.param(tuple, id="tuple")),
+)
+def test_deferred_read_one_element_sequence_is_single_path(
+    data_dir, tmp_path, deferred_read, suffix, to_paths
+):
+    path = data_dir / suffix / f"astronauts.{suffix}"
+    expr = deferred_read(to_paths((path,)), xo.connect(), "t", relocatable=True)
+
+    assert tokenize(expr) == tokenize(
+        deferred_read(path, xo.connect(), "t", relocatable=True)
+    )
+    build_path = build_expr(expr, builds_dir=tmp_path / "builds")
+    assert_frame_equal(
+        load_expr(build_path).execute(), deferred_read(path, xo.connect()).execute()
+    )
 
 
 @pytest.fixture(scope="function")
