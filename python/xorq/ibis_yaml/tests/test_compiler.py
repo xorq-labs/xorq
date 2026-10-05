@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import shutil
+import sys
 import tempfile
 import warnings
 
@@ -45,7 +46,7 @@ from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
-from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
+from xorq.expr.relations import CachedNode, CacheTag, FlightExpr, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
@@ -54,6 +55,7 @@ from xorq.ibis_yaml.compiler import (
     ExprKind,
     RefEnum,
     WritePlan,
+    YamlExpressionTranslator,
     _extract_sql_queries,
     _is_relocatable_candidate,
     _prepare_relocatable_reads,
@@ -2168,3 +2170,138 @@ def test_execute_write_plans_dedupable_writes_once(
     )
     ExprDumper._execute_write_plans(plans)
     assert calls == ["a"]
+
+
+def _stack_depth() -> int:
+    frame, depth = sys._getframe(1), 0
+    while frame is not None:
+        frame, depth = frame.f_back, depth + 1
+    return depth
+
+
+def _op_chain(n: int) -> ibis.Expr:
+    t = ibis.table({"a": "int64"}, name="t")
+    for i in range(n):
+        t = t.mutate(**{f"m{i}": t.a + i}) if i % 2 == 0 else t.filter(t.a > -i)
+    return t
+
+
+def test_to_yaml_depth_does_not_grow_with_chain_length() -> None:
+    # translate_to_yaml recursed about 5 frames per op, so a 60-op chain
+    # needed ~330 frames and failed under this limit (#2351)
+    expr = _op_chain(60)
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(_stack_depth() + 150)
+    try:
+        yaml_dict = YamlExpressionTranslator.to_yaml(expr)
+    finally:
+        sys.setrecursionlimit(limit)
+    roundtripped = YamlExpressionTranslator.from_yaml(yaml_dict)
+    assert roundtripped.schema() == expr.schema()
+
+
+def _peak_extra_depth(fn) -> int:
+    """Deepest Python stack reached while running *fn*, relative to the caller.
+
+    Measured with a profile hook rather than a lowered recursion limit:
+    ``safe_translate_to_yaml`` retries uncached on any exception, so a
+    ``RecursionError`` inside translation fans out exponentially instead of
+    surfacing.
+    """
+    base = _stack_depth()
+    peak = 0
+
+    def probe(frame, event, arg):
+        nonlocal peak
+        if event == "call":
+            depth = 0
+            while frame is not None:
+                frame, depth = frame.f_back, depth + 1
+            peak = max(peak, depth - base)
+
+    sys.setprofile(probe)
+    try:
+        fn()
+    finally:
+        sys.setprofile(None)
+    return peak
+
+
+def test_to_yaml_depth_does_not_grow_with_flight_unbound_chain() -> None:
+    # the FlightExpr handler translates unbound_expr itself, so the warm pass
+    # must descend it too or the chain inside recurses once per op again.
+    # A bare FlightExpr, not flight_expr(): that wraps it in a RemoteTable,
+    # whose handler tokenizes the whole op for its name (a separate,
+    # pre-existing per-op cost in dasher/ibis equality, not in translation).
+    con = xo.connect()
+    inp = con.create_table("flight_in", pd.DataFrame({"a": [1, 2, 3]}))
+
+    def depth_for(n: int) -> int:
+        # filters only: a mutate chain's own graph grows with position in the
+        # chain (every column re-listed), which shows up in the SQL compile
+        # depth of a single node and would mask the per-op recursion
+        # distinct per n (a shorter chain is otherwise a prefix of a longer
+        # one, and to_sql's op-keyed cache would skip its compile depth)
+        unbound = ibis.table({"a": "int64"}, name=f"t{n}")
+        for i in range(n):
+            unbound = unbound.filter(unbound.a > i)
+        expr = FlightExpr.from_exprs(inp, unbound, name=f"flight-{n}").to_expr()
+        return _peak_extra_depth(lambda: YamlExpressionTranslator.to_yaml(expr))
+
+    depth_for(2)  # first call pays one-off depth (lazy imports, cold caches)
+    assert depth_for(40) == depth_for(20)
+
+
+def test_to_yaml_depth_does_not_grow_with_computed_kwargs_chain() -> None:
+    # the ExprScalarUDF handler serializes __config__, which carries
+    # computed_kwargs_expr, so a chain reachable only through it must be
+    # warmed too
+    con = xo.connect()
+
+    def depth_for(n: int) -> int:
+        data = con.register(pd.DataFrame({"x": [1, 2, 3]}), f"data{n}").select("x")
+
+        @udf.agg.pandas_df(schema=data.schema(), return_type=dt.float64, name="my_sum")
+        def my_sum(frame):
+            return frame["x"].astype(float).sum()
+
+        chain = data
+        for i in range(n):
+            chain = chain.filter(chain.x > -i)
+        predict_udf = udf.make_pandas_expr_udf(
+            computed_kwargs_expr=my_sum.on_expr(chain).name("my_sum").as_table(),
+            fn=lambda value, frame, **kw: (frame["x"] + float(value)).astype(float),
+            schema=ibis.schema({"x": dt.float64}),
+            name=f"add_sum_{n}",
+            return_type=dt.float64,
+            post_process_fn=identity,
+        )
+        expr = data.mutate(out=predict_udf.on_expr(data)).as_table()
+        return _peak_extra_depth(lambda: YamlExpressionTranslator.to_yaml(expr))
+
+    depth_for(2)  # first call pays one-off depth (lazy imports, cold caches)
+    assert depth_for(40) == depth_for(20)
+
+
+def test_to_yaml_registers_children_before_parents() -> None:
+    # from_yaml warms its cache in stored order and relies on this (#2338/#2350)
+    t1 = _op_chain(6)
+    t2 = ibis.table({"a": "int64", "k": "int64"}, name="u")
+    expr = t1.join(t2, t1.a == t2.a).tag("x").filter(lambda t: t.k > 0)
+    nodes = YamlExpressionTranslator.to_yaml(expr)["definitions"]["nodes"]
+
+    def node_refs(value):
+        match value:
+            case {"node_ref": ref}:
+                yield ref
+            case dict():
+                for v in value.values():
+                    yield from node_refs(v)
+            case tuple() | list():
+                for v in value:
+                    yield from node_refs(v)
+
+    seen = set()
+    for ref, definition in nodes.items():
+        assert set(node_refs(definition)) <= seen, ref
+        seen.add(ref)

@@ -15,9 +15,10 @@ from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.content_hash import content_hash
+from xorq.common.utils.content_hash import ContentHasher
 from xorq.common.utils.dasher import tokenize
-from xorq.expr.relations import Read
+from xorq.common.utils.graph_utils import OPAQUE_EDGES, child_relations, postorder
+from xorq.expr.relations import FlightExpr, Read, RemoteTable
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, RefEnum, RegistryEnum
 from xorq.ibis_yaml.utils import freeze
@@ -44,6 +45,7 @@ class Registry:
         self.dtypes = dict(dtypes)
         self.nodes = dict(nodes)
         self.schemas = dict(schemas)
+        self.content_hasher = ContentHasher()
 
     def getstate(self):
         return freeze(
@@ -66,7 +68,7 @@ class Registry:
         Returns a name like '@read_{hash}', '@filter_{hash}', etc.
         """
 
-        node_hash = content_hash(node)
+        node_hash = self.content_hasher(node)
         op_name = node_dict.get(NodeKey.op, "unknown").lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {NodeKey.snapshot_hash: node_hash})
@@ -260,6 +262,45 @@ def safe_translate_to_yaml(*args, **kwargs):
         return translate_to_yaml(*args, **kwargs)
     except Exception:
         return translate_to_yaml.__wrapped__(*args, **kwargs)
+
+
+# The edges a *translation* follows. Unlike the hashing edges, this keeps
+# ``ExprScalarUDF.computed_kwargs_expr`` (its handler serializes ``__config__``,
+# which carries that expression) and adds ``FlightExpr.unbound_expr`` (a
+# recorded non-edge for traversal, but the FlightExpr handler serializes it).
+# A chain reachable only through either recurses unless warmed too.
+TRANSLATE_EDGES = {**OPAQUE_EDGES, FlightExpr: ("input_expr", "unbound_expr")}
+
+
+def _translation_children(node: Any) -> tuple:
+    """Relations that translating *node* recurses into.
+
+    A ``RemoteTable`` is a boundary: its ``remote_expr`` must be translated
+    inside ``remote_table_scope`` (a ``Read`` under it gets a scope-dependent
+    name), so :func:`warm_translate_to_yaml` descends it itself, in scope.
+    """
+    if isinstance(node, RemoteTable):
+        return ()
+    return child_relations(node, opaque_edges=TRANSLATE_EDGES)
+
+
+def warm_translate_to_yaml(op: Any, context: TranslationContext) -> None:
+    """Translate the relations under *op* children-first, into the cache.
+
+    ``translate_to_yaml`` recurses into each node's inputs, about five frames
+    per relational op, so a long enough chain hits ``RecursionError``. With
+    every child already in the lru cache, translating a node recurses at most
+    one level. Depth-first post-order in argument order is exactly the order
+    the recursive translation registered nodes in, so the registry keeps the
+    same first-registered definition for any two nodes that share a ref, and
+    stays children-first (what ``from_yaml`` relies on to load without
+    recursing).
+    """
+    for node in postorder(op, children=_translation_children):
+        if isinstance(node, RemoteTable):
+            with context.remote_table_scope(node.name):
+                warm_translate_to_yaml(node.remote_expr.op(), context)
+        context.translate_to_yaml(node)
 
 
 @functools.singledispatch
