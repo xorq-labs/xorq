@@ -308,7 +308,7 @@ change is not present in PyPI.
 2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
 3. Create a branch that starts from the upstream main: `git switch --create=release-$version_number`
 4. Update the version number in `pyproject.toml`: `version = "$version_number"`, then run `uv lock` so xorq's own version is updated in `uv.lock`.
-5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.). The command prepends the new section above `## [Unreleased]`; move it below the `## [Unreleased]` / `### Details` block, matching prior releases.
+5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.).
 6. Create commit with a message denoting the release: `git add --update && git commit -m "release: $version_number"`.
 7. Push the new branch: `git push --set-upstream origin "release-$version_number"`
 8. Open a PR for the new branch `release-$version_number`
