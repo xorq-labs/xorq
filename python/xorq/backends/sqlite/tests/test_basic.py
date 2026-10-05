@@ -11,6 +11,7 @@ from xorq.caching import (
     SourceSnapshotCache,
 )
 from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.defer_utils import infer_csv_schema_pandas
 from xorq.tests.util import assert_frame_equal
 
 
@@ -118,6 +119,35 @@ def test_can_deferred_read(sqlite_con, file_format, request):
         con=sqlite_con,
     )(xo)
     assert not read.execute().empty
+
+
+def test_deferred_read_csv_keeps_schema(astronauts_csv_path, tmp_path):
+    con = xo.sqlite.connect(tmp_path / "warehouse.sqlite")
+    schema = xo.schema(
+        {**infer_csv_schema_pandas(astronauts_csv_path), "id": "float64"}
+    )
+    xo.deferred_read_csv(
+        astronauts_csv_path, con=con, schema=schema, table_name="astronauts"
+    ).execute()
+    assert con.table("astronauts").schema() == schema
+
+
+@pytest.mark.parametrize(
+    ("database", "kwargs"),
+    [
+        (None, {}),
+        ("file::memory:", {"uri": True}),
+        ("file:x?mode=memory", {"uri": True}),
+    ],
+)
+def test_is_in_memory(database, kwargs):
+    assert xo.sqlite.connect(database, **kwargs).is_in_memory()
+
+
+def test_is_in_memory_false_for_file_under_memory_dir(tmp_path):
+    path = tmp_path / "memory" / "warehouse.sqlite"
+    path.parent.mkdir()
+    assert not xo.sqlite.connect(path).is_in_memory()
 
 
 def test_sqlite_snapshot(con_snapshot):
