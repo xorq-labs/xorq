@@ -307,6 +307,63 @@ def bfs(
     return Graph(dct)
 
 
+def child_relations(
+    node: Node, *, opaque_edges: Mapping = OPAQUE_EDGES
+) -> Tuple[ops.Relation, ...]:
+    """Relations *node* refers to directly, without crossing a relation.
+
+    Descends value ops (a ``Filter``'s predicates, a ``Project``'s values) and
+    opaque edges per *opaque_edges*, stopping at the first relation on each
+    path, so the result is one level of the relation-only graph. A
+    ``JoinReference`` counts as a relation here. Deduplicated, in argument
+    order (depth-first, left to right) -- the order a translation handler
+    visits them in.
+    """
+    seen: set = set()
+    found = ()
+    stack = list(reversed(tuple(gen_children_of(node, opaque_edges=opaque_edges))))
+    while stack:
+        child = stack.pop()
+        if child in seen:
+            continue
+        seen.add(child)
+        if isinstance(child, ops.Relation):
+            found += (child,)
+        else:
+            stack.extend(
+                reversed(tuple(gen_children_of(child, opaque_edges=opaque_edges)))
+            )
+    return found
+
+
+def postorder(
+    node: Expr | Node, *, children: Callable[[Node], Any] = gen_children_of
+) -> Tuple[Node, ...]:
+    """Depth-first post-order of the graph under *node*: every child before
+    its parent, children visited left to right, each node once.
+
+    Iterative, so the depth of the graph does not reach the Python stack.
+    Unlike ``bfs(...).toposort()`` (Kahn's algorithm) this is exactly the
+    order a recursive children-first walk produces, which matters when a
+    consumer keeps the first of two equal keys (``Registry.register_node``).
+    """
+    root = to_node(node)
+    visited = {root}
+    order = []
+    stack = [(root, iter(children(root)))]
+    while stack:
+        current, kids = stack[-1]
+        for child in kids:
+            if child not in visited:
+                visited.add(child)
+                stack.append((child, iter(children(child))))
+                break
+        else:
+            stack.pop()
+            order.append(current)
+    return tuple(order)
+
+
 def walk_nodes(
     node_types: type | Tuple[type, ...],
     expr: Expr | Node,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -7,8 +8,15 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+import xorq.expr.api as api
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.content_hash import content_hash
+from xorq.caching.strategy import SnapshotStrategy
+from xorq.common.utils.content_hash import (
+    PLACEHOLDER_PREFIX,
+    ContentHasher,
+    content_hash,
+)
+from xorq.common.utils.graph_utils import bfs
 from xorq.common.utils.node_utils import walk_nodes
 from xorq.expr.relations import HashingTag, Read, Tag
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
@@ -49,19 +57,19 @@ def t() -> ibis.Expr:
         pytest.param(
             lambda t: t.tag("v1", extra="x"),
             Tag,
-            {"563943016a2d36c008f1d7129a84ae75"},
+            {"885320479f53e24984215603ffcc7951"},
             id="tag",
         ),
         pytest.param(
             lambda t: t.hashing_tag("v1"),
             HashingTag,
-            {"d3a1cf68f4aaf63eba3c263ad5c8f5b7"},
+            {"0871cbb8ecd40bc0280f8f1bc80ca78b"},
             id="hashing_tag",
         ),
         pytest.param(
             lambda t: t.filter(t.a > 1),
             ops.Filter,
-            {"b82aab366f891829b5c84e042a24ea85"},
+            {"c212583de31a5b64c32d031b0e08a0ad"},
             id="filter-default",
         ),
     ],
@@ -82,8 +90,8 @@ def test_golden_join_reference_hash_and_is_serialized() -> None:
     t2 = ibis.table({"b": "int64", "k": "int64"}, name="t2")
     expr = t1.join(t2, [("k", "k")])
     expected = {
-        "18af0a10f0e57ec2eb54430e77f1566c",
-        "7d9e90cea69511544f334134ca3d9716",
+        "39c58d8de1af85ded58718f177ba6a6d",
+        "a1deb7a2c301bc469849c3cd9e22d29e",
     }
     nodes = list(walk_nodes(ops.JoinReference, expr))
     assert {content_hash(node) for node in nodes} == expected
@@ -138,3 +146,124 @@ def test_content_hash_is_deterministic(t: ibis.Expr) -> None:
     expr = t.filter(t.a > 1)
     node = expr.op()
     assert content_hash(node) == content_hash(node)
+
+
+# --- incremental hashing (#2351) ---------------------------------------------
+
+
+def _chain(n: int) -> ibis.Expr:
+    t = ibis.table({"a": "int64"}, name="t")
+    for i in range(n):
+        t = t.mutate(**{f"m{i}": t.a + i}) if i % 2 == 0 else t.filter(t.a > -i)
+    return t
+
+
+def _stack_depth() -> int:
+    frame, depth = sys._getframe(1), 0
+    while frame is not None:
+        frame, depth = frame.f_back, depth + 1
+    return depth
+
+
+def test_plain_tag_is_transparent_to_its_parents_hash(t: ibis.Expr) -> None:
+    """A plain Tag under a Filter does not change the Filter's hash (untagged semantics)."""
+    tagged = t.tag("v1").filter(lambda s: s.a > 1).op()
+    plain = t.filter(t.a > 1).op()
+    assert content_hash(tagged) == content_hash(plain)
+    # ...but a HashingTag does.
+    hashing = t.hashing_tag("v1").filter(lambda s: s.a > 1).op()
+    assert content_hash(hashing) != content_hash(plain)
+
+
+def test_content_hasher_agrees_with_standalone_calls() -> None:
+    """One memoized hasher over the root hashes every relation exactly as a fresh call does."""
+    expr = _chain(12)
+    hasher = ContentHasher()
+    root_hash = hasher(expr.op())
+    relations = tuple(walk_nodes(ops.Relation, expr))
+    assert set(relations) <= set(hasher.hashes)
+    assert hasher.hashes[expr.op()] == root_hash
+    assert all(hasher.hashes[node] == content_hash(node) for node in relations)
+
+
+def _filter_chain(n: int) -> ibis.Expr:
+    # filters only: a mutate chain re-lists every column, so its own graph
+    # (not just the compiled subtree) grows with position in the chain
+    t = ibis.table({"a": "int64", "k": "int64"}, name="t")
+    for i in range(n):
+        t = t.filter(t.a > i)
+    return t
+
+
+def _joined_filter_chain(n: int) -> ibis.Expr:
+    u = ibis.table({"b": "int64", "k": "int64"}, name="u")
+    return _filter_chain(n).join(u, "k")
+
+
+@pytest.mark.parametrize("build", [_filter_chain, _joined_filter_chain])
+def test_content_hash_compiles_one_level_of_sql_per_relation(
+    monkeypatch, build
+) -> None:
+    """The op graph handed to the SQL compiler per relation stays bounded as the chain grows.
+
+    Before #2351 each relation compiled its whole subtree, so hashing all N
+    relations of a chain cost O(N^2) SQL compiles. A join reaches its inputs
+    through ``JoinReference`` wrappers, which must not reopen the subtree.
+    """
+    sizes: list[int] = []
+    original = api.to_sql
+
+    def counting_to_sql(expr, *args, **kwargs):
+        sizes.append(len(bfs(expr.op())))
+        return original(expr, *args, **kwargs)
+
+    monkeypatch.setattr(api, "to_sql", counting_to_sql)
+
+    def max_compiled_size(n: int) -> int:
+        sizes.clear()
+        hasher = ContentHasher()
+        for node in walk_nodes(ops.Relation, build(n)):
+            hasher(node)
+        return max(sizes)
+
+    assert max_compiled_size(10) == max_compiled_size(40)
+
+
+_SEEN_DATABASETABLES: list[str] = []
+_ORIGINAL_NORMALIZE_DATABASETABLE = SnapshotStrategy.normalize_databasetable
+
+
+def _recording_normalize_databasetable(dt):
+    # module-level on purpose: dasher refuses closures as rule normalizers
+    _SEEN_DATABASETABLES.append(dt.name)
+    return _ORIGINAL_NORMALIZE_DATABASETABLE(dt)
+
+
+def test_placeholders_skip_databasetable_normalization(monkeypatch) -> None:
+    """A placeholder names an already-hashed child; it must not be normalized
+    like a real backend table (Redshift resolves an unqualified table's schema
+    with a query per table, which would be one round trip per relation)."""
+    monkeypatch.setattr(
+        SnapshotStrategy,
+        "normalize_databasetable",
+        staticmethod(_recording_normalize_databasetable),
+    )
+    _SEEN_DATABASETABLES.clear()
+    con = xo.connect()
+    t = con.create_table("real_table", pd.DataFrame({"a": [1, 2, 3]}))
+    for i in range(5):
+        t = t.filter(t.a > i)
+    ContentHasher()(t.op())
+    assert "real_table" in _SEEN_DATABASETABLES
+    assert not [n for n in _SEEN_DATABASETABLES if n.startswith(PLACEHOLDER_PREFIX)]
+
+
+def test_content_hash_depth_does_not_grow_with_chain_length() -> None:
+    expr = _chain(80)
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(_stack_depth() + 150)
+    try:
+        hashed = content_hash(expr.op())
+    finally:
+        sys.setrecursionlimit(limit)
+    assert hashed == content_hash(expr.op())

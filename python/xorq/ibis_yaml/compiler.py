@@ -77,6 +77,7 @@ from xorq.ibis_yaml.common import (
     TranslationContext,
     translate_from_yaml,
     translate_to_yaml,
+    warm_translate_to_yaml,
 )
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import (
@@ -310,6 +311,7 @@ class YamlExpressionTranslator:
             cache_dir=cache_dir,
         )
         with SnapshotStrategy().normalization_context(expr):
+            warm_translate_to_yaml(expr.op(), context)
             expr_dict = translate_to_yaml(expr, context)
             expr_dict = freeze(
                 expr_dict
