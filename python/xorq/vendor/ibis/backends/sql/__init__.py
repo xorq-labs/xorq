@@ -157,7 +157,9 @@ class SQLBackend(BaseBackend, _DatabaseSchemaHandler):
     ):
         """Compile an Ibis expression to a SQL string."""
         query = self.compiler.to_sqlglot(expr, limit=limit, params=params)
-        sql = query.sql(dialect=self.dialect, pretty=pretty, copy=False)
+        # Render a copy: the tree shares nodes and the generator mutates in
+        # place; see `SQLGlotCompiler.to_sqlglot`.
+        sql = query.sql(dialect=self.dialect, pretty=pretty)
         get_current_span().add_event("compile.sql", {"sql": sql})
         self._log(sql)
         return sql
