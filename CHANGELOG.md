@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.6] - 2026-10-06
+### Details
+#### Changed
+- Minimal Redshift backend over a psycopg baseline by @dlovell in [#2332](https://github.com/xorq-labs/xorq/pull/2332)
+- Put the Unreleased placeholder in the git-cliff header by @mesejo in [#2376](https://github.com/xorq-labs/xorq/pull/2376)
+
+#### Fixed
+- Compile Redshift as Redshift, not as PostgreSQL by @dlovell in [#2333](https://github.com/xorq-labs/xorq/pull/2333)
+- Refuse Redshift freshness keys and make its snapshot key schema-aware by @dlovell in [#2335](https://github.com/xorq-labs/xorq/pull/2335)
+- Introspect through svv_all_columns, not pg_catalog by @dlovell in [#2336](https://github.com/xorq-labs/xorq/pull/2336)
+
 ## [0.4.5] - 2026-09-29
 ### Details
 #### Added
