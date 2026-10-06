@@ -14,6 +14,15 @@ class Traversal(StrEnum):
     DESCEND for an effectful pass double-materializes -- a mistake this enum
     makes impossible outside these two values.
 
+    Pure is necessary for DESCEND, not sufficient. A pure rewrite that changes a
+    payload's identity (``remove_tags`` drops ``HashingTag``) must also be
+    BOUNDARY when a later BOUNDARY pass keys that payload (``cache`` keys
+    ``CachedNode.parent``): descending would hand the keying pass a payload
+    other than the one written, and the key diverges from ``ls.get_key()``. The
+    payload is keyed as written, then stripped, by its own nested transform.
+    ``bind_params`` is the deliberate exception (see ``_PASSES`` in
+    ``xorq.expr.api``).
+
     Stopping at opaque nodes is not a coverage gap: each opaque interior
     (RemoteTable, CachedNode, Flight*, ExprScalarUDF) re-enters the transform at
     its own execution boundary (caching resolves and re-transforms the cached

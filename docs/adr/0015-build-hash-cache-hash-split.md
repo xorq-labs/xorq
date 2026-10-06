@@ -82,7 +82,8 @@ mechanisms:
    split: it strips *all* `Tag` nodes including `HashingTag` (whereas
    `_remove_non_hashing_tag_nodes` deliberately preserves `HashingTag`). It runs on the
    SQL compilation (`to_sql`) and execution-transform (`_transform_expr`) paths, where the
-   tag metadata is irrelevant to the rows produced. Do not confuse it with the
+   tag metadata is irrelevant to the rows produced (but not to the keys computed on the
+   way: see the Amendment below). Do not confuse it with the
    cache-hash strip pass; the distinguishing rule is that anything feeding `expr.ls.tokenized`
    must keep `HashingTag` (use `_remove_non_hashing_tag_nodes`), while SQL/execution may
    drop it (use `_remove_tag_nodes`).
@@ -228,3 +229,42 @@ it in a feature-specific ADR buries a general principle under a specific design.
 - Opaque op set: `opaque_ops` in `python/xorq/common/utils/graph_utils.py`
 - ADR-0006: `read_kwargs` hash-path/read-path split
 - ADR-0014: TeeNode deferred writes (the specific design that prompted this general rule)
+
+## Amendment: the execution-path strip stops at payload boundaries
+
+Mechanism 1 above says `_remove_tag_nodes` runs on the execution path "where the tag
+metadata is irrelevant to the rows produced". Rows, yes; keys, no. The execution transform
+keys every `CachedNode` it meets (the `cache` pass calls `calc_key` on `CachedNode.parent`),
+and that key is subject to this ADR's rule: anything feeding the cache hash keeps
+`HashingTag`. The strip pass descended into `CachedNode.parent` ahead of the cache pass, so
+execution keyed a parent with its `HashingTag` removed while `ls.get_key()`,
+`cache_exists()` and the build metadata keyed the parent as written. The artifact landed
+under one key and was looked up under another, and two expressions differing only in
+hashing-tag metadata shared one entry.
+
+The decision stands; this records the invariant it implies for the execution transform:
+
+- **A tag strip that runs ahead of a keying pass stops at opaque payload boundaries.**
+  `_remove_tag_nodes` on the execution path is a `BOUNDARY` pass (`Traversal` in
+  `python/xorq/expr/enums.py` carries the rule). It still removes every tag, `HashingTag`
+  included, from the tree the current execution compiles.
+- **Each payload is keyed as written, by its own nested transform.** `CachedNode.parent`,
+  `RemoteTable.remote_expr` and the Flight `input_expr` each re-enter `_transform_expr`
+  at their own execution boundary, which keys the payload first and strips its tags after.
+
+Alternatives rejected on the way:
+
+- *Leave `HashingTag` in place during the strip.* No compiler has a rule for a tag; every
+  hashing-tagged execution fails with `OperationNotDefinedError`.
+- *Run `cache` before the strip, with the strip still descending.* The outer cache pass
+  never enters a payload but the strip does, so a cache nested inside a `RemoteTable`
+  payload was still keyed from a stripped parent, and an outer plain tag hid the cache
+  root from provenance stamping.
+- *A separate `remove_hashing_tags` pass after `cache`.* Works only if that pass is also
+  `BOUNDARY`, and then an outer hashing tag hides the cache root from provenance unless
+  the root check is patched too. That is this change with an extra pass.
+
+The one pass that still rewrites a payload before it is keyed is `bind_params`: a
+parameterised cache is keyed from the bound parent, one entry per value, and
+`ls.get_key()` without params names none of them. That is accepted and recorded at
+`_PASSES` in `python/xorq/expr/api.py`.

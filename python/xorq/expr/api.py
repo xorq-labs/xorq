@@ -460,22 +460,32 @@ def _resolve_params(params):
 # asserts the dependency chain: bind -> tags -> cache -> tee -> remote -> reads.
 # ``produces_resources`` passes (tee, remote) adopt into the shared scope; cache
 # materializes persistent parquet and owns nothing scope-tracked.
+#
+# ``bind_params`` is the one DESCEND pass left, and the one pass that still
+# rewrites a payload before ``cache`` keys it: a parameterised cache is keyed
+# from the *bound* parent, so it gets one entry per value and ``ls.get_key()``
+# without params names none of them. That is accepted; every other pass keys or
+# strips a payload only through the payload's own nested transform.
 _PASSES = (
     TransformPass(
         name="bind_params",
         traversal=Traversal.DESCEND,
-        # No ``when`` gate: ``build`` (via ``_resolve_bind_op_params``) already
-        # walks for NamedScalarParameters and the replacer no-ops on empty
-        # bindings, so a gate would only duplicate that walk -- and this pass
-        # always fuses with ``remove_tags`` into one walk, so gating saves none.
+        # ``when``: ``_resolve_bind_op_params`` validates ``params`` (so extra
+        # names and bad values still raise even when the walk is skipped) and
+        # returns the bindings; an expression with nothing to bind skips the
+        # DESCEND walk. Since ``remove_tags`` became BOUNDARY this pass shares a
+        # traversal with nothing, so the gate saves a whole walk per execution.
+        when=lambda expr, ctx: bool(_resolve_bind_op_params(expr, ctx.name_values)),
         build=lambda expr, ctx: _make_bind_params_replacer(
             _resolve_bind_op_params(expr, ctx.name_values)
         ),
     ),
     TransformPass(
         name="remove_tags",
-        # BOUNDARY: a payload is keyed (HashingTag included) and stripped by its
-        # own nested transform
+        # BOUNDARY although it is a pure rewrite: it changes a payload's identity
+        # ahead of ``cache`` keying that payload (see ``Traversal``). A payload
+        # is keyed (HashingTag included) and then stripped by its own nested
+        # transform.
         traversal=Traversal.BOUNDARY,
         build=lambda expr, ctx: _make_remove_tag_nodes_replacer(),
     ),
@@ -595,8 +605,9 @@ def _flight_to_rbr(
     so the effectful BOUNDARY passes no-op on it and the scope comes back empty --
     but the DESCEND passes must still run: ``to_rbr`` re-enters
     ``input_expr.to_pyarrow_batches()`` with no ``params``, so binding here is what
-    resolves a parameter living inside ``input_expr`` (and strips its tags). We
-    still dispatch via ``to_rbr`` (a FlightExpr has no normal backend), tie the
+    resolves a parameter living inside ``input_expr`` (its tags are stripped by
+    that nested transform, as for any payload). We still dispatch via ``to_rbr``
+    (a FlightExpr has no normal backend), tie the
     (empty) scope to the reader, and instrument it -- exactly as the non-Flight
     path does.
     """

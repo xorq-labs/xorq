@@ -12,8 +12,8 @@ from xorq.caching import ParquetCache, ParquetSnapshotCache
 from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
 from xorq.catalog.expr_utils import build_expr_context_zip, load_expr_from_zip
 from xorq.common.utils.graph_utils import replace_nodes, walk_nodes
+from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.relations import RemoteTable
-from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
 def test_put_get_drop(tmp_path, parquet_dir):
@@ -205,18 +205,19 @@ def tagged_cache(tmp_path):
     ],
 )
 def test_hashing_tag_cache_key_agrees_on_every_path(tagged_cache, wrap):
-    """Execution, ls.get_key/cache_exists, Cache.calc_key and the build metadata
-    must all name the same artifact for a hashing-tagged parent, and the
-    artifact carries provenance."""
+    """Execution must write the artifact ``ls.get_key()`` named (so
+    ``cache_exists`` flips) for a hashing-tagged parent, and stamp it with the
+    build hash of the cached expression as written. ``Cache.calc_key`` and
+    ``ExprMetadata.projected_cache_key`` are the same computation as
+    ``get_key`` and are not re-asserted."""
     cached = tagged_cache("v1")
     key = cached.ls.get_key()
     assert cached.ls.cache_exists() is False
     wrap(cached).execute()
     assert tagged_cache.written() == {key}
     assert cached.ls.cache_exists() is True
-    assert cached.op().cache.calc_key(cached) == key
-    assert ExprMetadata.from_expr(cached).projected_cache_key.key == key
-    assert b"xorq:expr_hash" in pq.read_schema(cached.ls.get_cache_path()).metadata
+    footer = pq.read_schema(cached.ls.get_cache_path()).metadata
+    assert footer[b"xorq:expr_hash"] == get_expr_hash(cached).encode()
 
 
 def test_hashing_tags_cache_distinctly(tagged_cache):
