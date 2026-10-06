@@ -10,14 +10,13 @@ Xorq computes two hashes from the same expression tokenizer, applied in differen
 
 - The **build hash** (`get_expr_hash` in `provenance_utils.py`) identifies the build artifact.
   It is the key a catalog search returns when someone asks "has this pipeline been built?"
-- The **cache hash** (`expr.ls.tokenized`) determines cache hits. It is the key a
-  `CachedNode` checks before deciding whether to recompute.
+- The **cache hash** (`expr.ls.tokenized` for the modification-time strategy; the snapshot
+  strategy tokenizes through its own context in `caching/strategy.py`) determines cache
+  hits. It is the key a `CachedNode` checks before deciding whether to recompute.
 
 Both hashes are produced by the same structural tokenizer in `dasher/_opaque.py`. The
-difference is which ops participate. Today that difference is controlled by a context
-variable (`_include_tee_nodes`) toggled by `get_expr_hash`, plus a strip pass
-(`_remove_non_hashing_tag_nodes` / `_remove_tee_nodes` in `api.py`) that removes certain
-ops before the cache hash is computed.
+difference is which ops participate; *How the split is implemented* below says how. (The
+sentence that stood here credited a strip pass that is on neither hash path; see Errata.)
 
 The rules governing which ops participate in which hash are implicit. ADR-0014 documents
 TeeNode's specific behavior (cache-hash-neutral, build-hash-bearing), and ADR-0006
@@ -62,8 +61,11 @@ Today two op families qualify:
 
 | Op | Why cache-hash-neutral | Strip mechanism |
 |---|---|---|
-| `Tag` | Metadata annotation; schema and rows unchanged | the tokenizer's SQL step: `to_sql` runs `_remove_tag_nodes` (see Errata) |
-| `TeeNode` | Side-effect write; schema and rows unchanged | the tokenizer's SQL step: `to_sql` runs `_remove_tee_nodes`; re-collected only under `include_tee_nodes` |
+| `Tag` | Metadata annotation; schema and rows unchanged | the tokenizer's SQL step: `to_sql` runs `_remove_tag_nodes`; re-collected by nothing (see Errata) |
+| `TeeNode` | Side-effect write; schema and rows unchanged | the tokenizer's SQL step: `to_sql` runs `_remove_tee_nodes`; re-collected, but folded only under `_include_tee_nodes` (mechanism 2) |
+
+At execution a `TeeNode` is not stripped: it is kept until the tee pass fires its write
+(ADR-0014).
 
 `HashingTag` is the counter-example: it is a `Tag` subclass whose metadata **does**
 participate in the cache hash (via `__dasher_tokenize__`), because its metadata is
@@ -76,22 +78,25 @@ mechanisms:
 
 1. **Strip passes** inside the tokenizer. Both hashes tokenize through `_decompose_expr`
    (`dasher/_opaque.py`), whose structural component is the SQL that `to_sql` compiles, and
-   `to_sql` first runs `_remove_tag_nodes` and `_remove_tee_nodes`. So no `Tag` (plain or
-   hashing) and no `TeeNode` reaches the SQL component of either hash. `_decompose_expr`
-   then re-collects `HashingTag` and `CacheTag` with `walk_nodes` and folds them in via
-   `__dasher_tokenize__`, and re-collects `TeeNode` only under `include_tee_nodes`
-   (mechanism 2). That is the whole of the split: a plain `Tag` is re-collected by nothing.
+   `to_sql` first runs `_remove_tag_nodes` and `_remove_tee_nodes`. So no plain `Tag`,
+   `HashingTag` or `TeeNode` reaches the SQL component of either hash (a `CacheTag` reaches
+   it as the placeholder `_xorq_opaque_to_placeholder` rewrites it to). `_decompose_expr`
+   then re-collects, by explicit type, `HashingTag`, `CacheTag` and `TeeNode` with
+   `walk_nodes`; `_hash_expr_components` folds the first two into every hash and `TeeNode`
+   only under `_include_tee_nodes` (mechanism 2). Membership in a hash is that explicit
+   re-collection, not the presence of a `__dasher_tokenize__` (see Errata): a plain `Tag`
+   is re-collected by nothing.
 
    `_remove_non_hashing_tag_nodes` (strips `Tag` and `TeeNode`, keeps `HashingTag` and
    `CacheTag`) is on neither hash path. It backs `expr.ls.untagged`, which `node_utils.py`
    and `content_hash.py` tokenize for their own purposes.
 
-   `_remove_tag_nodes` strips *all* `Tag` nodes including `HashingTag`. Its production
-   caller is `to_sql`, which is also the tokenizer's SQL step above. The execution
-   transform (`_transform_expr`) does not call it: it runs the same replacer as the
-   `remove_tags` record of `_PASSES`, at the execution boundary (see the Amendment below).
-   The distinguishing rule is that `HashingTag` must reach the tokenizer; the tokenizer
-   drops plain `Tag` on its own.
+   `_remove_tag_nodes` strips *all* `Tag` nodes including `HashingTag`. `to_sql` runs it,
+   so it runs wherever the tokenizer runs, including while the execution transform's
+   `cache` pass keys and stamps. `_transform_expr` does not apply it to the expression it
+   transforms: that runs the same replacer as the `remove_tags` record of `_PASSES`, at the
+   execution boundary (see the Amendment below). The distinguishing rule is that
+   `HashingTag` is re-collected by name and plain `Tag` is not.
 
 2. **The `_include_tee_nodes` context variable** (`dasher/_opaque.py`) controls whether
    `_hash_expr_components` folds TeeNode writer identity into the structural hash.
@@ -103,15 +108,17 @@ mechanisms:
 
 The build-hash invariant ("every op participates in the build hash") must hold even for
 ops buried inside *opaque sub-expressions* — fields the native ibis graph walk does not
-traverse: `RemoteTable.remote_expr`, `CachedNode.parent`, `CacheTag.uncached`,
-`FlightExpr.input_expr`, `FlightUDXF.input_expr`, and `ExprScalarUDF.computed_kwargs_expr`.
-These are the sub-expression-bearing members of the `opaque_ops` tuple, which is derived
-from the `OPAQUE_SPECS` registry in `graph_utils.py` (ADR-0016); the registry, not this
-list, is authoritative. The remaining member, `Read`, has no wrapped sub-expression — its
-opaque content is the `read_kwargs` path, whose hash-path/read-path split is the subject of
-ADR-0006. `CacheTag` is an identity-bearing `Tag` subclass (a pinned cache read whose
-`__dasher_tokenize__` is its cache key); like `HashingTag` it survives
-`_remove_non_hashing_tag_nodes` and is dropped by the execution-path strip.
+traverse: `RemoteTable.remote_expr`, `CachedNode.parent`, `FlightExpr.input_expr`,
+`FlightUDXF.input_expr`, and `ExprScalarUDF.computed_kwargs_expr`. These are members of the
+`opaque_ops` tuple, which is derived from the `OPAQUE_SPECS` registry in `graph_utils.py`
+(ADR-0016); the registry is authoritative for which fields are opaque. Two registry members
+are not descent cases. `Read` has no wrapped sub-expression — its opaque content is the
+`read_kwargs` path, whose hash-path/read-path split is the subject of ADR-0006. `CacheTag`
+is a hash *leaf*: a pinned cache read whose `__dasher_tokenize__` is its cache key, so what
+sits only under its `uncached` payload is pruned by `exclusively_pinned_leaves` and does not
+fold into either hash, by design. Like `HashingTag` it survives
+`_remove_non_hashing_tag_nodes`; the execution-path strip replaces it with its `parent`,
+the materialized cache read.
 
 The tokenizer already reaches these ops on its own. xorq's canonical `HASHER` is
 `DEFAULT_HASHER.override(*_EXTRA_RULES)` (`dasher/__init__.py`): the `_EXTRA_RULES` replace
@@ -124,9 +131,9 @@ is folded by the `ScalarUDF` normalizer (`_normalize_scalar_udf_xorq`). An op hi
 of these boundaries therefore still folds into the hash; the invariant holds without help.
 
 These in-repo overrides shadow the same-named `normalize_remote_table` /
-`normalize_cached_node` / `normalize_scalar_udf` rules in the external `xorq_dasher` package —
-for the types above, the upstream rules do not run when hashing through `HASHER`. Read the
-in-repo `dasher/_opaque.py`, not `xorq_dasher`, to see what actually executes.
+`normalize_cached_node` / `normalize_scalar_udf` rules in the external `xorq_dasher` package;
+for the types above, what folds into the hash is decided in-repo. Read the in-repo
+`dasher/_opaque.py`, not `xorq_dasher`, to see what decides the hash.
 
 The corollary is a contributor rule: **do not write graph walks that descend into opaque
 sub-expressions in order to "help" the hash.** Such walks are vestigial. They duplicate
@@ -139,8 +146,8 @@ it rewrote `RemoteTable.name` to a content hash before tokenizing, but
 only such walk; the remaining descending walks are either the tokenizer implementation
 itself (`dasher/_opaque.py`, which must descend), node-targeting find-then-replace passes
 (`node_utils.py`, which delegate hashing to `expr.ls.tokenized`), execution-time
-side-effecting transforms (`register_and_transform_*`, which correctly use `op.replace` so
-opaque sub-exprs get their own pass), or non-hashing traversals (lineage, schema
+side-effecting transforms (the `BOUNDARY` records of `_PASSES` in `api.py`, which use
+`op.replace` so opaque sub-exprs get their own pass), or non-hashing traversals (lineage, schema
 validation).
 
 When a manual walk over an expression *is* needed for hashing-adjacent work, locate nodes
@@ -152,7 +159,8 @@ A new op that is a transparent pass-through (schema equals parent, rows unchange
 exists only for a side effect **may** be cache-hash-neutral. To add one:
 
 1. The op must implement `__dasher_tokenize__` returning a tuple of its identity-bearing
-   fields (so the build hash includes it).
+   fields (so the build hash includes it). A tokenize rule alone admits an op to neither
+   hash: it must also be re-collected by `_decompose_expr` (mechanism 1; see Errata).
 2. It must be dropped from the tokenizer's SQL component (today: by `_remove_tag_nodes`
    or `_remove_tee_nodes` inside `to_sql`) and not re-collected by `_decompose_expr`, so
    the cache hash does not see it.
@@ -244,8 +252,9 @@ it in a feature-specific ADR buries a general principle under a specific design.
 
 ## Amendment: the execution-path strip stops at payload boundaries
 
-Mechanism 1 above says `_remove_tag_nodes` runs on the execution path "where the tag
-metadata is irrelevant to the rows produced". Rows, yes; keys, no. The execution transform
+Mechanism 1, as first written, said `_remove_tag_nodes` runs on the execution path "where
+the tag metadata is irrelevant to the rows produced" (that sentence is gone; see Errata).
+Rows, yes; keys, no. The execution transform
 keys every `CachedNode` it meets (the `cache` pass calls `calc_key` on `CachedNode.parent`),
 and that key is subject to this ADR's rule: anything feeding the cache hash keeps
 `HashingTag`. The strip pass descended into `CachedNode.parent` ahead of the cache pass, so
@@ -261,12 +270,13 @@ The decision stands; this records the invariant it implies for the execution tra
   `python/xorq/expr/api.py`, and it is `BOUNDARY`; `Traversal` in
   `python/xorq/expr/enums.py` carries the rule. It still removes every tag, `HashingTag`
   included, from the tree the current execution compiles. The function
-  `_remove_tag_nodes` shares that record's replacer but always descends; it is the `to_sql`
-  strip and is not on the execution path.
-- **Each payload is keyed as written, by its own nested transform.** Every opaque payload
-  field in the `OPAQUE_SPECS` registry (`python/xorq/common/utils/graph_utils.py`) re-enters
-  `_transform_expr` at its own execution boundary, which keys the payload first and strips
-  its tags after. The registry, not this list, is authoritative for which fields those are.
+  `_remove_tag_nodes` shares that record's replacer but always descends; `_transform_expr`
+  does not apply it to the expression it transforms.
+- **Each executed payload is keyed as written, then stripped by its own nested transform.**
+  The owning pass keys the payload as written; the payload's own `_transform_expr` entry
+  then strips it. Which payload fields re-enter is recorded on `Traversal` in
+  `python/xorq/expr/enums.py`. `OPAQUE_SPECS` says which fields are opaque to descent, not
+  which re-enter: `CacheTag.uncached` is opaque and never re-enters.
 
 Alternatives rejected on the way:
 
@@ -291,24 +301,35 @@ running the code. The decision is unchanged; these fix what the document said th
 does.
 
 - **`opaque_ops` has seven members, not six**, and `CacheTag` was missing from this
-  document entirely. Six wrap a sub-expression (`CacheTag.uncached` included); `Read` is
-  the leaf. The list and count in *Opaque sub-expressions participate via tokenizer
-  descent* are corrected and now defer to `OPAQUE_SPECS`.
+  document entirely. `Read` and `CacheTag` are not descent cases: one has no
+  sub-expression, the other is a hash leaf. The list and count in *Opaque sub-expressions
+  participate via tokenizer descent* are corrected and now defer to `OPAQUE_SPECS`.
 - **`_remove_non_hashing_tag_nodes` is not on the cache-hash path.** Mechanism 1 and the
   neutrality table credited it with stripping `Tag` before the cache hash. Patching it and
   counting calls shows zero during `ls.tokenized`, `ls.get_key` (snapshot and
-  modification-time strategies) and `get_expr_hash`; its only non-test caller is
-  `ls.untagged`. Plain-tag neutrality comes from `to_sql` stripping tags inside the
-  tokenizer's SQL step and `_decompose_expr` re-collecting only `HashingTag`, `CacheTag`
-  and (gated) `TeeNode`. Mechanism 1, the table, requirement 2 and the References are
-  corrected.
-- **`_remove_tag_nodes` is not on the execution path.** The document said it runs in
-  `_transform_expr`. That function is a descending `replace_nodes` whose production caller
-  is `to_sql`; the execution transform runs the same replacer as a BOUNDARY pass (the
-  Amendment above). Mechanism 1 and the References are corrected.
+  modification-time strategies) and `get_expr_hash`; its only caller is `ls.untagged`.
+  Plain-tag neutrality comes from `to_sql` stripping tags inside the tokenizer's SQL step
+  and `_decompose_expr` re-collecting only `HashingTag`, `CacheTag` and `TeeNode` (the
+  last folded only under `_include_tee_nodes`, in `_hash_expr_components`). Mechanism 1,
+  the table, requirement 2 and the References are corrected.
+- **`_transform_expr` does not apply `_remove_tag_nodes`.** The document said it runs in
+  `_transform_expr`. `_remove_tag_nodes` is a descending `replace_nodes`; `to_sql` and the
+  YAML compiler's `_extract_sql_queries` call it, and through `to_sql` the tokenizer calls
+  it, including while the execution transform keys and stamps a cache. The execution
+  transform itself runs the same replacer as a BOUNDARY pass (the Amendment above).
+  Mechanism 1 and the References are corrected.
 - **A plain `Tag` is neutral in the build hash too.** `get_expr_hash(t.tag("v1"))` equals
   `get_expr_hash(t)`, while a `HashingTag` changes it. The invariant as stated ("every op
-  participates in the build hash") and requirement 1 do not cover this: `Tag` implements no
-  `__dasher_tokenize__` and the `HashingTag` docstring treats its parent's neutrality as
-  designed. Whether `Tag` is the intended exception or a defect is open and is not decided
-  here; the text above is left as the decision was written.
+  participates in the build hash") does not cover this, and the `HashingTag` docstring
+  treats its parent's neutrality as designed. Requirement 1 is not the mechanism either: a
+  `Tag` subclass given a `__dasher_tokenize__` is still neutral in both hashes, because
+  `_decompose_expr` re-collects by an explicit type list and plain `Tag` is on it nowhere.
+  Whether `Tag` is the intended exception or a defect is open and is not decided here; the
+  text above is left as the decision was written.
+- **Corrections to the previous errata round.** It placed the `TeeNode` gate in
+  `_decompose_expr` (it is in `_hash_expr_components`), named `to_sql` as the only caller
+  of `_remove_tag_nodes` (the YAML compiler is a second), listed `CacheTag.uncached` among
+  the fields the build-hash invariant reaches (a pin prunes what is under it), and implied
+  that a tokenize rule is what admits an op to a hash. Each is corrected above. The Context
+  paragraph that credited the `ls.untagged` strip, and the Amendment's quotation of a
+  mechanism-1 sentence that round had deleted, are retired too.

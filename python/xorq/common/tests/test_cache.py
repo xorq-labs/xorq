@@ -211,7 +211,7 @@ def test_hashing_tag_cache_key_agrees_on_every_path(tagged_cache, wrap):
     build hash of the cached expression as written. For this fixture's bare
     ``ParquetSnapshotCache`` root, ``Cache.calc_key`` and
     ``ExprMetadata.projected_cache_key`` reduce to ``get_key`` and are not
-    re-asserted (that does not hold for a wrapped root or a ``ParquetCache``)."""
+    re-asserted (that does not hold for a wrapped root)."""
     cached = tagged_cache("v1")
     key = cached.ls.get_key()
     assert cached.ls.cache_exists() is False

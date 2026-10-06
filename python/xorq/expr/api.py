@@ -610,9 +610,9 @@ def _flight_to_rbr(
     A bare ``FlightExpr``/``FlightUDXF`` root is a childless physical-table view,
     so the effectful BOUNDARY passes no-op on it and the scope comes back empty --
     but ``bind_params``, the one DESCEND pass, must still run: ``to_rbr``
-    re-enters ``input_expr.to_pyarrow_batches()`` with no ``params``, so binding
-    here is what resolves a parameter living inside ``input_expr`` (the
-    ``_PASSES`` header records why). That nested transform strips the payload's
+    re-enters the payload bare, so binding here is what resolves a parameter
+    living inside ``input_expr`` (the ``_PASSES`` header records why). That
+    nested transform strips the payload's
     tags, as for any payload. We still dispatch via ``to_rbr`` (a FlightExpr has
     no normal backend), tie the (empty) scope to the reader, and instrument it
     -- exactly as the non-Flight path does.
