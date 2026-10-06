@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791206878842,
+  "lastUpdate": 1791294727285,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -43026,6 +43026,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.07970320854829978",
             "extra": "mean: 1.69271343879999 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bdd2dd2a4e90810ba21a694ceffab57929ee1690",
+          "message": "release: 0.4.6 (#2384)",
+          "timestamp": "2026-10-06T15:45:09+02:00",
+          "tree_id": "517aec63ab468d876c05b3cf9038c0b3529f0531",
+          "url": "https://github.com/xorq-labs/xorq/commit/bdd2dd2a4e90810ba21a694ceffab57929ee1690"
+        },
+        "date": 1791294721965,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 6.050602646107922,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02035675724540498",
+            "extra": "mean: 165.27279322221804 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.602478172051348,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07388912143434266",
+            "extra": "mean: 384.24914020000074 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7332556310846832,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15524311004494562",
+            "extra": "mean: 1.3637808666000013 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.4496514178367783,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06547634452638973",
+            "extra": "mean: 408.2213464000006 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.7329112145355254,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06354954484265325",
+            "extra": "mean: 365.9101673999885 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.929976128400411,
+            "unit": "iter/sec",
+            "range": "stddev: 0.027707658701733417",
+            "extra": "mean: 341.2997089999976 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 120.83780092741124,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021613489493019084",
+            "extra": "mean: 8.275556095238048 msec\nrounds: 231"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.893196743961906,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14462306538887504",
+            "extra": "mean: 256.858326400004 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 15.788553362162604,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008968332486031343",
+            "extra": "mean: 63.3370250625056 msec\nrounds: 16"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 10.114018721240388,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0088230899440787",
+            "extra": "mean: 98.87266650000421 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.786844978281148,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011029193525182545",
+            "extra": "mean: 128.42171672727173 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.367850966164571,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02045000390243898",
+            "extra": "mean: 186.29429287499732 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 3.7952604328486745,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05339818168907919",
+            "extra": "mean: 263.4865295000092 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.822154403142471,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008340521700021393",
+            "extra": "mean: 207.37618840000778 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.478613347931939,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05387064599644511",
+            "extra": "mean: 403.4513898000114 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.0121373937724565,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06279966492715922",
+            "extra": "mean: 331.9901681999909 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.6703799508073232,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10802521778571873",
+            "extra": "mean: 598.6661894000122 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.786137768772746,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08692504564966143",
+            "extra": "mean: 559.8672272000044 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4572160332194632,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11621560313470004",
+            "extra": "mean: 686.2400475999948 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5250816331513406,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07884771829638086",
+            "extra": "mean: 655.7026051999969 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.1963097437163739,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12134798656698606",
+            "extra": "mean: 835.9039164000023 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.0735765783854667,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1476320105802819",
+            "extra": "mean: 931.4659243999927 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9464047257914461,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13714619596052122",
+            "extra": "mean: 1.0566303957999934 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5231470828569642,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05865594772671967",
+            "extra": "mean: 1.9115083171999914 sec\nrounds: 5"
           }
         ]
       }
