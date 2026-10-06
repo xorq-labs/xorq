@@ -341,17 +341,16 @@ def execute(expr: ir.Expr, **kwargs: Any):
 
 
 def _make_remove_tag_nodes_replacer() -> Replacer:
-    """Build the DESCEND replacer that strips `Tag` wrappers, re-walking the
-    unwrapped parent so nested tags collapse to their first non-Tag ancestor."""
+    """Strip `Tag` wrappers: a tag becomes its rewritten parent."""
 
     def replacer(node, kwargs):
-        if isinstance(node, Tag):
-            while isinstance(node, Tag):
-                node = node.parent
-            node = replace_nodes(replacer, node)
-        elif kwargs:
-            node = node.__recreate__(kwargs)
-        return node
+        match node:
+            case Tag():
+                return (kwargs or {}).get("parent", node.parent)
+            case _ if kwargs:
+                return node.__recreate__(kwargs)
+            case _:
+                return node
 
     return replacer
 
@@ -475,7 +474,9 @@ _PASSES = (
     ),
     TransformPass(
         name="remove_tags",
-        traversal=Traversal.DESCEND,
+        # BOUNDARY: a payload is keyed (HashingTag included) and stripped by its
+        # own nested transform
+        traversal=Traversal.BOUNDARY,
         build=lambda expr, ctx: _make_remove_tag_nodes_replacer(),
     ),
     TransformPass(

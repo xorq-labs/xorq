@@ -8,11 +8,12 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
-from xorq.caching import ParquetCache
+from xorq.caching import ParquetCache, ParquetSnapshotCache
 from xorq.caching.strategy import ModificationTimeStrategy, SnapshotStrategy
 from xorq.catalog.expr_utils import build_expr_context_zip, load_expr_from_zip
 from xorq.common.utils.graph_utils import replace_nodes, walk_nodes
 from xorq.expr.relations import RemoteTable
+from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
 def test_put_get_drop(tmp_path, parquet_dir):
@@ -162,3 +163,87 @@ def test_loaded_dt_has_stable_token_across_zip_reloads(
         a = load_expr_from_zip(zip_path)
         b = load_expr_from_zip(zip_path)
         assert a.ls.tokenized == b.ls.tokenized
+
+
+# --- a HashingTag is part of a cache's identity, on every path --------------
+
+
+@pytest.fixture
+def tagged_cache(tmp_path):
+    """``make(tag, hashing=True)`` -> a cached expr over one table, tagged with a
+    hashing tag (or a plain one), untagged when ``tag`` is None;
+    ``written()`` -> keys on disk."""
+    con = xo.connect()
+    t = con.create_table("t", pd.DataFrame({"a": [1, 2, 3]}))
+    # relative_path pinned: another test may leave an absolute default behind,
+    # which would send the files outside tmp_path
+    cache = ParquetSnapshotCache.from_kwargs(
+        source=con, base_path=tmp_path, relative_path="parquet"
+    )
+
+    def make(tag, hashing=True):
+        tagged = t if tag is None else (t.hashing_tag if hashing else t.tag)(tag)
+        return tagged.filter(tagged.a > 1).cache(cache)
+
+    make.written = lambda: {p.stem for p in cache.storage.path.glob("*.parquet")}
+    return make
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        pytest.param(lambda c: c, id="bare"),
+        # a plain tag above the CachedNode: stripped without re-walking into the parent
+        pytest.param(lambda c: c.tag("outer"), id="outer-tag"),
+        # a hashing tag above the CachedNode: stripped after the cache pass, outside the parent
+        pytest.param(lambda c: c.hashing_tag("outer"), id="outer-hashing-tag"),
+        pytest.param(
+            lambda c: c.tag("plain").hashing_tag("outer"), id="outer-both-tags"
+        ),
+        # the cache inside a RemoteTable payload: keyed by that payload's own transform
+        pytest.param(lambda c: c.into_backend(xo.connect(), "rt"), id="payload"),
+    ],
+)
+def test_hashing_tag_cache_key_agrees_on_every_path(tagged_cache, wrap):
+    """Execution, ls.get_key/cache_exists, Cache.calc_key and the build metadata
+    must all name the same artifact for a hashing-tagged parent, and the
+    artifact carries provenance."""
+    cached = tagged_cache("v1")
+    key = cached.ls.get_key()
+    assert cached.ls.cache_exists() is False
+    wrap(cached).execute()
+    assert tagged_cache.written() == {key}
+    assert cached.ls.cache_exists() is True
+    assert cached.op().cache.calc_key(cached) == key
+    assert ExprMetadata.from_expr(cached).projected_cache_key.key == key
+    assert b"xorq:expr_hash" in pq.read_schema(cached.ls.get_cache_path()).metadata
+
+
+def test_hashing_tags_cache_distinctly(tagged_cache):
+    """Two expressions differing only by hashing-tag metadata write two entries."""
+    v1, v2 = tagged_cache("v1"), tagged_cache("v2")
+    v1.execute()
+    v2.execute()
+    assert v1.ls.get_key() != v2.ls.get_key()
+    assert len(tagged_cache.written()) == 2
+
+
+def test_hashing_tag_changes_the_cache_entry(tagged_cache):
+    """A hashing tag is part of the cache identity: the tagged expression keys,
+    and materializes, apart from the same expression without it."""
+    plain, tagged = tagged_cache(None), tagged_cache("v1")
+    assert plain.ls.get_key() != tagged.ls.get_key()
+    plain.execute()
+    tagged.execute()
+    assert tagged_cache.written() == {plain.ls.get_key(), tagged.ls.get_key()}
+
+
+def test_plain_tag_is_transparent_and_hashing_tag_is_not(tagged_cache):
+    """At execution a plain tag shares the untagged entry; a hashing tag gets its own."""
+    untagged = tagged_cache(None)
+    plain = tagged_cache("v1", hashing=False)
+    hashing = tagged_cache("v1")
+    for expr in (untagged, plain, hashing):
+        expr.execute()
+    assert plain.ls.get_key() == untagged.ls.get_key()
+    assert tagged_cache.written() == {untagged.ls.get_key(), hashing.ls.get_key()}
