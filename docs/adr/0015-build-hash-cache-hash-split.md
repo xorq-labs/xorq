@@ -162,8 +162,9 @@ exists only for a side effect **may** be cache-hash-neutral. To add one:
    fields (so the build hash includes it). A tokenize rule alone admits an op to neither
    hash: it must also be re-collected by `_decompose_expr` (mechanism 1; see Errata).
 2. It must be dropped from the tokenizer's SQL component (today: by `_remove_tag_nodes`
-   or `_remove_tee_nodes` inside `to_sql`) and not re-collected by `_decompose_expr`, so
-   the cache hash does not see it.
+   or `_remove_tee_nodes` inside `to_sql`) and not folded into the cache hash: either not
+   re-collected by `_decompose_expr` at all, or re-collected and folded only under the
+   build-only gate (requirement 3).
 3. If the op needs to participate in the build hash but not the cache hash (like TeeNode),
    it must be gated behind a context variable or equivalent mechanism so the build-hash
    path includes it.
