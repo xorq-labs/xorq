@@ -68,8 +68,8 @@ write-through does with the batches it receives.
 ### `TeeNode` is hash-neutral, like `Tag`
 
 `TeeNode` is modeled on `Tag` (`relations.py`). Its schema equals its parent's schema,
-and it is **stripped before hashing** by a resolution pass that replaces it with its parent,
-exactly as `_remove_non_hashing_tag_nodes` (`api.py`) does for `Tag`. So `expr.tee(s)`
+and it is **stripped before hashing** inside the tokenizer's SQL step, exactly as a plain
+`Tag` is (ADR-0015, mechanism 1). So `expr.tee(s)`
 and `expr` produce the **same** content hash, and a `CachedNode` above or below the tee keys
 as if the tee were not there.
 
@@ -252,9 +252,9 @@ def tee(self, target: WriteThrough | BaseBackend | str | os.PathLike, *, table_n
 
 Two resolution passes keep hash neutrality and the side effect separate:
 
-- **Hashing**: a strip pass replaces each `TeeNode` with its parent before the hash is
-  computed, like `_remove_non_hashing_tag_nodes` for `Tag`. `_remove_tee_nodes`
-  does the same off the SQL path.
+- **Hashing**: `to_sql` runs `_remove_tee_nodes` ahead of the tokenizer's SQL step, as it
+  runs `_remove_tag_nodes` for `Tag`; which hash folds the node back in is ADR-0015's
+  mechanism 1 and 2.
 - **Execution**: the **default transport** is `register_and_transform_tee_nodes`, which replaces
   each surviving `TeeNode` with a backend table fed by `writer.write_through(reader)`:
 
@@ -469,7 +469,7 @@ surface, not be swallowed, or a failed publish looks like success.
 - `Read` (deferred read precedent): `python/xorq/expr/relations.py`
 - `deferred_read_*`: `python/xorq/common/utils/defer_utils.py`
 - `Tag` / `HashingTag`: `python/xorq/expr/relations.py`
-- Tag stripping pass: `_remove_non_hashing_tag_nodes` in `python/xorq/expr/api.py`
+- Tag stripping pass (tokenizer SQL step; see ADR-0015 mechanism 1): `_remove_tag_nodes` in `python/xorq/expr/api.py`
 - Tee stripping pass: `_remove_tee_nodes` in `python/xorq/expr/api.py`
 - RemoteTable fan-out (node rewrite at execution): `register_and_transform_remote_tables` in `python/xorq/expr/relations.py`
 - Atomic write precedent (temp file + rename): `python/xorq/caching/storage.py`
