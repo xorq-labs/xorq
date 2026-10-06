@@ -42,7 +42,7 @@ if TYPE_CHECKING:
         name: str
         hash: str
 
-    from xorq.expr.relations import CacheTag, HashingTag, TeeNode
+    from xorq.expr.relations import CacheTag, HashingTag, Tag, TeeNode
 
     class ExprMetadata(TypedDict):
         version: Literal[4]
@@ -75,21 +75,22 @@ _expr_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextV
     "_xorq_expr_normalize_memo", default=None
 )
 
-# When True, TeeNode writer identity is folded into the structural hash.
-# Set by ``get_expr_hash`` (build hash path) so that different writers produce
-# different build artifacts, while the cache hash path leaves this False.
-_include_tee_nodes: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "_xorq_include_tee_nodes", default=False
+# When True, the build-hash-only ops -- TeeNode writer identity and plain Tag
+# metadata -- are folded into the structural hash. Set by ``get_expr_hash``
+# (build hash path) so that different writers or tags produce different build
+# artifacts, while the cache hash path leaves this False (ADR-0015).
+_include_build_only_nodes: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_xorq_include_build_only_nodes", default=False
 )
 
 
 @contextlib.contextmanager
-def include_tee_nodes() -> contextlib.AbstractContextManager[None]:
-    token = _include_tee_nodes.set(True)
+def include_build_only_nodes() -> contextlib.AbstractContextManager[None]:
+    token = _include_build_only_nodes.set(True)
     try:
         yield
     finally:
-        _include_tee_nodes.reset(token)
+        _include_build_only_nodes.reset(token)
 
 
 def _rename_unbound_xorq(op: Node, prefix: str = "static") -> Node:
@@ -449,16 +450,19 @@ def _decompose_expr(
     tuple[InMemoryTable, ...],
     tuple[str, ...],
     tuple[HashingTag, ...],
+    tuple[Tag, ...],
     tuple[TeeNode, ...],
     tuple[CacheTag, ...],
 ]:
     """Split an expression into structural SQL, data leaves, UDFs, and identity nodes.
 
-    Returns ``(sql, reads, dts, udfs, mems, param_anchors, hashing_tags, tee_nodes, cache_tags)``
-    where *reads*/*dts*/*mems* are the data-carrying leaf ops, *udfs* are
-    structural code-identity ops, *param_anchors* are stable identity
-    strings for each NamedScalarParameter in graph order, *hashing_tags*
-    carry user-supplied metadata, and *tee_nodes* carry writer identity.
+    Returns ``(sql, reads, dts, udfs, mems, param_anchors, hashing_tags, tags,
+    tee_nodes, cache_tags)`` where *reads*/*dts*/*mems* are the data-carrying
+    leaf ops, *udfs* are structural code-identity ops, *param_anchors* are
+    stable identity strings for each NamedScalarParameter in graph order,
+    *hashing_tags* and *tags* carry user-supplied metadata (plain *tags* are
+    folded in only on the build-hash path), and *tee_nodes* carry writer
+    identity.
     """
     from xorq.common.utils.graph_utils import (  # noqa: PLC0415
         exclusively_pinned_leaves,
@@ -471,6 +475,7 @@ def _decompose_expr(
         CacheTag,
         HashingTag,
         Read,
+        Tag,
         TeeNode,
     )
     from xorq.vendor.ibis.expr.operations.relations import (  # noqa: PLC0415
@@ -501,6 +506,12 @@ def _decompose_expr(
     udfs = tuple(walk_nodes((AggUDF, ScalarUDF), op))
     mems = tuple(walk_nodes(InMemoryTable, op))
     hashing_tags = tuple(walk_nodes(HashingTag, op))
+    # Plain tags only: HashingTag and CacheTag are collected on their own above
+    # and below, and fold in on both hash paths; a plain Tag folds in only when
+    # _include_build_only_nodes is set (see _hash_expr_components).
+    tags = tuple(
+        n for n in walk_nodes(Tag, op) if not isinstance(n, (HashingTag, CacheTag))
+    )
     tee_nodes = tuple(walk_nodes(TeeNode, op))
     # A pinned read (CacheTag) is a hash *leaf*: its identity is the cache key,
     # folded in _hash_expr_components via __dasher_tokenize__. Prune the leaves
@@ -515,12 +526,13 @@ def _decompose_expr(
             AggUDF,
             ScalarUDF,
             HashingTag,
+            Tag,
             TeeNode,
         )
         pinned = exclusively_pinned_leaves(op, pinned_leaf_types)
-        reads, dts, udfs, mems, hashing_tags, tee_nodes = (
+        reads, dts, udfs, mems, hashing_tags, tags, tee_nodes = (
             tuple(n for n in coll if n not in pinned)
-            for coll in (reads, dts, udfs, mems, hashing_tags, tee_nodes)
+            for coll in (reads, dts, udfs, mems, hashing_tags, tags, tee_nodes)
         )
     return (
         sql,
@@ -530,6 +542,7 @@ def _decompose_expr(
         mems,
         param_anchors,
         hashing_tags,
+        tags,
         tee_nodes,
         cache_tags,
     )
@@ -546,6 +559,7 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
         mems,
         param_anchors,
         hashing_tags,
+        tags,
         tee_nodes,
         cache_tags,
     ) = _decompose_expr(expr, op)
@@ -561,7 +575,11 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
         # structurally-different exprs; it only means same-metadata tags at
         # different points contribute the same token, which is correct.
         hash_args += (tuple(hasher.tokenize(ht) for ht in hashing_tags),)
-    if _include_tee_nodes.get() and tee_nodes:
+    if _include_build_only_nodes.get() and tags:
+        # A plain Tag is cache-hash-neutral but build-hash-bearing (ADR-0015):
+        # same (schema, metadata) token as a HashingTag, folded in only here.
+        hash_args += (tuple(hasher.tokenize(tg) for tg in tags),)
+    if _include_build_only_nodes.get() and tee_nodes:
         hash_args += (tuple(hasher.tokenize(tn) for tn in tee_nodes),)
     if cache_tags:
         # A pinned read contributes only its cache-key identity (base_path-
@@ -624,10 +642,10 @@ def expr_metadata(expr: Expr) -> ExprMetadata:
         }
 
     UDFs (``AggUDF``, ``ScalarUDF``), HashingTags (via ``__dasher_tokenize__``),
-    and (when ``_include_tee_nodes`` is set) TeeNodes (via
-    ``__dasher_tokenize__``, which delegates to each ``WriteThrough``'s own
-    ``__dasher_tokenize__``) all contribute to ``structural_hash`` rather
-    than appearing as separate slots.
+    and (when ``_include_build_only_nodes`` is set) plain Tags and TeeNodes
+    (via ``__dasher_tokenize__``; a TeeNode's delegates to each
+    ``WriteThrough``'s own ``__dasher_tokenize__``) all contribute to
+    ``structural_hash`` rather than appearing as separate slots.
 
     The expression token can be recomputed from this dict using
     :func:`~xorq.common.utils.dasher._recompute.compute_expr_token`, which
@@ -652,5 +670,5 @@ __all__ = [
     "_stable_opaque_name",
     "_xorq_opaque_to_placeholder",
     "expr_metadata",
-    "include_tee_nodes",
+    "include_build_only_nodes",
 ]

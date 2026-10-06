@@ -214,7 +214,7 @@ token because it is purely an execution-time concern that does not change the
 logical result.  The cache hash path strips `TeeNode` (like `Tag`), so
 `__dasher_tokenize__` is only reached when `_hash_expr_components` explicitly
 tokenizes the extracted nodes.  The build hash path (`get_expr_hash`) enters the
-`include_tee_nodes()` context manager so that different write-throughs produce different
+`include_build_only_nodes()` context manager so that different write-throughs produce different
 build artifacts.
 
 The blocks below are illustrative. In the implementation `WriteThrough` is an `abc.ABC` and the
@@ -474,7 +474,7 @@ surface, not be swallowed, or a failed publish looks like success.
 - RemoteTable fan-out (node rewrite at execution): `register_and_transform_remote_tables` in `python/xorq/expr/relations.py`
 - Atomic write precedent (temp file + rename): `python/xorq/caching/storage.py`
 - ADR-0013: batchcorder StreamCache for RemoteTable fan-out (forthcoming), candidate for the future buffered-tee optimization
-- Issue #2087 (build- vs. cache-hash naming): this ADR edits `get_expr_hash` (`python/xorq/common/utils/provenance_utils.py`) and relies on the build/cache hash split. A rename there (`get_expr_hash` → `compute_build_hash`) must update this ADR's references and the `include_tee_nodes` call site.
+- Issue #2087 (build- vs. cache-hash naming): this ADR edits `get_expr_hash` (`python/xorq/common/utils/provenance_utils.py`) and relies on the build/cache hash split. A rename there (`get_expr_hash` → `compute_build_hash`) must update this ADR's references and the `include_build_only_nodes` call site.
 
 ## Amendment — 2026-06-23
 

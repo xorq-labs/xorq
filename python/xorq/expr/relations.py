@@ -77,6 +77,16 @@ def replace_source_factory(source: Any):
 
 
 class Tag(ops.Relation):
+    """A metadata annotation over a relation; schema and rows unchanged.
+
+    Cache-hash-neutral: ``to_sql`` strips every tag ahead of the tokenizer's
+    SQL step, so a tagged expression keys and caches like its untagged form.
+    Build-hash-bearing: ``_decompose_expr`` re-collects plain tags under
+    ``include_build_only_nodes`` and folds this token in, so a tagged
+    expression is a different build artifact from its untagged form
+    (ADR-0015: every op participates in the build hash).
+    """
+
     schema: Schema
     parent: ops.Relation
     metadata: FrozenOrderedDict = FrozenOrderedDict()
@@ -86,13 +96,17 @@ class Tag(ops.Relation):
     def tag(self) -> str | None:
         return self.metadata.get("tag")
 
+    def __dasher_tokenize__(self) -> tuple:
+        return ("tag", self.schema, self.metadata)
+
 
 class HashingTag(Tag):
-    """A Tag subclass whose metadata contributes to the content hash.
+    """A Tag subclass whose metadata contributes to the cache hash as well.
 
-    Unlike Tag (which is stripped before hashing), HashingTag is preserved
-    during hash computation so expressions with different HashingTag metadata
-    produce distinct hashes.
+    A plain Tag reaches only the build hash. HashingTag is re-collected by
+    the tokenizer on both hash paths, so expressions with different
+    HashingTag metadata produce distinct cache keys as well as distinct
+    build hashes.
     """
 
     def __dasher_tokenize__(self) -> tuple:

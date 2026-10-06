@@ -3511,9 +3511,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Attaches a name (plus keyword values) without changing the rows
         produced. The node is stripped before the content hash is computed, so
-        a tagged expression hashes and caches identically to its untagged form.
-        Use [`hashing_tag`](#hashing_tag) when the metadata should change the
-        hash.
+        a tagged expression caches identically to its untagged form. It still
+        changes the build hash (`get_expr_hash`): a tagged expression is a
+        different build artifact. Use [`hashing_tag`](#hashing_tag) when the
+        metadata should change the content hash as well.
 
         Parameters
         ----------
@@ -3537,7 +3538,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        Table.hashing_tag : Attach metadata that *does* contribute to the hash.
+        Table.hashing_tag : Attach metadata that *does* contribute to the content hash.
 
         Examples
         --------
@@ -3557,7 +3558,8 @@ class Table(Expr, _FixedTextJupyterMixin):
         changing the rows produced. Unlike `tag`, the node is preserved when the
         content hash is computed, so expressions differing only by hashing-tag
         metadata hash — and cache — distinctly. Use `tag` when the metadata is
-        not part of the expression's identity.
+        not part of the expression's cache identity (both tags change the
+        build hash).
 
         Parameters
         ----------
@@ -3581,7 +3583,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        Table.tag : Attach metadata that does *not* contribute to the hash.
+        Table.tag : Attach metadata that does *not* contribute to the content hash.
 
         Examples
         --------

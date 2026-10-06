@@ -12,14 +12,16 @@ if TYPE_CHECKING:
 def get_expr_hash(expr: Expr) -> str:
     from xorq.caching.strategy import SnapshotStrategy  # noqa: PLC0415
     from xorq.common.utils.dasher import rules_fingerprint  # noqa: PLC0415
-    from xorq.common.utils.dasher._opaque import include_tee_nodes  # noqa: PLC0415
+    from xorq.common.utils.dasher._opaque import (  # noqa: PLC0415
+        include_build_only_nodes,
+    )
     from xorq.ibis_yaml import normalize_registry  # noqa: PLC0415
     from xorq.ibis_yaml.compiler import canonicalize_expr  # noqa: PLC0415
     from xorq.ibis_yaml.config import config  # noqa: PLC0415
 
     expr = canonicalize_expr(expr)
     strategy = SnapshotStrategy()
-    with include_tee_nodes(), strategy.normalization_context(expr) as hasher:
+    with include_build_only_nodes(), strategy.normalization_context(expr) as hasher:
         # Fold the identity-bearing rule set into the *build* hash (ADR-0020):
         # a build produced under a different set of normalize/tokenize rules is
         # a different artifact (ADR-0015). Deliberately at build-hash grain, not

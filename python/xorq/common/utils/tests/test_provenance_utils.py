@@ -140,3 +140,34 @@ def test_parquet_ttl_storage_embeds_ttl():
     prov = read_parquet_provenance(path)
     assert prov is not None
     assert prov[F.cache_ttl_seconds] == "21600"
+
+
+def test_plain_tag_changes_build_hash():
+    # ADR-0015: every op participates in the build hash, a plain Tag included.
+    t = xo.memtable({"a": [1, 2, 3]})
+    assert get_expr_hash(t.tag("v1")) != get_expr_hash(t), (
+        "attaching a plain Tag must change the build hash"
+    )
+    assert get_expr_hash(t.tag("a")) != get_expr_hash(t.tag("b")), (
+        "tag name must contribute to the build hash"
+    )
+    assert get_expr_hash(t.tag("a", x=1)) != get_expr_hash(t.tag("a", x=2)), (
+        "tag kwargs must contribute to the build hash"
+    )
+    assert get_expr_hash(t.tag("a").tag("b")) != get_expr_hash(t.tag("a")), (
+        "every tag in a chain must contribute to the build hash"
+    )
+    assert get_expr_hash(t.tag("v1")) == get_expr_hash(t.tag("v1"))
+
+
+def test_plain_tag_stays_cache_hash_neutral():
+    # The build-hash fold is gated to get_expr_hash; the cache key does not see it.
+    t = xo.memtable({"a": [1, 2, 3]})
+    assert t.tag("v1").ls.tokenized == t.ls.tokenized
+    assert t.tag("v1").ls.get_key() == t.ls.get_key()
+
+
+def test_plain_tag_and_hashing_tag_differ_in_build_hash():
+    # Same metadata, different op: different DAGs must not share a build hash.
+    t = xo.memtable({"a": [1, 2, 3]})
+    assert get_expr_hash(t.tag("v1")) != get_expr_hash(t.hashing_tag("v1"))
