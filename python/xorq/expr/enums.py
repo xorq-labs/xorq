@@ -11,17 +11,19 @@ class Traversal(StrEnum):
     pure structural rewrites. BOUNDARY stops at opaque nodes (``op.replace``);
     required for effectful passes (so a side effect fires once, at this execution
     boundary) and for passes resolved at the boundary (deferred reads). Choosing
-    DESCEND for an effectful pass double-materializes -- a mistake this enum
-    makes impossible outside these two values.
+    DESCEND for an effectful pass double-materializes; the record names the
+    choice, so a review can see it.
 
     Pure is necessary for DESCEND, not sufficient. A pure rewrite that changes a
     payload's identity (``remove_tags`` drops ``HashingTag``) must also be
-    BOUNDARY when a later BOUNDARY pass keys that payload (``cache`` keys
-    ``CachedNode.parent``): descending would hand the keying pass a payload
-    other than the one written, and the key diverges from ``ls.get_key()``. The
+    BOUNDARY when any BOUNDARY pass keys that payload (``cache`` keys
+    ``CachedNode.parent``), wherever the rewrite sits in the table: a nested
+    payload's own cache pass runs after every outer walk, so a descending
+    rewrite placed after ``cache`` still hands that nested pass a payload other
+    than the one written, and the key diverges from ``ls.get_key()``. The
     payload is keyed as written, then stripped, by its own nested transform.
-    ``bind_params`` is the deliberate exception (see ``_PASSES`` in
-    ``xorq.expr.api``).
+    ``bind_params`` is the deliberate exception; the ``_PASSES`` header in
+    ``xorq.expr.api`` records why.
 
     Stopping at opaque nodes is not a coverage gap: each opaque interior
     (RemoteTable, CachedNode, Flight*, ExprScalarUDF) re-enters the transform at

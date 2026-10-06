@@ -195,7 +195,8 @@ def tagged_cache(tmp_path):
         pytest.param(lambda c: c, id="bare"),
         # a plain tag above the CachedNode: stripped without re-walking into the parent
         pytest.param(lambda c: c.tag("outer"), id="outer-tag"),
-        # a hashing tag above the CachedNode: stripped after the cache pass, outside the parent
+        # a hashing tag above the CachedNode: stripped by the boundary pass before
+        # cache runs, so the CachedNode is the root the cache pass stamps
         pytest.param(lambda c: c.hashing_tag("outer"), id="outer-hashing-tag"),
         pytest.param(
             lambda c: c.tag("plain").hashing_tag("outer"), id="outer-both-tags"
@@ -207,9 +208,10 @@ def tagged_cache(tmp_path):
 def test_hashing_tag_cache_key_agrees_on_every_path(tagged_cache, wrap):
     """Execution must write the artifact ``ls.get_key()`` named (so
     ``cache_exists`` flips) for a hashing-tagged parent, and stamp it with the
-    build hash of the cached expression as written. ``Cache.calc_key`` and
-    ``ExprMetadata.projected_cache_key`` are the same computation as
-    ``get_key`` and are not re-asserted."""
+    build hash of the cached expression as written. For this fixture's bare
+    ``ParquetSnapshotCache`` root, ``Cache.calc_key`` and
+    ``ExprMetadata.projected_cache_key`` reduce to ``get_key`` and are not
+    re-asserted (that does not hold for a wrapped root or a ``ParquetCache``)."""
     cached = tagged_cache("v1")
     key = cached.ls.get_key()
     assert cached.ls.cache_exists() is False

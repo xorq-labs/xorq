@@ -245,12 +245,16 @@ hashing-tag metadata shared one entry.
 The decision stands; this records the invariant it implies for the execution transform:
 
 - **A tag strip that runs ahead of a keying pass stops at opaque payload boundaries.**
-  `_remove_tag_nodes` on the execution path is a `BOUNDARY` pass (`Traversal` in
-  `python/xorq/expr/enums.py` carries the rule). It still removes every tag, `HashingTag`
-  included, from the tree the current execution compiles.
-- **Each payload is keyed as written, by its own nested transform.** `CachedNode.parent`,
-  `RemoteTable.remote_expr` and the Flight `input_expr` each re-enter `_transform_expr`
-  at their own execution boundary, which keys the payload first and strips its tags after.
+  The execution path's strip is the `remove_tags` record of `_PASSES` in
+  `python/xorq/expr/api.py`, and it is `BOUNDARY`; `Traversal` in
+  `python/xorq/expr/enums.py` carries the rule. It still removes every tag, `HashingTag`
+  included, from the tree the current execution compiles. The function
+  `_remove_tag_nodes` shares that record's replacer but always descends; it is the `to_sql`
+  strip and is not on the execution path.
+- **Each payload is keyed as written, by its own nested transform.** Every opaque payload
+  field in the `OPAQUE_SPECS` registry (`python/xorq/common/utils/graph_utils.py`) re-enters
+  `_transform_expr` at its own execution boundary, which keys the payload first and strips
+  its tags after. The registry, not this list, is authoritative for which fields those are.
 
 Alternatives rejected on the way:
 
@@ -264,7 +268,6 @@ Alternatives rejected on the way:
   `BOUNDARY`, and then an outer hashing tag hides the cache root from provenance unless
   the root check is patched too. That is this change with an extra pass.
 
-The one pass that still rewrites a payload before it is keyed is `bind_params`: a
-parameterised cache is keyed from the bound parent, one entry per value, and
-`ls.get_key()` without params names none of them. That is accepted and recorded at
-`_PASSES` in `python/xorq/expr/api.py`.
+The one pass that still rewrites a payload before it is keyed is `bind_params`. That is
+accepted; the `_PASSES` header in `python/xorq/expr/api.py` records why it cannot stop at
+the boundary and what it costs.
