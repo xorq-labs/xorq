@@ -1,9 +1,13 @@
 # ADR-0015: Every op modifies the build hash; cache-hash neutrality is the exception
 
-- **Status:** Accepted
-- **Date:** 2026-06-22
+- **Status:** Amended
+- **Date:** 2026-06-22 (amended 2026-10-07)
 - **Deciders:** Dan Lovell
+- **Related:** ADR-0006, ADR-0014, ADR-0016, ADR-0020
 
+> **Amended.** The body below is the 2026-06-22 record and is left as written. The
+> Errata correct what it says the code does; the Amendment records the execution-path
+> invariant that the hashing-tag cache-key fix added. Read both before acting on the body.
 ## Context
 
 Xorq computes two hashes from the same expression tokenizer, applied in different contexts:
@@ -228,3 +232,107 @@ it in a feature-specific ADR buries a general principle under a specific design.
 - Opaque op set: `opaque_ops` in `python/xorq/common/utils/graph_utils.py`
 - ADR-0006: `read_kwargs` hash-path/read-path split
 - ADR-0014: TeeNode deferred writes (the specific design that prompted this general rule)
+
+## Amendment (2026-10-07): the execution-path strip stops at payload boundaries
+
+Mechanism 1 says `_remove_tag_nodes` runs on the execution path "where the tag metadata
+is irrelevant to the rows produced". Rows, yes; keys, no. The execution transform keys
+every `CachedNode` it meets: the `cache` pass hands `CachedNode.parent` to
+`Cache.set_default`, which calls `calc_key`, and that key is subject to this ADR's rule
+that anything feeding the cache hash keeps `HashingTag`. The strip pass descended into
+`CachedNode.parent` ahead of the cache pass, so execution keyed a parent with its
+`HashingTag` removed while `ls.get_key()`, `cache_exists()` and the build metadata
+(`ExprMetadata.projected_cache_key`) keyed the parent as written. The artifact landed
+under one key and was looked up under another, and two expressions differing only in
+hashing-tag metadata shared one entry.
+
+The decision stands; this records the invariant it implies for the execution transform:
+
+- **A pure rewrite that changes a payload's identity stops at opaque payload boundaries
+  whenever a BOUNDARY pass keys that payload, wherever the rewrite sits in the table.**
+  The tag strip is the instance: the `remove_tags` record of `_PASSES` in
+  `python/xorq/expr/api.py` is `BOUNDARY`. It still removes every tag, `HashingTag`
+  included, from the tree the current execution compiles. The function
+  `_remove_tag_nodes` shares that record's replacer but always descends; `to_sql` runs
+  it, so it runs inside the tokenizer, including while the `cache` pass keys and stamps.
+- **Each executed payload is keyed as written, then stripped by its own nested transform.**
+  The `Traversal` docstring in `python/xorq/expr/enums.py` carries the rule;
+  `_EXECUTED_PAYLOADS` in `python/xorq/expr/api.py` names the payload fields execution
+  re-enters. `OPAQUE_SPECS` says which fields are opaque to descent, not which re-enter:
+  `CacheTag.uncached` is opaque and never re-enters.
+
+Alternatives rejected on the way:
+
+- *Leave `HashingTag` in place during the strip.* No compiler has a rule for a tag; every
+  hashing-tagged execution fails with `OperationNotDefinedError`.
+- *Run `cache` before the strip, with the strip still descending.* The outer cache pass
+  never enters a payload but the strip does, so a cache nested inside a `RemoteTable`
+  payload was still keyed from a stripped parent, and an outer plain tag hid the cache
+  root from provenance stamping.
+- *A separate `remove_hashing_tags` pass after `cache`.* Works only if that pass is also
+  `BOUNDARY`, and then an outer hashing tag hides the cache root from provenance unless
+  the root check is patched too. That is this change with an extra pass.
+
+The one pass that still rewrites a payload before it is keyed is `bind_params`. That is
+accepted; the `_PASSES` header in `python/xorq/expr/api.py` records why it cannot stop at
+the boundary and what it costs.
+
+`test_hashing_tag_cache_key_agrees_on_every_path` in `python/xorq/common/tests/test_cache.py`
+pins the key agreement for bare, tagged, hashing-tagged and `RemoteTable`-payload roots;
+`test_production_passes_fuse_nothing` in `python/xorq/expr/tests/test_transform_driver.py`
+pins the traversals. The allow-list test deferred above is still absent.
+
+## Errata (2026-10-07)
+
+Corrections to what the body says the code does, each checked by running the code. The
+body is left as written and the decision is unchanged.
+
+- **`opaque_ops` has seven members, not six**, and `CacheTag` is missing from the body.
+  `opaque_ops` is derived from the `OPAQUE_SPECS` registry in `graph_utils.py` (ADR-0016),
+  which is authoritative. `Read` and `CacheTag` are not descent cases for the tokenizer:
+  `Read` has no sub-expression; `CacheTag` is a hash leaf whose `__dasher_tokenize__` is
+  its schema and cache key, so what sits only under its `uncached` payload is pruned by
+  `exclusively_pinned_leaves` and folds into neither hash, by design. `CacheTag` is a
+  `Tag` subclass: it survives `_remove_non_hashing_tag_nodes`, and both `_remove_tag_nodes`
+  and the `remove_tags` pass replace it with its `parent`, the materialized cache read.
+- **`_remove_non_hashing_tag_nodes` is not on the cache-hash path.** Mechanism 1, the
+  neutrality table and the References credit it with stripping `Tag` before the cache
+  hash. Patching it and counting calls shows zero during `ls.tokenized`, `ls.get_key`
+  (snapshot and modification-time strategies) and `get_expr_hash`; its only caller is
+  `ls.untagged`, which `node_utils.py` and `content_hash.py` tokenize (`content_hash.py`
+  folds plain-`Tag` metadata there, so `Tag` is identity-bearing in content hashes).
+  Plain-tag neutrality comes from `to_sql` running `_remove_tag_nodes` and
+  `_remove_tee_nodes` inside the tokenizer's SQL step (`_decompose_expr` in
+  `dasher/_opaque.py`, after `_xorq_opaque_to_placeholder` has rewritten the opaque
+  leaves), and from `_decompose_expr` re-collecting only `HashingTag`, `CacheTag` and
+  `TeeNode`, by explicit type, the last folded only under `_include_tee_nodes` in
+  `_hash_expr_components`. ADR-0014 describes `Tag` stripping with the same function; the
+  correction applies to it too.
+- **`_transform_expr` does not apply `_remove_tag_nodes`.** `_remove_tag_nodes` is a
+  descending `replace_nodes`; `to_sql` and the YAML compiler's `_extract_sql_queries`
+  call it. The execution transform runs the same replacer as a BOUNDARY pass (the
+  Amendment).
+- **A tokenize rule alone admits an op to neither hash.** Requirement 1 reads as if
+  `__dasher_tokenize__` puts an op in the build hash. Membership is `_decompose_expr`'s
+  explicit re-collection: a `Tag` subclass given a `__dasher_tokenize__` is still neutral
+  in both hashes. Re-collecting a new type means editing `_decompose_expr`'s typed result,
+  `pinned_leaf_types` and `_hash_expr_components` in lockstep, and requirement 2's strip
+  runs inside `to_sql`, so a type that is neither `Tag` nor `TeeNode` needs its own strip
+  wired there.
+- **A plain `Tag` is neutral in the build hash too.** `get_expr_hash(t.tag("v1"))` equals
+  `get_expr_hash(t)`, while a `HashingTag` changes it. The invariant as stated does not
+  cover this, requirement 3's "if" is not optional under it, and the `HashingTag`
+  docstring treats `Tag`'s neutrality as designed. Whether `Tag` is the intended exception
+  or a defect is not decided here. Until it is, the code's behaviour stands: leave `Tag`
+  neutral, and model a build-bearing pass-through on `TeeNode`.
+- **A field leaves a hash by omission from `__dasher_tokenize__`, not by
+  `hash=False, eq=False`.** The attrs flags on `BackendWriteThrough.kwargs` and
+  `ThreadedBackendWriteThrough.maxsize` govern Python equality; the fields are
+  hash-neutral because the tokenize tuples omit them, and `TeeNode.drain`, an op field
+  with no attrs flags, is neutral for the same reason. A field left in a tokenize tuple is
+  identity-bearing whatever its flags.
+- **The two hashes differ by more than which ops participate.** `get_expr_hash` in
+  `provenance_utils.py` also runs `canonicalize_expr`, tokenizes under the snapshot
+  strategy's `normalization_context` (stat-free, so touching a source file's mtime moves
+  the modification-time cache key and not the build hash), and folds the rule-set
+  fingerprints of ADR-0020.

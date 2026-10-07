@@ -243,8 +243,10 @@ def _make_cache_replacer(expr: ir.Expr) -> Replacer:
             # Only stamp provenance on the root CachedNode: inner cached nodes
             # are independently keyed and will get their own provenance when
             # they are the root of a separate execute() call.
-            # We use `expr` (the original full expression from the closure) so
-            # that the embedded hash matches what build_expr produces.
+            # ``expr`` is the root this pass was handed: bound, and with any
+            # tag above the CachedNode already stripped at this boundary. The
+            # footer therefore carries the build hash of the cached expression
+            # as written, not of an outer tag the caller wrapped around it.
             if is_root and hasattr(cache.storage, "get_path"):
                 from xorq.common.utils.provenance_utils import (  # noqa: PLC0415
                     build_provenance_metadata,
@@ -460,22 +462,31 @@ def _resolve_params(params):
 # asserts the dependency chain: bind -> tags -> cache -> tee -> remote -> reads.
 # ``produces_resources`` passes (tee, remote) adopt into the shared scope; cache
 # materializes persistent parquet and owns nothing scope-tracked.
+#
+# ``bind_params`` is the one DESCEND pass left, and the one pass that still
+# rewrites a payload before ``cache`` keys it. It cannot be BOUNDARY: no
+# ``params`` cross a payload boundary (``storage.put``, ``RemoteTable`` and
+# Flight ``to_rbr`` each re-enter ``to_pyarrow_batches()`` bare), so a parameter
+# inside a payload is bound by this outer walk or not at all. The cost is
+# accepted: a parameterized cache is keyed from the *bound* parent, so it gets
+# one entry per value and ``ls.get_key()`` without params names none of them.
+# Every other pass keys or strips a payload only through the payload's own
+# nested transform; ``Traversal`` carries that rule.
 _PASSES = (
     TransformPass(
         name="bind_params",
         traversal=Traversal.DESCEND,
         # No ``when`` gate: ``build`` (via ``_resolve_bind_op_params``) already
         # walks for NamedScalarParameters and the replacer no-ops on empty
-        # bindings, so a gate would only duplicate that walk -- and this pass
-        # always fuses with ``remove_tags`` into one walk, so gating saves none.
+        # bindings, so a gate would only duplicate that walk.
         build=lambda expr, ctx: _make_bind_params_replacer(
             _resolve_bind_op_params(expr, ctx.name_values)
         ),
     ),
     TransformPass(
         name="remove_tags",
-        # BOUNDARY: a payload is keyed (HashingTag included) and stripped by its
-        # own nested transform
+        # BOUNDARY although pure: descending would change a payload's identity
+        # before ``cache`` keys it. ``Traversal`` carries the rule.
         traversal=Traversal.BOUNDARY,
         build=lambda expr, ctx: _make_remove_tag_nodes_replacer(),
     ),
@@ -593,9 +604,10 @@ def _flight_to_rbr(
 
     A bare ``FlightExpr``/``FlightUDXF`` root is a childless physical-table view,
     so the effectful BOUNDARY passes no-op on it and the scope comes back empty --
-    but the DESCEND passes must still run: ``to_rbr`` re-enters
-    ``input_expr.to_pyarrow_batches()`` with no ``params``, so binding here is what
-    resolves a parameter living inside ``input_expr`` (and strips its tags). We
+    but ``bind_params``, the one DESCEND pass, must still run: ``to_rbr``
+    re-enters the payload bare, so binding here is what resolves a parameter
+    living inside ``input_expr`` (the ``_PASSES`` header records why). That
+    nested transform strips the payload's tags, as it does for any payload. We
     still dispatch via ``to_rbr`` (a FlightExpr has no normal backend), tie the
     (empty) scope to the reader, and instrument it -- exactly as the non-Flight
     path does.
