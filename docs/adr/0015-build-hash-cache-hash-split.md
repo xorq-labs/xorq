@@ -16,7 +16,8 @@ Xorq computes two hashes from the same expression tokenizer, applied in differen
 
 Both hashes are produced by the same structural tokenizer in `dasher/_opaque.py`. The
 difference is which ops participate; *How the split is implemented* below says how. (The
-sentence that stood here credited a strip pass that is on neither hash path; see Errata.)
+sentence that stood here credited the `ls.untagged` strip, which is on neither hash path;
+see Errata.)
 
 The rules governing which ops participate in which hash are implicit. ADR-0014 documents
 TeeNode's specific behavior (cache-hash-neutral, build-hash-bearing), and ADR-0006
@@ -131,11 +132,6 @@ opaque field: the `RemoteTable` case folds in `remote_expr`, the `CachedNode` ca
 is folded by the `ScalarUDF` normalizer (`_normalize_scalar_udf_xorq`). An op hidden under any
 of these boundaries therefore still folds into the hash; the invariant holds without help.
 
-These in-repo overrides shadow the same-named `normalize_remote_table` /
-`normalize_cached_node` / `normalize_scalar_udf` rules in the external `xorq_dasher` package;
-for the types above, what folds into the hash is decided in-repo. Read the in-repo
-`dasher/_opaque.py`, not `xorq_dasher`, to see what decides the hash.
-
 The corollary is a contributor rule: **do not write graph walks that descend into opaque
 sub-expressions in order to "help" the hash.** Such walks are vestigial. They duplicate
 descent the tokenizer already performs, and — because the normalizers deliberately
@@ -147,8 +143,8 @@ it rewrote `RemoteTable.name` to a content hash before tokenizing, but
 only such walk; the remaining descending walks are either the tokenizer implementation
 itself (`dasher/_opaque.py`, which must descend), node-targeting find-then-replace passes
 (`node_utils.py`, which delegate hashing to `expr.ls.tokenized`), execution-time
-side-effecting transforms (the `BOUNDARY` records of `_PASSES` in `api.py`, which use
-`op.replace` so opaque sub-exprs get their own pass), or non-hashing traversals (lineage, schema
+side-effecting transforms (the `cache`, `tee` and `remote` records of `_PASSES` in `api.py`,
+which use `op.replace` so opaque sub-exprs get their own pass), or non-hashing traversals (lineage, schema
 validation).
 
 When a manual walk over an expression *is* needed for hashing-adjacent work, locate nodes
@@ -247,7 +243,7 @@ it in a feature-specific ADR buries a general principle under a specific design.
 - Tokenizer decomposition (SQL component plus re-collected identity nodes): `_decompose_expr` in `python/xorq/common/utils/dasher/_opaque.py`
 - Hash component assembly: `_hash_expr_components` in `python/xorq/common/utils/dasher/_opaque.py`
 - Canonical hasher and rule overrides: `HASHER = DEFAULT_HASHER.override(*_EXTRA_RULES)` in `python/xorq/common/utils/dasher/__init__.py`
-- Opaque sub-expr descent (the rule that actually runs): `_xorq_opaque_to_placeholder`, `_normalize_expr_xorq`, `_normalize_scalar_udf_xorq` in `python/xorq/common/utils/dasher/_opaque.py` — these override the upstream `normalize_remote_table` / `normalize_cached_node` / `normalize_scalar_udf` in the external `xorq_dasher` package
+- Opaque sub-expr descent (the rule that actually runs): `_xorq_opaque_to_placeholder`, `_normalize_expr_xorq`, `_normalize_scalar_udf_xorq` in `python/xorq/common/utils/dasher/_opaque.py`; the upstream `xorq_dasher` rules for the same types are routed through `python/xorq/common/utils/dasher/_relations.py` and still contribute a leaf's slot hash
 - Opaque op set: `opaque_ops` in `python/xorq/common/utils/graph_utils.py`
 - ADR-0006: `read_kwargs` hash-path/read-path split
 - ADR-0014: TeeNode deferred writes (the specific design that prompted this general rule)
@@ -272,13 +268,11 @@ The decision stands; this records the invariant it implies for the execution tra
   `python/xorq/expr/api.py`, and it is `BOUNDARY`; `Traversal` in
   `python/xorq/expr/enums.py` carries the rule. It still removes every tag, `HashingTag`
   included, from the tree the current execution compiles. The function
-  `_remove_tag_nodes` shares that record's replacer but always descends; `_transform_expr`
-  does not apply it to the expression it transforms.
+  `_remove_tag_nodes` shares that record's replacer but always descends (mechanism 1).
 - **Each executed payload is keyed as written, then stripped by its own nested transform.**
-  The owning pass keys the payload as written; the payload's own `_transform_expr` entry
-  then strips it. Which payload fields re-enter is recorded on `Traversal` in
-  `python/xorq/expr/enums.py`. `OPAQUE_SPECS` says which fields are opaque to descent, not
-  which re-enter: `CacheTag.uncached` is opaque and never re-enters.
+  `Traversal` in `python/xorq/expr/enums.py` records the rule and which op types re-enter.
+  `OPAQUE_SPECS` says which fields are opaque to descent, not which re-enter:
+  `CacheTag.uncached` is opaque and never re-enters.
 
 Alternatives rejected on the way:
 
@@ -303,8 +297,8 @@ running the code. The decision is unchanged; these fix what the document said th
 does.
 
 - **`opaque_ops` has seven members, not six**, and `CacheTag` was missing from this
-  document entirely. `Read` and `CacheTag` are not descent cases: one has no
-  sub-expression, the other is a hash leaf. The list and count in *Opaque sub-expressions
+  document entirely. `Read` and `CacheTag` are not descent cases for the tokenizer: one
+  has no sub-expression, the other is a hash leaf. The list and count in *Opaque sub-expressions
   participate via tokenizer descent* are corrected and now defer to `OPAQUE_SPECS`.
 - **`_remove_non_hashing_tag_nodes` is not on the cache-hash path.** Mechanism 1 and the
   neutrality table credited it with stripping `Tag` before the cache hash. Patching it and
