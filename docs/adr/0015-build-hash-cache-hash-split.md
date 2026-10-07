@@ -163,9 +163,9 @@ exists only for a side effect **may** be cache-hash-neutral. To add one:
    fields (so the build hash includes it). A tokenize rule alone admits an op to neither
    hash: it must also be re-collected by `_decompose_expr` (mechanism 1; see Errata).
 2. It must be dropped from the tokenizer's SQL component (today: by `_remove_tag_nodes`
-   or `_remove_tee_nodes` inside `to_sql`) and not folded into the cache hash: either not
-   re-collected by `_decompose_expr` at all, or re-collected and folded only under
-   `_include_build_only_nodes` (requirement 3).
+   or `_remove_tee_nodes` inside `to_sql`), re-collected by `_decompose_expr` (requirement
+   1), and folded only under `_include_build_only_nodes` (requirement 3), so the cache hash
+   does not see it and the build hash does.
 3. If the op needs to participate in the build hash but not the cache hash (like `TeeNode`
    and plain `Tag`), its fold in `_hash_expr_components` must be gated behind
    `_include_build_only_nodes` so only the build-hash path includes it.
@@ -320,11 +320,12 @@ does.
   it, including while the execution transform keys and stamps a cache. The execution
   transform itself runs the same replacer as a BOUNDARY pass (the Amendment above).
   Mechanism 1 and the References are corrected.
-- **A plain `Tag` is neutral in the build hash too.** `get_expr_hash(t.tag("v1"))` equals
-  `get_expr_hash(t)`, while a `HashingTag` changes it. The invariant as stated ("every op
-  participates in the build hash") does not cover this, and the `HashingTag` docstring
-  treats its parent's neutrality as designed. Requirement 1 is not the mechanism either: a
-  `Tag` subclass given a `__dasher_tokenize__` is still neutral in both hashes, because
+- **A plain `Tag` was neutral in the build hash too.** Before the second Amendment,
+  `get_expr_hash(t.tag("v1"))` equalled `get_expr_hash(t)`, while a `HashingTag` changed
+  it. The invariant as stated ("every op participates in the build hash") did not cover
+  this, and the `HashingTag` docstring
+  treated its parent's neutrality as designed. Requirement 1 was not the mechanism either: a
+  `Tag` subclass given a `__dasher_tokenize__` was still neutral in both hashes, because
   `_decompose_expr` re-collects by an explicit type list, and plain `Tag` was on it
   nowhere. Decided: plain `Tag` is build-hash-bearing; see the second Amendment below.
 - **Corrections to the previous errata round.** It placed the `TeeNode` gate in
@@ -351,7 +352,9 @@ code now honours it for `Tag`:
   invariant holds for it by default.
 - `_hash_expr_components` folds the plain-tag tokens only under `_include_build_only_nodes`,
   the context variable formerly named `_include_tee_nodes`, now gating both build-hash-only
-  families (mechanism 2). `get_expr_hash` enters it; the cache path never does.
+  families (mechanism 2). `get_expr_hash` enters it; the cache path never does, and a
+  pin's cache key is the name stored on the `CacheTag`, not recomputed, so the gate cannot
+  reach a cache key.
 
 So a plain `Tag` is cache-hash-neutral as before (the `to_sql` strip and an unset gate) and
 build-hash-bearing now. `HashingTag` and `CacheTag` behaviour is unchanged on both paths.
