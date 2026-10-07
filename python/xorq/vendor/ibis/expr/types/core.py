@@ -1355,8 +1355,7 @@ class LETSQLAccessor:
 
     def get_cache_path(self):
         if self.is_cached and hasattr(self.cache.storage, "get_path"):
-            cn = self.op
-            return cn.cache.storage.get_path(cn.cache.calc_key(cn.parent))
+            return self.cache.storage.get_path(self.get_key())
         else:
             return None
 
@@ -1377,13 +1376,15 @@ class LETSQLAccessor:
     @property
     def cached_dt(self):
         if self.cache_exists():
-            return self.cache.get(self.uncached_one)
+            return self.cache.get(self.expr)
         else:
             return None
 
     def get_key(self):
         if self.is_cached:
-            return self.cache.calc_key(self.uncached_one)
+            from xorq.expr.relations import cached_node_key  # noqa: PLC0415
+
+            return cached_node_key(self.op)
         else:
             return None
 
@@ -1413,8 +1414,7 @@ class LETSQLAccessor:
             `cache.exists()`); none are caught here.
         """
         if self.is_cached:
-            cn = self.op
-            return cn.cache.exists(cn.parent)
+            return self.cache.key_exists(self.get_key())
         else:
             return None
 
