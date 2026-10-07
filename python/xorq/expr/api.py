@@ -476,9 +476,13 @@ _PASSES = (
     TransformPass(
         name="bind_params",
         traversal=Traversal.DESCEND,
-        # No ``when`` gate: ``build`` (via ``_resolve_bind_op_params``) already
-        # walks for NamedScalarParameters and the replacer no-ops on empty
-        # bindings, so a gate would only duplicate that walk.
+        # ``when``: ``_resolve_bind_op_params`` validates ``params`` (so extra
+        # names and bad values still raise even when the walk is skipped) and
+        # returns the bindings; an expression with nothing to bind skips the
+        # ``replace_nodes`` walk, which shares a traversal with nothing now that
+        # ``remove_tags`` is BOUNDARY. When something binds, the resolver's
+        # cheaper ``walk_nodes`` scan runs twice (here and in ``build``).
+        when=lambda expr, ctx: bool(_resolve_bind_op_params(expr, ctx.name_values)),
         build=lambda expr, ctx: _make_bind_params_replacer(
             _resolve_bind_op_params(expr, ctx.name_values)
         ),
@@ -489,6 +493,7 @@ _PASSES = (
         # before ``cache`` keys it. ``Traversal`` carries the rule.
         traversal=Traversal.BOUNDARY,
         build=lambda expr, ctx: _make_remove_tag_nodes_replacer(),
+        after=("bind_params",),
     ),
     TransformPass(
         name="cache",
