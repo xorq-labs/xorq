@@ -577,7 +577,8 @@ def _hash_expr_components(expr: Expr, op: Node) -> tuple[str, list[SlotDict]]:
         hash_args += (tuple(hasher.tokenize(ht) for ht in hashing_tags),)
     if _include_build_only_nodes.get() and tags:
         # A plain Tag is cache-hash-neutral but build-hash-bearing (ADR-0015):
-        # same (schema, metadata) token as a HashingTag, folded in only here.
+        # a (schema, metadata) token like a HashingTag's, under its own leading
+        # literal, folded in only here.
         hash_args += (tuple(hasher.tokenize(tg) for tg in tags),)
     if _include_build_only_nodes.get() and tee_nodes:
         hash_args += (tuple(hasher.tokenize(tn) for tn in tee_nodes),)

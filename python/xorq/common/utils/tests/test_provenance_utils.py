@@ -164,7 +164,12 @@ def test_plain_tag_stays_cache_hash_neutral():
     # The build-hash fold is gated to get_expr_hash; the cache key does not see it.
     t = xo.memtable({"a": [1, 2, 3]})
     assert t.tag("v1").ls.tokenized == t.ls.tokenized
-    assert t.tag("v1").ls.get_key() == t.ls.get_key()
+    # get_key is None on an uncached expr, so key through a real cache.
+    cache = xo.ParquetSnapshotCache.from_kwargs()
+    key = t.cache(cache=cache).ls.get_key()
+    assert key is not None
+    assert t.tag("v1").cache(cache=cache).ls.get_key() == key
+    assert t.hashing_tag("v1").cache(cache=cache).ls.get_key() != key
 
 
 def test_plain_tag_and_hashing_tag_differ_in_build_hash():
