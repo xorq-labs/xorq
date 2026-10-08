@@ -559,6 +559,15 @@ class SQLGlotCompiler(abc.ABC):
         limit: str | None = None,
         params: Mapping[ir.Expr, Any] | None = None,
     ):
+        """Translate an ibis expression to a sqlglot expression.
+
+        The returned tree is a DAG: `translate` memoizes per op, so every
+        reference to the same field is one shared `sge.Column`, and its
+        `.parent` is the last parent that took it. Do not edit the result in
+        place (`.replace`, `.transform(copy=False)`, `.sql(copy=False)`), or
+        the edit lands on the wrong parent. Render or transform a copy, as
+        `.sql()` does by default.
+        """
         from xorq.vendor import ibis
 
         table_expr = expr.as_table()

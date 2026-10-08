@@ -593,11 +593,9 @@ $$""",
         # as per https://docs.snowflake.com/en/sql-reference/functions/percentile_cont
         # using the rule `add_within_group_for_percentiles`
         #
-        # If we have copy=False set in our call to `compile`, if there is more
-        # than one quantile, the rewrite rule fails on the second pass because
-        # of some mutation in the first pass. To avoid this error, we create the
-        # expression with the within group included already and skip the (now
-        # unneeded) rewrite rule.
+        # That rule edits the tree while generating, which is not safe on the
+        # shared tree `to_sqlglot` returns (see `SQLGlotCompiler.to_sqlglot`).
+        # Build the WITHIN GROUP here and skip the rule.
         order_by = sge.Order(expressions=[sge.Ordered(this=arg)])
         quantile = self.f.percentile_cont(quantile)
         return sge.WithinGroup(this=quantile, expression=order_by)
