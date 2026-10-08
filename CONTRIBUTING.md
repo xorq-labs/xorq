@@ -303,6 +303,9 @@ change is not present in PyPI.
 ## Release Flow
 ***This section is intended for xorq maintainers***
 
+> [!TIP]
+> `scripts/release.sh <major|minor|patch>` runs steps 1-6 below with preflight checks and stops before the push. The manual commands remain as the fallback.
+
 ### Steps
 1. Ensure you're on upstream main: `git switch main && git pull`
 2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
