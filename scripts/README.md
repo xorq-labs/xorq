@@ -16,6 +16,7 @@ of them breaks:
 | `adr_new.py` | workflow | by hand, when starting an ADR |
 | `adr_rename.py` | workflow | by hand, once the pull request exists |
 | `canonical_digest_xver_probe.py` | probe | by hand, when investigating digest stability |
+| `release.sh` | workflow | by hand, by a maintainer cutting a release (steps 1-6 of the Release Flow) |
 
 A **guard** fails CI, so it is load-bearing: it needs tests, and a change to it
 should assume someone's pull request depends on the answer. A **workflow** script
