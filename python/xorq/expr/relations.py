@@ -241,22 +241,34 @@ def cache_keyed_expr(parent: Expr) -> Expr:
     return parent_op.remote_expr if isinstance(parent_op, RemoteTable) else parent
 
 
+def cached_node_key(node: CachedNode) -> str:
+    """The cache key of ``node``, keyed on the node itself.
+
+    The node is the key input: ``Cache.calc_key`` performs the single
+    same-cache unwrap (``CachedNode`` -> ``cache_keyed_expr(parent)``), so
+    handing it the parent instead would unwrap a same-cache parent a second
+    time and key a stacked outer node as its inner one (GH #2382). Every
+    keying site -- execution, the ``ls`` accessors, pinning -- must derive a
+    ``CachedNode``'s key through this helper so they cannot drift.
+    """
+    return node.cache.calc_key(node.to_expr())
+
+
 def _cached_node_materialized(node: CachedNode) -> bool:
     """Whether ``node``'s cache is already populated.
 
-    Uses the same key derivation (``cache_keyed_expr`` + ``calc_key``/
-    ``key_exists``) as ``_cached_node_to_cache_tag`` so the pre-pin
-    materialization check and the pin itself agree on cache identity.
+    Uses the same key derivation (``cached_node_key``) as
+    ``_cached_node_to_cache_tag`` so the pre-pin materialization check and
+    the pin itself agree on cache identity.
     """
-    cache = node.cache
-    return cache.key_exists(cache.calc_key(cache_keyed_expr(node.parent)))
+    return node.cache.key_exists(cached_node_key(node))
 
 
 def _cached_node_to_cache_tag(node: CachedNode) -> CacheTag:
     cache = node.cache
     # compute the cache key once: cache.exists + cache.get would each recompute
     # it (calc_key) and stat the artifact separately.
-    key = cache.calc_key(cache_keyed_expr(node.parent))
+    key = cached_node_key(node)
     if not cache.key_exists(key):
         raise IntegrityError(
             "cannot pin an unmaterialized cache; execute the expression "
