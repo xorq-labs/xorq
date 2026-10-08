@@ -27,6 +27,7 @@ from xorq.common.exceptions import InternalError
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.api import (
+    _PASSES,
     _make_bind_params_replacer,
     _make_remove_tag_nodes_replacer,
     _resolve_bind_op_params,
@@ -386,11 +387,26 @@ def test_when_false_collapses_group_to_single_pass_path() -> None:
     assert ran == ["kept"], "skipped pass contributes no replacer"
 
 
-def test_fused_bind_and_remove_tags_equals_sequential() -> None:
-    """The real fusable pair: fusing ``bind_params`` + ``remove_tags`` into one
-    walk yields an expression identical (by build hash) to applying them singly,
-    including the interaction where a bound parameter lives inside a tagged
-    subtree (a Tag wraps a relation; the param sits below it)."""
+def test_production_passes_fuse_nothing() -> None:
+    """Pin the production traversals: ``bind_params`` is the only DESCEND pass
+    and ``remove_tags`` is BOUNDARY (it must not reach into a payload ahead of
+    ``cache`` keying it), so every fusion group of ``_PASSES`` is a singleton.
+    A revert of ``remove_tags`` to DESCEND fails here, not only in the cache
+    tests."""
+    by_name = {p.name: p for p in _PASSES}
+    assert by_name["bind_params"].traversal is Traversal.DESCEND
+    assert by_name["remove_tags"].traversal is Traversal.BOUNDARY
+    assert [p.name for p in _PASSES if _is_fusable(p)] == ["bind_params"]
+    assert all(len(group) == 1 for group in _fusion_groups(_PASSES))
+
+
+def test_fused_descend_pair_equals_sequential() -> None:
+    """Fusing two DESCEND passes into one walk yields an expression identical
+    (by build hash) to applying them singly, including where one pass returns a
+    child in place of the node (a Tag unwrapped to its parent) above a node the
+    other pass rewrites (a bound parameter below the Tag). The tag strip here is
+    a synthetic DESCEND pass: production ``remove_tags`` is BOUNDARY and never
+    fuses (see ``test_production_passes_fuse_nothing``)."""
     t = xo.memtable({"a": [1, 2, 3]})
     p = xo.param("thresh", "int64")
     inner = t.filter(t.a > p)
