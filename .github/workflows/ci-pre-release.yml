@@ -1,26 +1,25 @@
 name: ci-pre-release
 
 on:
+  push:
+    branches:
+      - 'release-*'
+  # escape hatch (re-run after a rejected deployment); the environment's branch policy refuses non-release refs
   workflow_dispatch:
-
-# we do not want more than one release workflow executing at the same time, ever
-concurrency:
-  group: release
-  # cancelling in the middle of a release would create incomplete releases
-  # so cancel-in-progress is false
-  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  release:
-    name: release xorq to TestPyPI
+  precheck:
+    name: validate the release commit
+    # no environment: runs at once, so a bad release never asks a reviewer
     runs-on: ubuntu-latest
-    environment:
-      name: pre-release
     permissions:
-      id-token: write
+      contents: read
+      pull-requests: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -30,8 +29,125 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-      - name: publish package
+      - name: read the version from pyproject.toml
+        id: version
+        run: |
+          version=$(uv --color never version --short)
+          [ -n "$version" ] || { echo "::error::uv version printed no version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "releasing $version from $GITHUB_REF_NAME"
+      - name: uv.lock matches pyproject.toml
+        run: |
+          uv lock --check \
+            || { echo "::error::uv.lock is out of date; run 'uv lock' on the release branch and commit it"; exit 1; }
+      - name: query the package indexes
+        id: index
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # a 404 means the project has no release at all, which is also "absent"
+        run: |
+          python - "$VERSION" <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import sys
+          import urllib.error
+          import urllib.request
+
+          version = sys.argv[1]
+
+          def released(base):
+              try:
+                  with urllib.request.urlopen(f"{base}/pypi/xorq/json", timeout=30) as response:
+                      return version in json.load(response)["releases"]
+              except urllib.error.HTTPError as error:
+                  if error.code == 404:
+                      return False
+                  raise
+
+          try:
+              on_pypi = released("https://pypi.org")
+          except Exception as error:
+              sys.exit(f"::error::could not query PyPI for xorq {version}, refusing to assume it is absent: {error!r}")
+          try:
+              on_testpypi = released("https://test.pypi.org")
+          except Exception as error:
+              print(f"::warning::could not query TestPyPI for xorq {version}, skipping the already-published comment: {error!r}", file=sys.stderr)
+              on_testpypi = None
+          print(f"on_pypi={str(on_pypi).lower()}")
+          print(f"on_testpypi={str(on_testpypi).lower()}")
+          PY
+          cat "$GITHUB_OUTPUT"
+      - name: version is not on PyPI
+        if: steps.index.outputs.on_pypi == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "::error::xorq $VERSION is already on PyPI; that number is spent, bump the version"
+          exit 1
+      - name: CHANGELOG.md has a section for this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          grep -q "^## \[$VERSION\]" CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no '## [$VERSION]' section; run git-cliff for v$VERSION and commit it"; exit 1; }
+      - name: tag v<version> does not exist on origin
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # ls-remote --exit-code: 0 = tag found, 2 = no match; anything else is a
+        # failed lookup, which must not pass as "absent"
+        run: |
+          set +e
+          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION"
+          rc=$?
+          set -e
+          case "$rc" in
+            2) echo "tag v$VERSION is not on origin" ;;
+            0) echo "::error::tag v$VERSION already exists on origin; that version is released, bump the version"; exit 1 ;;
+            *) echo "::error::could not query origin for tag v$VERSION (git ls-remote exit $rc); refusing to assume it is absent"; exit 1 ;;
+          esac
+      - name: warn the release PR when TestPyPI already has this version
+        if: steps.index.outputs.on_testpypi == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.version }}
+        # a new comment each time: edits do not notify; no PR yet means nothing to warn about
+        run: |
+          pr=$(gh pr list --head "$GITHUB_REF_NAME" --state open --json number --jq '.[0].number')
+          if [ -z "$pr" ]; then
+            echo "::warning::xorq $VERSION is already on TestPyPI and no PR exists for $GITHUB_REF_NAME; skipping the comment"
+            exit 0
+          fi
+          gh pr comment "$pr" --body "Warning: xorq \`$VERSION\` is already on TestPyPI. The publish for \`$GITHUB_SHA\` skips files identical to the ones already there and uploads only missing ones (a partial earlier upload is completed); a file whose contents changed is rejected, since an uploaded filename cannot be reused. To test changed content on TestPyPI, bump to the next patch version."
+          echo "::warning::xorq $VERSION is already on TestPyPI; commented on PR #$pr"
+
+  publish:
+    name: publish xorq to TestPyPI
+    needs: precheck
+    runs-on: ubuntu-latest
+    # the environment is the human gate (required reviewers, release-* only)
+    environment:
+      name: pre-release
+    permissions:
+      contents: read
+      id-token: write
+    # on the job, not the workflow: an unapproved deployment must not queue the next push's precheck
+    concurrency:
+      group: pre-release-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+      - name: install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: build and publish xorq ${{ needs.precheck.outputs.version }}
+        # --check-url skips files TestPyPI already has, so a re-push after a partial upload completes it
         run: |
           uv build
-          uv publish --publish-url https://test.pypi.org/legacy/ --trusted-publishing always
-
+          uv publish \
+            --publish-url https://test.pypi.org/legacy/ \
+            --check-url https://test.pypi.org/simple/ \
+            --trusted-publishing always
