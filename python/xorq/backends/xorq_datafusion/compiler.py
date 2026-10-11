@@ -34,11 +34,6 @@ _UNIX_EPOCH = "1970-01-01T00:00:00Z"
 typecode = sge.DataType.Type
 
 
-def _replace_offset(offset):
-    offset = int(offset)
-    return f"{offset + math.copysign(1, offset):.0f}"
-
-
 class DataFusionType(PostgresType):
     unknown_type_strings = {
         "utf8": dt.string,
@@ -602,15 +597,10 @@ class DataFusionCompiler(SQLGlotCompiler):
         if offset is None:
             return self.f.date_bin(interval, arg)
         else:
-            # `offset` is the memoized translation of the interval op and is
-            # shared with every other reference to that op in the query, so
-            # build a new node rather than editing it in place (#2383).
-            offset = sge.Interval(
-                this=sge.convert(_replace_offset(offset.this.this)),
-                unit=offset.unit.copy(),
-            )
+            # bin boundaries must sit at offset + k * interval, so the origin
+            # is the epoch shifted forward by the offset
             offset = (
-                self.f.arrow_cast(_UNIX_EPOCH, "Timestamp(Nanosecond, None)") - offset
+                self.f.arrow_cast(_UNIX_EPOCH, "Timestamp(Nanosecond, None)") + offset
             )
         return self.f.date_bin(interval, arg, offset)
 

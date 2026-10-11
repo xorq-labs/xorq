@@ -711,6 +711,31 @@ def test_timestamp_bucket_offset(alltypes, offset_in_minutes):
     assert_series_equal(res, sol)
 
 
+@pytest.mark.parametrize(
+    ("stride_in_minutes", "offset_in_minutes"),
+    [
+        param(5, 1, id="five-minute-stride"),
+        param(10, 3, id="ten-minute-stride"),
+        param(60, 30, id="hour-stride"),
+    ],
+)
+def test_timestamp_bucket_offset_not_half_stride(
+    alltypes, stride_in_minutes, offset_in_minutes
+):
+    # pairs where -(offset + 1) and offset differ modulo the stride, so an
+    # origin of epoch - (offset + 1 unit) places the bins wrong
+    ts = alltypes.timestamp_col
+    expr = ts.bucket(
+        minutes=stride_in_minutes, offset=xo.interval(minutes=offset_in_minutes)
+    )
+    res = expr.execute().astype("datetime64[ns]").rename("ts")
+    td = pd.Timedelta(minutes=offset_in_minutes)
+    sol = (
+        (ts.execute().rename("ts") - td).dt.floor(f"{stride_in_minutes}min") + td
+    ).astype("datetime64[ns]")
+    assert_series_equal(res, sol)
+
+
 @pytest.mark.parametrize("offset_in_hours", [2, -2], ids=["pos", "neg"])
 def test_timestamp_bucket_offset_in_hours(alltypes, offset_in_hours):
     ts = alltypes.timestamp_col
@@ -736,8 +761,7 @@ def test_timestamp_bucket_shared_offset(alltypes):
 
     sql = xo.to_sql(expr)
     assert "INTERVAL '30 MINUTES' AS \"off\"" in sql
-    assert "INTERVAL '32 MINUTES'" not in sql
-    assert sql.count("INTERVAL '31 MINUTES'") == 2
+    assert sql.count("INTERVAL '30 MINUTES'") == 3
 
     df = expr.execute()
     epoch = pd.Timestamp("1970-01-01")
