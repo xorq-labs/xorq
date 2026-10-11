@@ -178,6 +178,44 @@ def test_read_csv_on_swapped_default_backend(astronauts_csv_path, monkeypatch, r
     assert not read(astronauts_csv_path, xo.sqlite.connect()).execute().empty
 
 
+@pytest.mark.parametrize(
+    "read",
+    [
+        lambda path, con, schema: con.read_csv(path, "padded", schema=schema),
+        lambda path, con, schema: xo.deferred_read_csv(
+            path, con=con, schema=schema, table_name="padded"
+        ),
+    ],
+    ids=["direct", "deferred"],
+)
+@pytest.mark.parametrize("in_memory", [True, False], ids=["memory", "file"])
+def test_read_csv_schema_on_pandas_default_backend(
+    tmp_path, monkeypatch, read, in_memory
+):
+    # with pandas as the default backend a supplied schema used to be dropped
+    # on the way to the reader: ids 001/002 were stored as integers 1/2
+    monkeypatch.setattr(options, "default_backend", xo.pandas.connect())
+    path = tmp_path / "zero_padded.csv"
+    path.write_text("id,region\n001,north\n002,south\n")
+    schema = xo.schema({"id": "string", "region": "string"})
+    con = xo.sqlite.connect(None if in_memory else tmp_path / "warehouse.sqlite")
+    assert read(path, con, schema).execute()["id"].tolist() == ["001", "002"]
+    assert con.table("padded").schema() == schema
+
+
+def test_read_csv_missing_ints_on_pandas_default_backend(tmp_path, monkeypatch):
+    # pandas reads a nullable int schema with its Int64 dtype, which comes
+    # back through the arrow metadata as pd.NA; sqlite3 binds only None
+    monkeypatch.setattr(options, "default_backend", xo.pandas.connect())
+    path = tmp_path / "missing.csv"
+    path.write_text("k,n\na,1\nb,\nc,3\n")
+    schema = xo.schema({"k": "string", "n": "int64"})
+    t = xo.sqlite.connect().read_csv(path, "missing", schema=schema)
+    assert t.count().execute() == 3
+    assert t.n.sum().execute() == 4
+    assert t.filter(t.n.isnull()).k.execute().tolist() == ["b"]
+
+
 def test_sqlite_snapshot(con_snapshot):
     con_snapshot(xo.sqlite.connect())
 

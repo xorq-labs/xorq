@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+from xorq.common.utils.defer_utils import read_csv_schema_kwargs
 from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.config import default_backend
 from xorq.vendor.ibis import Schema, util
@@ -86,7 +87,9 @@ class Backend(IbisSQLiteBackend):
         table = sg.table(table_name, quoted=self.compiler.quoted, catalog="temp")
         create_stmt = self._generate_create_table(table, schema).sql(self.name)
         df = coerce_to_arrow_table(record_batches).to_pandas()
-        data = df.itertuples(index=False)
+        # sqlite3 binds None, not pd.NA or NaT; pandas' nullable dtypes come
+        # back through the arrow metadata of a frame that was read with them
+        data = df.astype(object).where(df.notna(), None).itertuples(index=False)
         insert_stmt = self._build_insert_template(
             table_name, schema=schema, catalog="temp", columns=True
         )
@@ -129,14 +132,7 @@ class Backend(IbisSQLiteBackend):
     ) -> ir.Table:
         table_name = table_name or gen_name("xo_read_csv")
         reader = default_backend()
-        # the default backend is user-settable, and each one spells the schema
-        # differently (the same split as deferred_read_csv): duckdb takes
-        # columns=, pandas has no schema argument, the rest take schema=
-        if schema is None or reader.name == "pandas":
-            read_kwargs = {}
-        elif reader.name == "duckdb":
-            read_kwargs = {"columns": schema}
-        else:
-            read_kwargs = {"schema": schema}
-        record_batches = reader.read_csv(path, **read_kwargs).to_pyarrow_batches()
+        record_batches = reader.read_csv(
+            path, **read_csv_schema_kwargs(reader, schema)
+        ).to_pyarrow_batches()
         return self.read_record_batches(record_batches, table_name, mode, **kwargs)

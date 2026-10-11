@@ -20,6 +20,34 @@ from xorq.vendor.ibis.formats.pandas import PandasData, PandasSchema
 from xorq.vendor.ibis.formats.pyarrow import PyArrowData
 
 
+def _csv_parse_dtype(typ):
+    """The dtype pandas parses a csv column of this ibis type as.
+
+    Integers and booleans take pandas' nullable dtypes so missing values
+    read; floats and strings their usual ones. Every other type is read as
+    text for ``PandasData.convert_table``: pandas refuses temporal dtypes in
+    ``dtype=``, and inferring would turn a date like 20240101 or a decimal
+    into a number.
+    """
+    if typ.is_integer():
+        # ibis Int8..UInt64 are also pandas' nullable dtype names
+        return pd.api.types.pandas_dtype(type(typ).__name__)
+    if typ.is_boolean():
+        return pd.BooleanDtype()
+    if typ.is_floating() or typ.is_string():
+        return typ.to_pandas()
+    return str
+
+
+def _csv_interval(column, typ):
+    """Bare numbers are counted in the schema's unit, exactly when they are
+    integers; text intervals ('1 days', '00:00:01') parse as such, row by
+    row. PandasData casts intervals through numpy, which parses neither."""
+    numbers = pd.to_numeric(column, errors="coerce", dtype_backend="numpy_nullable")
+    text = pd.to_timedelta(column.mask(numbers.notna()))
+    return text.fillna(pd.to_timedelta(numbers, unit=typ.unit.short))
+
+
 if TYPE_CHECKING:
     import pathlib
     from collections.abc import Mapping, MutableMapping
@@ -95,7 +123,11 @@ class BasePandasBackend(BaseBackend, NoUrl):
         return client.table(name)
 
     def read_csv(
-        self, source: str | pathlib.Path, table_name: str | None = None, **kwargs: Any
+        self,
+        source: str | pathlib.Path,
+        table_name: str | None = None,
+        schema: sch.Schema | None = None,
+        **kwargs: Any,
     ):
         """Register a CSV file as a table in the current session.
 
@@ -107,6 +139,13 @@ class BasePandasBackend(BaseBackend, NoUrl):
         table_name
             An optional name to use for the created table. This defaults to
             a generated name.
+        schema
+            The types to read the columns as, instead of inferring them.
+            Integers, booleans, floats and strings are parsed by pandas;
+            every other type is read as text and converted afterwards.
+            Not combinable with ``dtype``, ``converters``, ``parse_dates``
+            or ``engine="pyarrow"``; nested types are not parsed, read
+            them as string.
         **kwargs
             Additional keyword arguments passed to Pandas loading function.
             See https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_csv.html
@@ -119,8 +158,40 @@ class BasePandasBackend(BaseBackend, NoUrl):
 
         """
         table_name = table_name or util.gen_name("read_csv")
+        if schema is not None:
+            if conflicting := {"dtype", "converters", "parse_dates"} & kwargs.keys():
+                raise TypeError(
+                    f"`schema` cannot be combined with {sorted(conflicting)}"
+                )
+            if kwargs.get("engine") == "pyarrow":
+                raise TypeError(
+                    "engine='pyarrow' applies dtypes after inference; `schema` needs the default engine"
+                )
+            schema = sch.schema(schema)
+            if nested := [name for name, typ in schema.items() if typ.is_nested()]:
+                raise com.XorqTypeError(
+                    f"pandas read_csv does not parse nested columns {nested}; "
+                    "read them as string"
+                )
+            kwargs["dtype"] = {
+                name: _csv_parse_dtype(typ) for name, typ in schema.items()
+            }
         df = pd.read_csv(source, **kwargs)
+        if schema is not None:
+            if unknown := set(df.columns) - set(schema.names):
+                raise ValueError(f"columns missing from schema: {sorted(unknown)}")
+            # usecols may read a subset of the columns the schema types
+            schema = sch.Schema({name: schema[name] for name in df.columns})
+            for name, typ in schema.items():
+                if typ.is_interval():
+                    df[name] = _csv_interval(df[name], typ)
+            df = PandasData.convert_table(df, schema)
+        # only now, so a read that failed above leaves an existing table as
+        # it was; a reread infers afresh unless a schema is given
         self.dictionary[table_name] = df
+        self.schemas.pop(table_name, None)
+        if schema is not None:
+            self.schemas[table_name] = schema
         return self.table(table_name)
 
     def read_parquet(
