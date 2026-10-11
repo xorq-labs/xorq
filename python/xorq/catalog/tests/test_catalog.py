@@ -76,6 +76,98 @@ from xorq.common.utils.caching_utils import CacheKey
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES, ExprKind
 
 
+def test_catalog_add_semantic_metadata_roundtrip(catalog, data_dict):
+    path = next(iter(data_dict.values()))
+    metadata = {
+        "domain": "analytics",
+        "tags": ["daily", "trusted"],
+        "options": {"enabled": True, "threshold": 0.5},
+    }
+
+    entry = catalog.add(path, metadata=metadata)
+    reloaded = Catalog.from_repo_path(catalog.repo_path, init=False).get_catalog_entry(
+        entry.name
+    )
+
+    assert entry.semantic_metadata == metadata
+    assert reloaded.semantic_metadata == metadata
+    assert "semantic_metadata" in reloaded.sidecar_metadata
+    assert reloaded.sidecar_metadata["expr_metadata"] == entry.sidecar_metadata[
+        "expr_metadata"
+    ]
+
+
+def test_catalog_add_legacy_sidecar_has_no_semantic_metadata(catalog, data_dict):
+    path = next(iter(data_dict.values()))
+    entry = catalog.add(path)
+    assert entry.semantic_metadata is None
+
+    # A sidecar without the optional key is the legacy on-disk format.
+    sidecar = catalog_mod.yaml12.parse_yaml(entry.metadata_path.read_text())
+    sidecar.pop("semantic_metadata", None)
+    entry.metadata_path.write_text(catalog_mod.yaml12.format_yaml(sidecar))
+    reloaded = Catalog.from_repo_path(catalog.repo_path, init=False).get_catalog_entry(
+        entry.name
+    )
+    assert reloaded.semantic_metadata is None
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        object(),
+        ["top-level", "list"],
+        "top-level-string",
+        {1: "non-string key"},
+        {"nested": {"bad": object()}},
+        {"threshold": float("nan")},
+        {"threshold": float("inf")},
+    ],
+)
+def test_catalog_add_rejects_invalid_semantic_metadata(catalog, data_dict, metadata):
+    path = next(iter(data_dict.values()))
+    with pytest.raises(TypeError, match="semantic metadata|unsupported"):
+        catalog.add(path, metadata=metadata)
+
+
+def test_catalog_add_semantic_metadata_preserves_identity(catalog, tmp_path):
+    # Same expression content with absent/different metadata must resolve
+    # to the same content-derived entry name.
+    expr = xo.memtable({"a": [1, 2, 3]})
+    untagged = catalog.add(expr)
+    tagged = catalog.add(expr, metadata={"v": 1}, exist_ok=True)
+    assert tagged.name == untagged.name
+    assert tagged.semantic_metadata == {"v": 1}
+
+    other = Catalog.from_repo_path(tmp_path / "other-catalog", init=True)
+    retagged = other.add(expr, metadata={"v": 2})
+    assert retagged.name == untagged.name
+    assert retagged.semantic_metadata == {"v": 2}
+
+
+def test_catalog_add_exist_ok_updates_semantic_metadata(catalog, data_dict):
+    path = next(iter(data_dict.values()))
+    entry = catalog.add(path, metadata={"v": 1})
+    assert entry.semantic_metadata == {"v": 1}
+    expr_before = entry.sidecar_metadata["expr_metadata"]
+
+    updated = catalog.add(path, metadata={"v": 2}, exist_ok=True)
+    assert updated.semantic_metadata == {"v": 2}
+    # rewriting the sidecar for one key must leave the rest untouched
+    assert updated.sidecar_metadata["expr_metadata"] == expr_before
+    reloaded = Catalog.from_repo_path(
+        catalog.repo_path, init=False
+    ).get_catalog_entry(entry.name)
+    assert reloaded.semantic_metadata == {"v": 2}
+    assert reloaded.sidecar_metadata["expr_metadata"] == expr_before
+
+    # None leaves stored metadata untouched; same value is idempotent.
+    untouched = catalog.add(path, exist_ok=True)
+    assert untouched.semantic_metadata == {"v": 2}
+    same = catalog.add(path, metadata={"v": 2}, exist_ok=True)
+    assert same.semantic_metadata == {"v": 2}
+
+
 def test_catalog_add(catalog, data_dict):
     catalog_entries = tuple(catalog.add(path) for path in data_dict.values())
     assert all(catalog_entry.exists() for catalog_entry in catalog_entries)
