@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -37,7 +38,8 @@ class Backend(IbisSQLiteBackend):
 
         table_name = table_name or gen_name("read_record_batches")
 
-        catalog = "temp" if self.is_in_memory() else None
+        in_memory = self.is_in_memory()
+        catalog = "temp" if in_memory else None
 
         if overwrite:
             created_table_name = util.gen_name(f"{self.name}_table")
@@ -53,7 +55,7 @@ class Backend(IbisSQLiteBackend):
                 table_name, catalog=catalog, quoted=self.compiler.quoted
             )
 
-        if self.is_in_memory():
+        if in_memory:
             self._into_memory_record_batches(record_batches, created_table_name)
         else:
             sqlite_adbc = SQLiteADBC(self)
@@ -92,8 +94,19 @@ class Backend(IbisSQLiteBackend):
             cur.execute(create_stmt)
             cur.executemany(insert_stmt, data)
 
+    def _post_connect(self, *args, **kwargs) -> None:
+        super()._post_connect(*args, **kwargs)
+        # sqlite reports no file for a database held in memory, whichever
+        # spelling opened it (":memory:", "file::memory:", "mode=memory").
+        # Asked once here: is_in_memory runs during expression hashing, which
+        # may be off the connecting thread, where sqlite3 refuses its objects.
+        query = "SELECT file FROM pragma_database_list WHERE name = 'main'"
+        with closing(self.con.execute(query)) as cur:
+            (file,) = cur.fetchone()
+        self._in_memory = not file
+
     def is_in_memory(self):
-        return "memory" in self.uri
+        return self._in_memory
 
     def read_parquet(
         self,
@@ -111,8 +124,19 @@ class Backend(IbisSQLiteBackend):
         path: str | Path,
         table_name: str | None = None,
         mode: str = "create",
+        schema: Schema | None = None,
         **kwargs: Any,
     ) -> ir.Table:
         table_name = table_name or gen_name("xo_read_csv")
-        record_batches = default_backend().read_csv(path).to_pyarrow_batches()
+        reader = default_backend()
+        # the default backend is user-settable, and each one spells the schema
+        # differently (the same split as deferred_read_csv): duckdb takes
+        # columns=, pandas has no schema argument, the rest take schema=
+        if schema is None or reader.name == "pandas":
+            read_kwargs = {}
+        elif reader.name == "duckdb":
+            read_kwargs = {"columns": schema}
+        else:
+            read_kwargs = {"schema": schema}
+        record_batches = reader.read_csv(path, **read_kwargs).to_pyarrow_batches()
         return self.read_record_batches(record_batches, table_name, mode, **kwargs)
