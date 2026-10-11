@@ -602,8 +602,13 @@ class DataFusionCompiler(SQLGlotCompiler):
         if offset is None:
             return self.f.date_bin(interval, arg)
         else:
-            this = offset.this
-            this.set("this", _replace_offset(this.this))
+            # `offset` is the memoized translation of the interval op and is
+            # shared with every other reference to that op in the query, so
+            # build a new node rather than editing it in place (#2383).
+            offset = sge.Interval(
+                this=sge.convert(_replace_offset(offset.this.this)),
+                unit=offset.unit.copy(),
+            )
             offset = (
                 self.f.arrow_cast(_UNIX_EPOCH, "Timestamp(Nanosecond, None)") - offset
             )

@@ -723,6 +723,32 @@ def test_timestamp_bucket_offset_in_hours(alltypes, offset_in_hours):
     assert_series_equal(res, sol)
 
 
+def test_timestamp_bucket_shared_offset(alltypes):
+    # one interval op used by two bucket calls and projected on its own:
+    # translation must not edit the memoized sqlglot node in place (#2383)
+    ts = alltypes.timestamp_col
+    offset = xo.interval(minutes=30)
+    expr = alltypes.select(
+        b1=ts.bucket(hours=1, offset=offset),
+        b2=ts.bucket(hours=2, offset=offset),
+        off=offset,
+    )
+
+    sql = xo.to_sql(expr)
+    assert "INTERVAL '30 MINUTES' AS \"off\"" in sql
+    assert "INTERVAL '32 MINUTES'" not in sql
+    assert sql.count("INTERVAL '31 MINUTES'") == 2
+
+    df = expr.execute()
+    epoch = pd.Timestamp("1970-01-01")
+    assert (
+        df["off"].map(lambda o: epoch + o) == epoch + pd.Timedelta(minutes=30)
+    ).all()
+    for name, hours in (("b1", 1), ("b2", 2)):
+        sol = ts.bucket(hours=hours, offset=xo.interval(minutes=30)).execute()
+        assert_series_equal(df[name], sol, check_names=False)
+
+
 @pytest.mark.parametrize(
     ("start", "end", "unit", "expected"),
     [
