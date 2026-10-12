@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 from decimal import Decimal
 
 import numpy as np
@@ -176,6 +176,12 @@ def test_datetime64_infer(client, unit):
             {"gap": [pd.Timedelta(9007199254740993), None]},
             id="interval-precision",
         ),
+        param(
+            "k,clock\na,00:00:01\nb,\nc,12:30:00\n",
+            {"k": "string", "clock": "time"},
+            {"clock": [time(0, 0, 1), None, time(12, 30)]},
+            id="time",
+        ),
         # dates and decimals are read as text, or pandas guesses numbers:
         # 20240101 is not seconds since the epoch and 1.00 is not a float
         param(
@@ -269,3 +275,60 @@ def test_deferred_read_csv_schema(zero_padded_csv, pandas_con):
     )
     assert expr.execute()["id"].tolist() == ["001", "002"]
     assert pandas_con.table("padded").schema() == schema
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        param(["00:00:01", None, "12:30:00"], id="strings"),
+        param(pd.to_timedelta(["00:00:01", None, "12:30:00"]), id="timedeltas"),
+        param(
+            pd.to_datetime(["2024-01-01 00:00:01", None, "2024-01-01 12:30:00"]),
+            id="timestamps",
+        ),
+        param([time(0, 0, 1), None, time(12, 30)], id="times"),
+        param(["0 days 00:00:01", None, "0 days 12:30:00"], id="duration-text"),
+        param(
+            pd.Series(
+                [time(0, 0, 1), None, time(12, 30)],
+                dtype=pd.ArrowDtype(pa.time64("us")),
+            ),
+            id="arrow-times",
+        ),
+        param(
+            pd.Categorical([time(0, 0, 1), None, time(12, 30)]),
+            id="categorical-times",
+        ),
+    ],
+)
+def test_create_table_time_schema(pandas_con, values):
+    # pandas has no time dtype; a time column holds datetime.time objects
+    t = pandas_con.create_table(
+        "t", pd.DataFrame({"clock": values}), schema=xo.schema({"clock": "time"})
+    )
+    assert t.schema() == xo.schema({"clock": "time"})
+    assert [None if pd.isna(v) else v for v in t.execute()["clock"]] == [
+        time(0, 0, 1),
+        None,
+        time(12, 30),
+    ]
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        param(None, id="schema-only"),
+        param(
+            pd.DataFrame(
+                {"clock": pd.Series([None], dtype=pd.ArrowDtype(pa.duration("ns")))}
+            ),
+            id="null-arrow-duration",
+        ),
+    ],
+)
+def test_create_table_time_schema_without_values(pandas_con, frame):
+    # a schema-only table starts as an empty timedelta column, and a null-only
+    # arrow duration column looks like one; arrow cannot cast either to time64
+    t = pandas_con.create_table("t", frame, schema=xo.schema({"clock": "time"}))
+    assert t.to_pyarrow().schema.field("clock").type == pa.time64("ns")
+    assert t.execute()["clock"].isna().all()
