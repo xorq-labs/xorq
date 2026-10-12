@@ -169,6 +169,37 @@ def test_datetime64_infer(client, unit):
             {"gap": [pd.Timedelta(seconds=60), pd.Timedelta(minutes=1), None]},
             id="interval-mixed",
         ),
+        # a fraction elsewhere in the column must not either (half a
+        # nanosecond itself rounds to zero)
+        param(
+            "k,gap\na,9007199254740993\nb,0.5\nc,\n",
+            {"k": "string", "gap": "interval('ns')"},
+            {"gap": [pd.Timedelta(9007199254740993), pd.Timedelta(0), None]},
+            id="interval-fraction",
+        ),
+        # nor may padding demote an integer to a fraction
+        param(
+            "k,gap\na, 9007199254740993 \nb,\n",
+            {"k": "string", "gap": "interval('ns')"},
+            {"gap": [pd.Timedelta(9007199254740993), None]},
+            id="interval-padded",
+        ),
+        # only ascii digits are integers; other unicode digits are text and
+        # fail as such, not silently null
+        param(
+            "k,gap\na,\u0663\nb,1\n",
+            {"k": "string", "gap": "interval('ns')"},
+            ValueError,
+            id="interval-unicode-digit",
+        ),
+        # an integer past int64 must not wrap: pandas reads it as unsigned,
+        # and to_timedelta would count it as a negative nanosecond
+        param(
+            "k,gap\na,18446744073709551615\nb,0.5\n",
+            {"k": "string", "gap": "interval('ns')"},
+            OverflowError,
+            id="interval-overflow",
+        ),
         # a missing value must not push the integers through float64
         param(
             "k,gap\na,9007199254740993\nb,\n",
@@ -191,6 +222,10 @@ def test_datetime64_infer(client, unit):
 )
 def test_read_csv_schema(csv_file, pandas_con, text, schema, expected):
     schema = xo.schema(schema)
+    if isinstance(expected, type):
+        with pytest.raises(expected):
+            pandas_con.read_csv(csv_file(text), schema=schema)
+        return
     t = pandas_con.read_csv(csv_file(text), schema=schema)
     assert t.schema() == schema
     df = t.execute()
