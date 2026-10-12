@@ -16,6 +16,7 @@ from xorq.backends.pandas.helpers import (
     RangeFrame,
     RowsFrame,
     UngroupedFrame,
+    isnull,
 )
 from xorq.backends.pandas.rewrites import (
     PandasAggregate,
@@ -39,6 +40,21 @@ from xorq.vendor.ibis.util import any_of, gen_name
 
 
 # ruff: noqa: F811
+
+
+def _case_matches(base, case):
+    """base == case, where a null on either side matches nothing, itself included.
+
+    Python's None == None would match; nulls inside a Series already compare to
+    NA and fall out as false, a null operand needs the same shape by hand.
+    """
+    if not (isnull(base) or isnull(case)):
+        return base == case
+    match (base, case):
+        case (pd.Series() as series, _) | (_, pd.Series() as series):
+            return pd.Series(False, index=series.index)
+        case _:
+            return False
 
 
 class PandasExecutor(PandasUtils):
@@ -168,20 +184,20 @@ class PandasExecutor(PandasUtils):
             return arg != arg
 
     @classmethod
-    def visit_SearchedCase(
-        cls, op: ops.SearchedCase | ops.SimpleCase, cases, results, default, base=None
-    ):
-        if base is not None:
-            cases = tuple(base == case for case in cases)
+    def visit_SearchedCase(cls, op: ops.SearchedCase, cases, results, default):
         cases, _ = cls.asframe(cases, concat=False)
         index = cases[0].index
+        # pandas' nullable arrays hold pd.NA where np.select wants a boolean
+        # ndarray; a missing condition is a false one
+        cases = tuple(case.fillna(False).to_numpy(dtype=bool) for case in cases)
         results, _ = cls.asframe(results, concat=False)
         out = np.select(cases, results, default)
         return pd.Series(out, index=index)
 
     @classmethod
-    def visit_SimpleCase(cls, op: ops.SimpleCase, cases, results, default, base=None):
-        return cls.visit_SearchedCase(op, cases, results, default, base)
+    def visit_SimpleCase(cls, op: ops.SimpleCase, cases, results, default, base):
+        cases = tuple(_case_matches(base, case) for case in cases)
+        return cls.visit_SearchedCase(op, cases, results, default)
 
     @classmethod
     def visit_TimestampTruncate(

@@ -828,3 +828,55 @@ def test_unsigned_integers(t, df, operation):
     expected_dtype = expr.type().to_pandas()
     assert result.dtype == expected_dtype
     assert_series_equal(result, expected.astype(expected_dtype))
+
+
+@pytest.mark.parametrize(
+    ("column", "expr", "expected"),
+    [
+        param(
+            pd.array([1, None, 3], dtype="Int64"),
+            lambda c: c.cases((1, 10), else_=0),
+            [10, 0, 0],
+            id="int64",
+        ),
+        param(
+            pd.array([True, None, False], dtype="boolean"),
+            lambda c: c.cases((True, 1), else_=0),
+            [1, 0, 0],
+            id="boolean",
+        ),
+        param(
+            pd.array([1, None, 3], dtype="Int64"),
+            lambda c: xo.cases((c > 2, "big"), else_="small"),
+            ["small", "small", "big"],
+            id="searched",
+        ),
+        # a null case value matches no row, and keeps the column's shape
+        # even when it is the only case
+        param(
+            pd.array([1, None, 3], dtype="Int64"),
+            lambda c: c.cases((None, 10), else_=0),
+            [0, 0, 0],
+            id="null-case-value",
+        ),
+    ],
+)
+def test_case_on_nullable_column(column, expr, expected):
+    # pandas' nullable arrays hold pd.NA where np.select wants a boolean
+    # ndarray; a missing condition is a false one
+    t = xo.pandas.connect({"t": pd.DataFrame({"c": column})}).table("t")
+    assert expr(t.c).execute().tolist() == expected
+
+
+def test_simple_case_null_base():
+    # a null base matches no branch
+    con = xo.pandas.connect()
+    expr = xo.literal(None, type="int64").cases((1, 10), else_=0)
+    assert con.execute(expr) == 0
+
+
+def test_simple_case_null_base_and_null_branch():
+    # null never equals null, so the else branch still wins
+    con = xo.pandas.connect()
+    expr = xo.literal(None, type="int64").cases((None, 10), else_=0)
+    assert con.execute(expr) == 0
