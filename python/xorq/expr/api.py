@@ -468,7 +468,7 @@ def _resolve_params(params):
 # ``params`` cross a payload boundary (``storage.put``, ``RemoteTable`` and
 # Flight ``to_rbr`` each re-enter ``to_pyarrow_batches()`` bare), so a parameter
 # inside a payload is bound by this outer walk or not at all. The cost is
-# accepted: a parameterized cache is keyed from the *bound* parent, so it gets
+# accepted: a parameterised cache is keyed from the *bound* parent, so it gets
 # one entry per value and ``ls.get_key()`` without params names none of them.
 # Every other pass keys or strips a payload only through the payload's own
 # nested transform; ``Traversal`` carries that rule.
@@ -489,8 +489,8 @@ _PASSES = (
     ),
     TransformPass(
         name="remove_tags",
-        # BOUNDARY although pure: descending would change a payload's identity
-        # before ``cache`` keys it. ``Traversal`` carries the rule.
+        # BOUNDARY although pure: it would change a payload's identity before
+        # ``cache`` keys it. ``Traversal`` carries the rule.
         traversal=Traversal.BOUNDARY,
         build=lambda expr, ctx: _make_remove_tag_nodes_replacer(),
         after=("bind_params",),
@@ -612,10 +612,10 @@ def _flight_to_rbr(
     but ``bind_params``, the one DESCEND pass, must still run: ``to_rbr``
     re-enters the payload bare, so binding here is what resolves a parameter
     living inside ``input_expr`` (the ``_PASSES`` header records why). That
-    nested transform strips the payload's tags, as it does for any payload. We
-    still dispatch via ``to_rbr`` (a FlightExpr has no normal backend), tie the
-    (empty) scope to the reader, and instrument it -- exactly as the non-Flight
-    path does.
+    nested transform strips the payload's
+    tags, as for any payload. We still dispatch via ``to_rbr`` (a FlightExpr has
+    no normal backend), tie the (empty) scope to the reader, and instrument it
+    -- exactly as the non-Flight path does.
     """
     expr, scope = _transform_expr(expr, params=params, **read_kwargs)
     try:
