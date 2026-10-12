@@ -1,6 +1,7 @@
 import functools
 import itertools
 import pathlib
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -21,6 +22,7 @@ from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
+    read_csv_schema_kwargs,
 )
 from xorq.common.utils.inspect_utils import (
     get_partial_arguments,
@@ -411,3 +413,23 @@ def test_register_empty_glob_pattern_fails(data_dir, con):
 
     with pytest.raises(ValueError, match="At least one path is required"):
         xo.deferred_read_csv(glob_pattern, con, table_name="foo")
+
+
+@pytest.mark.parametrize(
+    ("backend_name", "keyword"),
+    [
+        ("duckdb", "columns"),
+        ("gizmosql", "columns"),
+        ("pandas", "schema"),
+        ("postgres", "schema"),
+        ("sqlite", "schema"),
+        ("xorq_datafusion", "schema"),
+    ],
+)
+def test_read_csv_schema_kwargs(backend_name, keyword):
+    # the keyword a backend's read_csv takes the schema under, decided once
+    # for deferred_read_csv and the backends reading through default_backend
+    con = SimpleNamespace(name=backend_name)
+    schema = xo.schema({"id": "string"})
+    assert read_csv_schema_kwargs(con, schema) == {keyword: schema}
+    assert read_csv_schema_kwargs(con, None) == {}

@@ -155,6 +155,21 @@ DEFAULT_READ_INFERENCE = MappingProxyType(
 )
 
 
+def read_csv_schema_kwargs(con, schema):
+    """How ``con.read_csv`` spells a caller's schema.
+
+    duckdb, and gizmosql which mirrors it, take ``columns=``; every other
+    backend takes ``schema=``. Decided here once, for ``deferred_read_csv``
+    and for the backends that read csv through the user-settable default
+    backend.
+    """
+    if schema is None:
+        return {}
+    if con.name in ("duckdb", "gizmosql"):
+        return {"columns": schema}
+    return {"schema": schema}
+
+
 def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **kwargs):
     """Deferred and streaming csv reading via pandas"""
     import pandas as pd  # noqa: PLC0415
@@ -263,17 +278,13 @@ def deferred_read_csv(
         schema = infer_schema(path)
     if con.name in _ADBC_BACKENDS:
         kwargs.setdefault("mode", "replace")
-    if con.name == "pandas":
-        # FIXME: determine how to best handle schema
-        read_kwargs = make_read_kwargs(method, path, table_name, **kwargs)
-    elif con.name == "duckdb":
-        read_kwargs = make_read_kwargs(
-            method, path, table_name=table_name, columns=schema, **kwargs
-        )
-    else:
-        read_kwargs = make_read_kwargs(
-            method, path, table_name, schema=schema, **kwargs
-        )
+    read_kwargs = make_read_kwargs(
+        method,
+        path,
+        table_name=table_name,
+        **read_csv_schema_kwargs(con, schema),
+        **kwargs,
+    )
     # lock down: reject unserializable methods up front -- before the relocatable
     # override would mask a user-supplied custom callable (#2155)
     from xorq.ibis_yaml.normalize_registry import validate  # noqa: PLC0415
