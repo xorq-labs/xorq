@@ -183,9 +183,18 @@ def plan_aliases(
     here = {old_entry.name, new_name} - {None}
     added = (alias,) if alias else ()
     targets = alias_targets(old_entry.catalog, (*only_aliases, *added))
-    if lacking := [name for name in only_aliases if targets[name] not in here]:
+    if unknown := tuple(name for name in only_aliases if targets[name] is None):
         raise RebaseError(
-            f"{old_entry.name} has no alias {', '.join(sorted(lacking))}",
+            f"{old_entry.name} has no alias {', '.join(sorted(unknown))}",
+            RebaseExit.REFUSED,
+        )
+    if elsewhere := tuple(name for name in only_aliases if targets[name] not in here):
+        # Says where it went: the pull can move one.
+        raise RebaseError(
+            "; ".join(
+                f"alias {name!r} points at {targets[name]}, not {old_entry.name}"
+                for name in elsewhere
+            ),
             RebaseExit.REFUSED,
         )
     if alias and targets[alias] not in {None, *here}:
@@ -297,16 +306,20 @@ def roll_back(
         logger.exception("rebase rollback failed for %s", new_entry.name)
 
 
-def check_entry_alias(old_entry: CatalogEntry, entry_alias: str | None) -> None:
+def check_entry_alias(
+    old_entry: CatalogEntry, entry_alias: str | None, new_name: str
+) -> None:
     """Refuse if the pull took ``entry_alias``, which named ``old_entry``, off it.
 
     The rebase would otherwise re-derive an entry the name no longer means.
+    One the pull moved onto ``new_name`` still means this rebase (a teammate
+    made it first, or a rerun after a failed push).
     """
     if not entry_alias:
         return
     old = old_entry.name
     now = alias_targets(old_entry.catalog, (entry_alias,))[entry_alias]
-    if now != old:
+    if now not in {old, new_name}:
         raise RebaseError(
             f"alias {entry_alias!r} points at {now or 'nothing'} after the pull, "
             f"not {old}; rerun with {old} to rebase {old}",
@@ -336,7 +349,7 @@ def add_rebased(
         # here still comes before the rebase's first write, though after
         # whatever the pull merged. `catalog.add` and `add_alias` overwrite
         # an alias, so each prior target is kept to restore.
-        check_entry_alias(old_entry, entry_alias)
+        check_entry_alias(old_entry, entry_alias, build_path.name)
         moving, prior = plan_aliases(
             old_entry, alias, move_aliases, only_aliases, build_path.name
         )
@@ -426,7 +439,9 @@ def rebase_entry(
     # Only a sweep that probed every source can prove a no-op on its own.
     if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
         # No new entry, so each of `only_aliases` must be on this one.
-        plan_aliases(catalog_entry, None, False, only_aliases)
+        plan_aliases(
+            catalog_entry, alias=None, move_aliases=False, only_aliases=only_aliases
+        )
         return RebaseResult(RebaseStatus.NOOP, catalog_entry, catalog_entry, reports)
     live = live_or_refuse(catalog_entry, record, reports)
     check_databases_exist(catalog_entry, record)
@@ -444,7 +459,9 @@ def rebase_entry(
             expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
         )
         if dumper.expr_hash == catalog_entry.name:
-            plan_aliases(catalog_entry, None, False, only_aliases)
+            plan_aliases(
+                catalog_entry, alias=None, move_aliases=False, only_aliases=only_aliases
+            )
             status = RebaseStatus.ATTEMPTED if unprobed else RebaseStatus.NOOP
             return RebaseResult(
                 status, catalog_entry, catalog_entry, reports, unprobed=unprobed
@@ -459,6 +476,15 @@ def rebase_entry(
                 "refreshed",
                 RebaseExit.REFUSED,
             )
+        # The new name is known now: an alias on another entry is refused
+        # before the dump and the sync's pull, not after them.
+        plan_aliases(
+            catalog_entry,
+            alias,
+            move_aliases=False,
+            only_aliases=only_aliases,
+            new_name=dumper.expr_hash,
+        )
         build_path = dumper.dump_expr()
         stage_bundle(catalog_entry, build_path)
         new_entry, moved, added = add_rebased(

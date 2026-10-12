@@ -1171,9 +1171,10 @@ def rebase(
     names, each of which must be on the old entry or, after the pull, already
     on the new one (a rerun after a failed push). --alias registers another,
     and is refused if it points at any entry but the old or the new one; one
-    already on the old entry moves. Alias options apply only to a new entry:
-    with no drift nothing is written and they are ignored, which stderr says,
-    though --only-alias must still name the old entry's aliases.
+    already on the old entry moves. Aliases left on the old entry are named
+    on stderr. Alias options apply only to a new entry: with no drift nothing
+    is written and they are ignored, which stderr says, though --only-alias
+    must still name the old entry's aliases.
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed. An entry
@@ -1272,6 +1273,15 @@ def rebase(
             click.echo(f"Moved alias {moved!r} -> {new}", err=True)
         for added in result.added_aliases:
             click.echo(f"Added alias {added!r} -> {new}", err=True)
+        # 0.4.5 moved every alias by default; what stays behind is said.
+        if not (move_aliases or only_aliases) and (
+            left := sorted(a.alias for a in result.old_entry.aliases)
+        ):
+            click.echo(
+                f"Aliases left on {old}: {', '.join(left)}; pass --move-aliases "
+                "or --only-alias to move them",
+                err=True,
+            )
         # Each alias named gets one line: one neither moved nor added was
         # on the new entry already (a pull or an earlier run put it there).
         done = {*result.moved_aliases, *result.added_aliases}
