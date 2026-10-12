@@ -253,8 +253,10 @@ def _make_cache_replacer(expr: ir.Expr) -> Replacer:
                 parquet_metadata = build_provenance_metadata(
                     expr, cache.strategy, cache.storage
                 )
+            # key on the node, not the parent: ``calc_key`` performs the one
+            # same-cache unwrap itself (see ``cached_node_key``, GH #2382).
             node = cache.set_default(
-                uncached, uncached.op(), parquet_metadata=parquet_metadata
+                node.to_expr(), uncached.op(), parquet_metadata=parquet_metadata
             )
         return node
 
