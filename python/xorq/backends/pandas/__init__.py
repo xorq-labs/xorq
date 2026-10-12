@@ -40,12 +40,24 @@ def _csv_parse_dtype(typ):
 
 
 def _csv_interval(column, typ):
-    """Bare numbers are counted in the schema's unit, exactly when they are
-    integers; text intervals ('1 days', '00:00:01') parse as such, row by
-    row. PandasData casts intervals through numpy, which parses neither."""
-    numbers = pd.to_numeric(column, errors="coerce", dtype_backend="numpy_nullable")
-    text = pd.to_timedelta(column.mask(numbers.notna()))
-    return text.fillna(pd.to_timedelta(numbers, unit=typ.unit.short))
+    """Bare numbers are counted in the schema's unit; text intervals ('1 days',
+    '00:00:01') parse as such, row by row. Integers are converted apart from
+    fractions, so a fraction elsewhere in the column cannot push them through
+    float64. PandasData casts intervals through numpy, which parses neither."""
+    unit = typ.unit.short
+    is_integer = column.str.fullmatch(r"\s*[+-]?[0-9]+\s*", na=False)
+    integers = pd.to_numeric(
+        column.where(is_integer), errors="coerce", dtype_backend="numpy_nullable"
+    )
+    if pd.api.types.is_unsigned_integer_dtype(integers):
+        raise OverflowError(
+            f"interval column {column.name!r} holds {integers.max()}, past int64"
+        )
+    fractions = pd.to_numeric(column.where(~is_integer), errors="coerce")
+    text = pd.to_timedelta(column.where(~is_integer & fractions.isna()))
+    return text.fillna(pd.to_timedelta(integers, unit=unit)).fillna(
+        pd.to_timedelta(fractions, unit=unit)
+    )
 
 
 if TYPE_CHECKING:
