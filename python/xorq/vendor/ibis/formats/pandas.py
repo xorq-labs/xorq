@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 import pandas.api.types as pdt
+import pyarrow as pa
 
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.schema as sch
@@ -75,6 +76,17 @@ class PandasSchema(SchemaMapper):
         names = schema.names
         types = [PandasType.from_ibis(t) for t in schema.types]
         return list(zip(names, types))
+
+
+def _time_of_day(durations):
+    # a time of day is a duration in [0, 24h); any other would silently wrap
+    outside = (durations < pd.Timedelta(0)) | (durations >= pd.Timedelta(days=1))
+    if outside.any():
+        raise ValueError(
+            f"time column {durations.name!r} holds {durations[outside].iloc[0]}, "
+            "not a time of day"
+        )
+    return (pd.Timestamp(0) + durations).dt.time
 
 
 class PandasData(DataMapper):
@@ -227,6 +239,39 @@ class PandasData(DataMapper):
                     return v
 
             return s.map(try_date, na_action="ignore")
+
+    @classmethod
+    def convert_Time(cls, s, dtype, pandas_type):
+        # pandas has no time dtype; a time column holds datetime.time objects,
+        # which is what the Time kernel (`.dt.time`) produces as well
+        if isinstance(s.dtype, pd.ArrowDtype) and pa.types.is_time(
+            s.dtype.pyarrow_dtype
+        ):
+            return s
+        elif pdt.is_timedelta64_dtype(s.dtype) or (
+            isinstance(s.dtype, pd.ArrowDtype)
+            and pa.types.is_duration(s.dtype.pyarrow_dtype)
+        ):
+            # durations, including the empty column a schema-only table starts
+            # with, which arrow could not cast to time64
+            return _time_of_day(s.astype("timedelta64[ns]"))
+        present = s.dropna()
+        if isinstance(s.dtype, pd.CategoricalDtype):
+            present = present.cat.categories
+        if present.empty or pdt.infer_dtype(present) == "time":
+            # already times, or nothing at all: any dtype (object, categorical,
+            # a null-only float or string column) becomes object so arrow can
+            # cast it to time64
+            return s.astype(object)
+        elif pdt.is_datetime64_any_dtype(s.dtype):
+            return s.dt.time
+        try:
+            # clock or duration text, parsed as a duration so pandas does
+            # not guess a date format
+            durations = pd.to_timedelta(s)
+        except (ValueError, TypeError):
+            return pd.to_datetime(s).dt.time
+        return _time_of_day(durations)
 
     @classmethod
     def convert_Interval(cls, s, dtype, pandas_type):
