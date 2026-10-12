@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 import pandas.api.types as pdt
+import pyarrow as pa
 
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.schema as sch
@@ -227,6 +228,29 @@ class PandasData(DataMapper):
                     return v
 
             return s.map(try_date, na_action="ignore")
+
+    @classmethod
+    def convert_Time(cls, s, dtype, pandas_type):
+        # pandas has no time dtype; a time column holds datetime.time objects,
+        # which is what the Time kernel (`.dt.time`) produces as well
+        if pdt.is_timedelta64_dtype(s.dtype) or (
+            isinstance(s.dtype, pd.ArrowDtype)
+            and pa.types.is_duration(s.dtype.pyarrow_dtype)
+        ):
+            # durations, including the empty column a schema-only table starts
+            # with, which arrow could not cast to time64
+            s = pd.Timestamp(0) + s.astype("timedelta64[ns]")
+        elif all(isinstance(v, datetime.time) or pd.isna(v) for v in s):
+            # already times, in an object, arrow-backed or categorical column
+            return s.astype(object) if isinstance(s.dtype, pd.CategoricalDtype) else s
+        elif not pdt.is_datetime64_any_dtype(s.dtype):
+            try:
+                # clock or duration text, parsed as a duration so pandas does
+                # not guess a date format
+                s = pd.Timestamp(0) + pd.to_timedelta(s)
+            except ValueError:
+                s = pd.to_datetime(s)
+        return s.dt.time
 
     @classmethod
     def convert_Interval(cls, s, dtype, pandas_type):
