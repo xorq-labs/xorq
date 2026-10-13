@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import shutil
+import sys
 import tempfile
 import warnings
 
@@ -47,6 +48,7 @@ from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
+from xorq.ibis_yaml.common import Registry, reachable_node_refs
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -54,6 +56,7 @@ from xorq.ibis_yaml.compiler import (
     ExprKind,
     RefEnum,
     WritePlan,
+    YamlExpressionTranslator,
     _extract_sql_queries,
     _is_relocatable_candidate,
     _prepare_relocatable_reads,
@@ -63,7 +66,7 @@ from xorq.ibis_yaml.compiler import (
     make_read_op,
 )
 from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, WritePhase
+from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, RegistryEnum, WritePhase
 from xorq.ibis_yaml.sql import find_relations, sql_query_deps
 from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
@@ -2168,3 +2171,76 @@ def test_execute_write_plans_dedupable_writes_once(
     )
     ExprDumper._execute_write_plans(plans)
     assert calls == ["a"]
+
+
+def _stack_depth() -> int:
+    frame, depth = sys._getframe(1), 0
+    while frame is not None:
+        frame, depth = frame.f_back, depth + 1
+    return depth
+
+
+def test_load_expr_depth_does_not_grow_with_chain_length(tmp_path):
+    # translating node by node recursed about 8 frames per op, so a 30-op
+    # chain needed ~250 frames and failed under this limit
+    expr = xo.memtable({"a": [1, 2, 3]}, name="t")
+    for i in range(30):
+        expr = (
+            expr.mutate(**{f"m{i}": expr.a + i})
+            if i % 2 == 0
+            else expr.filter(expr.a > -i)
+        )
+    build_path = build_expr(expr, builds_dir=tmp_path)
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(_stack_depth() + 150)
+    try:
+        loaded = load_expr(build_path)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert loaded.schema() == expr.schema()
+
+
+def test_map_literal_with_node_ref_key_round_trips(compiler):
+    value = {"node_ref": "value"}
+    expr = ibis.literal(value, type="map<string, string>")
+
+    restored = compiler.from_yaml(compiler.to_yaml(expr))
+
+    assert restored.op().value == value
+
+
+def test_map_literal_does_not_reach_unused_node_definition(compiler):
+    value = {"node_ref": "@unused"}
+    expr = ibis.literal(value, type="map<string, string>")
+    yaml_dict = toolz.assoc_in(
+        compiler.to_yaml(expr),
+        ["definitions", RegistryEnum.nodes, "@unused"],
+        {"op": "DatabaseTable", "profile": "missing"},
+    )
+
+    restored = compiler.from_yaml(yaml_dict)
+
+    assert restored.op().value == value
+
+
+def test_parameter_default_does_not_reach_node_definition():
+    registry = Registry(
+        nodes={"@unused": {"op": "DatabaseTable", "profile": "missing"}}
+    )
+    param = {"op": "NamedScalarParameter", "default": {"node_ref": "@unused"}}
+
+    assert reachable_node_refs(registry, param) == frozenset()
+
+
+def test_from_yaml_ignores_unreachable_node_definitions(compiler):
+    table = ibis.table({"a": "int64"}, name="t")
+    expr = table.filter(table.a > 0)
+    yaml_dict = toolz.assoc_in(
+        compiler.to_yaml(expr),
+        ["definitions", RegistryEnum.nodes, "@unused"],
+        {"op": "DatabaseTable", "profile": "missing"},
+    )
+
+    restored = YamlExpressionTranslator.from_yaml(yaml_dict)
+
+    assert restored.schema() == expr.schema()
