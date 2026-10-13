@@ -133,7 +133,8 @@ class RebaseStatus(StrEnum):
 class RebaseExit(IntEnum):
     """The exit codes ``xorq catalog rebase`` refuses with."""
 
-    # Never started: a property of the entry or the request; retrying won't help.
+    # Nothing of the rebase's own written (a sync's pull may have merged): a
+    # property of the entry or the request; retrying won't help.
     REFUSED = 1
     # A source or the record could not be read; retryable.
     UNREACHABLE = 2
