@@ -1185,8 +1185,8 @@ def test_hosted_write_preflight_leaves_no_partial_catalog_files(
             id="missing-trailing-newline",
         ),
         pytest.param(
-            f"xorq-pointer v1\r\nsha256 {'a' * 64}\r\nsize 1\r\n".encode(),
-            id="crlf-line-endings",
+            f"xorq-pointer v1\r\nsha256 {'a' * 64}\nsize 10\r\n".encode(),
+            id="mixed-line-endings",
         ),
         pytest.param(
             f"xorq-pointer v1\nsha256 {'a' * 64}\nsize 00\n".encode(),
@@ -1732,3 +1732,19 @@ def test_get_many_transfers_a_duplicated_identity_once(
     assert [method for method, _, _ in hosted_blob_service.state.object_requests] == [
         "GET"
     ]
+
+
+def test_hosted_backend_reads_pointers_checked_out_with_crlf(
+    tmp_path: Path,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    backend = _backend(tmp_path, hosted_blob_service)
+    ((target, _key, _sha256),) = _prepare_downloads(
+        backend, hosted_blob_service, (b"pointer checked out by core.autocrlf",)
+    )
+    pointer = backend._pointer_path(target)
+    pointer.write_bytes(pointer.read_bytes().replace(b"\n", b"\r\n"))
+
+    backend.fetch_content(target)
+
+    assert target.read_bytes() == b"pointer checked out by core.autocrlf"

@@ -56,8 +56,12 @@ POINTER_VERSION = "xorq-pointer v1"
 # validated to prevent path traversal from untrusted cloned repos
 _SAFE_CATALOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+# The committed bytes are LF-only (the hosted service checks that on push),
+# but a checkout with core.autocrlf=true — the Windows default — renders them
+# CRLF in the working tree and converts back on add. Accept either ending,
+# used consistently, so such a checkout does not read every pointer as corrupt.
 _CANONICAL_POINTER_RE = re.compile(
-    rb"xorq-pointer v1\nsha256 ([0-9a-f]{64})\nsize (0|[1-9][0-9]*)\n\Z"
+    rb"xorq-pointer v1(\r?\n)sha256 ([0-9a-f]{64})\1size (0|[1-9][0-9]*)\1\Z"
 )
 
 _DEFAULT_CACHE_DIR = Path("~/.cache/xorq/content")
@@ -301,8 +305,8 @@ def parse_pointer(path: str | Path, *, canonical: bool = False) -> tuple[str, in
         match = _CANONICAL_POINTER_RE.fullmatch(raw)
         if match is None:
             raise ValueError(f"Invalid pointer file: {path}")
-        sha256 = match.group(1).decode("ascii")
-        size = int(match.group(2))
+        sha256 = match.group(2).decode("ascii")
+        size = int(match.group(3))
         if size > _MAX_PRESIGNED_BLOB_BYTES:
             raise ValueError(f"Invalid pointer file: {path}")
         return sha256, size
