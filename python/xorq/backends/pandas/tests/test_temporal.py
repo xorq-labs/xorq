@@ -178,3 +178,11 @@ def test_interval_arithmetic(op, expected):
     result = expr.execute()
     expected = pd.Series(expected(data, data), name="td")
     assert_series_equal(result, expected)
+
+
+@pytest.mark.parametrize("unit", ["Y", "M", "D"])
+def test_date_truncate(t, df, unit):
+    expr = t.plain_datetimes_naive.date().truncate(unit)
+    result = expr.execute()
+    expected = df.plain_datetimes_naive.dt.to_period(unit).dt.to_timestamp()
+    assert list(pd.to_datetime(result)) == list(expected)
