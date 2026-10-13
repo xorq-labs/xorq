@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import base64
 import functools
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
@@ -14,15 +17,19 @@ from attr import (
 from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
+import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
-from xorq.expr.relations import Read
+from xorq.common.utils.graph_utils import postorder
+from xorq.expr.relations import Read, RemoteTable
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, RefEnum, RegistryEnum
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.common.graph import Node
 from xorq.vendor.ibis.expr.schema import Schema
+from xorq.vendor.ibis.expr.types import Expr
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}
@@ -260,6 +267,120 @@ def safe_translate_to_yaml(*args, **kwargs):
         return translate_to_yaml(*args, **kwargs)
     except Exception:
         return translate_to_yaml.__wrapped__(*args, **kwargs)
+
+
+def _nested_nodes(value: Any) -> Iterator[Node]:
+    """Yield the nodes in *value*: itself, an Expr's op, or a container's members.
+
+    Contract
+    --------
+    Any other value (a scalar, a set, a dtype) yields nothing; no error.
+    """
+    match value:
+        case Node():
+            yield value
+        case Expr():
+            yield value.op()
+        case Mapping():
+            yield from (n for v in value.values() for n in _nested_nodes(v))
+        case tuple() | list() | frozenset():
+            yield from (n for v in value for n in _nested_nodes(v))
+        case _:
+            return
+
+
+def _translated_values(node: Node) -> Iterator[Any]:
+    """Yield the argument values *node*'s handler translates, in its order.
+
+    Contract
+    --------
+    Raises AttributeError if *node* is not a ``Node`` (reads ``__args__``) and
+    KeyError if an ``ExprScalarUDF`` has no ``computed_kwargs_expr`` in its
+    ``__config__`` (``make_pandas_expr_udf`` always sets it).
+    """
+    match node:
+        case RemoteTable():
+            # remote_expr is translated inside remote_table_scope by the warm-up
+            yield from (
+                arg
+                for name, arg in zip(node.__argnames__, node.__args__)
+                if name != "remote_expr"
+            )
+        case udf.ExprScalarUDF():
+            # the handler also serializes __config__, home of computed_kwargs_expr
+            yield from node.__args__
+            yield node.computed_kwargs_expr
+        case ops.InSubquery():
+            # the handler translates needle before rel
+            yield node.needle
+            yield node.rel
+        case ops.WindowFunction():
+            # the handler translates the keys before the frame bounds
+            yield node.func
+            yield node.group_by
+            yield node.order_by
+            yield node.start
+            yield node.end
+        case _:
+            yield from node.__args__
+
+
+def serialization_children(node: Node) -> tuple[Node, ...]:
+    """Return every node *node*'s handler may ask the cache for.
+
+    Returns
+    -------
+    tuple[Node, ...]
+        In argument order; a node referenced twice appears two times.
+
+    Contract
+    --------
+    Preconditions and errors are those of :func:`_translated_values`.
+    """
+    return tuple(n for value in _translated_values(node) for n in _nested_nodes(value))
+
+
+def warm_translate_to_yaml(
+    op: Node, context: TranslationContext, warmed: set[Node] | None = None
+) -> None:
+    """Translate every node under *op* children-first, into the cache.
+
+    The handlers recurse into their inputs; with the inputs cached, the root
+    translates one level deep however long the chain is. Post-order keeps the
+    recursive walk's registration order (expr.yaml bytes, first-registered
+    ref wins).
+
+    Parameters
+    ----------
+    op
+        Root of the graph to warm.
+    context
+        The translation context the root will be translated with.
+    warmed
+        Nodes already translated. Mutated: every node this call translates is
+        added, and the scoped RemoteTable passes share it so a subtree reached
+        through two RemoteTables is walked once, not once per path.
+
+    Contract
+    --------
+    Raises whatever a handler raises (``NotImplementedError`` for a node type
+    with no translation rule). Each level of RemoteTable nesting costs one
+    nested call, so a few hundred nested ``into_backend`` boundaries still
+    raise ``RecursionError``, as on ``main``.
+    """
+    warmed = set() if warmed is None else warmed
+
+    def children(node: Node) -> tuple[Node, ...]:
+        return () if node in warmed else serialization_children(node)
+
+    for node in postorder(op, children=children):
+        if node in warmed:
+            continue
+        if isinstance(node, RemoteTable):
+            with context.remote_table_scope(node.name):
+                warm_translate_to_yaml(node.remote_expr.op(), context, warmed)
+        context.translate_to_yaml(node)
+        warmed.add(node)
 
 
 @functools.singledispatch

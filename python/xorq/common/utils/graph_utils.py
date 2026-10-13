@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from types import MappingProxyType
 from typing import Any, OrderedDict, Tuple
 
@@ -305,6 +305,52 @@ def bfs(
             dct[node] = kids
             queue.extend(kids)
     return Graph(dct)
+
+
+def postorder(
+    node: Expr | Node, *, children: Callable[[Node], Iterable[Node]] = gen_children_of
+) -> tuple[Node, ...]:
+    """Return the depth-first post-order of the graph :func:`bfs` builds under *node*.
+
+    Every child before its parent, children left to right, each node once;
+    iterative, so graph depth never reaches the Python stack. Unlike
+    ``bfs(...).toposort()`` (Kahn's algorithm) this is exactly the order a
+    recursive children-first walk produces, which matters when a consumer
+    keeps the first of two equal keys (``Registry.register_node``).
+
+    Parameters
+    ----------
+    node
+        Root; an ``Expr`` is unwrapped with :func:`to_node`.
+    children
+        Child enumeration, called once per node.
+
+    Returns
+    -------
+    tuple[Node, ...]
+        The root is last.
+
+    Contract
+    --------
+    Raises ``ValueError`` from :func:`to_node` for a root that is neither a
+    ``Node`` nor an ``Expr`` (via :func:`bfs`). A cycle does not loop (each
+    node is visited once) but its order is not a post-order.
+    """
+    graph = bfs(node, children=children)
+    root = to_node(node)
+    visited, order = {root}, []
+    stack = [(root, iter(graph[root]))]
+    while stack:
+        current, kids = stack[-1]
+        for child in kids:
+            if child not in visited:
+                visited.add(child)
+                stack.append((child, iter(graph[child])))
+                break
+        else:
+            stack.pop()
+            order.append(current)
+    return tuple(order)
 
 
 def walk_nodes(
