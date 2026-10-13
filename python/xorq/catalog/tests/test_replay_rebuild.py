@@ -20,7 +20,16 @@ from xorq.catalog.content_store import (
     parse_pointer,
 )
 from xorq.catalog.enums import CatalogTag
-from xorq.catalog.replay import AddEntry, RebuildContext, Replayer
+from xorq.catalog.replay import (
+    AddAlias,
+    AddEntry,
+    RebuildContext,
+    RemoveEntry,
+    Replayer,
+    UnknownOp,
+    _rebuild_expr_for_target,
+    _rebuild_subexpr,
+)
 from xorq.catalog.tests.conftest import _replay_rebuild, directory_store_config
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.builders import TagHandler, register_tag_handler
@@ -153,11 +162,6 @@ def test_rebuild_rewrites_remote_expr_not_just_metadata(source_catalog, target_p
 
 def test_rebuild_expr_for_target_returns_input_when_no_catalog_tags(source_catalog):
     from types import SimpleNamespace  # noqa: PLC0415
-
-    from xorq.catalog.replay import (  # noqa: PLC0415
-        RebuildContext,
-        _rebuild_expr_for_target,
-    )
 
     catalog, _source, _transform, _bound = source_catalog
     # Stub a minimal source_entry so lazy_expr is a stable object; the
@@ -377,7 +381,6 @@ def test_rebuild_preserves_outer_builder_wrapping(
 
 def test_rebuild_pure_builder_without_catalog_refs(tmpdir, saved_registry):
     from xorq.common.utils.dasher import tokenize  # noqa: PLC0415
-    from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
 
     register_tag_handler(
         TagHandler(
@@ -415,7 +418,6 @@ def test_rebuild_handles_dag_shared_catalog_tag(source_catalog, target_path):
     "old names absent"; we assert "every catalog tag in the rebuilt
     expression resolves to a real target entry, with no orphans."
     """
-    from xorq.catalog.replay import RebuildContext, _rebuild_subexpr  # noqa: PLC0415
 
     catalog, *_ = source_catalog
     _, _, _, bound_entry = source_catalog
@@ -453,7 +455,6 @@ def test_rebuild_handles_dag_shared_catalog_tag(source_catalog, target_path):
 def test_rebuild_raises_when_recipe_references_unknown_target_entry(
     source_catalog, target_path
 ):
-    from xorq.catalog.replay import AddEntry, RebuildContext  # noqa: PLC0415
 
     catalog, _source, _transform, bound_entry = source_catalog
     target = Catalog.from_repo_path(target_path, init=True)
@@ -507,7 +508,6 @@ def test_replay_fetches_cached_pointer_content_before_copying(
 
 
 def test_remove_entry_translates_via_remap(tmpdir):
-    from xorq.catalog.replay import RebuildContext, RemoveEntry  # noqa: PLC0415
 
     src_repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
     src = Catalog(backend=GitBackend(repo=src_repo))
@@ -521,7 +521,6 @@ def test_remove_entry_translates_via_remap(tmpdir):
 
 
 def test_add_alias_translates_via_remap(tmpdir):
-    from xorq.catalog.replay import AddAlias, RebuildContext  # noqa: PLC0415
 
     src_repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
     src = Catalog(backend=GitBackend(repo=src_repo))
@@ -565,7 +564,6 @@ def test_rebuild_raises_on_unknown_op_touching_catalog_paths(tmpdir):
 
 
 def test_rebuild_applies_non_catalog_unknown_op(tmpdir):
-    from xorq.catalog.replay import RebuildContext, UnknownOp  # noqa: PLC0415
 
     repo = Catalog.init_repo_path(Path(tmpdir).joinpath("src"))
     catalog = Catalog(backend=GitBackend(repo=repo))
@@ -605,7 +603,6 @@ def test_rebuild_applies_changed_reemit(tmpdir, saved_registry):
     records the old → new translation, (c) the rebuilt entry executes with
     the v2 behavior. This is the only test where rebuild is not a no-op.
     """
-    from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
 
     # v1 handler: reemit keeps every row with amount > 0.
     def reemit_v1(tag_node, rebuild_subexpr):
@@ -640,7 +637,6 @@ def test_rebuild_applies_changed_reemit(tmpdir, saved_registry):
     )
 
     # Drive replay manually so we can inspect the remap built during rebuild.
-    from xorq.catalog.replay import RebuildContext  # noqa: PLC0415
 
     target_path = Path(tmpdir).joinpath("tgt")
     target = Catalog.from_repo_path(target_path, init=True)
@@ -685,7 +681,6 @@ def test_cli_replay_rebuild_is_not_silently_ignored(tmpdir, saved_registry):
     executed output would still match v1 behavior. Rebuild must re-emit the
     expression under the v2 handler, so the target executes with v2 rows.
     """
-    from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
 
     def reemit_v1(tag_node, rebuild_subexpr):
         inner = tag_node.parent.to_expr()
@@ -743,7 +738,6 @@ def test_rebuild_collision_records_remap_to_existing_entry(tmpdir, saved_registr
     `to_catalog.add(...)` returned None and `new_entry.name` raised
     AttributeError; even patched, an unrecorded remap would break any later
     AddAlias for the colliding source."""
-    from xorq.expr.builders import TagHandler, register_tag_handler  # noqa: PLC0415
 
     # v1 reemit preserves the parent expression, so distinct source data
     # produces distinct rebuilt content.
@@ -783,7 +777,6 @@ def test_rebuild_collision_records_remap_to_existing_entry(tmpdir, saved_registr
     )
 
     # Drive replay manually so we can inspect the remap.
-    from xorq.catalog.replay import RebuildContext  # noqa: PLC0415
 
     target_path = Path(tmpdir).joinpath("tgt")
     target = Catalog.from_repo_path(target_path, init=True)
