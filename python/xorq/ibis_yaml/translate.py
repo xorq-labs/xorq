@@ -19,6 +19,7 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.dasher._canonical import normalize_inmemorytable_canonical
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.operations import _MISSING, NamedScalarParameter
@@ -454,6 +455,25 @@ def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     # TODO: use UnboundTable node to construct instead of builder API
     return ibis.table(schema, name=table_name, catalog=catalog, database=database)
+
+
+@translate_to_yaml.register(ops.InMemoryTable)
+@convert_to_node_ref
+def _in_memory_table_to_yaml(
+    op: ops.InMemoryTable, context: TranslationContext
+) -> dict:
+    # A build turns memtables into deferred reads before serializing, so this
+    # is reached only when hashing an unprepared expression (lineage): the
+    # identity is the data's canonical token, not the frame's address, and a
+    # yaml carrying it has no loader.
+    return freeze(
+        {
+            "op": "InMemoryTable",
+            "name": op.name,
+            "data": tokenize(normalize_inmemorytable_canonical(op)),
+        }
+        | context.registry.register_schema(op.schema)
+    )
 
 
 @translate_to_yaml.register(ops.DatabaseTable)

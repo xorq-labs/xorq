@@ -15,7 +15,6 @@ from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
 from xorq.expr.relations import Read
 from xorq.ibis_yaml.config import config
@@ -66,10 +65,6 @@ class Registry:
         Returns a name like '@read_{hash}', '@filter_{hash}', etc.
         """
 
-        node_hash = content_hash(node)
-        op_name = node_dict.get(NodeKey.op, "unknown").lower()
-        node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
-        node_dict_with_hash = freeze(node_dict | {NodeKey.snapshot_hash: node_hash})
         if isinstance(node, Read) and ReadKwarg.read_path in dict(node.read_kwargs):
             # Reads whose parquet was materialized into the build bundle carry
             # a build-relative `read_path`. The absolute `hash_path` assigned
@@ -80,14 +75,21 @@ class Registry:
             # the stored value to the relative read_path is lossless.
             from xorq.common.utils.node_utils import update_read_kwargs  # noqa: PLC0415
 
-            old_read_kwargs = node_dict_with_hash[NodeKey.read_kwargs]
+            old_read_kwargs = node_dict[NodeKey.read_kwargs]
             new_path = Path(dict(old_read_kwargs)[ReadKwarg.read_path])
             modified_read_kwargs = update_read_kwargs(
                 old_read_kwargs, ((ReadKwarg.hash_path, new_path),)
             )
-            node_dict_with_hash = freeze(
-                node_dict_with_hash | {NodeKey.read_kwargs: modified_read_kwargs}
-            )
+            node_dict = freeze(node_dict | {NodeKey.read_kwargs: modified_read_kwargs})
+        # the serialized form is the identity: child relations are already
+        # refs named by their hashes, everything else what the writer puts in
+        # expr.yaml -- the same scheme register_dtype and register_schema use
+        from xorq.ibis_yaml.compiler import _to_yaml_safe  # noqa: PLC0415
+
+        node_hash = tokenize(_to_yaml_safe(node_dict))
+        op_name = node_dict.get(NodeKey.op, "unknown").lower()
+        node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
+        node_dict_with_hash = freeze(node_dict | {NodeKey.snapshot_hash: node_hash})
         self.nodes.setdefault(node_ref, node_dict_with_hash)
         frozen = freeze({RefEnum.node_ref: node_ref})
         return frozen
