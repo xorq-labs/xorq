@@ -1775,3 +1775,54 @@ def test_hosted_content_store_resolves_the_remote_once_per_access(
         ("remote", "get-url", "--all"),
         ("remote", "get-url", "--push"),
     ]
+
+
+def test_upload_hashes_each_file_only_while_sending_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "write-token")
+    state = hosted_blob_service.state
+    stored, sent = b"the service already holds this", b"this one is uploaded"
+    state.already_verified.add(_digest(stored))
+    state.objects[_digest(stored)] = stored
+    objects = []
+    for name, content in (("stored", stored), ("sent", sent)):
+        path = tmp_path / f"{name}.zip"
+        path.write_bytes(content)
+        sha256 = _digest(content)
+        spec = ContentSpec(
+            compute_content_key(CATALOG_ID, sha256), sha256, len(content)
+        )
+        objects.append((spec, path))
+    hashed: list[Path] = []
+    monkeypatch.setattr(
+        "xorq.catalog.content_store.compute_sha256",
+        lambda path: hashed.append(Path(path)) or _digest(Path(path).read_bytes()),
+    )
+
+    uploaded = _store(hosted_blob_service).ensure_present_many(objects)
+
+    assert uploaded == {objects[1][0].key}
+    assert state.objects[_digest(sent)] == sent
+    assert hashed == []
+
+
+def test_upload_never_completes_bytes_that_changed_after_hashing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "write-token")
+    content = b"the bytes the pointer describes"
+    sha256 = _digest(content)
+    source = tmp_path / "source.zip"
+    source.write_bytes(b"x" * len(content))  # same size, different bytes
+
+    with pytest.raises(ContentIntegrityError, match="SHA256 mismatch"):
+        _store(hosted_blob_service).ensure_present(
+            compute_content_key(CATALOG_ID, sha256), source, sha256=sha256
+        )
+
+    assert hosted_blob_service.state.completed == []

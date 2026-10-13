@@ -377,8 +377,8 @@ class GitPointerBackend(CatalogBackend):
         uploaded = False
         store = self.content_store
         with atomic_write(archive_path) as tmp:
-            # One pass: the store re-verifies the digest against the bytes it
-            # is about to upload, so this copy must not also re-read them.
+            # One pass: the store re-verifies the digest against the bytes as
+            # it uploads them, so this copy must not also re-read them.
             sha256 = copy_and_digest(source_path, tmp)
             size = tmp.stat().st_size
             key = compute_content_key(self.catalog_id, sha256)

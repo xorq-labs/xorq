@@ -572,6 +572,19 @@ class S3ContentStore(ContentStore):
                     yield full_key
 
 
+@attr.define
+class _DigestingReader:
+    """File-like request body that hashes each chunk as urllib sends it."""
+
+    source: Any
+    digest: Any
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self.source.read(size)
+        self.digest.update(chunk)
+        return chunk
+
+
 class _RejectRedirects(HTTPRedirectHandler):
     def redirect_request(
         self,
@@ -769,6 +782,11 @@ class PresignedContentStore(ContentStore):
 
     @staticmethod
     def _validate_local(spec: ContentSpec, local_path: Path) -> None:
+        """Check the size up front; the digest is checked as the bytes stream.
+
+        Hashing here as well would read every file once more, including the
+        ones the service already holds and never asks for.
+        """
         try:
             actual_size = local_path.stat().st_size
         except OSError as exc:
@@ -776,12 +794,6 @@ class PresignedContentStore(ContentStore):
         if actual_size != spec.size:
             raise ContentIntegrityError(
                 f"Size mismatch before upload: expected {spec.size}, got {actual_size}"
-            )
-        actual_sha256 = compute_sha256(local_path)
-        if actual_sha256 != spec.sha256:
-            raise ContentIntegrityError(
-                "SHA256 mismatch before upload: "
-                f"expected {spec.sha256}, got {actual_sha256}"
             )
 
     @staticmethod
@@ -1031,9 +1043,15 @@ class PresignedContentStore(ContentStore):
         checksum = base64.b64encode(bytes.fromhex(spec.sha256)).decode()
         if folded_headers.get("x-amz-checksum-sha256") != checksum:
             raise ContentStoreError("presigned upload has an invalid SHA-256 header")
+        digest = hashlib.sha256()
         try:
             with local_path.open("rb") as source:
-                request = Request(url, data=source, headers=headers, method="PUT")
+                request = Request(
+                    url,
+                    data=_DigestingReader(source, digest),
+                    headers=headers,
+                    method="PUT",
+                )
                 with self._open(
                     request,
                     timeout=_SOCKET_IDLE_TIMEOUT_SECONDS,
@@ -1045,6 +1063,13 @@ class PresignedContentStore(ContentStore):
                         )
         except (OSError, HTTPException) as exc:
             raise ContentStoreError("content file could not be uploaded") from exc
+        # The trust boundary: bytes that do not match the pointer's digest are
+        # never completed, so the service never records them as this object.
+        actual = digest.hexdigest()
+        if actual != spec.sha256:
+            raise ContentIntegrityError(
+                f"SHA256 mismatch during upload: expected {spec.sha256}, got {actual}"
+            )
 
     def put(
         self, key: str, local_path: str | Path, *, sha256: str | None = None
