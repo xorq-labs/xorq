@@ -10,6 +10,7 @@ import re
 import shutil
 import tempfile
 import warnings
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
@@ -22,6 +23,7 @@ from toolz import identity
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
+import xorq.ibis_yaml.common as common
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations.relations as rel
 from xorq import udf
@@ -47,6 +49,11 @@ from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
+from xorq.ibis_yaml.common import (
+    TranslationContext,
+    translate_to_yaml,
+    warm_translate_to_yaml,
+)
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -54,6 +61,7 @@ from xorq.ibis_yaml.compiler import (
     ExprKind,
     RefEnum,
     WritePlan,
+    YamlExpressionTranslator,
     _extract_sql_queries,
     _is_relocatable_candidate,
     _prepare_relocatable_reads,
@@ -2168,3 +2176,74 @@ def test_execute_write_plans_dedupable_writes_once(
     )
     ExprDumper._execute_write_plans(plans)
     assert calls == ["a"]
+
+
+def test_to_yaml_round_trips_an_expr_nested_in_tag_metadata() -> None:
+    t = ibis.table({"a": "int64"}, name="t")
+    expr = t.tag("x", extra=(ibis.literal(7),)).filter(lambda s: s.a > 1)
+    yaml_dict = YamlExpressionTranslator.to_yaml(expr)
+    tag = YamlExpressionTranslator.from_yaml(yaml_dict).op().parent
+    assert tag.metadata["extra"][0].op() == ibis.literal(7).op()
+
+
+def _translate(expr: ibis.Expr, warm: bool) -> tuple:
+    context = TranslationContext()
+    with SnapshotStrategy().normalization_context(expr):
+        if warm:
+            warm_translate_to_yaml(expr.op(), context)
+        expr_dict = translate_to_yaml(expr, context)
+    return context.definitions, expr_dict
+
+
+def _shared_read_subquery(tmp_path: Path) -> ibis.Expr:
+    # the Read sits both inside a RemoteTable (scoped name) and outside it;
+    # the recursive handlers meet it outside first (InSubquery: needle, rel)
+    path = tmp_path / "t.csv"
+    pd.DataFrame({"a": [1, 2, 3]}).to_csv(path, index=False)
+    read = deferred_read_csv(path, xo.connect())
+    return read.filter(read.a.isin(read.into_backend(xo.connect()).a))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda p: _shared_read_subquery(p),
+        lambda p: (
+            ibis.table({"a": "int64"}, name="t").tag("x").filter(lambda s: s.a > 1)
+        ),
+        lambda p: (
+            ibis.table({"a": "int64"}, name="t")
+            .filter(lambda s: s.a > 1)
+            .union(
+                ibis.table({"a": "int64"}, name="t").tag("v1").filter(lambda s: s.a > 1)
+            )
+        ),
+        lambda p: ibis.table({"a": "int64", "k": "int64"}, name="t").mutate(
+            s=lambda s: s.a.sum().over(
+                ibis.window(group_by="k", order_by="a", preceding=1, following=0)
+            )
+        ),
+    ],
+)
+def test_warmed_translation_matches_recursive_translation(build, tmp_path) -> None:
+    # the warm-up must register nodes in the order the handlers would, so
+    # expr.yaml (definition order, first-registered ref) does not change
+    expr = build(tmp_path)
+    assert _translate(expr, warm=True) == _translate(expr, warm=False)
+
+
+def test_to_yaml_serializes_a_chain_past_the_old_recursion_limit(monkeypatch) -> None:
+    # 250 ops: the recursive handlers needed ~5 frames each and failed near
+    # 190; hashing is stubbed because it is quadratic until it is incremental
+    memo: dict = {}
+    monkeypatch.setattr(
+        common,
+        "content_hash",
+        lambda node: memo.setdefault(
+            node, hashlib.md5(str(len(memo)).encode()).hexdigest()
+        ),
+    )
+    t = ibis.table({"a": "int64"}, name="t")
+    for i in range(250):
+        t = t.filter(t.a > i)
+    assert len(YamlExpressionTranslator.to_yaml(t)["definitions"]["nodes"]) == 251
