@@ -16,18 +16,31 @@ class ContentStoreCapabilityError(ContentStoreError):
 
 
 class CatalogServiceHTTPError(ContentStoreError):
-    """Raised when the hosted catalog service returns an HTTP error status."""
+    """Raised when the hosted catalog service returns an HTTP error status.
+
+    Every field lives in ``args``, as with ``RebaseError``: ``BaseException``
+    pickles as ``cls(*args)``, so a field kept only as an attribute would make
+    the error unpicklable across a process pool.
+    """
 
     def __init__(
         self,
         message: str,
-        *,
         status: int,
         error_code: str | None,
     ) -> None:
-        super().__init__(message)
-        self.status = status
-        self.error_code = error_code
+        super().__init__(message, status, error_code)
+
+    def __str__(self) -> str:
+        return self.args[0]
+
+    @property
+    def status(self) -> int:
+        return self.args[1]
+
+    @property
+    def error_code(self) -> str | None:
+        return self.args[2]
 
 
 class CatalogPushError(RuntimeError):

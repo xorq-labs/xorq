@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import pickle
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
@@ -36,6 +37,7 @@ from xorq.catalog.content_store import (
     write_pointer,
 )
 from xorq.catalog.exceptions import (
+    CatalogServiceHTTPError,
     ContentIntegrityError,
     ContentStoreCapabilityError,
     ContentStoreError,
@@ -1629,3 +1631,20 @@ def test_unverified_store_downloads_are_still_checked_by_the_backend(
 
     assert prepared[0][0].read_bytes() == b"claims nothing"
     assert len(rehashed) == 1, "an unproven download must be verified locally"
+
+
+def test_service_http_error_survives_a_process_boundary() -> None:
+    error = CatalogServiceHTTPError(
+        "catalog service request failed with HTTP status 403 (forbidden)",
+        status=403,
+        error_code="forbidden",
+    )
+
+    restored = pickle.loads(pickle.dumps(error))
+
+    assert type(restored) is CatalogServiceHTTPError
+    assert (str(restored), restored.status, restored.error_code) == (
+        str(error),
+        403,
+        "forbidden",
+    )
