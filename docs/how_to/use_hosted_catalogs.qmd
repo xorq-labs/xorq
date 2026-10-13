@@ -78,4 +78,4 @@ Non-dry-run replay requires `--remote-url` and configures it before uploading. A
 
 ## Blob lifecycle
 
-Removing an entry deletes only its Git-tracked pointer. Hosted blob collection is server-owned, so `xorq catalog gc` is unavailable for hosted catalogs.
+Removing an entry deletes its Git-tracked pointer and the local copy of its archive; the blob on the service is left alone. Hosted blob collection is server-owned, so `xorq catalog gc` is unavailable for hosted catalogs.
