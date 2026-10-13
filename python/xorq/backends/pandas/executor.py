@@ -645,10 +645,6 @@ class PandasExecutor(PandasUtils):
         return parent
 
     @classmethod
-    def visit_JoinReference(cls, op: ops.Reference, parent, **kwargs):
-        return cls.visit_Reference(op, parent, **kwargs)
-
-    @classmethod
     def visit_PandasRename(cls, op: PandasRename, parent, mapping):
         return parent.rename(columns=mapping)
 
@@ -898,6 +894,8 @@ class PandasExecutor(PandasUtils):
             method = getattr(cls, f"visit_{type(node).__name__}", None)
             if method is not None:
                 return method(node, **kwargs)
+            elif isinstance(node, ops.Reference):
+                return cls.visit_Reference(node, **kwargs)
             elif isinstance(node, ops.Reduction):
                 return cls.visit_Reduction(node, **kwargs)
             elif isinstance(node, ops.Value):

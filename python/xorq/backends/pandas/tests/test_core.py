@@ -67,3 +67,21 @@ def test_unbound_table_execution():
     con = xo.pandas.connect({"t": pd.DataFrame({"a": ["a", "ab", "abc"]})})
     result = con.execute(expr)
     assert result.tolist() == [1, 2, 3]
+
+
+def test_view_executes_as_its_table(ibis_table, dataframe):
+    assert_frame_equal(ibis_table.view().execute(), dataframe)
+
+
+def test_view_filter_and_mutate_execute(ibis_table):
+    v = ibis_table.view()
+    result = v.filter(v.plain_int64 > 1).mutate(doubled=v.plain_int64 * 2).execute()
+    expected = pd.DataFrame(
+        {
+            "plain_int64": [2, 3],
+            "plain_strings": ["b", "c"],
+            "dup_strings": ["a", "d"],
+            "doubled": [4, 6],
+        }
+    )
+    assert_frame_equal(result, expected)

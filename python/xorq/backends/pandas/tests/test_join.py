@@ -676,3 +676,19 @@ def test_chain_join():
         }
     )
     assert_frame_equal(result, expected)
+
+
+def test_self_join_through_view(left, df1):
+    right = left.view()
+    expr = left.join(right, left.key == right.key)[
+        left.key, left.value, right.value.name("other_value")
+    ]
+    result = expr.execute()
+    expected = pd.DataFrame(
+        {
+            "key": list("abcd"),
+            "value": [3, 4, 5, 6],
+            "other_value": [3, 4, 5, 6],
+        }
+    )
+    assert_frame_equal(result, expected)
