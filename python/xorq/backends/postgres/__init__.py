@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +10,6 @@ import sqlglot.expressions as sge
 import toolz
 from adbc_driver_manager import ProgrammingError as ADBCProgrammingError
 
-import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
@@ -68,55 +66,6 @@ class Backend(IbisPostgresBackend):
             "database": "letsql",
         }
         return cls().connect(**(examples_kwargs | kwargs))
-
-    def _build_insert_template(
-        self,
-        name,
-        *,
-        schema: sch.Schema,
-        catalog: str | None = None,
-        columns: bool = False,
-        placeholder: str = "?",
-    ) -> str:
-        """Builds an INSERT INTO table VALUES query string with placeholders.
-
-        Parameters
-        ----------
-        name
-            Name of the table to insert into
-        schema
-            Ibis schema of the table to insert into
-        catalog
-            Catalog name of the table to insert into
-        columns
-            Whether to render the columns to insert into
-        placeholder
-            Placeholder string. Can be a format string with a single `{i}` spec.
-
-        Returns
-        -------
-        str
-            The query string
-        """
-        quoted = self.compiler.quoted
-        return sge.insert(
-            sge.Values(
-                expressions=[
-                    sge.Tuple(
-                        expressions=[
-                            sge.Var(this=placeholder.format(i=i))
-                            for i in range(len(schema))
-                        ]
-                    )
-                ]
-            ),
-            into=sg.table(name, catalog=catalog, quoted=quoted),
-            columns=(
-                map(partial(sg.to_identifier, quoted=quoted), schema.keys())
-                if columns
-                else None
-            ),
-        ).sql(self.dialect)
 
     def _open_adbc_conn_or_none(self):
         """Open an ADBC connection for the Arrow paths, or ``None`` if there is
