@@ -2603,19 +2603,27 @@ def test_staging_over_the_budget_does_not_empty_the_cache(tmp_path: Path) -> Non
 def test_reap_threshold_outlasts_the_slowest_batch_the_fetcher_can_run(
     tmp_path: Path,
 ) -> None:
-    """The threshold is derived from the work, not picked as a round number.
+    """A staging file as old as the slowest legitimate fetch survives a reap.
 
-    A full mint batch of maximum-size objects is the slowest transfer the fetch
-    path can be asked to perform. Reaping has to sit well clear of it, or a
-    legitimate fetch loses its staging mid-flight.
+    A full mint batch of maximum-size objects at the assumed bandwidth is the
+    longest a live fetch can be expected to hold its staging. A cache built
+    while that fetch is still finishing must not take the file from under it.
     """
-    batch_seconds = (
+    staging_dir = tmp_path / "cache" / ".staging"
+    staging_dir.mkdir(parents=True)
+    in_flight = staging_dir / "slowest-batch.tmp"
+    in_flight.write_bytes(b"x")
+    started = time.time() - (
         _PRESIGNED_BATCH_SIZE
         * _MAX_PRESIGNED_BLOB_BYTES
-        // _PRESIGNED_ASSUMED_BYTES_PER_SECOND
+        / _PRESIGNED_ASSUMED_BYTES_PER_SECOND
     )
+    os.utime(in_flight, (started, started))
 
-    assert _STAGING_REAP_SECONDS > batch_seconds * 4
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+
+    assert cache.staging_dir == staging_dir
+    assert in_flight.exists()
 
 
 def test_adopt_names_the_staging_file_a_concurrent_reap_removed(
