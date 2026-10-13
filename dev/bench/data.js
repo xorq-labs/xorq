@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791899352728,
+  "lastUpdate": 1791900693510,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -45522,6 +45522,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.19095809272897066",
             "extra": "mean: 1.7068419074000076 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "15497bc34cac1b7ad6eabc380b51896da576028d",
+          "message": "fix(cache): key a CachedNode once, from the parent as written (#2381)\n\n## What\n\n`remove_tags` is now a `BOUNDARY` pass. It still strips every tag from\nthe\ntree this execution compiles, `HashingTag` included, but it stops at\nopaque\npayloads (`CachedNode.parent`, `RemoteTable.remote_expr`, Flight\n`input_expr`).\nEach payload runs its own `_transform_expr`, which keys the parent as\nwritten\nand only then strips its tags.\n\nThe replacer returns the parent it is handed in `kwargs` instead of\nre-walking\nthe subtree. The bottom-up rewrite has already collapsed nested tags by\nthen,\nand a descending re-walk would cross the boundary.\n\n## Why\n\n`.cache()` on an expression with a hashing tag wrote the artifact under\none key\nwhile `cache_exists()` and the build metadata looked under another. The\npass\ndescended into `CachedNode.parent` and removed the `HashingTag` before\nthe cache\npass computed the key, so execution gave `calc_key` a different\nexpression than\n`cache_exists()` does. Two expressions differing only in hashing-tag\nmetadata\nshared one cache entry.\n\nThings tried first:\n\n- Leaving `HashingTag` in place during the strip. No compiler has a rule\nfor a\ntag; every hashing-tagged execution dies with\n`OperationNotDefinedError`.\n- Running `cache` before `remove_tags` with the strip still `DESCEND`.\nThe\nouter cache pass never enters a payload, but the strip does, so a cache\nnested\nin a `RemoteTable` payload was still keyed from a stripped parent, and\nan\n  outer plain tag hid the cache root from provenance stamping.\n- A separate `remove_hashing_tags` pass after `cache`. Works only if\nthat pass\nis `BOUNDARY` too, and then an outer hashing tag hides the cache root\nfrom\nprovenance unless the root check is patched as well. At that point it is\nthis\n  change with an extra pass.\n\n## Verification\n\n`test_hashing_tag_cache_key_agrees_on_every_path` runs five shapes:\nbare, a\nplain tag above the cache, a hashing tag above, both above, and the\ncache inside\na `RemoteTable` payload. For each one, the file on disk has the name\n`ls.get_key()` predicted, `cache_exists()` flips to True, `calc_key` and\n`ExprMetadata.cache_keys` agree, and the parquet footer has the\nprovenance\nkeys. `test_hashing_tags_cache_distinctly`,\n`test_hashing_tag_changes_the_cache_entry` and\n`test_plain_tag_is_transparent_and_hashing_tag_is_not` cover the\nidentity side.\nAll of them fail on `main`.\n\n## Not addressed\n\nBound parameters: execution keys the parent after `bind_params`, so a\nparameterised cache gets one entry per value and `get_key()` without\nparams\ncannot name any of them. We decided to leave that as it is.\n\n#2382: stacking one `Cache` on itself keys the outer node as the inner\none.\nThat predates this change and involves no tag.\n\n---------\n\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-10-13T10:05:30-04:00",
+          "tree_id": "c237871cb2574a5d12b97f5fbf6caea426a78af4",
+          "url": "https://github.com/xorq-labs/xorq/commit/15497bc34cac1b7ad6eabc380b51896da576028d"
+        },
+        "date": 1791900689502,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.781199785173934,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004063919420441337",
+            "extra": "mean: 128.5148855714218 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.3769285646075082,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04979668319024852",
+            "extra": "mean: 420.7110028000045 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7470050715974628,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14226291343183703",
+            "extra": "mean: 1.338678996999994 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.0097700108203735,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00934597165571572",
+            "extra": "mean: 332.25130040000295 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.02787769476435,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018672391949188044",
+            "extra": "mean: 330.2643305999936 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.078164837032159,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010511362055128533",
+            "extra": "mean: 324.86889200000064 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 142.94801909106405,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01793982295137419",
+            "extra": "mean: 6.995549895399089 msec\nrounds: 239"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.48893789813914,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17964121559439564",
+            "extra": "mean: 286.62017759999685 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 15.137924391805818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010102926123716728",
+            "extra": "mean: 66.05925449999616 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 9.695163492208318,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013188093234057835",
+            "extra": "mean: 103.14421214285525 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.796998465061041,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013392171840368117",
+            "extra": "mean: 128.25448209090692 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.785389766156212,
+            "unit": "iter/sec",
+            "range": "stddev: 0.024191141458528367",
+            "extra": "mean: 172.8492012499956 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.5702537567965615,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05621799256648877",
+            "extra": "mean: 218.80623116667644 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.605395526657641,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003934560942444986",
+            "extra": "mean: 217.13661600000478 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.467543821182286,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04359449167429406",
+            "extra": "mean: 405.2612931999988 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.382975533546232,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012156983919429359",
+            "extra": "mean: 295.59776300000067 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.8335749828695551,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10023752723320496",
+            "extra": "mean: 545.3826592000041 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.9360360012058664,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09696651617041348",
+            "extra": "mean: 516.5193206000026 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.5236090616656084,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12587849039786206",
+            "extra": "mean: 656.3363432000074 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5964932670329353,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09517971827441007",
+            "extra": "mean: 626.3728264000065 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2925198032704397,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1229422675496376",
+            "extra": "mean: 773.6825365999948 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1714809295570625,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1574425957690682",
+            "extra": "mean: 853.6203832000069 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.9938822640689201,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15666634242260472",
+            "extra": "mean: 1.006155393000006 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5927251121588841,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0859684042826386",
+            "extra": "mean: 1.6871227142000067 sec\nrounds: 5"
           }
         ]
       }
