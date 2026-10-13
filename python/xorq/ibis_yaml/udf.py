@@ -35,19 +35,23 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
         if not name.startswith("__") and name not in op.__class__.__slots__
     ]
 
-    return freeze(
-        {
-            "op": "ScalarUDF",
-            "func_name": op.__func_name__,
-            "input_type": str(input_type),
-            "args": [compiler.translate_to_yaml(arg) for arg in op.args],
-            "type": translate_to_yaml(op.dtype, None),
-            "pickle": serialize_callable(op.__func__),
-            "module": op.__module__,
-            "class_name": op.__func_name__,
-            "arg_names": arg_names,
-        }
-    )
+    yaml_dict = {
+        "op": "ScalarUDF",
+        "func_name": op.__func_name__,
+        "input_type": str(input_type),
+        "args": [compiler.translate_to_yaml(arg) for arg in op.args],
+        "type": translate_to_yaml(op.dtype, None),
+        "pickle": serialize_callable(op.__func__),
+        "module": op.__module__,
+        "class_name": op.__func_name__,
+        "arg_names": arg_names,
+    }
+    # only a non-empty namespace is written, so expr.yaml (and the build hash)
+    # of a UDF without database/catalog stays unchanged
+    namespace = op.__udf_namespace__
+    if namespace is not None and namespace != ops.Namespace():
+        yaml_dict["namespace"] = compiler.translate_to_yaml(namespace)
+    return freeze(yaml_dict)
 
 
 @register_from_yaml_handler("ScalarUDF")
@@ -72,6 +76,11 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         raise ValueError(f"Unsupported input type: {input_type_str}")
 
     dtype = dt.dtype(yaml_dict["type"]["type"])
+    namespace = (
+        translate_from_yaml(yaml_dict["namespace"], compiler)
+        if "namespace" in yaml_dict
+        else ops.Namespace()
+    )
     class_name = yaml_dict.get("class_name", yaml_dict["func_name"])
 
     schema = {}
@@ -97,7 +106,7 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         "__input_type__": input_type,
         "__func__": udf.property_wrap_fn(fn),
         "__config__": {"volatility": "immutable"},
-        "__udf_namespace__": None,
+        "__udf_namespace__": namespace,
         "__module__": yaml_dict.get("module", "__main__"),
         "__func_name__": yaml_dict["func_name"],
     }

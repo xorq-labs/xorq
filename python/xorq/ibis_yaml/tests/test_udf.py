@@ -1,5 +1,11 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import xorq.api as xo
@@ -8,9 +14,13 @@ import xorq.expr.udf as udf
 import xorq.ibis_yaml
 import xorq.ibis_yaml.utils
 import xorq.vendor.ibis.expr.operations as ops
+import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.udf import pyarrow_udwf
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor import ibis
 
 
@@ -185,3 +195,71 @@ def test_aggudf_func_token_survives_roundtrip(compiler):
     profiles = {con._profile.hash_name: con}
     roundtrip = compiler.from_yaml(compiler.to_yaml(expr), profiles=profiles)
     assert aggudf_func_tokens(roundtrip) == live_tokens
+
+
+@xo.udf.scalar.pyarrow
+def plus_one(arr: dt.float64) -> dt.float64:
+    return pc.add(arr, 1.0)
+
+
+def make_sqlite_table(tmp_path: Path, name: str, data: pd.DataFrame) -> ir.Table:
+    con = SqliteBackend().connect(str(tmp_path / "db.sqlite"))
+    con.create_table(name, data)
+    return con.table(name)
+
+
+def make_duckdb_table(tmp_path: Path, name: str, data: pd.DataFrame) -> ir.Table:
+    return xo.duckdb.connect().create_table(name, data)
+
+
+@pytest.mark.parametrize(
+    "make_table",
+    (
+        pytest.param(make_sqlite_table, id="sqlite"),
+        pytest.param(make_duckdb_table, id="duckdb"),
+    ),
+)
+def test_pyarrow_scalar_udf_build_load_hash(
+    tmp_path: Path, make_table: Callable[[Path, str, pd.DataFrame], ir.Table]
+) -> None:
+    t = make_table(tmp_path, "t", pd.DataFrame({"x": [1.5, 2.5]}))
+    expr = t.mutate(y=plus_one(t.x))
+
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path / "builds"))
+    ((original_udf,), (loaded_udf,)) = (
+        walk_nodes(ops.ScalarUDF, e) for e in (expr, loaded)
+    )
+
+    assert loaded_udf.__udf_namespace__ == original_udf.__udf_namespace__
+    assert get_expr_hash(loaded)
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    (
+        pytest.param({}, id="empty"),
+        pytest.param({"database": "myschema"}, id="database"),
+        pytest.param({"catalog": "mycat", "database": "myschema"}, id="catalog"),
+    ),
+)
+def test_builtin_scalar_udf_namespace_roundtrip(
+    compiler, namespace: dict[str, str]
+) -> None:
+    @xo.udf.scalar.builtin(**namespace)
+    def my_fn(x: int) -> int: ...
+
+    t = xo.table({"a": "int64"}, name="t")
+    expr = t.mutate(y=my_fn(t.a))
+
+    yaml_dict = compiler.to_yaml(expr)
+    (udf_yaml,) = (
+        node["values"]["y"]
+        for node in yaml_dict["definitions"]["nodes"].values()
+        if node.get("op") == "Project"
+    )
+    loaded = compiler.from_yaml(yaml_dict)
+    (loaded_udf,) = walk_nodes(ops.ScalarUDF, loaded)
+
+    assert ("namespace" in udf_yaml) == bool(namespace)
+    assert loaded_udf.__udf_namespace__ == ops.Namespace(**namespace)
+    assert xo.to_sql(loaded) == xo.to_sql(expr)
