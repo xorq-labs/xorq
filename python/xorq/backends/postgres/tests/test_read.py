@@ -108,3 +108,49 @@ def test_read_csv_incompatible_schemas_raises(pg, tmp_path, second):
 
     with pytest.raises(OperationalError):
         pg.read_csv([str(first_file_path), str(second_file_path)], table_name)
+
+
+def test_read_csv_reader_kwarg(pg, tmp_path):
+    # a pandas reader option must reach the reader and only the reader
+    path = tmp_path / "semicolon.csv"
+    df = pd.DataFrame({"A": [1, 2, 3], "B": ["a", "b", "c"]})
+    df.to_csv(path, index=False, sep=";")
+    table_name = "testing-semicolon"
+    assert table_name not in pg.tables
+    t = pg.read_csv(path, table_name, sep=";")
+    assert table_name in pg.tables
+    assert xo.execute(t).equals(df)
+
+
+def test_read_csv_chunksize_reaches_reader(pg, tmp_path):
+    path = tmp_path / "five.csv"
+    df = pd.DataFrame({"A": [1, 2, 3, 4, 5], "B": list("abcde")})
+    df.to_csv(path, index=False)
+    table_name = "testing-chunked"
+    assert table_name not in pg.tables
+    # the reader rejects a chunksize below one; before, the value never got there
+    with pytest.raises(ValueError, match="chunksize"):
+        pg.read_csv(path, table_name, chunksize=0)
+    assert table_name not in pg.tables
+    t = pg.read_csv(path, table_name, chunksize=2)
+    assert xo.execute(t).equals(df)
+
+
+def test_deferred_read_csv_reader_kwarg(pg, tmp_path):
+    # the deferred entry point packs reader options next to its own
+    # ingest arguments; they must still reach only the reader
+    path = tmp_path / "semicolon-deferred.csv"
+    df = pd.DataFrame({"A": [1, 2, 3], "B": ["a", "b", "c"]})
+    df.to_csv(path, index=False, sep=";")
+    table_name = "testing-semicolon-deferred"
+    assert table_name not in pg.tables
+    # schema inference does not see reader options, so declare the schema
+    t = xo.deferred_read_csv(
+        path,
+        con=pg,
+        table_name=table_name,
+        schema=xo.schema({"A": "int64", "B": "string"}),
+        sep=";",
+    )
+    assert xo.execute(t).equals(df)
+    assert table_name in pg.tables

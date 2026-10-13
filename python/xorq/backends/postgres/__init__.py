@@ -38,6 +38,14 @@ __all__ = [
 ]
 
 
+def _default_ingest_name(table_name, *, temporary, prefix):
+    if table_name is not None:
+        return table_name
+    if not temporary:
+        raise ValueError("If `table_name` is not provided, `temporary` must be True")
+    return gen_name(prefix)
+
+
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
     _secret_keys = (
@@ -200,13 +208,9 @@ class Backend(IbisPostgresBackend):
         mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
-        if table_name is None:
-            if not temporary:
-                raise ValueError(
-                    "If `table_name` is not provided, `temporary` must be True"
-                )
-            else:
-                table_name = gen_name("ls-read-parquet")
+        table_name = _default_ingest_name(
+            table_name, temporary=temporary, prefix="ls-read-parquet"
+        )
         record_batches = default_backend().read_parquet(path).to_pyarrow_batches()
         return self.read_record_batches(
             record_batches=record_batches,
@@ -230,21 +234,19 @@ class Backend(IbisPostgresBackend):
     ):
         if chunksize is None:
             raise ValueError("chunksize must not be None")
-        if table_name is None:
-            if not temporary:
-                raise ValueError(
-                    "If `table_name` is not provided, `temporary` must be True"
-                )
-            else:
-                table_name = gen_name("ls-read-csv")
-        record_batches = read_csv_rbr(path, schema=schema, **kwargs)
+        table_name = _default_ingest_name(
+            table_name, temporary=temporary, prefix="ls-read-csv"
+        )
+        # reader options stay with the reader: the ingest cursor rejects them
+        record_batches = read_csv_rbr(
+            path, schema=schema, chunksize=chunksize, **kwargs
+        )
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
             password=password,
             temporary=temporary,
             mode=mode,
-            **kwargs,
         )
 
     def create_catalog(self, name: str, force: bool = False) -> None:
