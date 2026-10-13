@@ -12,7 +12,7 @@ from attrs.validators import instance_of
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.content_hash import content_hash
+from xorq.common.utils.content_hash import ContentHasher
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import (
     bfs,
@@ -1014,6 +1014,7 @@ def make_node_hasher() -> Callable[[Node], str]:
     across runs.
     """
     memo: dict[Node, str] = {}
+    content_hash = ContentHasher()
 
     def node_hash(node: Node) -> str:
         if (hashed := memo.get(node)) is not None:
