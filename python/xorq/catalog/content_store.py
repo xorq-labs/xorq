@@ -903,10 +903,23 @@ class PresignedContentStore(ContentStore):
             raise
         return self._response_items(payload, field_name, specs)
 
+    @cached_property
+    def _service_is_loopback(self) -> bool:
+        return _is_loopback_host(urlsplit(self.service_url).hostname)
+
     @staticmethod
     def _presigned_request(
         raw: Any,
+        *,
+        allow_loopback_http: bool,
     ) -> _PresignedRequest:
+        """Validate one service-issued presigned request.
+
+        Plain HTTP to a loopback object URL is a development affordance, so it
+        is honoured only when the service itself is on loopback: a remote
+        service must not be able to point this client at a port on the user's
+        own machine.
+        """
         if not isinstance(raw, dict):
             raise ContentStoreError("catalog service omitted a presigned request")
         url = raw.get("url")
@@ -933,7 +946,8 @@ class PresignedContentStore(ContentStore):
             not (
                 parsed.scheme == "https"
                 or (
-                    parsed.scheme == "http"
+                    allow_loopback_http
+                    and parsed.scheme == "http"
                     and parsed.hostname is not None
                     and _is_loopback_host(parsed.hostname)
                 )
@@ -945,7 +959,7 @@ class PresignedContentStore(ContentStore):
         ):
             raise ContentStoreError(
                 "catalog service returned an invalid presigned URL; HTTPS is "
-                "required except for loopback testing"
+                "required except for loopback testing against a loopback service"
             )
         for key, value in headers.items():
             if (
@@ -1063,7 +1077,10 @@ class PresignedContentStore(ContentStore):
                 status = result.get("status")
                 request_data = None
                 if status == "upload_required":
-                    request_data = self._presigned_request(result.get("request"))
+                    request_data = self._presigned_request(
+                        result.get("request"),
+                        allow_loopback_http=self._service_is_loopback,
+                    )
                     if self._request_expires_soon(request_data, spec.size):
                         result = self._batch_results(
                             "uploads:batch",
@@ -1074,7 +1091,8 @@ class PresignedContentStore(ContentStore):
                         status = result.get("status")
                         if status == "upload_required":
                             request_data = self._presigned_request(
-                                result.get("request")
+                                result.get("request"),
+                                allow_loopback_http=self._service_is_loopback,
                             )
                 upload_id = self._upload_id(result)
                 if upload_id in upload_ids:
@@ -1202,7 +1220,10 @@ class PresignedContentStore(ContentStore):
                 token_required=False,
             )
             for identity, spec in batch.items():
-                request_data = self._presigned_request(results[identity].get("request"))
+                request_data = self._presigned_request(
+                    results[identity].get("request"),
+                    allow_loopback_http=self._service_is_loopback,
+                )
                 for local_path in by_identity[identity][1]:
                     if self._request_expires_soon(request_data, spec.size):
                         refreshed = self._batch_results(
@@ -1212,7 +1233,8 @@ class PresignedContentStore(ContentStore):
                             token_required=False,
                         )
                         request_data = self._presigned_request(
-                            refreshed[identity].get("request")
+                            refreshed[identity].get("request"),
+                            allow_loopback_http=self._service_is_loopback,
                         )
                     self._download_presigned(spec, local_path, request_data)
                 verified.add(spec.key)

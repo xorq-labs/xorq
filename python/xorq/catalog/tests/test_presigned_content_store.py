@@ -949,10 +949,12 @@ def test_presigned_object_url_requires_https_away_from_loopback() -> None:
     }
 
     with pytest.raises(ContentStoreError, match="HTTPS is required"):
-        PresignedContentStore._presigned_request(request)
+        PresignedContentStore._presigned_request(request, allow_loopback_http=True)
 
     request["url"] = "http://127.0.0.1:8080/archive.zip"
-    url, headers, _expiry = PresignedContentStore._presigned_request(request)
+    url, headers, _expiry = PresignedContentStore._presigned_request(
+        request, allow_loopback_http=True
+    )
     assert url == request["url"]
     assert headers == {}
 
@@ -986,7 +988,7 @@ def test_presigned_request_rejects_unsafe_transport_metadata(
     request[field] = value
 
     with pytest.raises(ContentStoreError, match=match):
-        PresignedContentStore._presigned_request(request)
+        PresignedContentStore._presigned_request(request, allow_loopback_http=True)
 
 
 def test_loopback_control_and_object_requests_bypass_environment_proxy(
@@ -1648,3 +1650,54 @@ def test_service_http_error_survives_a_process_boundary() -> None:
         403,
         "forbidden",
     )
+
+
+def test_remote_service_cannot_direct_downloads_to_loopback_http(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    content = b"a remote service must not reach the user's own ports"
+    sha256 = _digest(content)
+    store = PresignedContentStore(
+        catalog_id=CATALOG_ID,
+        service_url="https://catalog.example/",
+        remote_url="https://catalog.example/alice/demo.git",
+    )
+    opened: list[str] = []
+
+    def control_post(
+        self: PresignedContentStore, suffix: str, payload: Any, *, token: Any
+    ) -> dict[str, Any]:
+        return {
+            "downloads": [
+                {
+                    "sha256": sha256,
+                    "size": len(content),
+                    "request": {
+                        "url": "http://127.0.0.1:9/objects/archive.zip",
+                        "headers": {},
+                        "expires_at": "2099-01-01T00:00:00Z",
+                    },
+                }
+            ]
+        }
+
+    def record_open(self: PresignedContentStore, request: Any, **kwargs: Any) -> Any:
+        opened.append(request.full_url)
+        raise AssertionError("no object request may be sent")
+
+    monkeypatch.setattr(PresignedContentStore, "_control_post", control_post)
+    monkeypatch.setattr(PresignedContentStore, "_open", record_open)
+
+    with pytest.raises(ContentStoreError, match="invalid presigned URL"):
+        store.get_many(
+            (
+                (
+                    ContentSpec(
+                        compute_content_key(CATALOG_ID, sha256), sha256, len(content)
+                    ),
+                    tmp_path / "download.zip",
+                ),
+            )
+        )
+    assert opened == []
