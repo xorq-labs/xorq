@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import pickle
 import threading
@@ -10,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
 import pytest
@@ -1701,3 +1703,13 @@ def test_remote_service_cannot_direct_downloads_to_loopback_http(
             )
         )
     assert opened == []
+
+
+def test_http_failure_closes_the_error_response() -> None:
+    body = io.BytesIO(b'{"error": "forbidden"}')
+    error = HTTPError("https://catalog.example/", 403, "Forbidden", {}, body)
+
+    failure = PresignedContentStore._http_failure(error, "catalog service request")
+
+    assert (failure.status, failure.error_code) == (403, "forbidden")
+    assert body.closed

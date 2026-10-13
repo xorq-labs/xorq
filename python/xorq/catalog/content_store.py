@@ -666,6 +666,9 @@ class PresignedContentStore(ContentStore):
     def _http_failure(error: HTTPError, operation: str) -> ContentStoreError:
         detail = ""
         error_code = None
+        # The HTTPError is the open response: close it here, since the raise
+        # that follows keeps it alive (and its socket open) through
+        # __context__ for as long as the traceback lives.
         try:
             body = error.read(_CONTROL_RESPONSE_MAX_BYTES + 1)
             if len(body) <= _CONTROL_RESPONSE_MAX_BYTES:
@@ -677,6 +680,8 @@ class PresignedContentStore(ContentStore):
                     detail = f" ({error_code})"
         except (OSError, HTTPException, UnicodeDecodeError, json.JSONDecodeError):
             pass
+        finally:
+            error.close()
         return CatalogServiceHTTPError(
             f"{operation} failed with HTTP status {error.code}{detail}",
             status=error.code,
