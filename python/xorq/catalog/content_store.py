@@ -1229,19 +1229,24 @@ class PresignedContentStore(ContentStore):
                     results[identity].get("request"),
                     allow_loopback_http=self._service_is_loopback,
                 )
-                for local_path in by_identity[identity][1]:
-                    if self._request_expires_soon(request_data, spec.size):
-                        refreshed = self._batch_results(
-                            "downloads:batch",
-                            "downloads",
-                            {identity: spec},
-                            token_required=False,
-                        )
-                        request_data = self._presigned_request(
-                            refreshed[identity].get("request"),
-                            allow_loopback_http=self._service_is_loopback,
-                        )
-                    self._download_presigned(spec, local_path, request_data)
+                if self._request_expires_soon(request_data, spec.size):
+                    refreshed = self._batch_results(
+                        "downloads:batch",
+                        "downloads",
+                        {identity: spec},
+                        token_required=False,
+                    )
+                    request_data = self._presigned_request(
+                        refreshed[identity].get("request"),
+                        allow_loopback_http=self._service_is_loopback,
+                    )
+                # Transfer once per identity; further destinations are local
+                # copies of bytes already verified in transit.
+                first, *others = by_identity[identity][1]
+                self._download_presigned(spec, first, request_data)
+                for local_path in others:
+                    with atomic_write(local_path) as tmp:
+                        shutil.copy2(first, tmp)
                 verified.add(spec.key)
         return verified
 

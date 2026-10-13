@@ -1713,3 +1713,22 @@ def test_http_failure_closes_the_error_response() -> None:
 
     assert (failure.status, failure.error_code) == (403, "forbidden")
     assert body.closed
+
+
+def test_get_many_transfers_a_duplicated_identity_once(
+    tmp_path: Path,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    content = b"one object wanted at two destinations"
+    sha256 = _digest(content)
+    hosted_blob_service.state.objects[sha256] = content
+    spec = ContentSpec(compute_content_key(CATALOG_ID, sha256), sha256, len(content))
+    first, second = tmp_path / "first.zip", tmp_path / "second.zip"
+
+    verified = _store(hosted_blob_service).get_many(((spec, first), (spec, second)))
+
+    assert verified == {spec.key}
+    assert first.read_bytes() == second.read_bytes() == content
+    assert [method for method, _, _ in hosted_blob_service.state.object_requests] == [
+        "GET"
+    ]
