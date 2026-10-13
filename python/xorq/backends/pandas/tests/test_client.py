@@ -10,6 +10,7 @@ import pytest
 from pytest import param
 
 import xorq.api as xo
+import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.tests.util import assert_frame_equal
 
@@ -82,6 +83,16 @@ def test_create_table(client, test_data, lamduh):
     assert "testing" in client.list_tables()
     client.create_table("testingschema", schema=client.get_schema("testing"))
     assert "testingschema" in client.list_tables()
+
+
+def test_create_table_from_memtable(client, test_data):
+    client.create_table("from_memtable", obj=xo.memtable(test_data))
+    assert_frame_equal(client.table("from_memtable").execute(), test_data)
+
+
+def test_create_table_rejects_non_memtable_expr(client, table):
+    with pytest.raises(com.BackendConversionError):
+        client.create_table("from_expr", obj=table.mutate(c=table.a))
 
 
 def test_literal(client):

@@ -449,7 +449,7 @@ def _convert_object(obj: Any, _conn):
     )
 
 
-@_convert_object.register("ibis.expr.types.Table")
+@_convert_object.register("xorq.vendor.ibis.expr.types.Table")
 def _table(obj, _conn):
     if isinstance(op := obj.op(), ops.InMemoryTable):
         return op.data.to_frame()
