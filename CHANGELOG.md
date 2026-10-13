@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.7] - 2026-10-13
+### Details
+#### Added
+- Add scripts/release.sh for steps 1-6 of the release flow by @mesejo in [#2378](https://github.com/xorq-labs/xorq/pull/2378)
+
+#### Changed
+- Restore autolabeler and label breaking changes by @mesejo in [#2364](https://github.com/xorq-labs/xorq/pull/2364)
+- Match categories by title, label fork PRs by @mesejo in [#2366](https://github.com/xorq-labs/xorq/pull/2366)
+
+#### Fixed
+- Render compile() from a copy so shared sqlglot nodes are not mutated by @mesejo in [#2380](https://github.com/xorq-labs/xorq/pull/2380)
+- Uniform type handling across read_csv and read_json by @mesejo in [#2368](https://github.com/xorq-labs/xorq/pull/2368)
+- Stop TimestampBucket editing the shared offset node by @mesejo in [#2388](https://github.com/xorq-labs/xorq/pull/2388)
+- Read_csv honours the schema deferred_read_csv records by @mesejo in [#2363](https://github.com/xorq-labs/xorq/pull/2363)
+- Bucket offsets shift the date_bin origin forward by @mesejo in [#2389](https://github.com/xorq-labs/xorq/pull/2389)
+- Read_csv accepts schema=, csv readers spell it once by @mesejo in [#2390](https://github.com/xorq-labs/xorq/pull/2390)
+- CASE accepts conditions from nullable columns by @mesejo in [#2392](https://github.com/xorq-labs/xorq/pull/2392)
+- Csv intervals convert integers apart from fractions by @mesejo in [#2391](https://github.com/xorq-labs/xorq/pull/2391)
+
 ## [0.4.6] - 2026-10-06
 ### Details
 #### Changed
