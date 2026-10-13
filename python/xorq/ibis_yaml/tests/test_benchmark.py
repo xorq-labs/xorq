@@ -1,8 +1,9 @@
+import pandas as pd
 import pytest
 
 import xorq.api as xo
 from xorq.api import _
-from xorq.ibis_yaml.compiler import build_expr
+from xorq.ibis_yaml.compiler import YamlExpressionTranslator, build_expr
 
 
 @pytest.mark.benchmark
@@ -48,3 +49,22 @@ def test_baseball_stats_compilation(builds_dir):
     expr_hash = build_path.name
     assert isinstance(expr_hash, str)
     assert len(expr_hash) > 0
+
+
+@pytest.mark.benchmark
+def test_to_yaml_long_chain(benchmark):
+    t = xo.table({"a": "int64"}, name="t")
+    for i in range(40):
+        t = t.mutate(**{f"m{i}": t.a + i}) if i % 2 == 0 else t.filter(t.a > -i)
+    benchmark(YamlExpressionTranslator.to_yaml, t)
+
+
+@pytest.mark.benchmark
+def test_to_yaml_shared_remote_tables(benchmark):
+    # n levels of unioning two RemoteTables over one expression share their
+    # subtrees; translation must stay linear in the distinct nodes, not 2**n
+    con, left, right = xo.connect(), xo.connect(), xo.connect()
+    expr = con.create_table("t", pd.DataFrame({"a": [1, 2]}))
+    for level in range(12):  # noqa: B007 - the level number is not used
+        expr = expr.into_backend(left).union(expr.into_backend(right))
+    benchmark(YamlExpressionTranslator.to_yaml, expr)
