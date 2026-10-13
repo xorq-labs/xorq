@@ -28,8 +28,9 @@ class CatalogServiceHTTPError(ContentStoreError):
         message: str,
         status: int,
         error_code: str | None,
+        retry_after: int | None = None,
     ) -> None:
-        super().__init__(message, status, error_code)
+        super().__init__(message, status, error_code, retry_after)
 
     def __str__(self) -> str:
         return self.args[0]
@@ -41,6 +42,11 @@ class CatalogServiceHTTPError(ContentStoreError):
     @property
     def error_code(self) -> str | None:
         return self.args[2]
+
+    @property
+    def retry_after(self) -> int | None:
+        """Seconds the service asked the client to wait, if it said."""
+        return self.args[3]
 
 
 class CatalogPushError(RuntimeError):

@@ -24,6 +24,8 @@ from xorq.catalog.backend import _FETCH_BATCH_SIZE, GitPointerBackend
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.constants import CONTENT_STORE_YAML
 from xorq.catalog.content_store import (
+    _CONTROL_RETRY_ATTEMPTS,
+    _CONTROL_RETRY_MAX_DELAY_SECONDS,
     _MAX_PRESIGNED_BLOB_BYTES,
     _MAX_TRANSFER_SECONDS,
     _PRESIGNED_ASSUMED_BYTES_PER_SECOND,
@@ -82,6 +84,8 @@ class _ServiceState:
     reverse_uploads: bool = False
     reverse_downloads: bool = False
     next_control_error: int | None = None
+    control_error_repeats: int = 1
+    control_error_retry_after: str | None = None
     rejected_authorizations: dict[str, tuple[int, str]] = field(factory=dict)
     redirect_download: bool = False
     redirect_was_followed: bool = False
@@ -141,8 +145,17 @@ class _HostedBlobHandler(BaseHTTPRequestHandler):
         status = self.state.next_control_error
         if status is None:
             return False
-        self.state.next_control_error = None
-        self._send_json(status, {"error": "service_unavailable"})
+        self.state.control_error_repeats -= 1
+        if self.state.control_error_repeats <= 0:
+            self.state.next_control_error = None
+        body = json.dumps({"error": "service_unavailable"}).encode()
+        self.send_response(status)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(body)))
+        if self.state.control_error_retry_after is not None:
+            self.send_header("retry-after", self.state.control_error_retry_after)
+        self.end_headers()
+        self.wfile.write(body)
         return True
 
     def do_POST(self) -> None:  # noqa: N802
@@ -854,6 +867,7 @@ def test_public_download_does_not_retry_other_auth_failures_anonymously(
 ) -> None:
     token = "scoped-token"
     _set_token(monkeypatch, hosted_blob_service, token)
+    monkeypatch.setattr("xorq.catalog.content_store.time.sleep", lambda _: None)
     hosted_blob_service.state.rejected_authorizations[f"Bearer {token}"] = (
         status,
         error_code,
@@ -870,10 +884,12 @@ def test_public_download_does_not_retry_other_auth_failures_anonymously(
             size=len(content),
         )
 
+    # A rate limit is retried, but always with the same credentials.
+    attempts = _CONTROL_RETRY_ATTEMPTS if status == 429 else 1
     assert [
         authorization
         for _, authorization, _ in hosted_blob_service.state.control_requests
-    ] == [f"Bearer {token}"]
+    ] == [f"Bearer {token}"] * attempts
     assert hosted_blob_service.state.object_requests == []
 
 
@@ -903,7 +919,9 @@ def test_service_error_redacts_token_and_skips_upload(
 ) -> None:
     secret = "token-must-not-appear-in-errors"
     _set_token(monkeypatch, hosted_blob_service, secret)
+    monkeypatch.setattr("xorq.catalog.content_store.time.sleep", lambda _: None)
     hosted_blob_service.state.next_control_error = 503
+    hosted_blob_service.state.control_error_repeats = _CONTROL_RETRY_ATTEMPTS
     content = b"service error"
     sha256 = _digest(content)
     source = tmp_path / "source.zip"
@@ -1826,3 +1844,63 @@ def test_upload_never_completes_bytes_that_changed_after_hashing(
         )
 
     assert hosted_blob_service.state.completed == []
+
+
+@pytest.mark.parametrize(
+    ("status", "retry_after", "expected_sleeps"),
+    (
+        (503, None, [1, 2]),
+        (429, "5", [5, 5]),
+        (429, "3600", [_CONTROL_RETRY_MAX_DELAY_SECONDS] * 2),
+    ),
+)
+def test_control_requests_retry_statuses_that_pass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+    status: int,
+    retry_after: str | None,
+    expected_sleeps: list[int],
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("xorq.catalog.content_store.time.sleep", sleeps.append)
+    state = hosted_blob_service.state
+    state.next_control_error = status
+    state.control_error_repeats = _CONTROL_RETRY_ATTEMPTS - 1
+    state.control_error_retry_after = retry_after
+    content = b"fetched once the service recovers"
+    sha256 = _digest(content)
+    state.objects[sha256] = content
+    destination = tmp_path / "download.zip"
+
+    _store(hosted_blob_service).get(
+        compute_content_key(CATALOG_ID, sha256),
+        destination,
+        sha256=sha256,
+        size=len(content),
+    )
+
+    assert destination.read_bytes() == content
+    assert sleeps == expected_sleeps
+
+
+def test_control_requests_do_not_retry_other_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("xorq.catalog.content_store.time.sleep", sleeps.append)
+    hosted_blob_service.state.next_control_error = 409
+    sha256 = _digest(b"missing")
+
+    with pytest.raises(ContentStoreError, match="HTTP status 409"):
+        _store(hosted_blob_service).get(
+            compute_content_key(CATALOG_ID, sha256),
+            tmp_path / "download.zip",
+            sha256=sha256,
+            size=7,
+        )
+
+    assert sleeps == []
+    assert len(hosted_blob_service.state.control_requests) == 1

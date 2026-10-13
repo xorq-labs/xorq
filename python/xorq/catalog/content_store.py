@@ -69,6 +69,12 @@ _DEFAULT_CACHE_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
 _MAX_PRESIGNED_BLOB_BYTES = 5_000_000_000
 _CONTROL_RESPONSE_MAX_BYTES = 256 * 1024
 _CONTROL_TIMEOUT_SECONDS = 300
+# The service answers 429 rate_limited and 503 service_unavailable for
+# conditions that pass; a control request retries those, waiting as long as
+# Retry-After asks (bounded) or backing off exponentially when it is absent.
+_CONTROL_RETRY_STATUSES = frozenset({429, 503})
+_CONTROL_RETRY_ATTEMPTS = 3
+_CONTROL_RETRY_MAX_DELAY_SECONDS = 60
 _PRESIGNED_BATCH_SIZE = 10
 _TRANSFER_CHUNK_BYTES = 1024 * 1024
 # urllib passes this to HTTPConnection, so it bounds how long a single socket
@@ -699,10 +705,12 @@ class PresignedContentStore(ContentStore):
             pass
         finally:
             error.close()
+        retry_after = (error.headers or {}).get("Retry-After", "")
         return CatalogServiceHTTPError(
             f"{operation} failed with HTTP status {error.code}{detail}",
             status=error.code,
             error_code=error_code if isinstance(error_code, str) else None,
+            retry_after=int(retry_after) if retry_after.isdigit() else None,
         )
 
     def _open(self, request: Request, *, timeout: int, operation: str) -> Any:
@@ -736,27 +744,7 @@ class PresignedContentStore(ContentStore):
         else:
             body = json.dumps(payload, separators=(",", ":")).encode()
             headers["Content-Type"] = "application/json"
-        request = Request(
-            self._endpoint(suffix),
-            data=body,
-            headers=headers,
-            method="POST",
-        )
-        with self._open(
-            request,
-            timeout=_CONTROL_TIMEOUT_SECONDS,
-            operation="catalog service request",
-        ) as response:
-            if response.status != 200:
-                raise ContentStoreError(
-                    f"catalog service request returned HTTP status {response.status}"
-                )
-            try:
-                raw = response.read(_CONTROL_RESPONSE_MAX_BYTES + 1)
-            except (OSError, HTTPException) as exc:
-                raise ContentStoreError(
-                    "catalog service response failed during transfer"
-                ) from exc
+        raw = self._control_exchange(self._endpoint(suffix), body, headers)
         if len(raw) > _CONTROL_RESPONSE_MAX_BYTES:
             raise ContentStoreError("catalog service response is too large")
         try:
@@ -768,6 +756,39 @@ class PresignedContentStore(ContentStore):
                 "catalog service returned an invalid response shape"
             )
         return decoded
+
+    def _control_exchange(
+        self, url: str, body: bytes, headers: dict[str, str]
+    ) -> bytes:
+        """POST one control request, retrying the statuses that pass."""
+        for attempt in range(_CONTROL_RETRY_ATTEMPTS):
+            request = Request(url, data=body, headers=headers, method="POST")
+            try:
+                with self._open(
+                    request,
+                    timeout=_CONTROL_TIMEOUT_SECONDS,
+                    operation="catalog service request",
+                ) as response:
+                    if response.status != 200:
+                        raise ContentStoreError(
+                            "catalog service request returned HTTP status "
+                            f"{response.status}"
+                        )
+                    try:
+                        return response.read(_CONTROL_RESPONSE_MAX_BYTES + 1)
+                    except (OSError, HTTPException) as exc:
+                        raise ContentStoreError(
+                            "catalog service response failed during transfer"
+                        ) from exc
+            except CatalogServiceHTTPError as exc:
+                if (
+                    exc.status not in _CONTROL_RETRY_STATUSES
+                    or attempt + 1 == _CONTROL_RETRY_ATTEMPTS
+                ):
+                    raise
+                delay = exc.retry_after if exc.retry_after is not None else 2**attempt
+                time.sleep(min(delay, _CONTROL_RETRY_MAX_DELAY_SECONDS))
+        raise AssertionError("unreachable: the last attempt returns or raises")
 
     def _validate_spec(self, spec: ContentSpec) -> None:
         if spec.size > _MAX_PRESIGNED_BLOB_BYTES:
