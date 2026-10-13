@@ -374,6 +374,31 @@ def test_a_date_column_is_not_drift(
     assert "equal" in result.output
 
 
+def test_a_column_subset_is_not_drift(
+    runner: CliRunner, tmp_path: Path, catalog_path: str
+) -> None:
+    """`recorded` was inferred with the read's `usecols`, so `live` is too.
+
+    Inferring from the bare file would list every column against a record
+    that holds the subset, and report `changed` for a file nobody touched.
+    """
+    csv_path = tmp_path / "src.csv"
+    csv_path.write_text("a,b,c\n1,x,7\n2,y,8\n")
+    read = xo.deferred_read_csv(
+        csv_path, xo.connect(), table_name="src", usecols=("a", "b")
+    )
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    name = catalog.add(read.filter(read.b == "x"), relocate_reads=False).name
+    (leaf,) = BuildRecord.from_catalog_entry(
+        catalog.get_catalog_entry(name)
+    ).external_leaves
+    assert leaf.recorded.names == ("a", "b")
+
+    result = check_sources(runner, catalog_path, name)
+    assert result.exit_code == 0
+    assert "equal" in result.output
+
+
 @pytest.mark.parametrize("suffix", ["csv", "parquet"])
 def test_a_declared_schema_is_compared_against_inference(
     runner: CliRunner, tmp_path: Path, catalog_path: str, suffix: str
