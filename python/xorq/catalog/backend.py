@@ -507,8 +507,10 @@ class GitPointerBackend(CatalogBackend):
                     self._verify_content(cached, path, sha256, size)
                     with atomic_write(archive_path) as tmp_path:
                         shutil.copy2(cached, tmp_path)
-                except FileNotFoundError:
-                    # The cache entry can be evicted between get_path() and copy.
+                except (FileNotFoundError, ContentIntegrityError):
+                    # The cache entry can be evicted between get_path() and
+                    # copy, or fail verification — which unlinks it. Either
+                    # way it is no longer a hit, so fetch it like a miss.
                     pass
                 else:
                     continue

@@ -1033,8 +1033,8 @@ def test_parse_pointer_rejects_malformed(tmp_path: Path) -> None:
         parse_pointer(p)
 
 
-def test_fetch_content_drops_corrupt_cache_entry(tmp_path: Path) -> None:
-    """A SHA mismatch removes the cached entry so the next fetch self-heals."""
+def test_fetch_content_refetches_over_a_corrupt_cache_entry(tmp_path: Path) -> None:
+    """A SHA mismatch in the cache is dropped and fetched again in the same call."""
     repo = GitRepo.init(tmp_path / "repo")
     store_dir = tmp_path / "store"
     config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
@@ -1057,13 +1057,10 @@ def test_fetch_content_drops_corrupt_cache_entry(tmp_path: Path) -> None:
     cached_path = cache._path(key)
     cached_path.write_bytes(b"corrupt")
 
-    with pytest.raises(ContentIntegrityError):
-        backend.fetch_content(target)
-    assert not cached_path.exists()  # corrupt entry dropped
-
-    # second attempt re-pulls the good copy from the store and succeeds
     backend.fetch_content(target)
+
     assert target.read_bytes() == b"real content"
+    assert cached_path.read_bytes() == b"real content"  # cache healed too
 
 
 def test_fetch_content_drops_cache_entry_on_size_mismatch(tmp_path: Path) -> None:
