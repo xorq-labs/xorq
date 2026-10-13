@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import importlib.metadata
 from collections.abc import Callable
-from typing import Optional
+from typing import Optional, Protocol, runtime_checkable
 
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of, is_callable, optional
@@ -72,13 +72,44 @@ class TagHandler:
     )
     reemit: Optional[Callable] = field(default=None, validator=optional(is_callable()))
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
         if not self.tag_names:
             raise ValueError("TagHandler must declare at least one tag_name")
         if self.extract_metadata is None and self.from_tag_node is None:
             raise ValueError(
                 "TagHandler must have at least one of extract_metadata or from_tag_node"
             )
+
+
+@runtime_checkable
+class Rebuildable(Protocol):
+    """A recovered domain object that can re-emit its expression for rebuild.
+
+    Implemented by the objects returned from ``TagHandler.from_tag_node``
+    (e.g. ``FittedPipeline``, ``ExprComposer``). ``get_rebuild_dispatch``
+    routes ``catalog replay --rebuild`` through this single method, replacing
+    the earlier duck-typed dispatch over ``reemit`` / ``with_inputs_translated``.
+
+    The four arguments are the full context available at the dispatch site.
+    Implementations use whichever ones fit their rebuild model and ignore the
+    rest:
+
+    - input-driven builders (``FittedPipeline``) use ``tag_node`` +
+      ``rebuild_subexpr`` to recurse through their own subtrees, and ignore
+      ``remap`` / ``to_catalog``;
+    - recipe builders (``ExprComposer``) use ``remap`` + ``to_catalog`` to
+      translate a self-contained recipe, and ignore ``tag_node`` /
+      ``rebuild_subexpr``.
+    """
+
+    def rebuild(
+        self,
+        tag_node: "Tag | HashingTag",
+        rebuild_subexpr: Callable,
+        remap: dict,
+        to_catalog: object,
+    ) -> object:  # -> Expr
+        ...
 
 
 _FROM_TAG_NODE_REGISTRY: dict[str, TagHandler] = {}
@@ -184,17 +215,15 @@ def get_rebuild_dispatch(tag_node):
     Dispatch order:
       1. Handler-level ``reemit`` callable (e.g., BSL-shape builders whose
          ``from_tag_node`` does not carry the full recipe).
-      2. Domain-object ``reemit(tag_node, rebuild_subexpr)`` method
-         (multi-output builders like ``FittedPipeline``).
-      3. Domain-object ``with_inputs_translated(remap, to_catalog)`` +
-         ``expr`` (single-output builders like ``ExprComposer``).
+      2. Domain object implementing the :class:`Rebuildable` protocol
+         (``FittedPipeline``, ``ExprComposer``, third-party builders).
 
-    All three paths are normalized to a single calling convention:
-    ``dispatch(rebuild_subexpr, remap, to_catalog) -> Expr``. Closures
-    for paths 1 and 2 ignore ``remap``/``to_catalog`` (their reemit
-    method recurses through ``rebuild_subexpr`` instead); the closure
-    for path 3 ignores ``rebuild_subexpr`` (``with_inputs_translated``
-    walks the recipe directly). The driver passes all three regardless.
+    Both paths are normalized to a single calling convention:
+    ``dispatch(rebuild_subexpr, remap, to_catalog) -> Expr``. The handler
+    closure (path 1) ignores ``remap``/``to_catalog`` (its reemit method
+    recurses through ``rebuild_subexpr`` instead); the protocol closure
+    (path 2) forwards all four context arguments and each ``rebuild``
+    implementation uses only the ones relevant to its rebuild model.
 
     Returns ``None`` when no handler matches or no rebuild path is available.
     """
@@ -211,15 +240,9 @@ def get_rebuild_dispatch(tag_node):
     builder = handler.from_tag_node(tag_node)
     if builder is None:
         return None
-    if callable(getattr(builder, "reemit", None)):
-        return lambda rebuild_subexpr, remap, to_catalog: builder.reemit(
-            tag_node, rebuild_subexpr
-        )
-    if callable(getattr(builder, "with_inputs_translated", None)) and hasattr(
-        builder, "expr"
-    ):
-        return lambda rebuild_subexpr, remap, to_catalog: (
-            builder.with_inputs_translated(remap, to_catalog).expr
+    if isinstance(builder, Rebuildable):
+        return lambda rebuild_subexpr, remap, to_catalog: builder.rebuild(
+            tag_node, rebuild_subexpr, remap, to_catalog
         )
     return None
 
