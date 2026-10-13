@@ -1,66 +1,63 @@
 """Content hash for expression-graph nodes.
 
-Single source of truth for a node's content-addressed identity. The hash is the
-dasher token of the node's *untagged*, snapshot-normalized representation, with
-per-type special-casing so structurally-equal nodes collapse to one identity.
+A node's identity is its serialized form: the yaml dict ``ibis_yaml`` builds
+for it, in which every child relation is already a reference named by the
+child's hash and everything else is a primitive. ``Registry.register_node``
+names a node by ``tokenize(node_dict)``, the scheme it already uses for dtypes
+and schemas, so hashing every node of an expression costs what serializing it
+costs: one translation, children first. :func:`content_hash` translates a node
+and reads that hash back, so ``ibis_yaml`` (expr.yaml node labels /
+``snapshot_hash``) and lineage extraction key a node identically and can
+cross-reference it by hash.
 
-Consumed by ``ibis_yaml`` (expr.yaml node labels / ``snapshot_hash``) and by
-lineage extraction (``lineage_utils``), so a relation keys identically in both
-artifacts and can be cross-referenced by hash. Lineage only calls this for
-relations; value ops (``Field``, ``SortKey``, …) never appear in expr.yaml and are
-not all normalizable, so they get a structural token instead.
+Leaves keep the identity their handlers give them (a backend table its
+profile and name, a ``Read`` its kwargs, a memtable its contents). A value op
+(``Field``, ``JoinLink``, ...) is serialized inline rather than registered and
+hashes the same way. A ``Tag`` is a node like any other, so a tagged relation
+and its untagged twin get different hashes.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.dasher import tokenize
-from xorq.expr.relations import CacheTag, HashingTag, Read, Tag
+from xorq.ibis_yaml.enums import NodeKey, RefEnum
+from xorq.vendor.ibis.common.graph import Node
 from xorq.vendor.ibis.expr.schema import Schema
 
 
-def content_hash(node: Any) -> str:
+def content_hash(node: Node | Schema, context: Any = None) -> str:
     """Return the content hash of *node*.
 
-    The hash is derived purely from ``node``, so any caller (``ibis_yaml``
-    serialization today, lineage extraction once wired) computes the same value
-    for the same node and it can be cross-referenced by hash. A plain ``Tag``
-    folds in its raw ``node.metadata`` -- never a serialization-specific form --
-    so callers agree regardless of how they reach this helper.
+    Parameters
+    ----------
+    node
+        An operation node, or a ``Schema`` (hashed directly).
+    context
+        A ``TranslationContext`` to translate through. Share one across the
+        nodes of an expression so the graph is translated once; a fresh one
+        is used otherwise.
+
+    Contract
+    --------
+    Raises what the node's yaml handler raises (``NotImplementedError`` for a
+    type with no translation rule). Translation recurses into the node's
+    inputs, so a chain of a few hundred ops needs the serializer's
+    children-first warm-up to stay within the stack.
     """
-    # Schema is not a graph node and has no to_expr(); hash it directly.
     if isinstance(node, Schema):
         return tokenize(node)
+    # ibis_yaml imports this module; resolve the cycle at call time
+    import xorq.ibis_yaml.translate  # noqa: PLC0415, F401
+    from xorq.ibis_yaml.common import TranslationContext  # noqa: PLC0415
 
-    strategy = SnapshotStrategy()
-    expr = node.to_expr()
-    match node:
-        case HashingTag():
-            tagged_repr = expr.ls.untagged
-            with strategy.normalization_context(expr):
-                return tokenize(tagged_repr)
-        case CacheTag():
-            untagged_repr = ("CacheTag", node.parent.to_expr(), node.uncached)
-            with strategy.normalization_context(expr):
-                return tokenize(untagged_repr)
-        case Tag():
-            untagged_repr = ("Tag", node.parent.to_expr(), node.metadata)
-            with strategy.normalization_context(expr):
-                return tokenize(untagged_repr)
-        case ops.JoinReference():
-            with strategy.normalization_context(expr):
-                parent_hash = tokenize(expr.ls.untagged)
-            return tokenize((parent_hash, node.identifier))
-        case Read():
-            # Include node.name so two Reads with identical content but different
-            # table names get distinct identities (prevents silent dedup).
-            untagged_repr = expr.ls.untagged
-            with strategy.normalization_context(expr):
-                return tokenize((untagged_repr, node.name))
+    context = TranslationContext() if context is None else context
+    with SnapshotStrategy().normalization_context(node):
+        translated = context.translate_to_yaml(node)
+    match translated:
+        case {RefEnum.node_ref: ref}:
+            return context.registry.nodes[ref][NodeKey.snapshot_hash]
         case _:
-            untagged_repr = expr.ls.untagged
-            with strategy.normalization_context(expr):
-                return tokenize(untagged_repr)
+            return tokenize(translated)

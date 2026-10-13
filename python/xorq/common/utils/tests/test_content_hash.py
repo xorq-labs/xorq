@@ -5,12 +5,17 @@ from typing import Any
 
 import pandas as pd
 import pytest
+from toolz import identity
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.caching import ParquetCache
 from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.node_utils import walk_nodes
-from xorq.expr.relations import HashingTag, Read, Tag
+from xorq.expr import api, udf
+from xorq.expr.relations import CacheTag, HashingTag, Read, Tag
+from xorq.ibis_yaml.common import TranslationContext
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.schema import Schema
@@ -49,19 +54,19 @@ def t() -> ibis.Expr:
         pytest.param(
             lambda t: t.tag("v1", extra="x"),
             Tag,
-            {"563943016a2d36c008f1d7129a84ae75"},
+            {"c607b67f7696ab0e702d634506d5a7f3"},
             id="tag",
         ),
         pytest.param(
             lambda t: t.hashing_tag("v1"),
             HashingTag,
-            {"d3a1cf68f4aaf63eba3c263ad5c8f5b7"},
+            {"9c7fbf834563e34fecb7a507c0101816"},
             id="hashing_tag",
         ),
         pytest.param(
             lambda t: t.filter(t.a > 1),
             ops.Filter,
-            {"b82aab366f891829b5c84e042a24ea85"},
+            {"9f545334703480278326142203c7fb80"},
             id="filter-default",
         ),
     ],
@@ -82,8 +87,8 @@ def test_golden_join_reference_hash_and_is_serialized() -> None:
     t2 = ibis.table({"b": "int64", "k": "int64"}, name="t2")
     expr = t1.join(t2, [("k", "k")])
     expected = {
-        "18af0a10f0e57ec2eb54430e77f1566c",
-        "7d9e90cea69511544f334134ca3d9716",
+        "95360b4fa7c26c0fd2495b68be0faada",
+        "f04458fa3d925cf54baf3ce48da6fafb",
     }
     nodes = list(walk_nodes(ops.JoinReference, expr))
     assert {content_hash(node) for node in nodes} == expected
@@ -138,3 +143,102 @@ def test_content_hash_is_deterministic(t: ibis.Expr) -> None:
     expr = t.filter(t.a > 1)
     node = expr.op()
     assert content_hash(node) == content_hash(node)
+
+
+def _filter_chain(n: int) -> ibis.Expr:
+    t = ibis.table({"a": "int64", "k": "int64"}, name="t")
+    for i in range(n):
+        t = t.filter(t.a > i)
+    return t
+
+
+def test_tag_is_part_of_its_parents_hash(t: ibis.Expr) -> None:
+    # a tagged relation and its untagged twin are different nodes with
+    # different serialized forms, so they get different refs
+    assert content_hash(t.tag("v1").filter(lambda s: s.a > 1).op()) != content_hash(
+        t.filter(t.a > 1).op()
+    )
+
+
+def test_content_hash_compiles_no_sql(monkeypatch) -> None:
+    def refuse(*args, **kwargs):
+        raise AssertionError("content_hash must not compile SQL")
+
+    monkeypatch.setattr(api, "to_sql", refuse)
+    expr = _filter_chain(20)
+    assert all(content_hash(node) for node in walk_nodes(ops.Relation, expr))
+
+
+def test_shared_context_agrees_with_standalone_calls() -> None:
+    expr = _filter_chain(12)
+    context = TranslationContext()
+    assert all(
+        content_hash(node, context) == content_hash(node)
+        for node in walk_nodes(ops.Relation, expr)
+    )
+    assert content_hash(expr.op(), context) in {
+        content_hash(node) for node in walk_nodes(ops.Relation, expr)
+    }
+
+
+def test_any_node_can_be_hashed_first() -> None:
+    # a JoinLink is serialized inline, not registered; it hashes like any node
+    con = xo.connect()
+    t = con.create_table("t", pd.DataFrame({"x": [1.0]}))
+    u = con.create_table("u", pd.DataFrame({"x": [1.0]}))
+    link = next(iter(t.join(u, "x").op().rest))
+    assert content_hash(link) == content_hash(link)
+
+
+def test_cache_tag_hashes_the_same_for_expr_and_node_payloads(tmp_path: Path) -> None:
+    con = xo.connect()
+    t = con.create_table("t", pd.DataFrame({"a": [1]}))
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con)
+    as_expr = CacheTag(schema=t.schema(), parent=t.op(), uncached=t, cache=cache)
+    as_node = CacheTag(schema=t.schema(), parent=t.op(), uncached=t.op(), cache=cache)
+    assert content_hash(as_expr) == content_hash(as_node)
+
+
+def test_scalars_without_a_dasher_rule_hash(t: ibis.Expr) -> None:
+    dated = ibis.table({"d": "date"}, name="d")
+    march = dated.filter(dated.d > ibis.date(2020, 3, 1)).op()
+    april = dated.filter(dated.d > ibis.date(2020, 4, 1)).op()
+    assert content_hash(march) != content_hash(april)
+    by_day = dated.mutate(w=dated.d.truncate("D")).op()
+    by_month = dated.mutate(w=dated.d.truncate("M")).op()
+    assert content_hash(by_day) != content_hash(by_month)
+
+
+def test_expr_scalar_udf_hashes_its_computed_input() -> None:
+    base = xo.memtable(pd.DataFrame({"x": [1.0, 2.0]}), name="base")
+
+    def pipeline(values: list[float]) -> ibis.Expr:
+        other = xo.memtable(pd.DataFrame({"x": values}), name="other")
+
+        @udf.agg.pandas_df(schema=other.schema(), return_type=dt.float64, name="my_sum")
+        def my_sum(frame):
+            return frame["x"].astype(float).sum()
+
+        predict = udf.make_pandas_expr_udf(
+            computed_kwargs_expr=my_sum.on_expr(other).name("my_sum").as_table(),
+            fn=lambda value, frame, **kw: frame["x"] + float(value),
+            schema=base.schema(),
+            name="add_sum",
+            return_type=dt.float64,
+            post_process_fn=identity,
+        )
+        return base.mutate(out=predict.on_expr(base)).as_table()
+
+    assert content_hash(pipeline([1.0, 2.0]).op()) != content_hash(
+        pipeline([10.0, 20.0]).op()
+    )
+
+
+def test_builtin_udfs_hash_the_sql_function_name() -> None:
+    t = ibis.table({"x": "float64"}, name="t")
+
+    def stub(x: float) -> float: ...
+
+    as_sqrt = t.mutate(y=udf.scalar.builtin(stub, name="sqrt")(t.x)).op()
+    as_abs = t.mutate(y=udf.scalar.builtin(stub, name="abs")(t.x)).op()
+    assert content_hash(as_sqrt) != content_hash(as_abs)

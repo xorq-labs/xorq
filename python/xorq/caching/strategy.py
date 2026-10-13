@@ -161,16 +161,17 @@ class SnapshotStrategy(CacheStrategy):
 
     def _build_hasher(self, expr: Expr) -> Hasher:
         from xorq.common.utils.dasher import fqn, snapshot_hasher  # noqa: PLC0415
+        from xorq.common.utils.graph_utils import find_all_sources  # noqa: PLC0415
 
         extra = [
             *self.declared_rules(),
             # Each concrete backend subclass on the expression also needs the
             # snapshot backend rule registered against its concrete FQN, otherwise
             # the MRO lookup picks the more-specific subclass and bypasses our
-            # override on BaseBackend.
+            # override on BaseBackend. find_all_sources takes an Expr or a Node.
             *(
                 (fqn(type(backend)), self.normalize_backend)
-                for backend in expr.ls.backends
+                for backend in find_all_sources(expr)
             ),
         ]
         return snapshot_hasher(*extra)

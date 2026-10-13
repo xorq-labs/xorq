@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from functools import singledispatch
@@ -974,62 +975,18 @@ def _op_slug(node: Node) -> str:
     return "".join(("_" + c.lower()) if c.isupper() else c for c in name).lstrip("_")
 
 
-def _arg_token(value: Any, node_hash: Callable[[Node], str]) -> Any:
-    """Hashable, address-free rendering of one op argument."""
-    if isinstance(value, Node):
-        return node_hash(value)
-    if isinstance(value, Mapping):
-        return tuple((str(k), _arg_token(v, node_hash)) for k, v in value.items())
-    if isinstance(value, (tuple, list)):
-        return tuple(_arg_token(v, node_hash) for v in value)
-    return str(value)
-
-
-def _structural_token(node: Node, node_hash: Callable[[Node], str]) -> str:
-    """Deterministic identity from an op's type and arguments.
-
-    ``repr()`` of an ibis op is address-based, so identity is rebuilt from
-    ``__argnames__``; child nodes contribute their own (memoized) hash, keeping
-    this linear in graph size.
-    """
-    return tokenize(
-        (type(node).__name__,)
-        + tuple(
-            (name, _arg_token(getattr(node, name, None), node_hash))
-            for name in getattr(node, "__argnames__", ())
-        )
-    )
-
-
 def make_node_hasher() -> Callable[[Node], str]:
-    """Return a memoized ``node -> hash`` function for one extraction pass.
+    """Return a ``node -> hash`` function for one extraction pass.
 
-    Relations hash with :func:`content_hash` -- the identity ``ibis_yaml`` stores
-    as ``snapshot_hash``, so a relation cross-references between expr.yaml and the
-    sidecar by hash. Everything else (``Field``, ``Literal``, ``SortKey``,
-    ``JoinLink``, …) gets a structural token: ``content_hash`` snapshot-normalizes
-    and may compile to SQL, which is both wasted work and outright unsupported for
-    some value ops (a ``SortKey`` cannot be re-projected), and none of them appear
-    as expr.yaml nodes anyway. Both forms are deterministic, so dedup is stable
-    across runs.
+    Every node hashes with :func:`content_hash`, the identity ``ibis_yaml``
+    stores as ``snapshot_hash``, through one translation context, so the
+    graph is translated once and a relation cross-references between
+    expr.yaml and the sidecar by hash. Value ops (``Field``, ``SortKey``,
+    ``JoinLink``, ...) are serialized inline and hash the same way.
     """
-    memo: dict[Node, str] = {}
+    from xorq.ibis_yaml.common import TranslationContext  # noqa: PLC0415
 
-    def node_hash(node: Node) -> str:
-        if (hashed := memo.get(node)) is not None:
-            return hashed
-        hashed = None
-        if isinstance(node, ops.Relation):
-            try:
-                hashed = content_hash(node)
-            except Exception:  # noqa: BLE001 - lineage must never break a build
-                hashed = None
-        if hashed is None:
-            hashed = _structural_token(node, node_hash)
-        memo[node] = hashed
-        return hashed
-
-    return node_hash
+    return functools.partial(content_hash, context=TranslationContext())
 
 
 def _node_dict(node: Node, label: str, snapshot_hash: str) -> dict:
