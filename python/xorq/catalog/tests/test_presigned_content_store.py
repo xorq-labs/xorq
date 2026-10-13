@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 import pytest
 from attr import define, field, frozen
 from git import Repo
+from git.cmd import Git
 
 import xorq.api as xo
 from xorq.catalog.backend import _FETCH_BATCH_SIZE, GitPointerBackend
@@ -1748,3 +1749,29 @@ def test_hosted_backend_reads_pointers_checked_out_with_crlf(
     backend.fetch_content(target)
 
     assert target.read_bytes() == b"pointer checked out by core.autocrlf"
+
+
+def test_hosted_content_store_resolves_the_remote_once_per_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    backend = _backend(tmp_path, hosted_blob_service)
+    _ = backend.content_store
+    commands: list[tuple[str, ...]] = []
+    execute = Git.execute
+
+    def recording(self: Git, command: Any, *args: Any, **kwargs: Any) -> Any:
+        commands.append(tuple(command))
+        return execute(self, command, *args, **kwargs)
+
+    monkeypatch.setattr(Git, "execute", recording)
+
+    _ = backend.content_store
+
+    # One effective fetch URL and one effective push URL: nothing else is
+    # needed to validate the binding.
+    assert [command[1:4] for command in commands] == [
+        ("remote", "get-url", "--all"),
+        ("remote", "get-url", "--push"),
+    ]

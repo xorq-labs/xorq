@@ -274,14 +274,16 @@ class GitPointerBackend(CatalogBackend):
         if not isinstance(self._config, PresignedContentStoreConfig):
             return self._content_store
 
-        # Re-read and validate the sole Git remote for every hosted operation.
-        # Stores remain cached by URL so their transport objects can be reused.
-        remote_url = self._config.bound_remote_url(self.repo)
-        (remote,) = tuple(self.repo.remotes)
-        self.validate_remote(remote)
+        # Re-read and validate the sole Git remote for every hosted operation,
+        # but only once per access: the validated effective URL is also the
+        # key under which stores (and their transport objects) are reused.
+        remotes = tuple(self.repo.remotes)
+        if len(remotes) != 1:
+            raise ValueError("a presigned catalog requires exactly one Git remote")
+        remote_url = self._validated_remote_url(remotes[0])
         store = self._presigned_stores.get(remote_url)
         if store is None:
-            store = self._config.make_store(repo=self.repo)
+            store = self._config.make_store_for_remote_url(remote_url)
             self._presigned_stores[remote_url] = store
         return store
 
@@ -322,8 +324,11 @@ class GitPointerBackend(CatalogBackend):
         return tuple(output.splitlines()) if output else ()
 
     def validate_remote(self, remote: Remote) -> None:
-        if not isinstance(self._config, PresignedContentStoreConfig):
-            return
+        if isinstance(self._config, PresignedContentStoreConfig):
+            self._validated_remote_url(remote)
+
+    def _validated_remote_url(self, remote: Remote) -> str:
+        """Validate *remote*'s effective URLs and return the one it uses."""
         fetch_urls = self._remote_urls(remote, push=False)
         push_urls = self._remote_urls(remote, push=True)
         if len(fetch_urls) != 1 or len(push_urls) != 1:
@@ -339,6 +344,7 @@ class GitPointerBackend(CatalogBackend):
             self._config.validate_remote_url(fetch_urls[0])
         except ValueError as exc:
             raise hosted_remote_error(exc, fetch_urls[0]) from exc
+        return fetch_urls[0]
 
     def preflight_content_write(self) -> None:
         _ = self.content_store

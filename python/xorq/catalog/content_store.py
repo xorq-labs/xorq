@@ -1721,7 +1721,10 @@ class PresignedContentStoreConfig(ContentStoreConfig):
         return remote_url
 
     def make_store(self, *, repo: Any = None) -> PresignedContentStore:
-        remote_url = self.bound_remote_url(repo)
+        return self.make_store_for_remote_url(self.bound_remote_url(repo))
+
+    def make_store_for_remote_url(self, remote_url: str) -> PresignedContentStore:
+        """Build a store for an effective Git URL the caller already resolved."""
         return PresignedContentStore(
             catalog_id=self.catalog_id,
             service_url=self.service_url,
