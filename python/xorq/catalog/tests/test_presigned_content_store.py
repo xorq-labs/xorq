@@ -2071,3 +2071,21 @@ def test_a_rejected_token_is_reported_when_the_anonymous_retry_cannot_connect(
     assert f"{TOKEN_ENV} was rejected first" in message
     assert "expired-token" not in message
     assert calls == ["expired-token", None]
+
+
+def test_an_upload_names_a_blank_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "\n")
+    content = b"refused before any request"
+    sha256 = _digest(content)
+    source = tmp_path / "source.zip"
+    source.write_bytes(content)
+
+    with pytest.raises(ContentStoreError, match=f"{TOKEN_ENV} is set but blank"):
+        _store(hosted_blob_service).ensure_present(
+            compute_content_key(CATALOG_ID, sha256), source, sha256=sha256
+        )
+    assert hosted_blob_service.state.control_requests == []

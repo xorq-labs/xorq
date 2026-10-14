@@ -665,9 +665,9 @@ class PresignedContentStore(ContentStore):
         """Return the catalog token to send, or why a configured one is withheld.
 
         The first item is the token, or None. The second explains why a token
-        that is configured is not being sent, and is None when there is
-        nothing to explain: either a token is sent, or none is configured (an
-        unset or empty variable). Callers decide whether a withheld token is
+        that is configured is not being sent (including one set but blank),
+        and is None when there is nothing to explain: either a token is sent,
+        or the variable is unset. Callers decide whether a withheld token is
         an error (an upload) or only context for a later failure (a download
         that may still succeed anonymously).
         """
@@ -675,8 +675,12 @@ class PresignedContentStore(ContentStore):
         # through EnvConfigable: the token is short-lived, and a refreshed one
         # must take effect without rebuilding the store.
         token = os.environ.get(_CATALOG_TOKEN_ENV)  # xorq-style: disable=os-environ
-        if token is None or not token.strip():
+        if token is None:
             return None, None
+        if not token.strip():
+            # Sent as nothing, like an unset variable, but named if it matters:
+            # an export of a command that printed only whitespace is a mistake.
+            return None, f"{_CATALOG_TOKEN_ENV} is set but blank"
         token_service_url = os.environ.get(  # xorq-style: disable=os-environ
             _CATALOG_TOKEN_SERVICE_ENV
         )
