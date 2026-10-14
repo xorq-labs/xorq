@@ -1979,3 +1979,16 @@ def test_a_rejected_token_is_reported_when_the_anonymous_retry_fails(
     assert f"{TOKEN_ENV} was rejected first" in message
     assert "HTTP status 401 (unauthorized)" in message
     assert token not in message
+
+
+@pytest.mark.parametrize(
+    "remote_url",
+    ("git@catalog.example:alice/demo.git", "ssh://git@catalog.example/alice/demo.git"),
+)
+def test_an_ssh_remote_is_told_to_use_https(remote_url: str) -> None:
+    config = PresignedContentStoreConfig(
+        catalog_id=CATALOG_ID, service_url="https://catalog.example/"
+    )
+
+    with pytest.raises(ValueError, match="must be an HTTPS URL; SSH"):
+        config.validate_remote_url(remote_url)

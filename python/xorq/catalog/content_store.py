@@ -170,6 +170,12 @@ def _split_http_url(value: str, *, label: str, allow_username: bool) -> SplitRes
         parsed.port
     except ValueError as exc:
         raise ValueError(f"{label} is invalid") from exc
+    if parsed.scheme not in ("http", "https"):
+        # Checked first: an SSH remote such as git@host:owner/slug.git has no
+        # hostname to urllib, and would otherwise be told it has credentials.
+        raise ValueError(
+            f"{label} must be an HTTPS URL; SSH and other schemes are not supported"
+        )
     if (
         not parsed.hostname
         or parsed.password is not None
