@@ -53,8 +53,15 @@ from xorq.common.utils.file_utils import file_digest
 
 POINTER_VERSION = "xorq-pointer v1"
 
-# validated to prevent path traversal from untrusted cloned repos
-_SAFE_CATALOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+# One safe path component: validated to prevent path traversal from
+# untrusted cloned repos. Hosted names also carry the hosted service's length
+# cap (its push validation accepts 1-128 bytes).
+_COMPONENT_HEAD, _COMPONENT_TAIL = "[A-Za-z0-9]", "[A-Za-z0-9_-]"
+_HOSTED_COMPONENT_MAX_LENGTH = 128
+_SAFE_CATALOG_ID_RE = re.compile(rf"^{_COMPONENT_HEAD}{_COMPONENT_TAIL}*$")
+_HOSTED_COMPONENT_RE = re.compile(
+    rf"{_COMPONENT_HEAD}{_COMPONENT_TAIL}{{0,{_HOSTED_COMPONENT_MAX_LENGTH - 1}}}"
+)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 _DEFAULT_CACHE_DIR = Path("~/.cache/xorq/content")
@@ -195,27 +202,21 @@ def _validate_service_url(value: str) -> str:
     return value
 
 
+def _origin(parsed: SplitResult) -> tuple[str, str, int]:
+    """Scheme, lowercased host and effective port of a validated HTTP(S) URL."""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return parsed.scheme, parsed.hostname.lower(), port
+
+
 def _service_url_identity(value: str, *, label: str) -> tuple[str, str, int, str]:
     parsed = _split_http_url(value, label=label, allow_username=False)
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    return (
-        parsed.scheme,
-        parsed.hostname.lower(),
-        port,
-        parsed.path.rstrip("/") or "/",
-    )
+    return (*_origin(parsed), parsed.path.rstrip("/") or "/")
 
 
 def _validate_remote_binding(service_url: str, remote_url: str) -> None:
     service = _split_http_url(service_url, label="service_url", allow_username=False)
     remote = _split_http_url(remote_url, label="Git remote URL", allow_username=True)
-    service_port = service.port or (443 if service.scheme == "https" else 80)
-    remote_port = remote.port or (443 if remote.scheme == "https" else 80)
-    if (
-        service.scheme != remote.scheme
-        or service.hostname.lower() != remote.hostname.lower()
-        or service_port != remote_port
-    ):
+    if _origin(service) != _origin(remote):
         raise ValueError("presigned service_url does not match the catalog Git remote")
 
     service_path = service.path.rstrip("/")

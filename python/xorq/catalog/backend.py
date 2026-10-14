@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import os
-import re
 import shutil
 import tempfile
 from collections.abc import Iterator
@@ -27,6 +26,7 @@ from xorq.catalog.constants import (
     POINTER_SUFFIX,
 )
 from xorq.catalog.content_store import (
+    _HOSTED_COMPONENT_RE,
     _PRESIGNED_BATCH_SIZE,
     ContentCache,
     ContentIntegrityError,
@@ -46,8 +46,6 @@ from xorq.catalog.content_store import (
 from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.git_utils import commit_context
 
-
-_HOSTED_COMPONENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 
 # Objects are staged on disk before being verified and adopted into the cache,
 # so a fetch of N objects must not stage all N at once. Derived from the
