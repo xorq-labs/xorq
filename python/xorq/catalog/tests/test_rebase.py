@@ -691,3 +691,18 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     result = rebase(runner, world)
     assert result.exit_code == 1
     assert "alias move failed" in result.stderr
+
+
+@pytest.mark.parametrize("backend_type", ("pointer",))
+def test_an_entry_whose_archive_is_not_local_is_fetched_first(
+    world: SimpleNamespace,
+) -> None:
+    # A fresh clone of a pointer catalog has the pointer but not the archive.
+    entry = world.catalog.get_catalog_entry(world.name)
+    Path(entry.catalog_path).unlink()
+    assert not entry.is_content_local
+
+    result = rebase_old(world)
+
+    assert result.status == RebaseStatus.NOOP
+    assert entry.is_content_local

@@ -359,7 +359,11 @@ def rebase_entry(
 
     # `ExprDumper` validates `cache_dir` as a `Path`.
     cache_dir = Path(cache_dir) if cache_dir is not None else None
-    # First: reading the record opens a `BuildZip`, which refuses a
+    # Every check below opens the archive, which a pointer or annex catalog
+    # may not have locally yet (a fresh clone has only the pointer).
+    if not catalog_entry.is_content_local:
+        catalog_entry.fetch()
+    # Then: reading the record opens a `BuildZip`, which refuses a
     # bundle-less archive with a bare assertion.
     check_bundle(catalog_entry)
     record = read_entry_record(catalog_entry)
