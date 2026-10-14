@@ -1952,3 +1952,30 @@ def test_an_authorization_failure_names_the_withheld_token(
     assert "HTTP status 401" in message
     assert f"{TOKEN_ENV} is set but not sent" in message
     assert TOKEN_SERVICE_ENV in message
+
+
+def test_a_rejected_token_is_reported_when_the_anonymous_retry_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    token = "expired-token"
+    _set_token(monkeypatch, hosted_blob_service, token)
+    rejections = hosted_blob_service.state.rejected_authorizations
+    rejections[f"Bearer {token}"] = (401, "unauthorized")
+    rejections[""] = (403, "forbidden")
+    sha256 = _digest(b"private")
+
+    with pytest.raises(ContentStoreError) as exc_info:
+        _store(hosted_blob_service).get(
+            compute_content_key(CATALOG_ID, sha256),
+            tmp_path / "private.zip",
+            sha256=sha256,
+            size=7,
+        )
+
+    message = str(exc_info.value)
+    assert "HTTP status 403 (forbidden)" in message
+    assert f"{TOKEN_ENV} was rejected first" in message
+    assert "HTTP status 401 (unauthorized)" in message
+    assert token not in message

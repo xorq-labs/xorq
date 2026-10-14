@@ -921,11 +921,23 @@ class PresignedContentStore(ContentStore):
                     error_code=exc.error_code,
                     retry_after=exc.retry_after,
                 ) from exc
-            return self._control_post(
-                suffix,
-                request_payload,
-                token=None,
-            )
+            try:
+                return self._control_post(
+                    suffix,
+                    request_payload,
+                    token=None,
+                )
+            except CatalogServiceHTTPError as anonymous:
+                # The anonymous retry exists for public catalogs; when it
+                # fails too, the token's rejection is the actionable part
+                # (an expired token, most often), so report both.
+                raise CatalogServiceHTTPError(
+                    f"{anonymous}; the configured {_CATALOG_TOKEN_ENV} was "
+                    f"rejected first: {exc}",
+                    status=anonymous.status,
+                    error_code=anonymous.error_code,
+                    retry_after=anonymous.retry_after,
+                ) from exc
         return payload
 
     def _batch_results(
