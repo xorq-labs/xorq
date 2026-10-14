@@ -18,6 +18,7 @@ from typing import Any
 from attr import field, frozen
 from attr.validators import and_, deep_iterable, in_, instance_of, max_len, min_len
 
+from xorq.catalog.annex import AnnexError
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.drift import (
     LeafReport,
@@ -30,7 +31,11 @@ from xorq.catalog.drift import (
     unchecked_leaves,
 )
 from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict
-from xorq.catalog.exceptions import RebaseError
+from xorq.catalog.exceptions import (
+    ContentIntegrityError,
+    ContentStoreError,
+    RebaseError,
+)
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
@@ -81,6 +86,28 @@ class RebaseResult:
     skipped_aliases = str_tuple()
     # The sources no probe could compare, when none could; never on REBASED.
     unprobed = str_tuple()
+
+
+def fetch_archive(catalog_entry: CatalogEntry) -> None:
+    """Make the entry's archive local, refusing with the rebase exit codes.
+
+    A transport failure is retryable; content that arrives but does not match
+    its pointer is not.
+    """
+    if catalog_entry.is_content_local:
+        return
+    try:
+        catalog_entry.fetch()
+    except ContentIntegrityError as e:
+        raise RebaseError(
+            f"{catalog_entry.name} archive is corrupt: {format_error(e)}",
+            RebaseExit.REFUSED,
+        ) from e
+    except (ContentStoreError, AnnexError, OSError) as e:
+        raise RebaseError(
+            f"{catalog_entry.name} archive could not be fetched: {format_error(e)}",
+            RebaseExit.UNREACHABLE,
+        ) from e
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -353,13 +380,17 @@ def rebase_entry(
     Aliases on the old entry move to the new one, all of them unless
     ``move_aliases`` names some; ``alias`` registers another. A no-op returns
     ``catalog_entry`` and commits nothing. Raises ``RebaseError`` before any
-    write.
+    catalog write; before that it may fetch the entry's archive into the
+    working tree and the content cache.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
     # `ExprDumper` validates `cache_dir` as a `Path`.
     cache_dir = Path(cache_dir) if cache_dir is not None else None
-    # First: reading the record opens a `BuildZip`, which refuses a
+    # Every check below opens the archive, which a pointer or annex catalog
+    # may not have locally yet (a fresh clone has only the pointer).
+    fetch_archive(catalog_entry)
+    # Then: reading the record opens a `BuildZip`, which refuses a
     # bundle-less archive with a bare assertion.
     check_bundle(catalog_entry)
     record = read_entry_record(catalog_entry)

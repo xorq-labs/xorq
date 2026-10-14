@@ -1,17 +1,31 @@
 from __future__ import annotations
 
 import abc
+import base64
 import hashlib
+import ipaddress
+import json
 import os
 import re
 import shutil
 import tempfile
+import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from functools import cached_property
+from datetime import datetime, timedelta, timezone
+from functools import cache, cached_property
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import SplitResult, urlsplit
+from urllib.request import (
+    HTTPRedirectHandler,
+    ProxyHandler,
+    Request,
+    build_opener,
+)
 
 import attr
 import toolz
@@ -20,7 +34,12 @@ from attr import field, frozen
 from attr.validators import in_, instance_of, matches_re, optional
 
 from xorq.catalog.enums import ContentStoreType
-from xorq.catalog.exceptions import ContentIntegrityError
+from xorq.catalog.exceptions import (
+    CatalogServiceHTTPError,
+    ContentIntegrityError,
+    ContentStoreCapabilityError,
+    ContentStoreError,
+)
 from xorq.catalog.s3_utils import (
     S3_SECRET_FIELDS,
     S3ClientMixin,
@@ -34,12 +53,71 @@ from xorq.common.utils.file_utils import file_digest
 
 POINTER_VERSION = "xorq-pointer v1"
 
-# validated to prevent path traversal from untrusted cloned repos
-_SAFE_CATALOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+# One safe path component: validated to prevent path traversal from
+# untrusted cloned repos. Hosted names also carry the hosted service's length
+# cap (its push validation accepts 1-128 bytes).
+_COMPONENT_HEAD, _COMPONENT_TAIL = "[A-Za-z0-9]", "[A-Za-z0-9_-]"
+_HOSTED_COMPONENT_MAX_LENGTH = 128
+_SAFE_CATALOG_ID_RE = re.compile(rf"^{_COMPONENT_HEAD}{_COMPONENT_TAIL}*$")
+_HOSTED_COMPONENT_RE = re.compile(
+    rf"{_COMPONENT_HEAD}{_COMPONENT_TAIL}{{0,{_HOSTED_COMPONENT_MAX_LENGTH - 1}}}"
+)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 _DEFAULT_CACHE_DIR = Path("~/.cache/xorq/content")
+# Bounds cache entries, not in-flight downloads. Deliberately smaller than
+# _MAX_PRESIGNED_BLOB_BYTES: an object larger than the budget is still cached
+# (adopt protects what it just stored) but evicts everything else, and is itself
+# evicted when the next entry is cached. docs/how_to/use_hosted_catalogs.qmd
+# says so.
 _DEFAULT_CACHE_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
+_MAX_PRESIGNED_BLOB_BYTES = 5_000_000_000
+_CONTROL_RESPONSE_MAX_BYTES = 256 * 1024
+_CONTROL_TIMEOUT_SECONDS = 300
+# The service answers 429 rate_limited and 503 service_unavailable for
+# conditions that pass; a control request retries those, waiting as long as
+# Retry-After asks (bounded) or backing off exponentially when it is absent.
+_CONTROL_RETRY_STATUSES = frozenset({429, 503})
+_CONTROL_RETRY_ATTEMPTS = 3
+_CONTROL_RETRY_MAX_DELAY_SECONDS = 60
+_PRESIGNED_BATCH_SIZE = 10
+_TRANSFER_CHUNK_BYTES = 1024 * 1024
+# urllib passes this to HTTPConnection, so it bounds how long a single socket
+# operation may block — NOT how long a whole transfer may take. A multi-hour
+# download is fine as long as no individual read stalls this long.
+_SOCKET_IDLE_TIMEOUT_SECONDS = 300
+# A signed URL is checked when its request arrives, not while the body
+# streams, so it only has to outlive the start of the request: it is re-minted
+# when it expires within this margin, which covers connection setup and a
+# round trip whatever the object's size.
+_PRESIGNED_EXPIRY_MARGIN_SECONDS = 30
+# Assumed transfer bandwidth, and the time the largest permitted object needs
+# at it (rounded up); the staging reap threshold below is derived from them.
+_PRESIGNED_ASSUMED_BYTES_PER_SECOND = 10 * 1024 * 1024
+_MAX_TRANSFER_SECONDS = -(
+    -_MAX_PRESIGNED_BLOB_BYTES // _PRESIGNED_ASSUMED_BYTES_PER_SECOND
+)
+# Pointer files are ~100 bytes; the cap bounds memory when parsing pointers
+# that came from an untrusted clone.
+_MAX_POINTER_BYTES = 4096
+# In-flight downloads live here, inside the cache dir but apart from cache
+# entries. The reap threshold is derived from the slowest transfer this code
+# can be asked to perform — a full mint batch of maximum-size objects — scaled
+# for a link far slower than the assumed bandwidth. A staging file older than
+# that is debris from a killed process rather than a live fetch. Deriving it
+# means raising the batch size or the blob ceiling cannot silently make the
+# threshold too short. It is a heuristic, not a guarantee: a transfer slower
+# still would have its staging reaped underneath it, so ``adopt`` reports a
+# vanished staging file plainly instead of failing obscurely.
+_STAGING_DIRNAME = ".staging"
+_STAGING_REAP_SLOWDOWN_FACTOR = 8
+_STAGING_REAP_SECONDS = (
+    _STAGING_REAP_SLOWDOWN_FACTOR * _PRESIGNED_BATCH_SIZE * _MAX_TRANSFER_SECONDS
+)
+_CATALOG_TOKEN_ENV = "XORQ_CATALOG_TOKEN"
+_CATALOG_TOKEN_SERVICE_ENV = "XORQ_CATALOG_TOKEN_SERVICE_URL"
+
+_PresignedRequest = tuple[str, dict[str, str], datetime]
 
 
 def _normalize_region(value: str | None) -> str | None:
@@ -66,8 +144,112 @@ def _coerce_port(value: int | str | None) -> int | None:
     return port
 
 
+def _canonical_uuid(value: str) -> str:
+    try:
+        return str(uuid.UUID(value))
+    except (AttributeError, ValueError):
+        raise ValueError(f"invalid catalog UUID: {value!r}") from None
+
+
+def _is_loopback_host(hostname: str) -> bool:
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _split_http_url(value: str, *, label: str, allow_username: bool) -> SplitResult:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(
+            f"{label} must be a non-empty URL without surrounding whitespace"
+        )
+    if len(value) > 2048:
+        raise ValueError(f"{label} is too long")
+    try:
+        parsed = urlsplit(value)
+        # Accessing port forces urllib to validate it.
+        parsed.port
+    except ValueError as exc:
+        raise ValueError(f"{label} is invalid") from exc
+    https_required = (
+        f"{label} must use HTTPS (loopback HTTP is allowed for development)"
+    )
+    if parsed.scheme not in ("http", "https"):
+        # Checked first: an SSH remote such as git@host:owner/slug.git has no
+        # hostname to urllib, and would otherwise be told it has credentials.
+        raise ValueError(f"{https_required}; SSH and other schemes are not supported")
+    if (
+        not parsed.hostname
+        or parsed.password is not None
+        or (parsed.username is not None and not allow_username)
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            f"{label} must not contain credentials, a query, or a fragment"
+        )
+    if parsed.scheme == "https":
+        return parsed
+    if parsed.scheme == "http" and _is_loopback_host(parsed.hostname):
+        return parsed
+    raise ValueError(https_required)
+
+
+def _validate_service_url(value: str) -> str:
+    _split_http_url(value, label="service_url", allow_username=False)
+    return value
+
+
+def _origin(parsed: SplitResult) -> tuple[str, str, int]:
+    """Scheme, lowercased host and effective port of a validated HTTP(S) URL."""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return parsed.scheme, parsed.hostname.lower(), port
+
+
+def _service_url_identity(value: str, *, label: str) -> tuple[str, str, int, str]:
+    parsed = _split_http_url(value, label=label, allow_username=False)
+    return (*_origin(parsed), parsed.path.rstrip("/") or "/")
+
+
+def _validate_remote_binding(service_url: str, remote_url: str) -> None:
+    service = _split_http_url(service_url, label="service_url", allow_username=False)
+    remote = _split_http_url(remote_url, label="Git remote URL", allow_username=True)
+    if _origin(service) != _origin(remote):
+        raise ValueError("presigned service_url does not match the catalog Git remote")
+
+    service_path = service.path.rstrip("/")
+    prefix = f"{service_path}/" if service_path else "/"
+    relative = remote.path.removeprefix(prefix)
+    if relative == remote.path or not re.fullmatch(
+        rf"{_COMPONENT_HEAD}{_COMPONENT_TAIL}{{0,63}}/"
+        r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\.git/?",
+        relative,
+    ):
+        raise ValueError(
+            "catalog Git remote must be an owner/slug.git URL below service_url"
+        )
+
+
 def compute_sha256(path: str | Path) -> str:
     return file_digest(path, hashlib.sha256)
+
+
+def copy_and_digest(src: str | Path, dest: str | Path) -> str:
+    """Copy *src* onto *dest*, returning the SHA-256 of the bytes copied.
+
+    Equivalent to ``shutil.copy`` followed by ``compute_sha256``, but reads the
+    source once rather than twice.
+    """
+    digest = hashlib.sha256()
+    with open(src, "rb") as source, open(dest, "wb") as destination:
+        while chunk := source.read(_TRANSFER_CHUNK_BYTES):
+            digest.update(chunk)
+            destination.write(chunk)
+    # shutil.copy propagates the source mode; keep that observable behaviour.
+    shutil.copymode(src, dest)
+    return digest.hexdigest()
 
 
 def compute_content_key(catalog_id: str, sha256: str) -> str:
@@ -76,6 +258,19 @@ def compute_content_key(catalog_id: str, sha256: str) -> str:
     if not _SHA256_RE.match(sha256):
         raise ValueError(f"Invalid sha256: {sha256!r}")
     return f"{catalog_id}/{sha256[:2]}/{sha256[2:4]}/{sha256}.zip"
+
+
+@frozen
+class ContentSpec:
+    """Immutable identity and expected size for one content-addressed object."""
+
+    key: str = field(validator=(instance_of(str), _non_empty_str))
+    sha256: str = field(validator=(instance_of(str), matches_re(_SHA256_RE)))
+    size: int = field(validator=instance_of(int))
+
+    def __attrs_post_init__(self) -> None:
+        if isinstance(self.size, bool) or self.size < 0:
+            raise ValueError("content size must be a non-negative integer")
 
 
 @contextmanager
@@ -100,8 +295,54 @@ def write_pointer(path: str | Path, sha256: str, size: int) -> None:
         tmp.write_text(f"{POINTER_VERSION}\nsha256 {sha256}\nsize {size}\n")
 
 
-def parse_pointer(path: str | Path) -> tuple[str, int]:
-    lines = Path(path).read_text().strip().splitlines()
+def _read_pointer_bytes(path: str | Path) -> bytes:
+    """Read a pointer file, refusing anything too large to be one.
+
+    Pointer files come from cloned repositories, so the size is bounded before
+    the read rather than after.
+    """
+    path = Path(path)
+    if path.stat().st_size > _MAX_POINTER_BYTES:
+        raise ValueError(f"Invalid pointer file: {path}")
+    return path.read_bytes()
+
+
+@cache
+def _canonical_pointer_re(version: str) -> re.Pattern[bytes]:
+    """The exact bytes ``write_pointer`` emits for *version*.
+
+    Derived from the version line rather than restating it, so changing
+    ``POINTER_VERSION`` changes writer and canonical parser together.
+
+    The committed bytes are LF-only (the hosted service checks that on push),
+    but a checkout with core.autocrlf=true — the Windows default — renders them
+    CRLF in the working tree and converts back on add. Either ending is
+    accepted, used consistently, so such a checkout does not read every
+    pointer as corrupt.
+    """
+    return re.compile(
+        re.escape(version.encode("ascii"))
+        + rb"(\r?\n)sha256 ([0-9a-f]{64})\1size (0|[1-9][0-9]*)\1\Z"
+    )
+
+
+def parse_pointer(path: str | Path, *, canonical: bool = False) -> tuple[str, int]:
+    raw = _read_pointer_bytes(path)
+    if canonical:
+        match = _canonical_pointer_re(POINTER_VERSION).fullmatch(raw)
+        if match is None:
+            raise ValueError(f"Invalid pointer file: {path}")
+        sha256 = match.group(2).decode("ascii")
+        size = int(match.group(3))
+        if size > _MAX_PRESIGNED_BLOB_BYTES:
+            raise ValueError(f"Invalid pointer file: {path}")
+        return sha256, size
+
+    try:
+        text = raw.decode()
+    except UnicodeDecodeError:
+        raise ValueError(f"Invalid pointer file: {path}") from None
+    lines = text.strip().splitlines()
     if len(lines) != 3 or lines[0] != POINTER_VERSION:
         raise ValueError(f"Invalid pointer file: {path}")
     sha_parts = lines[1].split(" ", 1)
@@ -128,13 +369,24 @@ def parse_pointer(path: str | Path) -> tuple[str, int]:
 class ContentStore(abc.ABC):
     """ABC for external content storage backends."""
 
+    client_managed_lifecycle = True
+
     @abc.abstractmethod
     def put(
         self, key: str, local_path: str | Path, *, sha256: str | None = None
     ) -> None: ...
 
     @abc.abstractmethod
-    def get(self, key: str, local_path: str | Path) -> None: ...
+    def get(self, key: str, local_path: str | Path) -> None:
+        """Download one object by key alone.
+
+        Only stores that own their own blob lifecycle
+        (``client_managed_lifecycle``) can honour this: a key is not enough for
+        a store whose transport requires the pointer's SHA-256 and size up
+        front. Stores that cannot honour it raise
+        ``ContentStoreCapabilityError``. ``get_many`` is the portable path and
+        is what the catalog backend uses.
+        """
 
     @abc.abstractmethod
     def exists(self, key: str) -> bool: ...
@@ -144,6 +396,50 @@ class ContentStore(abc.ABC):
 
     @abc.abstractmethod
     def list_keys(self, prefix: str = "") -> Iterator[str]: ...
+
+    def preflight_write(self) -> None:  # noqa: B027
+        """Fail before a write reads any content, if the write cannot succeed.
+
+        The default checks nothing; a store whose writes need a credential
+        checks it here, so a caller can refuse before copying or hashing.
+        """
+
+    def ensure_present(
+        self, key: str, local_path: str | Path, *, sha256: str | None = None
+    ) -> bool:
+        """Upload one object if needed and report whether bytes were transferred."""
+        local_path = Path(local_path)
+        digest = sha256 or compute_sha256(local_path)
+        spec = ContentSpec(key=key, sha256=digest, size=local_path.stat().st_size)
+        return key in self.ensure_present_many(((spec, local_path),))
+
+    def ensure_present_many(
+        self, objects: Iterable[tuple[ContentSpec, str | Path]]
+    ) -> set[str]:
+        """Default multi-object upload implementation for client-managed stores."""
+        uploaded: set[str] = set()
+        for spec, local_path in objects:
+            if not self.exists(spec.key):
+                self.put(spec.key, local_path, sha256=spec.sha256)
+                uploaded.add(spec.key)
+        return uploaded
+
+    def get_many(
+        self, objects: Iterable[tuple[ContentSpec, str | Path]]
+    ) -> set[str] | None:
+        """Download many objects; return the keys already verified in transit.
+
+        A store that hashes bytes as it streams them has already proved they
+        match their ``ContentSpec``, and says so by returning those keys — the
+        caller then has no reason to read them a second time. Returning
+        ``None`` or an empty set means "verified nothing", which is the safe
+        default and what a store that only moves bytes should do.
+        """
+        for spec, local_path in objects:
+            # Keep legacy ContentStore implementations source-compatible. Stores
+            # that need pointer metadata (the hosted adapter) override this method.
+            self.get(spec.key, local_path)
+        return None
 
 
 @frozen
@@ -310,13 +606,797 @@ class S3ContentStore(ContentStore):
                     yield full_key
 
 
+@attr.define
+class _DigestingReader:
+    """File-like request body that hashes each chunk as urllib sends it."""
+
+    source: Any
+    digest: Any
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self.source.read(size)
+        self.digest.update(chunk)
+        return chunk
+
+
+class _RejectRedirects(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        """Returning None makes urllib surface the 3xx instead of following it."""
+        return None
+
+
+@frozen
+class PresignedContentStore(ContentStore):
+    """Hosted blob client using service-issued presigned URLs."""
+
+    client_managed_lifecycle = False
+
+    catalog_id: str = field(converter=_canonical_uuid)
+    service_url: str = field(converter=_validate_service_url)
+    remote_url: str = field(validator=(instance_of(str), _non_empty_str))
+
+    def __attrs_post_init__(self) -> None:
+        _validate_remote_binding(self.service_url, self.remote_url)
+
+    @cached_property
+    def _opener(self) -> Any:
+        return build_opener(_RejectRedirects())
+
+    @cached_property
+    def _direct_opener(self) -> Any:
+        return build_opener(ProxyHandler({}), _RejectRedirects())
+
+    def _endpoint(self, suffix: str) -> str:
+        return (
+            f"{self.service_url.rstrip('/')}/v1/catalogs/"
+            f"{self.catalog_id}/blobs/{suffix}"
+        )
+
+    def _resolve_token(self) -> tuple[str | None, str | None]:
+        """Return the catalog token to send, or why a configured one is withheld.
+
+        The first item is the token, or None. The second explains why a token
+        that is configured is not being sent (including one set but blank),
+        and is None when there is nothing to explain: either a token is sent,
+        or the variable is unset. Callers decide whether a withheld token is
+        an error (an upload) or only context for a later failure (a download
+        that may still succeed anonymously).
+        """
+        # Read straight from the environment on every request rather than
+        # through EnvConfigable: the token is short-lived, and a refreshed one
+        # must take effect without rebuilding the store.
+        token = os.environ.get(_CATALOG_TOKEN_ENV)  # xorq-style: disable=os-environ
+        if token is None:
+            return None, None
+        if not token.strip():
+            # Sent as nothing, like an unset variable, but named if it matters:
+            # an export of a command that printed only whitespace is a mistake.
+            return None, f"{_CATALOG_TOKEN_ENV} is set but blank"
+        token_service_url = os.environ.get(  # xorq-style: disable=os-environ
+            _CATALOG_TOKEN_SERVICE_ENV
+        )
+        if token_service_url is None:
+            return None, (
+                f"{_CATALOG_TOKEN_ENV} is set but not sent: "
+                f"{_CATALOG_TOKEN_SERVICE_ENV} is required to scope it to one "
+                "hosted service"
+            )
+        try:
+            token_service = _service_url_identity(
+                token_service_url,
+                label=_CATALOG_TOKEN_SERVICE_ENV,
+            )
+        except ValueError as exc:
+            return None, f"{_CATALOG_TOKEN_ENV} is set but not sent: {exc}"
+        if token_service != _service_url_identity(
+            self.service_url,
+            label="service_url",
+        ):
+            return None, (
+                f"{_CATALOG_TOKEN_ENV} is set but not sent: it is scoped to a "
+                "different hosted service"
+            )
+        if (
+            len(token) > 16 * 1024
+            or token != token.strip()
+            or any(
+                ord(character) < 0x21 or ord(character) > 0x7E for character in token
+            )
+        ):
+            return None, (
+                f"{_CATALOG_TOKEN_ENV} is set but not sent: it must contain one "
+                "HTTP token"
+            )
+        return token, None
+
+    def preflight_write(self) -> None:
+        # Uploads require a token; resolve it before the caller reads content.
+        self._token(required=True)
+
+    def _token(self, *, required: bool) -> str | None:
+        token, withheld = self._resolve_token()
+        if token is None and required:
+            raise ContentStoreError(
+                withheld
+                or f"{_CATALOG_TOKEN_ENV} is required for authenticated hosted "
+                "catalog requests"
+            )
+        return token
+
+    @staticmethod
+    def _http_failure(error: HTTPError, operation: str) -> ContentStoreError:
+        detail = ""
+        error_code = None
+        # The HTTPError is the open response: close it here, since the raise
+        # that follows keeps it alive (and its socket open) through
+        # __context__ for as long as the traceback lives.
+        try:
+            body = error.read(_CONTROL_RESPONSE_MAX_BYTES + 1)
+            if len(body) <= _CONTROL_RESPONSE_MAX_BYTES:
+                payload = json.loads(body)
+                error_code = payload.get("error") if isinstance(payload, dict) else None
+                if isinstance(error_code, str) and re.fullmatch(
+                    r"[a-z][a-z0-9_]{0,63}", error_code
+                ):
+                    detail = f" ({error_code})"
+        except (OSError, HTTPException, UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        finally:
+            error.close()
+        retry_after = (error.headers or {}).get("Retry-After", "")
+        return CatalogServiceHTTPError(
+            f"{operation} failed with HTTP status {error.code}{detail}",
+            status=error.code,
+            error_code=error_code if isinstance(error_code, str) else None,
+            retry_after=int(retry_after) if retry_after.isdigit() else None,
+        )
+
+    def _open(self, request: Request, *, timeout: int, operation: str) -> Any:
+        hostname = urlsplit(request.full_url).hostname
+        opener = (
+            self._direct_opener
+            if hostname is not None and _is_loopback_host(hostname)
+            else self._opener
+        )
+        try:
+            return opener.open(request, timeout=timeout)
+        except HTTPError as exc:
+            raise self._http_failure(exc, operation) from None
+        except (OSError, URLError, HTTPException) as exc:
+            raise ContentStoreError(
+                f"{operation} failed due to a network error"
+            ) from exc
+
+    def _control_post(
+        self,
+        suffix: str,
+        payload: dict[str, Any] | None,
+        *,
+        token: str | None,
+    ) -> dict[str, Any]:
+        headers = {"Accept": "application/json"}
+        if token is not None:
+            headers["Authorization"] = f"Bearer {token}"
+        if payload is None:
+            body = b""
+        else:
+            body = json.dumps(payload, separators=(",", ":")).encode()
+            headers["Content-Type"] = "application/json"
+        raw = self._control_exchange(self._endpoint(suffix), body, headers)
+        if len(raw) > _CONTROL_RESPONSE_MAX_BYTES:
+            raise ContentStoreError("catalog service response is too large")
+        try:
+            decoded = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ContentStoreError("catalog service returned invalid JSON") from exc
+        if not isinstance(decoded, dict):
+            raise ContentStoreError(
+                "catalog service returned an invalid response shape"
+            )
+        return decoded
+
+    def _control_exchange(
+        self, url: str, body: bytes, headers: dict[str, str]
+    ) -> bytes:
+        """POST one control request, retrying the statuses that pass."""
+        for attempt in range(_CONTROL_RETRY_ATTEMPTS):
+            request = Request(url, data=body, headers=headers, method="POST")
+            try:
+                with self._open(
+                    request,
+                    timeout=_CONTROL_TIMEOUT_SECONDS,
+                    operation="catalog service request",
+                ) as response:
+                    if response.status != 200:
+                        raise ContentStoreError(
+                            "catalog service request returned HTTP status "
+                            f"{response.status}"
+                        )
+                    try:
+                        return response.read(_CONTROL_RESPONSE_MAX_BYTES + 1)
+                    except (OSError, HTTPException) as exc:
+                        raise ContentStoreError(
+                            "catalog service response failed during transfer"
+                        ) from exc
+            except CatalogServiceHTTPError as exc:
+                if (
+                    exc.status not in _CONTROL_RETRY_STATUSES
+                    or attempt + 1 == _CONTROL_RETRY_ATTEMPTS
+                ):
+                    raise
+                delay = exc.retry_after if exc.retry_after is not None else 2**attempt
+                time.sleep(min(delay, _CONTROL_RETRY_MAX_DELAY_SECONDS))
+        raise AssertionError("unreachable: the last attempt returns or raises")
+
+    def _validate_spec(self, spec: ContentSpec) -> None:
+        if spec.size > _MAX_PRESIGNED_BLOB_BYTES:
+            raise ContentStoreError(
+                f"hosted blobs cannot exceed {_MAX_PRESIGNED_BLOB_BYTES} bytes"
+            )
+        expected_key = compute_content_key(self.catalog_id, spec.sha256)
+        if spec.key != expected_key:
+            raise ContentStoreError(
+                "content key does not match the hosted catalog and SHA-256"
+            )
+
+    @staticmethod
+    def _validate_local(spec: ContentSpec, local_path: Path) -> None:
+        """Check the size up front; the digest is checked as the bytes stream.
+
+        Hashing here as well would read every file once more, including the
+        ones the service already holds and never asks for.
+        """
+        try:
+            actual_size = local_path.stat().st_size
+        except OSError as exc:
+            raise ContentStoreError("content file is not readable") from exc
+        if actual_size != spec.size:
+            raise ContentIntegrityError(
+                f"Size mismatch before upload: expected {spec.size}, got {actual_size}"
+            )
+
+    @staticmethod
+    def _response_identity(item: Any) -> tuple[str, int]:
+        if not isinstance(item, dict):
+            raise ContentStoreError("catalog service returned an invalid response item")
+        sha256 = item.get("sha256")
+        size = item.get("size")
+        if (
+            not isinstance(sha256, str)
+            or isinstance(size, bool)
+            or not isinstance(size, int)
+        ):
+            raise ContentStoreError(
+                "catalog service returned an invalid object identity"
+            )
+        return sha256, size
+
+    @staticmethod
+    def _upload_id(item: dict[str, Any]) -> str:
+        try:
+            return str(uuid.UUID(item.get("upload_id")))
+        except (AttributeError, ValueError):
+            raise ContentStoreError(
+                "catalog service returned an invalid upload ID"
+            ) from None
+
+    @classmethod
+    def _response_items(
+        cls,
+        payload: dict[str, Any],
+        field_name: str,
+        specs: dict[tuple[str, int], ContentSpec],
+    ) -> dict[tuple[str, int], dict[str, Any]]:
+        raw_items = payload.get(field_name)
+        if not isinstance(raw_items, list):
+            raise ContentStoreError(
+                "catalog service returned an invalid response shape"
+            )
+        items: dict[tuple[str, int], dict[str, Any]] = {}
+        for raw_item in raw_items:
+            identity = cls._response_identity(raw_item)
+            if identity not in specs or identity in items:
+                raise ContentStoreError("catalog service returned an unexpected object")
+            items[identity] = raw_item
+        if items.keys() != specs.keys():
+            raise ContentStoreError("catalog service omitted a requested object")
+        return items
+
+    @staticmethod
+    def _spec_batches(
+        specs: dict[tuple[str, int], ContentSpec],
+    ) -> Iterator[dict[tuple[str, int], ContentSpec]]:
+        items = tuple(specs.items())
+        for start in range(0, len(items), _PRESIGNED_BATCH_SIZE):
+            yield dict(items[start : start + _PRESIGNED_BATCH_SIZE])
+
+    def _control_batch(
+        self,
+        suffix: str,
+        specs: dict[tuple[str, int], ContentSpec],
+        *,
+        token_required: bool,
+    ) -> dict[str, Any]:
+        request_payload = {
+            "objects": [
+                {"sha256": spec.sha256, "size": spec.size} for spec in specs.values()
+            ]
+        }
+        token = self._token(required=token_required)
+        try:
+            payload = self._control_post(
+                suffix,
+                request_payload,
+                token=token,
+            )
+        except CatalogServiceHTTPError as exc:
+            rejected_credentials = (exc.status, exc.error_code) in {
+                (401, "unauthorized"),
+                (403, "forbidden"),
+            }
+            if token_required or not rejected_credentials:
+                raise
+            if token is None:
+                # A configured token that was withheld is the likeliest reason
+                # for an authorization failure; say so rather than leaving a
+                # bare 401 that reads as "no token was configured".
+                _token, withheld = self._resolve_token()
+                if withheld is None:
+                    raise
+                raise CatalogServiceHTTPError(
+                    f"{exc}; {withheld}",
+                    status=exc.status,
+                    error_code=exc.error_code,
+                    retry_after=exc.retry_after,
+                ) from exc
+            try:
+                return self._control_post(
+                    suffix,
+                    request_payload,
+                    token=None,
+                )
+            except ContentStoreError as anonymous:
+                # The anonymous retry exists for public catalogs; when it
+                # fails too, however it fails, the token's rejection is the
+                # actionable part (an expired token, most often), so report
+                # both.
+                message = (
+                    f"{anonymous}; the configured {_CATALOG_TOKEN_ENV} was "
+                    f"rejected first: {exc}"
+                )
+                if isinstance(anonymous, CatalogServiceHTTPError):
+                    raise CatalogServiceHTTPError(
+                        message,
+                        status=anonymous.status,
+                        error_code=anonymous.error_code,
+                        retry_after=anonymous.retry_after,
+                    ) from exc
+                raise ContentStoreError(message) from exc
+        return payload
+
+    def _batch_results(
+        self,
+        suffix: str,
+        field_name: str,
+        specs: dict[tuple[str, int], ContentSpec],
+        *,
+        token_required: bool,
+    ) -> dict[tuple[str, int], dict[str, Any]]:
+        try:
+            payload = self._control_batch(
+                suffix,
+                specs,
+                token_required=token_required,
+            )
+        except CatalogServiceHTTPError as exc:
+            if (
+                exc.status == 400
+                and exc.error_code == "invalid_request"
+                and len(specs) > 1
+            ):
+                items = tuple(specs.items())
+                midpoint = len(items) // 2
+                left = self._batch_results(
+                    suffix,
+                    field_name,
+                    dict(items[:midpoint]),
+                    token_required=token_required,
+                )
+                right = self._batch_results(
+                    suffix,
+                    field_name,
+                    dict(items[midpoint:]),
+                    token_required=token_required,
+                )
+                return left | right
+            raise
+        return self._response_items(payload, field_name, specs)
+
+    @cached_property
+    def _service_is_loopback(self) -> bool:
+        return _is_loopback_host(urlsplit(self.service_url).hostname)
+
+    @staticmethod
+    def _presigned_request(
+        raw: Any,
+        *,
+        allow_loopback_http: bool,
+    ) -> _PresignedRequest:
+        """Validate one service-issued presigned request.
+
+        Plain HTTP to a loopback object URL is a development affordance, so it
+        is honoured only when the service itself is on loopback: a remote
+        service must not be able to point this client at a port on the user's
+        own machine.
+        """
+        if not isinstance(raw, dict):
+            raise ContentStoreError("catalog service omitted a presigned request")
+        url = raw.get("url")
+        headers = raw.get("headers")
+        expires_at = raw.get("expires_at")
+        if (
+            not isinstance(url, str)
+            or len(url) > 16 * 1024
+            or not isinstance(headers, dict)
+            or not isinstance(expires_at, str)
+            or not expires_at
+        ):
+            raise ContentStoreError(
+                "catalog service returned an invalid presigned request"
+            )
+        try:
+            parsed = urlsplit(url)
+            parsed.port
+        except ValueError as exc:
+            raise ContentStoreError(
+                "catalog service returned an invalid presigned URL"
+            ) from exc
+        if (
+            not (
+                parsed.scheme == "https"
+                or (
+                    allow_loopback_http
+                    and parsed.scheme == "http"
+                    and parsed.hostname is not None
+                    and _is_loopback_host(parsed.hostname)
+                )
+            )
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.fragment
+        ):
+            raise ContentStoreError(
+                "catalog service returned an invalid presigned URL; HTTPS is "
+                "required except for loopback testing against a loopback service"
+            )
+        for key, value in headers.items():
+            if (
+                not isinstance(key, str)
+                or re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", key) is None
+                or not isinstance(value, str)
+                or len(value) > 16 * 1024
+                or any(character in value for character in "\r\n\0")
+            ):
+                raise ContentStoreError(
+                    "catalog service returned invalid signed headers"
+                )
+        try:
+            normalized_expiry = (
+                f"{expires_at[:-1]}+00:00" if expires_at.endswith("Z") else expires_at
+            )
+            expiry = datetime.fromisoformat(normalized_expiry)
+        except ValueError as exc:
+            raise ContentStoreError(
+                "catalog service returned an invalid presigned expiry"
+            ) from exc
+        if expiry.tzinfo is None or expiry.utcoffset() is None:
+            raise ContentStoreError(
+                "catalog service returned a timezone-naive presigned expiry"
+            )
+        return url, dict(headers), expiry.astimezone(timezone.utc)
+
+    @staticmethod
+    def _request_expires_soon(request: _PresignedRequest) -> bool:
+        _url, _headers, expiry = request
+        return expiry <= datetime.now(timezone.utc) + timedelta(
+            seconds=_PRESIGNED_EXPIRY_MARGIN_SECONDS
+        )
+
+    @classmethod
+    def _fresh(cls, request: _PresignedRequest) -> _PresignedRequest:
+        """Refuse a just-minted request that is already about to expire."""
+        if cls._request_expires_soon(request):
+            raise ContentStoreError(
+                "catalog service issued a presigned request that expires within "
+                f"{_PRESIGNED_EXPIRY_MARGIN_SECONDS} seconds"
+            )
+        return request
+
+    def _put_presigned(
+        self, spec: ContentSpec, local_path: Path, request_data: _PresignedRequest
+    ) -> None:
+        url, headers, expiry = request_data
+        if expiry <= datetime.now(timezone.utc):
+            raise ContentStoreError("presigned upload request has expired")
+        folded_headers = {key.lower(): value for key, value in headers.items()}
+        if folded_headers.get("content-length") != str(spec.size):
+            raise ContentStoreError("presigned upload has an invalid content-length")
+        checksum = base64.b64encode(bytes.fromhex(spec.sha256)).decode()
+        if folded_headers.get("x-amz-checksum-sha256") != checksum:
+            raise ContentStoreError("presigned upload has an invalid SHA-256 header")
+        digest = hashlib.sha256()
+        try:
+            with local_path.open("rb") as source:
+                request = Request(
+                    url,
+                    data=_DigestingReader(source, digest),
+                    headers=headers,
+                    method="PUT",
+                )
+                with self._open(
+                    request,
+                    timeout=_SOCKET_IDLE_TIMEOUT_SECONDS,
+                    operation="presigned upload",
+                ) as response:
+                    if not 200 <= response.status < 300:
+                        raise ContentStoreError(
+                            f"presigned upload returned HTTP status {response.status}"
+                        )
+        except (OSError, HTTPException) as exc:
+            raise ContentStoreError("content file could not be uploaded") from exc
+        # The trust boundary: bytes that do not match the pointer's digest are
+        # never completed, so the service never records them as this object.
+        actual = digest.hexdigest()
+        if actual != spec.sha256:
+            raise ContentIntegrityError(
+                f"SHA256 mismatch during upload: expected {spec.sha256}, got {actual}"
+            )
+
+    def put(
+        self, key: str, local_path: str | Path, *, sha256: str | None = None
+    ) -> None:
+        self.ensure_present(key, local_path, sha256=sha256)
+
+    def ensure_present_many(
+        self, objects: Iterable[tuple[ContentSpec, str | Path]]
+    ) -> set[str]:
+        by_identity: dict[tuple[str, int], tuple[ContentSpec, Path]] = {}
+        sizes_by_sha256: dict[str, int] = {}
+        for spec, raw_path in objects:
+            self._validate_spec(spec)
+            local_path = Path(raw_path)
+            self._validate_local(spec, local_path)
+            previous_size = sizes_by_sha256.setdefault(spec.sha256, spec.size)
+            if previous_size != spec.size:
+                raise ContentStoreError(
+                    "the same content digest has conflicting upload sizes"
+                )
+            identity = (spec.sha256, spec.size)
+            by_identity.setdefault(identity, (spec, local_path))
+        if not by_identity:
+            return set()
+
+        specs = {identity: value[0] for identity, value in by_identity.items()}
+        uploaded: set[str] = set()
+        upload_ids: set[str] = set()
+        for batch in self._spec_batches(specs):
+            results = self._batch_results(
+                "uploads:batch",
+                "uploads",
+                batch,
+                token_required=True,
+            )
+            for identity, spec in batch.items():
+                local_path = by_identity[identity][1]
+                result = results[identity]
+                status = result.get("status")
+                request_data = None
+                if status == "upload_required":
+                    request_data = self._presigned_request(
+                        result.get("request"),
+                        allow_loopback_http=self._service_is_loopback,
+                    )
+                    if self._request_expires_soon(request_data):
+                        result = self._batch_results(
+                            "uploads:batch",
+                            "uploads",
+                            {identity: spec},
+                            token_required=True,
+                        )[identity]
+                        status = result.get("status")
+                        if status == "upload_required":
+                            request_data = self._fresh(
+                                self._presigned_request(
+                                    result.get("request"),
+                                    allow_loopback_http=self._service_is_loopback,
+                                )
+                            )
+                upload_id = self._upload_id(result)
+                if upload_id in upload_ids:
+                    raise ContentStoreError(
+                        "catalog service returned a duplicate upload ID"
+                    )
+                upload_ids.add(upload_id)
+                if status == "already_verified":
+                    continue
+                if status != "upload_required":
+                    raise ContentStoreError(
+                        "catalog service returned an unknown upload status"
+                    )
+                assert request_data is not None
+                self._put_presigned(spec, local_path, request_data)
+                completed = self._control_post(
+                    f"uploads/{upload_id}/complete",
+                    None,
+                    token=self._token(required=True),
+                )
+                if self._response_identity(completed) != identity:
+                    raise ContentStoreError(
+                        "catalog service completed a different object"
+                    )
+                if self._upload_id(completed) != upload_id:
+                    raise ContentStoreError(
+                        "catalog service completed a different upload"
+                    )
+                if completed.get("status") != "verified":
+                    raise ContentStoreError("catalog service did not verify the upload")
+                uploaded.add(spec.key)
+        return uploaded
+
+    def get(
+        self,
+        key: str,
+        local_path: str | Path,
+        *,
+        sha256: str | None = None,
+        size: int | None = None,
+    ) -> None:
+        if sha256 is None or size is None:
+            raise ContentStoreCapabilityError(
+                "hosted downloads require the pointer SHA-256 and expected "
+                "size; use get_many() with a ContentSpec"
+            )
+        self.get_many(((ContentSpec(key=key, sha256=sha256, size=size), local_path),))
+
+    def _download_presigned(
+        self, spec: ContentSpec, local_path: Path, request_data: _PresignedRequest
+    ) -> None:
+        url, headers, expiry = request_data
+        if expiry <= datetime.now(timezone.utc):
+            raise ContentStoreError("presigned download request has expired")
+        request = Request(url, headers=headers, method="GET")
+        digest = hashlib.sha256()
+        total = 0
+        with atomic_write(local_path) as tmp:
+            try:
+                with (
+                    self._open(
+                        request,
+                        timeout=_SOCKET_IDLE_TIMEOUT_SECONDS,
+                        operation="presigned download",
+                    ) as response,
+                    tmp.open("wb") as destination,
+                ):
+                    if response.status != 200:
+                        raise ContentStoreError(
+                            f"presigned download returned HTTP status {response.status}"
+                        )
+                    while chunk := response.read(_TRANSFER_CHUNK_BYTES):
+                        total += len(chunk)
+                        if total > spec.size:
+                            raise ContentIntegrityError(
+                                f"Size mismatch after download: expected {spec.size}, got more"
+                            )
+                        digest.update(chunk)
+                        destination.write(chunk)
+            except (OSError, HTTPException) as exc:
+                raise ContentStoreError(
+                    "presigned download failed during transfer"
+                ) from exc
+            if total != spec.size:
+                raise ContentIntegrityError(
+                    f"Size mismatch after download: expected {spec.size}, got {total}"
+                )
+            actual = digest.hexdigest()
+            if actual != spec.sha256:
+                raise ContentIntegrityError(
+                    f"SHA256 mismatch after download: expected {spec.sha256}, got {actual}"
+                )
+
+    def get_many(self, objects: Iterable[tuple[ContentSpec, str | Path]]) -> set[str]:
+        """Download many objects, verifying each against its spec in transit.
+
+        ``_download_presigned`` streams into a digest and checks both size and
+        SHA-256 before the file is published, so every key returned here is
+        proven and the caller need not read it back.
+        """
+        by_identity: dict[tuple[str, int], tuple[ContentSpec, list[Path]]] = {}
+        sizes_by_sha256: dict[str, int] = {}
+        for spec, raw_path in objects:
+            self._validate_spec(spec)
+            previous_size = sizes_by_sha256.setdefault(spec.sha256, spec.size)
+            if previous_size != spec.size:
+                raise ContentStoreError(
+                    "the same content digest has conflicting download sizes"
+                )
+            identity = (spec.sha256, spec.size)
+            if identity in by_identity:
+                by_identity[identity][1].append(Path(raw_path))
+            else:
+                by_identity[identity] = (spec, [Path(raw_path)])
+        if not by_identity:
+            return set()
+
+        verified: set[str] = set()
+        specs = {identity: value[0] for identity, value in by_identity.items()}
+        for batch in self._spec_batches(specs):
+            results = self._batch_results(
+                "downloads:batch",
+                "downloads",
+                batch,
+                token_required=False,
+            )
+            for identity, spec in batch.items():
+                request_data = self._presigned_request(
+                    results[identity].get("request"),
+                    allow_loopback_http=self._service_is_loopback,
+                )
+                if self._request_expires_soon(request_data):
+                    refreshed = self._batch_results(
+                        "downloads:batch",
+                        "downloads",
+                        {identity: spec},
+                        token_required=False,
+                    )
+                    request_data = self._fresh(
+                        self._presigned_request(
+                            refreshed[identity].get("request"),
+                            allow_loopback_http=self._service_is_loopback,
+                        )
+                    )
+                # Transfer once per identity; further destinations are local
+                # copies of bytes already verified in transit.
+                first, *others = by_identity[identity][1]
+                self._download_presigned(spec, first, request_data)
+                for local_path in others:
+                    with atomic_write(local_path) as tmp:
+                        shutil.copy2(first, tmp)
+                verified.add(spec.key)
+        return verified
+
+    @staticmethod
+    def _unsupported(operation: str) -> ContentStoreCapabilityError:
+        return ContentStoreCapabilityError(
+            f"{operation} is unavailable to hosted clients; blob lifecycle is "
+            "owned by the hosted catalog service"
+        )
+
+    def exists(self, key: str) -> bool:
+        raise self._unsupported("blob existence checks")
+
+    def delete(self, key: str) -> bool:
+        raise self._unsupported("blob deletion")
+
+    def list_keys(self, prefix: str = "") -> Iterator[str]:
+        raise self._unsupported("blob enumeration")
+
+
 @frozen
 class ContentCache:
     """LRU disk cache for content store objects.
 
-    *max_bytes* semantics: positive → bounded LRU, 0 → disabled (no
-    persistent caching; ``fetch_from`` still downloads to a temporary
-    location), negative → unlimited (never evict).
+    *max_bytes* semantics: positive → bounded LRU, 0 → disabled (nothing is
+    retained; callers still stage downloads, but via ``staging_dir`` in the
+    system temp dir), negative → unlimited (never evict).
     """
 
     cache_dir: Path = field(validator=instance_of(Path))
@@ -331,6 +1411,10 @@ class ContentCache:
             ) from exc
         if not os.access(self.cache_dir, os.W_OK):
             raise OSError(f"Content cache directory is not writable: {self.cache_dir}")
+        staging = self.staging_dir
+        if staging is not None:
+            staging.mkdir(parents=True, exist_ok=True)
+        self.reap_stale_staging()
 
     @property
     def disabled(self) -> bool:
@@ -338,6 +1422,37 @@ class ContentCache:
 
     def _path(self, key: str) -> Path:
         return self.cache_dir / key
+
+    def _is_staged(self, path: Path) -> bool:
+        staging = self.staging_dir
+        return staging is not None and path.parent == staging
+
+    def reap_stale_staging(self) -> int:
+        """Delete staging files too old for any live fetch to still own them.
+
+        A process killed mid-fetch leaves full-size objects behind. They are
+        not cache entries, so nothing else would ever remove them. The age
+        threshold is what keeps this tolerable to run while another process is
+        fetching: it is many times longer than the slowest batch the fetch code
+        can be asked to perform, so reaping a file another process still owns
+        means that process has been transferring for hours at a small fraction
+        of the assumed bandwidth. It costs that fetch an ``adopt`` failure, not
+        corruption — the archives it already wrote are untouched.
+        """
+        staging = self.staging_dir
+        if staging is None or not staging.is_dir():
+            return 0
+        cutoff = time.time() - _STAGING_REAP_SECONDS
+        reaped = 0
+        for path in staging.iterdir():
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink(missing_ok=True)
+                    reaped += 1
+            except OSError:
+                # Another process may be reaping the same directory.
+                continue
+        return reaped
 
     def contains(self, key: str) -> bool:
         if self.disabled:
@@ -362,23 +1477,53 @@ class ContentCache:
         os.utime(dest)
         self._maybe_evict(protect=key)
 
-    def fetch_from(self, store: ContentStore, key: str) -> Path:
+    def adopt(self, key: str, local_path: str | Path) -> None:
+        """Take ownership of *local_path*, moving it into the cache.
+
+        Unlike ``put`` this consumes the source, so the caller must be done
+        with it. When the source is already on the cache filesystem — which is
+        what ``staging_dir`` arranges — this is a rename rather than a copy of
+        the whole object.
+        """
+        local_path = Path(local_path)
         if self.disabled:
-            fd, tmp = tempfile.mkstemp(suffix=".xorq")
-            tmp_path = Path(tmp)
-            try:
-                os.close(fd)
-                store.get(key, tmp_path)
-                return tmp_path
-            except BaseException:
-                tmp_path.unlink(missing_ok=True)
-                raise
+            local_path.unlink(missing_ok=True)
+            return
         dest = self._path(key)
-        with atomic_write(dest) as tmp:
-            store.get(key, tmp)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.replace(local_path, dest)
+        except FileNotFoundError as exc:
+            # dest.parent exists by the line above, so the missing path is the
+            # source: a concurrent reap took a staging file this fetch was
+            # still holding. Name that, rather than surfacing a bare
+            # FileNotFoundError from the copy fallback.
+            raise ContentStoreError(
+                f"staged content for {key} disappeared before it could be "
+                f"adopted into the cache: {local_path}"
+            ) from exc
+        except OSError:
+            # Typically a cross-device staging dir; any rename failure degrades
+            # to a copy rather than losing the object.
+            self.put(key, local_path)
+            local_path.unlink(missing_ok=True)
+            return
         os.utime(dest)
         self._maybe_evict(protect=key)
-        return dest
+
+    @property
+    def staging_dir(self) -> Path | None:
+        """Directory for in-flight downloads, or None for the system temp dir.
+
+        Staging inside the cache directory keeps ``adopt`` a rename and puts
+        the bytes on the volume the user sized for content, rather than on
+        whatever backs the system temp dir. It is a dedicated subdirectory so
+        in-flight bytes stay distinguishable from cache entries: they are
+        neither counted against the budget nor evicted, and are reaped by age.
+        A catalog_id can never collide with it, since ``_SAFE_CATALOG_ID_RE``
+        forbids a leading dot.
+        """
+        return None if self.disabled else self.cache_dir / _STAGING_DIRNAME
 
     def _maybe_evict(self, protect: str | None = None) -> None:
         if self.max_bytes < 0:
@@ -387,10 +1532,18 @@ class ContentCache:
         entries: list[tuple[float, int, Path]] = []
         total = 0
         for p in self.cache_dir.rglob("*"):
-            if p.is_file() and not p.name.endswith(".tmp"):
-                st = p.stat()
-                entries.append((st.st_atime, st.st_size, p))
-                total += st.st_size
+            if not p.is_file():
+                continue
+            if self._is_staged(p) or p.name.endswith(".tmp"):
+                # The budget bounds cache entries only. In-flight bytes belong
+                # to a live fetch (or are debris the age reaper removes);
+                # counting them made eviction either evict entries to pay for
+                # bytes it cannot remove, or — once they alone exceeded the
+                # budget — stop evicting altogether.
+                continue
+            st = p.stat()
+            entries.append((st.st_atime, st.st_size, p))
+            total += st.st_size
         if total <= self.max_bytes:
             return
         entries.sort()
@@ -419,12 +1572,12 @@ class ContentStoreConfig(abc.ABC):
     """Typed, serializable configuration for constructing a ``ContentStore``."""
 
     @abc.abstractmethod
-    def make_store(self) -> ContentStore: ...
+    def make_store(self, *, repo: Any = None) -> ContentStore: ...
 
     @abc.abstractmethod
     def to_dict(self) -> dict[str, Any]: ...
 
-    _required_env_field: str = ""
+    _required_env_fields: tuple[str, ...] = ()
     _env_field_hint: str = ""
 
     @classmethod
@@ -436,10 +1589,11 @@ class ContentStoreConfig(abc.ABC):
             if k != "env_file" and v
         }
         merged = {**env, **kwargs}
-        req = cls._required_env_field
-        if req and req not in merged:
+        missing = tuple(name for name in cls._required_env_fields if name not in merged)
+        if missing:
+            names = ", ".join(repr(name) for name in missing)
             raise ValueError(
-                f"{cls.__name__}.from_env() requires '{req}' "
+                f"{cls.__name__}.from_env() requires {names} "
                 f"via {cls._env_field_hint} or as a kwarg"
             )
         return cls(**merged)
@@ -492,7 +1646,7 @@ class ContentStoreConfig(abc.ABC):
 
 @frozen
 class DirectoryContentStoreConfig(ContentStoreConfig):
-    _required_env_field = "directory"
+    _required_env_fields = ("directory",)
     _env_field_hint = "XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY"
 
     directory: Path = field(
@@ -508,7 +1662,7 @@ class DirectoryContentStoreConfig(ContentStoreConfig):
         prefix="XORQ_CONTENT_STORE_DIRECTORY_",
     )
 
-    def make_store(self) -> DirectoryContentStore:
+    def make_store(self, *, repo: Any = None) -> DirectoryContentStore:
         return DirectoryContentStore(directory=self.directory)
 
     def to_dict(self) -> dict[str, Any]:
@@ -535,7 +1689,7 @@ class DirectoryContentStoreConfig(ContentStoreConfig):
 
 @frozen
 class S3ContentStoreConfig(S3ClientMixin, ContentStoreConfig):
-    _required_env_field = "bucket"
+    _required_env_fields = ("bucket",)
     _env_field_hint = "XORQ_CONTENT_STORE_S3_BUCKET"
 
     bucket: str = field(validator=(instance_of(str), _non_empty_str))
@@ -592,7 +1746,7 @@ class S3ContentStoreConfig(S3ClientMixin, ContentStoreConfig):
     def _probe_prefix(self) -> str:
         return self.prefix
 
-    def make_store(self) -> S3ContentStore:
+    def make_store(self, *, repo: Any = None) -> S3ContentStore:
         kwargs = (
             toolz.dissoc(
                 serialize_fields(self, include_secrets=False),
@@ -611,6 +1765,78 @@ class S3ContentStoreConfig(S3ClientMixin, ContentStoreConfig):
         return cls.from_env(**{**_S3_GCS_DEFAULTS, **kwargs})
 
 
+def hosted_remote_error(exc: ValueError, remote_url: str) -> ValueError:
+    """Annotate a remote-binding failure with the URL that was actually checked.
+
+    Effective Git URLs come from ``git remote get-url``, which applies
+    ``url.<base>.insteadOf`` rewrites — so the URL that failed can differ from
+    the one recorded in ``.git/config``, and the bare message reads as a
+    contradiction without this.
+    """
+    return ValueError(
+        f"{exc} (effective Git URL {remote_url!r}; Git applies "
+        "url.<base>.insteadOf rewrites, which can change it)"
+    )
+
+
+def _single_remote_url(repo: Any) -> str:
+    if repo is None:
+        raise ValueError("a Git repository is required for a presigned content store")
+    remotes = tuple(repo.remotes)
+    if len(remotes) != 1:
+        raise ValueError("a presigned catalog requires exactly one Git remote")
+    urls = tuple(remotes[0].urls)
+    if len(urls) != 1:
+        raise ValueError("the presigned catalog Git remote must have exactly one URL")
+    return urls[0]
+
+
+@frozen
+class PresignedContentStoreConfig(ContentStoreConfig):
+    """Strict committed configuration for the hosted catalog service."""
+
+    _required_env_fields = ("catalog_id", "service_url")
+    _env_field_hint = (
+        "XORQ_CONTENT_STORE_PRESIGNED_CATALOG_ID and "
+        "XORQ_CONTENT_STORE_PRESIGNED_SERVICE_URL"
+    )
+
+    catalog_id: str = field(converter=_canonical_uuid)
+    service_url: str = field(converter=_validate_service_url)
+
+    EnvConfig = EnvConfigable.subclass_from_env_file(
+        env_templates_dir.joinpath(".env.catalog.content_store.presigned.template"),
+        prefix="XORQ_CONTENT_STORE_PRESIGNED_",
+    )
+
+    def validate_remote_url(self, remote_url: str) -> None:
+        """Validate the hosted Git origin before creating or mutating a repo."""
+        _validate_remote_binding(self.service_url, remote_url)
+
+    def bound_remote_url(self, repo: Any) -> str:
+        """Return the current sole Git URL after validating its service binding."""
+        remote_url = _single_remote_url(repo)
+        try:
+            self.validate_remote_url(remote_url)
+        except ValueError as exc:
+            raise hosted_remote_error(exc, remote_url) from exc
+        return remote_url
+
+    def make_store(self, *, repo: Any = None) -> PresignedContentStore:
+        return self.make_store_for_remote_url(self.bound_remote_url(repo))
+
+    def make_store_for_remote_url(self, remote_url: str) -> PresignedContentStore:
+        """Build a store for an effective Git URL the caller already resolved."""
+        return PresignedContentStore(
+            catalog_id=self.catalog_id,
+            service_url=self.service_url,
+            remote_url=remote_url,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"type": ContentStoreType.PRESIGNED} | serialize_fields(self)
+
+
 _S3_GCS_DEFAULTS: dict[str, str] = {
     "host": "storage.googleapis.com",
     "protocol": "https",
@@ -620,5 +1846,6 @@ _S3_GCS_DEFAULTS: dict[str, str] = {
 
 _CONTENT_STORE_CONFIG_CLASSES: dict[ContentStoreType, type[ContentStoreConfig]] = {
     ContentStoreType.DIRECTORY: DirectoryContentStoreConfig,
+    ContentStoreType.PRESIGNED: PresignedContentStoreConfig,
     ContentStoreType.S3: S3ContentStoreConfig,
 }

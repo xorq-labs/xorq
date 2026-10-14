@@ -144,6 +144,20 @@ def test_get_command(runner, catalog_path, data_dict, tmpdir):
     assert "Exported to" in result.output
 
 
+def test_get_creates_a_missing_output_dir(runner, catalog_path, data_dict, tmp_path):
+    path = str(next(iter(data_dict.values())))
+    runner.invoke(cli, ["--path", catalog_path, "add", path])
+    name = Path(path).name.removesuffix("".join(Path(path).suffixes))
+    output_dir = tmp_path / "not" / "yet" / "there"
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "get", name, "-o", str(output_dir)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (output_dir / f"{name}.zip").is_file()
+
+
 def test_get_default_output_dir(runner, catalog_path, data_dict):
     path = str(next(iter(data_dict.values())))
     runner.invoke(cli, ["--path", catalog_path, "add", path])

@@ -17,6 +17,7 @@ class CatalogTag(StrEnum):
 
 class ContentStoreType(StrEnum):
     DIRECTORY = "directory"
+    PRESIGNED = "presigned"
     S3 = "s3"
 
 

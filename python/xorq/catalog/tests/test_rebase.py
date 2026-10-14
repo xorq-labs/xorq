@@ -21,7 +21,8 @@ from xorq.catalog import drift
 from xorq.catalog import rebase as rebase_module
 from xorq.catalog.catalog import Catalog, CatalogAlias
 from xorq.catalog.cli import cli
-from xorq.catalog.enums import RebaseStatus
+from xorq.catalog.enums import RebaseExit, RebaseStatus
+from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
@@ -691,3 +692,34 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     result = rebase(runner, world)
     assert result.exit_code == 1
     assert "alias move failed" in result.stderr
+
+
+@pytest.mark.parametrize("backend_type", ("pointer",))
+def test_an_entry_whose_archive_is_not_local_is_fetched_first(
+    world: SimpleNamespace,
+) -> None:
+    # A fresh clone of a pointer catalog has the pointer but not the archive.
+    entry = world.catalog.get_catalog_entry(world.name)
+    Path(entry.catalog_path).unlink()
+    assert not entry.is_content_local
+
+    result = rebase_old(world)
+
+    assert result.status == RebaseStatus.NOOP
+    assert entry.is_content_local
+
+
+@pytest.mark.parametrize("backend_type", ("pointer",))
+def test_an_archive_that_cannot_be_fetched_is_refused_as_retryable(
+    world: SimpleNamespace,
+) -> None:
+    backend = world.catalog.backend
+    entry = world.catalog.get_catalog_entry(world.name)
+    Path(entry.catalog_path).unlink()
+    shutil.rmtree(backend.content_store.directory)
+    shutil.rmtree(backend.cache.cache_dir)
+
+    with pytest.raises(RebaseError, match="could not be fetched") as exc_info:
+        rebase_old(world)
+
+    assert exc_info.value.exit_code == RebaseExit.UNREACHABLE
