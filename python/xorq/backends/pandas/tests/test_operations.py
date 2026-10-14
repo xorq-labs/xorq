@@ -316,6 +316,54 @@ def test_group_concat(t, df):
     assert_frame_equal(result[expected.columns], expected)
 
 
+@pytest.fixture
+def concat_table():
+    df = pd.DataFrame(
+        {
+            "g": [1, 1, 1, 2, 2],
+            "i": pd.array([1, 2, None, 3, 4], dtype="Int64"),
+            "s": ["a", "b", None, "c", "d"],
+            "k": [1, 1, 2, 1, 2],
+        }
+    )
+    return Backend().connect({"t": df}).table("t")
+
+
+def _concat_values(expr):
+    values = expr.order_by("g").execute().r
+    return [None if pd.isna(value) else value for value in values]
+
+
+# expected values are what duckdb returns for the same expressions:
+# nulls take no part, and a group left with nothing is null
+@pytest.mark.parametrize(
+    ("column", "key", "expected"),
+    [
+        param("i", 1, ["1,2", "3"], id="int-where"),
+        param("s", 1, ["a,b", "c"], id="str-where"),
+        param("i", 2, [None, "4"], id="int-where-null-rows"),
+        param("s", 2, [None, "d"], id="str-where-null-rows"),
+    ],
+)
+def test_group_concat_where(concat_table, column, key, expected):
+    t = concat_table
+    expr = t.group_by("g").agg(r=t[column].group_concat(",", where=t.k == key))
+    assert _concat_values(expr) == expected
+
+
+@pytest.mark.parametrize(
+    ("column", "expected"),
+    [
+        param("i", ["1,2", "3,4"], id="int"),
+        param("s", ["a,b", "c,d"], id="str"),
+    ],
+)
+def test_group_concat_skips_nulls(concat_table, column, expected):
+    t = concat_table
+    expr = t.group_by("g").agg(r=t[column].group_concat(","))
+    assert _concat_values(expr) == expected
+
+
 @pytest.mark.parametrize("offset", [0, 2])
 def test_frame_limit(t, df, offset):
     n = 5
