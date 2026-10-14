@@ -345,7 +345,7 @@ class GitPointerBackend(CatalogBackend):
         return fetch_urls[0]
 
     def preflight_content_write(self) -> None:
-        _ = self.content_store
+        self.content_store.preflight_write()
 
     @property
     def _client_managed_lifecycle(self) -> bool:
@@ -374,6 +374,9 @@ class GitPointerBackend(CatalogBackend):
         archive_path = Path(catalog_path)
         uploaded = False
         store = self.content_store
+        # Before the copy: a write that cannot succeed must not read the
+        # archive first (it can be gigabytes).
+        store.preflight_write()
         with atomic_write(archive_path) as tmp:
             # One pass: the store re-verifies the digest against the bytes as
             # it uploads them, so this copy must not also re-read them.

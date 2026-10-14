@@ -397,6 +397,13 @@ class ContentStore(abc.ABC):
     @abc.abstractmethod
     def list_keys(self, prefix: str = "") -> Iterator[str]: ...
 
+    def preflight_write(self) -> None:  # noqa: B027
+        """Fail before a write reads any content, if the write cannot succeed.
+
+        The default checks nothing; a store whose writes need a credential
+        checks it here, so a caller can refuse before copying or hashing.
+        """
+
     def ensure_present(
         self, key: str, local_path: str | Path, *, sha256: str | None = None
     ) -> bool:
@@ -705,6 +712,10 @@ class PresignedContentStore(ContentStore):
                 "HTTP token"
             )
         return token, None
+
+    def preflight_write(self) -> None:
+        # Uploads require a token; resolve it before the caller reads content.
+        self._token(required=True)
 
     def _token(self, *, required: bool) -> str | None:
         token, withheld = self._resolve_token()

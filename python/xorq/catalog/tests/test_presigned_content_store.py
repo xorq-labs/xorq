@@ -1992,33 +1992,32 @@ def test_fetch_recreates_a_staging_dir_removed_since_the_cache_was_built(
     assert target.read_bytes() == b"fetched after a cache cleanup"
 
 
-def test_a_missing_token_is_reported_before_any_file_is_hashed(
+def test_hosted_add_without_a_token_fails_before_reading_the_archive(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     hosted_blob_service: _ServiceFixture,
 ) -> None:
     monkeypatch.delenv(TOKEN_ENV, raising=False)
 
-    def refuse(path: Any) -> str:
-        raise AssertionError(f"hashed {path} before checking the token")
+    def refuse(*args: Any) -> str:
+        raise AssertionError("read the archive before checking the token")
 
-    monkeypatch.setattr("xorq.catalog.content_store.compute_sha256", refuse)
-    content = b"a large archive nobody should read yet"
-    sha256 = _digest(content)
-    source = tmp_path / "source.zip"
-    source.write_bytes(content)
+    monkeypatch.setattr("xorq.catalog.backend.copy_and_digest", refuse)
+    backend = _backend(tmp_path, hosted_blob_service)
+    backend.repo.index.add([CONTENT_STORE_YAML])
+    backend.repo.index.commit("initial hosted config")
+    catalog = Catalog(backend=backend)
 
     with pytest.raises(ContentStoreError, match=f"{TOKEN_ENV} is required"):
-        _store(hosted_blob_service).ensure_present_many(
-            (
-                (
-                    ContentSpec(
-                        compute_content_key(CATALOG_ID, sha256), sha256, len(content)
-                    ),
-                    source,
-                ),
-            )
-        )
+        catalog.add(xo.memtable({"value": [1, 2, 3]}), sync=False)
+    assert not backend.repo.is_dirty(untracked_files=True)
+
+    source = tmp_path / "source.zip"
+    source.write_bytes(b"content")
+    target = Path(backend.repo.working_dir) / "entries" / "entry.zip"
+    with pytest.raises(ContentStoreError, match=f"{TOKEN_ENV} is required"):
+        backend.stage_content(source, target)
+    assert not target.exists()
     assert hosted_blob_service.state.control_requests == []
 
 
