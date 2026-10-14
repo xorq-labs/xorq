@@ -2012,3 +2012,33 @@ def test_fetch_recreates_a_staging_dir_removed_since_the_cache_was_built(
     backend.fetch_content(target)
 
     assert target.read_bytes() == b"fetched after a cache cleanup"
+
+
+def test_a_missing_token_is_reported_before_any_file_is_hashed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    monkeypatch.delenv(TOKEN_ENV, raising=False)
+
+    def refuse(path: Any) -> str:
+        raise AssertionError(f"hashed {path} before checking the token")
+
+    monkeypatch.setattr("xorq.catalog.content_store.compute_sha256", refuse)
+    content = b"a large archive nobody should read yet"
+    sha256 = _digest(content)
+    source = tmp_path / "source.zip"
+    source.write_bytes(content)
+
+    with pytest.raises(ContentStoreError, match=f"{TOKEN_ENV} is required"):
+        _store(hosted_blob_service).ensure_present_many(
+            (
+                (
+                    ContentSpec(
+                        compute_content_key(CATALOG_ID, sha256), sha256, len(content)
+                    ),
+                    source,
+                ),
+            )
+        )
+    assert hosted_blob_service.state.control_requests == []
