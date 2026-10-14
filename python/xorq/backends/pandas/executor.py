@@ -561,7 +561,8 @@ class PandasExecutor(PandasUtils):
     @classmethod
     def visit_CumeDist(cls, op: ops.CumeDist):
         def agg(df, order_keys):
-            return _rank_key(df, order_keys).rank(method="average", pct=True)
+            # SQL CUME_DIST: rows with key <= this key, over the partition
+            return _rank_key(df, order_keys).rank(method="max", pct=True)
 
         return agg
 
