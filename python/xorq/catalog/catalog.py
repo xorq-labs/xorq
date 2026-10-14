@@ -545,7 +545,8 @@ class Catalog:
     def push(self):
         """Push to the configured git remote after verifying consistency.
 
-        Pushes ``main``, then ``git-annex`` (if present). Both pushes are
+        Pushes ``main``, then ``git-annex`` (if present). A branch with no
+        upstream yet is pushed with ``--set-upstream``. Both pushes are
         always attempted — raises a single ``CatalogPushError`` listing
         every rejection or transport failure across both. No-op when no
         git remote is configured.
@@ -557,7 +558,15 @@ class Catalog:
             return ()
         self.assert_consistency()
         (remote,) = remotes
-        main_result = remote.push()
+        branch = self.repo.active_branch
+        if branch.tracking_branch() is None:
+            # First push to this remote (e.g. a freshly created hosted
+            # catalog): publish the branch and track it, as `git push -u`.
+            main_result = remote.push(
+                refspec=f"{branch.name}:{branch.name}", set_upstream=True
+            )
+        else:
+            main_result = remote.push()
         failure_messages = _format_push_failures(main_result, remote.name)
         if _has_local_annex_branch(self.repo):
             annex_result = remote.push(ANNEX_BRANCH)
@@ -613,7 +622,9 @@ class Catalog:
           ``git commit --no-edit``.
 
         A catalog has at most one git remote (see ADR on single-remote
-        catalogs).  No remote → no-op.
+        catalogs).  No remote → no-op.  A remote with no branches at all
+        (a freshly created one) → fetch only; the first ``push`` publishes
+        the branch.
         """
         if self.repo.head.is_detached:
             raise CatalogPullError(
@@ -625,13 +636,17 @@ class Catalog:
         (remote,) = remotes
         branch = self.repo.active_branch.name
         fetch_result = remote.fetch()
+        if not remote.refs:
+            # An empty remote (a hosted catalog is created as one) has
+            # nothing to merge; the first push publishes this branch.
+            return (fetch_result,)
         self._validate_catalog_yaml_in_commit(self.repo.head.commit, "ours")
         try:
             remote_commit = self.repo.commit(f"{remote.name}/{branch}")
         except Exception:
-            # Remote ref didn't resolve (e.g. remote has no branches
-            # yet).  Skip the theirs-side pre-flight and let `git
-            # merge` raise the actionable ref-missing error below.
+            # The remote has branches but not this one.  Skip the
+            # theirs-side pre-flight and let `git merge` raise the
+            # actionable ref-missing error below.
             remote_commit = None
         if remote_commit is not None:
             self._validate_catalog_yaml_in_commit(
