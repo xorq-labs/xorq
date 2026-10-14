@@ -1616,6 +1616,7 @@ class CatalogEntry:
             .joinpath(self.name)
             .with_suffix(PREFERRED_SUFFIX)
         )
+        target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(self.catalog_path, target)
         return target
 
