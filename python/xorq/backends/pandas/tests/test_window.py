@@ -784,3 +784,27 @@ def test_rank_over_array_of_struct_key():
     result = t.mutate(r=t.k.rank(), d=t.k.dense_rank()).order_by("id").execute()
     assert result.r.tolist() == [0, 0]
     assert result.d.tolist() == [0, 0]
+
+
+@pytest.fixture
+def percent_rank_table():
+    df = pd.DataFrame({"g": ["a", "a", "a", "b", "b", "c"], "v": [1, 2, 2, 5, 7, 9]})
+    return xo.pandas.connect({"t": df}).table("t")
+
+
+def test_percent_rank_single_row_partitions(percent_rank_table):
+    t = percent_rank_table
+    expr = t.select(
+        t.v, p=ibis.percent_rank().over(group_by=t.v, order_by=t.v)
+    ).order_by("v")
+    # duckdb returns 0.0 for every single-row partition
+    assert expr.execute().p.tolist() == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_percent_rank_partitioned_with_ties(percent_rank_table):
+    t = percent_rank_table
+    expr = t.select(
+        t.g, t.v, p=ibis.percent_rank().over(group_by=t.g, order_by=t.v)
+    ).order_by(["g", "v"])
+    # literal duckdb result for the same frame: a=[1,2,2], b=[5,7], c=[9]
+    assert expr.execute().p.tolist() == [0.0, 0.5, 0.5, 0.0, 1.0, 0.0]

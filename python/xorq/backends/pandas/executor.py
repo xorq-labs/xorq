@@ -548,7 +548,13 @@ class PandasExecutor(PandasUtils):
     @classmethod
     def visit_PercentRank(cls, op: ops.PercentRank):
         def agg(df, order_keys):
-            return _rank_key(df, order_keys).rank(method="min").sub(1).div(len(df) - 1)
+            # a single-row partition has nothing to rank against: 0, as in SQL
+            return (
+                _rank_key(df, order_keys)
+                .rank(method="min")
+                .sub(1)
+                .div(max(len(df) - 1, 1))
+            )
 
         return agg
 
