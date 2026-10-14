@@ -1995,3 +1995,20 @@ def test_an_ssh_remote_is_told_to_use_https(remote_url: str) -> None:
 
     with pytest.raises(ValueError, match="must be an HTTPS URL; SSH"):
         config.validate_remote_url(remote_url)
+
+
+def test_fetch_recreates_a_staging_dir_removed_since_the_cache_was_built(
+    tmp_path: Path,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    backend = _backend(tmp_path, hosted_blob_service)
+    ((target, _key, _sha256),) = _prepare_downloads(
+        backend, hosted_blob_service, (b"fetched after a cache cleanup",)
+    )
+    staging = backend.cache.staging_dir
+    assert staging is not None
+    staging.rmdir()
+
+    backend.fetch_content(target)
+
+    assert target.read_bytes() == b"fetched after a cache cleanup"

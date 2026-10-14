@@ -548,6 +548,10 @@ class GitPointerBackend(CatalogBackend):
         verified against its own pointer before it is written.
         """
         staging_dir = self.cache.staging_dir
+        if staging_dir is not None:
+            # Created when the cache was, but a cache cleanup since then may
+            # have removed it; mkstemp needs it to exist.
+            staging_dir.mkdir(parents=True, exist_ok=True)
         downloads: dict[str, Path] = {}
         try:
             for key, _entry in batch:
