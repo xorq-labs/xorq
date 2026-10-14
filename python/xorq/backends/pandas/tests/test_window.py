@@ -834,3 +834,86 @@ def test_cume_dist_ties(window, expected):
         t.select(t.row, c=ibis.cume_dist().over(**window)).execute().sort_values("row")
     )
     assert result.c.tolist() == pytest.approx(expected)
+
+
+def test_rank_family_follows_descending_order():
+    # verbatim from the upstream issue report: the same expression on the
+    # pandas backend and on datafusion, compared through to_dict("list")
+    df = pd.DataFrame({"v": [3.0, 1.0, 2.0]})
+    results = {}
+    for con in (xo.pandas.connect(), xo.connect()):
+        t = con.create_table("t", df)
+        r = (
+            t.mutate(
+                rank=xo.rank().over(order_by=xo.desc("v")),
+                dense_rank=xo.dense_rank().over(order_by=xo.desc("v")),
+                percent_rank=xo.percent_rank().over(order_by=xo.desc("v")),
+                cume_dist=xo.cume_dist().over(order_by=xo.desc("v")),
+            )
+            .order_by("v")
+            .execute()
+        )
+        results[con.name] = r.to_dict("list")
+
+    expected = {
+        "v": [1.0, 2.0, 3.0],
+        "rank": [2, 1, 0],
+        "dense_rank": [2, 1, 0],
+        "percent_rank": [1.0, 0.5, 0.0],
+        "cume_dist": [1.0, 2 / 3, 1 / 3],
+    }
+    assert results["xorq_datafusion"] == pytest.approx(expected)
+    assert results["pandas"] == pytest.approx(expected)
+
+
+def test_percent_rank_and_cume_dist_desc_with_ties_and_partitions():
+    df = pd.DataFrame({"g": list("aaabbb"), "v": [1, 2, 2, 5, 7, 7]})
+    t = xo.pandas.connect().create_table("t", df)
+    expr = t.mutate(
+        pr=xo.percent_rank().over(order_by=xo.desc("v")),
+        cd=xo.cume_dist().over(order_by=xo.desc("v")),
+        pr_g=xo.percent_rank().over(group_by="g", order_by=xo.desc("v")),
+        cd_g=xo.cume_dist().over(group_by="g", order_by=xo.desc("v")),
+    ).order_by(["g", "v"])
+    result = expr.execute()
+    # literal duckdb and datafusion results for the same frame
+    assert result.pr.tolist() == [1.0, 0.6, 0.6, 0.4, 0.0, 0.0]
+    assert result.cd.tolist() == pytest.approx([1.0, 5 / 6, 5 / 6, 0.5, 1 / 3, 1 / 3])
+    assert result.pr_g.tolist() == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    assert result.cd_g.tolist() == pytest.approx([1.0, 2 / 3, 2 / 3, 1.0, 2 / 3, 2 / 3])
+
+
+@pytest.mark.parametrize(
+    ("order_by", "expected_rk", "expected_pr", "expected_cd"),
+    [
+        ("v", [3, 0, 0, 2], [1.0, 0.0, 0.0, 2 / 3], [1.0, 0.5, 0.5, 0.75]),
+        (xo.desc("v"), [3, 1, 1, 0], [1.0, 1 / 3, 1 / 3, 0.0], [1.0, 0.75, 0.75, 0.25]),
+        (
+            ibis.asc("v", nulls_first=True),
+            [0, 1, 1, 3],
+            [0.0, 1 / 3, 1 / 3, 1.0],
+            [0.25, 0.75, 0.75, 1.0],
+        ),
+        (
+            ibis.desc("v", nulls_first=True),
+            [0, 2, 2, 1],
+            [0.0, 2 / 3, 2 / 3, 1 / 3],
+            [0.25, 1.0, 1.0, 0.5],
+        ),
+    ],
+    ids=["asc", "desc", "asc-nulls-first", "desc-nulls-first"],
+)
+def test_rank_family_over_null_key(order_by, expected_rk, expected_pr, expected_cd):
+    # a null key ranks as one group, last by default and first on request;
+    # the literals are duckdb's and datafusion's for the same frame
+    df = pd.DataFrame({"v": [1.0, None, 1.0, 2.0]})
+    t = xo.pandas.connect().create_table("t", df)
+    expr = t.mutate(
+        rk=xo.rank().over(order_by=order_by),
+        pr=xo.percent_rank().over(order_by=order_by),
+        cd=xo.cume_dist().over(order_by=order_by),
+    ).order_by(ibis.asc("v", nulls_first=True))
+    result = expr.execute()
+    assert result.rk.tolist() == expected_rk
+    assert result.pr.tolist() == pytest.approx(expected_pr)
+    assert result.cd.tolist() == pytest.approx(expected_cd)

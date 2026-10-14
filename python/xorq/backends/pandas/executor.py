@@ -127,13 +127,39 @@ def _null_position(table, order_keys, nulls_first):
     return "last"
 
 
-def _rank_key(df, order_keys):
+def _key_starts(df, order_keys):
+    """Where a new key begins in a frame already sorted by the window's keys.
+
+    The frame arrives sorted with direction and null placement applied, so
+    rank-family functions read it by position: a new rank starts wherever a
+    key differs from the previous row. Factorized codes compare exactly for
+    any dtype and give nulls one code of their own.
+    """
     if len(order_keys) == 0:
         raise ValueError("order_by argument is required for rank functions")
-    elif len(order_keys) == 1:
-        return df[order_keys[0]]
-    else:
-        return df[order_keys].apply(tuple, axis=1)
+    codes = np.column_stack(
+        [
+            pd.factorize(_hashable_key(df[key]), use_na_sentinel=False)[0]
+            for key in order_keys
+        ]
+    )
+    starts = np.ones(len(df), dtype=bool)
+    starts[1:] = (codes[1:] != codes[:-1]).any(axis=1)
+    return starts
+
+
+def _min_rank(starts):
+    # position of the row that opened the current key group
+    return np.maximum.accumulate(np.where(starts, np.arange(len(starts)), 0))
+
+
+def _max_rank(starts):
+    # position of the row that closes the current key group
+    ends = np.empty(len(starts), dtype=bool)
+    ends[:-1] = starts[1:]
+    ends[-1:] = True
+    last = np.where(ends, np.arange(len(starts)), len(starts) - 1)
+    return np.minimum.accumulate(last[::-1])[::-1]
 
 
 class PandasExecutor(PandasUtils):
@@ -521,24 +547,8 @@ class PandasExecutor(PandasUtils):
         method = "dense" if isinstance(op, ops.DenseRank) else "min"
 
         def agg(df, order_keys):
-            if len(order_keys) == 0:
-                raise ValueError("order_by argument is required for rank functions")
-            # the frame arrives sorted by the window's keys, direction and
-            # null placement included, so rank by position: a new rank starts
-            # wherever a key differs from the previous row. Factorized codes
-            # compare exactly for any dtype and give nulls one code of their own.
-            codes = np.column_stack(
-                [
-                    pd.factorize(_hashable_key(df[key]), use_na_sentinel=False)[0]
-                    for key in order_keys
-                ]
-            )
-            starts = np.ones(len(df), dtype=bool)
-            starts[1:] = (codes[1:] != codes[:-1]).any(axis=1)
-            if method == "dense":
-                ranks = np.cumsum(starts) - 1
-            else:
-                ranks = np.maximum.accumulate(np.where(starts, np.arange(len(df)), 0))
+            starts = _key_starts(df, order_keys)
+            ranks = np.cumsum(starts) - 1 if method == "dense" else _min_rank(starts)
             return pd.Series(ranks, index=df.index, dtype="int64")
 
         return agg
@@ -549,20 +559,17 @@ class PandasExecutor(PandasUtils):
     def visit_PercentRank(cls, op: ops.PercentRank):
         def agg(df, order_keys):
             # a single-row partition has nothing to rank against: 0, as in SQL
-            return (
-                _rank_key(df, order_keys)
-                .rank(method="min")
-                .sub(1)
-                .div(max(len(df) - 1, 1))
-            )
+            ranks = _min_rank(_key_starts(df, order_keys)) / max(len(df) - 1, 1)
+            return pd.Series(ranks, index=df.index)
 
         return agg
 
     @classmethod
     def visit_CumeDist(cls, op: ops.CumeDist):
         def agg(df, order_keys):
-            # SQL CUME_DIST: rows with key <= this key, over the partition
-            return _rank_key(df, order_keys).rank(method="max", pct=True)
+            # SQL CUME_DIST: rows at or before the end of this key group, over n
+            ranks = (_max_rank(_key_starts(df, order_keys)) + 1) / len(df)
+            return pd.Series(ranks, index=df.index)
 
         return agg
 
