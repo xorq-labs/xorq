@@ -321,16 +321,28 @@ def _hosted_config(
     return None
 
 
+def _require_hosted_remote_url(
+    content_store_type: str | None, remote_url: str | None
+) -> None:
+    """Refuse a hosted store without --remote-url, before reading any setting.
+
+    Checked on the option rather than the resolved config so that a usage
+    error (exit 2) wins over a missing hosted environment setting.
+    """
+    from xorq.catalog.enums import ContentStoreType  # noqa: PLC0415
+
+    if content_store_type == ContentStoreType.PRESIGNED and remote_url is None:
+        raise click.UsageError(
+            f"--remote-url is required with --content-store {ContentStoreType.PRESIGNED}."
+        )
+
+
 def _checked_hosted_config(
     content_store_config: ContentStoreConfig | None, remote_url: str | None
 ) -> PresignedContentStoreConfig | None:
     """The hosted config, if any, after checking the remote it requires."""
     hosted = _hosted_config(content_store_config)
     if hosted is not None:
-        if remote_url is None:
-            raise click.UsageError(
-                "--remote-url is required with --content-store presigned."
-            )
         hosted.validate_remote_url(remote_url)
     return hosted
 
@@ -395,6 +407,7 @@ def init(
       xorq catalog --name analytics init --content-store presigned --remote-url https://catalog.example/acme/analytics.git
     """
     with click_context_catalog(ctx):
+        _require_hosted_remote_url(content_store_type, remote_url)
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
@@ -1794,6 +1807,7 @@ def replay(
         if dry_run:
             replayer.print_plan()
             return
+        _require_hosted_remote_url(content_store_type, remote_url)
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)

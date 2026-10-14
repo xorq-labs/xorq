@@ -201,3 +201,28 @@ def test_replay_reports_a_remote_hook_rejection(
     assert result.exit_code != 0
     assert "remote rejected by pre-receive hook" in result.output
     assert "Pushed to" not in result.output
+
+
+@pytest.mark.parametrize("command", ("init", "replay"))
+def test_missing_remote_url_is_a_usage_error_before_hosted_settings(
+    runner: CliRunner,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    for name in (
+        "XORQ_CONTENT_STORE_PRESIGNED_CATALOG_ID",
+        "XORQ_CONTENT_STORE_PRESIGNED_SERVICE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    target = tmp_path / "hosted"
+
+    if command == "init":
+        result = _invoke_init(runner, target)
+    else:
+        source = Catalog.from_repo_path(tmp_path / "source")
+        result = _invoke_replay(runner, source, target)
+
+    assert result.exit_code == 2, result.output
+    assert "--remote-url is required" in result.output
+    assert not target.exists()
