@@ -491,7 +491,10 @@ class Catalog:
                 f"or open an issue if you have a multi-remote use case."
             )
         for remote in remotes:
-            self.backend.validate_remote(remote)
+            try:
+                self.backend.validate_remote(remote)
+            except ValueError as exc:
+                raise CatalogConfigurationError(str(exc)) from exc
         return remotes
 
     def set_remote(self, name, url, force=False):

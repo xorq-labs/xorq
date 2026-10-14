@@ -42,6 +42,7 @@ from xorq.catalog.content_store import (
     write_pointer,
 )
 from xorq.catalog.exceptions import (
+    CatalogConfigurationError,
     CatalogServiceHTTPError,
     ContentIntegrityError,
     ContentStoreCapabilityError,
@@ -1144,7 +1145,7 @@ def test_hosted_git_operations_revalidate_fetch_and_push_urls(
     remote = backend.repo.remotes.origin
 
     remote.set_url("https://other.example/alice/demo.git")
-    with pytest.raises(ValueError, match="does not match"):
+    with pytest.raises(CatalogConfigurationError, match="does not match"):
         catalog.fetch()
 
     remote.set_url(original_url)
@@ -1152,7 +1153,9 @@ def test_hosted_git_operations_revalidate_fetch_and_push_urls(
         "remote.origin.pushurl",
         "https://other.example/alice/demo.git",
     )
-    with pytest.raises(ValueError, match="fetch and push URLs must match"):
+    with pytest.raises(
+        CatalogConfigurationError, match="fetch and push URLs must match"
+    ):
         catalog.push()
 
 
@@ -1166,7 +1169,7 @@ def test_hosted_git_operations_reject_multiple_urls_on_one_remote(
     catalog = Catalog(backend=backend)
     backend.repo.remotes.origin.add_url(f"{hosted_blob_service.url}alice/other.git")
 
-    with pytest.raises(ValueError, match="exactly one fetch URL"):
+    with pytest.raises(CatalogConfigurationError, match="exactly one fetch URL"):
         catalog.fetch()
 
 
