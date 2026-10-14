@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from functools import cached_property
+from functools import cache, cached_property
 from http.client import HTTPException
 from pathlib import Path
 from typing import Any
@@ -56,13 +56,6 @@ POINTER_VERSION = "xorq-pointer v1"
 # validated to prevent path traversal from untrusted cloned repos
 _SAFE_CATALOG_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-# The committed bytes are LF-only (the hosted service checks that on push),
-# but a checkout with core.autocrlf=true — the Windows default — renders them
-# CRLF in the working tree and converts back on add. Accept either ending,
-# used consistently, so such a checkout does not read every pointer as corrupt.
-_CANONICAL_POINTER_RE = re.compile(
-    rb"xorq-pointer v1(\r?\n)sha256 ([0-9a-f]{64})\1size (0|[1-9][0-9]*)\1\Z"
-)
 
 _DEFAULT_CACHE_DIR = Path("~/.cache/xorq/content")
 # Bounds cache entries, not in-flight downloads. Deliberately smaller than
@@ -313,10 +306,29 @@ def _read_pointer_bytes(path: str | Path) -> bytes:
     return path.read_bytes()
 
 
+@cache
+def _canonical_pointer_re(version: str) -> re.Pattern[bytes]:
+    """The exact bytes ``write_pointer`` emits for *version*.
+
+    Derived from the version line rather than restating it, so changing
+    ``POINTER_VERSION`` changes writer and canonical parser together.
+
+    The committed bytes are LF-only (the hosted service checks that on push),
+    but a checkout with core.autocrlf=true — the Windows default — renders them
+    CRLF in the working tree and converts back on add. Either ending is
+    accepted, used consistently, so such a checkout does not read every
+    pointer as corrupt.
+    """
+    return re.compile(
+        re.escape(version.encode("ascii"))
+        + rb"(\r?\n)sha256 ([0-9a-f]{64})\1size (0|[1-9][0-9]*)\1\Z"
+    )
+
+
 def parse_pointer(path: str | Path, *, canonical: bool = False) -> tuple[str, int]:
     raw = _read_pointer_bytes(path)
     if canonical:
-        match = _CANONICAL_POINTER_RE.fullmatch(raw)
+        match = _canonical_pointer_re(POINTER_VERSION).fullmatch(raw)
         if match is None:
             raise ValueError(f"Invalid pointer file: {path}")
         sha256 = match.group(2).decode("ascii")

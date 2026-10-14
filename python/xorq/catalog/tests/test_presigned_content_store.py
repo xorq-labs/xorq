@@ -2020,3 +2020,17 @@ def test_a_missing_token_is_reported_before_any_file_is_hashed(
             )
         )
     assert hosted_blob_service.state.control_requests == []
+
+
+def test_a_new_pointer_version_still_parses_canonically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("xorq.catalog.content_store.POINTER_VERSION", "xorq-pointer v2")
+    pointer = tmp_path / "entry.zip.pointer"
+    sha256 = _digest(b"written and read under one version")
+
+    write_pointer(pointer, sha256, 34)
+
+    assert pointer.read_bytes().startswith(b"xorq-pointer v2\n")
+    assert parse_pointer(pointer, canonical=True) == (sha256, 34)
