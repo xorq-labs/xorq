@@ -808,3 +808,29 @@ def test_percent_rank_partitioned_with_ties(percent_rank_table):
     ).order_by(["g", "v"])
     # literal duckdb result for the same frame: a=[1,2,2], b=[5,7], c=[9]
     assert expr.execute().p.tolist() == [0.0, 0.5, 0.5, 0.0, 1.0, 0.0]
+
+
+@pytest.mark.parametrize(
+    ("window", "expected"),
+    [
+        ({"order_by": "i"}, [1 / 3, 0.5, 1 / 3, 1.0, 1.0, 1.0]),
+        ({"order_by": ["i", "j"]}, [1 / 3, 0.5, 1 / 6, 2 / 3, 1.0, 1.0]),
+        ({"group_by": "g", "order_by": "i"}, [2 / 3, 1.0, 2 / 3, 1.0, 1.0, 1.0]),
+    ],
+    ids=["ties", "multi_key", "partitioned"],
+)
+def test_cume_dist_ties(window, expected):
+    # expected values are what duckdb returns for the same frame and window
+    df = pd.DataFrame(
+        {
+            "g": list("aaabbb"),
+            "i": [1, 2, 1, 5, 5, 5],
+            "j": [9, 8, 7, 1, 2, 2],
+            "row": range(6),
+        }
+    )
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = (
+        t.select(t.row, c=ibis.cume_dist().over(**window)).execute().sort_values("row")
+    )
+    assert result.c.tolist() == pytest.approx(expected)
