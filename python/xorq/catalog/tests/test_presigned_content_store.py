@@ -1904,3 +1904,51 @@ def test_control_requests_do_not_retry_other_failures(
 
     assert sleeps == []
     assert len(hosted_blob_service.state.control_requests) == 1
+
+
+@pytest.mark.parametrize("token", ("", "   "))
+def test_an_empty_token_is_treated_as_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+    token: str,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, token)
+    content = b"public content with an exported but empty token"
+    sha256 = _digest(content)
+    hosted_blob_service.state.objects[sha256] = content
+    destination = tmp_path / "public.zip"
+
+    _store(hosted_blob_service).get(
+        compute_content_key(CATALOG_ID, sha256),
+        destination,
+        sha256=sha256,
+        size=len(content),
+    )
+
+    assert destination.read_bytes() == content
+    assert [auth for _, auth, _ in hosted_blob_service.state.control_requests] == [None]
+
+
+def test_an_authorization_failure_names_the_withheld_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    monkeypatch.setenv(TOKEN_ENV, "configured-but-unscoped")
+    monkeypatch.delenv(TOKEN_SERVICE_ENV, raising=False)
+    hosted_blob_service.state.rejected_authorizations[""] = (401, "unauthorized")
+    sha256 = _digest(b"private")
+
+    with pytest.raises(ContentStoreError) as exc_info:
+        _store(hosted_blob_service).get(
+            compute_content_key(CATALOG_ID, sha256),
+            tmp_path / "private.zip",
+            sha256=sha256,
+            size=7,
+        )
+
+    message = str(exc_info.value)
+    assert "HTTP status 401" in message
+    assert f"{TOKEN_ENV} is set but not sent" in message
+    assert TOKEN_SERVICE_ENV in message

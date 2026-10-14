@@ -632,56 +632,66 @@ class PresignedContentStore(ContentStore):
             f"{self.catalog_id}/blobs/{suffix}"
         )
 
-    def _token(self, *, required: bool) -> str | None:
+    def _resolve_token(self) -> tuple[str | None, str | None]:
+        """Return the catalog token to send, or why a configured one is withheld.
+
+        The first item is the token, or None. The second explains why a token
+        that is configured is not being sent, and is None when there is
+        nothing to explain: either a token is sent, or none is configured (an
+        unset or empty variable). Callers decide whether a withheld token is
+        an error (an upload) or only context for a later failure (a download
+        that may still succeed anonymously).
+        """
         # Read straight from the environment on every request rather than
         # through EnvConfigable: the token is short-lived, and a refreshed one
         # must take effect without rebuilding the store.
         token = os.environ.get(_CATALOG_TOKEN_ENV)  # xorq-style: disable=os-environ
-        if token is None:
-            if required:
-                raise ContentStoreError(
-                    f"{_CATALOG_TOKEN_ENV} is required for authenticated hosted "
-                    "catalog requests"
-                )
-            return None
+        if token is None or not token.strip():
+            return None, None
         token_service_url = os.environ.get(  # xorq-style: disable=os-environ
             _CATALOG_TOKEN_SERVICE_ENV
         )
         if token_service_url is None:
-            if required:
-                raise ContentStoreError(
-                    f"{_CATALOG_TOKEN_SERVICE_ENV} is required to scope "
-                    f"{_CATALOG_TOKEN_ENV} to one hosted service"
-                )
-            return None
+            return None, (
+                f"{_CATALOG_TOKEN_ENV} is set but not sent: "
+                f"{_CATALOG_TOKEN_SERVICE_ENV} is required to scope it to one "
+                "hosted service"
+            )
         try:
             token_service = _service_url_identity(
                 token_service_url,
                 label=_CATALOG_TOKEN_SERVICE_ENV,
             )
         except ValueError as exc:
-            if required:
-                raise ContentStoreError(str(exc)) from exc
-            return None
+            return None, f"{_CATALOG_TOKEN_ENV} is set but not sent: {exc}"
         if token_service != _service_url_identity(
             self.service_url,
             label="service_url",
         ):
-            if required:
-                raise ContentStoreError(
-                    f"{_CATALOG_TOKEN_ENV} is scoped to a different hosted service"
-                )
-            return None
+            return None, (
+                f"{_CATALOG_TOKEN_ENV} is set but not sent: it is scoped to a "
+                "different hosted service"
+            )
         if (
-            not token
-            or len(token) > 16 * 1024
+            len(token) > 16 * 1024
             or token != token.strip()
             or any(
                 ord(character) < 0x21 or ord(character) > 0x7E for character in token
             )
         ):
+            return None, (
+                f"{_CATALOG_TOKEN_ENV} is set but not sent: it must contain one "
+                "HTTP token"
+            )
+        return token, None
+
+    def _token(self, *, required: bool) -> str | None:
+        token, withheld = self._resolve_token()
+        if token is None and required:
             raise ContentStoreError(
-                f"{_CATALOG_TOKEN_ENV} must contain one non-empty HTTP token"
+                withheld
+                or f"{_CATALOG_TOKEN_ENV} is required for authenticated hosted "
+                "catalog requests"
             )
         return token
 
@@ -892,14 +902,25 @@ class PresignedContentStore(ContentStore):
                 token=token,
             )
         except CatalogServiceHTTPError as exc:
-            rejected_optional_credentials = (exc.status, exc.error_code) in {
+            rejected_credentials = (exc.status, exc.error_code) in {
                 (401, "unauthorized"),
                 (403, "forbidden"),
             }
-            if token_required or not rejected_optional_credentials:
+            if token_required or not rejected_credentials:
                 raise
             if token is None:
-                raise
+                # A configured token that was withheld is the likeliest reason
+                # for an authorization failure; say so rather than leaving a
+                # bare 401 that reads as "no token was configured".
+                _token, withheld = self._resolve_token()
+                if withheld is None:
+                    raise
+                raise CatalogServiceHTTPError(
+                    f"{exc}; {withheld}",
+                    status=exc.status,
+                    error_code=exc.error_code,
+                    retry_after=exc.retry_after,
+                ) from exc
             return self._control_post(
                 suffix,
                 request_payload,
