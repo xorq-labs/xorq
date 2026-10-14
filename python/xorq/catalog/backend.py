@@ -26,6 +26,7 @@ from xorq.catalog.constants import (
     POINTER_SUFFIX,
 )
 from xorq.catalog.content_store import (
+    _HOSTED_COMPONENT_MAX_LENGTH,
     _HOSTED_COMPONENT_RE,
     _PRESIGNED_BATCH_SIZE,
     ContentCache,
@@ -299,8 +300,9 @@ class GitPointerBackend(CatalogBackend):
             and _HOSTED_COMPONENT_RE.fullmatch(value) is None
         ):
             raise ValueError(
-                f"hosted {label} must be 1-128 ASCII characters: "
-                "an alphanumeric first character followed by alphanumerics, '_' or '-'"
+                f"hosted {label} must be 1-{_HOSTED_COMPONENT_MAX_LENGTH} ASCII "
+                "characters: an alphanumeric first character followed by "
+                "alphanumerics, '_' or '-'"
             )
 
     def validate_remote_url(self, remote_url: str) -> None:

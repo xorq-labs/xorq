@@ -68,7 +68,8 @@ _DEFAULT_CACHE_DIR = Path("~/.cache/xorq/content")
 # Bounds cache entries, not in-flight downloads. Deliberately smaller than
 # _MAX_PRESIGNED_BLOB_BYTES: an object larger than the budget is still cached
 # (adopt protects what it just stored) but evicts everything else, and is itself
-# evicted by the next write. docs/how_to/use_hosted_catalogs.qmd says so.
+# evicted when the next entry is cached. docs/how_to/use_hosted_catalogs.qmd
+# says so.
 _DEFAULT_CACHE_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
 _MAX_PRESIGNED_BLOB_BYTES = 5_000_000_000
 _CONTROL_RESPONSE_MAX_BYTES = 256 * 1024
@@ -223,7 +224,7 @@ def _validate_remote_binding(service_url: str, remote_url: str) -> None:
     prefix = f"{service_path}/" if service_path else "/"
     relative = remote.path.removeprefix(prefix)
     if relative == remote.path or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}/"
+        rf"{_COMPONENT_HEAD}{_COMPONENT_TAIL}{{0,63}}/"
         r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\.git/?",
         relative,
     ):

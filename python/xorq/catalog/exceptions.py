@@ -56,9 +56,10 @@ class CatalogPushError(RuntimeError):
 class CatalogConfigurationError(RuntimeError):
     """Raised when the catalog's underlying repo violates a supported configuration.
 
-    Currently fires only when the catalog finds more than one git remote on
-    a sync-side operation (``push`` / ``pull`` / ``fetch`` / ``sync``); the
-    catalog supports at most one git remote per ADR-0011.
+    Fires on a sync-side operation (``push`` / ``pull`` / ``fetch`` /
+    ``sync``) when the catalog finds more than one git remote (the catalog
+    supports at most one, per ADR-0011), or when a hosted catalog's remote
+    fails its binding check.
     """
 
 
