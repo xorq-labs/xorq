@@ -85,16 +85,14 @@ _TRANSFER_CHUNK_BYTES = 1024 * 1024
 # operation may block — NOT how long a whole transfer may take. A multi-hour
 # download is fine as long as no individual read stalls this long.
 _SOCKET_IDLE_TIMEOUT_SECONDS = 300
-# A signed URL is re-minted when it would expire before the transfer it was
-# minted for could plausibly finish. The floor covers connection setup and
-# round trip and the size-derived term covers the body; they are summed, not
-# alternatives, since a multi-gigabyte body still has to pay for setup.
+# A signed URL is checked when its request arrives, not while the body
+# streams, so it only has to outlive the start of the request: it is re-minted
+# when it expires within this margin, which covers connection setup and a
+# round trip whatever the object's size.
 _PRESIGNED_EXPIRY_MARGIN_SECONDS = 30
+# Assumed transfer bandwidth, and the time the largest permitted object needs
+# at it (rounded up); the staging reap threshold below is derived from them.
 _PRESIGNED_ASSUMED_BYTES_PER_SECOND = 10 * 1024 * 1024
-# Derived, not co-declared: the ceiling on the body term is the time the
-# largest permitted object needs, so raising the blob limit cannot silently
-# leave the margin too small to cover it. Rounded up, because a floor-divided
-# ceiling is shorter than the transfer it was derived from.
 _MAX_TRANSFER_SECONDS = -(
     -_MAX_PRESIGNED_BLOB_BYTES // _PRESIGNED_ASSUMED_BYTES_PER_SECOND
 )
@@ -1073,27 +1071,21 @@ class PresignedContentStore(ContentStore):
         return url, dict(headers), expiry.astimezone(timezone.utc)
 
     @staticmethod
-    def _expiry_margin_seconds(size: int) -> int:
-        """Seconds of validity a signed URL needs to transfer *size* bytes.
-
-        A fixed few seconds is not enough for a multi-gigabyte body: the URL
-        passes the pre-flight check and then expires mid-transfer. The floor
-        for setup and the time the body needs are summed, since a large body
-        pays for setup too, and the body term is rounded up and capped at the
-        time the largest permitted object needs — not at the socket idle
-        timeout, which bounds a single stalled read rather than a transfer.
-        """
-        body_seconds = -(-size // _PRESIGNED_ASSUMED_BYTES_PER_SECOND)
-        return _PRESIGNED_EXPIRY_MARGIN_SECONDS + min(
-            _MAX_TRANSFER_SECONDS, body_seconds
+    def _request_expires_soon(request: _PresignedRequest) -> bool:
+        _url, _headers, expiry = request
+        return expiry <= datetime.now(timezone.utc) + timedelta(
+            seconds=_PRESIGNED_EXPIRY_MARGIN_SECONDS
         )
 
     @classmethod
-    def _request_expires_soon(cls, request: _PresignedRequest, size: int) -> bool:
-        _url, _headers, expiry = request
-        return expiry <= datetime.now(timezone.utc) + timedelta(
-            seconds=cls._expiry_margin_seconds(size)
-        )
+    def _fresh(cls, request: _PresignedRequest) -> _PresignedRequest:
+        """Refuse a just-minted request that is already about to expire."""
+        if cls._request_expires_soon(request):
+            raise ContentStoreError(
+                "catalog service issued a presigned request that expires within "
+                f"{_PRESIGNED_EXPIRY_MARGIN_SECONDS} seconds"
+            )
+        return request
 
     def _put_presigned(
         self, spec: ContentSpec, local_path: Path, request_data: _PresignedRequest
@@ -1179,7 +1171,7 @@ class PresignedContentStore(ContentStore):
                         result.get("request"),
                         allow_loopback_http=self._service_is_loopback,
                     )
-                    if self._request_expires_soon(request_data, spec.size):
+                    if self._request_expires_soon(request_data):
                         result = self._batch_results(
                             "uploads:batch",
                             "uploads",
@@ -1188,9 +1180,11 @@ class PresignedContentStore(ContentStore):
                         )[identity]
                         status = result.get("status")
                         if status == "upload_required":
-                            request_data = self._presigned_request(
-                                result.get("request"),
-                                allow_loopback_http=self._service_is_loopback,
+                            request_data = self._fresh(
+                                self._presigned_request(
+                                    result.get("request"),
+                                    allow_loopback_http=self._service_is_loopback,
+                                )
                             )
                 upload_id = self._upload_id(result)
                 if upload_id in upload_ids:
@@ -1322,16 +1316,18 @@ class PresignedContentStore(ContentStore):
                     results[identity].get("request"),
                     allow_loopback_http=self._service_is_loopback,
                 )
-                if self._request_expires_soon(request_data, spec.size):
+                if self._request_expires_soon(request_data):
                     refreshed = self._batch_results(
                         "downloads:batch",
                         "downloads",
                         {identity: spec},
                         token_required=False,
                     )
-                    request_data = self._presigned_request(
-                        refreshed[identity].get("request"),
-                        allow_loopback_http=self._service_is_loopback,
+                    request_data = self._fresh(
+                        self._presigned_request(
+                            refreshed[identity].get("request"),
+                            allow_loopback_http=self._service_is_loopback,
+                        )
                     )
                 # Transfer once per identity; further destinations are local
                 # copies of bytes already verified in transit.

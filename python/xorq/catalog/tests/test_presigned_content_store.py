@@ -26,12 +26,7 @@ from xorq.catalog.constants import CONTENT_STORE_YAML
 from xorq.catalog.content_store import (
     _CONTROL_RETRY_ATTEMPTS,
     _CONTROL_RETRY_MAX_DELAY_SECONDS,
-    _MAX_PRESIGNED_BLOB_BYTES,
-    _MAX_TRANSFER_SECONDS,
-    _PRESIGNED_ASSUMED_BYTES_PER_SECOND,
     _PRESIGNED_BATCH_SIZE,
-    _PRESIGNED_EXPIRY_MARGIN_SECONDS,
-    _SOCKET_IDLE_TIMEOUT_SECONDS,
     ContentCache,
     ContentSpec,
     ContentStoreConfig,
@@ -93,6 +88,7 @@ class _ServiceState:
     max_batch_size: int | None = None
     expire_next_upload_batch: bool = False
     expire_next_download_batch: bool = False
+    download_expires_at: str | None = None
     upload_request_headers: dict[str, str] | None = None
     completion_response_overrides: dict[str, Any] = field(factory=dict)
     redirect_upload: bool = False
@@ -252,7 +248,7 @@ class _HostedBlobHandler(BaseHTTPRequestHandler):
             expires_at = (
                 "2000-01-01T00:00:00Z"
                 if self.state.expire_next_download_batch
-                else "2099-01-01T00:00:00Z"
+                else self.state.download_expires_at or "2099-01-01T00:00:00Z"
             )
             self.state.expire_next_download_batch = False
             downloads = [
@@ -1488,79 +1484,61 @@ def test_hosted_single_object_get_reports_an_unsupported_capability(
         store.get(key, "/dev/null")
 
 
-@pytest.mark.parametrize(
-    "size",
-    (
-        pytest.param(0, id="empty"),
-        pytest.param(1024, id="small"),
-        pytest.param(1024 * 1024 * 1024, id="one-gib"),
-        pytest.param(_MAX_PRESIGNED_BLOB_BYTES, id="max-blob"),
-    ),
-)
-def test_expiry_margin_never_undercuts_the_time_the_body_needs(size: int) -> None:
-    """The margin covers the body outright, plus the floor for setup.
-
-    The body assertion is the one that matters: the margin times the assumed
-    bandwidth must reach the size it was computed for, or the URL can pass the
-    pre-flight check and expire before the last byte. Asserting the
-    relationship rather than the number means tuning the assumed bandwidth or
-    the blob ceiling does not churn this test.
-    """
-    margin = PresignedContentStore._expiry_margin_seconds(size)
-
-    assert margin * _PRESIGNED_ASSUMED_BYTES_PER_SECOND >= size
-    assert margin >= _PRESIGNED_EXPIRY_MARGIN_SECONDS
-    assert margin <= _PRESIGNED_EXPIRY_MARGIN_SECONDS + _MAX_TRANSFER_SECONDS
-
-
-def test_expiry_margin_covers_the_largest_permitted_object() -> None:
-    """The cap is derived from the blob ceiling, not from the socket timeout.
-
-    A 5 GB object needs far longer than one socket idle timeout, so capping the
-    margin at that timeout would let the URL expire mid-transfer. The cap has
-    to reach the whole object: truncating the division here left the largest
-    permitted blob a second short of its own derived ceiling.
-    """
-    largest = PresignedContentStore._expiry_margin_seconds(_MAX_PRESIGNED_BLOB_BYTES)
-
-    assert largest == _PRESIGNED_EXPIRY_MARGIN_SECONDS + _MAX_TRANSFER_SECONDS
-    assert (
-        _MAX_TRANSFER_SECONDS * _PRESIGNED_ASSUMED_BYTES_PER_SECOND
-        >= _MAX_PRESIGNED_BLOB_BYTES
+def _download_batches_seen(service: _ServiceFixture) -> int:
+    return sum(
+        path.endswith("downloads:batch")
+        for path, _, _ in service.state.control_requests
     )
-    assert largest > _SOCKET_IDLE_TIMEOUT_SECONDS
 
 
-def test_expiry_margin_adds_the_setup_floor_to_the_body_term() -> None:
-    """The floor and the body term are summed, not chosen between.
+def test_a_large_object_uses_a_url_that_outlives_the_start_of_its_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    """A URL is checked when its request starts, so object size is irrelevant.
 
-    A body far past the point where its own term exceeds the floor still needs
-    connection setup, so ``max(floor, body)`` would silently drop it.
+    The service's presigned URLs live 300 s by default; a 3 GiB object at the
+    assumed bandwidth takes longer than that to transfer, and must still be
+    fetched with the first URL rather than minting a second.
     """
-    big = 4 * 1024**3
-    body_seconds = -(-big // _PRESIGNED_ASSUMED_BYTES_PER_SECOND)
-    assert body_seconds > _PRESIGNED_EXPIRY_MARGIN_SECONDS
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=300)
+    hosted_blob_service.state.download_expires_at = expires_at.isoformat()
+    transferred: list[ContentSpec] = []
+    monkeypatch.setattr(
+        PresignedContentStore,
+        "_download_presigned",
+        lambda self, spec, local_path, request_data: transferred.append(spec),
+    )
+    size = 3 * 1024**3
+    sha256 = "ab" * 32
+    spec = ContentSpec(compute_content_key(CATALOG_ID, sha256), sha256, size)
 
-    margin = PresignedContentStore._expiry_margin_seconds(big)
+    _store(hosted_blob_service).get_many(((spec, tmp_path / "large.zip"),))
 
-    assert margin == _PRESIGNED_EXPIRY_MARGIN_SECONDS + body_seconds
-
-
-def test_expiry_margin_is_monotonic_in_size() -> None:
-    """A larger body never demands less remaining validity than a smaller one."""
-    sizes = (0, 1024, 10**7, 10**8, 10**9, _MAX_PRESIGNED_BLOB_BYTES)
-    margins = [PresignedContentStore._expiry_margin_seconds(s) for s in sizes]
-
-    assert margins == sorted(margins)
+    assert transferred == [spec]
+    assert _download_batches_seen(hosted_blob_service) == 1
 
 
-def test_expiry_margin_refuses_a_url_that_cannot_outlast_the_transfer() -> None:
-    """A URL expiring inside the transfer window is treated as expiring soon."""
-    soon = datetime.now(timezone.utc) + timedelta(seconds=90)
-    request = ("https://example/object", {}, soon)
+def test_a_reminted_url_that_is_still_expiring_is_refused(
+    tmp_path: Path,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    hosted_blob_service.state.download_expires_at = "2000-01-01T00:00:00Z"
+    content = b"never fetched with an expired URL"
+    sha256 = _digest(content)
+    hosted_blob_service.state.objects[sha256] = content
 
-    assert not PresignedContentStore._request_expires_soon(request, 1024)
-    assert PresignedContentStore._request_expires_soon(request, 2 * 1024**3)
+    with pytest.raises(ContentStoreError, match="expires within"):
+        _store(hosted_blob_service).get(
+            compute_content_key(CATALOG_ID, sha256),
+            tmp_path / "download.zip",
+            sha256=sha256,
+            size=len(content),
+        )
+
+    assert _download_batches_seen(hosted_blob_service) == 2
+    assert hosted_blob_service.state.object_requests == []
 
 
 def test_hosted_remote_rejection_names_the_effective_url(
