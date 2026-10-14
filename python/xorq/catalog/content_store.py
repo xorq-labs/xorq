@@ -65,6 +65,10 @@ _CANONICAL_POINTER_RE = re.compile(
 )
 
 _DEFAULT_CACHE_DIR = Path("~/.cache/xorq/content")
+# Bounds cache entries, not in-flight downloads. Deliberately smaller than
+# _MAX_PRESIGNED_BLOB_BYTES: an object larger than the budget is still cached
+# (adopt protects what it just stored) but evicts everything else, and is itself
+# evicted by the next write. docs/how_to/use_hosted_catalogs.qmd says so.
 _DEFAULT_CACHE_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
 _MAX_PRESIGNED_BLOB_BYTES = 5_000_000_000
 _CONTROL_RESPONSE_MAX_BYTES = 256 * 1024
@@ -1484,8 +1488,8 @@ class ContentCache:
         Staging inside the cache directory keeps ``adopt`` a rename and puts
         the bytes on the volume the user sized for content, rather than on
         whatever backs the system temp dir. It is a dedicated subdirectory so
-        in-flight bytes stay distinguishable from cache entries: they count
-        against the budget but are not evictable, and they are reaped by age.
+        in-flight bytes stay distinguishable from cache entries: they are
+        neither counted against the budget nor evicted, and are reaped by age.
         A catalog_id can never collide with it, since ``_SAFE_CATALOG_ID_RE``
         forbids a leading dot.
         """
@@ -1497,33 +1501,20 @@ class ContentCache:
         protect_path = self._path(protect) if protect is not None else None
         entries: list[tuple[float, int, Path]] = []
         total = 0
-        staged_total = 0
         for p in self.cache_dir.rglob("*"):
             if not p.is_file():
                 continue
+            if self._is_staged(p) or p.name.endswith(".tmp"):
+                # The budget bounds cache entries only. In-flight bytes belong
+                # to a live fetch (or are debris the age reaper removes);
+                # counting them made eviction either evict entries to pay for
+                # bytes it cannot remove, or — once they alone exceeded the
+                # budget — stop evicting altogether.
+                continue
             st = p.stat()
-            if self._is_staged(p):
-                # In-flight bytes occupy the volume, so they count against the
-                # budget — but they belong to a live fetch and must not be
-                # evicted out from under it.
-                staged_total += st.st_size
-                total += st.st_size
-                continue
-            if p.name.endswith(".tmp"):
-                # atomic_write scratch beside its destination: transient and
-                # owned by the writer.
-                continue
             entries.append((st.st_atime, st.st_size, p))
             total += st.st_size
         if total <= self.max_bytes:
-            return
-        if staged_total >= self.max_bytes:
-            # Staged bytes alone have blown the budget, so evicting entries
-            # cannot bring the total back under it. Doing so anyway would empty
-            # the cache for no gain in the invariant — and debris from a killed
-            # process would keep emptying it on every write until the reaper
-            # ran. Staging always drains, by adopt() or by the caller's unlink;
-            # the first write after it does restores the budget.
             return
         entries.sort()
         for _atime, size, path in entries:

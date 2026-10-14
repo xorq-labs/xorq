@@ -555,10 +555,10 @@ class GitPointerBackend(CatalogBackend):
         downloads: dict[str, Path] = {}
         try:
             for key, _entry in batch:
-                # Location is what keeps these out of cache eviction: the
-                # staging dir is counted but never evicted. The ".tmp" suffix
-                # only matters if a DirectoryContentStore shares this volume,
-                # where it keeps in-flight files out of list_keys.
+                # Location is what keeps these out of cache eviction and the
+                # budget. The ".tmp" suffix only matters if a
+                # DirectoryContentStore shares this volume, where it keeps
+                # in-flight files out of list_keys.
                 fd, tmp = tempfile.mkstemp(dir=staging_dir, suffix=".tmp")
                 os.close(fd)
                 downloads[key] = Path(tmp)

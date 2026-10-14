@@ -79,3 +79,7 @@ Non-dry-run replay requires `--remote-url` and configures it before uploading. A
 ## Blob lifecycle
 
 Removing an entry deletes its Git-tracked pointer and the local copy of its archive; the blob on the service is left alone. Hosted blob collection is server-owned, so `xorq catalog gc` is unavailable for hosted catalogs.
+
+## Local cache
+
+Fetched archives are cached locally, by default in `~/.cache/xorq/content` with a 1 GiB budget. Set `XORQ_CONTENT_CACHE_DIR` and `XORQ_CONTENT_CACHE_MAX_BYTES` to change them; `0` disables the cache and a negative value removes the limit. Hosted objects can be up to 5 GB, so an archive larger than the budget is still cached, but it evicts everything else and is itself evicted by the next fetch. If you work with archives that large, raise the budget. Downloads in progress are staged under the cache directory and do not count against the budget.

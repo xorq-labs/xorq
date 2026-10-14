@@ -2549,24 +2549,20 @@ def test_content_cache_reaps_staging_debris_but_spares_live_fetches(
     assert reaped.reap_stale_staging() == 0
 
 
-def test_staging_bytes_count_against_the_cache_budget(tmp_path: Path) -> None:
-    """In-flight bytes occupy the volume, so eviction must see them."""
+def test_staging_bytes_do_not_count_against_the_cache_budget(tmp_path: Path) -> None:
+    """The budget bounds entries; in-flight bytes cost no entry its place."""
     cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=1000)
     staging = cache.staging_dir
     assert staging is not None
     (staging / "inflight.tmp").write_bytes(b"x" * 900)
 
-    old_entry = tmp_path / "old.bin"
-    old_entry.write_bytes(b"z" * 400)
-    cache.put("cat/aa/bb/old.zip", old_entry)
-    new_entry = tmp_path / "new.bin"
-    new_entry.write_bytes(b"w" * 400)
-    cache.put("cat/cc/dd/new.zip", new_entry)
+    entry = tmp_path / "entry.bin"
+    entry.write_bytes(b"z" * 400)
+    cache.put("cat/aa/bb/old.zip", entry)
+    cache.put("cat/cc/dd/new.zip", entry)
 
-    # 900 staged + 800 of entries exceeds 1000, so an entry is evicted rather
-    # than the budget being silently overrun.
     assert (staging / "inflight.tmp").exists(), "in-flight bytes are not evictable"
-    assert cache.get_path("cat/aa/bb/old.zip") is None
+    assert cache.get_path("cat/aa/bb/old.zip") is not None
     assert cache.get_path("cat/cc/dd/new.zip") is not None
 
 
@@ -2578,13 +2574,12 @@ def test_staging_dir_is_absent_when_caching_is_disabled(tmp_path: Path) -> None:
     assert cache.reap_stale_staging() == 0
 
 
-def test_staging_over_the_budget_does_not_empty_the_cache(tmp_path: Path) -> None:
-    """Eviction that cannot restore the budget is skipped, not performed anyway.
+def test_entries_stay_within_the_budget_whatever_is_staged(tmp_path: Path) -> None:
+    """Staging debris larger than the budget does not switch eviction off.
 
-    Staged bytes are unevictable, so once they exceed the budget on their own
-    no amount of eviction brings the total under it. Evicting regardless would
-    empty the cache for nothing — and debris from a killed process would keep
-    doing so on every write until the reaper removed it.
+    A process killed mid-fetch leaves its staging behind until the age reaper
+    runs, which only happens when a cache is built. Entries must stay within
+    the budget meanwhile, in a long-lived process too.
     """
     cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=1000)
     staging = cache.staging_dir
@@ -2593,11 +2588,14 @@ def test_staging_over_the_budget_does_not_empty_the_cache(tmp_path: Path) -> Non
 
     source = tmp_path / "entry.bin"
     source.write_bytes(b"z" * 400)
-    cache.put("cat/aa/bb/first.zip", source)
-    cache.put("cat/cc/dd/second.zip", source)
+    keys = ("cat/aa/bb/first.zip", "cat/cc/dd/second.zip", "cat/ee/ff/third.zip")
+    for key in keys:
+        cache.put(key, source)
 
-    assert cache.get_path("cat/aa/bb/first.zip") is not None
-    assert cache.get_path("cat/cc/dd/second.zip") is not None
+    kept = [key for key in keys if cache.get_path(key) is not None]
+    assert len(kept) * 400 <= 1000
+    assert kept[-1] == keys[-1]
+    assert (staging / "debris.tmp").exists()
 
 
 def test_reap_threshold_outlasts_the_slowest_batch_the_fetcher_can_run(
