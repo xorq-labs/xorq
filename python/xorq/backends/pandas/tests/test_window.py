@@ -664,3 +664,123 @@ def test_rank_functions_share_the_order_key(t, df):
         }
     )
     assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    ("order", "expected_rank", "expected_dense"),
+    [
+        # expectations are what duckdb returns for the same frame and order
+        pytest.param(
+            lambda k: k.asc(), [1, 3, 0, 3, 1], [1, 2, 0, 2, 1], id="asc-nulls-last"
+        ),
+        pytest.param(
+            lambda k: k.asc(nulls_first=True),
+            [3, 0, 2, 0, 3],
+            [2, 0, 1, 0, 2],
+            id="asc-nulls-first",
+        ),
+        pytest.param(
+            lambda k: k.desc(), [0, 3, 2, 3, 0], [0, 2, 1, 2, 0], id="desc-nulls-last"
+        ),
+        pytest.param(
+            lambda k: k.desc(nulls_first=True),
+            [2, 0, 4, 0, 2],
+            [1, 0, 2, 0, 1],
+            id="desc-nulls-first",
+        ),
+    ],
+)
+def test_rank_over_null_key(order, expected_rank, expected_dense):
+    df = pd.DataFrame({"k": [2.0, None, 1.0, None, 2.0], "id": [1, 2, 3, 4, 5]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    window = ibis.window(order_by=order(t.k))
+    result = t.mutate(
+        r=ibis.rank().over(window), d=ibis.dense_rank().over(window)
+    ).order_by("id")
+    result = result.execute()
+    assert result.r.tolist() == expected_rank
+    assert result.d.tolist() == expected_dense
+
+
+@pytest.mark.parametrize(
+    ("values", "dtype", "expected"),
+    [
+        # a nullable extension integer: the null ranks last, not as a peer
+        pytest.param([1, None], "Int64", [0, 1], id="nullable-int"),
+        # two int64 values that are equal once widened to float64
+        pytest.param([2**53, 2**53 + 1], "int64", [0, 1], id="large-int"),
+        # the same two as Python ints beside a None: no widening on the way
+        pytest.param([2**53, 2**53 + 1, None], object, [0, 1, 2], id="object-int-null"),
+    ],
+)
+def test_rank_keeps_exact_key_identity(values, dtype, expected):
+    ids = list(range(1, len(values) + 1))
+    df = pd.DataFrame({"k": pd.array(values, dtype=dtype), "id": ids})
+    t = xo.pandas.connect({"t": df}).table("t")
+    window = ibis.window(order_by=t.k)
+    result = t.mutate(
+        r=ibis.rank().over(window), d=ibis.dense_rank().over(window)
+    ).order_by("id")
+    result = result.execute()
+    assert result.r.tolist() == expected
+    assert result.d.tolist() == expected
+
+
+def test_rank_over_array_key():
+    # an object column of lists ranks by value, as duckdb does: [1, 0, 1]
+    df = pd.DataFrame({"k": [[2], [1], [2]], "id": [1, 2, 3]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = t.mutate(r=t.k.rank(), d=t.k.dense_rank()).order_by("id").execute()
+    assert result.r.tolist() == [1, 0, 1]
+    assert result.d.tolist() == [1, 0, 1]
+
+
+def test_rank_over_unordered_categorical_key():
+    # an unordered categorical ranks by value, not by category position
+    df = pd.DataFrame(
+        {"k": pd.Categorical(["b", "a"], categories=["b", "a"], ordered=False)}
+    ).assign(id=[1, 2])
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = t.mutate(r=t.k.rank(), d=t.k.dense_rank()).order_by("id").execute()
+    assert result.r.tolist() == [1, 0]
+    assert result.d.tolist() == [1, 0]
+
+
+def test_rank_over_ordered_categorical_key():
+    # an ordered categorical still ranks by value: the backend exposes it as a
+    # string column and SQL knows no category order
+    cat = pd.Categorical(["b", "a"], categories=["b", "a"], ordered=True)
+    df = pd.DataFrame({"k": cat, "c": [0, 0], "id": [1, 2]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = t.mutate(
+        single=t.k.rank(), multi=ibis.rank().over(order_by=[t.k, t.c])
+    ).order_by("id")
+    result = result.execute()
+    assert result.single.tolist() == [1, 0]
+    assert result.multi.tolist() == [1, 0]
+
+
+def test_mixed_null_placement_is_fine_without_nulls():
+    df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "id": [1, 2]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    window = ibis.window(order_by=[t.a.asc(nulls_first=True), t.b.asc()])
+    result = t.mutate(r=ibis.rank().over(window)).order_by("id").execute()
+    assert result.r.tolist() == [0, 1]
+
+
+def test_mixed_null_placement_rejected_when_nulls_present():
+    df = pd.DataFrame({"a": [1.0, None], "b": [3, 4], "id": [1, 2]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    window = ibis.window(order_by=[t.a.asc(nulls_first=True), t.b.asc()])
+    with pytest.raises(ValueError, match="null ordering"):
+        t.mutate(r=ibis.rank().over(window)).execute()
+
+
+def test_rank_over_array_of_struct_key():
+    # equal struct values are peers, as on a hashable key (ordering distinct
+    # structs needs dict comparison, which pandas cannot do on any branch)
+    df = pd.DataFrame({"k": [[{"a": 1}], [{"a": 1}]], "id": [1, 2]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = t.mutate(r=t.k.rank(), d=t.k.dense_rank()).order_by("id").execute()
+    assert result.r.tolist() == [0, 0]
+    assert result.d.tolist() == [0, 0]
