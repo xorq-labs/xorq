@@ -22,6 +22,7 @@ from xorq.catalog import constants as catalog_constants
 
 
 if TYPE_CHECKING:
+    from git import Remote
     from opentelemetry.trace import Span
 
     from xorq.api import Expr
@@ -320,6 +321,34 @@ def _hosted_config(
     return None
 
 
+def _checked_hosted_config(
+    content_store_config: ContentStoreConfig | None, remote_url: str | None
+) -> PresignedContentStoreConfig | None:
+    """The hosted config, if any, after checking the remote it requires."""
+    hosted = _hosted_config(content_store_config)
+    if hosted is not None:
+        if remote_url is None:
+            raise click.UsageError(
+                "--remote-url is required with --content-store presigned."
+            )
+        hosted.validate_remote_url(remote_url)
+    return hosted
+
+
+def _set_catalog_remote(
+    catalog: Catalog, remote_url: str, hosted: PresignedContentStoreConfig | None
+) -> Remote:
+    """Set the catalog's remote; for a hosted catalog, validate the binding.
+
+    The effective URL can differ from *remote_url* (``insteadOf`` rewrites),
+    so the hosted binding is checked again once the remote exists.
+    """
+    remote = catalog.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
+    if hosted is not None:
+        _ = catalog.backend.content_store
+    return remote
+
+
 def _check_backend_exclusive_cli(
     content_store_config: object | None, annex: object | None
 ) -> None:
@@ -366,16 +395,10 @@ def init(
       xorq catalog --name analytics init --content-store presigned --remote-url https://catalog.example/acme/analytics.git
     """
     with click_context_catalog(ctx):
-        if content_store_type == "presigned" and remote_url is None:
-            raise click.UsageError(
-                "--remote-url is required with --content-store presigned."
-            )
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
-        hosted = _hosted_config(content_store_config)
-        if hosted is not None:
-            hosted.validate_remote_url(remote_url)
+        hosted = _checked_hosted_config(content_store_config, remote_url)
         try:
             catalog = ctx.obj.make_catalog(
                 init=True, annex=annex, content_store_config=content_store_config
@@ -386,10 +409,8 @@ def init(
                 f"Catalog already exists at {probe.repo_path}"
             ) from err
         if remote_url:
-            remote = catalog.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
-            if hosted is not None:
-                # Validate the hosted binding before reporting success.
-                _ = catalog.backend.content_store
+            # Before reporting success, so a hosted binding is checked first.
+            remote = _set_catalog_remote(catalog, remote_url, hosted)
         click.echo(f"Initialized catalog at {catalog.repo_path}")
         if remote_url:
             click.echo(f"Set remote {remote.name} -> {remote_url}")
@@ -1773,24 +1794,19 @@ def replay(
         if dry_run:
             replayer.print_plan()
             return
-        if content_store_type == "presigned" and remote_url is None:
-            raise click.UsageError(
-                "--remote-url is required with --content-store presigned."
-            )
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
-        hosted = _hosted_config(content_store_config)
-        if hosted is not None:
-            hosted.validate_remote_url(remote_url)
+        hosted = _checked_hosted_config(content_store_config, remote_url)
         target = Catalog.from_repo_path(
             target_path, annex=annex, content_store_config=content_store_config
         )
-        origin = None
-        if remote_url and hosted is not None:
-            # Validate the binding before replay uploads.
-            origin = target.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
-            _ = target.backend.content_store
+        # A hosted binding is validated before replay uploads anything.
+        origin = (
+            _set_catalog_remote(target, remote_url, hosted)
+            if hosted is not None
+            else None
+        )
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
         if remote_url and origin is None:
