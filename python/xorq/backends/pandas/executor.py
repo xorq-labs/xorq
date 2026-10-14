@@ -83,6 +83,50 @@ def _pairwise(method, left, right, where, **kwargs):
     return agg
 
 
+def _hashable(value):
+    # factorize needs hashable values; an array or struct key compares by content
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return tuple(_hashable(item) for item in value)
+    if isinstance(value, dict):
+        return tuple(sorted((key, _hashable(item)) for key, item in value.items()))
+    return value
+
+
+def _hashable_key(series):
+    if series.dtype != object:
+        return series
+    # a 1-D object ndarray filled by hand: Series.map would re-infer the dtype
+    # and widen ints beside a None to float64, and np.array would turn
+    # equal-length tuples into a second dimension
+    out = np.empty(len(series), dtype=object)
+    for position, value in enumerate(series):
+        out[position] = _hashable(value)
+    return out
+
+
+def _by_value(column):
+    # a categorical sorts by category position; a window orders by value, as
+    # SQL does on the string column this backend exposes it as
+    if isinstance(column.dtype, pd.CategoricalDtype):
+        return column.astype(object)
+    return column
+
+
+def _null_position(table, order_keys, nulls_first):
+    if all(nulls_first):
+        return "first"
+    if not any(nulls_first):
+        return "last"
+    # pandas places nulls once per sort; a disagreement only matters when a
+    # key that asked for the other placement actually holds nulls
+    disagreeing = [key for key, first in zip(order_keys, nulls_first) if first]
+    if any(table[key].isna().any() for key in disagreeing):
+        raise ValueError(
+            "pandas does not support specifying null ordering for individual columns"
+        )
+    return "last"
+
+
 def _rank_key(df, order_keys):
     if len(order_keys) == 0:
         raise ValueError("order_by argument is required for rank functions")
@@ -480,7 +524,25 @@ class PandasExecutor(PandasUtils):
         method = "dense" if isinstance(op, ops.DenseRank) else "min"
 
         def agg(df, order_keys):
-            return _rank_key(df, order_keys).rank(method=method).astype("int64") - 1
+            if len(order_keys) == 0:
+                raise ValueError("order_by argument is required for rank functions")
+            # the frame arrives sorted by the window's keys, direction and
+            # null placement included, so rank by position: a new rank starts
+            # wherever a key differs from the previous row. Factorized codes
+            # compare exactly for any dtype and give nulls one code of their own.
+            codes = np.column_stack(
+                [
+                    pd.factorize(_hashable_key(df[key]), use_na_sentinel=False)[0]
+                    for key in order_keys
+                ]
+            )
+            starts = np.ones(len(df), dtype=bool)
+            starts[1:] = (codes[1:] != codes[:-1]).any(axis=1)
+            if method == "dense":
+                ranks = np.cumsum(starts) - 1
+            else:
+                ranks = np.maximum.accumulate(np.where(starts, np.arange(len(df)), 0))
+            return pd.Series(ranks, index=df.index, dtype="int64")
 
         return agg
 
@@ -534,11 +596,20 @@ class PandasExecutor(PandasUtils):
         # TODO(kszucs): order by ibis.random() is not supported because it is
         # excluded from the group by keys due to its scalar shape
         group_keys = [group.name for group in op.group_by]
-        order_keys = [key.name for key in op.order_by if key.shape.is_columnar()]
-        ascending = [key.ascending for key in op.order_by if key.shape.is_columnar()]
+        columnar = [key for key in op.order_by if key.shape.is_columnar()]
+        order_keys = [key.name for key in columnar]
+        ascending = [key.ascending for key in columnar]
+        nulls_first = [key.nulls_first for key in columnar]
 
         if order_by:
-            table = table.sort_values(order_keys, ascending=ascending, kind="mergesort")
+            na_position = _null_position(table, order_keys, nulls_first)
+            table = table.sort_values(
+                order_keys,
+                ascending=ascending,
+                na_position=na_position,
+                kind="mergesort",
+                key=_by_value,
+            )
 
         if group_by:
             frame = GroupedFrame(df=table, group_keys=group_keys)
