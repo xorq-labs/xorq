@@ -2033,3 +2033,41 @@ def test_a_new_pointer_version_still_parses_canonically(
 
     assert pointer.read_bytes().startswith(b"xorq-pointer v2\n")
     assert parse_pointer(pointer, canonical=True) == (sha256, 34)
+
+
+def test_a_rejected_token_is_reported_when_the_anonymous_retry_cannot_connect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hosted_blob_service: _ServiceFixture,
+) -> None:
+    _set_token(monkeypatch, hosted_blob_service, "expired-token")
+    calls: list[str | None] = []
+
+    def control_post(
+        self: PresignedContentStore, suffix: str, payload: Any, *, token: Any
+    ) -> dict[str, Any]:
+        calls.append(token)
+        if token is not None:
+            raise CatalogServiceHTTPError(
+                "catalog service request failed with HTTP status 401 (unauthorized)",
+                status=401,
+                error_code="unauthorized",
+            )
+        raise ContentStoreError("catalog service request failed due to a network error")
+
+    monkeypatch.setattr(PresignedContentStore, "_control_post", control_post)
+    sha256 = _digest(b"private")
+
+    with pytest.raises(ContentStoreError) as exc_info:
+        _store(hosted_blob_service).get(
+            compute_content_key(CATALOG_ID, sha256),
+            tmp_path / "private.zip",
+            sha256=sha256,
+            size=7,
+        )
+
+    message = str(exc_info.value)
+    assert "network error" in message
+    assert f"{TOKEN_ENV} was rejected first" in message
+    assert "expired-token" not in message
+    assert calls == ["expired-token", None]
