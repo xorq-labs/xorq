@@ -190,6 +190,9 @@ def test_catalog_add_upload_failure_preserves_repo_state(
         raise ContentStoreError("catalog service unavailable")
 
     monkeypatch.setattr(PresignedContentStore, "ensure_present", fail_upload)
+    # A hosted add checks its token before reading the archive.
+    monkeypatch.setenv("XORQ_CATALOG_TOKEN", "write-token")
+    monkeypatch.setenv("XORQ_CATALOG_TOKEN_SERVICE_URL", service_url)
 
     with build_expr_context_zip(xo.memtable({"failed-upload": [1]})) as zip_path:
         addition = CatalogAddition(BuildZip(zip_path), catalog)

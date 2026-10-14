@@ -109,6 +109,9 @@ def test_plain_replay_uploads_entry_to_presigned_target(tmp_path, monkeypatch):
         return True
 
     monkeypatch.setattr(PresignedContentStore, "ensure_present", upload)
+    # A hosted add checks its token before reading the archive.
+    monkeypatch.setenv("XORQ_CATALOG_TOKEN", "write-token")
+    monkeypatch.setenv("XORQ_CATALOG_TOKEN_SERVICE_URL", service_url)
 
     Replayer(from_catalog=source).replay(target)
 
