@@ -1556,7 +1556,6 @@ class ContentStoreConfig(abc.ABC):
     @abc.abstractmethod
     def to_dict(self) -> dict[str, Any]: ...
 
-    _required_env_field: str = ""
     _required_env_fields: tuple[str, ...] = ()
     _env_field_hint: str = ""
 
@@ -1569,10 +1568,7 @@ class ContentStoreConfig(abc.ABC):
             if k != "env_file" and v
         }
         merged = {**env, **kwargs}
-        required = cls._required_env_fields
-        if not required and cls._required_env_field:
-            required = (cls._required_env_field,)
-        missing = tuple(name for name in required if name not in merged)
+        missing = tuple(name for name in cls._required_env_fields if name not in merged)
         if missing:
             names = ", ".join(repr(name) for name in missing)
             raise ValueError(
@@ -1629,7 +1625,7 @@ class ContentStoreConfig(abc.ABC):
 
 @frozen
 class DirectoryContentStoreConfig(ContentStoreConfig):
-    _required_env_field = "directory"
+    _required_env_fields = ("directory",)
     _env_field_hint = "XORQ_CONTENT_STORE_DIRECTORY_DIRECTORY"
 
     directory: Path = field(
@@ -1672,7 +1668,7 @@ class DirectoryContentStoreConfig(ContentStoreConfig):
 
 @frozen
 class S3ContentStoreConfig(S3ClientMixin, ContentStoreConfig):
-    _required_env_field = "bucket"
+    _required_env_fields = ("bucket",)
     _env_field_hint = "XORQ_CONTENT_STORE_S3_BUCKET"
 
     bucket: str = field(validator=(instance_of(str), _non_empty_str))
