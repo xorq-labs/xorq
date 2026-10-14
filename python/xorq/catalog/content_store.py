@@ -173,12 +173,13 @@ def _split_http_url(value: str, *, label: str, allow_username: bool) -> SplitRes
         parsed.port
     except ValueError as exc:
         raise ValueError(f"{label} is invalid") from exc
+    https_required = (
+        f"{label} must use HTTPS (loopback HTTP is allowed for development)"
+    )
     if parsed.scheme not in ("http", "https"):
         # Checked first: an SSH remote such as git@host:owner/slug.git has no
         # hostname to urllib, and would otherwise be told it has credentials.
-        raise ValueError(
-            f"{label} must be an HTTPS URL; SSH and other schemes are not supported"
-        )
+        raise ValueError(f"{https_required}; SSH and other schemes are not supported")
     if (
         not parsed.hostname
         or parsed.password is not None
@@ -193,9 +194,7 @@ def _split_http_url(value: str, *, label: str, allow_username: bool) -> SplitRes
         return parsed
     if parsed.scheme == "http" and _is_loopback_host(parsed.hostname):
         return parsed
-    raise ValueError(
-        f"{label} must use HTTPS (loopback HTTP is allowed for development)"
-    )
+    raise ValueError(https_required)
 
 
 def _validate_service_url(value: str) -> str:

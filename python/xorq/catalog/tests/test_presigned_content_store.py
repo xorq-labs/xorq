@@ -1971,8 +1971,13 @@ def test_an_ssh_remote_is_told_to_use_https(remote_url: str) -> None:
         catalog_id=CATALOG_ID, service_url="https://catalog.example/"
     )
 
-    with pytest.raises(ValueError, match="must be an HTTPS URL; SSH"):
+    with pytest.raises(ValueError) as exc_info:
         config.validate_remote_url(remote_url)
+
+    # The same rule as a plain-HTTP remote is given, plus why SSH fails.
+    message = str(exc_info.value)
+    assert "must use HTTPS (loopback HTTP is allowed for development)" in message
+    assert "SSH and other schemes are not supported" in message
 
 
 def test_fetch_recreates_a_staging_dir_removed_since_the_cache_was_built(
