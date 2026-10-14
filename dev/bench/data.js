@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791987450692,
+  "lastUpdate": 1792008786356,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -47826,6 +47826,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.22966837097172554",
             "extra": "mean: 1.8488357264000115 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4bd8dfbd36903cc1488dfdf26cd4b46bd3cf917",
+          "message": "feat(catalog): add hosted presigned content store (#2403)\n\nSupersedes #2208. Its three commits are carried over unchanged and\nrebased onto current main, with review fixes added on top.\n\n## What it adds (from #2208)\n\nThis adds support for catalogs backed by the hosted service: Git still\ncarries the catalog metadata and pointers, while blob uploads and\ndownloads use presigned URLs from the service. The CLI can initialize\nand replay hosted catalogs, tokens are scoped to the configured service,\nand transfers are batched and integrity-checked; docs and tests cover\nthe workflow.\n\n## Changes outside hosted catalogs\n\nThese apply to every catalog, not only hosted ones:\n- `Catalog.pull` treats a remote with no branches as nothing to merge\n(it only fetches); a remote that has branches but not this one still\nfails the merge.\n- The first `Catalog.push` of a branch with no upstream pushes it with\n`--set-upstream`.\n- `xorq catalog get -o <dir>` creates `<dir>` when it is missing.\n- `xorq catalog rebase` fetches an entry's archive before opening it. A\nfetch failure is a `RebaseError`: exit 2 for transport failures and\nmissing content, exit 1 for content that does not match its pointer.\n- `ContentStore` gains a public `preflight_write()` method, a no-op by\ndefault. Stores that do not subclass `ContentStore` need it too.\n- `CatalogServiceHTTPError` keeps its fields in `args`, so it pickles;\nit gains `retry_after`.\n- Hosted remote failures during push, pull or fetch raise\n`CatalogConfigurationError`, not `ValueError`.\n\n## Rebase notes\n\n- `docs/_quarto.yml`: the hosted-catalogs how-to now sits beside main's\n`check_source_drift.qmd`.\n- `test_replay_rebuild.py`: imports that were deferred inside a test\nfunction are now at the top of the file, as main's style gate requires.\n\n## Review fixes\n\n- **Staging:** pointer fetches are staged in the cache directory, not\nthe system temp dir, in bounded groups, and adopted into the cache by\nrename. Staging debris left by a killed process is reaped by age, and\nstaged bytes no longer make eviction empty the cache on every write.\n- **Signed-URL expiry:** the margin adds a connection-setup floor to a\nsize-scaled body term, rounded up. The cap is derived from the blob\nceiling and the assumed bandwidth, so the largest permitted object no\nlonger passes the pre-flight check with a URL that expires mid-transfer.\n- **Verification:** bytes verified while streaming are not re-read and\nre-hashed afterwards.\n- Smaller changes: `PresignedContentStore.get` raises\n`ContentStoreCapabilityError`, `parse_pointer` bounds the file size\nbefore reading, remote-binding errors name the effective Git URL, and\nthe CLI selects hosted behaviour by config type.\n\n## Second review round\n\n- **Security:** a presigned object URL may use plain HTTP on loopback\nonly when the service URL is itself on loopback. Before, a remote\nservice could direct uploads and downloads to a port on the user's\nmachine.\n- **Uploads:** the digest is computed while the body streams, and\nmismatched bytes are never completed. Each blob is read twice instead of\nthree times, and objects the service already holds are not read at all.\n- **Retries:** control requests retry 429 and 503, honouring\n`Retry-After` (capped at a minute) or backing off exponentially. A retry\nalways reuses the same credentials.\n- **Pointers:** canonical pointers checked out with consistent CRLF\nendings (`core.autocrlf=true`) are accepted. Committed bytes stay LF.\n- **Cache:** a corrupt cache hit is re-fetched in the same call instead\nof failing once.\n- **Git:** each hosted `content_store` access validates the remote once,\nwhich takes two `git` subprocesses instead of three or four.\n- Smaller fixes:\n  - `CatalogServiceHTTPError` survives pickling.\n  - The HTTP error body is closed.\n  - `get_many` transfers a duplicated identity once.\n- A reap-threshold test checks behaviour instead of restating the\narithmetic.\n  - Redundant test imports are gone.\n  - The how-to now says removal also deletes the local archive.\n\n## Third review round\n\n- **Tokens:** an unset or blank `XORQ_CATALOG_TOKEN` counts as absent. A\nconfigured token that is held back (its `XORQ_CATALOG_TOKEN_SERVICE_URL`\nis unset, invalid or names another service) is explained in the\nauthorization error. A token the service rejects is still retried\nanonymously, for public catalogs; if that retry also fails, the error\nreports both failures, without the token.\n- **Remotes:** an SSH remote is told an HTTPS URL is required. A hosted\nremote failure during push, pull or fetch raises the documented\n`CatalogConfigurationError`.\n- **Cache:** the budget bounds cache entries only. Before, staging\ndebris over the budget switched eviction off, so a long-lived process's\ncache grew without bound, and concurrent processes evicted each other's\nentries. The how-to now documents the cache settings, and says the 1 GiB\ndefault is below the 5 GB largest object.\n- **Signed URLs:** expiry is checked against a fixed 30 s margin, since\nURLs are checked when the request arrives. A re-minted request that is\nstill about to expire is refused. Before, any object over about 2.7 GiB\nminted twice under the service's 300 s default lifetime.\n- **Fetching:** `catalog rebase` fetches an entry's archive before\nopening it, which a fresh clone lacks. A fetch recreates a removed\nstaging directory. A test pins that a missing token is reported before\nany file is hashed.\n- **One source per fact:** the canonical pointer pattern is built from\n`POINTER_VERSION`. The URL origin, the safe-name pattern and the\nrequired environment fields are each stated once. The CLI selects hosted\nbehaviour by config type, in one helper shared by `init` and `replay`.\n\n## Fourth review round (narrow, over the third round's commits)\n\n- **Tokens before reading:** a hosted `catalog add` resolves its token\nbefore copying or hashing the archive, through a new\n`ContentStore.preflight_write` (a no-op by default). The third round's\ntest for this pinned the wrong layer; it is replaced by one that goes\nthrough `catalog.add`.\n- **Rebase exit codes:** a rebase whose archive cannot be fetched is\nrefused as retryable (exit 2); content that does not match its pointer\nis refused outright.\n- **Errors:** a token rejection is reported however the anonymous retry\nfails, not only on an HTTP failure. A set-but-blank token is named. A\nmissing `--remote-url` is a usage error again before any hosted setting\nis read. Every URL-scheme failure states the same HTTPS rule.\n- **Docs:** the cache how-to now matches eviction (on the next cache\nwrite) and staging (in the system temporary directory when the cache is\ndisabled; leftovers cleaned up when a later process opens the cache).\nWith the cache off, it says leftover staging is never removed. The\n`CatalogConfigurationError` docstring covers hosted binding failures.\nThe name error derives its length from the pattern's constant.\n\n## Live check\n\nThe hosted flow was run end to end against a local xorq-catalog-service\nwith its OIDC stand-in. Every scenario passed:\n- `init`;\n- `add` with no, blank and valid tokens;\n- push through the service's pre-receive validation;\n- clone, fetch and execute;\n- `rebase` on a fresh clone with the service down (exit 2), then with it\nup;\n- an expired token and a revoked token on a private catalog.\n\nIt surfaced two gaps in main's code that a hosted user hits first, now\nfixed here:\n- **First publish:** a synced `add` and the first `push` failed against\nan empty remote, which is how every hosted catalog starts. `pull` now\nonly fetches when the remote has no branches, and the first `push` sets\nthe upstream.\n- **`get -o`:** it creates its output directory instead of failing when\nit is missing.\n\nNot in this PR (each recorded with its reason):\n- **`catalog add` needs a Python project** in the working directory to\nbuild the entry's wheel; documenting that or lifting it is still open.\n- **Not-found for invalid names:** `catalog get` of a name the hosted\nrules reject still raises the validation error, where a not-found\nmessage would be clearer.\n- **Store-type dispatch:** belongs to the open content-store capability\nADR (#2259).\n- **Batch bisection:** telling \"batch too large\" from \"bad object\" needs\na distinct service error code.\n- **Upload batching:** follows from deferring uploads to push\n(`--no-sync`).\n- **Tests for two branches:** an upload whose re-minted URL is still\nexpiring, and `rebase` fetching on a hosted catalog.\n- **Accepted limits:**\n  - replay's push stays separate from `Catalog.push`;\n- a failed binding check after `init` can leave the catalog directory\nbehind (only with an `insteadOf` rewrite);\n  - the fetch group size stays tied to the mint size;\n- only one re-mint is attempted, and the 30 s margin assumes the client\nclock is within 30 s of the service's;\n- staging left by killed fetches is bounded only by the age-based\ncleanup;\n- `set-remote` still raises a bare `ValueError` for a hosted binding\nfailure.\n\n## Testing\n\nEach behaviour fix has a test that fails with only that fix reverted and\npasses with it; the third round's four de-duplications change no\nbehaviour and rest on the existing tests. Pre-commit passes over every\nreview round's commits. The full `python/xorq/catalog/tests` suite: 2040\npassed, 48 skipped, 0 failed. CI passes on the PR merged into main.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-authored-by: Pierre Barre <pierre@barre.sh>\n\n---------\n\nCo-authored-by: Pierre Barre <pierre@barre.sh>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-10-14T16:06:50-04:00",
+          "tree_id": "b169caadede326f2b0b5d4cb8b002c4d473926e7",
+          "url": "https://github.com/xorq-labs/xorq/commit/e4bd8dfbd36903cc1488dfdf26cd4b46bd3cf917"
+        },
+        "date": 1792008783300,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.855365413012196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010420676087383821",
+            "extra": "mean: 127.30152544444687 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.1058057677385196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08154400501318326",
+            "extra": "mean: 474.87760519999256 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7102268243965865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20947070239153795",
+            "extra": "mean: 1.4080008888000066 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.70232666445258,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05659458952624327",
+            "extra": "mean: 370.0514868000141 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.7984561219809905,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03219646068273459",
+            "extra": "mean: 357.3398889999794 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.9520067721964587,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00598050388793202",
+            "extra": "mean: 338.7526103999903 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 148.24361491429624,
+            "unit": "iter/sec",
+            "range": "stddev: 0.008429532444132483",
+            "extra": "mean: 6.745653096614839 msec\nrounds: 207"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.7365978687580768,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10462513179256813",
+            "extra": "mean: 267.62312539999584 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 13.205799324131457,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012891681891036734",
+            "extra": "mean: 75.72430683333664 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 8.968946985263049,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01628459918965352",
+            "extra": "mean: 111.49580899999835 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 7.66930610251873,
+            "unit": "iter/sec",
+            "range": "stddev: 0.022684696344334884",
+            "extra": "mean: 130.38989272726812 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 5.737453267806856,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03049740264701492",
+            "extra": "mean: 174.2933586249933 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 3.947901938442685,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05740003263820077",
+            "extra": "mean: 253.2990980000041 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.448467788972381,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012061491934607869",
+            "extra": "mean: 224.79650239998819 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.1848972267037783,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04152381835113831",
+            "extra": "mean: 457.68743159999303 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.1230209494320094,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010031058644403087",
+            "extra": "mean: 320.2027831999885 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.7310720151720125,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08909049283898264",
+            "extra": "mean: 577.6767178 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.8173805483153596,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09294738342905792",
+            "extra": "mean: 550.2424910000059 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.3640451886881018,
+            "unit": "iter/sec",
+            "range": "stddev: 0.16682648177521495",
+            "extra": "mean: 733.1135421999988 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.5648529549584924,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07841821912977531",
+            "extra": "mean: 639.0376788000026 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.1509592726454705,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15947094255964556",
+            "extra": "mean: 868.8404740000124 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1158139086839312,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14777585338184057",
+            "extra": "mean: 896.2067887999979 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.8970481494083815,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14736349303765017",
+            "extra": "mean: 1.1147673629999872 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5496619988040652,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18788276543829585",
+            "extra": "mean: 1.8192998645999978 sec\nrounds: 5"
           }
         ]
       }
