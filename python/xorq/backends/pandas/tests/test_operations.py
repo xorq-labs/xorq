@@ -12,6 +12,7 @@ from pytest import param
 import xorq.api as xo
 from xorq.api import _
 from xorq.backends.pandas import Backend
+from xorq.common.exceptions import UnsupportedOperationError
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
 
@@ -880,3 +881,51 @@ def test_simple_case_null_base_and_null_branch():
     con = xo.pandas.connect()
     expr = xo.literal(None, type="int64").cases((None, 10), else_=0)
     assert con.execute(expr) == 0
+
+
+@pytest.mark.parametrize("how", ["sample", "pop"])
+@pytest.mark.parametrize("method", ["var", "std"])
+def test_variance_and_standard_deviation(t, df, method, how):
+    expr = getattr(t.plain_float64, method)(how=how)
+    ddof = {"sample": 1, "pop": 0}[how]
+    expected = getattr(df.plain_float64, method)(ddof=ddof)
+    assert expr.execute() == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("method", ["corr", "cov"])
+def test_correlation_and_covariance(t, df, method):
+    expr = getattr(t.plain_int64, method)(t.plain_float64)
+    expected = getattr(df.plain_int64, method)(df.plain_float64)
+    assert expr.execute() == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("method", ["corr", "cov"])
+def test_correlation_and_covariance_where(t, df, method):
+    expr = getattr(t.plain_int64, method)(t.plain_float64, where=t.dup_ints == 1)
+    mask = df.dup_ints == 1
+    expected = getattr(df.plain_int64[mask], method)(df.plain_float64[mask])
+    assert expr.execute() == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(("method", "position"), [("first", 0), ("last", -1)])
+def test_first_and_last_where(t, df, method, position):
+    expr = getattr(t.plain_strings, method)(where=t.dup_ints == 1)
+    expected = df.plain_strings[df.dup_ints == 1].iat[position]
+    assert expr.execute() == expected
+
+
+@pytest.mark.parametrize(
+    "make_expr",
+    [
+        param(lambda t: t.plain_int64.first(order_by=t.plain_float64), id="first"),
+        param(lambda t: t.plain_int64.last(order_by=t.plain_float64), id="last"),
+        param(lambda t: t.plain_int64.collect(order_by=t.plain_float64), id="collect"),
+        param(
+            lambda t: t.plain_strings.group_concat(",", order_by=t.plain_float64),
+            id="group_concat",
+        ),
+    ],
+)
+def test_ordered_reduction_is_unsupported(t, make_expr):
+    with pytest.raises(UnsupportedOperationError, match="order_by"):
+        make_expr(t).execute()

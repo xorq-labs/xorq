@@ -640,3 +640,27 @@ event_id measured_on  measurement  grouper  bfill
         parse_dates=["measured_on"],
     )
     assert_frame_equal(result, expected)
+
+
+def test_rank_functions_share_the_order_key(t, df):
+    # ties for the rank variants, where they are the point; a tie-free key
+    # for cume_dist, whose tie handling is not pinned here
+    expr = t.select(
+        t.plain_int64,
+        min_rank=t.dup_ints.rank(),
+        dense_rank=t.dup_ints.dense_rank(),
+        percent_rank=t.dup_ints.percent_rank(),
+        cume_dist=t.plain_int64.cume_dist(),
+    )
+    result = expr.execute().sort_values("plain_int64").reset_index(drop=True)
+    tied = df.dup_ints
+    expected = pd.DataFrame(
+        {
+            "plain_int64": df.plain_int64,
+            "min_rank": tied.rank(method="min").astype("int64") - 1,
+            "dense_rank": tied.rank(method="dense").astype("int64") - 1,
+            "percent_rank": tied.rank(method="min").sub(1).div(len(df) - 1),
+            "cume_dist": df.plain_int64.rank(method="max", pct=True),
+        }
+    )
+    assert_frame_equal(result, expected)

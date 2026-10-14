@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import operator
-from functools import reduce
+from functools import partial, reduce
 
 import numpy as np
 import pandas as pd
@@ -39,9 +39,6 @@ from xorq.vendor.ibis.formats.pandas import PandasData, PandasType
 from xorq.vendor.ibis.util import any_of, gen_name
 
 
-# ruff: noqa: F811
-
-
 def _case_matches(base, case):
     """base == case, where a null on either side matches nothing, itself included.
 
@@ -55,6 +52,44 @@ def _case_matches(base, case):
             return pd.Series(False, index=series.index)
         case _:
             return False
+
+
+def _reject_order_by(order_by):
+    if order_by:
+        raise UnsupportedOperationError(
+            "ordering of order-sensitive aggregations via `order_by` is "
+            "not supported for this backend"
+        )
+
+
+def _edge(arg, *, position, include_null):
+    if not include_null:
+        arg = arg.dropna()
+    return arg.iat[position] if len(arg) else None
+
+
+def _pairwise(method, left, right, where, **kwargs):
+    if where is None:
+
+        def agg(df):
+            return method(df[left.name], df[right.name], **kwargs)
+
+    else:
+
+        def agg(df):
+            mask = df[where.name]
+            return method(df[left.name][mask], df[right.name][mask], **kwargs)
+
+    return agg
+
+
+def _rank_key(df, order_keys):
+    if len(order_keys) == 0:
+        raise ValueError("order_by argument is required for rank functions")
+    elif len(order_keys) == 1:
+        return df[order_keys[0]]
+    else:
+        return df[order_keys].apply(tuple, axis=1)
 
 
 class PandasExecutor(PandasUtils):
@@ -218,9 +253,7 @@ class PandasExecutor(PandasUtils):
         except ValueError:
             return arg.dt.to_period(unit).dt.to_timestamp()
 
-    @classmethod
-    def visit_DateTruncate(cls, op: ops.DateTruncate, arg, unit):
-        return cls.visit_TimestampTruncate(op, arg, unit)
+    visit_DateTruncate = visit_TimestampTruncate
 
     @classmethod
     def visit_IntervalFromInteger(cls, op: ops.IntervalFromInteger, unit, **kwargs):
@@ -284,11 +317,7 @@ class PandasExecutor(PandasUtils):
 
     @classmethod
     def visit_Reduction(cls, op: ops.Reduction, arg, where, order_by=()):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
+        _reject_order_by(order_by)
         func = cls.kernels.reductions[type(op)]
         return cls.agg(func, arg, where)
 
@@ -336,98 +365,43 @@ class PandasExecutor(PandasUtils):
         return agg
 
     @classmethod
-    def visit_Variance(cls, op: ops.Variance, arg, where, how):
+    def visit_Variance(cls, op: ops.Variance | ops.StandardDev, arg, where, how):
         ddof = {"pop": 0, "sample": 1}[how]
-        return cls.agg(lambda x: x.var(ddof=ddof), arg, where)
+        method = "std" if isinstance(op, ops.StandardDev) else "var"
+        return cls.agg(operator.methodcaller(method, ddof=ddof), arg, where)
 
-    @classmethod
-    def visit_StandardDev(cls, op: ops.StandardDev, arg, where, how):
-        ddof = {"pop": 0, "sample": 1}[how]
-        return cls.agg(lambda x: x.std(ddof=ddof), arg, where)
+    visit_StandardDev = visit_Variance
 
     @classmethod
     def visit_ArrayCollect(
         cls, op: ops.ArrayCollect, arg, where, order_by, include_null
     ):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
+        _reject_order_by(order_by)
         return cls.agg(
             (lambda x: x.tolist() if include_null else x.dropna().tolist()), arg, where
         )
 
     @classmethod
-    def visit_First(cls, op: ops.First, arg, where, order_by, include_null):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
+    def visit_First(cls, op: ops.First | ops.Last, arg, where, order_by, include_null):
+        _reject_order_by(order_by)
+        position = -1 if isinstance(op, ops.Last) else 0
+        edge = partial(_edge, position=position, include_null=include_null)
+        return cls.agg(edge, arg, where)
 
-        def first(arg):
-            if not include_null:
-                arg = arg.dropna()
-            return arg.iat[0] if len(arg) else None
-
-        return cls.agg(first, arg, where)
-
-    @classmethod
-    def visit_Last(cls, op: ops.Last, arg, where, order_by, include_null):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
-
-        def last(arg):
-            if not include_null:
-                arg = arg.dropna()
-            return arg.iat[-1] if len(arg) else None
-
-        return cls.agg(last, arg, where)
+    visit_Last = visit_First
 
     @classmethod
     def visit_Correlation(cls, op: ops.Correlation, left, right, where, how):
-        if where is None:
-
-            def agg(df):
-                return df[left.name].corr(df[right.name])
-        else:
-
-            def agg(df):
-                mask = df[where.name]
-                lhs = df[left.name][mask]
-                rhs = df[right.name][mask]
-                return lhs.corr(rhs)
-
-        return agg
+        return _pairwise(pd.Series.corr, left, right, where)
 
     @classmethod
     def visit_Covariance(cls, op: ops.Covariance, left, right, where, how):
         ddof = {"pop": 0, "sample": 1}[how]
-        if where is None:
-
-            def agg(df):
-                return df[left.name].cov(df[right.name], ddof=ddof)
-        else:
-
-            def agg(df):
-                mask = df[where.name]
-                lhs = df[left.name][mask]
-                rhs = df[right.name][mask]
-                return lhs.cov(rhs, ddof=ddof)
-
-        return agg
+        return _pairwise(pd.Series.cov, left, right, where, ddof=ddof)
 
     @classmethod
     def visit_GroupConcat(cls, op: ops.GroupConcat, arg, sep, where, order_by):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
+        _reject_order_by(order_by)
 
         if where is None:
 
@@ -499,55 +473,30 @@ class PandasExecutor(PandasUtils):
 
         return agg
 
-    @classmethod
-    def visit_Lead(cls, op: ops.Lag | ops.Lead, arg, offset, default):
-        return cls.visit_Lag(op, arg, offset, default)
+    visit_Lead = visit_Lag
 
     @classmethod
     def visit_MinRank(cls, op: ops.MinRank | ops.DenseRank):
         method = "dense" if isinstance(op, ops.DenseRank) else "min"
 
         def agg(df, order_keys):
-            if len(order_keys) == 0:
-                raise ValueError("order_by argument is required for rank functions")
-            elif len(order_keys) == 1:
-                s = df[order_keys[0]]
-            else:
-                s = df[order_keys].apply(tuple, axis=1)
-
-            return s.rank(method=method).astype("int64") - 1
+            return _rank_key(df, order_keys).rank(method=method).astype("int64") - 1
 
         return agg
 
-    @classmethod
-    def visit_DenseRank(cls, op: ops.MinRank | ops.DenseRank):
-        return cls.visit_MinRank(op)
+    visit_DenseRank = visit_MinRank
 
     @classmethod
     def visit_PercentRank(cls, op: ops.PercentRank):
         def agg(df, order_keys):
-            if len(order_keys) == 0:
-                raise ValueError("order_by argument is required for rank functions")
-            elif len(order_keys) == 1:
-                s = df[order_keys[0]]
-            else:
-                s = df[order_keys].apply(tuple, axis=1)
-
-            return s.rank(method="min").sub(1).div(len(df) - 1)
+            return _rank_key(df, order_keys).rank(method="min").sub(1).div(len(df) - 1)
 
         return agg
 
     @classmethod
     def visit_CumeDist(cls, op: ops.CumeDist):
         def agg(df, order_keys):
-            if len(order_keys) == 0:
-                raise ValueError("order_by argument is required for rank functions")
-            elif len(order_keys) == 1:
-                s = df[order_keys[0]]
-            else:
-                s = df[order_keys].apply(tuple, axis=1)
-
-            return s.rank(method="average", pct=True)
+            return _rank_key(df, order_keys).rank(method="average", pct=True)
 
         return agg
 
