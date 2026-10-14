@@ -447,18 +447,15 @@ class PandasExecutor(PandasUtils):
     def visit_GroupConcat(cls, op: ops.GroupConcat, arg, sep, where, order_by):
         _reject_order_by(order_by)
 
-        if where is None:
-
-            def agg(df):
-                return sep.join(df[arg.name].astype(str))
-        else:
-
-            def agg(df):
-                mask = df[where.name]
-                group = df[arg.name][mask]
-                if group.empty:
-                    return pd.NA
-                return sep.join(group)
+        def agg(df):
+            group = df[arg.name]
+            if where is not None:
+                group = group[df[where.name]]
+            # nulls do not take part, as in SQL; what is left is joined as text
+            group = group.dropna()
+            if group.empty:
+                return pd.NA
+            return sep.join(group.astype(str))
 
         return agg
 
