@@ -180,16 +180,22 @@ def prepare_predicates(
         The comparison operation to construct if the input is a pair of
         expression-like objects
     """
+    reverse = {
+        ops.Field(chain, k): v
+        for k, v in chain.values.items()
+        if isinstance(v, ops.Field)
+    }
     deref_right = DerefMap.from_targets(right)
-    deref_left = DerefMap.from_targets(chain.tables)
-    deref_both = DerefMap.from_targets([*chain.tables, right])
+    deref_left = DerefMap.from_targets(chain.tables, extra=reverse)
+    deref_both = DerefMap.from_targets([*chain.tables, right], extra=reverse)
 
     def deref_chain(derefmap, node):
-        # a predicate may reference a field of the chain built so far, e.g.
-        # `j.pub` after `j = a.outer_join(b, ...).select(pub=...)`; the join
-        # tables cannot see it, so peel it to its value over them (the same
-        # step `Join.select` takes), whether that value is a plain field or
-        # a derived one such as a coalesce (xorq-labs/xorq#2408)
+        # `reverse` binds plain fields of the chain built so far to the left
+        # side, ahead of a right table derived from the chain. A derived
+        # value, e.g. `j.pub` after `j = a.outer_join(b, ...).select(pub=...)`
+        # where `pub` is a coalesce, cannot go in `reverse` (DerefMap maps to
+        # fields only), so peel what is left over to its value over the join
+        # tables, the same step `Join.select` takes (xorq-labs/xorq#2408)
         return derefmap.dereference(node).replace(peel_join_field, filter=ops.Value)
 
     left, right = chain.to_expr(), right.to_expr()

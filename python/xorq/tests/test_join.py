@@ -73,3 +73,18 @@ def test_asof_join_on_column_selected_over_join():
         sort_pub_pid(xo.duckdb.connect().execute(expr)),
         pd.DataFrame({"pub": [-1, 1, 2], "pid": [None, 1, 1]}, dtype="float64"),
     )
+
+
+def test_join_chain_to_its_own_filtered_result():
+    # the right table derives from the chain, so its fields backtrack to the
+    # chain's fields; the predicate's left side must still bind to the left
+    a = xo.memtable({"id": [1, 2], "x": ["p", "q"]})
+    b = xo.memtable({"id": [1, 2], "y": [10, 20]})
+    j = a.join(b, "id").select("id", "x", "y")
+    r = j.filter(j.id == 1)
+    expr = j.left_join(r, j.id == r.id)
+    df = expr.execute().sort_values("id").reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        df[["id", "id_right"]].astype("float64"),
+        pd.DataFrame({"id": [1, 2], "id_right": [1, None]}, dtype="float64"),
+    )
