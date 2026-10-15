@@ -180,20 +180,23 @@ def prepare_predicates(
         The comparison operation to construct if the input is a pair of
         expression-like objects
     """
-    reverse = {
-        ops.Field(chain, k): v
-        for k, v in chain.values.items()
-        if isinstance(v, ops.Field)
-    }
     deref_right = DerefMap.from_targets(right)
-    deref_left = DerefMap.from_targets(chain.tables, extra=reverse)
-    deref_both = DerefMap.from_targets([*chain.tables, right], extra=reverse)
+    deref_left = DerefMap.from_targets(chain.tables)
+    deref_both = DerefMap.from_targets([*chain.tables, right])
+
+    def deref_chain(derefmap, node):
+        # a predicate may reference a field of the chain built so far, e.g.
+        # `j.pub` after `j = a.outer_join(b, ...).select(pub=...)`; the join
+        # tables cannot see it, so peel it to its value over them (the same
+        # step `Join.select` takes), whether that value is a plain field or
+        # a derived one such as a coalesce (xorq-labs/xorq#2408)
+        return derefmap.dereference(node).replace(peel_join_field, filter=ops.Value)
 
     left, right = chain.to_expr(), right.to_expr()
     for pred in util.promote_list(predicates):
         if isinstance(pred, (Value, Deferred, bool)):
             for bound in bind(left, pred):
-                yield deref_both.dereference(bound.op())
+                yield deref_chain(deref_both, bound.op())
         else:
             if isinstance(pred, tuple):
                 if len(pred) != 2:
@@ -203,7 +206,7 @@ def prepare_predicates(
                 lk = rk = pred
 
             for lhs, rhs in zip(bind(left, lk), bind(right, rk)):
-                lhs = deref_left.dereference(lhs.op())
+                lhs = deref_chain(deref_left, lhs.op())
                 rhs = deref_right.dereference(rhs.op())
                 yield comparison(lhs, rhs)
 
