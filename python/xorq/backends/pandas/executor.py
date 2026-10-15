@@ -5,7 +5,6 @@ from functools import partial, reduce
 
 import numpy as np
 import pandas as pd
-from packaging.version import parse as vparse
 
 import xorq.backends.pandas.kernels as pandas_kernels
 import xorq.vendor.ibis.expr.operations as ops
@@ -167,12 +166,6 @@ class PandasExecutor(PandasUtils):
     kernels = pandas_kernels
 
     @classmethod
-    def visit(cls, op: ops.Node, **kwargs):
-        raise OperationNotDefinedError(
-            f"Operation {op!r} is not implemented for the pandas backend"
-        )
-
-    @classmethod
     def visit_Literal(cls, op: ops.Literal, value, dtype):
         if dtype.is_interval():
             value = pd.Timedelta(value, dtype.unit.short)
@@ -309,10 +302,7 @@ class PandasExecutor(PandasUtils):
         cls, op: ops.TimestampTruncate | ops.DateTruncate, arg, unit
     ):
         # TODO(kszucs): should use serieswise()
-        if vparse(pd.__version__) >= vparse("2.2"):
-            units = {"m": "min"}
-        else:
-            units = {"m": "Min", "ms": "L"}
+        units = {"m": "min"}
 
         unit = units.get(unit.short, unit.short)
 

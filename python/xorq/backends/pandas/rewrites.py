@@ -147,10 +147,6 @@ class PandasWindowFunction(ops.Value):
         return self.func.dtype
 
 
-def is_columnar(node):
-    return isinstance(node, ops.Value) and node.shape.is_columnar()
-
-
 computable_column = p.Value(shape=ds.columnar) & ~InstanceOf(
     (
         ops.Reduction,
