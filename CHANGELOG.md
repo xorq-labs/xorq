@@ -8,6 +8,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.8] - 2026-10-15
+### Details
+#### Added
+- Add hosted presigned content store by @dlovell in [#2403](https://github.com/xorq-labs/xorq/pull/2403)
+
+#### Changed
+- Drop _build_insert_template, identical to the base by @mesejo in [#2400](https://github.com/xorq-labs/xorq/pull/2400)
+- Consolidate duplicated executor visits by @mesejo in [#2406](https://github.com/xorq-labs/xorq/pull/2406)
+- Drop udf.py, import the vendored vectorized decorators by @mesejo in [#2423](https://github.com/xorq-labs/xorq/pull/2423)
+- Drop from_dataframe, tests build the table via connect by @mesejo in [#2426](https://github.com/xorq-labs/xorq/pull/2426)
+- Merge BasePandasBackend into Backend, delete dead members by @mesejo in [#2429](https://github.com/xorq-labs/xorq/pull/2429)
+- Drop the cache and memtable hook overrides by @mesejo in [#2441](https://github.com/xorq-labs/xorq/pull/2441)
+- Rebase reports a conflict as its own outcome by @mesejo in [#2349](https://github.com/xorq-labs/xorq/pull/2349)
+  - A conflict is now returned as `RebaseStatus.CONFLICT` instead of raised, and `UnmatchedSourceError` exits 1 (was 4).
+
+#### Fixed
+- Key a CachedNode once, from the parent as written by @mesejo in [#2381](https://github.com/xorq-labs/xorq/pull/2381)
+- Register the Table conversion under its real module path by @mesejo in [#2401](https://github.com/xorq-labs/xorq/pull/2401)
+- Execute SelfReference, so Table.view() runs on pandas by @mesejo in [#2404](https://github.com/xorq-labs/xorq/pull/2404)
+- Keep csv reader options out of the ADBC ingest call by @mesejo in [#2405](https://github.com/xorq-labs/xorq/pull/2405)
+- Rank over a null key, honouring direction and null placement by @mesejo in [#2412](https://github.com/xorq-labs/xorq/pull/2412)
+- Group_concat joins non-strings and skips nulls when filtered by @mesejo in [#2413](https://github.com/xorq-labs/xorq/pull/2413)
+- Percent_rank is 0 on a single-row partition, not NaN by @mesejo in [#2410](https://github.com/xorq-labs/xorq/pull/2410)
+- Cume_dist counts rows at or below the key, as SQL does by @mesejo in [#2411](https://github.com/xorq-labs/xorq/pull/2411)
+- Rank-family window functions follow the window's order by @mesejo in [#2414](https://github.com/xorq-labs/xorq/pull/2414)
+- Hoist the shared sqlite world fixture to conftest by @mesejo in [#2424](https://github.com/xorq-labs/xorq/pull/2424)
+- Share the UDWF evaluators between both API tests by @mesejo in [#2425](https://github.com/xorq-labs/xorq/pull/2425)
+- Import the udxf test helpers from the flight conftest by @mesejo in [#2428](https://github.com/xorq-labs/xorq/pull/2428)
+- One fit_scaled fixture replaces fourteen inline pipeline fits by @mesejo in [#2427](https://github.com/xorq-labs/xorq/pull/2427)
+- Has_operation reports reductions and visitor-handled ops by @mesejo in [#2431](https://github.com/xorq-labs/xorq/pull/2431)
+- Drop_table(force=True) before the schema was ever read by @mesejo in [#2432](https://github.com/xorq-labs/xorq/pull/2432)
+- TimestampTruncate and DateTruncate accept a scalar operand by @mesejo in [#2434](https://github.com/xorq-labs/xorq/pull/2434)
+- Create_table(overwrite=True) drops the stale cached schema by @mesejo in [#2433](https://github.com/xorq-labs/xorq/pull/2433)
+- One into_backend fan-out suite over duckdb and xorq_datafusion by @mesejo in [#2437](https://github.com/xorq-labs/xorq/pull/2437)
+- Dedupe helpers copied between test modules by @mesejo in [#2438](https://github.com/xorq-labs/xorq/pull/2438)
+- Test_into_backend stops shadowing the root pg fixture by @mesejo in [#2440](https://github.com/xorq-labs/xorq/pull/2440)
+- One xorq connection fixture family in the root conftest by @mesejo in [#2442](https://github.com/xorq-labs/xorq/pull/2442)
+- Drop dead fixture aliases, memoize executed frames, register the frame tables by @mesejo in [#2443](https://github.com/xorq-labs/xorq/pull/2443)
+
+#### Removed
+- Remove the downstream boring-semantic-layer workflow by @mesejo in [#2416](https://github.com/xorq-labs/xorq/pull/2416)
+- Delete core test_numeric.py, a copy of the xorq_datafusion suite by @mesejo in [#2417](https://github.com/xorq-labs/xorq/pull/2417)
+- Delete the test_filtering_join copy in test_execute by @mesejo in [#2418](https://github.com/xorq-labs/xorq/pull/2418)
+- Delete four fixtures and a helper nothing requests by @mesejo in [#2419](https://github.com/xorq-labs/xorq/pull/2419)
+- Delete the unreferenced pretrained_model fixture files by @mesejo in [#2420](https://github.com/xorq-labs/xorq/pull/2420)
+- Delete the twelve scaler tests the parametrized one covers by @mesejo in [#2422](https://github.com/xorq-labs/xorq/pull/2422)
+- Remove kernel entries dispatch can never reach by @mesejo in [#2436](https://github.com/xorq-labs/xorq/pull/2436)
+
 ## [0.4.7] - 2026-10-13
 ### Details
 #### Added
