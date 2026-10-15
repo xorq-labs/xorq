@@ -67,7 +67,6 @@ class Backend(SQLBackend):
         self.catalog = None
         self.namespace = "default"
         self.warehouse_path = None
-        self.duckdb_con = None
         self.catalog_params = None
         self.uri = None
 

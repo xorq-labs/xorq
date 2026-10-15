@@ -19,7 +19,6 @@ import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 from batchcorder import StreamCache
-from sqlglot import exp, parse_one
 
 import xorq
 import xorq.common.exceptions as com
@@ -207,7 +206,6 @@ def _compile_pyarrow_udaf(udaf_node):
 class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl):
     name = "xorq_datafusion"
     supports_in_memory_tables = True
-    supports_arrays = True
     compiler = compiler
 
     @staticmethod
@@ -1045,10 +1043,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
                 for batch in batch_reader:
                     writer.write_batch(batch)
-
-    def _extract_catalog(self, query: str) -> dict[str, ir.Table]:
-        tables = parse_one(query).find_all(exp.Table)
-        return {table.name: self.table(table.name) for table in tables}
 
     def register_udwf(self, func: WindowUDF) -> None:
         self.con.register_udwf(func)
