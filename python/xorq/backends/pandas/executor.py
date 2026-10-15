@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import operator
 from functools import partial, reduce
 
@@ -943,3 +944,24 @@ class PandasExecutor(PandasUtils):
                 raise TypeError(f"Unexpected shape: {original.shape}")
         else:
             return df
+
+
+def _visitor_operations():
+    """The concrete ``ops`` nodes the executor handles through a ``visit_<Op>``."""
+    nodes = (
+        getattr(ops, name.removeprefix("visit_"), None)
+        for name in dir(PandasExecutor)
+        if name.startswith("visit_")
+    )
+    return {
+        node
+        for node in nodes
+        if isinstance(node, type)
+        and issubclass(node, ops.Node)
+        and not inspect.isabstract(node)
+    }
+
+
+supported_operations = frozenset(
+    pandas_kernels.supported_operations | _visitor_operations()
+)

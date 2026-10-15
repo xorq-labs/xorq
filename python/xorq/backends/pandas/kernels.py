@@ -557,4 +557,5 @@ supported_operations = (
     | rowwise.keys()
     | serieswise.keys()
     | elementwise.keys()
+    | reductions.keys()
 )
