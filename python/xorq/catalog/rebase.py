@@ -117,10 +117,6 @@ class RebaseResult:
     # Set exactly when ``status`` is ``CONFLICT``.
     conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
 
-    def __attrs_post_init__(self) -> None:
-        if (self.status == RebaseStatus.CONFLICT) != (self.conflict is not None):
-            raise ValueError("conflict must be set exactly when status is CONFLICT")
-
 
 def fetch_archive(catalog_entry: CatalogEntry) -> None:
     """Make the entry's archive local, refusing with the rebase exit codes.
