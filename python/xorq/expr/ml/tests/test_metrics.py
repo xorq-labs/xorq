@@ -1,5 +1,6 @@
 """Tests for deferred sklearn metrics evaluation using Pipeline API."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import cloudpickle
@@ -134,28 +135,46 @@ def regression_data():
     return train_df, test_df, feature_names
 
 
-def test_pipeline_classification_metrics(classification_data):
+@pytest.fixture
+def fit_scaled(request):
+    """Register a (train, test, features) split under names unique to the test and
+    fit a StandardScaler + `estimator` pipeline on it through xorq.
+
+    Returns the split, both registered exprs, the unfitted sklearn pipeline (for
+    the test to fit as its oracle) and the xorq-fitted pipeline."""
+
+    def _fit(data, estimator):
+        train_df, test_df, feature_names = data
+        prefix = request.node.originalname
+        train_expr = api.register(train_df, f"{prefix}_train")
+        test_expr = api.register(test_df, f"{prefix}_test")
+        sklearn_pipeline = SkPipeline(
+            [("scaler", StandardScaler()), ("estimator", estimator)]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+        return SimpleNamespace(
+            data=data,
+            train_expr=train_expr,
+            test_expr=test_expr,
+            sklearn_pipeline=sklearn_pipeline,
+            fitted=fitted,
+        )
+
+    return _fit
+
+
+def test_pipeline_classification_metrics(classification_data, fit_scaled):
     """Test Pipeline API with classification metrics."""
-    train_df, test_df, feature_names = classification_data
-
-    # Register data with xorq
-    train_expr = api.register(train_df, "train")
-    test_expr = api.register(test_df, "test")
-
-    # Create sklearn pipeline with scaler and classifier
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("classifier", RandomForestClassifier(n_estimators=10, random_state=42)),
-        ]
+    fit = fit_scaled(
+        classification_data, RandomForestClassifier(n_estimators=10, random_state=42)
     )
-
-    # Wrap with xorq Pipeline
-    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-
-    # Fit the pipeline
-    fitted_pipeline = xorq_pipeline.fit(
-        train_expr, features=feature_names, target="target"
+    train_df, test_df, feature_names = fit.data
+    fitted_pipeline, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     # Direct sklearn metrics for comparison
@@ -216,28 +235,16 @@ def test_pipeline_classification_metrics(classification_data):
     assert np.isclose(actual_f1, expected_f1)
 
 
-def test_pipeline_regression_metrics(regression_data):
+def test_pipeline_regression_metrics(regression_data, fit_scaled):
     """Test Pipeline API with regression metrics."""
-    train_df, test_df, feature_names = regression_data
-
-    # Register data with xorq
-    train_expr = api.register(train_df, "train")
-    test_expr = api.register(test_df, "test")
-
-    # Create sklearn pipeline with scaler and regressor
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("regressor", RandomForestRegressor(n_estimators=10, random_state=42)),
-        ]
+    fit = fit_scaled(
+        regression_data, RandomForestRegressor(n_estimators=10, random_state=42)
     )
-
-    # Wrap with xorq Pipeline
-    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-
-    # Fit the pipeline
-    fitted_pipeline = xorq_pipeline.fit(
-        train_expr, features=feature_names, target="target"
+    train_df, test_df, feature_names = fit.data
+    fitted_pipeline, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     # Direct sklearn metrics for comparison
@@ -287,28 +294,16 @@ def test_pipeline_regression_metrics(regression_data):
     assert np.isclose(actual_r2, expected_r2, rtol=1e-4)
 
 
-def test_pipeline_multiclass_metrics(multiclass_data):
+def test_pipeline_multiclass_metrics(multiclass_data, fit_scaled):
     """Test Pipeline API with multiclass metrics."""
-    train_df, test_df, feature_names = multiclass_data
-
-    # Register data with xorq
-    train_expr = api.register(train_df, "train")
-    test_expr = api.register(test_df, "test")
-
-    # Create sklearn pipeline with scaler and classifier
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("classifier", LogisticRegression(max_iter=1000, random_state=42)),
-        ]
+    fit = fit_scaled(
+        multiclass_data, LogisticRegression(max_iter=1000, random_state=42)
     )
-
-    # Wrap with xorq Pipeline
-    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-
-    # Fit the pipeline
-    fitted_pipeline = xorq_pipeline.fit(
-        train_expr, features=feature_names, target="target"
+    train_df, test_df, feature_names = fit.data
+    fitted_pipeline, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     # Direct sklearn metrics for comparison
@@ -927,21 +922,12 @@ def test_scorer_from_spec_make_scorer_greater_is_better_false():
     assert s.sign == -1
 
 
-def test_custom_pred_col_name_classifier(classification_data):
+def test_custom_pred_col_name_classifier(classification_data, fit_scaled):
     """Classifier: predict(name='my_pred') -> pred='my_pred'."""
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "cls_train")
-    test_expr = api.register(test_df, "cls_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("clf", RandomForestClassifier(n_estimators=10, random_state=42)),
-        ]
+    fit = fit_scaled(
+        classification_data, RandomForestClassifier(n_estimators=10, random_state=42)
     )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
-    )
+    fitted, test_expr = fit.fitted, fit.test_expr
 
     preds = fitted.predict(test_expr, name="my_pred")
     assert "my_pred" in preds.columns
@@ -955,21 +941,12 @@ def test_custom_pred_col_name_classifier(classification_data):
     assert 0 <= result <= 1
 
 
-def test_custom_pred_col_name_regressor(regression_data):
+def test_custom_pred_col_name_regressor(regression_data, fit_scaled):
     """Regressor: predict(name='my_pred') -> pred='my_pred'."""
-    train_df, test_df, feature_names = regression_data
-    train_expr = api.register(train_df, "reg_train")
-    test_expr = api.register(test_df, "reg_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("reg", RandomForestRegressor(n_estimators=10, random_state=42)),
-        ]
+    fit = fit_scaled(
+        regression_data, RandomForestRegressor(n_estimators=10, random_state=42)
     )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
-    )
+    fitted, test_expr = fit.fitted, fit.test_expr
 
     preds = fitted.predict(test_expr, name="my_pred")
     assert "my_pred" in preds.columns
@@ -1020,21 +997,10 @@ def test_custom_pred_col_name_clusterer():
     assert isinstance(result, (float, np.floating))
 
 
-def test_custom_pred_col_name_predict_proba(classification_data):
+def test_custom_pred_col_name_predict_proba(classification_data, fit_scaled):
     """predict_proba(name='my_proba') -> pred='my_proba'."""
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "proba_train")
-    test_expr = api.register(test_df, "proba_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(random_state=42)),
-        ]
-    )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
-    )
+    fit = fit_scaled(classification_data, LogisticRegression(random_state=42))
+    fitted, test_expr = fit.fitted, fit.test_expr
 
     preds = fitted.predict_proba(test_expr, name="my_proba")
     assert "my_proba" in preds.columns
@@ -1211,19 +1177,13 @@ def test_metric_fn_y_pred_metric(
     assert abs(result - expected) < 1e-10
 
 
-def test_metric_fn_y_score_hinge_loss(classification_data):
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "hinge_train")
-    test_expr = api.register(test_df, "hinge_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("svm", LinearSVC(random_state=42, max_iter=5000)),
-        ]
-    )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
+def test_metric_fn_y_score_hinge_loss(classification_data, fit_scaled):
+    fit = fit_scaled(classification_data, LinearSVC(random_state=42, max_iter=5000))
+    train_df, test_df, feature_names = fit.data
+    fitted, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     expr_with_scores = fitted.decision_function(test_expr)
@@ -1244,19 +1204,13 @@ def test_metric_fn_y_score_hinge_loss(classification_data):
     d2_log_loss_score is None,
     reason="sklearn.metrics.d2_log_loss_score added in scikit-learn 1.5",
 )
-def test_metric_fn_y_score_d2_log_loss_score(classification_data):
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "d2ll_train")
-    test_expr = api.register(test_df, "d2ll_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(random_state=42)),
-        ]
-    )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
+def test_metric_fn_y_score_d2_log_loss_score(classification_data, fit_scaled):
+    fit = fit_scaled(classification_data, LogisticRegression(random_state=42))
+    train_df, test_df, feature_names = fit.data
+    fitted, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     expr_with_proba = fitted.predict_proba(test_expr)
@@ -1461,20 +1415,16 @@ def test_metric_fn_multilabel_metric_tuple_pred(metric_func):
 # ---------------------------------------------------------------------------
 
 
-def test_non_scalar_class_likelihood_ratios(classification_data):
+def test_non_scalar_class_likelihood_ratios(classification_data, fit_scaled):
     """class_likelihood_ratios -> Struct(positive_lr, negative_lr)."""
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "clr_train")
-    test_expr = api.register(test_df, "clr_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("clf", RandomForestClassifier(n_estimators=10, random_state=42)),
-        ]
+    fit = fit_scaled(
+        classification_data, RandomForestClassifier(n_estimators=10, random_state=42)
     )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
+    train_df, test_df, feature_names = fit.data
+    fitted, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     expr_with_preds = fitted.predict(test_expr)
@@ -1521,20 +1471,16 @@ def test_non_scalar_homogeneity_completeness_v_measure():
     assert np.isclose(result["v_measure"], expected[2])
 
 
-def test_non_scalar_confusion_matrix(classification_data):
+def test_non_scalar_confusion_matrix(classification_data, fit_scaled):
     """confusion_matrix -> Array(Array(int64))."""
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "cm_train")
-    test_expr = api.register(test_df, "cm_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("clf", RandomForestClassifier(n_estimators=10, random_state=42)),
-        ]
+    fit = fit_scaled(
+        classification_data, RandomForestClassifier(n_estimators=10, random_state=42)
     )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
+    train_df, test_df, feature_names = fit.data
+    fitted, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     expr_with_preds = fitted.predict(test_expr)
@@ -1573,20 +1519,14 @@ def test_non_scalar_pair_confusion_matrix():
     assert np.array_equal(np.array(result), expected)
 
 
-def test_non_scalar_roc_curve(classification_data):
+def test_non_scalar_roc_curve(classification_data, fit_scaled):
     """roc_curve -> Struct(fpr, tpr, thresholds)."""
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "roc_train")
-    test_expr = api.register(test_df, "roc_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(random_state=42)),
-        ]
-    )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
+    fit = fit_scaled(classification_data, LogisticRegression(random_state=42))
+    train_df, test_df, feature_names = fit.data
+    fitted, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     expr_with_proba = fitted.predict_proba(test_expr)
@@ -1608,20 +1548,14 @@ def test_non_scalar_roc_curve(classification_data):
     assert np.allclose(result["thresholds"], expected[2])
 
 
-def test_non_scalar_precision_recall_curve(classification_data):
+def test_non_scalar_precision_recall_curve(classification_data, fit_scaled):
     """precision_recall_curve -> Struct(precision, recall, thresholds)."""
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "prc_train")
-    test_expr = api.register(test_df, "prc_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(random_state=42)),
-        ]
-    )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
+    fit = fit_scaled(classification_data, LogisticRegression(random_state=42))
+    train_df, test_df, feature_names = fit.data
+    fitted, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     expr_with_proba = fitted.predict_proba(test_expr)
@@ -1643,20 +1577,14 @@ def test_non_scalar_precision_recall_curve(classification_data):
     assert np.allclose(result["thresholds"], expected[2])
 
 
-def test_non_scalar_det_curve(classification_data):
+def test_non_scalar_det_curve(classification_data, fit_scaled):
     """det_curve -> Struct(fpr, fnr, thresholds)."""
-    train_df, test_df, feature_names = classification_data
-    train_expr = api.register(train_df, "det_train")
-    test_expr = api.register(test_df, "det_test")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("clf", LogisticRegression(random_state=42)),
-        ]
-    )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
+    fit = fit_scaled(classification_data, LogisticRegression(random_state=42))
+    train_df, test_df, feature_names = fit.data
+    fitted, sklearn_pipeline, test_expr = (
+        fit.fitted,
+        fit.sklearn_pipeline,
+        fit.test_expr,
     )
 
     expr_with_proba = fitted.predict_proba(test_expr)
@@ -1959,20 +1887,13 @@ def test_pipeline_score_methods_score_no_predict_step_raises():
         )
 
 
-def test_pipeline_score_methods_score_regressor(regression_data):
+def test_pipeline_score_methods_score_regressor(regression_data, fit_scaled):
     """score() with a regressor pipeline uses default r2 scorer."""
-    train_df, test_df, feature_names = regression_data
-    train_expr = api.register(train_df, "score_reg_train")
-
-    sklearn_pipeline = SkPipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("reg", RandomForestRegressor(n_estimators=10, random_state=42)),
-        ]
+    fit = fit_scaled(
+        regression_data, RandomForestRegressor(n_estimators=10, random_state=42)
     )
-    fitted = Pipeline.from_instance(sklearn_pipeline).fit(
-        train_expr, features=feature_names, target="target"
-    )
+    train_df, test_df, feature_names = fit.data
+    fitted = fit.fitted
     X_test = test_df[feature_names].values
     y_test = test_df["target"].values
     result = fitted.score(X_test, y_test)
