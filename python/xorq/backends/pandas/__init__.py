@@ -364,7 +364,8 @@ class Backend(BaseBackend, NoUrl):
                 "Cannot drop existing table. Call drop_table with force=True to drop existing table."
             )
         del self.dictionary[name]
-        del self.schemas[name]
+        # the schema is inferred lazily, so it may never have been read
+        self.schemas.pop(name, None)
 
     def read_record_batches(
         self,
