@@ -10,9 +10,9 @@ from packaging.version import parse as vparse
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.pandas import Backend
-from xorq.backends.pandas.udf import udf
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
+from xorq.vendor.ibis.legacy.udf.vectorized import analytic, elementwise, reduction
 
 
 @pytest.fixture
@@ -56,39 +56,39 @@ def t2(con):
 
 with pytest.warns(FutureWarning, match="v9.0"):
 
-    @udf.elementwise(input_type=["string"], output_type="int64")
+    @elementwise(input_type=["string"], output_type="int64")
     def my_string_length(series, **kwargs):
         return series.str.len() * 2
 
-    @udf.elementwise(input_type=[dt.double, dt.double], output_type=dt.double)
+    @elementwise(input_type=[dt.double, dt.double], output_type=dt.double)
     def my_add(series1, series2, **kwargs):
         return series1 + series2
 
-    @udf.reduction(["double"], "double")
+    @reduction(["double"], "double")
     def my_mean(series):
         return series.mean()
 
-    @udf.reduction(input_type=[dt.string], output_type=dt.int64)
+    @reduction(input_type=[dt.string], output_type=dt.int64)
     def my_string_length_sum(series, **kwargs):
         return (series.str.len() * 2).sum()
 
-    @udf.reduction(input_type=[dt.double, dt.double], output_type=dt.double)
+    @reduction(input_type=[dt.double, dt.double], output_type=dt.double)
     def my_corr(lhs, rhs, **kwargs):
         return lhs.corr(rhs)
 
-    @udf.elementwise([dt.double], dt.double)
+    @elementwise([dt.double], dt.double)
     def add_one(x):
         return x + 1.0
 
-    @udf.elementwise([dt.double], dt.double)
+    @elementwise([dt.double], dt.double)
     def times_two(x):
         return x * 2.0
 
-    @udf.analytic(input_type=["double"], output_type="double")
+    @analytic(input_type=["double"], output_type="double")
     def zscore(series):
         return (series - series.mean()) / series.std()
 
-    @udf.reduction(
+    @reduction(
         input_type=[dt.double],
         output_type=dt.Array(dt.double),
     )
@@ -207,7 +207,7 @@ def test_udaf_parameter_mismatch():
     with pytest.raises(TypeError):
         with pytest.warns(FutureWarning, match="v9.0"):
 
-            @udf.reduction(input_type=[dt.double], output_type=dt.double)
+            @reduction(input_type=[dt.double], output_type=dt.double)
             def my_corr(lhs, rhs, **kwargs):
                 pass
 
@@ -216,7 +216,7 @@ def test_udf_parameter_mismatch():
     with pytest.raises(TypeError):
         with pytest.warns(FutureWarning, match="v9.0"):
 
-            @udf.reduction(input_type=[], output_type=dt.double)
+            @reduction(input_type=[], output_type=dt.double)
             def my_corr2(lhs, **kwargs):
                 pass
 
@@ -224,7 +224,7 @@ def test_udf_parameter_mismatch():
 def test_udf_error(t):
     with pytest.warns(FutureWarning, match="v9.0"):
 
-        @udf.elementwise(input_type=[dt.double], output_type=dt.double)
+        @elementwise(input_type=[dt.double], output_type=dt.double)
         def error_udf(s):
             raise ValueError("xxx")
 
@@ -236,7 +236,7 @@ def test_udf_no_reexecution(t2):
     execution_count = 0
     with pytest.warns(FutureWarning, match="v9.0"):
 
-        @udf.elementwise(input_type=[dt.double], output_type=dt.double)
+        @elementwise(input_type=[dt.double], output_type=dt.double)
         def times_two_count_executions(x):
             nonlocal execution_count
             execution_count += 1
@@ -318,7 +318,7 @@ def test_multiple_argument_udaf_window():
     # PR 2035
     with pytest.warns(FutureWarning, match="v9.0"):
 
-        @udf.reduction(["double", "double"], "double")
+        @reduction(["double", "double"], "double")
         def my_wm(v, w):
             return np.average(v, weights=w)
 
@@ -415,7 +415,7 @@ def test_array_return_type_reduction_group_by(con, t, df, qs):
 def test_elementwise_udf_with_many_args(t2):
     with pytest.warns(FutureWarning, match="v9.0"):
 
-        @udf.elementwise(
+        @elementwise(
             input_type=[dt.double] * 16 + [dt.int32] * 8, output_type=dt.double
         )
         def my_udf(
