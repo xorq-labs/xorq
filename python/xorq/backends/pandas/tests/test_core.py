@@ -30,22 +30,6 @@ def ibis_table(core_client):
     return core_client.table("df")
 
 
-def test_from_dataframe(dataframe, ibis_table, core_client):
-    t = Backend().from_dataframe(dataframe)
-    result = t.execute()
-    expected = ibis_table.execute()
-    assert_frame_equal(result, expected)
-
-    t = Backend().from_dataframe(dataframe, name="foo")
-    expected = ibis_table.execute()
-    assert_frame_equal(result, expected)
-
-    client = core_client
-    t = Backend().from_dataframe(dataframe, name="foo", client=client)
-    expected = ibis_table.execute()
-    assert_frame_equal(result, expected)
-
-
 def test_execute_parameter_only():
     param = xo.param("value", "int64")
     con = xo.pandas.connect()

@@ -105,35 +105,6 @@ class BasePandasBackend(BaseBackend, NoUrl):
     def disconnect(self) -> None:
         pass
 
-    def from_dataframe(
-        self,
-        df: pd.DataFrame,
-        name: str = "df",
-        client: BasePandasBackend | None = None,
-    ) -> ir.Table:
-        """Construct an ibis table from a pandas DataFrame.
-
-        Parameters
-        ----------
-        df
-            A pandas DataFrame
-        name
-            The name of the pandas DataFrame
-        client
-            Client dictionary will be mutated with the name of the DataFrame,
-            if not provided a new client is created
-
-        Returns
-        -------
-        Table
-            A table expression
-
-        """
-        if client is None:
-            return self.connect({name: df}).table(name)
-        client.dictionary[name] = df
-        return client.table(name)
-
     def read_csv(
         self,
         source: str | pathlib.Path,
