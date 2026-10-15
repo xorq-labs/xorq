@@ -167,37 +167,7 @@ def get_cache_uncached(expr):
     return (cache, uncached)
 
 
-@pytest.fixture(scope="session")
-def xo_con(parquet_dir):
-    conn = xo.connect()
-
-    for name in ("astronauts", "functional_alltypes", "awards_players", "batting"):
-        conn.read_parquet(parquet_dir / f"{name}.parquet", name)
-
-    return conn
-
-
-@pytest.fixture(scope="session")
-def alltypes(xo_con):
-    return xo_con.table("functional_alltypes")
-
-
-@pytest.fixture(scope="session")
-def alltypes_df(alltypes):
-    return alltypes.execute()
-
-
-@pytest.fixture(scope="session")
-def awards_players(xo_con):
-    return xo_con.table("awards_players")
-
-
-@pytest.fixture(scope="session")
-def batting(xo_con):
-    return xo_con.table("batting")
-
-
-@pytest.fixture(scope="session")
+@pytest.fixture
 def con_snapshot(xo_con, alltypes_df):
     def _con_snapshot(_alltypes_df, _xo_con, df_con):
         group_by = "year"
@@ -230,7 +200,7 @@ def con_snapshot(xo_con, alltypes_df):
     return functools.partial(_con_snapshot, alltypes_df, xo_con)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def con_cross_source_snapshot(xo_con, alltypes_df):
     def _con_cross_source_snapshot(_alltypes_df, _con, expr_con):
         group_by = "year"
