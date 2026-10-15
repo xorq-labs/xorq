@@ -64,8 +64,3 @@ def con(trades_df):
 def xo_con(parquet_dir, ddl_file):
     # this directory's own connection: its tests create and drop tables
     return make_xo_con(parquet_dir, ddl_file)
-
-
-@pytest.fixture(scope="session")
-def ls_con(xo_con):
-    return xo_con
