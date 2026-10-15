@@ -4,9 +4,11 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+import xorq.backends.pandas.kernels as kernels
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.pandas import Backend
+from xorq.backends.pandas.executor import PandasExecutor
 from xorq.tests.util import assert_frame_equal
 
 
@@ -94,3 +96,32 @@ def test_has_operation_matches_execution(ibis_table):
 
 def test_has_operation_rejects_unhandled_op():
     assert not Backend.has_operation(ops.Levenshtein)
+
+
+def test_every_kernel_entry_is_reachable():
+    """A kernel table entry that an earlier table or a visitor already claims
+    can never run; the executor tries generic, then columnwise, serieswise,
+    rowwise and elementwise, and a `visit_<Op>` before any of them."""
+    visited = {
+        getattr(ops, name.removeprefix("visit_"), None)
+        for name in dir(PandasExecutor)
+        if name.startswith("visit_")
+    }
+    tables = {
+        "generic": kernels.generic,
+        "columnwise": kernels.columnwise,
+        "rowwise": kernels.rowwise,
+        "serieswise": kernels.serieswise,
+        "elementwise": kernels.elementwise,
+        "reductions": kernels.reductions,
+    }
+    assert not set(kernels.serieswise) & set(kernels.generic)
+    assert not set(kernels.serieswise) & set(kernels.columnwise)
+    assert not set(kernels.elementwise) & (
+        set(kernels.serieswise) | set(kernels.generic) | set(kernels.columnwise)
+    )
+    shadowed = {
+        name: sorted(op.__name__ for op in table if op in visited)
+        for name, table in tables.items()
+    }
+    assert not any(shadowed.values()), shadowed

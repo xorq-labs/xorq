@@ -977,3 +977,23 @@ def test_first_and_last_where(t, df, method, position):
 def test_ordered_reduction_is_unsupported(t, make_expr):
     with pytest.raises(UnsupportedOperationError, match="order_by"):
         make_expr(t).execute()
+
+
+def test_between_scalar_and_column_bounds(client):
+    df = pd.DataFrame(
+        {"a": [1.26, 2.5, 3.5, 4.75], "lo": [0, 3, 0, 4], "hi": [2, 3, 5, 5]}
+    )
+    t = client.create_table("between_t", df)
+
+    assert t.a.between(1, 3).execute().tolist() == [True, True, False, False]
+    assert t.a.between(t.lo, t.hi).execute().tolist() == [True, False, True, True]
+
+
+def test_arbitrary_returns_a_present_value(client):
+    df = pd.DataFrame({"g": [1, 1, 2, 2], "s": ["ab", "c", None, "d"]})
+    t = client.create_table("arbitrary_t", df)
+
+    assert t.s.arbitrary().execute() in {"ab", "c", "d"}
+    by_group = t.group_by("g").agg(any=t.s.arbitrary()).execute().sort_values("g")
+    assert by_group["any"].tolist()[0] in {"ab", "c"}
+    assert by_group["any"].tolist()[1] == "d"
