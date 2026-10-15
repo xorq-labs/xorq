@@ -26,24 +26,6 @@ from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
 
 
-expected_tables = (
-    "array_types",
-    "astronauts",
-    "awards_players",
-    "awards_players_special_types",
-    "batting",
-    "diamonds",
-    "functional_alltypes",
-    "geo",
-    "geography_columns",
-    "geometry_columns",
-    "json_t",
-    "map",
-    "spatial_ref_sys",
-    "topk",
-    "tzone",
-)
-
 KEY_PREFIX = xo.config.options.cache.key_prefix
 
 
@@ -52,21 +34,14 @@ def ls_con():
     return xo.connect()
 
 
-@pytest.fixture(scope="session")
-def pg():
-    conn = xo.postgres.connect_env()
-    yield conn
-    remove_unexpected_tables(conn)
-
-
-@pytest.fixture(scope="session")
-def alltypes(pg):
+@pytest.fixture
+def pg_alltypes(pg):
     return pg.table("functional_alltypes")
 
 
-@pytest.fixture(scope="session")
-def alltypes_df(alltypes):
-    return alltypes.execute()
+@pytest.fixture
+def pg_alltypes_df(pg_alltypes):
+    return pg_alltypes.execute()
 
 
 @pytest.fixture(scope="session")
@@ -136,23 +111,6 @@ def make_merged(expr):
         + [windowed[c] for c in windowed.columns if c not in expr.columns]
     )
     return merged
-
-
-def remove_unexpected_tables(dirty):
-    # drop tables
-    for table in dirty.list_tables():
-        if table not in expected_tables:
-            dirty.drop_table(table, force=True)
-
-    # drop view
-    for table in dirty.list_tables():
-        if table not in expected_tables:
-            dirty.drop_view(table, force=True)
-
-    if sorted(dirty.list_tables()) != sorted(expected_tables):
-        raise ValueError(
-            f"unexpected tables after cleanup: {set(dirty.list_tables()) - set(expected_tables)}"
-        )
 
 
 @pytest.mark.postgres
@@ -375,23 +333,23 @@ def test_to_pyarrow_batches_simple(pg):
 
 
 @pytest.mark.postgres
-def test_join(ls_con, alltypes, alltypes_df):
-    first_10 = alltypes_df.head(10)
+def test_join(ls_con, pg_alltypes, pg_alltypes_df):
+    first_10 = pg_alltypes_df.head(10)
     in_memory = ls_con.create_table("in_memory", first_10).into_backend(
-        alltypes.op().source
+        pg_alltypes.op().source
     )
-    expr = alltypes.join(in_memory, predicates=[alltypes.id == in_memory.id])
+    expr = pg_alltypes.join(in_memory, predicates=[pg_alltypes.id == in_memory.id])
     actual = expr.execute().sort_values("id")
     expected = pd.merge(
-        alltypes_df, first_10, how="inner", on="id", suffixes=("", "_right")
+        pg_alltypes_df, first_10, how="inner", on="id", suffixes=("", "_right")
     ).sort_values("id")
 
     assert_frame_equal(actual, expected)
 
 
 @pytest.fixture
-def union_subsets(alltypes, alltypes_df):
-    cols_a, cols_b, cols_c = (alltypes.columns.copy() for _ in range(3))
+def union_subsets(pg_alltypes, pg_alltypes_df):
+    cols_a, cols_b, cols_c = (pg_alltypes.columns.copy() for _ in range(3))
 
     random.seed(89)
     random.shuffle(cols_a)
@@ -403,13 +361,19 @@ def union_subsets(alltypes, alltypes_df):
     cols_b = [cb for cb in cols_b if cb != "timestamp_col"]
     cols_c = [cc for cc in cols_c if cc != "timestamp_col"]
 
-    a = alltypes.filter((alltypes.id >= 5200) & (alltypes.id <= 5210))[cols_a]
-    b = alltypes.filter((alltypes.id >= 5205) & (alltypes.id <= 5215))[cols_b]
-    c = alltypes.filter((alltypes.id >= 5213) & (alltypes.id <= 5220))[cols_c]
+    a = pg_alltypes.filter((pg_alltypes.id >= 5200) & (pg_alltypes.id <= 5210))[cols_a]
+    b = pg_alltypes.filter((pg_alltypes.id >= 5205) & (pg_alltypes.id <= 5215))[cols_b]
+    c = pg_alltypes.filter((pg_alltypes.id >= 5213) & (pg_alltypes.id <= 5220))[cols_c]
 
-    da = alltypes_df[(alltypes_df.id >= 5200) & (alltypes_df.id <= 5210)][cols_a]
-    db = alltypes_df[(alltypes_df.id >= 5205) & (alltypes_df.id <= 5215)][cols_b]
-    dc = alltypes_df[(alltypes_df.id >= 5213) & (alltypes_df.id <= 5220)][cols_c]
+    da = pg_alltypes_df[(pg_alltypes_df.id >= 5200) & (pg_alltypes_df.id <= 5210)][
+        cols_a
+    ]
+    db = pg_alltypes_df[(pg_alltypes_df.id >= 5205) & (pg_alltypes_df.id <= 5215)][
+        cols_b
+    ]
+    dc = pg_alltypes_df[(pg_alltypes_df.id >= 5213) & (pg_alltypes_df.id <= 5220)][
+        cols_c
+    ]
 
     return (a, b, c), (da, db, dc)
 
