@@ -249,8 +249,10 @@ def statements(ddl_file: Path):
 def make_xo_con(parquet_dir, ddl_file):
     """A xorq_datafusion connection over the ibis test data.
 
-    The root `xo_con` is one of these; a test directory that mutates its
-    tables overrides `xo_con` with its own so nothing leaks across directories.
+    The root `xo_con` is one of these and is shared by every directory that
+    does not override it; a directory whose tests create, register or cache
+    tables on `xo_con` overrides it with its own `make_xo_con` connection so
+    nothing leaks across directories.
     The table fixtures below are function-scoped on purpose: a session-scoped
     one would be cached once and bind every directory to the first
     connection that requested it."""
@@ -263,8 +265,10 @@ def make_xo_con(parquet_dir, ddl_file):
         "functional_alltypes",
     ):
         conn.read_parquet(parquet_dir / f"{name}.parquet", name)
-    conn.create_table("array_types", array_types_df)
-    conn.create_table("win", win)
+    # register, not create_table: create_table leaves an ibis_*_memtable_<hash>
+    # registration behind for every frame it materializes
+    conn.register(array_types_df, "array_types")
+    conn.register(win, "win")
     if ddl_file.is_file():
         for statement in statements(ddl_file):
             with conn._safe_raw_sql(statement):  # noqa
@@ -277,19 +281,28 @@ def xo_con(parquet_dir, ddl_file):
     return make_xo_con(parquet_dir, ddl_file)
 
 
+@pytest.fixture(scope="session")
+def executed_frames():
+    """Executed frames keyed by (connection, table): the function-scoped
+    `*_df` fixtures below read each table once per directory connection."""
+    return {}
+
+
+def executed(frames, table):
+    key = (id(table._find_backend()), table.get_name())
+    if key not in frames:
+        frames[key] = table.execute()
+    return frames[key].copy()
+
+
 @pytest.fixture
 def alltypes(xo_con):
     return xo_con.table("functional_alltypes")
 
 
 @pytest.fixture
-def functional_alltypes(alltypes):
-    return alltypes
-
-
-@pytest.fixture
-def alltypes_df(alltypes):
-    return alltypes.execute()
+def alltypes_df(alltypes, executed_frames):
+    return executed(executed_frames, alltypes)
 
 
 @pytest.fixture
@@ -303,18 +316,13 @@ def batting(xo_con):
 
 
 @pytest.fixture
-def batting_df(batting):
-    return batting.execute()
+def batting_df(batting, executed_frames):
+    return executed(executed_frames, batting)
 
 
 @pytest.fixture
 def awards_players(xo_con):
     return xo_con.table("awards_players")
-
-
-@pytest.fixture
-def awards_players_df(awards_players):
-    return awards_players.execute(limit=None)
 
 
 @pytest.fixture
@@ -333,8 +341,8 @@ def struct(xo_con):
 
 
 @pytest.fixture
-def struct_df(struct):
-    return struct.execute()
+def struct_df(struct, executed_frames):
+    return executed(executed_frames, struct)
 
 
 @pytest.fixture
