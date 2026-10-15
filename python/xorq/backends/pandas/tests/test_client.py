@@ -12,6 +12,7 @@ from pytest import param
 import xorq.api as xo
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.caching import SourceCache
 from xorq.tests.util import assert_frame_equal
 
 
@@ -342,3 +343,17 @@ def test_deferred_read_csv_schema(zero_padded_csv, pandas_con):
 )
 def test_has_operation(op, expected):
     assert xo.pandas.has_operation(op) is expected
+
+
+def test_memtable_executes_and_caches_without_backend_hooks():
+    # the pandas backend runs no pre-execute hooks and no cached-table hooks:
+    # the executor visits a memtable directly, and .cache() goes through
+    # xorq's storage. Wiring the base hooks in would raise from
+    # _register_in_memory_table, which the backend does not implement.
+    con = xo.pandas.connect()
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    assert con.execute(xo.memtable(df).a.sum()) == 6
+
+    cached = con.create_table("m", df).cache(cache=SourceCache.from_kwargs(source=con))
+    assert cached.execute().a.tolist() == [1, 2, 3]
+    assert cached.ls.cache_exists()

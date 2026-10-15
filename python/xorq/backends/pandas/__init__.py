@@ -294,9 +294,6 @@ class Backend(BaseBackend, NoUrl):
     def has_operation(cls, operation: type[ops.Value]) -> bool:
         return operation in supported_operations
 
-    def _drop_cached_table(self, name):
-        del self.dictionary[name]
-
     def to_pyarrow(
         self,
         expr: ir.Expr,
@@ -350,12 +347,6 @@ class Backend(BaseBackend, NoUrl):
         params = {k.op() if isinstance(k, ir.Expr) else k: v for k, v in params.items()}
 
         return PandasExecutor.execute(query.op(), backend=self, params=params)
-
-    def _create_cached_table(self, name, expr):
-        return self.create_table(name, expr.execute())
-
-    def _finalize_memtable(self, name: str) -> None:
-        """No-op, let Python handle clean up."""
 
     def drop_table(self, name: str, *, force: bool = False) -> None:
         if not force and name in self.dictionary:
