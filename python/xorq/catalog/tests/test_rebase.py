@@ -25,6 +25,7 @@ from xorq.catalog.enums import RebaseExit, RebaseStatus
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
 from xorq.catalog.tests.conftest import (
+    RECORDED,
     TEST_WHEEL_NAME,
     _annex_available,
     alias_target_hash,
@@ -59,7 +60,11 @@ def backend_type() -> str:
     return "git"
 
 
-RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
+@pytest.fixture
+def world_aliases() -> tuple[str, ...]:
+    return ("live", "staging")
+
+
 GROWN = RECORDED.append_column("c", pa.array([1.5, 2.5], pa.float64()))
 
 
@@ -79,25 +84,6 @@ def reopen(world: SimpleNamespace) -> Catalog:
 def targets(world: SimpleNamespace, *aliases: str) -> tuple[str, ...]:
     catalog = reopen(world)
     return tuple(alias_target_hash(catalog, alias) for alias in aliases)
-
-
-@pytest.fixture
-def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
-    """A sqlite table, and an entry over it aliased `live` and `staging`."""
-    db_path = tmp_path / "live.sqlite"
-    con = SqliteBackend().connect(str(db_path))
-    con.create_table("t", RECORDED.to_pandas())
-    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
-    t = con.table("t")
-    entry = catalog.add(t.filter(t.a > 1), aliases=("live", "staging"))
-    return SimpleNamespace(
-        db_path=db_path,
-        con=con,
-        catalog=catalog,
-        catalog_path=catalog_path,
-        name=entry.name,
-        tmp_path=tmp_path,
-    )
 
 
 def rebase(runner: CliRunner, world: SimpleNamespace, *args: str) -> Result:
