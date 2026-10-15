@@ -5,6 +5,7 @@ import pytest
 
 import xorq.api as xo
 import xorq.common.exceptions as com
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.pandas import Backend
 from xorq.tests.util import assert_frame_equal
 
@@ -69,3 +70,27 @@ def test_view_filter_and_mutate_execute(ibis_table):
         }
     )
     assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    "op",
+    [
+        pytest.param(ops.Sum, id="reduction"),
+        pytest.param(ops.Mean, id="reduction-mean"),
+        pytest.param(ops.Cast, id="visitor"),
+        pytest.param(ops.TimestampTruncate, id="visitor-temporal"),
+        pytest.param(ops.StringLength, id="kernel"),
+    ],
+)
+def test_has_operation_reports_what_execute_handles(op):
+    assert Backend.has_operation(op)
+
+
+def test_has_operation_matches_execution(ibis_table):
+    # a reduction executes, so the capability report must say so
+    assert ibis_table.plain_int64.sum().execute() == 6
+    assert Backend.has_operation(ops.Sum)
+
+
+def test_has_operation_rejects_unhandled_op():
+    assert not Backend.has_operation(ops.Levenshtein)

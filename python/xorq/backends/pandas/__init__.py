@@ -9,7 +9,7 @@ import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
-from xorq.backends.pandas.kernels import supported_operations
+from xorq.backends.pandas.executor import PandasExecutor, supported_operations
 from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
@@ -334,8 +334,6 @@ class Backend(BaseBackend, NoUrl):
         )
 
     def execute(self, query, params=None, limit="default", **kwargs):
-        from xorq.backends.pandas.executor import PandasExecutor  # noqa: PLC0415
-
         if limit != "default" and limit is not None:
             raise ValueError(
                 "limit parameter to execute is not yet implemented in the "
