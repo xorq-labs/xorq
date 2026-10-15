@@ -5,13 +5,6 @@ import xorq.api as xo
 from xorq.backends.xorq_datafusion.provider import IbisTableProvider
 
 
-@pytest.fixture
-def tmp_model_dir(tmpdir):
-    # Create a temporary directory for the model
-    model_dir = tmpdir.mkdir("models")
-    return model_dir
-
-
 @pytest.fixture(scope="session")
 def con(data_dir):
     conn = xo.connect()

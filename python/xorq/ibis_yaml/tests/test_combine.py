@@ -24,13 +24,6 @@ def duckdb_left() -> xo.Expr:
 
 
 @pytest.fixture
-def duckdb_right() -> xo.Expr:
-    return xo.duckdb.connect().create_table(
-        "right_t", {"id": [1, 2, 4], "name": ["a", "b", "d"]}
-    )
-
-
-@pytest.fixture
 def datafusion_left() -> xo.Expr:
     return xo.datafusion.connect().create_table(
         "left_t", {"id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]}

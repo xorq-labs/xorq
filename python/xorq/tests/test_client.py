@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-import pandas.testing as tm
 import pytest
 import rich.console
 from pytest import param
@@ -22,24 +21,6 @@ if TYPE_CHECKING:
 @pytest.fixture
 def new_schema():
     return xo.schema([("a", "string"), ("b", "bool"), ("c", "int32")])
-
-
-def _create_temp_table_with_schema(con, temp_table_name, schema, data=None):
-    temporary = con.create_table(temp_table_name, schema=schema)
-    assert temporary.to_pandas().empty
-
-    if data is not None and isinstance(data, pd.DataFrame):
-        assert not data.empty
-        tmp = con.create_table(temp_table_name, data, overwrite=True)
-        result = tmp.to_pandas()
-        assert len(result) == len(data.index)
-        tm.assert_frame_equal(
-            result.sort_values(result.columns[0]).reset_index(drop=True),
-            data.sort_values(result.columns[0]).reset_index(drop=True),
-        )
-        return tmp
-
-    return temporary
 
 
 @pytest.mark.parametrize(
