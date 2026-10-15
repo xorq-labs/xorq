@@ -24,7 +24,10 @@ from xorq.vendor.ibis.backends.sql.compilers.base import (
     SQLGlotCompiler,
 )
 from xorq.vendor.ibis.backends.sql.datatypes import PostgresType
-from xorq.vendor.ibis.backends.sql.rewrites import split_select_distinct_with_order_by
+from xorq.vendor.ibis.backends.sql.rewrites import (
+    split_select_distinct_with_order_by,
+    split_select_with_shadowed_sort_key,
+)
 from xorq.vendor.ibis.common.temporal import IntervalUnit, TimestampUnit
 from xorq.vendor.ibis.expr.operations.udf import InputType
 
@@ -87,7 +90,10 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     agg = AggGen(supports_filter=True, supports_order_by=True)
 
-    post_rewrites = (split_select_distinct_with_order_by,)
+    post_rewrites = (
+        split_select_with_shadowed_sort_key,
+        split_select_distinct_with_order_by,
+    )
 
     UNSUPPORTED_OPS = (
         ops.ArgMax,

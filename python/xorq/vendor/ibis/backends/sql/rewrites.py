@@ -17,7 +17,13 @@ from xorq.vendor.ibis.common.annotations import attribute
 from xorq.vendor.ibis.common.collections import FrozenDict  # noqa: TCH001
 from xorq.vendor.ibis.common.deferred import var
 from xorq.vendor.ibis.common.graph import Graph
-from xorq.vendor.ibis.common.patterns import InstanceOf, Object, Pattern, replace
+from xorq.vendor.ibis.common.patterns import (
+    Check,
+    InstanceOf,
+    Object,
+    Pattern,
+    replace,
+)
 from xorq.vendor.ibis.common.typing import VarTuple  # noqa: TCH001
 from xorq.vendor.ibis.expr.rewrites import d, p, replace_parameter
 from xorq.vendor.ibis.expr.schema import Schema
@@ -413,6 +419,43 @@ def sqlize(
 
 
 # supplemental rewrites selectively used on a per-backend basis
+
+
+def _shadows_sort_key(select):
+    """Whether a sort key reads a parent column that a selection renames."""
+    return not select.distinct and any(
+        select.selections.get(field.name, field) != field
+        for key in select.sort_keys
+        for field in key.find(ops.Field, filter=ops.Value)
+        if field.rel == select.parent
+    )
+
+
+@replace(InstanceOf(Select) & Check(_shadows_sort_key))
+def split_select_with_shadowed_sort_key(_):
+    """Sort over a subquery when an output alias shadows a sort column.
+
+    DataFusion plans `SELECT t0.b AS a FROM t AS t0 ORDER BY t0.a` with both
+    `a` and `t0.a` in one schema and rejects it as ambiguous, and it drops an
+    ORDER BY inside a subquery. So the projection moves into a subquery that
+    also carries each sort key under a name no output uses, and the outer
+    SELECT orders by those columns.
+    """
+    hidden = {}
+    for i, key in enumerate(_.sort_keys):
+        name = f"__sort{i}"
+        while name in _.selections:
+            name += "_"
+        hidden[name] = key.expr
+    inner = _.copy(selections={**_.selections, **hidden}, sort_keys=())
+    return Select(
+        inner,
+        selections={name: ops.Field(inner, name) for name in _.selections},
+        sort_keys=tuple(
+            key.copy(expr=ops.Field(inner, name))
+            for name, key in zip(hidden, _.sort_keys)
+        ),
+    )
 
 
 @replace(Select)
