@@ -33,8 +33,10 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import warnings
 import zipfile
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -221,6 +223,22 @@ def rebase_document(
         str(outcome) if isinstance(outcome, RebaseError) else format_error(outcome)
     )
     return document
+
+
+@contextmanager
+def keeping_read_posture() -> Iterator[None]:
+    """Silence the local-path warning a dump with ``relocate_reads=False`` raises.
+
+    The warning asks for ``--relocate-reads``, which rebase deliberately does
+    not do: an external read stays external so the new entry matches the old
+    one's posture. Under ``--json`` it would also break the empty-stderr
+    contract.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="The Read op path is using a local filesystem path"
+        )
+        yield
 
 
 def fetch_archive(catalog_entry: CatalogEntry) -> None:
@@ -553,7 +571,7 @@ def rebase_entry(
     if isinstance(live, RebaseConflict):
         return conflicted(live)
     check_databases_exist(catalog_entry, record)
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory() as td, keeping_read_posture():
         # Loaded inside the block: `load_expr` keeps the archive's extract dir,
         # which bundled reads point into, alive only as long as the expression.
         loaded = catalog_entry.load_expr(cache_dir=cache_dir)

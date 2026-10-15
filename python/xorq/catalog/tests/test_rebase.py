@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+import warnings
 import zipfile
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -977,6 +978,28 @@ def test_json_conflict_embeds_the_check_sources_entry_document(
     assert document["drift"] == checked
     assert error in document["error"]
     assert "v2" not in reopen(world).list_aliases()
+
+
+def test_json_keeps_the_local_path_warning_off_stderr(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """An external local read is dumped as recorded, without the relocate hint.
+
+    pytest captures warnings itself, so the CLI's stderr is checked through a
+    recorder: outside pytest the warning would print there.
+    """
+    path = world.tmp_path / "ext.parquet"
+    RECORDED.to_pandas().to_parquet(path, index=False)
+    con = SqliteBackend().connect(str(world.tmp_path / "ingest.sqlite"))
+    read = deferred_read_parquet(path, con, table_name="ingested")
+    name = world.catalog.add(read.filter(read.a > 1), relocate_reads=False).name
+    GROWN.to_pandas().to_parquet(path, index=False)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _, document = rebase_json(runner, world, name)
+    assert document["state"] == "rebased"
+    assert not [w for w in caught if "local filesystem path" in str(w.message)]
 
 
 def test_json_reports_a_failed_write_as_one_document(
