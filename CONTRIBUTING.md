@@ -317,12 +317,14 @@ change is not present in PyPI.
 8. Open a PR for the new branch `release-$version_number`
 9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `release-$version_number`
 10. Wait for all ci-pre-release tests to pass
-11. "Squash and merge" the PR. `main` requires one approving review, and the author cannot approve their own PR. Do not pass `--delete-branch` to `gh pr merge`: the repository deletes the head branch on merge, and gh's local cleanup tries to remove a worktree that holds the branch.
+11. "Squash and merge" the PR. `main` requires one approving review, which the maintainers on the bypass list of `main`'s branch protection skip with `gh pr merge --squash --admin`; every release PR so far has been merged that way. Anyone else needs an approval from someone other than the PR author. Do not pass `--delete-branch` to `gh pr merge`: the repository deletes the head branch on merge, and gh's local cleanup tries to remove a worktree that holds the branch.
 12. Tag the updated main with `v$version_number` and push that tag alone: `git fetch origin && git tag v$version_number origin/main && git push origin v$version_number`. Not `git push --tags`, which publishes every local tag, including any local-only archive or backup tags.
-13. Publish the release that release-drafter keeps as a draft named `xorq unreleased`. The draft has no tag, so point it at the tag from step 12, review its notes in the [releases page](https://github.com/xorq-labs/xorq/releases), then publish it. Publishing triggers [ci-release](https://github.com/xorq-labs/xorq/actions/workflows/ci-release.yml), which uploads to PyPI; a version cannot be uploaded twice.
+13. Publish the release that release-drafter keeps as a draft named `xorq unreleased`. The draft has no tag, so point it at the tag from step 12; the commands below stop if that tag is not on origin or if there is not exactly one such draft. Review its notes in the [releases page](https://github.com/xorq-labs/xorq/releases): the drafter lists every PR merged to `main`, so drop any merged after the release PR. Then publish it. Publishing triggers [ci-release](https://github.com/xorq-labs/xorq/actions/workflows/ci-release.yml), which uploads to PyPI; a version cannot be uploaded twice.
     ```bash
-    id=$(gh api 'repos/xorq-labs/xorq/releases?per_page=100' --jq '.[] | select(.draft and .name == "xorq unreleased") | .id')
-    gh api -X PATCH repos/xorq-labs/xorq/releases/$id -f tag_name=v$version_number -f name=v$version_number
+    git ls-remote --exit-code origin refs/tags/v$version_number \
+      && id=$(gh api 'repos/xorq-labs/xorq/releases?per_page=100' --jq '[.[] | select(.draft and .name == "xorq unreleased") | .id] | if length == 1 then .[0] else error("expected one draft named xorq unreleased, found \(length)") end') \
+      && gh api -X PATCH repos/xorq-labs/xorq/releases/$id -f tag_name=v$version_number -f name=v$version_number
+    # after reviewing the notes:
     gh api -X PATCH repos/xorq-labs/xorq/releases/$id -F draft=false
     ```
 14. Once ci-release passes, install the release from PyPI: `uv run --no-project --refresh-package xorq --with xorq==$version_number python -c 'import xorq; print(xorq.__version__)'` prints `$version_number`.

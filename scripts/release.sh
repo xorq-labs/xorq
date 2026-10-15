@@ -158,7 +158,7 @@ echo
 echo "CHANGELOG.md now has the [$version_number] section under the Unreleased placeholder."
 if [ "$pause" = true ]; then
     printf 'Add any judgement-only notes (blog links, etc.) to CHANGELOG.md, then press Enter to commit: '
-    read -r _ || die "stdin closed before Enter; nothing committed. Branch $branch holds the bump and changelog; commit by hand (step 6), or rerun from main with --no-pause."
+    read -r _ || die "stdin closed before Enter; nothing committed. Branch $branch holds the bump and changelog; commit by hand (step 6), or 'git switch main && git branch -D $branch' and rerun with --no-pause."
 fi
 
 step "git add --update && git commit -m \"release: $version_number\""
@@ -176,12 +176,14 @@ Inspect it (git show --stat), then push:
 Remaining manual steps (CONTRIBUTING.md, Release Flow, steps 8-14):
   - open a PR for $branch
   - run ci-pre-release from $branch (Actions tab: Run workflow -> Branch $branch) and wait for it to pass
-  - "Squash and merge" the PR once it has the approving review main requires
+  - "Squash and merge" the PR: a maintainer on main's bypass list runs gh pr merge --squash --admin; anyone else needs an approving review
   - tag main and push that tag alone:
         git fetch origin && git tag v$version_number origin/main && git push origin v$version_number
-  - point the release-drafter draft at the tag, review its notes, then publish it (this uploads to PyPI):
-        id=\$(gh api 'repos/xorq-labs/xorq/releases?per_page=100' --jq '.[] | select(.draft and .name == "xorq unreleased") | .id')
-        gh api -X PATCH repos/xorq-labs/xorq/releases/\$id -f tag_name=v$version_number -f name=v$version_number
+  - point the release-drafter draft at the pushed tag:
+        git ls-remote --exit-code origin refs/tags/v$version_number \\
+          && id=\$(gh api 'repos/xorq-labs/xorq/releases?per_page=100' --jq '[.[] | select(.draft and .name == "xorq unreleased") | .id] | if length == 1 then .[0] else error("expected one draft named xorq unreleased, found \\(length)") end') \\
+          && gh api -X PATCH repos/xorq-labs/xorq/releases/\$id -f tag_name=v$version_number -f name=v$version_number
+  - review its notes at https://github.com/xorq-labs/xorq/releases, dropping any PR merged after the release PR, then publish (this uploads to PyPI):
         gh api -X PATCH repos/xorq-labs/xorq/releases/\$id -F draft=false
   - once ci-release passes, install it from PyPI:
         uv run --no-project --refresh-package xorq --with xorq==$version_number python -c 'import xorq; print(xorq.__version__)'
