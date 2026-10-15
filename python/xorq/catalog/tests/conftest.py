@@ -1,7 +1,9 @@
 import shutil
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
+import pyarrow as pa
 import pytest
 import toolz
 from click.testing import CliRunner
@@ -12,6 +14,7 @@ from git import (
 
 import xorq.api as xo
 import xorq.catalog.catalog as catalog_mod
+from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.catalog.annex import LOCAL_ANNEX, Annex, _do_inside
 from xorq.catalog.backend import GitAnnexBackend, GitBackend, GitPointerBackend
 from xorq.catalog.catalog import (
@@ -37,6 +40,9 @@ from xorq.ibis_yaml.packager import (
     find_file_upwards,
 )
 from xorq.vendor.ibis.expr import operations as ops
+
+
+RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
 
 
 def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise"):
@@ -285,6 +291,33 @@ def catalog(repo, backend_type):
 @pytest.fixture
 def catalog_path(catalog):
     yield str(catalog.repo_path)
+
+
+@pytest.fixture
+def world_aliases() -> tuple[str, ...]:
+    """Aliases the shared `world` entry is added under; override per module."""
+    return ("live",)
+
+
+@pytest.fixture
+def world(
+    tmp_path: Path, catalog_path: str, world_aliases: tuple[str, ...]
+) -> SimpleNamespace:
+    """A sqlite table `t` holding RECORDED, and a catalog entry built over it."""
+    db_path = tmp_path / "live.sqlite"
+    con = SqliteBackend().connect(str(db_path))
+    con.create_table("t", RECORDED.to_pandas())
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    t = con.table("t")
+    entry = catalog.add(t.filter(t.a > 1), aliases=world_aliases)
+    return SimpleNamespace(
+        db_path=db_path,
+        con=con,
+        catalog=catalog,
+        catalog_path=catalog_path,
+        name=entry.name,
+        tmp_path=tmp_path,
+    )
 
 
 @pytest.fixture

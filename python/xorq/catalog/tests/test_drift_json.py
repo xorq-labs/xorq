@@ -27,17 +27,15 @@ import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog import drift
-from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.drift import drift_document, record_document, roll_up
 from xorq.catalog.enums import Verdict
 from xorq.catalog.inspection import BuildRecord
+from xorq.catalog.tests.conftest import RECORDED
 from xorq.catalog.zip_utils import write_zip
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.vendor.ibis.backends.profiles import Profile
 
-
-RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
 
 UNEXTRACTABLE_EXPR = """\
 definitions:
@@ -63,24 +61,6 @@ def backend_type() -> str:
     them too would cost a full catalog each and pin nothing new.
     """
     return "git"
-
-
-@pytest.fixture
-def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
-    """A sqlite table, and a catalog entry built over it."""
-    db_path = tmp_path / "live.sqlite"
-    con = SqliteBackend().connect(str(db_path))
-    con.create_table("t", RECORDED.to_pandas())
-    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
-    t = con.table("t")
-    entry = catalog.add(t.filter(t.a > 1), aliases=("live",))
-    return SimpleNamespace(
-        db_path=db_path,
-        con=con,
-        catalog=catalog,
-        catalog_path=catalog_path,
-        name=entry.name,
-    )
 
 
 def recreate(world: SimpleNamespace, new: str, table: pa.Table) -> None:
