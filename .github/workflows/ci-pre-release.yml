@@ -147,7 +147,5 @@ jobs:
         # --check-url skips files TestPyPI already has, so a re-push after a partial upload completes it
         run: |
           uv build
-          uv publish \
-            --publish-url https://test.pypi.org/legacy/ \
-            --check-url https://test.pypi.org/simple/ \
-            --trusted-publishing always
+          uv publish --publish-url https://test.pypi.org/legacy/ --check-url https://test.pypi.org/simple/ --trusted-publishing always
+
