@@ -1,7 +1,12 @@
 name: ci-release
 
+# PyPI's trusted publisher for xorq names this file and the `release`
+# environment. Renaming either stops publishing until PyPI is updated to match.
+#
+# Only a published release starts this. To retry a failed publish, re-run the
+# failed jobs of that run; there is no manual dispatch, because a dispatch from
+# a branch publishes whatever version it carries.
 on:
-  workflow_dispatch:
   release:
     types: [ published ]
 
@@ -16,23 +21,68 @@ permissions:
   contents: read
 
 jobs:
-  release:
-    name: release xorq to PyPI
+  verify:
+    name: verify the tag is the tested release commit
     runs-on: ubuntu-latest
-    environment:
-      name: release
-    permissions:
-      id-token: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          # release_verify.py checks the tag is on origin/main
+          fetch-depth: 0
+      # the same build steps as ci-pre-release, so the digests can match
       - uses: actions/setup-python@v6
         with:
           python-version: "3.10"
       - name: install uv
         uses: astral-sh/setup-uv@v7
+      - name: build
+        run: uv build
+      - name: verify
+        run: python3 scripts/release_verify.py --tag "$GITHUB_REF_NAME" --dist dist
+      - uses: actions/upload-artifact@v7
         with:
-          enable-cache: true
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: release xorq to PyPI
+    needs: verify
+    runs-on: ubuntu-latest
+    # Required reviewers on this environment hold the job until someone from
+    # the release team approves it on this run's page.
+    environment:
+      name: release
+    permissions:
+      id-token: write
+    steps:
+      # publish exactly the files verify compared against TestPyPI; no rebuild
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: install uv
+        uses: astral-sh/setup-uv@v7
       - name: publish package
+        run: uv publish --check-url https://pypi.org/simple/ --trusted-publishing always
+
+  smoke:
+    name: install the release from PyPI
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: install uv
+        uses: astral-sh/setup-uv@v7
+      - name: install and import
+        # the index can lag the upload by a few minutes
         run: |
-          uv build
-          uv publish --trusted-publishing always
+          version="${GITHUB_REF_NAME#v}"
+          for attempt in $(seq 1 20); do
+            if uv run --no-project --refresh-package xorq --with "xorq==$version" \
+                python -c "import sys, xorq; sys.exit(xorq.__version__ != '$version')"; then
+              exit 0
+            fi
+            echo "attempt $attempt: xorq $version not installable yet"
+            sleep 30
+          done
+          exit 1

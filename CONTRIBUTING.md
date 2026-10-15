@@ -306,6 +306,8 @@ change is not present in PyPI.
 > [!TIP]
 > `scripts/release.sh <major|minor|patch>` runs steps 1-6 below with preflight checks and stops before the push. The manual commands remain as the fallback.
 
+Who does what: CI checks and publishes (`ci-release.yml`: `verify`, `publish`, `smoke`); a maintainer decides at the CLI (bump type, merge, tag); and approves on the web (release notes, and the deployment approval on each publishing run). Only members of the release team named in `scripts/release_settings.py` can push `v*` tags or approve publishing, and one of them can approve their own run. `python3 scripts/release_settings.py` checks those repository settings; an admin restores them with `apply`.
+
 ### Steps
 1. Ensure you're on upstream main: `git switch main && git pull`
 2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
@@ -315,8 +317,8 @@ change is not present in PyPI.
 6. Create commit with a message denoting the release: `git add --update && git commit -m "release: $version_number"`.
 7. Push the new branch: `git push --set-upstream origin "release-$version_number"`
 8. Open a PR for the new branch `release-$version_number`
-9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `release-$version_number`
-10. Wait for all ci-pre-release tests to pass
+9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `release-$version_number`. It waits for approval on the run's page, then uploads to TestPyPI. A version uploaded there cannot be uploaded again, and step 13 publishes only files identical to these.
+10. Wait for ci-pre-release to finish uploading
 11. "Squash and merge" the PR
 12. Tag the updated main with `v$version_number` and push that tag alone: `git fetch origin && git tag v$version_number origin/main && git push origin v$version_number`. Not `git push --tags`, which publishes every local tag, including any local-only archive or backup tags.
-13. Create a [GitHub release](https://github.com/xorq-labs/xorq/releases/new) to trigger the publishing workflow.
+13. Create a [GitHub release](https://github.com/xorq-labs/xorq/releases/new) to trigger the publishing workflow. Its `verify` job builds the tag and fails unless the tag is the `release: $version_number` merge on `main`, `pyproject.toml` agrees, and the build is byte-identical to TestPyPI's files (see `scripts/release_verify.py`). Then `publish` waits for approval on the run's page and uploads those files, and `smoke` installs the release from PyPI. To retry a failure, re-run the failed jobs on that run; ci-release has no manual dispatch.
