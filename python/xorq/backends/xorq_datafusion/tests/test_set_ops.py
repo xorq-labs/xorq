@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import random
-
 import pandas as pd
 import pytest
 from pytest import param
@@ -10,27 +8,6 @@ import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.api import _
 from xorq.tests.util import assert_frame_equal
-
-
-@pytest.fixture
-def union_subsets(alltypes, alltypes_df):
-    cols_a, cols_b, cols_c = (alltypes.columns.copy() for _ in range(3))
-
-    random.seed(89)
-    random.shuffle(cols_a)
-    random.shuffle(cols_b)
-    random.shuffle(cols_c)
-    assert cols_a != cols_b != cols_c
-
-    a = alltypes.filter((_.id >= 5200) & (_.id <= 5210))[cols_a]
-    b = alltypes.filter((_.id >= 5205) & (_.id <= 5215))[cols_b]
-    c = alltypes.filter((_.id >= 5213) & (_.id <= 5220))[cols_c]
-
-    da = alltypes_df[(alltypes_df.id >= 5200) & (alltypes_df.id <= 5210)][cols_a]
-    db = alltypes_df[(alltypes_df.id >= 5205) & (alltypes_df.id <= 5215)][cols_b]
-    dc = alltypes_df[(alltypes_df.id >= 5213) & (alltypes_df.id <= 5220)][cols_c]
-
-    return (a, b, c), (da, db, dc)
 
 
 @pytest.mark.parametrize("distinct", [False, True], ids=["all", "distinct"])

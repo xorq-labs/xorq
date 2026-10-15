@@ -35,6 +35,7 @@ from xorq.flight.tests.conftest import (
     my_udf_on_expr,
     return_type,
 )
+from xorq.tests.util import SPLIT_KEY, make_batch, make_split_f
 
 
 @pytest.mark.uv_export
@@ -337,31 +338,6 @@ def test_failed_udxf_writes_no_cache(tmp_path: Path) -> None:
     with pytest.raises(Exception, match="plain exception"):
         execute_with_deadline(expr)
     assert not tuple(tmp_path.glob("*.parquet"))
-
-
-# `make_batch`/`make_split_f` are shared with the unit-layer pins of the abort
-# policy in xorq.common.utils.tests.test_rbr_utils; duplicated rather than
-# imported across test packages.
-SPLIT_KEY = "split"
-
-
-def make_batch(split: int, n_rows: int) -> pa.RecordBatch:
-    return pa.RecordBatch.from_pydict(
-        {SPLIT_KEY: [split] * n_rows, "a": list(range(n_rows))}
-    )
-
-
-def make_split_f(fail_on: int) -> Callable:
-    """A per-split ``f`` that raises on the ``fail_on`` split."""
-
-    def f(split_reader: pa.RecordBatchReader) -> pa.RecordBatch:
-        table = split_reader.read_all()
-        (split,) = set(table[SPLIT_KEY].to_pylist())
-        if split == fail_on:
-            raise ValueError(f"boom on split {split}")
-        return pa.RecordBatch.from_pydict({SPLIT_KEY: [split], "n": [table.num_rows]})
-
-    return f
 
 
 class FailingSplitExchanger(AbstractExchanger):
