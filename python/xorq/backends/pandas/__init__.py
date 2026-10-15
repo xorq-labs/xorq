@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pyarrow as pa
 
 import xorq.common.exceptions as com
-import xorq.vendor.ibis.config
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.pandas.kernels import supported_operations
 from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
@@ -72,15 +71,12 @@ __all__ = [
 ]
 
 
-class BasePandasBackend(BaseBackend, NoUrl):
-    """Base class for backends based on pandas."""
+class Backend(BaseBackend, NoUrl):
+    """Backend over a dictionary of pandas DataFrames."""
 
     name = "pandas"
     dialect = None
     backend_table_type = pd.DataFrame
-
-    class Options(xorq.vendor.ibis.config.Config):
-        enable_trace: bool = False
 
     def do_connect(
         self,
@@ -255,16 +251,6 @@ class BasePandasBackend(BaseBackend, NoUrl):
         overwrite: bool = False,
     ) -> ir.Table:
         """Create a table."""
-        if temp:
-            com.XorqError(
-                "Passing `temp=True` to the Pandas backend create_table method has no "
-                "effect: all tables are in memory and temporary."
-            )
-        if database:
-            com.XorqError(
-                "Passing `database` to the Pandas backend create_table method has no "
-                "effect: Pandas cannot set a database."
-            )
         if obj is None and schema is None:
             raise com.XorqError("The schema or obj parameter is required")
         if schema is not None:
@@ -300,26 +286,12 @@ class BasePandasBackend(BaseBackend, NoUrl):
     def drop_view(self, name: str, *, force: bool = False) -> None:
         self.drop_table(name, force=force)
 
-    def drop_table(self, name: str, *, force: bool = False) -> None:
-        try:
-            del self.dictionary[name]
-        except KeyError:
-            if not force:
-                raise com.XorqError(f"Table {name} does not exist") from None
-
     def _convert_object(self, obj: Any) -> Any:
         return _convert_object(obj, self)
 
     @classmethod
-    @lru_cache
-    def _get_operations(cls):
-        from xorq.backends.pandas.kernels import supported_operations  # noqa: PLC0415
-
-        return supported_operations
-
-    @classmethod
     def has_operation(cls, operation: type[ops.Value]) -> bool:
-        return operation in cls._get_operations()
+        return operation in supported_operations
 
     def _drop_cached_table(self, name):
         del self.dictionary[name]
@@ -354,17 +326,12 @@ class BasePandasBackend(BaseBackend, NoUrl):
         chunk_size: int = 1000000,
         **kwargs: Any,
     ) -> pa.ipc.RecordBatchReader:
-        pa = self._import_pyarrow()
         pa_table = self.to_pyarrow(
             expr.as_table(), params=params, limit=limit, **kwargs
         )
         return pa.ipc.RecordBatchReader.from_batches(
             pa_table.schema, pa_table.to_batches(max_chunksize=chunk_size)
         )
-
-
-class Backend(BasePandasBackend):
-    name = "pandas"
 
     def execute(self, query, params=None, limit="default", **kwargs):
         from xorq.backends.pandas.executor import PandasExecutor  # noqa: PLC0415

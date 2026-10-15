@@ -315,3 +315,14 @@ def test_deferred_read_csv_schema(zero_padded_csv, pandas_con):
     )
     assert expr.execute()["id"].tolist() == ["001", "002"]
     assert pandas_con.table("padded").schema() == schema
+
+
+@pytest.mark.parametrize(
+    ("op", "expected"),
+    [
+        param(ops.StringLength, True, id="kernel-op"),
+        param(ops.Levenshtein, False, id="unhandled-op"),
+    ],
+)
+def test_has_operation(op, expected):
+    assert xo.pandas.has_operation(op) is expected
