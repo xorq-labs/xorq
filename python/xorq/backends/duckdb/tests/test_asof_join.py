@@ -20,32 +20,6 @@ tm = pytest.importorskip("pandas.testing")
 
 
 @pytest.fixture(scope="module")
-def time_keyed_df1():
-    return pd.DataFrame(
-        {
-            "time": pd.Series(
-                pd.date_range(start="2017-01-02 01:02:03.234", periods=6)
-            ),
-            "key": [1, 2, 3, 1, 2, 3],
-            "value": [1.2, 1.4, 2.0, 4.0, 8.0, 16.0],
-        }
-    )
-
-
-@pytest.fixture(scope="module")
-def time_keyed_df2():
-    return pd.DataFrame(
-        {
-            "time": pd.Series(
-                pd.date_range(start="2017-01-02 01:02:03.234", freq="3D", periods=3)
-            ),
-            "key": [1, 2, 3],
-            "other_value": [1.1, 1.2, 2.2],
-        }
-    )
-
-
-@pytest.fixture(scope="module")
 def time_keyed_left(time_keyed_df1):
     return ibis.memtable(time_keyed_df1)
 

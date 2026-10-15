@@ -4,11 +4,12 @@ import contextlib
 import importlib
 import pathlib
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pandas as pd
 import pandas.testing as tm
+import pyarrow as pa
 
 from xorq.loader import _load_entry_points
 
@@ -95,3 +96,25 @@ def reader_counts(expr: Any) -> list[int]:
     from xorq.expr.remote_table_exec import count_remote_table_readers  # noqa: PLC0415
 
     return sorted(count_remote_table_readers(expr).values())
+
+
+SPLIT_KEY = "split"
+
+
+def make_batch(split: int, n_rows: int) -> pa.RecordBatch:
+    return pa.RecordBatch.from_pydict(
+        {SPLIT_KEY: [split] * n_rows, "a": list(range(n_rows))}
+    )
+
+
+def make_split_f(fail_on: int) -> Callable:
+    """A per-split ``f`` that raises on the ``fail_on`` split."""
+
+    def f(split_reader: pa.RecordBatchReader) -> pa.RecordBatch:
+        table = split_reader.read_all()
+        (split,) = set(table[SPLIT_KEY].to_pylist())
+        if split == fail_on:
+            raise ValueError(f"boom on split {split}")
+        return pa.RecordBatch.from_pydict({SPLIT_KEY: [split], "n": [table.num_rows]})
+
+    return f

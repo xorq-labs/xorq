@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 
 import numpy as np
@@ -5,6 +6,7 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+from xorq.api import _
 from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY
 
 
@@ -180,3 +182,52 @@ def csv_dir(data_dir):
 def examples_dir(root_dir):
     examples_dir = root_dir / "examples"
     return examples_dir
+
+
+@pytest.fixture
+def union_subsets(alltypes, alltypes_df):
+    """Three overlapping id-range slices of alltypes, each with its columns in a
+    different order, as expressions and as the matching pandas frames."""
+    cols_a, cols_b, cols_c = (alltypes.columns.copy() for _ in range(3))
+
+    random.seed(89)
+    random.shuffle(cols_a)
+    random.shuffle(cols_b)
+    random.shuffle(cols_c)
+    assert cols_a != cols_b != cols_c
+
+    a = alltypes.filter((_.id >= 5200) & (_.id <= 5210))[cols_a]
+    b = alltypes.filter((_.id >= 5205) & (_.id <= 5215))[cols_b]
+    c = alltypes.filter((_.id >= 5213) & (_.id <= 5220))[cols_c]
+
+    da = alltypes_df[(alltypes_df.id >= 5200) & (alltypes_df.id <= 5210)][cols_a]
+    db = alltypes_df[(alltypes_df.id >= 5205) & (alltypes_df.id <= 5215)][cols_b]
+    dc = alltypes_df[(alltypes_df.id >= 5213) & (alltypes_df.id <= 5220)][cols_c]
+
+    return (a, b, c), (da, db, dc)
+
+
+@pytest.fixture(scope="module")
+def time_keyed_df1():
+    return pd.DataFrame(
+        {
+            "time": pd.Series(
+                pd.date_range(start="2017-01-02 01:02:03.234", periods=6)
+            ),
+            "key": [1, 2, 3, 1, 2, 3],
+            "value": [1.2, 1.4, 2.0, 4.0, 8.0, 16.0],
+        }
+    )
+
+
+@pytest.fixture(scope="module")
+def time_keyed_df2():
+    return pd.DataFrame(
+        {
+            "time": pd.Series(
+                pd.date_range(start="2017-01-02 01:02:03.234", freq="3D", periods=3)
+            ),
+            "key": [1, 2, 3],
+            "other_value": [1.1, 1.2, 2.2],
+        }
+    )

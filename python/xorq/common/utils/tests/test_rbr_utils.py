@@ -8,7 +8,7 @@ xdist group instead of running concurrently with them.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 
@@ -20,28 +20,7 @@ from xorq.common.utils.rbr_utils import (
     excepts_print_exc,
     streaming_split_exchange,
 )
-
-
-SPLIT_KEY = "split"
-
-
-def make_batch(split: int, n_rows: int) -> pa.RecordBatch:
-    return pa.RecordBatch.from_pydict(
-        {SPLIT_KEY: [split] * n_rows, "a": list(range(n_rows))}
-    )
-
-
-def make_split_f(fail_on: int) -> Callable:
-    """A per-split ``f`` that raises on the ``fail_on`` split."""
-
-    def f(split_reader: pa.RecordBatchReader) -> pa.RecordBatch:
-        table = split_reader.read_all()
-        (split,) = set(table[SPLIT_KEY].to_pylist())
-        if split == fail_on:
-            raise ValueError(f"boom on split {split}")
-        return pa.RecordBatch.from_pydict({SPLIT_KEY: [split], "n": [table.num_rows]})
-
-    return f
+from xorq.tests.util import SPLIT_KEY, make_batch, make_split_f
 
 
 class FakeFlightReader:
