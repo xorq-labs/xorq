@@ -306,12 +306,14 @@ class PandasExecutor(PandasUtils):
 
         unit = units.get(unit.short, unit.short)
 
+        # a literal arrives as a datetime or date, not a Series
+        is_scalar = not isinstance(arg, pd.Series)
+        series = pd.to_datetime(pd.Series([arg])) if is_scalar else arg
         if unit in "YQMWD":
-            return arg.dt.to_period(unit).dt.to_timestamp()
-        try:
-            return arg.dt.floor(unit)
-        except ValueError:
-            return arg.dt.to_period(unit).dt.to_timestamp()
+            result = series.dt.to_period(unit).dt.to_timestamp()
+        else:
+            result = series.dt.floor(unit)
+        return result.iloc[0] if is_scalar else result
 
     visit_DateTruncate = visit_TimestampTruncate
 
