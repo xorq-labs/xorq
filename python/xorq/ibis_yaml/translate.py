@@ -403,7 +403,16 @@ def _window_function_from_yaml(yaml_dict: dict, context: TranslationContext) -> 
     window = ibis.window(
         group_by=group_by, order_by=order_by, preceding=start, following=end
     )
-    return func.over(window)
+    # not func.over(window): with no group_by/order_by and a func without
+    # relations (RowNumber, Rank) it returns an unbound Deferred (gh-2395)
+    return ops.WindowFunction(
+        func.op(),
+        how=window.how,
+        start=window.start,
+        end=window.end,
+        group_by=window.groupings,
+        order_by=window.orderings,
+    ).to_expr()
 
 
 @translate_to_yaml.register(ops.WindowBoundary)

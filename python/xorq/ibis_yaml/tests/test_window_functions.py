@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+import xorq.api as xo
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
@@ -105,3 +108,28 @@ def test_multiple_rank_expressions_roundtrip(compiler, t):
     yaml_dict = compiler.to_yaml(expr)
     reconstructed_expr = compiler.from_yaml(yaml_dict)
     assert expr.equals(reconstructed_expr)
+
+
+@pytest.mark.parametrize(
+    "make_expr",
+    [
+        pytest.param(lambda t: t.mutate(p=xo.row_number()), id="row_number()"),
+        pytest.param(lambda t: t.mutate(p=xo.row_number() + 1), id="row_number() + 1"),
+        pytest.param(
+            lambda t: t.order_by("a").mutate(p=xo.rank() + 1), id="rank() + 1"
+        ),
+        pytest.param(
+            lambda t: t.mutate(p=xo.row_number().over(order_by="a") + 1),
+            id="row_number().over(order_by='a') + 1",
+        ),
+        pytest.param(
+            lambda t: t.mutate(p=xo.row_number().over(group_by="b") + 1),
+            id="row_number().over(group_by='b') + 1",
+        ),
+    ],
+)
+def test_unordered_window_inside_op_roundtrip(compiler, t, make_expr):
+    # gh-2395: an unordered window function nested in another op used to
+    # come back from yaml as an unbound Deferred and fail with InputTypeError
+    expr = make_expr(t)
+    assert expr.equals(compiler.from_yaml(compiler.to_yaml(expr)))
