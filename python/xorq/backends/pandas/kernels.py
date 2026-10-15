@@ -272,7 +272,6 @@ reductions = {
     ops.Sum: lambda x: x.sum(),
     ops.Mean: lambda x: x.mean(),
     ops.Count: lambda x: x.count(),
-    ops.CountStar: lambda x: x.count(),
     ops.Mode: lambda x: x.mode().iat[0],
     ops.Any: lambda x: x.any(),
     ops.All: lambda x: x.all(),
@@ -458,9 +457,6 @@ def custom_hash(arg):
 
 
 serieswise = {
-    ops.Between: lambda arg, lower_bound, upper_bound: arg.between(
-        lower_bound, upper_bound
-    ),
     ops.Capitalize: lambda arg: arg.str.capitalize(),
     ops.Date: lambda arg: arg.dt.floor("d"),
     ops.DayOfWeekIndex: lambda arg: pd.to_datetime(arg).dt.dayofweek,
@@ -481,12 +477,9 @@ serieswise = {
     ops.ExtractWeekOfYear: lambda arg: arg.dt.isocalendar().week.astype("int32"),
     ops.ExtractYear: lambda arg: arg.dt.year,
     ops.ExtractIsoYear: lambda arg: arg.dt.isocalendar().year,
-    ops.IsNull: lambda arg: arg.isnull(),
-    ops.NotNull: lambda arg: arg.notnull(),
     ops.Lowercase: lambda arg: arg.str.lower(),
     ops.LPad: lambda arg, length, pad: arg.str.rjust(length, fillchar=pad),
     ops.LStrip: lambda arg: arg.str.lstrip(),
-    ops.Repeat: lambda arg, times: arg.str.repeat(times),
     ops.Reverse: lambda arg: arg.str[::-1],
     ops.Round: round_serieswise,
     ops.RPad: lambda arg, length, pad: arg.str.ljust(length, fillchar=pad),
@@ -532,7 +525,6 @@ elementwise = {
     ops.MapLength: safe_len,
     ops.MapKeys: safe_keys,
     ops.MapValues: safe_values,
-    ops.Round: lambda x, digits=0: round(x, digits),
 }
 
 

@@ -405,10 +405,6 @@ class PandasExecutor(PandasUtils):
         return agg
 
     @classmethod
-    def visit_Arbitrary(cls, op: ops.Arbitrary, arg, where):
-        return cls.agg(cls.kernels.reductions[ops.Arbitrary], arg, where)
-
-    @classmethod
     def visit_ArgMin(cls, op: ops.ArgMin | ops.ArgMax, arg, key, where):
         func = operator.methodcaller(op.__class__.__name__.lower())
 
