@@ -266,7 +266,8 @@ class Backend(BaseBackend, NoUrl):
             raise com.XorqError(f"Cannot overwrite existing table `{name}`")
 
         self.dictionary[name] = df
-
+        # a schema inferred from the previous frame must not outlive it
+        self.schemas.pop(name, None)
         if schema is not None:
             self.schemas[name] = schema
         return self.table(name)
