@@ -157,6 +157,10 @@ class SchemaRefreshError(TranslationError):
         )
 
 
+class UnmatchedSourceError(SchemaRefreshError):
+    """A live source key matched no source in the loaded expression."""
+
+
 class XorqInputError(ValueError, XorqError):
     """IbisInputError."""
 

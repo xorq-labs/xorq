@@ -1261,15 +1261,18 @@ def rebase(
          not open, the entry is pinned, some but not all of its sources
          cannot be probed, none could be but the entry re-derived to a new
          hash, the entry was built on another Python minor, --only-alias
-         names an alias the entry lacks, or a write failed (an alias
-         move is rolled back locally, a failed rollback is logged; a
-         failed push is not)
+         names an alias the entry lacks, a probed source matched no source
+         of the loaded expression, or a write failed (an alias move is
+         rolled back locally, a failed rollback is logged; a failed push
+         is not)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; or the options
          were invalid; nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
-         table is gone; nothing written
+         table is gone; stderr names the op (if one failed) and the
+         sources involved, with their recorded and live schemas;
+         nothing written
 
     \b
     Arguments:
@@ -1285,7 +1288,7 @@ def rebase(
         catalog_entry = _get_catalog_entry(catalog, entry)
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
-    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict  # noqa: PLC0415
     from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
     from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
 
@@ -1305,6 +1308,26 @@ def rebase(
     if isinstance(result, RebaseError):
         click.echo(str(result), err=True)
         ctx.exit(result.exit_code)
+    if (conflict := result.conflict) is not None:
+        sources = ", ".join(f"{r.leaf.kind} {r.leaf.name}" for r in conflict.sources)
+        if conflict.op_name is None:
+            verb = "is" if len(conflict.sources) == 1 else "are"
+            click.echo(
+                f"{result.old_entry.name}: conflict: {sources} {verb} gone", err=True
+            )
+        else:
+            click.echo(
+                f"{result.old_entry.name}: conflict: {conflict.op_name} cannot be "
+                f"rebuilt; changed sources in entry: {sources}",
+                err=True,
+            )
+        for report in conflict.sources:
+            for line in format_leaf_report(report):
+                click.echo(line, err=True)
+        click.echo(conflict.detail, err=True)
+        if alias:
+            click.echo(f"Alias {alias!r} not added: the rebase conflicted", err=True)
+        ctx.exit(RebaseExit.CONFLICT)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
             for line in format_leaf_report(report):
