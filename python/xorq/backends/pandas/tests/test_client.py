@@ -95,6 +95,14 @@ def test_create_table_rejects_non_memtable_expr(client, table):
         client.create_table("from_expr", obj=table.mutate(c=table.a))
 
 
+def test_create_table_overwrite_replaces_schema(client):
+    client.create_table("t", pd.DataFrame({"a": [1]}))
+    assert client.table("t").columns == ["a"]
+    replaced = client.create_table("t", pd.DataFrame({"b": [2.5]}), overwrite=True)
+    assert replaced.columns == ["b"]
+    assert replaced.execute().b.tolist() == [2.5]
+
+
 def test_literal(client):
     lit = xo.literal(1)
     result = client.execute(lit)
