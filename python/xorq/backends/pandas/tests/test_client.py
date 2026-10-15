@@ -107,6 +107,14 @@ def test_list_tables(client):
     assert client.list_tables()
 
 
+def test_drop_table_before_schema_is_read():
+    con = xo.pandas.connect({"t": pd.DataFrame({"a": [1]})})
+    con.drop_table("t", force=True)
+    assert con.list_tables() == []
+    con.create_table("t", pd.DataFrame({"b": [2]}))
+    assert con.table("t").columns == ["b"]
+
+
 def test_drop(table):
     table = table.mutate(c=table.a)
     expr = table.drop("a")
