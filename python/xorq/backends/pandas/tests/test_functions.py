@@ -13,9 +13,9 @@ from pytest import param
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
-from xorq.backends.pandas.udf import udf
 from xorq.tests.util import assert_series_equal
 from xorq.vendor import ibis
+from xorq.vendor.ibis.legacy.udf.vectorized import elementwise
 
 
 @pytest.mark.parametrize(
@@ -219,7 +219,7 @@ def test_execute_with_same_hash_value_in_scope(
 ):
     with pytest.warns(FutureWarning, match="v9.0"):
 
-        @udf.elementwise([left_dtype, right_dtype], left_dtype)
+        @elementwise([left_dtype, right_dtype], left_dtype)
         def my_func(x, _):
             return x
 
@@ -260,7 +260,7 @@ def test_ifelse_returning_bool():
 def test_signature_does_not_match_input_type(dtype, value):
     with pytest.warns(FutureWarning, match="v9.0"):
 
-        @udf.elementwise([dtype], dtype)
+        @elementwise([dtype], dtype)
         def func(x):
             return x
 
