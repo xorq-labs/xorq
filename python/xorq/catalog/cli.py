@@ -1226,6 +1226,7 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
 @sync_option
 @cache_dir_option
 @ignore_venv_mismatch_option
+@json_option
 @click.pass_context
 def rebase(
     ctx: click.Context,
@@ -1235,6 +1236,7 @@ def rebase(
     sync: bool,
     cache_dir: str | None,
     ignore_venv_mismatch: bool,
+    as_json: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
 
@@ -1274,6 +1276,15 @@ def rebase(
          sources involved, with their recorded and live schemas;
          nothing written
 
+    With --json, stdout is one document, printed once the rebase has ended
+    and nothing else; its `state` and `exit_code` sit at the root, and the
+    exit code is the process's. Every outcome of rebasing a resolved entry
+    prints one, a failed write included. As with `check-sources --json`, a
+    rebase that never started prints none: a name that does not resolve or a
+    catalog that does not open exits 1, and invalid options exit click's own
+    2, with the error on stderr. Its shape is documented in
+    `xorq.catalog.rebase`.
+
     \b
     Arguments:
       ENTRY  An entry name or alias.
@@ -1282,15 +1293,20 @@ def rebase(
     Examples:
       xorq catalog rebase prod-matches
       xorq catalog rebase prod-matches --only-alias prod -a matches-v2
+      xorq catalog rebase prod-matches --json
     """
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
-    from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
     from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
-    from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
+    from xorq.catalog.rebase import (  # noqa: PLC0415
+        rebase_document,
+        rebase_entry,
+        rebase_state,
+    )
 
     with click_context_catalog(ctx):
         try:
@@ -1305,9 +1321,24 @@ def rebase(
         except RebaseError as e:
             # Kept from the handler, which collapses every error to exit 1.
             result = e
+        except Exception as e:
+            # The handler's exit 1 prints no document; with --json, a failure
+            # after the entry resolved is an outcome the document reports.
+            if not as_json or _pdb_active(ctx):
+                raise
+            result = e
+    if as_json:
+        # Printed once the rebase has ended, not during it, and alone: the
+        # document carries what stderr would, so nothing else is printed. The
+        # process exits with the document's own code, as `check-sources` does.
+        document = rebase_document(catalog_entry, result)
+        click.echo(json.dumps(document, indent=2))
+        ctx.exit(document["exit_code"])
+    # The same state the document reads its `exit_code` off.
+    exit_code = rebase_state(result).exit_code
     if isinstance(result, RebaseError):
         click.echo(str(result), err=True)
-        ctx.exit(result.exit_code)
+        ctx.exit(exit_code)
     if (conflict := result.conflict) is not None:
         sources = ", ".join(f"{r.leaf.kind} {r.leaf.name}" for r in conflict.sources)
         if conflict.op_name is None:
@@ -1327,7 +1358,7 @@ def rebase(
         click.echo(conflict.detail, err=True)
         if alias:
             click.echo(f"Alias {alias!r} not added: the rebase conflicted", err=True)
-        ctx.exit(RebaseExit.CONFLICT)
+        ctx.exit(exit_code)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
             for line in format_leaf_report(report):

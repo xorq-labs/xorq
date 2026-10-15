@@ -133,6 +133,10 @@ class RebaseStatus(StrEnum):
     REBASED = "rebased"
     CONFLICT = "conflict"
 
+    @property
+    def exit_code(self) -> int:
+        return RebaseExit.CONFLICT if self == RebaseStatus.CONFLICT else 0
+
 
 class RebaseExit(IntEnum):
     """The exit codes ``xorq catalog rebase`` refuses or conflicts with."""
@@ -143,3 +147,25 @@ class RebaseExit(IntEnum):
     UNREACHABLE = 2
     # The re-derivation can't follow the drift; retrying won't help.
     CONFLICT = 4
+
+
+class RebaseFailure(StrEnum):
+    """How a rebase that returned no ``RebaseResult`` ended.
+
+    ``REFUSED`` and ``UNREACHABLE`` are a ``RebaseError``'s exit codes;
+    ``FAILED`` is any other error, such as a write that failed.
+    """
+
+    REFUSED = "refused"
+    UNREACHABLE = "unreachable"
+    FAILED = "failed"
+
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case RebaseFailure.REFUSED | RebaseFailure.FAILED:
+                return RebaseExit.REFUSED
+            case RebaseFailure.UNREACHABLE:
+                return RebaseExit.UNREACHABLE
+            case _:
+                raise ValueError(f"no exit code for failure {self}")
