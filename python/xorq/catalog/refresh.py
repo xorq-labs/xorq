@@ -21,7 +21,12 @@ from xorq.catalog.drift import (
 )
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf, join_read_path
-from xorq.common.exceptions import InternalError, SchemaRefreshError, XorqError
+from xorq.common.exceptions import (
+    InternalError,
+    SchemaRefreshError,
+    UnmatchedSourceError,
+    XorqError,
+)
 from xorq.common.utils.graph_utils import (
     OPAQUE_SPECS,
     _opaque_lookup,
@@ -198,12 +203,17 @@ def recreate_over(node: Node, overrides: dict) -> Node:
     return recreate(node, **revalidate_flight(node, overrides))
 
 
-def refuse(offenders: Iterable[tuple[str, str]], separator: str = ", ") -> None:
-    """Raise one ``SchemaRefreshError`` for ``(kind, detail)`` pairs, labeled
-    with their distinct kinds in order."""
+def refuse(
+    offenders: Iterable[tuple[str, str]],
+    *,
+    separator: str = ", ",
+    error_type: type[SchemaRefreshError] = SchemaRefreshError,
+) -> None:
+    """Raise one ``error_type`` for ``(kind, detail)`` pairs, labeled with
+    their distinct kinds in order."""
     kinds, details = zip(*offenders)
     op_name = ", ".join(dict.fromkeys(map(str, kinds)))
-    raise SchemaRefreshError(op_name, LookupError(separator.join(details)))
+    raise error_type(op_name, LookupError(separator.join(details)))
 
 
 def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
@@ -253,8 +263,11 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
     refreshed = rewrite(to_node(expr)).to_expr()
     if unmatched := [key for key in live if key not in matched]:
         refuse(
-            (kind, f"{name} matched no source of the loaded expression")
-            for (kind, _, name, _) in unmatched
+            (
+                (kind, f"{name} matched no source of the loaded expression")
+                for (kind, _, name, _) in unmatched
+            ),
+            error_type=UnmatchedSourceError,
         )
     return refreshed
 

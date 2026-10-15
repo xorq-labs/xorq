@@ -157,6 +157,18 @@ class SchemaRefreshError(TranslationError):
         )
 
 
+class UnmatchedSourceError(SchemaRefreshError):
+    """A live source key matched no source in the loaded expression.
+
+    Not a rebuild failure: the sweep and the rewrite disagree on what the
+    expression reads, so the message names the sources and no op.
+    """
+
+    def __str__(self) -> str:
+        op_name, cause = self.args
+        return f"{op_name}: {cause}"
+
+
 class XorqInputError(ValueError, XorqError):
     """IbisInputError."""
 

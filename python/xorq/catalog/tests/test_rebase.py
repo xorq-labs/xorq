@@ -30,6 +30,7 @@ from xorq.catalog.tests.conftest import (
     _annex_available,
     alias_target_hash,
 )
+from xorq.common.exceptions import UnmatchedSourceError
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
@@ -217,6 +218,143 @@ def test_a_python_minor_mismatch_is_overridable(
     assert result.stdout.strip() != world.name
 
 
+def conflict_dropped_column(w: SimpleNamespace) -> str:
+    replace_t(w, pa.table({"b": ["x", "y"]}))
+    return w.name
+
+
+def conflict_gone_table(w: SimpleNamespace) -> str:
+    w.con.drop_table("t")
+    return w.name
+
+
+def two_source_entry(w: SimpleNamespace) -> str:
+    w.con.create_table("u", RECORDED.to_pandas())
+    t, u = w.con.table("t"), w.con.table("u")
+    return w.catalog.add(t.select("a").union(u.select("a"))).name
+
+
+def conflict_two_changed(w: SimpleNamespace) -> str:
+    name = two_source_entry(w)
+    replace_t(w, pa.table({"b": ["x", "y"]}))
+    w.con.drop_table("u")
+    w.con.create_table("u", GROWN.to_pandas())
+    return name
+
+
+def conflict_two_gone(w: SimpleNamespace) -> str:
+    name = two_source_entry(w)
+    w.con.drop_table("t")
+    w.con.drop_table("u")
+    return name
+
+
+def conflict_gone_beside_changed(w: SimpleNamespace) -> str:
+    name = two_source_entry(w)
+    w.con.drop_table("u")
+    replace_t(w, GROWN)
+    return name
+
+
+def conflict_gone_beside_unreachable(w: SimpleNamespace) -> str:
+    name, _, _ = refuse_beside_unreachable(lambda w: w.con.drop_table("t"))(w)
+    return name
+
+
+@pytest.mark.parametrize(
+    "setup, headline, op_name, gone, changed",
+    (
+        pytest.param(
+            conflict_dropped_column,
+            "Field cannot be rebuilt; changed sources in entry:",
+            "Field",
+            [],
+            ["t"],
+            id="dropped-column",
+        ),
+        pytest.param(
+            conflict_gone_table,
+            "is gone",
+            None,
+            ["t"],
+            [],
+            id="gone-table",
+        ),
+        pytest.param(
+            conflict_two_changed,
+            "Field cannot be rebuilt; changed sources in entry:",
+            "Field",
+            [],
+            ["t", "u"],
+            id="two-changed",
+        ),
+        pytest.param(
+            conflict_two_gone,
+            "are gone",
+            None,
+            ["t", "u"],
+            [],
+            id="two-gone",
+        ),
+        pytest.param(
+            conflict_gone_beside_changed,
+            "is gone",
+            None,
+            ["u"],
+            ["t"],
+            id="gone-beside-changed",
+        ),
+        pytest.param(
+            conflict_gone_beside_unreachable,
+            "is gone",
+            None,
+            ["t"],
+            ["u"],
+            id="gone-beside-unreachable",
+        ),
+    ),
+)
+def test_a_conflict_names_the_op_and_source_with_check_sources_schemas(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    setup: Callable,
+    headline: str,
+    op_name: str | None,
+    gone: list[str],
+    changed: list[str],
+) -> None:
+    name = setup(world)
+    checked = runner.invoke(cli, ["--path", world.catalog_path, "check-sources", name])
+    assert checked.exit_code == 3, checked.output
+    pair = [line for line in checked.stdout.splitlines() if line.startswith("    ")]
+
+    result = rebase(runner, world, name, "-a", "v2")
+    assert result.exit_code == 4, result.output
+    # The headline names the gone sources, or every changed one when an op failed.
+    first = result.stderr.splitlines()[0]
+    assert first.startswith(f"{name}: conflict: ") and headline in first
+    assert all(f"DatabaseTable {n}" in first for n in (gone or changed))
+    assert all(f"DatabaseTable {n}" not in first for n in gone and changed)
+    # Every source the sweep did not find equal gets its check-sources block.
+    assert pair and all(line in result.stderr.splitlines() for line in pair)
+    assert "could not rebuild" not in result.stderr
+    assert "Alias 'v2' not added" in result.stderr
+    if op_name is not None:
+        # Named once, by the headline; the cause follows it.
+        assert result.stderr.count(op_name) == 1
+        assert "XorqTypeError: Column 'a' is not found" in result.stderr
+    else:
+        # The blocks already say it; the cause is not echoed a third time.
+        assert " is table-missing" not in result.stderr
+    conflicted = rebase_entry(reopen(world).get_catalog_entry(name))
+    assert conflicted.status == RebaseStatus.CONFLICT
+    assert conflicted.new_entry.name == name
+    assert conflicted.conflict.op_name == op_name
+    assert sorted(r.leaf.name for r in conflicted.conflict.sources) == sorted(
+        gone + changed
+    )
+
+
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
 RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
@@ -328,6 +466,17 @@ def refuse_unprobed_db(w: SimpleNamespace) -> Setup:
     return name, (), (db,)
 
 
+def refuse_unmatched_source(w: SimpleNamespace) -> Setup:
+    """The rewrite disagrees with the sweep: a bug, refused as one."""
+    replace_t(w, GROWN)
+
+    def unmatched(*_: object) -> None:
+        raise UnmatchedSourceError("DatabaseTable", LookupError("t matched no source"))
+
+    w.monkeypatch.setattr(rebase_module, "refresh_schemas", unmatched)
+    return w.name, (), ()
+
+
 def refuse_dropped_column(w: SimpleNamespace) -> Setup:
     replace_t(w, pa.table({"b": ["x", "y"]}))
     return w.name, (), ()
@@ -413,12 +562,15 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             "no source could be probed (t)",
             id="unprobed-new-hash",
         ),
-        pytest.param(refuse_dropped_column, 4, "could not rebuild", id="column"),
+        pytest.param(
+            refuse_unmatched_source, 1, "t matched no source", id="unmatched-source"
+        ),
+        pytest.param(refuse_dropped_column, 4, "cannot be rebuilt", id="column"),
         pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
         pytest.param(
             refuse_beside_unreachable(lambda w: w.con.drop_table("t")),
             4,
-            "table-missing",
+            "DatabaseTable u: unreachable",
             id="gone-outranks-unreachable",
         ),
         pytest.param(

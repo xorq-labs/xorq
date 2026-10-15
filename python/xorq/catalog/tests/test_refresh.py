@@ -36,7 +36,12 @@ from xorq.catalog.refresh import (
     refresh_schemas,
     with_live_schema,
 )
-from xorq.common.exceptions import InternalError, RefreshCause, SchemaRefreshError
+from xorq.common.exceptions import (
+    InternalError,
+    RefreshCause,
+    SchemaRefreshError,
+    UnmatchedSourceError,
+)
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
@@ -727,10 +732,11 @@ def test_every_unmatched_key_is_named_and_labeled(world_leaf: tuple) -> None:
         )
     }
 
-    with pytest.raises(SchemaRefreshError) as excinfo:
+    with pytest.raises(UnmatchedSourceError) as excinfo:
         refresh_schemas(load_expr(build_path), live)
     assert excinfo.value.op_name == "DatabaseTable, Read"
-    assert "not-a-table" in str(excinfo.value)
+    assert str(excinfo.value).startswith("DatabaseTable, Read: not-a-table")
+    assert "could not rebuild" not in str(excinfo.value)
     assert "not-a-read" in str(excinfo.value)
 
 
