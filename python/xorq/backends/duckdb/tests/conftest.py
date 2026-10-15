@@ -2,16 +2,19 @@ import pytest
 from duckdb import CatalogException
 
 import xorq.api as xo
+from xorq.conftest import make_xo_con
 
 
 @pytest.fixture(scope="session")
-def con(parquet_dir):
-    conn = xo.connect()
+def xo_con(parquet_dir, ddl_file):
+    # this directory's own connection: its tests create and drop tables
+    return make_xo_con(parquet_dir, ddl_file)
 
-    for name in ("astronauts", "functional_alltypes", "awards_players", "batting"):
-        conn.read_parquet(parquet_dir / f"{name}.parquet", name)
 
-    return conn
+@pytest.fixture(scope="session")
+def con(xo_con):
+    # historically xo.connect() over the test parquet, not a duckdb backend
+    return xo_con
 
 
 @pytest.fixture(scope="session")
@@ -32,23 +35,3 @@ def duckdb_con(dirty_duckdb_con):
             except CatalogException:
                 dirty_duckdb_con.drop_table(table, force=True)
     yield dirty_duckdb_con
-
-
-@pytest.fixture(scope="session")
-def alltypes(con):
-    return con.table("functional_alltypes")
-
-
-@pytest.fixture(scope="session")
-def alltypes_df(alltypes):
-    return alltypes.execute()
-
-
-@pytest.fixture(scope="session")
-def awards_players(con):
-    return con.table("awards_players")
-
-
-@pytest.fixture(scope="session")
-def batting(con):
-    return con.table("batting")

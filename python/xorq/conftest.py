@@ -231,3 +231,112 @@ def time_keyed_df2():
             "other_value": [1.1, 1.2, 2.2],
         }
     )
+
+
+@pytest.fixture(scope="session")
+def ddl_file(root_dir):
+    return root_dir / "db" / "datafusion.sql"
+
+
+def statements(ddl_file: Path):
+    return (
+        statement
+        for statement in map(str.strip, ddl_file.read_text().split(";"))
+        if statement
+    )
+
+
+def make_xo_con(parquet_dir, ddl_file):
+    """A xorq_datafusion connection over the ibis test data.
+
+    The root `xo_con` is one of these; a test directory that mutates its
+    tables overrides `xo_con` with its own so nothing leaks across directories.
+    The table fixtures below are function-scoped on purpose: a session-scoped
+    one would be cached once and bind every directory to the first
+    connection that requested it."""
+    conn = xo.connect()
+    for name in (
+        "astronauts",
+        "awards_players",
+        "batting",
+        "diamonds",
+        "functional_alltypes",
+    ):
+        conn.read_parquet(parquet_dir / f"{name}.parquet", name)
+    conn.create_table("array_types", array_types_df)
+    conn.create_table("win", win)
+    if ddl_file.is_file():
+        for statement in statements(ddl_file):
+            with conn._safe_raw_sql(statement):  # noqa
+                pass
+    return conn
+
+
+@pytest.fixture(scope="session")
+def xo_con(parquet_dir, ddl_file):
+    return make_xo_con(parquet_dir, ddl_file)
+
+
+@pytest.fixture
+def alltypes(xo_con):
+    return xo_con.table("functional_alltypes")
+
+
+@pytest.fixture
+def functional_alltypes(alltypes):
+    return alltypes
+
+
+@pytest.fixture
+def alltypes_df(alltypes):
+    return alltypes.execute()
+
+
+@pytest.fixture
+def sorted_df(alltypes_df):
+    return alltypes_df.sort_values("id").reset_index(drop=True)
+
+
+@pytest.fixture
+def batting(xo_con):
+    return xo_con.table("batting")
+
+
+@pytest.fixture
+def batting_df(batting):
+    return batting.execute()
+
+
+@pytest.fixture
+def awards_players(xo_con):
+    return xo_con.table("awards_players")
+
+
+@pytest.fixture
+def awards_players_df(awards_players):
+    return awards_players.execute(limit=None)
+
+
+@pytest.fixture
+def diamonds(xo_con):
+    return xo_con.table("diamonds")
+
+
+@pytest.fixture
+def array_types(xo_con):
+    return xo_con.table("array_types")
+
+
+@pytest.fixture
+def struct(xo_con):
+    return xo_con.table("structs")
+
+
+@pytest.fixture
+def struct_df(struct):
+    return struct.execute()
+
+
+@pytest.fixture
+def win_table(xo_con):
+    return xo_con.table("win")
