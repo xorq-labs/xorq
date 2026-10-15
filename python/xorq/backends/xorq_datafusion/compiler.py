@@ -8,7 +8,6 @@ from itertools import starmap
 
 import sqlglot as sg
 import sqlglot.expressions as sge
-import toolz
 from sqlglot import exp, transforms
 from sqlglot.dialects import Postgres
 from sqlglot.dialects.dialect import rename_func
@@ -26,10 +25,9 @@ from xorq.vendor.ibis.backends.sql.compilers.base import (
 )
 from xorq.vendor.ibis.backends.sql.datatypes import PostgresType
 from xorq.vendor.ibis.backends.sql.rewrites import (
-    Select,
     split_select_distinct_with_order_by,
+    split_select_with_shadowed_sort_key,
 )
-from xorq.vendor.ibis.common.patterns import Check, InstanceOf, replace
 from xorq.vendor.ibis.common.temporal import IntervalUnit, TimestampUnit
 from xorq.vendor.ibis.expr.operations.udf import InputType
 
@@ -82,55 +80,6 @@ class DataFusion(Postgres):
 
 with contextlib.suppress(AttributeError):
     DataFusion.Generator.TRANSFORMS[sge.Median] = rename_func("median")
-
-
-def _sort_key_fields(select):
-    """The parent columns the sort keys of a Select read."""
-    return tuple(
-        toolz.unique(
-            field
-            for key in select.sort_keys
-            for field in key.find(ops.Field, filter=ops.Value)
-            if field.rel == select.parent
-        )
-    )
-
-
-def _shadows_sort_key(select):
-    return not select.distinct and any(
-        select.selections.get(field.name, field) != field
-        for field in _sort_key_fields(select)
-    )
-
-
-@replace(InstanceOf(Select) & Check(_shadows_sort_key))
-def split_select_with_shadowed_sort_key(_, **kwargs):
-    """Sort over a subquery when an output alias shadows a sort column.
-
-    DataFusion plans `SELECT t0.b AS a FROM t AS t0 ORDER BY t0.a` with both
-    `a` and `t0.a` in one schema and rejects it as ambiguous, and it drops an
-    ORDER BY inside a subquery. So the projection moves into a subquery that
-    also carries each unprojected sort column under a name no output uses,
-    and the outer SELECT orders by those.
-    """
-    hidden = {}
-    for field in _sort_key_fields(_):
-        if field in _.selections.values():
-            continue
-        name = f"{field.name}__sort"
-        while name in _.selections or name in hidden:
-            name += "_"
-        hidden[name] = field
-    inner = Select(
-        _.parent,
-        selections={**_.selections, **hidden},
-        predicates=_.predicates,
-        qualified=_.qualified,
-    )
-    subs = {v: ops.Field(inner, k) for k, v in inner.selections.items()}
-    sort_keys = tuple(s.replace(subs, filter=ops.Value) for s in _.sort_keys)
-    selections = {k: ops.Field(inner, k) for k in _.selections}
-    return Select(inner, selections=selections, sort_keys=sort_keys)
 
 
 class DataFusionCompiler(SQLGlotCompiler):
