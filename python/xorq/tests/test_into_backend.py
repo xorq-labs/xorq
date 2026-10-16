@@ -731,3 +731,57 @@ def test_multi_backend(parquet_dir):
     joined = batting.select(on).join(awards_players.select(on), predicates=on)
     with pytest.raises(XorqError, match="Multiple backends"):
         joined.execute()
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param(lambda: xo.connect(), id="xorq_datafusion"),
+        # resolved inside the test: the library job collects this module
+        # from the bare wheel, where the duckdb extra is absent
+        pytest.param(lambda: xo.duckdb.connect(), id="duckdb"),
+    ],
+)
+def test_into_backend_window_used_twice(target):
+    # GH #2415: the window is hoisted into a CTE that the cross join references
+    # twice; datafusion inlines CTEs and reads the into_backend stream twice,
+    # duckdb materialises the CTE and reads it once
+    df = pd.DataFrame({"k": [1, 2], "v": [10.0, 20.0]})
+    t = xo.pandas.connect().create_table("t", df).into_backend(target())
+    t = t.mutate(r=xo.rank().over(order_by="v"))
+
+    a = t.filter(t.k == 1).select(a=t.r)
+    b = t.filter(t.k == 2).select(b=t.r)
+    actual = a.cross_join(b).execute()
+
+    assert_frame_equal(actual, pd.DataFrame({"a": [0], "b": [1]}), check_dtype=False)
+
+
+def test_into_backend_self_join_used_twice_datafusion():
+    # the CTE holds a self join (two scans) and is referenced twice: four reads
+    df = pd.DataFrame({"k": [1, 2], "v": [10.0, 20.0]})
+    t = xo.pandas.connect().create_table("t", df).into_backend(xo.connect())
+    t = t.join(t.view(), "k").select("k", "v")
+
+    a = t.filter(t.k == 1).select(a=t.v)
+    b = t.filter(t.k == 2).select(b=t.v)
+    actual = a.cross_join(b).execute()
+
+    assert_frame_equal(
+        actual, pd.DataFrame({"a": [10.0], "b": [20.0]}), check_dtype=False
+    )
+
+
+def test_into_backend_select_used_twice_datafusion():
+    # control: no CTE, the stream appears in both join inputs and is counted
+    df = pd.DataFrame({"k": [1, 2], "v": [10.0, 20.0]})
+    t = xo.pandas.connect().create_table("t", df).into_backend(xo.connect())
+    t = t.select("k", "v")
+
+    a = t.filter(t.k == 1).select(a=t.v)
+    b = t.filter(t.k == 2).select(b=t.v)
+    actual = a.cross_join(b).execute()
+
+    assert_frame_equal(
+        actual, pd.DataFrame({"a": [10.0], "b": [20.0]}), check_dtype=False
+    )

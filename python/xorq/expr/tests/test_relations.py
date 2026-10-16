@@ -316,6 +316,55 @@ def test_count_union_all_three(remote_table: Table) -> None:
     assert _only_count(expr) == 3
 
 
+def test_count_window_cte_used_twice_is_two(remote_table: Table) -> None:
+    # the window is hoisted into a CTE referenced by both sides of the cross
+    # join; backends that inline CTEs scan the source once per reference
+    r = remote_table.mutate(rn=remote_table.a.cumsum())
+    expr = (
+        r.filter(r.k == 1).select(x=r.rn).cross_join(r.filter(r.k == 2).select(y=r.rn))
+    )
+    assert _only_count(expr) == 2
+
+
+def test_count_self_join_cte_used_twice_is_four(remote_table: Table) -> None:
+    # two scans inside the CTE, times two references to it
+    r = remote_table.join(remote_table.view(), "k").select("a", "k")
+    expr = r.filter(r.k == 1).select(x=r.a).cross_join(r.filter(r.k == 2).select(y=r.a))
+    assert _only_count(expr) == 4
+
+
+def test_count_direct_plus_cte_used_twice_is_three(remote_table: Table) -> None:
+    # one direct scan plus a windowed CTE referenced twice; the compiled AST
+    # shares the placeholder node between the two, so the count must not rely
+    # on a node's single parent pointer
+    r = remote_table
+    w = r.mutate(rn=r.a.cumsum())
+    expr = r.select(x=r.a).union(
+        w.filter(w.k == 1).select(x=w.rn),
+        w.filter(w.k == 2).select(x=w.rn),
+        distinct=False,
+    )
+    assert _only_count(expr) == 3
+
+
+def test_count_embedded_sql_cte_shadowing_generated_alias(
+    remote_table: Table,
+) -> None:
+    # a raw-SQL subquery defines a CTE named like the generated outer CTE; its
+    # references belong to its own scope and must not consume the outer count
+    r = remote_table.join(remote_table.view(), "k").select("a", "k")
+    expr = r.filter(r.k == 1).select(x=r.a).cross_join(r.filter(r.k == 2).select(y=r.a))
+    con = remote_table.op().source
+    con.create_table("other", pa.table({"z": [1]}))
+    plain = expr.cross_join(con.sql('SELECT "z" FROM "other"'))
+    alias = xo.to_sql(plain).split('WITH "')[1].split('"')[0]
+    inner = con.sql(
+        f'WITH "{alias}" AS (SELECT "z" FROM "other") SELECT "z" FROM "{alias}"'
+    )
+    assert f'WITH "{alias}"' in xo.to_sql(expr.cross_join(inner))
+    assert _only_count(expr.cross_join(inner)) == 4
+
+
 def test_count_join_plus_scalar_subquery(remote_table: Table) -> None:
     # referenced in a scalar subquery and both sides of a self-join: 3 scans
     r = remote_table
