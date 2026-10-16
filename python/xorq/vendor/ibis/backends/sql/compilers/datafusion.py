@@ -21,6 +21,7 @@ from xorq.vendor.ibis.backends.sql.compilers.base import (
 from xorq.vendor.ibis.backends.sql.datatypes import DataFusionType
 from xorq.vendor.ibis.backends.sql.dialects import DataFusion
 from xorq.vendor.ibis.backends.sql.rewrites import (
+    hoist_sort_keys_out_of_subquery,
     split_select_distinct_with_order_by,
     split_select_with_shadowed_sort_key,
 )
@@ -37,6 +38,7 @@ class DataFusionCompiler(SQLGlotCompiler):
     agg = AggGen(supports_filter=True, supports_order_by=True)
 
     post_rewrites = (
+        hoist_sort_keys_out_of_subquery,
         split_select_with_shadowed_sort_key,
         split_select_distinct_with_order_by,
     )
