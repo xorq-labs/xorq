@@ -48,6 +48,11 @@ def project_and_cast_reader(
     )
 
 
+# dialects whose planner inlines a CTE at every reference, scanning its body
+# once per reference; the others (duckdb) materialise it and scan it once
+CTE_INLINING_DIALECTS = frozenset({"DataFusion"})
+
+
 def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     """Best-effort count of how many times each ``RemoteTable`` is scanned.
 
@@ -56,9 +61,15 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     one ``RemoteTable``). Each ``RemoteTable`` is rewritten to a placeholder
     table under a freshly generated, unique name, the placeholder expression is
     compiled to a sqlglot AST, and the ``Table`` nodes bearing that name are
-    counted. Counting ``Table`` AST nodes (rather than substrings of the
-    rendered SQL) ignores column references, aliases, and string literals, so
-    even a short or shared user-supplied table name cannot inflate the count.
+    counted. On a dialect that inlines a CTE at every reference (datafusion),
+    each CTE's body is weighted by its reference count, since a window or join
+    hoisted into a CTE and used twice scans its source twice; a dialect that
+    materialises CTEs (duckdb) scans the body once, and an overcount there
+    would keep every batch buffered waiting for a reader that never comes
+    (eviction starts only once ``max_readers`` readers exist). Counting
+    ``Table`` AST nodes (rather than substrings of the rendered SQL) ignores
+    column references, aliases, and string literals, so even a short or shared
+    user-supplied table name cannot inflate the count.
 
     This is a *lower bound*, not the exact physical scan count: it sees only the
     scans the compiled SQL spells out, and cannot see re-scans the backend's
@@ -79,8 +90,6 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     without eviction. Omitting the count is safe; deriving one too low is not.
     See ADR-0013 ("Counting accuracy").
     """
-    import sqlglot as sg  # noqa: PLC0415
-
     op = expr.op()
     sentinels = {}
 
@@ -107,11 +116,53 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     except Exception:
         return {}
 
+    # xorq's datafusion compiler and the vendored one each carry their own
+    # `DataFusion` dialect class, so the dialect is matched by name
+    inlines_ctes = compiler.dialect.__name__ in CTE_INLINING_DIALECTS
     counts = Counter()
     for query in out if isinstance(out, list) else [out]:
-        for table in query.find_all(sg.exp.Table):
-            counts[table.name] += 1
+        counts.update(_count_table_scans(query, inlines_ctes))
     return {node: max(1, counts[name]) for node, name in sentinels.items()}
+
+
+def _count_table_scans(query, inlines_ctes: bool) -> Counter:
+    """Count ``Table`` nodes by name; with ``inlines_ctes``, expand each CTE by
+    its reference count, else count each CTE body once.
+
+    The compilers hoist windows and joins into CTEs, and a CTE referenced by
+    both sides of a self cross join is inlined by datafusion (duckdb
+    materialises it): its body is scanned once per reference. The walk only
+    descends (the compiled AST shares nodes, so a node's parent pointer does
+    not say where it was reached from) and stops at each scope: a CTE body, or
+    a nested query with a WITH of its own (an embedded raw-SQL query, whose CTE
+    names may shadow the generated ones). Nested queries are folded in as
+    scanned once; CTE bodies last-to-first, so a later CTE's references to an
+    earlier one are already in ``counts`` when the earlier one's body is
+    weighted.
+    """
+    import sqlglot as sg  # noqa: PLC0415
+
+    def is_scope(node):
+        return isinstance(node, sg.exp.CTE) or (
+            node is not query and isinstance(node, sg.exp.Query) and node.ctes
+        )
+
+    counts = Counter()
+    ctes = []
+    for node in query.walk(prune=is_scope):
+        if isinstance(node, sg.exp.Table):
+            counts[node.name] += 1
+        elif isinstance(node, sg.exp.CTE):
+            ctes.append(node)
+        elif is_scope(node):
+            counts.update(_count_table_scans(node, inlines_ctes))
+    for cte in reversed(ctes):
+        weight = counts.pop(cte.alias_or_name, 0)
+        if not inlines_ctes:
+            weight = min(weight, 1)
+        for name, n in _count_table_scans(cte.this, inlines_ctes).items():
+            counts[name] += weight * n
+    return counts
 
 
 def drop_placeholder(con: BaseBackend, table_name: str) -> None:
