@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+import xorq.common.exceptions as com
 from xorq.tests.util import assert_frame_equal
 
 
@@ -116,3 +117,14 @@ def test_order_by_then_filter_in_subquery_over_sorted_select():
     s = t.distinct().order_by("m")
     expr = s.filter(s.m.isin(s.m))
     assert expr.execute()["m"].tolist() == [1, 2, 3]
+
+
+def test_distinct_after_select_dropping_sort_column_is_refused():
+    # the sort column is dropped by the projection, so the order of the
+    # de-duplicated rows is undefined: refuse before the engine does
+    t = xo.connect().create_table("t", pd.DataFrame({"a": [2, 1], "b": ["x", "y"]}))
+    expr = t.order_by("a").select(a=t.b).distinct()
+    with pytest.raises(
+        com.UnsupportedOperationError, match="DISTINCT.*ORDER BY.*does not select"
+    ):
+        expr.execute()
