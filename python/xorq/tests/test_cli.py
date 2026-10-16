@@ -1087,6 +1087,29 @@ def test_run_logger_multiple_runs(tmp_path):
         assert run_ids[0] != run_ids[1]
 
 
+@pytest.mark.parametrize("command", ["run", "run-cached"])
+def test_run_command_dev_null_output(tmp_path, command):
+    # https://github.com/xorq-labs/xorq/issues/2409
+    (tmp_path / "expr.py").write_text(
+        "import xorq.api as xo\n\nexpr = xo.memtable({'a': [1, 2, 3]})\n"
+    )
+    (returncode, stdout, stderr) = subprocess_run(
+        ["xorq", "build", "expr.py", "-e", "expr"], cwd=tmp_path
+    )
+    assert returncode == 0, stderr
+    match = re.search(r"builds/[0-9a-f]+", stdout.decode("ascii"))
+    assert match, "No expression hash"
+    build_path = match.group()
+
+    for format_args in ([], ["-f", "arrow"]):
+        (returncode, _, stderr) = subprocess_run(
+            ["xorq", command, build_path, "-o", "/dev/null", *format_args],
+            cwd=tmp_path,
+        )
+        assert returncode == 0, stderr
+        assert b"Traceback" not in stderr
+
+
 @pytest.mark.parametrize(
     "expression,message",
     [
