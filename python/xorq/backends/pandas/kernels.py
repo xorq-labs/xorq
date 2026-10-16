@@ -256,7 +256,15 @@ def safe_decimal(func):
 
 def round_serieswise(arg, digits):
     if digits is None:
-        return np.round(arg).astype("int64")
+        if pd.api.types.is_integer_dtype(arg):
+            return arg.astype("Int64" if arg.isna().any() else "int64")
+        # half away from zero, as the SQL backends do (numpy rounds half to even),
+        # decided on the exact fractional part so that a value just below a half
+        # or past 2**52 is not pushed over by adding 0.5; a null or an infinity
+        # cannot be cast to int64, so a column holding one stays float64
+        whole = np.trunc(arg)
+        rounded = whole.where(~np.isfinite(arg), whole + np.trunc((arg - whole) * 2))
+        return rounded.astype("int64") if np.isfinite(rounded).all() else rounded
     else:
         return np.round(arg, digits).astype("float64")
 
