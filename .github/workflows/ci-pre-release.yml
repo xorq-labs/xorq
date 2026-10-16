@@ -33,5 +33,5 @@ jobs:
       - name: publish package
         run: |
           uv build
-          uv publish --publish-url https://test.pypi.org/legacy/ --trusted-publishing always
+          uv publish --publish-url https://test.pypi.org/legacy/ --check-url https://test.pypi.org/simple/ --trusted-publishing always
 
