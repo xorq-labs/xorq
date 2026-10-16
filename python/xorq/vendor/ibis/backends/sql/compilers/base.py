@@ -1279,7 +1279,19 @@ class SQLGlotCompiler(abc.ABC):
             #
             # using STAR in that case would lead to an extra column, so in that
             # case we have to spell out the columns
-            if op.is_star_selection() and (not qualified or self.supports_qualify):
+            #
+            # over a bound table STAR expands to the stored columns, which the
+            # op's schema need not match (a table bound to a subset of them),
+            # so spell out the columns there; an unbound table keeps STAR, so
+            # the normalized form behind build hashes does not move
+            if (
+                op.is_star_selection()
+                and not (
+                    isinstance(op.parent, ops.PhysicalTable)
+                    and not isinstance(op.parent, ops.UnboundTable)
+                )
+                and (not qualified or self.supports_qualify)
+            ):
                 fields = [STAR]
             else:
                 fields = self._cleanup_names(selections)
