@@ -5,42 +5,6 @@ import xorq.api as xo
 from xorq.conftest import make_xo_con
 
 
-expected_tables = (
-    "array_types",
-    "astronauts",
-    "awards_players",
-    "awards_players_special_types",
-    "batting",
-    "diamonds",
-    "functional_alltypes",
-    "geo",
-    "geography_columns",
-    "geometry_columns",
-    "json_t",
-    "map",
-    "spatial_ref_sys",
-    "topk",
-    "tzone",
-)
-
-
-def remove_unexpected_tables(dirty):
-    # drop tables
-    for table in dirty.list_tables():
-        if table not in expected_tables:
-            dirty.drop_table(table, force=True)
-
-    # drop view
-    for table in dirty.list_tables():
-        if table not in expected_tables:
-            dirty.drop_view(table, force=True)
-
-    if sorted(dirty.list_tables()) != sorted(expected_tables):
-        raise ValueError(
-            f"unexpected tables after cleanup: {set(dirty.list_tables()) - set(expected_tables)}"
-        )
-
-
 @pytest.fixture(scope="session")
 def xo_con(parquet_dir, ddl_file):
     # this directory's own connection: its tests create and drop tables
