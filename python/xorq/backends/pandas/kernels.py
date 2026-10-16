@@ -269,6 +269,17 @@ def round_serieswise(arg, digits):
         return np.round(arg, digits).astype("float64")
 
 
+def between_columnwise(df):
+    # Series.between is False on a null operand; sql yields null there, unless
+    # the other bound already excludes the value (FALSE AND NULL is FALSE)
+    arg, lower, upper = df["arg"], df["lower_bound"], df["upper_bound"]
+    if not df.isna().any(axis=None):
+        return arg.between(lower, upper)
+    above = (arg >= lower).astype("boolean").mask(arg.isna() | lower.isna())
+    below = (arg <= upper).astype("boolean").mask(arg.isna() | upper.isna())
+    return above & below
+
+
 def arbitrary(arg):
     arg = arg.dropna()
     return arg.iat[0] if len(arg) else None
@@ -377,7 +388,7 @@ generic = {
 
 
 columnwise = {
-    ops.Between: lambda df: df["arg"].between(df["lower_bound"], df["upper_bound"]),
+    ops.Between: between_columnwise,
     ops.Clip: lambda df: df["arg"].clip(lower=df["lower"], upper=df["upper"]),
     ops.IfElse: lambda df: df["true_expr"].where(
         df["bool_expr"], other=df["false_null_expr"]
