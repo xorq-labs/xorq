@@ -458,6 +458,54 @@ def split_select_with_shadowed_sort_key(_):
     )
 
 
+def _reads_sorted_select(select):
+    """Whether an unsorted, non-distinct Select reads a sorted Select."""
+    return (
+        not select.sort_keys
+        and not select.distinct
+        and isinstance(select.parent, Select)
+        and bool(select.parent.sort_keys)
+    )
+
+
+@replace(InstanceOf(Select) & Check(_reads_sorted_select))
+def hoist_sort_keys_out_of_subquery(_):
+    """Order the outer SELECT by the sort keys of the subquery it reads.
+
+    DataFusion drops an ORDER BY inside a subquery, so when a projection is
+    not merged into the sorted Select it reads (a window function among the
+    sort keys, a distinct parent) the rows come back unsorted. The subquery
+    keeps each sort key under a name no column uses and loses its ORDER BY,
+    and the outer SELECT orders by those columns.
+    """
+    old = _.parent
+    hidden = {}
+    for i, key in enumerate(old.sort_keys):
+        name = f"__sort{i}"
+        while name in _.selections or name in old.selections:
+            name += "_"
+        hidden[name] = key.expr
+    parent = old.copy(selections={**old.selections, **hidden}, sort_keys=())
+    sort_keys = tuple(
+        key.copy(expr=ops.Field(parent, name))
+        for name, key in zip(hidden, old.sort_keys)
+    )
+    subs = {ops.Field(old, name): ops.Field(parent, name) for name in old.schema}
+    # an IN, EXISTS or scalar subquery over the old parent itself does not
+    # need its ORDER BY, and DataFusion fails to plan one next to the outer sort
+    subs[old] = old.copy(sort_keys=())
+
+    def outer_scope(node):
+        # a relation that reads the old parent as its own input keeps its
+        # fields; a reference to the old parent anywhere else, a correlated
+        # one or a subquery's needle, is rebound
+        return node is _ or not (
+            isinstance(node, ops.Relation) and old in node.__children__
+        )
+
+    return _.replace(subs, filter=outer_scope).copy(parent=parent, sort_keys=sort_keys)
+
+
 @replace(Select)
 def split_select_distinct_with_order_by(_):
     """Split a `SELECT DISTINCT ... ORDER BY` query when needed.
