@@ -539,6 +539,21 @@ def split_select_distinct_with_order_by(_):
         inner = _.copy(sort_keys=())
         subs = {v: ops.Field(inner, k) for k, v in inner.values.items()}
         sort_keys = tuple(s.replace(subs, filter=ops.Value) for s in _.sort_keys)
+        # a sort key still reading the parent names a column the projection
+        # drops, and the order of de-duplicated rows by it is undefined
+        dropped = sorted(
+            {
+                field.name
+                for key in sort_keys
+                for field in key.find(ops.Field, filter=ops.Value)
+                if field.rel == _.parent
+            }
+        )
+        if dropped:
+            raise com.UnsupportedOperationError(
+                "DISTINCT with ORDER BY on a column the projection does not "
+                f"select: {', '.join(dropped)}"
+            )
         selections = {
             k: v.replace(subs, filter=ops.Value) for k, v in _.selections.items()
         }
