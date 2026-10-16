@@ -1,7 +1,9 @@
+import pandas as pd
 import pyarrow as pa
 import pytest
 
 import xorq.api as xo
+import xorq.vendor.ibis.expr.operations as ops
 
 
 @pytest.mark.parametrize("file_format", ["parquet", "csv"])
@@ -57,3 +59,24 @@ def test_compile_renders_the_same_sql_as_a_fresh_tree(int_ratio_expr):
     compiler = con.compiler
     fresh = compiler.to_sqlglot(int_ratio_expr).sql(dialect=compiler.dialect)
     assert con.compile(int_ratio_expr) == fresh
+
+
+@pytest.fixture(params=["sqlite", "duckdb", "xorq_datafusion"])
+def column_subset_table(request):
+    """A DatabaseTable bound to two of its three physical columns (#2421)."""
+    con = getattr(xo, request.param).connect()
+    con.create_table("t", pd.DataFrame({"a": [1, 2], "b": [10, 20], "c": ["x", "y"]}))
+    return ops.DatabaseTable(
+        name="t", schema=xo.schema({"a": "int64", "b": "int64"}), source=con
+    ).to_expr()
+
+
+def test_select_every_bound_column_of_a_subset_table(column_subset_table):
+    t = column_subset_table
+    expr = t.select("a", "b")
+    # the bound compile names the columns; `xo.to_sql` unbinds first and keeps `*`
+    assert "*" not in expr._find_backend().compile(expr)
+    assert expr.execute().columns.tolist() == ["a", "b"]
+    assert t.filter(t.a > 1).execute().columns.tolist() == ["a", "b"]
+    # a strict subset already compiled to an explicit column list
+    assert t.select("a").execute().columns.tolist() == ["a"]
