@@ -672,6 +672,48 @@ def test_round(t, df):
     npt.assert_almost_equal(result, expected, decimal=precision)
 
 
+# expected values are what duckdb and the xorq datafusion backend return for
+# the same expression: a null stays null, ties round half away from zero on
+# both signs (numpy rounds half to even), a value just below a half does not
+# move, an infinity stays (datafusion refuses it), and integers come back
+# unchanged (datafusion alone loses the int64 values past 2**53)
+@pytest.mark.parametrize(
+    ("dtype", "data", "expected"),
+    [
+        param("float64", [1.26, 2.5, None, 4.75], [1.0, 3.0, None, 5.0], id="null"),
+        param("float64", [1.26, 2.5, 3.5, 4.75], [1, 3, 4, 5], id="ties"),
+        param("float64", [-2.5, -0.5, 0.5, -1.5], [-3, -1, 1, -2], id="ties-negative"),
+        param(
+            "float64",
+            [0.49999999999999994, -0.49999999999999994, 4503599627370497.0],
+            [0, 0, 4503599627370497],
+            id="not-a-tie",
+        ),
+        param("float64", [np.inf, -np.inf, 1.5], [np.inf, -np.inf, 2.0], id="inf"),
+        param("int8", [-128, 127], [-128, 127], id="int8"),
+        param(
+            "int64",
+            [9007199254740993, -9007199254740993],
+            [9007199254740993, -9007199254740993],
+            id="int64",
+        ),
+    ],
+)
+def test_round_no_digits(dtype, data, expected):
+    df = pd.DataFrame({"k": range(len(data)), "a": pd.Series(data, dtype=dtype)})
+    t = Backend().connect({"t": df}).table("t")
+    result = t.select("k", r=t.a.round()).order_by("k").execute().r
+    assert [None if pd.isna(value) else value for value in result] == expected
+
+
+def test_round_widens_before_arithmetic():
+    # round() is typed int64, so negating int8 -128 gives 128 on the xorq
+    # datafusion backend (duckdb refuses the negation as an overflow)
+    df = pd.DataFrame({"a": pd.Series([-128, 127], dtype="int8")})
+    t = Backend().connect({"t": df}).table("t")
+    assert (-t.a.round()).execute().tolist() == [128, -127]
+
+
 def test_quantile_groupby(batting, batting_df):
     def q_fun(x, quantile):
         res = x.quantile(quantile).tolist()
