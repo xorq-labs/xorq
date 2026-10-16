@@ -1031,6 +1031,56 @@ def test_between_scalar_and_column_bounds(client):
     assert t.a.between(t.lo, t.hi).execute().tolist() == [True, False, True, True]
 
 
+@pytest.mark.parametrize(
+    ("bounds", "expected"),
+    [
+        param(
+            lambda t: (1, 3),
+            [True, True, None, False, True, False, False],
+            id="scalar_bounds",
+        ),
+        param(
+            lambda t: (t.lo, t.hi),
+            [True, False, None, None, None, False, False],
+            id="column_bounds",
+        ),
+    ],
+)
+def test_between_null_operand_is_null(client, bounds, expected):
+    # expected is the literal output of duckdb (xo.duckdb.connect()) and of the
+    # xorq datafusion backend (xo.connect()) for the same table: a null value
+    # or a null bound gives null, not False, unless the other bound already
+    # excludes the value (FALSE AND NULL is FALSE)
+    df = pd.DataFrame(
+        {
+            "a": [1.26, 2.5, None, 4.75, 2.0, 5.0, 5.0],
+            "lo": [0, 3, 0, 4, None, 10, None],
+            "hi": [2, 3, 5, None, 5, None, 1],
+        }
+    )
+    t = client.create_table("between_null_t", df, overwrite=True)
+
+    result = t.a.between(*bounds(t)).execute()
+    assert_series_equal(result.astype("boolean"), pd.Series(expected, dtype="boolean"))
+
+
+def test_filter_on_negated_between_drops_null_rows(client):
+    # duckdb and datafusion keep one row (4.75): NOT NULL is NULL, so the row
+    # with the null value is dropped like the rows inside the range; a row a
+    # known bound excludes is kept even when the other bound is null
+    df = pd.DataFrame(
+        {
+            "a": [1.26, 2.5, None, 4.75, 5.0],
+            "lo": [0, 0, 0, 0, 10],
+            "hi": [3, 3, 3, 3, None],
+        }
+    )
+    t = client.create_table("between_filter_t", df)
+
+    assert t.filter(~t.a.between(1, 3)).count().execute() == 2
+    assert t.filter(~t.a.between(t.lo, t.hi)).count().execute() == 2
+
+
 def test_arbitrary_returns_a_present_value(client):
     df = pd.DataFrame({"g": [1, 1, 2, 2], "s": ["ab", "c", None, "d"]})
     t = client.create_table("arbitrary_t", df)
