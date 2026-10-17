@@ -254,19 +254,32 @@ def safe_decimal(func):
     return wrapper
 
 
+def round_half_away_from_zero(arg):
+    # as the SQL backends do (numpy rounds half to even), decided on the exact
+    # fractional part so that a value just below a half or past 2**52 is not
+    # pushed over by adding 0.5; a null or an infinity passes through
+    whole = np.trunc(arg)
+    return whole.where(~np.isfinite(arg), whole + np.trunc((arg - whole) * 2))
+
+
 def round_serieswise(arg, digits):
     if digits is None:
         if pd.api.types.is_integer_dtype(arg):
             return arg.astype("Int64" if arg.isna().any() else "int64")
-        # half away from zero, as the SQL backends do (numpy rounds half to even),
-        # decided on the exact fractional part so that a value just below a half
-        # or past 2**52 is not pushed over by adding 0.5; a null or an infinity
-        # cannot be cast to int64, so a column holding one stays float64
-        whole = np.trunc(arg)
-        rounded = whole.where(~np.isfinite(arg), whole + np.trunc((arg - whole) * 2))
-        return rounded.astype("int64") if np.isfinite(rounded).all() else rounded
+        rounded = round_half_away_from_zero(arg)
+        # a null or an infinity cannot be cast to int64, so a column holding
+        # one stays float; the nullable float dtypes skip their NA in isfinite
+        if rounded.isna().any() or not np.isfinite(rounded).all():
+            return rounded
+        return rounded.astype("int64")
+    # the tie is decided on the scaled value, as duckdb and datafusion do;
+    # a negative digits count divides first so the scale stays an exact power
+    scale = 10.0 ** abs(digits)
+    if digits < 0:
+        rounded = round_half_away_from_zero(arg / scale) * scale
     else:
-        return np.round(arg, digits).astype("float64")
+        rounded = round_half_away_from_zero(arg * scale) / scale
+    return rounded.astype("float64")
 
 
 def between_columnwise(df):
