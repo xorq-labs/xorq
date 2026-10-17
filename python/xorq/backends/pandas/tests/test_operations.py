@@ -1107,6 +1107,26 @@ def test_filter_on_negated_between_drops_null_rows(client):
     assert t.filter(~t.a.between(t.lo, t.hi)).count().execute() == 2
 
 
+# duckdb drops the row whose string is null: the predicate is null there,
+# and a filter keeps only rows whose predicate is true
+@pytest.mark.parametrize(
+    ("predicate", "expected"),
+    [
+        param(lambda t: t.s.startswith("a"), ["ab"], id="startswith"),
+        param(lambda t: t.s.endswith("d"), ["cd"], id="endswith"),
+        param(lambda t: t.s.contains("c"), ["cd"], id="contains"),
+        param(lambda t: t.s.like("a%"), ["ab"], id="like"),
+    ],
+)
+def test_filter_on_null_bearing_string_predicate_drops_null_rows(
+    client, predicate, expected
+):
+    df = pd.DataFrame({"s": ["ab", None, "cd"]})
+    t = client.create_table("filter_null_string_t", df, overwrite=True)
+    assert t.filter(predicate(t)).s.execute().tolist() == expected
+    assert t.filter(predicate(t)).count().execute() == len(expected)
+
+
 def test_arbitrary_returns_a_present_value(client):
     df = pd.DataFrame({"g": [1, 1, 2, 2], "s": ["ab", "c", None, "d"]})
     t = client.create_table("arbitrary_t", df)
