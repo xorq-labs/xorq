@@ -719,8 +719,52 @@ def test_round_no_digits(dtype, data, expected):
         param(1, [1.5, None, np.inf], [1.5, None, np.inf], id="null-and-inf"),
         param(2, [1.005, 2.675, 0.125], [1.0, 2.68, 0.13], id="two-digits"),
         param(0, [0.5, 2.5, -0.5, 1.4], [1.0, 3.0, -1.0, 1.0], id="zero-digits"),
+        # an infinity stays at a negative digits count, as on datafusion;
+        # duckdb returns 0.0 there (its inf / 10 * 10 check reads inf as 0)
         param(
-            -1, [15.0, 25.0, -15.0, 1e16 + 2], [20.0, 30.0, -20.0, 1e16], id="negative"
+            -1,
+            [15.0, 25.0, -15.0, 1e16 + 2, np.inf],
+            [20.0, 30.0, -20.0, 1e16, np.inf],
+            id="negative",
+        ),
+        # an int64 past 2**53 is converted to float64 once, the value duckdb
+        # returns; scaling it by 100 first would drift to 1.2345678901234566e17
+        param(2, [123456789012345678, -5], [1.2345678901234568e17, -5.0], id="int64"),
+        # duckdb alone for the two digit counts outside the float exponent
+        # range (datafusion returns nan): a value with no fractional part at
+        # that scale is unchanged, and one with no units at that scale is 0
+        param(
+            400, [1e300, 1e-310, 1.5, None], [1e300, 1e-310, 1.5, None], id="past-range"
+        ),
+        param(-309, [1e308, 1.5, -1.5], [0.0, 0.0, 0.0], id="negative-past-range"),
+        # an int64 past 2**53 at a negative digits count is rounded on the
+        # integer, the value duckdb returns; dividing the float first drifts
+        # by one ulp (8.460104777985657e18)
+        param(
+            -1,
+            [8460104777985655454, 25, -25, -8136954960944043082],
+            [8.460104777985656e18, 30.0, -30.0, -8.136954960944043e18],
+            id="int64-negative",
+        ),
+        # a value that overflows on the way back from the scaled value is
+        # unchanged, as on the way there; duckdb gives 0.0 for 1.5e308 and
+        # datafusion 1.0000000000000006e308 for both 1.5e308 and 1e308
+        param(
+            -308,
+            [1.5e308, 1e308, 0.5e308, 1.5],
+            [1.5e308, 1e308, 1e308, 0.0],
+            id="negative-near-max",
+        ),
+        # below 20 digits every int64 is 0; the unit is clamped there so an
+        # absurd digits count does not build a 10**|digits| integer
+        param(
+            -400, [9223372036854775807, -5, 0], [0.0, 0.0, 0.0], id="int64-past-range"
+        ),
+        param(
+            -309,
+            pd.Series([1.5, None, np.inf], dtype="Float64"),
+            [0.0, None, np.inf],
+            id="negative-past-range-nullable",
         ),
     ],
 )
@@ -728,8 +772,26 @@ def test_round_digits(digits, data, expected):
     df = pd.DataFrame({"k": range(len(data)), "a": data})
     t = Backend().connect({"t": df}).table("t")
     result = t.select("k", r=t.a.round(digits)).order_by("k").execute().r
-    assert result.dtype == "float64"
     assert [None if pd.isna(value) else value for value in result] == expected
+
+
+# a null stays a null through the rounded column, so an op composed on it
+# sees NA, as duckdb's isnan(round(NULL, 2)) is NULL; before, the explicit
+# digits branches turned a nullable NA into nan and isnan read it as True
+@pytest.mark.parametrize("dtype", ["Int64", "Float64"])
+@pytest.mark.parametrize("digits", [2, -1])
+def test_round_digits_keeps_null_through_composition(dtype, digits):
+    df = pd.DataFrame({"a": pd.Series([1, None], dtype=dtype)})
+    t = Backend().connect({"t": df}).table("t")
+    result = t.a.round(digits).isnan().execute()
+    assert [None if pd.isna(value) else value for value in result] == [False, None]
+
+
+def test_round_keeps_negative_zero():
+    # == cannot see the sign of zero; duckdb and datafusion keep it
+    df = pd.DataFrame({"a": [-0.4, -0.0, 0.4]})
+    t = Backend().connect({"t": df}).table("t")
+    assert np.signbit(t.a.round(0).execute()).tolist() == [True, True, False]
 
 
 def test_round_widens_before_arithmetic():
