@@ -183,42 +183,135 @@ class Backend(IbisPostgresBackend):
         self,
         record_batches: pa.RecordBatchReader,
         table_name: str | None = None,
-        password: str | None = None,
         temporary: bool = False,
         mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
+        """Ingest ``record_batches`` into ``table_name`` over ADBC.
+
+        Parameters
+        ----------
+        record_batches
+            The rows to write; consumed once.
+        table_name
+            Target table. Created, appended to or replaced per ``mode``.
+        temporary
+            Copy the ingested table into a session temporary table of the
+            same name afterwards.
+        mode
+            One of ``create``, ``append``, ``replace``, ``create_append``.
+        **kwargs
+            ADBC ingest options (``db_schema_name``, ``catalog_name``, ...).
+
+        Returns
+        -------
+        ir.Table
+            The ingested table, read from ``db_schema_name`` when given.
+
+        Contract
+        --------
+        Preconditions
+            - ``table_name`` must be a str; ``None`` reaches the ADBC
+              target-table option and fails there (implicit).
+            - ``temporary`` and ``db_schema_name`` cannot be combined: the
+              temporary copy goes through the search path, so it would take
+              a same-named table of the current schema (explicit check).
+            - ``mode`` must be one ADBC accepts; any other value is rejected
+              by the cursor after the connection is open (implicit).
+
+        Raises
+        ------
+        ValueError
+            ``temporary`` with ``db_schema_name``, before any ingest.
+        RuntimeError
+            The ADBC driver build has no bulk ingest (from ``adbc_ingest``).
+        adbc_driver_manager.Error
+            Connection, permission or schema errors from the ADBC connection
+            it opens from this backend's credentials; not caught.
+        """
         from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
             PgADBC,
             make_table_temporary,
         )
 
+        schema = kwargs.get("db_schema_name")
+        if temporary and schema is not None:
+            # the temporary copy is made through the search path, so it would
+            # take a same-named table in the current schema, not the ingest
+            raise ValueError("temporary is not supported with db_schema_name")
         pgadbc = PgADBC(self)
         pgadbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
         if temporary:
             make_table_temporary(self, table_name)
-        return self.table(table_name)
+        # a one-element tuple keeps the schema a literal name (a str is parsed
+        # as catalog.schema)
+        return self.table(table_name, database=(schema,) if schema else None)
 
     def read_parquet(
         self,
         path: str | Path,
         table_name: str | None = None,
-        password: str | None = None,
         temporary: bool = False,
         mode: str = "create",
+        ingest_kwargs: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> ir.Table:
+        """Read a parquet file through the default backend and ingest it.
+
+        Parameters
+        ----------
+        path
+            A path or URL the default backend's ``read_parquet`` accepts.
+        table_name
+            Target table; a generated ``ls-read-parquet-*`` name when
+            ``None``, allowed only with ``temporary=True``.
+        temporary, mode
+            As on ``read_record_batches``.
+        ingest_kwargs
+            ADBC ingest options (``db_schema_name``, ...), spelled the same
+            way on ``read_csv``.
+        **kwargs
+            Reader options for the default backend's ``read_parquet``.
+
+        Returns
+        -------
+        ir.Table
+            The ingested table.
+
+        Contract
+        --------
+        Preconditions
+            - ``table_name=None`` requires ``temporary=True`` (explicit
+              check in ``_default_ingest_name``).
+            - On a deferred read the recorded kwargs must hash and build;
+              ``ingest_kwargs`` is one of them.
+
+        Raises
+        ------
+        ValueError
+            ``table_name=None`` without ``temporary``, or ``temporary`` with
+            ``db_schema_name`` (from ``read_record_batches``).
+        TypeError
+            A reader option the default backend's ``read_parquet`` does not
+            accept (implicit, from the datafusion call); the old route of
+            ADBC options through ``**kwargs`` fails this way now.
+        FileNotFoundError
+            From the default backend when ``path`` does not resolve.
+        """
+        # reader options stay with the reader; the ADBC ingest options travel
+        # under ingest_kwargs, spelled the same way on read_csv
         table_name = _default_ingest_name(
             table_name, temporary=temporary, prefix="ls-read-parquet"
         )
-        record_batches = default_backend().read_parquet(path).to_pyarrow_batches()
+        record_batches = (
+            default_backend().read_parquet(path, **kwargs).to_pyarrow_batches()
+        )
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
-            password=password,
             temporary=temporary,
             mode=mode,
-            **kwargs,
+            **(ingest_kwargs or {}),
         )
 
     def read_csv(
@@ -226,12 +319,63 @@ class Backend(IbisPostgresBackend):
         path,
         table_name=None,
         chunksize=10_000,
-        password=None,
         temporary=False,
         mode="create",
         schema=None,
+        ingest_kwargs=None,
         **kwargs,
     ):
+        """Read one or more csv files with pandas, in chunks, and ingest them.
+
+        Parameters
+        ----------
+        path
+            A path, a glob, or a list of them, read in order.
+        table_name
+            Target table; a generated ``ls-read-csv-*`` name when ``None``,
+            allowed only with ``temporary=True``.
+        chunksize
+            Rows per pandas chunk and per ingested batch; must be a positive
+            int.
+        temporary, mode
+            As on ``read_record_batches``.
+        schema
+            The ibis schema to read with; inferred by pandas when ``None``.
+        ingest_kwargs
+            ADBC ingest options (``db_schema_name``, ...), spelled the same
+            way on ``read_parquet``.
+        **kwargs
+            Reader options for ``pandas.read_csv``.
+
+        Returns
+        -------
+        ir.Table
+            The ingested table.
+
+        Contract
+        --------
+        Preconditions
+            - ``chunksize`` must not be ``None`` (explicit check); a value
+              below one is rejected by pandas (implicit).
+            - ``table_name=None`` requires ``temporary=True`` (explicit
+              check in ``_default_ingest_name``).
+            - ``schema`` and a ``dtype`` reader option cannot be combined
+              (explicit check in ``read_csv_rbr``).
+            - Every file must share the schema of the first; a later file
+              that disagrees fails inside the ingest, after earlier chunks
+              were written.
+
+        Raises
+        ------
+        ValueError
+            ``chunksize=None``; ``table_name=None`` without ``temporary``;
+            ``temporary`` with ``db_schema_name``.
+        TypeError
+            A reader option ``pandas.read_csv`` does not accept (implicit);
+            ``password``, once accepted and ignored, fails this way now.
+        FileNotFoundError
+            From pandas when ``path`` does not resolve.
+        """
         if chunksize is None:
             raise ValueError("chunksize must not be None")
         table_name = _default_ingest_name(
@@ -244,9 +388,9 @@ class Backend(IbisPostgresBackend):
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
-            password=password,
             temporary=temporary,
             mode=mode,
+            **(ingest_kwargs or {}),
         )
 
     def create_catalog(self, name: str, force: bool = False) -> None:
