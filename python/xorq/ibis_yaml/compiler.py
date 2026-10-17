@@ -541,7 +541,7 @@ def _extract_sql_queries(expr: ir.Expr, kind: ExprKind) -> SqlQueries:
 
     clean = _remove_tag_nodes(expr)
     # Bind named params to their defaults so SQL generation doesn't see them
-    named = {n.label: n for n in clean.op().find(NamedScalarParameter)}
+    named = {n.label: n for n in walk_nodes((NamedScalarParameter,), clean)}
     if named:
         defaults = {
             label: node.default
@@ -774,6 +774,7 @@ class ExprDumper:
         )
 
     def _make_expr_metadata(self, expr) -> Dict[str, Any]:
+        from xorq.common.exceptions import XorqError  # noqa: PLC0415
         from xorq.common.utils.lineage_utils import (  # noqa: PLC0415
             extract_lineage_dag,
         )
@@ -781,7 +782,7 @@ class ExprDumper:
         metadata = ExprMetadata.from_expr(expr)
         try:
             sql_queries = _extract_sql_queries(expr, metadata.kind)
-        except (ValueError, RuntimeError, KeyError) as e:
+        except (ValueError, RuntimeError, KeyError, XorqError) as e:
             warnings.warn(
                 f"Failed to extract SQL queries for caching: {e}",
                 stacklevel=2,
