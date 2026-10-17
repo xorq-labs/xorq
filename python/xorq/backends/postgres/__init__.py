@@ -183,11 +183,12 @@ class Backend(IbisPostgresBackend):
         self,
         record_batches: pa.RecordBatchReader,
         table_name: str | None = None,
-        password: str | None = None,
         temporary: bool = False,
         mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
+        """Ingest ``record_batches`` over ADBC; ``kwargs`` are its ingest
+        options (``db_schema_name``, ``catalog_name``, ...)."""
         from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
             PgADBC,
             make_table_temporary,
@@ -197,28 +198,31 @@ class Backend(IbisPostgresBackend):
         pgadbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
         if temporary:
             make_table_temporary(self, table_name)
-        return self.table(table_name)
+        return self.table(table_name, database=kwargs.get("db_schema_name"))
 
     def read_parquet(
         self,
         path: str | Path,
         table_name: str | None = None,
-        password: str | None = None,
         temporary: bool = False,
         mode: str = "create",
+        ingest_kwargs: Mapping[str, Any] | None = None,
         **kwargs: Any,
     ) -> ir.Table:
+        # reader options stay with the reader; the ADBC ingest options travel
+        # under ingest_kwargs, spelled the same way on read_csv
         table_name = _default_ingest_name(
             table_name, temporary=temporary, prefix="ls-read-parquet"
         )
-        record_batches = default_backend().read_parquet(path).to_pyarrow_batches()
+        record_batches = (
+            default_backend().read_parquet(path, **kwargs).to_pyarrow_batches()
+        )
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
-            password=password,
             temporary=temporary,
             mode=mode,
-            **kwargs,
+            **(ingest_kwargs or {}),
         )
 
     def read_csv(
@@ -226,10 +230,10 @@ class Backend(IbisPostgresBackend):
         path,
         table_name=None,
         chunksize=10_000,
-        password=None,
         temporary=False,
         mode="create",
         schema=None,
+        ingest_kwargs=None,
         **kwargs,
     ):
         if chunksize is None:
@@ -244,9 +248,9 @@ class Backend(IbisPostgresBackend):
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
-            password=password,
             temporary=temporary,
             mode=mode,
+            **(ingest_kwargs or {}),
         )
 
     def create_catalog(self, name: str, force: bool = False) -> None:
