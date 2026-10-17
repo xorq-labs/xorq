@@ -167,7 +167,8 @@ class Backend(
             The result of the expression execution.
         """
         import pandas as pd
-        from ibis.backends.postgres.converter import PostgresPandasData
+
+        from xorq.vendor.ibis.backends.postgres.converter import PostgresPandasData
 
         self._run_pre_execute_hooks(expr)
 
