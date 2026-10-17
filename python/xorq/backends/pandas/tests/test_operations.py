@@ -690,6 +690,8 @@ def test_round(t, df):
             id="not-a-tie",
         ),
         param("float64", [np.inf, -np.inf, 1.5], [np.inf, -np.inf, 2.0], id="inf"),
+        param("Float64", [2.5, None, -0.5], [3.0, None, -1.0], id="nullable-float64"),
+        param("Float32", [2.5, None, -0.5], [3.0, None, -1.0], id="nullable-float32"),
         param("int8", [-128, 127], [-128, 127], id="int8"),
         param(
             "int64",
@@ -703,6 +705,30 @@ def test_round_no_digits(dtype, data, expected):
     df = pd.DataFrame({"k": range(len(data)), "a": pd.Series(data, dtype=dtype)})
     t = Backend().connect({"t": df}).table("t")
     result = t.select("k", r=t.a.round()).order_by("k").execute().r
+    assert [None if pd.isna(value) else value for value in result] == expected
+
+
+# expected values are what duckdb and the xorq datafusion backend return: the
+# tie is decided on the value scaled by 10**digits, half away from zero, so
+# 0.35 (3.5 once scaled) and 2.65 (26.5) both round up where numpy rounds to
+# even; a null stays null and an infinity stays
+@pytest.mark.parametrize(
+    ("digits", "data", "expected"),
+    [
+        param(1, [0.25, 0.35, 2.65, -0.25], [0.3, 0.4, 2.7, -0.3], id="ties"),
+        param(1, [1.5, None, np.inf], [1.5, None, np.inf], id="null-and-inf"),
+        param(2, [1.005, 2.675, 0.125], [1.0, 2.68, 0.13], id="two-digits"),
+        param(0, [0.5, 2.5, -0.5, 1.4], [1.0, 3.0, -1.0, 1.0], id="zero-digits"),
+        param(
+            -1, [15.0, 25.0, -15.0, 1e16 + 2], [20.0, 30.0, -20.0, 1e16], id="negative"
+        ),
+    ],
+)
+def test_round_digits(digits, data, expected):
+    df = pd.DataFrame({"k": range(len(data)), "a": data})
+    t = Backend().connect({"t": df}).table("t")
+    result = t.select("k", r=t.a.round(digits)).order_by("k").execute().r
+    assert result.dtype == "float64"
     assert [None if pd.isna(value) else value for value in result] == expected
 
 
