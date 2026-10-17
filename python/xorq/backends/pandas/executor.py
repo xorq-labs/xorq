@@ -700,7 +700,10 @@ class PandasExecutor(PandasUtils):
                 raise RuntimeError(
                     "Selection predicate length does not match underlying table"
                 )
-            parent = parent.loc[pred].reset_index(drop=True)
+            # a null predicate drops its row, as in SQL: the string kernels
+            # hand back an object series holding None, which .loc refuses,
+            # where the nullable boolean dtype reads NA as False
+            parent = parent.loc[pred.astype("boolean")].reset_index(drop=True)
         return parent
 
     @classmethod
