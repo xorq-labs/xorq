@@ -102,6 +102,9 @@ def parse(
         | spaceless_string("halffloat", "float16").result(dt.float16)
         | spaceless_string("float32").result(dt.float32)
         | spaceless_string("double", "float64", "float").result(dt.float64)
+        | spaceless_string("largestring").result(dt.LargeString())
+        | spaceless_string("binaryview").result(dt.BinaryView())
+        | spaceless_string("unknown").result(dt.unknown)
         | spaceless_string(
             "int8",
             "int16",
@@ -119,6 +122,7 @@ def parse(
         ).map(functools.partial(getattr, dt))
         | spaceless_string("bytes").result(dt.binary)
         | geotype.map(dt.GeoSpatial)
+        | geotype_parser(dt.GeoSpatial)
         | geotype_parser(dt.LineString)
         | geotype_parser(dt.Polygon)
         | geotype_parser(dt.Point)
