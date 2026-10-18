@@ -283,11 +283,12 @@ ingestion and an optional disk spill path.
 - **Counting accuracy (`max_readers`).** The sqlglot-AST scan count is a heuristic
   lower bound, and `max_readers` is a hard cap, so any query whose backend re-scans a
   source below the SQL layer can undercount and raise `ValueError: Maximum number of
-  readers reached`. The known case is a `PARTITION BY`-only aggregate window on DuckDB
-  (lowered to a `GROUP BY` self-join). Reading the backend's physical `EXPLAIN` plan
+  readers reached`. The known case, a `PARTITION BY`-only aggregate window on DuckDB
+  (lowered to a `GROUP BY` self-join), is recognised in the compiled AST on that dialect
+  and yields no count for the tables the window reads, so their caches are unbounded. Reading the backend's physical `EXPLAIN` plan
   would give the exact count, but that plan is data-dependent (the optimiser prunes
   scans of provably-empty placeholder tables), so it cannot be reproduced offline
-  without representative data; pending a fix, the AST count stands.
+  without representative data; for every other shape the AST count stands.
 - **Abandoned reader leak (streaming path).** `bind_scope_to_reader` defers cleanup
   to a wrapping generator's `finally` block, with a `weakref.finalize` backstop.
   Python guarantees the finaliser runs when the reader is GCed, but the timing is
