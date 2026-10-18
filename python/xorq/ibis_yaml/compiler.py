@@ -36,7 +36,7 @@ from xorq.caching import (
 )
 from xorq.common.compat import StrEnum
 from xorq.common.constants import REMOTE_SCHEMES
-from xorq.common.exceptions import UnboundExpressionError
+from xorq.common.exceptions import UnboundExpressionError, XorqError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
@@ -541,7 +541,7 @@ def _extract_sql_queries(expr: ir.Expr, kind: ExprKind) -> SqlQueries:
 
     clean = _remove_tag_nodes(expr)
     # Bind named params to their defaults so SQL generation doesn't see them
-    named = {n.label: n for n in clean.op().find(NamedScalarParameter)}
+    named = {n.label: n for n in walk_nodes((NamedScalarParameter,), clean)}
     if named:
         defaults = {
             label: node.default
@@ -781,7 +781,7 @@ class ExprDumper:
         metadata = ExprMetadata.from_expr(expr)
         try:
             sql_queries = _extract_sql_queries(expr, metadata.kind)
-        except (ValueError, RuntimeError, KeyError) as e:
+        except (ValueError, RuntimeError, KeyError, XorqError) as e:
             warnings.warn(
                 f"Failed to extract SQL queries for caching: {e}",
                 stacklevel=2,
