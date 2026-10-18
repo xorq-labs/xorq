@@ -45,6 +45,7 @@ from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
+from xorq.expr.operations import _MISSING
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.compiler import (
@@ -1098,6 +1099,42 @@ def test_extract_sql_queries_binds_non_none_defaults() -> None:
     result = _extract_sql_queries(expr, ExprKind.UnboundExpr)
     assert len(result) == 1
     assert "1.0" in result[0][2]
+
+
+def _param_behind_remote_table(default):
+    """The expression from GH #2374: a filter on a param, then an into_backend seam."""
+    con = xo.connect()
+    t = con.create_table(
+        "t",
+        pd.DataFrame({"d": pd.to_datetime(["2026-08-15", "2026-09-15"]), "v": [1, 2]}),
+    )
+    start = xo.param("start", "string", default=default)
+    filtered = t.filter(t.d >= start.cast("timestamp"))
+    return filtered.into_backend(xo.connect(), "seam")
+
+
+def test_build_param_default_behind_remote_table(tmp_path: pathlib.Path) -> None:
+    """A defaulted param behind into_backend builds, with the default bound into
+    the SQL recorded for the remote expression."""
+    build_dir = build_expr(
+        _param_behind_remote_table("2026-09-01"), builds_dir=tmp_path
+    )
+    entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
+    assert any("2026-09-01" in sql for _, _, sql in entry["sql_queries"])
+
+
+def test_build_param_without_default_behind_remote_table(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A required param behind into_backend still builds: SQL extraction is
+    best-effort metadata, so it warns and records no queries."""
+    with pytest.warns(UserWarning, match="Failed to extract SQL queries"):
+        build_dir = build_expr(
+            _param_behind_remote_table(_MISSING), builds_dir=tmp_path
+        )
+    entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
+    assert "sql_queries" not in entry
+    assert entry["params"] == [{"param_name": "start", "type": "string"}]
 
 
 def test_extract_sql_queries_records_relations(parquet_dir: pathlib.Path) -> None:

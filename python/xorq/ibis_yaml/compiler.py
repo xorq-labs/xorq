@@ -64,7 +64,6 @@ from xorq.common.utils.node_utils import (
 )
 from xorq.config import default_backend
 from xorq.expr.api import deferred_read_parquet
-from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
     CachedNode,
     CacheTag,
@@ -540,16 +539,12 @@ def _extract_sql_queries(expr: ir.Expr, kind: ExprKind) -> SqlQueries:
     from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
 
     clean = _remove_tag_nodes(expr)
-    # Bind named params to their defaults so SQL generation doesn't see them
-    named = {n.label: n for n in walk_nodes((NamedScalarParameter,), clean)}
-    if named:
-        defaults = {
-            label: node.default
-            for label, node in named.items()
-            if node.default is not _MISSING and node.default is not None
-        }
-        if defaults:
-            clean = bind_params(clean, defaults)
+    # Bind named params to their defaults so SQL generation doesn't see them.
+    # bind_params walks across RemoteTable, so params behind into_backend bind
+    # too; a param without a default raises ValueError, which the caller treats
+    # as "no SQL to record".
+    if walk_nodes(NamedScalarParameter, clean):
+        clean = bind_params(clean, {})
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
