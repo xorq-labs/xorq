@@ -153,16 +153,9 @@ class Backend(IbisPostgresBackend):
                     return
 
             # Psycopg fallback: session-local temp tables or no ADBC URI.
-            con = self.con
-            with (
-                con.cursor(name=util.gen_name("postgres_cursor")) as cursor,
-                con.transaction(),
-            ):
-                cur = cursor.execute(query)
-                while batch := cur.fetchmany(chunk_size):
-                    yield pa.RecordBatch.from_struct_array(
-                        pa.array(batch, type=struct_type)
-                    )
+            yield from self._psycopg_batches(
+                struct_type=struct_type, query=query, chunk_size=chunk_size
+            )
 
         self._run_pre_execute_hooks(expr)
 
