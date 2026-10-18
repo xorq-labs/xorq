@@ -1,5 +1,6 @@
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import xorq.api as xo
@@ -8,9 +9,12 @@ import xorq.expr.udf as udf
 import xorq.ibis_yaml
 import xorq.ibis_yaml.utils
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.udf import pyarrow_udwf
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor import ibis
 
 
@@ -185,3 +189,45 @@ def test_aggudf_func_token_survives_roundtrip(compiler):
     profiles = {con._profile.hash_name: con}
     roundtrip = compiler.from_yaml(compiler.to_yaml(expr), profiles=profiles)
     assert aggudf_func_tokens(roundtrip) == live_tokens
+
+
+@xo.udf.scalar.pyarrow
+def plus_one(arr: dt.float64) -> dt.float64:
+    return pc.add(arr, 1.0)
+
+
+def test_pyarrow_scalar_udf_survives_build_load(tmp_path):
+    # GH #2347: a loaded pyarrow UDF could not be hashed or compiled to SQL
+    t = (
+        SqliteBackend()
+        .connect(str(tmp_path / "db.sqlite"))
+        .create_table("t", {"x": [1.5, 2.5]})
+    )
+    expr = t.mutate(y=plus_one(t.x))
+
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path / "builds"))
+
+    assert get_expr_hash(loaded) == get_expr_hash(expr)
+    assert xo.to_sql(loaded) == xo.to_sql(expr)
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    (
+        pytest.param({}, id="empty"),
+        pytest.param({"database": "myschema"}, id="database"),
+        pytest.param({"catalog": "mycat", "database": "myschema"}, id="catalog"),
+    ),
+)
+def test_builtin_scalar_udf_namespace_roundtrip(compiler, namespace):
+    @xo.udf.scalar.builtin(**namespace)
+    def my_fn(x: int) -> int: ...
+
+    t = xo.table({"a": "int64"}, name="t")
+    expr = t.mutate(y=my_fn(t.a))
+
+    loaded = compiler.from_yaml(compiler.to_yaml(expr))
+
+    # the xorq backend drops the namespace from the sql; duckdb emits it
+    con = xo.duckdb.connect()
+    assert con.compile(loaded) == con.compile(expr)
