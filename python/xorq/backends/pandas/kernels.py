@@ -254,32 +254,85 @@ def safe_decimal(func):
     return wrapper
 
 
+# the explicit-digits path scales by 10**|digits| one way and undoes it the
+# other, keyed on whether digits is non-negative
+SCALE_STEPS = {
+    True: (operator.mul, operator.truediv),
+    False: (operator.truediv, operator.mul),
+}
+# past 308 digits duckdb returns the value unchanged (its 10**309 scale
+# overflows); below -308 no float64 has a units digit left
+FLOAT_DIGITS_RANGE = (-308, 308)
+# every int64 and uint64 rounds to 0 below 20 digits (uint64 max is 1.8e19)
+INTEGER_DIGITS_FLOOR = -20
+
+
 def round_half_away_from_zero(arg):
     # as the SQL backends do (numpy rounds half to even), decided on the exact
     # fractional part so that a value just below a half or past 2**52 is not
-    # pushed over by adding 0.5; a null or an infinity passes through
+    # pushed over by adding 0.5; a null or an infinity passes through, and a
+    # negative zero keeps its sign
     whole = np.trunc(arg)
-    return whole.where(~np.isfinite(arg), whole + np.trunc((arg - whole) * 2))
+    rounded = whole.where(~np.isfinite(arg), whole + np.trunc((arg - whole) * 2))
+    return np.copysign(rounded, arg)
+
+
+def round_no_digits(arg):
+    if pd.api.types.is_integer_dtype(arg):
+        return arg.astype("Int64" if arg.isna().any() else "int64")
+    rounded = round_half_away_from_zero(arg)
+    # a null or an infinity cannot be cast to int64, so a column holding
+    # one stays float; the nullable float dtypes skip their NA in isfinite
+    if rounded.isna().any() or not np.isfinite(rounded).all():
+        return rounded
+    return rounded.astype("int64")
+
+
+def round_integer_digits(arg, digits):
+    # at or above the units digit an integer is already round; below it the
+    # tie is decided on Python ints, so a value past 2**53 is converted to
+    # float once, at the end, and not rounded twice
+    if digits >= 0:
+        return arg
+    unit = 10 ** -max(digits, INTEGER_DIGITS_FLOOR)
+
+    def round_one(value):
+        quotient, remainder = divmod(abs(value), unit)
+        sign = 1 if value >= 0 else -1
+        return (quotient + (2 * remainder >= unit)) * unit * sign
+
+    return arg.astype(object).map(round_one, na_action="ignore")
+
+
+def round_float_digits(arg, digits):
+    low, high = FLOAT_DIGITS_RANGE
+    if digits > high:
+        return arg
+    if digits < low:
+        # isfinite is NA on a nullable NA, which must stay NA, not become 0
+        return arg.where(arg.isna() | ~np.isfinite(arg), 0.0)
+    # the tie is decided on the value scaled by 10**digits, as duckdb and
+    # datafusion do
+    forward, back = SCALE_STEPS[digits >= 0]
+    scale = 10.0 ** abs(digits)
+    rounded = back(round_half_away_from_zero(forward(arg, scale)), scale)
+    # a value that leaves the float range on the way there or back is
+    # unchanged; an infinity stays one, as on datafusion
+    return rounded.where(np.isfinite(rounded), arg)
 
 
 def round_serieswise(arg, digits):
-    if digits is None:
-        if pd.api.types.is_integer_dtype(arg):
-            return arg.astype("Int64" if arg.isna().any() else "int64")
-        rounded = round_half_away_from_zero(arg)
-        # a null or an infinity cannot be cast to int64, so a column holding
-        # one stays float; the nullable float dtypes skip their NA in isfinite
-        if rounded.isna().any() or not np.isfinite(rounded).all():
-            return rounded
-        return rounded.astype("int64")
-    # the tie is decided on the scaled value, as duckdb and datafusion do;
-    # a negative digits count divides first so the scale stays an exact power
-    scale = 10.0 ** abs(digits)
-    if digits < 0:
-        rounded = round_half_away_from_zero(arg / scale) * scale
-    else:
-        rounded = round_half_away_from_zero(arg * scale) / scale
-    return rounded.astype("float64")
+    match digits:
+        case None:
+            return round_no_digits(arg)
+        case _ if pd.api.types.is_integer_dtype(arg):
+            rounded = round_integer_digits(arg, int(digits))
+        case _:
+            rounded = round_float_digits(arg, int(digits))
+    # nullable in, nullable out; the no-digits branch keeps the masked dtypes
+    # the same way (an arrow-backed float comes back numpy float64 there)
+    nullable = isinstance(arg.dtype, pd.api.extensions.ExtensionDtype)
+    return rounded.astype("Float64" if nullable else "float64")
 
 
 def between_columnwise(df):
