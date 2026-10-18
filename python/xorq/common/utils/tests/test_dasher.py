@@ -46,7 +46,7 @@ import xorq.api as xo
 import xorq.common.utils.dasher as dasher
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
-from xorq.caching import ParquetCache
+from xorq.caching import ParquetCache, ParquetSnapshotCache
 from xorq.caching.strategy import ModificationTimeStrategy
 from xorq.common.utils.dasher import (
     _EXTRA_RULES,
@@ -308,6 +308,43 @@ def test_normalize_read_nonexistent_absolute_path_raises():
     )
     with pytest.raises(FileNotFoundError, match="local path does not exist"):
         HASHER.normalize(read)
+
+
+# --- read kwargs are identity -------------------------------------------
+
+
+def _csv_reads(tmp_path):
+    """Two deferred reads of one csv that return different rows: whole file vs
+    the last data row (``skip=2`` is a duckdb parse kwarg)."""
+    path = tmp_path / "a.csv"
+    path.write_text("x,y\n1,2\n9,9\n3,4\n")
+    con = xo.duckdb.connect()
+    schema = xo.schema({"x": "int64", "y": "int64"})
+    whole = xo.deferred_read_csv(path, con, schema=schema)
+    skipped = xo.deferred_read_csv(path, con, schema=schema, skip=2)
+    return con, whole, skipped
+
+
+def test_read_kwargs_distinguish_token(tmp_path):
+    _, whole, skipped = _csv_reads(tmp_path)
+    assert tokenize(whole.op()) != tokenize(skipped.op())
+
+
+def test_read_kwargs_order_does_not_bear_identity(tmp_path):
+    _, _, skipped = _csv_reads(tmp_path)
+    op = skipped.op()
+    swapped = op.copy(read_kwargs=tuple(reversed(op.read_kwargs)))
+    assert tokenize(swapped) == tokenize(op)
+
+
+@pytest.mark.parametrize("cache_cls", (ParquetCache, ParquetSnapshotCache))
+def test_read_kwargs_cache_serves_each_parse(tmp_path, cache_cls):
+    con, whole, skipped = _csv_reads(tmp_path)
+    cache = cache_cls.from_kwargs(base_path=tmp_path / "cache", source=con)
+    cached_whole, cached_skipped = whole.cache(cache), skipped.cache(cache)
+    assert cached_whole.ls.get_key() != cached_skipped.ls.get_key()
+    assert cached_whole.execute().to_dict("list") == {"x": [1, 9, 3], "y": [2, 9, 4]}
+    assert cached_skipped.execute().to_dict("list") == {"x": [3], "y": [4]}
 
 
 # --- NamedScalarParameter ------------------------------------------------
