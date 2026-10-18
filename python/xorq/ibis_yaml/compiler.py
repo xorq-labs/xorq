@@ -206,6 +206,7 @@ def _to_yaml_safe(data):
     elif isinstance(data, FrozenOrderedDict):
         return _to_yaml_safe(dict(data))
     elif isinstance(data, ibis.Schema):
+        # same spelling as dasher._relations._declarative, which keys a Read on it
         return {name: str(dtype) for name, dtype in zip(data.names, data.types)}
     elif isinstance(data, (pathlib.PurePath, StrEnum)):
         return str(data)
