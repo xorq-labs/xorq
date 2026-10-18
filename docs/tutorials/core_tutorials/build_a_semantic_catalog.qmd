@@ -32,7 +32,7 @@ The rest of the tutorial assumes commands are run from inside `flights-tutorial/
 
 ::: {.callout-note}
 ### Why `--bare`?
-Plain `uv init` drops a sample `main.py` next to your `pyproject.toml` and runs `git init`. Both bite you later: setuptools' auto-discovery sees `main.py` + `flights_catalog.py` and refuses to build a wheel for `catalog.add(...)` (multiple top-level modules), and the empty git repo (no `HEAD`) makes Xorq's import-time git probe write `fatal: ambiguous argument 'HEAD'` to stderr on every run. `--bare` skips both—only `pyproject.toml` is created.
+Plain `uv init` drops a sample `main.py` next to your `pyproject.toml`: setuptools' auto-discovery then sees `main.py` + `flights_catalog.py` and refuses to build a wheel for `catalog.add(...)` (multiple top-level modules). `--bare` skips it, so only `pyproject.toml` is created. (It also skips `git init`; a repo with no commit yet is fine, builds record the staged diff with a null commit.)
 :::
 
 ::: {.callout-note}

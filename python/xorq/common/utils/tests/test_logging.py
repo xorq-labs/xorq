@@ -2,6 +2,8 @@ import json
 import logging
 import logging.handlers
 import pathlib
+import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,12 +11,15 @@ import structlog
 from opentelemetry.trace import StatusCode
 from structlog.testing import LogCapture
 
+import xorq.api as xo
 from xorq.common.utils.logging_utils import (
     RunLogger,
     _NullRunLogger,
     get_log_path,
     log_initial_state,
 )
+from xorq.ibis_yaml.compiler import build_expr
+from xorq.ibis_yaml.enums import DumpFiles
 
 
 @pytest.fixture(name="log_output")
@@ -24,7 +29,13 @@ def fixture_log_output():
 
 @pytest.fixture(autouse=True)
 def fixture_configure_structlog(log_output):
+    # restore xorq's configuration afterwards: structlog is global, and a
+    # LogCapture left behind swallows the warnings the next test file on the
+    # same worker asserts through caplog
+    saved = structlog.get_config()
     structlog.configure(processors=[log_output])
+    yield
+    structlog.configure(**saved)
 
 
 def _has_event(events, event_name):
@@ -43,6 +54,101 @@ def test_logging_without_git(log_output, tmp_path):
 
     assert not _has_event(log_output.entries, "git state")
     assert _has_event(log_output.entries, "xorq version")
+
+
+def _git(cwd, *args):
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=xorq",
+            "-c",
+            "user.email=xorq@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        cwd=cwd,
+        capture_output=True,
+        check=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _build_git_state(builds_dir):
+    build_path = build_expr(xo.memtable({"x": [1]}), builds_dir=builds_dir)
+    metadata = json.loads(
+        Path(build_path).joinpath(DumpFiles.build_metadata).read_text()
+    )
+    return metadata["git_state"]
+
+
+@pytest.fixture(name="empty_repo")
+def fixture_empty_repo(tmp_path, monkeypatch):
+    _git(tmp_path, "init", "-q")
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def test_build_git_state_without_commits(empty_repo, log_output):
+    # GH #1561: a freshly `git init`ed project has a .git directory but no HEAD
+    assert _build_git_state(empty_repo / "builds") == {
+        "commit": None,
+        "diff": "",
+        "diff_cached": "",
+    }
+
+    log_initial_state(cwd=empty_repo)
+    assert _has_event(log_output.entries, "git state")
+    assert not _has_event(log_output.entries, "failed to log git repo info")
+
+
+def test_build_git_state_staged_without_commits(empty_repo):
+    # the tutorial flow: git init, git add, build; what is staged is recorded
+    (empty_repo / "pipeline.py").write_text("expr = None\n")
+    _git(empty_repo, "add", "pipeline.py")
+
+    git_state = _build_git_state(empty_repo / "builds")
+    assert git_state["commit"] is None
+    assert "pipeline.py" in git_state["diff_cached"]
+    assert git_state["diff"] == ""
+
+
+def test_git_state_follows_cwd_not_process_cwd(tmp_path, log_output, monkeypatch):
+    # the logger is pointed at a repo from a directory that is not one
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "first")
+    monkeypatch.chdir(tmp_path)
+
+    log_initial_state(cwd=repo)
+    (event,) = (e for e in log_output.entries if e["event"] == "git state")
+    assert event["commit"] == _git(repo, "rev-parse", "HEAD")
+    assert not _has_event(log_output.entries, "failed to log git repo info")
+
+
+def test_build_git_state_staged_non_utf8_file(empty_repo):
+    (empty_repo / "latin1.txt").write_bytes("se\xf1or\n".encode("latin-1"))
+    _git(empty_repo, "add", "latin1.txt")
+
+    git_state = _build_git_state(empty_repo / "builds")
+    assert "latin1.txt" in git_state["diff_cached"]
+
+
+def test_build_git_state_keeps_crlf_and_utf8(empty_repo):
+    (empty_repo / "crlf.txt").write_bytes("se\u00f1or\r\nsecond\r\n".encode("utf-8"))
+    _git(empty_repo, "-c", "core.autocrlf=false", "add", "crlf.txt")
+
+    diff_cached = _build_git_state(empty_repo / "builds")["diff_cached"]
+    assert "+se\u00f1or\r\n+second" in diff_cached
+
+
+def test_build_git_state_with_commit(empty_repo):
+    _git(empty_repo, "commit", "-q", "--allow-empty", "-m", "first")
+
+    git_state = _build_git_state(empty_repo / "builds")
+    assert git_state["commit"] == _git(empty_repo, "rev-parse", "HEAD")
 
 
 def test_temp_log_path():
