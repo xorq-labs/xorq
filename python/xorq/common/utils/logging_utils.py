@@ -7,6 +7,7 @@ import importlib.metadata
 import json
 import logging.handlers
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -36,25 +37,52 @@ _log_env_config = EnvConfigable.subclass_from_env_file(
 
 
 def _git_is_present(cwd=None):
-    if cwd is None:
-        cwd = pathlib.Path().absolute()
+    """True when `cwd` is inside a git work tree, commits or not.
 
-    return any(p for p in (cwd, *cwd.parents) if p.joinpath(".git").exists())
-
-
-def get_git_state(hash_diffs):
-    commit, diff, diff_cached = (
-        subprocess.check_output(lst).decode().strip()
-        for lst in (
-            ["git", "rev-parse", "HEAD"],
-            ["git", "diff"],
-            ["git", "diff", "--cached"],
-        )
+    A missing git binary, a bare repo, a directory outside any repo and a
+    repo git refuses to read (ownership, corruption) all answer False.
+    """
+    return bool(shutil.which("git")) and (
+        subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        == "true"
     )
+
+
+def _git_head(cwd=None):
+    """The commit HEAD points at, or None on an unborn branch (no commit yet)."""
+    head = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", "HEAD"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    return head.stdout.strip() if head.returncode == 0 else None
+
+
+def _git_output(args, cwd=None):
+    # bytes, decoded as UTF-8 with replacement: a diff can carry any encoding
+    # and must not abort the build that records it, while valid UTF-8 and
+    # CRLF content stay exactly as git printed them (text=True would decode
+    # with the locale and fold newlines)
+    return (
+        subprocess.run(["git", *args], cwd=cwd, capture_output=True, check=True)
+        .stdout.decode("utf-8", errors="replace")
+        .strip()
+    )
+
+
+def get_git_state(hash_diffs, cwd=None):
+    # both diffs work against the empty tree on an unborn branch, so a fresh
+    # `git init; git add` project records what is staged
     git_state = {
-        "commit": commit,
-        "diff": diff,
-        "diff_cached": diff_cached,
+        "commit": _git_head(cwd=cwd),
+        "diff": _git_output(["diff"], cwd=cwd),
+        "diff_cached": _git_output(["diff", "--cached"], cwd=cwd),
     }
     if hash_diffs:
         for key in ("diff", "diff_cached"):
@@ -69,7 +97,7 @@ def log_initial_state(hash_diffs=False, cwd=None):
     logger.info("initial log level", log_level=log_level)
     try:
         if _git_is_present(cwd=cwd):
-            git_state = get_git_state(hash_diffs=hash_diffs)
+            git_state = get_git_state(hash_diffs=hash_diffs, cwd=cwd)
             logger.info(
                 "git state",
                 **git_state,
