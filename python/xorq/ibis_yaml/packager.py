@@ -20,6 +20,7 @@ import operator
 import os
 import shutil
 import subprocess
+import warnings
 import zipfile
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -403,16 +404,15 @@ class WheelPackager:
                     extras=self.extras,
                     all_extras=self.all_extras,
                 )
-            if existing.exists() and existing.read_text() != exported:
-                raise RuntimeError(
-                    f"{DumpFiles.requirements} in {self.project_path} does not match "
-                    f"`uv export` output from {UVLOCK_NAME} (byte-exact comparison). "
-                    f"This happens when {UVLOCK_NAME} changes, or when the in-tree "
-                    f"{DumpFiles.requirements} was produced by a different uv version "
-                    f"than the one running now. To resolve: delete "
-                    f"{existing} and let the packager regenerate it, "
-                    f"or re-export manually with `uv export --locked --no-dev "
-                    f"--no-emit-project --no-header --no-annotate > {existing.name}`."
+            if existing.exists() and _requirement_lines(
+                existing.read_text()
+            ) != _requirement_lines(exported):
+                warnings.warn(
+                    f"{existing} does not match `uv export` output from "
+                    f"{UVLOCK_NAME}; bundling the {UVLOCK_NAME} export. "
+                    f"Re-export with `uv export --locked --no-dev --no-emit-project "
+                    f"--no-header --no-annotate > {existing.name}` to silence this.",
+                    stacklevel=2,
                 )
             (self.tmpdir / DumpFiles.requirements).write_text(exported)
         else:
@@ -959,6 +959,16 @@ def uv_tool_run(
             raise UvToolRunError(
                 e.returncode, e.cmd, output=e.output, stderr=e.stderr
             ) from e
+
+
+def _requirement_lines(text):
+    """The non-comment lines of a requirements.txt, so that `uv export` output
+    compares equal with and without --no-header --no-annotate."""
+    return frozenset(
+        stripped
+        for line in text.splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    )
 
 
 def uv_export_requirements(project_dir, python_version, extras=(), all_extras=True):
