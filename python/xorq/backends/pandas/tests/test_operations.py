@@ -1169,6 +1169,31 @@ def test_filter_on_negated_between_drops_null_rows(client):
     assert t.filter(~t.a.between(t.lo, t.hi)).count().execute() == 2
 
 
+# expected values are what duckdb returns: a null string stays null through a
+# negated predicate and through the regex kernels, where pandas raised
+# (TypeError from ~ on None, and from re.search on None)
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        param(lambda t: ~t.s.startswith("a"), [False, None, False], id="not"),
+        param(lambda t: t.s.re_search("^a"), [True, None, True], id="re_search"),
+        param(lambda t: t.s.re_extract("a(.)", 1), ["b", None, "c"], id="re_extract"),
+        param(lambda t: t.s.re_replace("a", "x"), ["xb", None, "xc"], id="re_replace"),
+    ],
+)
+def test_string_ops_keep_null(client, expr, expected):
+    df = pd.DataFrame({"s": ["ab", None, "ac"]})
+    t = client.create_table("string_null_t", df, overwrite=True)
+    result = expr(t).execute()
+    assert [None if pd.isna(value) else value for value in result] == expected
+
+
+def test_filter_on_negated_null_bearing_predicate_drops_null_rows(client):
+    df = pd.DataFrame({"s": ["ab", None, "cd"]})
+    t = client.create_table("negated_filter_t", df, overwrite=True)
+    assert t.filter(~t.s.startswith("a")).s.execute().tolist() == ["cd"]
+
+
 # duckdb drops the row whose string is null: the predicate is null there,
 # and a filter keeps only rows whose predicate is true
 @pytest.mark.parametrize(
