@@ -1,4 +1,5 @@
 import base64
+import functools
 import logging
 import secrets
 import threading
@@ -24,6 +25,44 @@ from xorq.flight.metrics import (
 
 
 logger = logging.getLogger(__name__)
+
+# gRPC caps the status trailers at 8 KB, and the message travels in them twice
+# (percent-encoded `grpc-message` plus the binary status detail): 4 000 ASCII
+# characters already overflow, 1 000 two-byte ones do, and the traceback that
+# pyarrow appends to a plain Python exception overflows on its own. Measured
+# in UTF-8 bytes; the worst case lands at 4 KB on the wire.
+STATUS_MESSAGE_BUDGET = 1024
+
+
+def bounded_message(exc: BaseException) -> str:
+    """``Type: message`` with the middle elided so the status fits the budget."""
+    text = f"{type(exc).__name__}: {exc}".encode()
+    if len(text) <= STATUS_MESSAGE_BUDGET:
+        return text.decode()
+    (head, tail) = (
+        text[: STATUS_MESSAGE_BUDGET * 3 // 4].decode(errors="ignore"),
+        text[-STATUS_MESSAGE_BUDGET // 4 :].decode(errors="ignore"),
+    )
+    return f"{head} [... {len(text) - STATUS_MESSAGE_BUDGET} bytes elided ...] {tail}"
+
+
+def bounded_status(f):
+    """Re-raise any failure as a ``FlightServerError`` that fits the status.
+
+    A plain Python exception reaches the client only if its message plus
+    traceback fit gRPC's metadata cap; past that, the client sees ``received
+    initial metadata size exceeds limit`` and nothing else. A ``FlightError``
+    travels without the traceback, which stays in the server log.
+    """
+
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except BaseException as exc:
+            raise pa.flight.FlightServerError(bounded_message(exc)) from exc
+
+    return wrapper
 
 
 class BasicAuthServerMiddlewareFactory(pa.flight.ServerMiddlewareFactory):
@@ -197,6 +236,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
                 raise KeyError("Unknown action {!r}".format(action.type))
 
     @instrument_rpc("do_exchange")
+    @bounded_status
     @maybe_log_excepts
     def do_exchange(self, context, rec, descriptor, reader, writer):
         with self.lock:
