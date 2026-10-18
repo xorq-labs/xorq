@@ -335,6 +335,24 @@ def round_serieswise(arg, digits):
     return rounded.astype("Float64" if nullable else "float64")
 
 
+def not_(x):
+    match x:
+        case bool() | np.bool_():
+            return not x
+        case pd.Series() if x.dtype == object:
+            # a string predicate over a null hands back None; the nullable
+            # boolean dtype keeps it null through ~, where object raises
+            return ~x.astype("boolean")
+        case _:
+            return ~x
+
+
+def null_on_null_arg(func):
+    # a null string matches, extracts and replaces to null, as in SQL; the
+    # re functions raise on None
+    return lambda row: None if pd.isna(row["arg"]) else func(row)
+
+
 def between_columnwise(df):
     # Series.between is False on a null operand; sql yields null there, unless
     # the other bound already excludes the value (FALSE AND NULL is FALSE)
@@ -412,7 +430,7 @@ _generic = {
     ops.Modulus: operator.mod,
     ops.Multiply: operator.mul,
     ops.Negate: lambda x: not x if isinstance(x, (bool, np.bool_)) else -x,
-    ops.Not: lambda x: not x if isinstance(x, (bool, np.bool_)) else ~x,
+    ops.Not: not_,
     ops.NotEquals: operator.ne,
     ops.Or: operator.or_,
     ops.Power: operator.pow,
@@ -481,13 +499,15 @@ rowwise = {
     ops.MapMerge: lambda row: safe_merge(row["left"], row["right"]),
     ops.TimestampRange: timestamp_range_rowwise,
     ops.LPad: lambda row: row["arg"].rjust(row["length"], row["pad"]),
-    ops.RegexExtract: lambda row: re.search(row["pattern"], row["arg"]).group(
-        row["index"]
+    ops.RegexExtract: null_on_null_arg(
+        lambda row: re.search(row["pattern"], row["arg"]).group(row["index"])
     ),
-    ops.RegexReplace: lambda row: re.sub(
-        row["pattern"], row["replacement"], row["arg"]
+    ops.RegexReplace: null_on_null_arg(
+        lambda row: re.sub(row["pattern"], row["replacement"], row["arg"])
     ),
-    ops.RegexSearch: lambda row: re.search(row["pattern"], row["arg"]) is not None,
+    ops.RegexSearch: null_on_null_arg(
+        lambda row: re.search(row["pattern"], row["arg"]) is not None
+    ),
     ops.RPad: lambda row: row["arg"].ljust(row["length"], row["pad"]),
     ops.StartsWith: lambda row: row["arg"].startswith(row["start"]),
     ops.StringContains: lambda row: row["haystack"].contains(row["needle"]),
