@@ -284,20 +284,6 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
 
         return self.table(name, database=(catalog, database))
 
-    def table(self, name: str, /, *, database: str | None = None) -> ir.Table:
-        table_loc = self._to_sqlglot_table(database)
-
-        catalog = table_loc.catalog or None
-        database = table_loc.db or None
-
-        table_schema = self.get_schema(name, catalog=catalog, database=database)
-        return ops.DatabaseTable(
-            name,
-            schema=table_schema,
-            source=self,
-            namespace=ops.Namespace(catalog=catalog, database=database),
-        ).to_expr()
-
     def get_schema(
         self,
         table_name: str,
