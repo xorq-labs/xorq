@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 from attr import field, frozen
 from attr.validators import instance_of
 
-from xorq.common.constants import NAME_ONLY_BACKEND_NAMES, READ_IDENTITY_KEYS
+from xorq.common.constants import NAME_ONLY_BACKEND_NAMES
+from xorq.common.utils.dasher._relations import read_identity_kwargs
 
 
 if TYPE_CHECKING:
@@ -64,7 +65,7 @@ def snapshot_normalize_read(read: Read) -> tuple:
             tpls = (("path", str(path)),)
         case _:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    tpls += tuple((k, v) for k, v in read.read_kwargs if k in READ_IDENTITY_KEYS)
+    tpls += read_identity_kwargs(read)
     return ("snapshot_normalize_read", read.schema, tpls)
 
 

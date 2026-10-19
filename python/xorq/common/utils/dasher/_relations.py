@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+import operator
 import pathlib
 import re
 from collections.abc import Callable
@@ -24,7 +25,7 @@ from xorq_dasher.rules.expr import (
 
 from xorq.common.constants import (
     DATAFUSION_BACKEND_NAMES,
-    READ_IDENTITY_KEYS,
+    READ_NON_IDENTITY_KEYS,
     REMOTE_SCHEMES,
 )
 from xorq.common.enums import BackendName
@@ -44,6 +45,7 @@ from xorq.common.utils.dasher._paths import (
     _stat_or_canonical,
 )
 from xorq.common.utils.redshift_utils import normalize_redshift_databasetable
+from xorq.vendor.ibis.expr.schema import Schema
 
 
 if TYPE_CHECKING:
@@ -92,14 +94,14 @@ def _normalize_read_xorq(read):
             tpls = tuple(
                 _normalize_single_path(str(p), read_kwargs, read) for p in path
             )
-            tpls += _read_extra_kwargs(read)
+            tpls += read_identity_kwargs(read)
             return ("xorq.Read", read.schema, tpls)
         case str() | pathlib.Path():
             path = str(path)
         case _:
             raise NotImplementedError(f"Don't know how to deal with path {path!r}")
     tpls = (_normalize_single_path(path, read_kwargs, read),)
-    tpls += _read_extra_kwargs(read)
+    tpls += read_identity_kwargs(read)
     return ("xorq.Read", read.schema, tpls)
 
 
@@ -117,8 +119,34 @@ def _normalize_single_path(path, read_kwargs, read):
         raise FileNotFoundError(f"local path does not exist: {path!r}")
 
 
-def _read_extra_kwargs(read):
-    return tuple((k, v) for k, v in read.read_kwargs if k in READ_IDENTITY_KEYS)
+def _declarative(value):
+    """A kwarg value as the build dumps it: a Schema becomes ``{name: str(dtype)}``,
+    so a Read and its yaml round trip, which loads a plain mapping, tokenize alike.
+
+    Spelling shared with ``_to_yaml_safe`` in ``xorq.ibis_yaml.compiler``; a
+    shared helper is out, since that one falls back to ``str()`` for anything
+    else and identity must raise instead."""
+    match value:
+        case Schema():
+            return {name: str(dtype) for name, dtype in value.items()}
+        case _:
+            return value
+
+
+def read_identity_kwargs(read) -> tuple:
+    """The read kwargs that bear identity, for the global tokenizer here and the
+    snapshot normalizer in ``xorq.caching.strategy``."""
+    # sorted by key: the order of a Read's kwargs is a call-site accident
+    return tuple(
+        sorted(
+            (
+                (k, _declarative(v))
+                for k, v in read.read_kwargs
+                if k not in READ_NON_IDENTITY_KEYS
+            ),
+            key=operator.itemgetter(0),
+        )
+    )
 
 
 def _normalize_duckdb_databasetable_xorq(dt):
@@ -523,6 +551,7 @@ __all__ = [
     "lookup_view_normalizer",
     "normalize_flight_expr",
     "normalize_flight_udxf",
+    "read_identity_kwargs",
     "unhandled_view_op_types",
     "view_rules",
 ]

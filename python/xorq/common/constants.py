@@ -7,7 +7,16 @@ HTTP_SCHEMES = ("http://", "https://")
 CLOUD_SCHEMES = ("s3://", "gs://", "gcs://")
 REMOTE_SCHEMES = HTTP_SCHEMES + CLOUD_SCHEMES
 
-READ_IDENTITY_KEYS = frozenset({"mode", "schema", "temporary", "relocatable"})
+# Read kwargs that do not bear identity. The path contributes content or stat
+# metadata through the Read's normalize_method, read_path is location rather
+# than identity (ADR-0006), table_name is gen_name'd per construction and
+# memtables (``BundledSourceTypes.inmemory``) only marks a bundled memtable
+# for its reload. Every other kwarg reaches the backend's read method and can
+# change the rows it returns, so it is folded into the build hash and the
+# cache key.
+READ_NON_IDENTITY_KEYS = frozenset(
+    {"hash_path", "read_path", "table_name", "memtables"}
+)
 
 READ_EXCLUDE_KEYS = frozenset({"hash_path", "read_path", "relocatable"})
 
