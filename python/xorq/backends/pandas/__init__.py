@@ -75,6 +75,9 @@ class Backend(BaseBackend, NoUrl):
     """Backend over a dictionary of pandas DataFrames."""
 
     name = "pandas"
+    # deferred_read_* rejects a list/tuple of paths up front: the readers
+    # take a single path
+    reads_single_path = True
     dialect = None
     backend_table_type = pd.DataFrame
 
