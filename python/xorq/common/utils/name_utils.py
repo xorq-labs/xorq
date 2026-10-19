@@ -24,8 +24,9 @@ def _clean_udf_name(udf_name):
         return f"fun_{re.sub(r'[^0-9a-zA-Z_]', '_', udf_name)}".lower()
 
 
-def get_uid_prefix(name, pattern="^(ibis_[\\w-]+_)\\w{26}$"):
-    # xorq.vendor.ibis.util.gen_name
+def get_uid_prefix(name, pattern="^(ibis_[\\w-]+_)\\w{14,26}$"):
+    # xorq.vendor.ibis.util.gen_name (26-char uid), or xorq.expr.relations.gen_name,
+    # which truncates the whole name to 35 chars (14-char uid)
     if match := re.match(pattern, name):
         return match.group(1)
     else:
