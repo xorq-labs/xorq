@@ -468,3 +468,31 @@ def test_streaming_split_exchange_flight_failure_aborts() -> None:
     assert "error" in box, "failing split produced a clean stream instead of an error"
     assert "boom on split 1" in str(box["error"])
     assert [batch[SPLIT_KEY].to_pylist() for batch in box["delivered"]] == [[0]]
+
+
+def test_flight_serve_unbound_over_registered_memtable(parquet_dir):
+    """GH #1590: serving an unbound join whose bound side is an in-memory table exchanges rows instead of failing on the recreated con."""
+    batting = xo.connect().register(
+        xo.memtable(pd.read_parquet(parquet_dir.joinpath("batting.parquet")))
+    )
+    awards_players = xo.deferred_read_parquet(
+        parquet_dir.joinpath("awards_players.parquet"), xo.connect()
+    )
+    awards_players_unbound = xo.table(
+        name="awards_players", schema=awards_players.schema()
+    )
+    predicates = tuple(
+        set(batting.columns).intersection(awards_players_unbound.columns)
+    )
+    joined = batting.select(predicates).join(
+        awards_players_unbound.select(predicates), predicates=predicates
+    )
+    _, do_exchange = xo.expr.relations.flight_serve_unbound(joined)
+    actual = do_exchange(awards_players).read_pandas()
+    expected = batting.execute()[list(predicates)].merge(
+        awards_players.execute()[list(predicates)], on=predicates
+    )
+    assert not actual.empty
+    assert actual.sort_values(list(actual.columns), ignore_index=True).equals(
+        expected.sort_values(list(expected.columns), ignore_index=True)
+    )
