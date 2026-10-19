@@ -799,7 +799,7 @@ class agg(_agg):
             **meta,
         }
         node = type(
-            _make_udf_name(fn.__name__),
+            name,
             bases,
             kwds,
         )

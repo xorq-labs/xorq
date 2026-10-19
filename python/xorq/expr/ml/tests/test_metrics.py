@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 import xorq.expr.datatypes as dt
+from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr import api
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.metrics import (
@@ -20,6 +21,7 @@ from xorq.expr.ml.metrics import (
 )
 from xorq.expr.ml.pipeline_lib import Pipeline
 from xorq.ibis_yaml.common import deserialize_callable, serialize_callable
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 
 
 # Skip all tests in this module if sklearn is not installed
@@ -1933,3 +1935,18 @@ def test_metric_computation_survives_build_serde() -> None:
     restored = deserialize_callable(serialize_callable(mc))
 
     assert restored == mc
+
+
+def test_metric_built_twice_in_one_process_keeps_build_hash(tmp_path):
+    t = api.memtable(pd.DataFrame({"y": [1.0, 2.0, 3.0], "yhat": [1.1, 1.9, 3.2]}))
+    first, second = (
+        deferred_sklearn_metric(t, target="y", pred="yhat", metric=r2_score).as_table()
+        for _ in range(2)
+    )
+    first_path, second_path = (
+        build_expr(expr, builds_dir=tmp_path) for expr in (first, second)
+    )
+    assert get_expr_hash(first) == get_expr_hash(second)
+    assert first_path.name == second_path.name
+    assert load_expr(first_path).execute().columns.tolist() == first.columns
+    assert first.columns == second.columns
