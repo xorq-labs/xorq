@@ -66,6 +66,7 @@ from xorq.common.utils.dasher._canonical import (  # noqa: E402
 from xorq.common.utils.dasher._gap_rules import (  # noqa: E402
     normalize_attrs,
     normalize_builtin_callable,
+    normalize_function_with_globals,
     normalize_functools_partial,
     normalize_ibis_schema,
     normalize_lru_cache,
@@ -115,6 +116,7 @@ from xorq.common.utils.redshift_utils import (  # noqa: E402
 
 
 _EXTRA_RULES: tuple[tuple[str, object], ...] = (
+    ("builtins.function", normalize_function_with_globals),
     ("functools._lru_cache_wrapper", normalize_lru_cache),
     ("functools.partial", normalize_functools_partial),
     ("builtins.builtin_function_or_method", normalize_builtin_callable),

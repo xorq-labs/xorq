@@ -28,6 +28,7 @@ import functools
 import numbers
 import operator
 import pickle
+import re
 import tempfile
 import threading
 import types
@@ -36,6 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 import sqlglot
 import toolz
@@ -76,6 +78,7 @@ from xorq.common.utils.dasher._relations import (
     _normalize_bigquery_databasetable_xorq,
 )
 from xorq.common.utils.file_utils import normalize_read_path_stat
+from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.common.utils.tests._optional_backends import (
     REDSHIFT_BACKEND_FQN,
     redshift_backend,
@@ -1123,6 +1126,7 @@ def test_expr_metadata_zero_slot_scalar():
 def test_extra_rules_fqn_strings() -> None:
     """Guard against class relocations silently breaking hardcoded FQN strings."""
     expected = {
+        "builtins.function": types.FunctionType,
         "functools._lru_cache_wrapper": functools._lru_cache_wrapper,
         "functools.partial": functools.partial,
         "builtins.builtin_function_or_method": types.BuiltinFunctionType,
@@ -1366,3 +1370,135 @@ def test_normalize_bigquery_databasetable_keys_on_last_modified() -> None:
     assert token[:-1] == _bigquery_base(dt)
     assert token[-1] == 1721000000000
     assert type(token[-1]) is int
+
+
+# --- function globals ------------------------------------------------------
+
+
+_ADD_BUMP_SRC = """
+def add_bump(arr):
+    return pc.add(arr, BUMP)
+"""
+
+
+def _make_bump_udf(bump, **extra_globals):
+    # distinct __globals__ per function, as in the issue's snippet
+    ns = {"pc": pc, "BUMP": bump, **extra_globals}
+    exec(_ADD_BUMP_SRC, ns)
+    f = ns["add_bump"]
+    f.__annotations__ = {"arr": dt.int64, "return": dt.int64}
+    return xo.udf.scalar.pyarrow(f)
+
+
+def test_udf_globals_distinguish_expr_hash():
+    t = xo.memtable({"a": [1, 2, 3]}, name="t")
+    e1 = t.mutate(c=_make_bump_udf(100)(t.a))
+    e2 = t.mutate(c=_make_bump_udf(999)(t.a))
+
+    assert e1.execute()["c"].tolist() == [101, 102, 103]
+    assert e2.execute()["c"].tolist() == [1000, 1001, 1002]
+    assert get_expr_hash(e1) != get_expr_hash(e2)
+
+
+def test_udf_globals_unreferenced_global_keeps_hash():
+    t = xo.memtable({"a": [1, 2, 3]}, name="t")
+    e1 = t.mutate(c=_make_bump_udf(100, UNUSED=1)(t.a))
+    e2 = t.mutate(c=_make_bump_udf(100, UNUSED=2)(t.a))
+
+    assert get_expr_hash(e1) == get_expr_hash(e2)
+
+
+def test_udf_globals_nested_code_is_reached():
+    src = """
+def add_bump(arr):
+    return pc.add(arr, (lambda: BUMP)())
+"""
+    ns1, ns2 = {"pc": pc, "BUMP": 100}, {"pc": pc, "BUMP": 999}
+    exec(src, ns1)
+    exec(src, ns2)
+    assert tokenize(ns1["add_bump"]) != tokenize(ns2["add_bump"])
+
+
+@toolz.curry
+def _recursive_curried(n, step):
+    return _recursive_curried(n - step, step) if n else 0
+
+
+def test_function_globals_recursive_curried_function_tokenizes():
+    assert tokenize(_recursive_curried) == tokenize(_recursive_curried)
+
+
+@requires_sklearn
+def test_function_globals_library_function_tokenizes():
+    def score(y, pred):
+        return accuracy_score(y, pred)
+
+    assert tokenize(score) == tokenize(score)
+
+
+def test_function_globals_without_normalizer_raise():
+    pattern = re.compile("x")
+
+    def match(s):
+        return pattern.match(s)
+
+    def match_global(s):
+        return _PATTERN.match(s)
+
+    # a closure cell over the value already raises; a global now raises the same way
+    with pytest.raises(
+        ValueError, match="No normalizer registered for <class 're.Pattern'>"
+    ):
+        tokenize(match)
+    with pytest.raises(
+        ValueError, match="No normalizer registered for <class 're.Pattern'>"
+    ):
+        tokenize(match_global)
+
+
+_PATTERN = re.compile("x")
+
+
+def _make_bump_helper(bump):
+    def helper(arr):
+        return pc.add(arr, bump)
+
+    return helper
+
+
+def test_udf_globals_helper_closure_distinguishes():
+    src = """
+def add_bump(arr):
+    return helper(arr)
+"""
+    ns1 = {"helper": _make_bump_helper(100)}
+    ns2 = {"helper": _make_bump_helper(999)}
+    exec(src, ns1)
+    exec(src, ns2)
+    assert tokenize(ns1["add_bump"]) != tokenize(ns2["add_bump"])
+
+
+def test_udf_globals_attribute_name_is_not_a_global():
+    # ``pc.add`` loads the attribute ``add``; a global of that name is not referenced
+    t = xo.memtable({"a": [1, 2, 3]}, name="t")
+    e1 = t.mutate(c=_make_bump_udf(100, add=re.compile("x"))(t.a))
+    e2 = t.mutate(c=_make_bump_udf(100, add=re.compile("y"))(t.a))
+
+    assert get_expr_hash(e1) == get_expr_hash(e2)
+
+
+def test_udf_globals_class_local_name_is_not_a_global():
+    # the class body resolves ``add`` locally; the module global of that name is unused
+    src = """
+def add_bump(arr):
+    class Bump:
+        add = 100
+        value = add
+
+    return pc.add(arr, Bump.value)
+"""
+    ns1 = {"pc": pc, "add": re.compile("x")}
+    ns2 = {"pc": pc, "add": re.compile("y")}
+    exec(src, ns1)
+    exec(src, ns2)
+    assert tokenize(ns1["add_bump"]) == tokenize(ns2["add_bump"])
