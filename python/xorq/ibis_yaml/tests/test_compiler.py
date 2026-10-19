@@ -2205,3 +2205,53 @@ def test_execute_write_plans_dedupable_writes_once(
     )
     ExprDumper._execute_write_plans(plans)
     assert calls == ["a"]
+
+
+def test_duckdb_mutate_drop_join_roundtrip(builds_dir, parquet_dir):
+    """GH #1519: a column renamed by mutate+drop that keys a join and a group_by survives build_expr/load_expr on duckdb."""
+    con = xo.duckdb.connect()
+    batting_raw = con.read_parquet(
+        parquet_dir / "batting.parquet", table_name="batting"
+    )
+    people = con.create_table(
+        "people",
+        pd.DataFrame(
+            {"player_id": ["aardsda01", "aaronha01"], "birth_year": [1981, 1934]}
+        ),
+    )
+    renamed = batting_raw.mutate(
+        player_id=batting_raw.playerID,
+        year_id=batting_raw.yearID,
+    ).drop("playerID", "yearID")
+    expr = (
+        renamed.join(people.select(people.player_id, people.birth_year), "player_id")
+        .group_by("player_id")
+        .aggregate(seasons=renamed.year_id.nunique(), ab_total=renamed.AB.sum())
+    )
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
+    assert_frame_equal(
+        *(
+            e.execute().sort_values("player_id", ignore_index=True)
+            for e in (expr, roundtrip_expr)
+        )
+    )
+
+
+def test_build_writes_cache_source_profile_used_nowhere_else(
+    builds_dir, tmp_path, parquet_dir
+):
+    """GH #1216: a backend that only backs the cache storage is still written to profiles.yaml, so the build loads and runs."""
+    expr = (
+        xo.deferred_read_parquet(parquet_dir / "astronauts.parquet")
+        .into_backend(con=xo.duckdb.connect())
+        .select(xo._.name, xo._.id, xo._.number)
+        .cache(ParquetCache.from_kwargs(source=xo.sqlite.connect(), base_path=tmp_path))
+    )
+    build_path = build_expr(expr, builds_dir=builds_dir)
+    profiles = yaml12.parse_yaml(build_path.joinpath(DumpFiles.profiles).read_text())
+    assert {profile["con_name"] for profile in profiles.values()} == {
+        "xorq_datafusion",
+        "duckdb",
+        "sqlite",
+    }
+    assert_frame_equal(expr.execute(), load_expr(build_path).execute())
