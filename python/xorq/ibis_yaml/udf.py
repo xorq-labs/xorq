@@ -35,6 +35,13 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
         if not name.startswith("__") and name not in op.__class__.__slots__
     ]
 
+    # an empty namespace is not written, so expr.yaml of a UDF without
+    # database/catalog (and its build hash) is unchanged
+    namespace = (
+        {"namespace": compiler.translate_to_yaml(op.__udf_namespace__)}
+        if op.__udf_namespace__ != ops.Namespace()
+        else {}
+    )
     return freeze(
         {
             "op": "ScalarUDF",
@@ -47,6 +54,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
             "class_name": op.__func_name__,
             "arg_names": arg_names,
         }
+        | namespace
     )
 
 
@@ -97,7 +105,11 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         "__input_type__": input_type,
         "__func__": udf.property_wrap_fn(fn),
         "__config__": {"volatility": "immutable"},
-        "__udf_namespace__": None,
+        "__udf_namespace__": (
+            translate_from_yaml(yaml_dict["namespace"], compiler)
+            if "namespace" in yaml_dict
+            else ops.Namespace()
+        ),
         "__module__": yaml_dict.get("module", "__main__"),
         "__func_name__": yaml_dict["func_name"],
     }
