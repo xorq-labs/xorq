@@ -226,8 +226,17 @@ def test_builtin_scalar_udf_namespace_roundtrip(compiler, namespace):
     t = xo.table({"a": "int64"}, name="t")
     expr = t.mutate(y=my_fn(t.a))
 
-    loaded = compiler.from_yaml(compiler.to_yaml(expr))
+    yaml_dict = compiler.to_yaml(expr)
+    (udf_yaml,) = (
+        node["values"]["y"]
+        for node in yaml_dict["definitions"]["nodes"].values()
+        if node.get("op") == "Project"
+    )
+    loaded = compiler.from_yaml(yaml_dict)
 
+    # an empty namespace writes no key, so expr.yaml and build hashes of UDFs
+    # without database/catalog stay unchanged
+    assert ("namespace" in udf_yaml) == bool(namespace)
     # the xorq backend drops the namespace from the sql; duckdb emits it
     con = xo.duckdb.connect()
     assert con.compile(loaded) == con.compile(expr)
