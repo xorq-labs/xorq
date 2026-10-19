@@ -89,6 +89,7 @@ from xorq.common.utils.lineage_utils import (
     compact_lineage_rows,
 )
 from xorq.config import TUI, options
+from xorq.ibis_yaml.compiler import _extract_sql_queries
 from xorq.ibis_yaml.enums import ExprKind
 
 
@@ -2362,6 +2363,19 @@ def test_dag_label_truncates_unsanitized_gen_name_uids() -> None:
     assert _dag_label(f"ibis_xorq-read_parquet_{uid}") == (
         f"ibis_xorq-read_parquet_{uid[:12]}"
     )
+
+
+def test_render_sql_dag_truncates_remote_table_uid() -> None:
+    """into_backend names its RemoteTable with relations.gen_name, which cuts
+    the uid to 14 chars; the label must still truncate it to the read width."""
+    expr = xo.memtable({"a": [1]}).into_backend(xo.duckdb.connect())
+    sqls = _extract_sql_queries(expr, ExprKind.Expr)
+    (name,) = (name for name, *_ in sqls if name != "main")
+    prefix = "ibis_rbr-placeholder_"
+    assert re.findall(r"-- \[([^\]]+)\]", _render_sql_dag(sqls)) == [
+        f"{prefix}{name[len(prefix) :][:12]}",
+        "main",
+    ]
 
 
 def test_render_sql_dag_labels_distinguish_sibling_reads() -> None:

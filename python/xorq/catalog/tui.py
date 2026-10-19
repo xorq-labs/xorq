@@ -667,10 +667,10 @@ def _dag_label(name: str) -> str:
     """Truncate a trailing generated token, keeping the descriptive prefix.
 
     Recognizes the shapes the build pipeline produces: a whole-name legacy hex
-    hash, a raw gen_name uid (ibis_<ns>_<26 chars>, kept by reads that skip
-    hex sanitization, e.g. pinned leaves — get_uid_prefix is the canonical
-    recognizer), or an underscore-separated 32-hex dasher token. Anything else
-    is user-chosen and kept whole — a greedy hex match would eat a prefix that
+    hash, a raw gen_name uid (ibis_<ns>_<14-26 chars>, kept by RemoteTables and
+    by reads that skip hex sanitization, e.g. pinned leaves — get_uid_prefix
+    is the canonical recognizer), or an underscore-separated 32-hex dasher
+    token. Anything else is user-chosen and kept whole — a greedy hex match would eat a prefix that
     happens to end in hex characters and collapse sibling labels to the same
     string. Tokens truncate to config.hash_length, the width .sql artifact
     names already use.
