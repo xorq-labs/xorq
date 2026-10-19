@@ -595,6 +595,15 @@ class DataFusionCompiler(SQLGlotCompiler):
         unit = unit.name.lower()
         return sg.cast(self.f.concat(self.cast(arg, dt.string), f" {unit}"), "interval")
 
+    def visit_DateDiff(self, op, *, left, right):
+        # DataFusion yields date - date as an int64 day count, which pyarrow
+        # cannot cast to the month_day_nano_interval that interval('D') maps
+        # to; parsing "<n> day" is how DataFusion builds that interval. Date
+        # literals and .date() compile to date_trunc timestamps, hence the casts.
+        left, right = (self.cast(arg, dt.date) for arg in (left, right))
+        days = self.cast(self.binop(sge.Sub, op, left, right), dt.string)
+        return sg.cast(sge.DPipe(this=days, expression=sge.convert(" day")), "interval")
+
     def visit_Greatest(self, op, *, arg):
         return self.f.greatest(*arg)
 
