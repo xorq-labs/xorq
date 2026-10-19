@@ -28,6 +28,7 @@ from xorq.flight.exchanger import (
     UnboundExprExchanger,
     make_udxf,
 )
+from xorq.flight.server import STATUS_MESSAGE_BUDGET, bounded_message, bounded_status
 from xorq.flight.tests.conftest import (
     do_agg,
     field_name,
@@ -328,6 +329,46 @@ def test_udxf_failure_raises_instead_of_hanging(
     expr = make_failing_udxf(exc_type, message)
     with pytest.raises(Exception, match=message):
         execute_with_deadline(expr)
+
+
+def test_udxf_large_failure_message_reaches_client() -> None:
+    """A 100 KB message used to come back as gRPC's opaque metadata-size error.
+
+    pyarrow puts a plain Python exception, traceback included, into the status
+    and gRPC caps status metadata at 8 KB, so the client saw ``received initial
+    metadata size exceeds limit`` instead of the cause. The wire now carries the
+    type plus the head and tail of the message; the traceback stays server-side.
+    """
+    message = "SENTINEL_NEEDLE " + "x" * 100_000 + " SENTINEL_TAIL"
+    with pytest.raises(Exception, match="ValueError: SENTINEL_NEEDLE") as info:
+        execute_with_deadline(make_failing_udxf(ValueError, message))
+    assert "SENTINEL_TAIL" in str(info.value)
+    assert "elided" in str(info.value)
+    assert "metadata size" not in str(info.value)
+
+
+def test_bounded_message_keeps_short_and_elides_long() -> None:
+    # pyarrow runs the server handlers on gRPC threads that coverage does not
+    # trace, so the pure pieces are exercised here on the test thread
+    assert bounded_message(ValueError("short")) == "ValueError: short"
+    text = bounded_message(ValueError("HEAD " + "é" * 10_000 + " TAIL"))
+    assert text.startswith("ValueError: HEAD")
+    assert text.endswith(" TAIL")
+    assert "bytes elided" in text
+    assert len(text.encode()) < 2 * STATUS_MESSAGE_BUDGET
+
+
+def test_bounded_status_reraises_as_flight_server_error() -> None:
+    @bounded_status
+    def boom():
+        raise KeyError("missing")
+
+    with pytest.raises(
+        pa.flight.FlightServerError, match="KeyError: 'missing'"
+    ) as info:
+        boom()
+    assert isinstance(info.value.__cause__, KeyError)
+    assert bounded_status(lambda: 1)() == 1
 
 
 def test_failed_udxf_writes_no_cache(tmp_path: Path) -> None:
