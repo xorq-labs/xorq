@@ -92,3 +92,13 @@ def test_cases_deferred_multiple_branches(alltypes: ir.Table) -> None:
     )
 
     pd.testing.assert_series_equal(result.result, expected, check_names=False)
+
+
+def test_read_csv_all_null_columns(con, tmp_path):
+    """GH #1627: a CSV whose columns are entirely empty reads, infers null columns and aggregates them."""
+    path = tmp_path / "fielding.csv"
+    path.write_text("playerID,yearID,PB,WP\naardsda01,2004,,\naaronha01,1954,,\n")
+    t = con.read_csv(path, table_name="fielding_all_null")
+    assert t.schema()["PB"].is_null()
+    assert len(t.execute()) == 2
+    assert t.PB.nunique().execute() == 0

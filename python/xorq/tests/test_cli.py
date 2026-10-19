@@ -2134,3 +2134,17 @@ def test_maybe_unzip_invalid_zip_raises(tmp_path: Path) -> None:
     with pytest.raises(zipfile.BadZipFile):
         with maybe_unzip(str(zip_path)) as _:
             pass
+
+
+def test_run_command_without_limit_has_no_otel_warning(tmp_path):
+    """GH #1940: xorq run without --limit does not print the OTel 'Invalid type NoneType' warning."""
+    build_dir = build_expr(
+        xo.memtable({"a": [1, 2, 3]}), builds_dir=tmp_path / "builds"
+    )
+    output_path = tmp_path / "out.parquet"
+    (returncode, _, stderr) = subprocess_run(
+        ["xorq", "run", str(build_dir), "-o", str(output_path)]
+    )
+    assert returncode == 0, stderr
+    assert "Invalid type NoneType" not in stderr.decode()
+    assert pq.read_table(output_path).num_rows == 3

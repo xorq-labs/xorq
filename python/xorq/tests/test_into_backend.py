@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import operator
 import random
+import warnings
 from operator import methodcaller
 from pathlib import PosixPath
 
@@ -13,6 +14,7 @@ import pytest
 from pytest import param
 
 import xorq.api as xo
+import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import ParquetCache, SourceCache
 from xorq.common.exceptions import XorqError
@@ -784,4 +786,22 @@ def test_into_backend_select_used_twice_datafusion():
 
     assert_frame_equal(
         actual, pd.DataFrame({"a": [10.0], "b": [20.0]}), check_dtype=False
+    )
+
+
+def test_into_backend_projects_extra_physical_column():
+    """GH #2055: a remote stream carrying a column the logical schema omits is projected away, neither leaked nor warned about."""
+    source = xo.duckdb.connect()
+    source.create_table("phys", pa.table({"a": [1, 2, 3], "row_number": [0, 1, 2]}))
+    logical = ops.DatabaseTable(
+        name="phys", schema=ibis.schema({"a": "int64"}), source=source
+    ).to_expr()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        actual = logical.into_backend(xo.connect()).execute()
+    assert not [w for w in caught if "extra columns" in str(w.message)]
+    assert_frame_equal(
+        actual.sort_values("a", ignore_index=True),
+        pd.DataFrame({"a": [1, 2, 3]}),
+        check_dtype=False,
     )
