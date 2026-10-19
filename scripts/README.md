@@ -12,11 +12,13 @@ of them breaks:
 | --- | --- | --- |
 | `adr_check.py` | guard | `ci-adr.yml` on every pull request, and by hand |
 | `check-style-diff.sh` | guard | `ci-lint.yml` on every pull request, and the pre-commit hook |
+| `release_verify.py` | guard | `ci-release.yml` before publishing to PyPI |
 | `adr_index.py` | workflow | by hand, to read the ADRs as a list |
 | `adr_new.py` | workflow | by hand, when starting an ADR |
 | `adr_rename.py` | workflow | by hand, once the pull request exists |
 | `canonical_digest_xver_probe.py` | probe | by hand, when investigating digest stability |
 | `release.sh` | workflow | by hand, by a maintainer cutting a release (steps 1-6 of the Release Flow) |
+| `release_settings.py` | workflow | by hand, by an admin, to check or restore the release settings in GitHub |
 
 A **guard** fails CI, so it is load-bearing: it needs tests, and a change to it
 should assume someone's pull request depends on the answer. A **workflow** script
