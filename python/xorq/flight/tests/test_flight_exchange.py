@@ -27,6 +27,7 @@ from xorq.flight.exchanger import (
     AbstractExchanger,
     UnboundExprExchanger,
     make_udxf,
+    process_batch,
 )
 from xorq.flight.server import STATUS_MESSAGE_BUDGET, bounded_message, bounded_status
 from xorq.flight.tests.conftest import (
@@ -496,3 +497,53 @@ def test_flight_serve_unbound_over_registered_memtable(parquet_dir):
     assert actual.sort_values(list(actual.columns), ignore_index=True).equals(
         expected.sort_values(list(expected.columns), ignore_index=True)
     )
+
+
+def make_reordering_udxf(columns: tuple[str, ...]) -> xo.Table:
+    """A UDXF declaring ``a, b`` whose ``process_df`` returns ``columns``."""
+    schema = xo.schema({"a": "int64", "b": "float64"})
+
+    def reorder(df: pd.DataFrame) -> pd.DataFrame:
+        return df.assign(c=df["a"])[list(columns)]
+
+    return xo.expr.relations.flight_udxf(
+        process_df=reorder,
+        maybe_schema_in=schema,
+        maybe_schema_out=schema,
+        name="Reorder",
+    )(xo.memtable({"a": [1, 2], "b": [0.5, 1.5]}, schema=schema, name="ab_tbl"))
+
+
+def test_udxf_column_order_follows_schema_out() -> None:
+    df = execute_with_deadline(make_reordering_udxf(("b", "a")))
+    assert df.to_dict("list") == {"a": [1, 2], "b": [0.5, 1.5]}
+
+
+@pytest.mark.parametrize(
+    ("columns", "message"),
+    (
+        param(("a",), r"missing columns \['b'\]", id="missing"),
+        param(("b", "a", "c"), r"extra columns \['c'\]", id="extra"),
+    ),
+)
+def test_udxf_column_mismatch_names_columns(
+    columns: tuple[str, ...], message: str
+) -> None:
+    with pytest.raises(Exception, match=message):
+        execute_with_deadline(make_reordering_udxf(columns))
+
+
+def test_process_batch_with_callable_schema_out() -> None:
+    # gRPC runs exchanges on native threads, so drive process_batch on this one
+    batch = pa.RecordBatch.from_pydict({"a": [1, 2], "b": [0.5, 1.5]})
+    out = process_batch(lambda df: df[["b", "a"]], toolz.identity, batch)
+    assert out.to_pydict() == {"a": [1, 2], "b": [0.5, 1.5]}
+    with pytest.raises(ValueError, match=r"extra columns \['c'\]"):
+        process_batch(lambda df: df.assign(c=1), toolz.identity, batch)
+
+
+def test_process_batch_keeps_returned_dtypes() -> None:
+    # reorder only: a wrong dtype still reaches the exchange's schema check
+    batch = pa.RecordBatch.from_pydict({"a": [1, 2], "b": [0.5, 1.5]})
+    out = process_batch(lambda df: df.assign(b=df["a"]), toolz.identity, batch)
+    assert out.schema.field("b").type == pa.int64()
