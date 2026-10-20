@@ -1,8 +1,8 @@
 """OIDC sign-in to a hosted catalog service (`xorq catalog login`).
 
 The service publishes its client settings at an unauthenticated well-known
-URL; everything else (discovery, the authorization-code and device grants)
-is standard OAuth 2.0 / OpenID Connect, so no provider is assumed.
+URL; everything else (discovery, the authorization-code and device grants,
+refresh) is standard OAuth 2.0 / OpenID Connect, so no provider is assumed.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import threading
 import time
 import webbrowser
 from collections.abc import Callable
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
@@ -28,7 +29,7 @@ import attr
 from attr import field, frozen
 
 from xorq.catalog.content_store import _is_loopback_host, _service_url_identity
-from xorq.catalog.exceptions import LoginError, LoginTimeoutError
+from xorq.catalog.exceptions import LoginError, LoginRequiredError, LoginTimeoutError
 
 
 WELL_KNOWN_PATH = "/.well-known/xorq-catalog"
@@ -240,6 +241,7 @@ class Login:
         service_url: str,
         settings: Settings,
         token_endpoint: str,
+        refresh_token: str | None = None,
     ) -> Login:
         if "error" in response:
             raise _failure(response)
@@ -264,7 +266,7 @@ class Login:
             expires_at=int(
                 claims.get("exp") or time.time() + response.get("expires_in", 0)
             ),
-            refresh_token=response.get("refresh_token"),
+            refresh_token=response.get("refresh_token", refresh_token),
         )
 
     @classmethod
@@ -287,6 +289,52 @@ class Login:
             Path(tmp).unlink(missing_ok=True)
             raise
         return self
+
+    @property
+    def expired(self) -> bool:
+        return self.expires_at <= time.time()
+
+    @property
+    def usable(self) -> bool:
+        return not self.expired or self.refresh_token is not None
+
+    def status(self) -> dict:
+        return {
+            "service": self.service_url,
+            "issuer": self.settings.issuer,
+            "expires_at": datetime.fromtimestamp(
+                self.expires_at, timezone.utc
+            ).isoformat(),
+            "refresh_token": self.refresh_token is not None,
+        }
+
+    def refresh(self) -> Login:
+        """Exchange the refresh token, store the rotated one, and save."""
+        again = f"run `xorq catalog login {self.service_url}` again"
+        if self.refresh_token is None:
+            raise LoginRequiredError(f"the sign-in has expired; {again}")
+        response = _post_form(
+            self.token_endpoint,
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": self.refresh_token,
+                "client_id": self.settings.client_id,
+            },
+        )
+        if response.get("error") == "invalid_grant":
+            # forget the rejected token unless another process already rotated it
+            if (cached := Login.load(self.service_url)) and (
+                cached.refresh_token == self.refresh_token
+            ):
+                attr.evolve(cached, refresh_token=None).save()
+            raise LoginRequiredError(f"the sign-in was revoked or expired; {again}")
+        return Login.from_token_response(
+            response,
+            service_url=self.service_url,
+            settings=self.settings,
+            token_endpoint=self.token_endpoint,
+            refresh_token=self.refresh_token,
+        ).save()
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
@@ -489,3 +537,10 @@ def sign_in(
         settings=settings,
         token_endpoint=provider.token_endpoint,
     ).save()
+
+
+def sign_out(service_url: str) -> bool:
+    path = login_path(service_url)
+    existed = path.exists()
+    path.unlink(missing_ok=True)
+    return existed

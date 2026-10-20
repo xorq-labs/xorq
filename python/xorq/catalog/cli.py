@@ -3173,29 +3173,87 @@ def serve_unbound(
     help="Sign in with a code on another device (for machines without a browser).",
 )
 @click.option(
+    "--status",
+    is_flag=True,
+    help="Show the cached sign-in instead of signing in; exits 1 if none is usable.",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print JSON lines and nothing else."
+)
+@click.option(
     "--settings-file",
     hidden=True,
     type=click.Path(dir_okay=False, exists=True),
     help="Read the service's sign-in settings from a file (development only).",
 )
-def login(service_url: str, device: bool, settings_file: str | None) -> None:
+def login(
+    service_url: str,
+    device: bool,
+    status: bool,
+    as_json: bool,
+    settings_file: str | None,
+) -> None:
     """Sign in to the hosted catalog service at SERVICE_URL.
 
     Opens a browser for the identity provider, or prints a code to enter on
     another device, and caches the tokens under the xorq config directory.
     """
     from xorq.catalog.exceptions import LoginError  # noqa: PLC0415
-    from xorq.catalog.login import sign_in  # noqa: PLC0415
+    from xorq.catalog.login import Login, sign_in  # noqa: PLC0415
 
     def emit(event: dict) -> None:
-        uri = event.get("verification_uri_complete") or event["verification_uri"]
-        click.echo(f"Open {uri} and enter the code {event['user_code']}.")
+        if as_json:
+            click.echo(json.dumps(event))
+        else:
+            uri = event.get("verification_uri_complete") or event["verification_uri"]
+            click.echo(f"Open {uri} and enter the code {event['user_code']}.")
 
     try:
-        sign_in(service_url, device=device, settings_file=settings_file, emit=emit)
+        if status:
+            cached = Login.load(service_url)
+            if cached is not None:
+                payload = cached.status()
+                click.echo(
+                    json.dumps(payload)
+                    if as_json
+                    else "\n".join(f"{key}: {value}" for key, value in payload.items())
+                )
+            if cached is None or not cached.usable:
+                if not as_json:
+                    click.echo(f"Not signed in to {service_url}.", err=True)
+                raise SystemExit(1)
+            return
+        result = sign_in(
+            service_url, device=device, settings_file=settings_file, emit=emit
+        )
     except (LoginError, ValueError) as error:
         raise click.ClickException(str(error)) from error
-    click.echo(f"Signed in to {service_url}.")
+    status_payload = result.status()
+    click.echo(
+        json.dumps(
+            {"event": "result"}
+            | {key: status_payload[key] for key in ("service", "expires_at")}
+        )
+        if as_json
+        else f"Signed in to {service_url} until {status_payload['expires_at']}."
+    )
+
+
+@cli.command()
+@click.argument("service_url")
+def logout(service_url: str) -> None:
+    """Forget the cached sign-in for the hosted catalog service at SERVICE_URL."""
+    from xorq.catalog.login import sign_out  # noqa: PLC0415
+
+    try:
+        removed = sign_out(service_url)
+    except ValueError as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(
+        f"Signed out of {service_url}."
+        if removed
+        else f"Not signed in to {service_url}."
+    )
 
 
 if __name__ == "__main__":

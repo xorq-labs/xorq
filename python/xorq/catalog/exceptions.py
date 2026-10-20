@@ -88,3 +88,7 @@ class LoginError(XorqError):
 
 class LoginTimeoutError(LoginError):
     """An identity provider or catalog service did not answer in time."""
+
+
+class LoginRequiredError(LoginError):
+    """The cached sign-in can no longer be refreshed; sign in again."""

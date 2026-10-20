@@ -40,6 +40,25 @@ service_url: https://catalog.example/
 
 Tokens, object-store locations, signed URLs, and cloud credentials are not part of the committed configuration.
 
+## Sign in to the service
+
+Sign in once per service with its URL:
+
+```bash
+xorq catalog login https://catalog.example/
+```
+
+Xorq reads the service's sign-in settings from `https://catalog.example/.well-known/xorq-catalog`, opens your browser at the service's identity provider, and caches the result. On a machine without a browser, or when the local callback ports are taken, it prints a URL and a code to enter on another device instead; pass `--device` to ask for that directly.
+
+The sign-in is stored in `~/.config/xorq/catalog/logins/` (under `$XDG_CONFIG_HOME` when set), one file per service, readable only by you. It holds a refresh token, so you don't sign in again until the provider revokes it or it expires.
+
+```bash
+xorq catalog login https://catalog.example/ --status   # who, until when; no tokens printed
+xorq catalog logout https://catalog.example/           # delete the cached sign-in
+```
+
+`--status` exits with status 1 when nothing usable is cached. Both `login` and `login --status` take `--json` for scripts: each line is one JSON object, and tokens are never printed.
+
 ## Authenticate at runtime
 
 For private reads and all writes, provide the short-lived bearer token issued by the service:

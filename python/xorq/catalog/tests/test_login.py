@@ -13,12 +13,13 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 from urllib.request import urlopen
 
+import attr
 import pytest
 from click.testing import CliRunner
 
 from xorq.catalog import login as login_module
 from xorq.catalog.cli import cli
-from xorq.catalog.exceptions import LoginError
+from xorq.catalog.exceptions import LoginError, LoginRequiredError
 from xorq.catalog.login import Login, Provider, Settings, login_path, sign_in
 
 
@@ -54,6 +55,7 @@ class FakeProvider:
 
     def __init__(self, authorize_query: str = "") -> None:
         self.authorize_query = authorize_query
+        self.granted_scope = "openid"
         self.requests = []
         self.token_url = None
         self.stall_next_body = False
@@ -63,6 +65,7 @@ class FakeProvider:
         self.device_polls = ["authorization_pending", "slow_down"]
         self.deny = False
         self.forged_state = None
+        self.refresh_tokens = {"refresh-0"}
         self.issued = 0
         handler = type("Handler", (_Handler,), {"provider": self})
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -82,10 +85,12 @@ class FakeProvider:
     def tokens(self) -> dict:
         self.issued += 1
         refresh = f"refresh-{self.issued}"
+        self.refresh_tokens = {refresh}
         exp = int(time.time()) + 900
         return {
             "access_token": _jwt(aud=AUDIENCE, exp=exp, cid=CLIENT_ID),
             "id_token": _jwt(aud=CLIENT_ID, exp=exp),
+            "scope": self.granted_scope,
             "refresh_token": refresh,
             "expires_in": 900,
         }
@@ -110,6 +115,12 @@ class FakeProvider:
                     if poll == "timeout":
                         threading.Event().wait(1)  # outlasts the client's timeout
                     return 400, {"error": poll}
+                return 200, self.tokens()
+            case {"grant_type": "refresh_token", "refresh_token": refresh}:
+                if refresh not in self.refresh_tokens:
+                    return 400, {"error": "invalid_grant"}
+                if form.get("scope", self.granted_scope) != self.granted_scope:
+                    return 400, {"error": "invalid_scope"}
                 return 200, self.tokens()
         return 400, {"error": "unsupported_grant_type"}
 
@@ -479,6 +490,35 @@ def test_no_free_callback_falls_back_to_device(
     assert [event["event"] for event in events] == ["device_authorization"]
 
 
+def test_refresh_rotates_and_revoked_refresh_requires_login(
+    provider: FakeProvider, sleeps: list
+) -> None:
+    first = sign_in(provider.url, device=True, emit=lambda event: None)
+
+    second = first.refresh()
+    assert second.refresh_token == "refresh-2"
+    assert Login.load(provider.url) == second
+
+    with pytest.raises(LoginRequiredError, match="xorq catalog login"):
+        first.refresh()  # the rotated-out refresh token is rejected
+    assert Login.load(provider.url) == second  # the newer login is kept
+
+
+def test_revoked_refresh_token_leaves_nothing_usable(
+    provider: FakeProvider, sleeps: list
+) -> None:
+    signed_in = sign_in(provider.url, device=True, emit=lambda event: None)
+    expired = attr.evolve(signed_in, expires_at=0).save()
+    provider.refresh_tokens = set()  # the provider revoked the session
+
+    with pytest.raises(LoginRequiredError):
+        expired.refresh()
+
+    status = CliRunner().invoke(cli, ["login", provider.url, "--status", "--json"])
+    assert status.exit_code == 1
+    assert json.loads(status.output)["refresh_token"] is False
+
+
 def test_denied_sign_in_keeps_previous_login(
     provider: FakeProvider, tmp_path: Path, sleeps: list
 ) -> None:
@@ -493,6 +533,30 @@ def test_denied_sign_in_keeps_previous_login(
             provider.url, settings_file=settings_file, open_browser=provider.browser
         )
     assert Login.load(provider.url) == previous
+
+
+def test_cli_json_login_status_and_logout(provider: FakeProvider, sleeps: list) -> None:
+    runner = CliRunner()
+
+    login = runner.invoke(cli, ["login", provider.url, "--device", "--json"])
+    assert login.exit_code == 0, login.output
+    device, result = map(json.loads, login.output.splitlines())
+    assert device["event"] == "device_authorization"
+    assert result.keys() == {"event", "service", "expires_at"}
+    assert "refresh-" not in login.output
+
+    status = runner.invoke(cli, ["login", provider.url, "--status", "--json"])
+    assert status.exit_code == 0, status.output
+    assert json.loads(status.output) == {
+        "service": provider.url,
+        "issuer": provider.url,
+        "expires_at": result["expires_at"],
+        "refresh_token": True,
+    }
+
+    assert runner.invoke(cli, ["logout", provider.url]).exit_code == 0
+    gone = runner.invoke(cli, ["login", provider.url, "--status", "--json"])
+    assert (gone.exit_code, gone.output) == (1, "")
 
 
 def test_cli_login_prints_device_code(provider: FakeProvider, sleeps: list) -> None:
