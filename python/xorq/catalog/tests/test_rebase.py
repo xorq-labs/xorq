@@ -764,6 +764,8 @@ def test_an_entry_alias_the_pull_moved_onto_the_new_entry_is_accepted(
     assert result.exit_code == 0, result.output
     assert result.stdout.strip() == new
     assert f"Moved alias 'staging' -> {new}" in result.stderr
+    # The user saw `live` on the old entry; where the pull put it is said.
+    assert f"Alias 'live' already on {new}" in result.stderr
     assert targets(world, "live", "staging") == (new, new)
 
 

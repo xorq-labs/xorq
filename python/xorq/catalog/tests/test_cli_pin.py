@@ -219,7 +219,7 @@ def test_catalog_pin_failed_alias_move_rolls_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The `latest` move after `prod`'s fails: no new entry, both back on the source."""
+    """The `prod` move after `latest`'s fails: no new entry, both back on the source."""
     src_name = _add_cached_entry(catalog, "prod", "latest")
     fail_nth_alias_move(monkeypatch, 2)
 
