@@ -404,6 +404,22 @@ def _source_of(func):
         return None
 
 
+def process_batch(process_df, calc_schema_out, batch, metadata=None, **kwargs):
+    schema = calc_schema_out(ibis.Schema.from_pyarrow(batch.schema)).to_pyarrow()
+    out = process_df(batch.to_pandas())
+    match (
+        sorted(set(schema.names) - set(out.columns)),
+        sorted(set(out.columns) - set(schema.names)),
+    ):
+        case ([], []):
+            return pa.RecordBatch.from_pandas(out[schema.names], preserve_index=False)
+        case (missing, extra):
+            raise ValueError(
+                f"process_df returned columns {list(out.columns)}, schema out is "
+                f"{schema.names}: missing columns {missing}, extra columns {extra}"
+            )
+
+
 def make_udxf(
     process_df,
     maybe_schema_in,
@@ -413,11 +429,6 @@ def make_udxf(
     command=None,
     do_wraps=True,
 ):
-    def process_batch(process_df, batch, metadata=None, **kwargs):
-        df = batch.to_pandas()
-        out = process_df(df)
-        return pa.RecordBatch.from_pandas(out, preserve_index=False)
-
     if isinstance(maybe_schema_in, pa.Schema):
         raise ValueError(
             "maybe_schema_in must be an ibis.Schema or Callable, not a pyarrow Schema"
@@ -453,7 +464,7 @@ def make_udxf(
         # wrapping twice only doubles the traceback
         exchange_f = functools.partial(
             streaming_exchange,
-            functools.partial(process_batch, process_df),
+            functools.partial(process_batch, process_df, calc_schema_out),
             out_schema=out_schema.to_pyarrow() if out_schema else None,
         )
     else:
