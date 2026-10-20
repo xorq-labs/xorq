@@ -310,3 +310,17 @@ def test_cache_properties(parquet_dir, tmp_path):
     assert not psn1.to_expr().ls.cache_path.exists()
     assert not psn2.to_expr().ls.cache_path.exists()
     assert ssn.to_expr().ls.cache_path is None
+
+
+def test_reads(parquet_dir):
+    con = xo.connect()
+    batting, awards = (
+        xo.deferred_read_parquet(
+            parquet_dir.joinpath(f"{name}.parquet"), con=con, table_name=name
+        )
+        for name in ("batting", "awards_players")
+    )
+    expr = batting.join(awards, "playerID").cache().filter(xo._.yearID > 2000)
+
+    assert tuple(read.name for read in expr.ls.reads) == ("awards_players", "batting")
+    assert not xo.table(schema={"a": "int64"}).ls.reads
