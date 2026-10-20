@@ -171,6 +171,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         self.exchangers = dict(E.exchangers)
         self.actions = A.actions
         self.lock = threading.Lock()
+        self.shutdown_requested = threading.Event()
 
     def _make_flight_info(self, query):
         """
