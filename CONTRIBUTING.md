@@ -303,20 +303,33 @@ change is not present in PyPI.
 ## Release Flow
 ***This section is intended for xorq maintainers***
 
-> [!TIP]
-> `scripts/release.sh <major|minor|patch>` runs steps 1-6 below with preflight checks and stops before the push. The manual commands remain as the fallback.
+On main, run `scripts/release.sh <major|minor|patch>` to do steps 1-6. It refuses to start on a dirty tree, an `origin` other than xorq-labs/xorq, or a main with unpushed commits, and it pulls main for you. It needs git-cliff in the project environment (`uv sync --group dev`). Before committing it pauses so you can add CHANGELOG notes, and it never pushes. The manual commands below are the fallback. The script can't set variables in your shell, so afterwards run `version_number=$(uv version --short)` for steps 7-13.
 
 ### Steps
-1. Ensure you're on upstream main: `git switch main && git pull`
-2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
-3. Create a branch that starts from the upstream main: `git switch --create=release-$version_number`
-4. Update the version number in `pyproject.toml`: `version = "$version_number"`, then run `uv lock` so xorq's own version is updated in `uv.lock`.
-5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.).
-6. Create commit with a message denoting the release: `git add --update && git commit -m "release: $version_number"`.
-7. Push the new branch: `git push --set-upstream origin "release-$version_number"`
-8. Open a PR for the new branch `release-$version_number`
-9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `release-$version_number`
-10. Wait for all ci-pre-release tests to pass
-11. "Squash and merge" the PR
-12. Tag the updated main with `v$version_number` and push that tag alone: `git fetch origin && git tag v$version_number origin/main && git push origin v$version_number`. Not `git push --tags`, which publishes every local tag, including any local-only archive or backup tags.
-13. Create a [GitHub release](https://github.com/xorq-labs/xorq/releases/new) to trigger the publishing workflow.
+1. Start from upstream main with a clean working tree: `git switch main && git pull`. Step 6 commits every tracked change.
+2. Pick the bump. Before 1.0 it is `patch`, or `minor` when a commit since the last tag is breaking (`!` in its title). Read the new version: `version_number=$(uv version --bump <major|minor|patch> --dry-run --short)`
+3. Create the release branch: `git switch --create=release-$version_number`
+4. Bump the version: `uv version --bump <major|minor|patch> --no-sync`. This updates `pyproject.toml` and `uv.lock`.
+5. Update the CHANGELOG: `uv run --no-sync git-cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`. Add any extra notes (blog links, etc.) inside the new `## [$version_number]` section.
+6. Commit: `git add --update && git commit -m "release: $version_number"`
+7. Push the branch: `git push --set-upstream origin "release-$version_number"`. The push starts [ci-pre-release](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml).
+8. Open a PR for `release-$version_number` titled `release: $version_number`. The title becomes the squash commit on main and keeps the PR out of the release notes.
+9. ci-pre-release's `precheck` job checks that `uv.lock` is current, the version is not on PyPI, `CHANGELOG.md` has its section, and tag `v$version_number` does not exist. Once it passes, the `publish` job waits until dlovell, hussainsultan or mesejo approves the `pre-release` deployment on the run page. You can approve your own.
+10. Wait for `publish` to upload the version to TestPyPI. The workflow runs no tests; the PR's CI does.
+11. Check whether main moved since step 3: `git fetch origin && git log --oneline HEAD..origin/main`. If that lists commits, they would ship without a CHANGELOG entry. Run `git rebase origin/main && git checkout origin/main -- CHANGELOG.md`, redo step 5, then `git commit --amend --no-edit -a && git push --force-with-lease`. Reject the deployment that push asks for, since TestPyPI already has the version. When the PR's CI is green, "Squash and merge" it.
+12. Run `git fetch origin` and check that `git log -1 origin/main` is the release commit. If something merged after it, use the release commit's SHA in place of `origin/main`. Tag it and push that tag alone: `git tag v$version_number origin/main && git push origin v$version_number`. Never `git push --tags`, which publishes every local tag, including local-only archive or backup tags.
+13. Publish the release. release-drafter keeps a draft release named `xorq unreleased` with the notes for everything merged since the last release. Edit it in the [releases page](https://github.com/xorq-labs/xorq/releases): set the tag and title to `v$version_number` and publish. Or from the command line:
+    ```bash
+    draft=$(gh api repos/xorq-labs/xorq/releases --jq '.[] | select(.draft and .name == "xorq unreleased") | .tag_name')
+    gh release edit "$draft" -R xorq-labs/xorq --tag "v$version_number" --title "v$version_number" --verify-tag --draft=false --latest
+    ```
+    `--verify-tag` stops if step 12's tag is not on origin. Publishing starts `ci-release`, which uploads to PyPI.
+
+### When something goes wrong
+A filename uploaded to PyPI or TestPyPI can never be uploaded again, even after the file is deleted. Everything else can be redone.
+
+- If `precheck` fails, nothing was published and nobody was asked to approve. Fix it on the branch and push again.
+- If the deployment was rejected or never approved, nothing was published. Re-run the workflow from the run page.
+- If TestPyPI already has the version, precheck warns in the run log, and on the PR if one is open. `publish` skips files TestPyPI already has with the same content, so it can finish a partial upload, but TestPyPI rejects changed files. To publish changed content, close the PR, delete the branch (local and remote), and redo the manual steps from main with the next patch set explicitly: `version_number=<next>` in step 2 and `uv version $version_number --no-sync` in step 4. The script can't do this, because it bumps from main again.
+- If you pushed the tag at the wrong commit, run `git push origin :refs/tags/v$version_number && git tag -d v$version_number` and repeat step 12. This is safe only while no published release uses the tag.
+- If `ci-release` fails after the release is published, check PyPI. If the files got there, that version is spent and you cut a new patch release. If nothing was uploaded, re-run the failed job.
