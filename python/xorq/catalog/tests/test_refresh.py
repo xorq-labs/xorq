@@ -36,7 +36,12 @@ from xorq.catalog.refresh import (
     refresh_schemas,
     with_live_schema,
 )
-from xorq.common.exceptions import InternalError, RefreshCause, SchemaRefreshError
+from xorq.common.exceptions import (
+    InternalError,
+    RefreshCause,
+    SchemaRefreshError,
+    UnmatchedSourceError,
+)
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
@@ -646,6 +651,60 @@ def test_a_pinned_build_stays_self_contained(tmp_path: Path, builds_dir: Path) -
     assert refresh_build(build_path).schema() == load_expr(build_path).schema()
 
 
+def parquet_world(tmp_path: Path) -> tuple[ir.Table, dict]:
+    """A parquet read at `RECORDED`, and the mapping that moves it to `GROWN`."""
+    path = tmp_path / "t.parquet"
+    write_parquet(path, RECORDED)
+    t = deferred_read_parquet(path, xo.connect(), table_name="t")
+    write_parquet(path, GROWN)
+    return t, {op_key(t.op()): xo.schema(GROWN.schema)}
+
+
+@pytest.mark.parametrize(
+    "make_expr",
+    (
+        pytest.param(lambda t, cache: t, id="read"),
+        pytest.param(lambda t, cache: t.cache(cache=cache), id="cached-node"),
+        pytest.param(
+            lambda t, cache: t.into_backend(xo.connect(), "moved"), id="remote-table"
+        ),
+        pytest.param(
+            lambda t, cache: flight_expr(t, xo.table(t.schema()), con=xo.connect()),
+            id="flight-expr",
+        ),
+        pytest.param(
+            lambda t, cache: flight_udxf(
+                t,
+                process_df=toolz.identity,
+                maybe_schema_in=lambda schema: True,
+                maybe_schema_out=toolz.identity,
+                con=xo.connect(),
+            ),
+            id="flight-udxf",
+        ),
+    ),
+)
+def test_a_refreshed_opaque_op_executes_its_drifted_source(
+    tmp_path: Path, make_expr: Callable
+) -> None:
+    t, live = parquet_world(tmp_path)
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+
+    refreshed = refresh_schemas(make_expr(t, cache), live)
+    assert refreshed.schema() == xo.schema(GROWN.schema)
+    assert list(refreshed.execute()["c"]) == [1.5, 2.5]
+
+
+def test_a_source_only_under_a_pin_matches_nothing(tmp_path: Path) -> None:
+    """A pin is kept as recorded, so its subtree is not searched for sources."""
+    t, live = parquet_world(tmp_path)
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    expr = pin_cache(t.cache(cache=cache), ensure_materialized=True)
+
+    with pytest.raises(UnmatchedSourceError, match="matched no source"):
+        refresh_schemas(expr, live)
+
+
 def test_an_empty_mapping_is_the_identity(world: tuple) -> None:
     _, build_path = world
     expr = load_expr(build_path)
@@ -727,10 +786,11 @@ def test_every_unmatched_key_is_named_and_labeled(world_leaf: tuple) -> None:
         )
     }
 
-    with pytest.raises(SchemaRefreshError) as excinfo:
+    with pytest.raises(UnmatchedSourceError) as excinfo:
         refresh_schemas(load_expr(build_path), live)
     assert excinfo.value.op_name == "DatabaseTable, Read"
-    assert "not-a-table" in str(excinfo.value)
+    assert str(excinfo.value).startswith("DatabaseTable, Read: not-a-table")
+    assert "could not rebuild" not in str(excinfo.value)
     assert "not-a-read" in str(excinfo.value)
 
 

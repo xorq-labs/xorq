@@ -61,6 +61,7 @@ class Backend(SQLBackend, UrlFromPath):
         self,
         database: str | Path | None = None,
         type_map: dict[str, str | dt.DataType] | None = None,
+        attached: tuple[tuple[str, str], ...] = (),
         **kwargs: Any,
     ) -> None:
         """Create an Ibis client connected to a SQLite database.
@@ -77,6 +78,9 @@ class Backend(SQLBackend, UrlFromPath):
             An optional mapping from a string name of a SQLite "type" to the
             corresponding Ibis DataType that it represents. This can be used
             to override schema inference for a given SQLite database.
+        attached
+            `(name, path)` pairs to attach after connecting. `attach` records
+            each one here, so a connection rebuilt from the profile has them.
 
         Examples
         --------
@@ -95,6 +99,8 @@ class Backend(SQLBackend, UrlFromPath):
 
         self.uri = ":memory:" if database is None else database
         self.con = sqlite3.connect(self.uri, **kwargs)
+        for name, path in attached:
+            self._attach(name, path)
 
         self._post_connect(type_map)
 
@@ -432,6 +438,14 @@ class Backend(SQLBackend, UrlFromPath):
         >>> con1.list_tables(database="new")
         []
         """
+        self._attach(name, path)
+        attached = tuple(
+            (dict(self._con_kwargs.get("attached", ())) | {name: str(path)}).items()
+        )
+        self._con_kwargs = self._con_kwargs | {"attached": attached}
+        self._profile = self._profile.clone(attached=attached)
+
+    def _attach(self, name: str, path: str | Path) -> None:
         with self.begin() as cur:
             cur.execute(f"ATTACH DATABASE {str(path)!r} AS {_quote(name)}")
 

@@ -247,7 +247,8 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
     loses the mode, and `rwc` creates a database there. It is also the only
     checkable case, since a recorded URI would have to be resolved back through
     the encoding and the optional `//localhost` authority. In-memory is ``None``
-    or `:memory:`.
+    or `:memory:`. Attached databases get the same treatment, unchecked: a
+    missing one fails the connect instead.
     """
 
     def opens_without_creating(uri: str) -> bool:
@@ -276,22 +277,35 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
         ]
         return f"{path}?{'&'.join([*params, 'mode=rw'])}"
 
+    def is_plain_path(target: str) -> bool:
+        # Without `uri=True` the whole string is a filename, and `rwc` creates it.
+        return not profile.kwargs_dict.get("uri") or not target.startswith("file:")
+
+    def never_creating(target: str) -> str:
+        """``target`` as a URI that refuses to create its database."""
+        if is_plain_path(target):
+            # An absolute path takes the empty authority: without the `//`,
+            # sqlite reads the first segment of a `//`-prefixed path as one and
+            # refuses.
+            authority = "//" if target.startswith("/") else ""
+            return f"file:{authority}{quote(target)}?mode=rw"
+        return target if opens_without_creating(target) else with_mode_rw(target)
+
+    attached = tuple(
+        (name, never_creating(str(path)))
+        for name, path in profile.kwargs_dict.get("attached", ())
+    )
+    # ATTACH creates a missing file as well, and reads a URI under `uri=True`.
+    extra = {"attached": attached, "uri": True} if attached else {}
     target = profile.kwargs_dict.get("database")
     if target in (None, "", ":memory:"):
-        return None, {}
+        return None, extra
     target = str(target)
-    # Without `uri=True` the whole string is a filename, and `rwc` creates it.
-    if not profile.kwargs_dict.get("uri") or not target.startswith("file:"):
-        # An absolute path takes the empty authority: without the `//`, sqlite
-        # reads the first segment of a `//`-prefixed path as one and refuses.
-        authority = "//" if target.startswith("/") else ""
-        return target, {
-            "database": f"file:{authority}{quote(target)}?mode=rw",
-            "uri": True,
-        }
+    if is_plain_path(target):
+        return target, {"database": never_creating(target), "uri": True} | extra
     if opens_without_creating(target):
-        return None, {}
-    return None, {"database": with_mode_rw(target), "uri": True}
+        return None, extra
+    return None, {"database": with_mode_rw(target), "uri": True} | extra
 
 
 def duckdb_no_create(profile: Profile) -> tuple[str | None, dict]:

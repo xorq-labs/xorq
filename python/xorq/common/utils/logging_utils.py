@@ -273,7 +273,7 @@ class RunLogger:
         metrics = {}
         if output_path and output_path != "-":
             output_file = Path(output_path)
-            if output_file.exists():
+            if output_file.is_file():
                 metrics["bytes"] = output_file.stat().st_size
                 if str(output_format) == "parquet":
                     try:

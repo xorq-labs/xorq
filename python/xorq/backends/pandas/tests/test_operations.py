@@ -12,6 +12,7 @@ from pytest import param
 import xorq.api as xo
 from xorq.api import _
 from xorq.backends.pandas import Backend
+from xorq.common.exceptions import UnsupportedOperationError
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
 
@@ -313,6 +314,54 @@ def test_group_concat(t, df):
         .rename(columns={0: "foo"})
     )
     assert_frame_equal(result[expected.columns], expected)
+
+
+@pytest.fixture
+def concat_table():
+    df = pd.DataFrame(
+        {
+            "g": [1, 1, 1, 2, 2],
+            "i": pd.array([1, 2, None, 3, 4], dtype="Int64"),
+            "s": ["a", "b", None, "c", "d"],
+            "k": [1, 1, 2, 1, 2],
+        }
+    )
+    return Backend().connect({"t": df}).table("t")
+
+
+def _concat_values(expr):
+    values = expr.order_by("g").execute().r
+    return [None if pd.isna(value) else value for value in values]
+
+
+# expected values are what duckdb returns for the same expressions:
+# nulls take no part, and a group left with nothing is null
+@pytest.mark.parametrize(
+    ("column", "key", "expected"),
+    [
+        param("i", 1, ["1,2", "3"], id="int-where"),
+        param("s", 1, ["a,b", "c"], id="str-where"),
+        param("i", 2, [None, "4"], id="int-where-null-rows"),
+        param("s", 2, [None, "d"], id="str-where-null-rows"),
+    ],
+)
+def test_group_concat_where(concat_table, column, key, expected):
+    t = concat_table
+    expr = t.group_by("g").agg(r=t[column].group_concat(",", where=t.k == key))
+    assert _concat_values(expr) == expected
+
+
+@pytest.mark.parametrize(
+    ("column", "expected"),
+    [
+        param("i", ["1,2", "3,4"], id="int"),
+        param("s", ["a,b", "c,d"], id="str"),
+    ],
+)
+def test_group_concat_skips_nulls(concat_table, column, expected):
+    t = concat_table
+    expr = t.group_by("g").agg(r=t[column].group_concat(","))
+    assert _concat_values(expr) == expected
 
 
 @pytest.mark.parametrize("offset", [0, 2])
@@ -623,6 +672,136 @@ def test_round(t, df):
     npt.assert_almost_equal(result, expected, decimal=precision)
 
 
+# expected values are what duckdb and the xorq datafusion backend return for
+# the same expression: a null stays null, ties round half away from zero on
+# both signs (numpy rounds half to even), a value just below a half does not
+# move, an infinity stays (datafusion refuses it), and integers come back
+# unchanged (datafusion alone loses the int64 values past 2**53)
+@pytest.mark.parametrize(
+    ("dtype", "data", "expected"),
+    [
+        param("float64", [1.26, 2.5, None, 4.75], [1.0, 3.0, None, 5.0], id="null"),
+        param("float64", [1.26, 2.5, 3.5, 4.75], [1, 3, 4, 5], id="ties"),
+        param("float64", [-2.5, -0.5, 0.5, -1.5], [-3, -1, 1, -2], id="ties-negative"),
+        param(
+            "float64",
+            [0.49999999999999994, -0.49999999999999994, 4503599627370497.0],
+            [0, 0, 4503599627370497],
+            id="not-a-tie",
+        ),
+        param("float64", [np.inf, -np.inf, 1.5], [np.inf, -np.inf, 2.0], id="inf"),
+        param("Float64", [2.5, None, -0.5], [3.0, None, -1.0], id="nullable-float64"),
+        param("Float32", [2.5, None, -0.5], [3.0, None, -1.0], id="nullable-float32"),
+        param("int8", [-128, 127], [-128, 127], id="int8"),
+        param(
+            "int64",
+            [9007199254740993, -9007199254740993],
+            [9007199254740993, -9007199254740993],
+            id="int64",
+        ),
+    ],
+)
+def test_round_no_digits(dtype, data, expected):
+    df = pd.DataFrame({"k": range(len(data)), "a": pd.Series(data, dtype=dtype)})
+    t = Backend().connect({"t": df}).table("t")
+    result = t.select("k", r=t.a.round()).order_by("k").execute().r
+    assert [None if pd.isna(value) else value for value in result] == expected
+
+
+# expected values are what duckdb and the xorq datafusion backend return: the
+# tie is decided on the value scaled by 10**digits, half away from zero, so
+# 0.35 (3.5 once scaled) and 2.65 (26.5) both round up where numpy rounds to
+# even; a null stays null and an infinity stays
+@pytest.mark.parametrize(
+    ("digits", "data", "expected"),
+    [
+        param(1, [0.25, 0.35, 2.65, -0.25], [0.3, 0.4, 2.7, -0.3], id="ties"),
+        param(1, [1.5, None, np.inf], [1.5, None, np.inf], id="null-and-inf"),
+        param(2, [1.005, 2.675, 0.125], [1.0, 2.68, 0.13], id="two-digits"),
+        param(0, [0.5, 2.5, -0.5, 1.4], [1.0, 3.0, -1.0, 1.0], id="zero-digits"),
+        # an infinity stays at a negative digits count, as on datafusion;
+        # duckdb returns 0.0 there (its inf / 10 * 10 check reads inf as 0)
+        param(
+            -1,
+            [15.0, 25.0, -15.0, 1e16 + 2, np.inf],
+            [20.0, 30.0, -20.0, 1e16, np.inf],
+            id="negative",
+        ),
+        # an int64 past 2**53 is converted to float64 once, the value duckdb
+        # returns; scaling it by 100 first would drift to 1.2345678901234566e17
+        param(2, [123456789012345678, -5], [1.2345678901234568e17, -5.0], id="int64"),
+        # duckdb alone for the two digit counts outside the float exponent
+        # range (datafusion returns nan): a value with no fractional part at
+        # that scale is unchanged, and one with no units at that scale is 0
+        param(
+            400, [1e300, 1e-310, 1.5, None], [1e300, 1e-310, 1.5, None], id="past-range"
+        ),
+        param(-309, [1e308, 1.5, -1.5], [0.0, 0.0, 0.0], id="negative-past-range"),
+        # an int64 past 2**53 at a negative digits count is rounded on the
+        # integer, the value duckdb returns; dividing the float first drifts
+        # by one ulp (8.460104777985657e18)
+        param(
+            -1,
+            [8460104777985655454, 25, -25, -8136954960944043082],
+            [8.460104777985656e18, 30.0, -30.0, -8.136954960944043e18],
+            id="int64-negative",
+        ),
+        # a value that overflows on the way back from the scaled value is
+        # unchanged, as on the way there; duckdb gives 0.0 for 1.5e308 and
+        # datafusion 1.0000000000000006e308 for both 1.5e308 and 1e308
+        param(
+            -308,
+            [1.5e308, 1e308, 0.5e308, 1.5],
+            [1.5e308, 1e308, 1e308, 0.0],
+            id="negative-near-max",
+        ),
+        # below 20 digits every int64 is 0; the unit is clamped there so an
+        # absurd digits count does not build a 10**|digits| integer
+        param(
+            -400, [9223372036854775807, -5, 0], [0.0, 0.0, 0.0], id="int64-past-range"
+        ),
+        param(
+            -309,
+            pd.Series([1.5, None, np.inf], dtype="Float64"),
+            [0.0, None, np.inf],
+            id="negative-past-range-nullable",
+        ),
+    ],
+)
+def test_round_digits(digits, data, expected):
+    df = pd.DataFrame({"k": range(len(data)), "a": data})
+    t = Backend().connect({"t": df}).table("t")
+    result = t.select("k", r=t.a.round(digits)).order_by("k").execute().r
+    assert [None if pd.isna(value) else value for value in result] == expected
+
+
+# a null stays a null through the rounded column, so an op composed on it
+# sees NA, as duckdb's isnan(round(NULL, 2)) is NULL; before, the explicit
+# digits branches turned a nullable NA into nan and isnan read it as True
+@pytest.mark.parametrize("dtype", ["Int64", "Float64"])
+@pytest.mark.parametrize("digits", [2, -1])
+def test_round_digits_keeps_null_through_composition(dtype, digits):
+    df = pd.DataFrame({"a": pd.Series([1, None], dtype=dtype)})
+    t = Backend().connect({"t": df}).table("t")
+    result = t.a.round(digits).isnan().execute()
+    assert [None if pd.isna(value) else value for value in result] == [False, None]
+
+
+def test_round_keeps_negative_zero():
+    # == cannot see the sign of zero; duckdb and datafusion keep it
+    df = pd.DataFrame({"a": [-0.4, -0.0, 0.4]})
+    t = Backend().connect({"t": df}).table("t")
+    assert np.signbit(t.a.round(0).execute()).tolist() == [True, True, False]
+
+
+def test_round_widens_before_arithmetic():
+    # round() is typed int64, so negating int8 -128 gives 128 on the xorq
+    # datafusion backend (duckdb refuses the negation as an overflow)
+    df = pd.DataFrame({"a": pd.Series([-128, 127], dtype="int8")})
+    t = Backend().connect({"t": df}).table("t")
+    assert (-t.a.round()).execute().tolist() == [128, -127]
+
+
 def test_quantile_groupby(batting, batting_df):
     def q_fun(x, quantile):
         res = x.quantile(quantile).tolist()
@@ -880,3 +1059,166 @@ def test_simple_case_null_base_and_null_branch():
     con = xo.pandas.connect()
     expr = xo.literal(None, type="int64").cases((None, 10), else_=0)
     assert con.execute(expr) == 0
+
+
+@pytest.mark.parametrize("how", ["sample", "pop"])
+@pytest.mark.parametrize("method", ["var", "std"])
+def test_variance_and_standard_deviation(t, df, method, how):
+    expr = getattr(t.plain_float64, method)(how=how)
+    ddof = {"sample": 1, "pop": 0}[how]
+    expected = getattr(df.plain_float64, method)(ddof=ddof)
+    assert expr.execute() == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("method", ["corr", "cov"])
+def test_correlation_and_covariance(t, df, method):
+    expr = getattr(t.plain_int64, method)(t.plain_float64)
+    expected = getattr(df.plain_int64, method)(df.plain_float64)
+    assert expr.execute() == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("method", ["corr", "cov"])
+def test_correlation_and_covariance_where(t, df, method):
+    expr = getattr(t.plain_int64, method)(t.plain_float64, where=t.dup_ints == 1)
+    mask = df.dup_ints == 1
+    expected = getattr(df.plain_int64[mask], method)(df.plain_float64[mask])
+    assert expr.execute() == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(("method", "position"), [("first", 0), ("last", -1)])
+def test_first_and_last_where(t, df, method, position):
+    expr = getattr(t.plain_strings, method)(where=t.dup_ints == 1)
+    expected = df.plain_strings[df.dup_ints == 1].iat[position]
+    assert expr.execute() == expected
+
+
+@pytest.mark.parametrize(
+    "make_expr",
+    [
+        param(lambda t: t.plain_int64.first(order_by=t.plain_float64), id="first"),
+        param(lambda t: t.plain_int64.last(order_by=t.plain_float64), id="last"),
+        param(lambda t: t.plain_int64.collect(order_by=t.plain_float64), id="collect"),
+        param(
+            lambda t: t.plain_strings.group_concat(",", order_by=t.plain_float64),
+            id="group_concat",
+        ),
+    ],
+)
+def test_ordered_reduction_is_unsupported(t, make_expr):
+    with pytest.raises(UnsupportedOperationError, match="order_by"):
+        make_expr(t).execute()
+
+
+def test_between_scalar_and_column_bounds(client):
+    df = pd.DataFrame(
+        {"a": [1.26, 2.5, 3.5, 4.75], "lo": [0, 3, 0, 4], "hi": [2, 3, 5, 5]}
+    )
+    t = client.create_table("between_t", df)
+
+    assert t.a.between(1, 3).execute().tolist() == [True, True, False, False]
+    assert t.a.between(t.lo, t.hi).execute().tolist() == [True, False, True, True]
+
+
+@pytest.mark.parametrize(
+    ("bounds", "expected"),
+    [
+        param(
+            lambda t: (1, 3),
+            [True, True, None, False, True, False, False],
+            id="scalar_bounds",
+        ),
+        param(
+            lambda t: (t.lo, t.hi),
+            [True, False, None, None, None, False, False],
+            id="column_bounds",
+        ),
+    ],
+)
+def test_between_null_operand_is_null(client, bounds, expected):
+    # expected is the literal output of duckdb (xo.duckdb.connect()) and of the
+    # xorq datafusion backend (xo.connect()) for the same table: a null value
+    # or a null bound gives null, not False, unless the other bound already
+    # excludes the value (FALSE AND NULL is FALSE)
+    df = pd.DataFrame(
+        {
+            "a": [1.26, 2.5, None, 4.75, 2.0, 5.0, 5.0],
+            "lo": [0, 3, 0, 4, None, 10, None],
+            "hi": [2, 3, 5, None, 5, None, 1],
+        }
+    )
+    t = client.create_table("between_null_t", df, overwrite=True)
+
+    result = t.a.between(*bounds(t)).execute()
+    assert_series_equal(result.astype("boolean"), pd.Series(expected, dtype="boolean"))
+
+
+def test_filter_on_negated_between_drops_null_rows(client):
+    # duckdb and datafusion keep one row (4.75): NOT NULL is NULL, so the row
+    # with the null value is dropped like the rows inside the range; a row a
+    # known bound excludes is kept even when the other bound is null
+    df = pd.DataFrame(
+        {
+            "a": [1.26, 2.5, None, 4.75, 5.0],
+            "lo": [0, 0, 0, 0, 10],
+            "hi": [3, 3, 3, 3, None],
+        }
+    )
+    t = client.create_table("between_filter_t", df)
+
+    assert t.filter(~t.a.between(1, 3)).count().execute() == 2
+    assert t.filter(~t.a.between(t.lo, t.hi)).count().execute() == 2
+
+
+# expected values are what duckdb returns: a null string stays null through a
+# negated predicate and through the regex kernels, where pandas raised
+# (TypeError from ~ on None, and from re.search on None)
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        param(lambda t: ~t.s.startswith("a"), [False, None, False], id="not"),
+        param(lambda t: t.s.re_search("^a"), [True, None, True], id="re_search"),
+        param(lambda t: t.s.re_extract("a(.)", 1), ["b", None, "c"], id="re_extract"),
+        param(lambda t: t.s.re_replace("a", "x"), ["xb", None, "xc"], id="re_replace"),
+    ],
+)
+def test_string_ops_keep_null(client, expr, expected):
+    df = pd.DataFrame({"s": ["ab", None, "ac"]})
+    t = client.create_table("string_null_t", df, overwrite=True)
+    result = expr(t).execute()
+    assert [None if pd.isna(value) else value for value in result] == expected
+
+
+def test_filter_on_negated_null_bearing_predicate_drops_null_rows(client):
+    df = pd.DataFrame({"s": ["ab", None, "cd"]})
+    t = client.create_table("negated_filter_t", df, overwrite=True)
+    assert t.filter(~t.s.startswith("a")).s.execute().tolist() == ["cd"]
+
+
+# duckdb drops the row whose string is null: the predicate is null there,
+# and a filter keeps only rows whose predicate is true
+@pytest.mark.parametrize(
+    ("predicate", "expected"),
+    [
+        param(lambda t: t.s.startswith("a"), ["ab"], id="startswith"),
+        param(lambda t: t.s.endswith("d"), ["cd"], id="endswith"),
+        param(lambda t: t.s.contains("c"), ["cd"], id="contains"),
+        param(lambda t: t.s.like("a%"), ["ab"], id="like"),
+    ],
+)
+def test_filter_on_null_bearing_string_predicate_drops_null_rows(
+    client, predicate, expected
+):
+    df = pd.DataFrame({"s": ["ab", None, "cd"]})
+    t = client.create_table("filter_null_string_t", df, overwrite=True)
+    assert t.filter(predicate(t)).s.execute().tolist() == expected
+    assert t.filter(predicate(t)).count().execute() == len(expected)
+
+
+def test_arbitrary_returns_a_present_value(client):
+    df = pd.DataFrame({"g": [1, 1, 2, 2], "s": ["ab", "c", None, "d"]})
+    t = client.create_table("arbitrary_t", df)
+
+    assert t.s.arbitrary().execute() in {"ab", "c", "d"}
+    by_group = t.group_by("g").agg(any=t.s.arbitrary()).execute().sort_values("g")
+    assert by_group["any"].tolist()[0] in {"ab", "c"}
+    assert by_group["any"].tolist()[1] == "d"

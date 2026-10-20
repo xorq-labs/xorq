@@ -27,7 +27,9 @@ from xorq.flight.exchanger import (
     AbstractExchanger,
     UnboundExprExchanger,
     make_udxf,
+    process_batch,
 )
+from xorq.flight.server import STATUS_MESSAGE_BUDGET, bounded_message, bounded_status
 from xorq.flight.tests.conftest import (
     do_agg,
     field_name,
@@ -35,6 +37,7 @@ from xorq.flight.tests.conftest import (
     my_udf_on_expr,
     return_type,
 )
+from xorq.tests.util import SPLIT_KEY, make_batch, make_split_f
 
 
 @pytest.mark.uv_export
@@ -329,6 +332,46 @@ def test_udxf_failure_raises_instead_of_hanging(
         execute_with_deadline(expr)
 
 
+def test_udxf_large_failure_message_reaches_client() -> None:
+    """A 100 KB message used to come back as gRPC's opaque metadata-size error.
+
+    pyarrow puts a plain Python exception, traceback included, into the status
+    and gRPC caps status metadata at 8 KB, so the client saw ``received initial
+    metadata size exceeds limit`` instead of the cause. The wire now carries the
+    type plus the head and tail of the message; the traceback stays server-side.
+    """
+    message = "SENTINEL_NEEDLE " + "x" * 100_000 + " SENTINEL_TAIL"
+    with pytest.raises(Exception, match="ValueError: SENTINEL_NEEDLE") as info:
+        execute_with_deadline(make_failing_udxf(ValueError, message))
+    assert "SENTINEL_TAIL" in str(info.value)
+    assert "elided" in str(info.value)
+    assert "metadata size" not in str(info.value)
+
+
+def test_bounded_message_keeps_short_and_elides_long() -> None:
+    # pyarrow runs the server handlers on gRPC threads that coverage does not
+    # trace, so the pure pieces are exercised here on the test thread
+    assert bounded_message(ValueError("short")) == "ValueError: short"
+    text = bounded_message(ValueError("HEAD " + "é" * 10_000 + " TAIL"))
+    assert text.startswith("ValueError: HEAD")
+    assert text.endswith(" TAIL")
+    assert "bytes elided" in text
+    assert len(text.encode()) < 2 * STATUS_MESSAGE_BUDGET
+
+
+def test_bounded_status_reraises_as_flight_server_error() -> None:
+    @bounded_status
+    def boom():
+        raise KeyError("missing")
+
+    with pytest.raises(
+        pa.flight.FlightServerError, match="KeyError: 'missing'"
+    ) as info:
+        boom()
+    assert isinstance(info.value.__cause__, KeyError)
+    assert bounded_status(lambda: 1)() == 1
+
+
 def test_failed_udxf_writes_no_cache(tmp_path: Path) -> None:
     """A swallowed failure used to be cached: zero rows, stored as the answer."""
     expr = make_failing_udxf(ValueError, "plain exception").cache(
@@ -337,31 +380,6 @@ def test_failed_udxf_writes_no_cache(tmp_path: Path) -> None:
     with pytest.raises(Exception, match="plain exception"):
         execute_with_deadline(expr)
     assert not tuple(tmp_path.glob("*.parquet"))
-
-
-# `make_batch`/`make_split_f` are shared with the unit-layer pins of the abort
-# policy in xorq.common.utils.tests.test_rbr_utils; duplicated rather than
-# imported across test packages.
-SPLIT_KEY = "split"
-
-
-def make_batch(split: int, n_rows: int) -> pa.RecordBatch:
-    return pa.RecordBatch.from_pydict(
-        {SPLIT_KEY: [split] * n_rows, "a": list(range(n_rows))}
-    )
-
-
-def make_split_f(fail_on: int) -> Callable:
-    """A per-split ``f`` that raises on the ``fail_on`` split."""
-
-    def f(split_reader: pa.RecordBatchReader) -> pa.RecordBatch:
-        table = split_reader.read_all()
-        (split,) = set(table[SPLIT_KEY].to_pylist())
-        if split == fail_on:
-            raise ValueError(f"boom on split {split}")
-        return pa.RecordBatch.from_pydict({SPLIT_KEY: [split], "n": [table.num_rows]})
-
-    return f
 
 
 class FailingSplitExchanger(AbstractExchanger):
@@ -451,3 +469,81 @@ def test_streaming_split_exchange_flight_failure_aborts() -> None:
     assert "error" in box, "failing split produced a clean stream instead of an error"
     assert "boom on split 1" in str(box["error"])
     assert [batch[SPLIT_KEY].to_pylist() for batch in box["delivered"]] == [[0]]
+
+
+def test_flight_serve_unbound_over_registered_memtable(parquet_dir):
+    """GH #1590: serving an unbound join whose bound side is an in-memory table exchanges rows instead of failing on the recreated con."""
+    batting = xo.connect().register(
+        xo.memtable(pd.read_parquet(parquet_dir.joinpath("batting.parquet")))
+    )
+    awards_players = xo.deferred_read_parquet(
+        parquet_dir.joinpath("awards_players.parquet"), xo.connect()
+    )
+    awards_players_unbound = xo.table(
+        name="awards_players", schema=awards_players.schema()
+    )
+    predicates = tuple(
+        set(batting.columns).intersection(awards_players_unbound.columns)
+    )
+    joined = batting.select(predicates).join(
+        awards_players_unbound.select(predicates), predicates=predicates
+    )
+    _, do_exchange = xo.expr.relations.flight_serve_unbound(joined)
+    actual = do_exchange(awards_players).read_pandas()
+    expected = batting.execute()[list(predicates)].merge(
+        awards_players.execute()[list(predicates)], on=predicates
+    )
+    assert not actual.empty
+    assert actual.sort_values(list(actual.columns), ignore_index=True).equals(
+        expected.sort_values(list(expected.columns), ignore_index=True)
+    )
+
+
+def make_reordering_udxf(columns: tuple[str, ...]) -> xo.Table:
+    """A UDXF declaring ``a, b`` whose ``process_df`` returns ``columns``."""
+    schema = xo.schema({"a": "int64", "b": "float64"})
+
+    def reorder(df: pd.DataFrame) -> pd.DataFrame:
+        return df.assign(c=df["a"])[list(columns)]
+
+    return xo.expr.relations.flight_udxf(
+        process_df=reorder,
+        maybe_schema_in=schema,
+        maybe_schema_out=schema,
+        name="Reorder",
+    )(xo.memtable({"a": [1, 2], "b": [0.5, 1.5]}, schema=schema, name="ab_tbl"))
+
+
+def test_udxf_column_order_follows_schema_out() -> None:
+    df = execute_with_deadline(make_reordering_udxf(("b", "a")))
+    assert df.to_dict("list") == {"a": [1, 2], "b": [0.5, 1.5]}
+
+
+@pytest.mark.parametrize(
+    ("columns", "message"),
+    (
+        param(("a",), r"missing columns \['b'\]", id="missing"),
+        param(("b", "a", "c"), r"extra columns \['c'\]", id="extra"),
+    ),
+)
+def test_udxf_column_mismatch_names_columns(
+    columns: tuple[str, ...], message: str
+) -> None:
+    with pytest.raises(Exception, match=message):
+        execute_with_deadline(make_reordering_udxf(columns))
+
+
+def test_process_batch_with_callable_schema_out() -> None:
+    # gRPC runs exchanges on native threads, so drive process_batch on this one
+    batch = pa.RecordBatch.from_pydict({"a": [1, 2], "b": [0.5, 1.5]})
+    out = process_batch(lambda df: df[["b", "a"]], toolz.identity, batch)
+    assert out.to_pydict() == {"a": [1, 2], "b": [0.5, 1.5]}
+    with pytest.raises(ValueError, match=r"extra columns \['c'\]"):
+        process_batch(lambda df: df.assign(c=1), toolz.identity, batch)
+
+
+def test_process_batch_keeps_returned_dtypes() -> None:
+    # reorder only: a wrong dtype still reaches the exchange's schema check
+    batch = pa.RecordBatch.from_pydict({"a": [1, 2], "b": [0.5, 1.5]})
+    out = process_batch(lambda df: df.assign(b=df["a"]), toolz.identity, batch)
+    assert out.schema.field("b").type == pa.int64()

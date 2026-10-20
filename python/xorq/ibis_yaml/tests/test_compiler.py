@@ -45,6 +45,7 @@ from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
+from xorq.expr.operations import _MISSING
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.compiler import (
@@ -603,6 +604,16 @@ def test_build_pandas_backend(builds_dir, users_df):
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
+def artifact_md5s(build_path):
+    # one snapshot file per build artifact, so a normalization change shows up
+    # as a diff of only the artifacts it touched
+    return {
+        f"{p.name}.md5": hashlib.md5(p.read_bytes()).hexdigest()
+        for p in build_path.iterdir()
+        if p.name != DumpFiles.build_metadata and p.is_file()
+    }
+
+
 @pytest.mark.slow(level=1)
 @pytest.mark.snapshot_check
 def test_build_file_stability_https(builds_dir, snapshot):
@@ -636,17 +647,7 @@ def test_build_file_stability_https(builds_dir, snapshot):
     )
     build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
 
-    actual = json.dumps(
-        {
-            p.name: hashlib.md5(p.read_bytes()).hexdigest()
-            for p in build_path.iterdir()
-            if p.name != DumpFiles.build_metadata
-        },
-        indent=2,
-        sort_keys=True,
-    )
-
-    snapshot.assert_match(actual, "expected.json")
+    snapshot.assert_match_dir(artifact_md5s(build_path), "artifacts")
 
     # test that it also runs
     roundtrip_expr = load_expr(build_path)
@@ -700,17 +701,7 @@ def test_build_file_stability_local(
     build_path = build_expr(
         expr, builds_dir=builds_dir, debug=True, relocate_reads=False
     )
-    actual = json.dumps(
-        {
-            p.name: hashlib.md5(p.read_bytes()).hexdigest()
-            for p in build_path.iterdir()
-            if p.name != DumpFiles.build_metadata
-        },
-        indent=2,
-        sort_keys=True,
-    )
-
-    snapshot.assert_match(actual, "expected.json")
+    snapshot.assert_match_dir(artifact_md5s(build_path), "artifacts")
 
     # test that it also runs
     roundtrip_expr = load_expr(build_path)
@@ -743,19 +734,9 @@ def test_build_file_stability_and_relocatability(
         read_normalize_method=normalize_read_path_md5sum,
         relocate_reads=False,
     )
-    actual = json.dumps(
-        {
-            p.name: hashlib.md5(p.read_bytes()).hexdigest()
-            for p in build_dir.iterdir()
-            if p.name != DumpFiles.build_metadata and p.is_file()
-        }
-        | {
-            "build_dir_name": build_dir.name,
-        },
-        indent=2,
-        sort_keys=True,
+    snapshot.assert_match_dir(
+        artifact_md5s(build_dir) | {"build_dir_name.txt": build_dir.name}, "artifacts"
     )
-    snapshot.assert_match(actual, "expected.json")
 
     # test that it also runs
     roundtrip_expr = load_expr(build_dir)
@@ -1098,6 +1079,42 @@ def test_extract_sql_queries_binds_non_none_defaults() -> None:
     result = _extract_sql_queries(expr, ExprKind.UnboundExpr)
     assert len(result) == 1
     assert "1.0" in result[0][2]
+
+
+def _param_behind_remote_table(default):
+    """The expression from GH #2374: a filter on a param, then an into_backend seam."""
+    con = xo.connect()
+    t = con.create_table(
+        "t",
+        pd.DataFrame({"d": pd.to_datetime(["2026-08-15", "2026-09-15"]), "v": [1, 2]}),
+    )
+    start = xo.param("start", "string", default=default)
+    filtered = t.filter(t.d >= start.cast("timestamp"))
+    return filtered.into_backend(xo.connect(), "seam")
+
+
+def test_build_param_default_behind_remote_table(tmp_path: pathlib.Path) -> None:
+    """A defaulted param behind into_backend builds, with the default bound into
+    the SQL recorded for the remote expression."""
+    build_dir = build_expr(
+        _param_behind_remote_table("2026-09-01"), builds_dir=tmp_path
+    )
+    entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
+    assert any("2026-09-01" in sql for _, _, sql in entry["sql_queries"])
+
+
+def test_build_param_without_default_behind_remote_table(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A required param behind into_backend still builds: SQL extraction is
+    best-effort metadata, so it warns and records no queries."""
+    with pytest.warns(UserWarning, match="Failed to extract SQL queries"):
+        build_dir = build_expr(
+            _param_behind_remote_table(_MISSING), builds_dir=tmp_path
+        )
+    entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
+    assert "sql_queries" not in entry
+    assert entry["params"] == [{"param_name": "start", "type": "string"}]
 
 
 def test_extract_sql_queries_records_relations(parquet_dir: pathlib.Path) -> None:
@@ -2168,3 +2185,83 @@ def test_execute_write_plans_dedupable_writes_once(
     )
     ExprDumper._execute_write_plans(plans)
     assert calls == ["a"]
+
+
+def test_duckdb_mutate_drop_join_roundtrip(builds_dir, parquet_dir):
+    """GH #1519: a column renamed by mutate+drop that keys a join and a group_by survives build_expr/load_expr on duckdb."""
+    con = xo.duckdb.connect()
+    batting_raw = con.read_parquet(
+        parquet_dir / "batting.parquet", table_name="batting"
+    )
+    people = con.create_table(
+        "people",
+        pd.DataFrame(
+            {"player_id": ["aardsda01", "aaronha01"], "birth_year": [1981, 1934]}
+        ),
+    )
+    renamed = batting_raw.mutate(
+        player_id=batting_raw.playerID,
+        year_id=batting_raw.yearID,
+    ).drop("playerID", "yearID")
+    expr = (
+        renamed.join(people.select(people.player_id, people.birth_year), "player_id")
+        .group_by("player_id")
+        .aggregate(seasons=renamed.year_id.nunique(), ab_total=renamed.AB.sum())
+    )
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
+    assert_frame_equal(
+        *(
+            e.execute().sort_values("player_id", ignore_index=True)
+            for e in (expr, roundtrip_expr)
+        )
+    )
+
+
+def test_build_writes_cache_source_profile_used_nowhere_else(
+    builds_dir, tmp_path, parquet_dir
+):
+    """GH #1216: a backend that only backs the cache storage is still written to profiles.yaml, so the build loads and runs."""
+    expr = (
+        xo.deferred_read_parquet(parquet_dir / "astronauts.parquet")
+        .into_backend(con=xo.duckdb.connect())
+        .select(xo._.name, xo._.id, xo._.number)
+        .cache(ParquetCache.from_kwargs(source=xo.sqlite.connect(), base_path=tmp_path))
+    )
+    build_path = build_expr(expr, builds_dir=builds_dir)
+    profiles = yaml12.parse_yaml(build_path.joinpath(DumpFiles.profiles).read_text())
+    assert {profile["con_name"] for profile in profiles.values()} == {
+        "xorq_datafusion",
+        "duckdb",
+        "sqlite",
+    }
+    assert_frame_equal(expr.execute(), load_expr(build_path).execute())
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    (
+        pytest.param(
+            {"x": "int64", "y": "string"}, {"y": "string", "x": "int64"}, id="columns"
+        ),
+        pytest.param(
+            {"s": "struct<x: int64, y: string>"},
+            {"s": "struct<y: string, x: int64>"},
+            id="struct-fields",
+        ),
+    ),
+)
+def test_yaml_roundtrip_keeps_order_of_same_column_schemas(compiler, first, second):
+    # two schemas that differ only in order must not share a registry entry
+    a = xo.table(first, name="a")
+    b = xo.table(second, name="b")
+    expr = a.cross_join(b.rename(lambda c: f"{c}_b"))
+
+    loaded = compiler().from_yaml(compiler().to_yaml(expr))
+
+    def table_schemas(e):
+        return {
+            op.name: tuple((name, str(typ)) for name, typ in op.schema.items())
+            for op in e.op().find(rel.UnboundTable)
+        }
+
+    assert table_schemas(loaded) == table_schemas(expr)

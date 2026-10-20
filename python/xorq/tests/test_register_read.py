@@ -123,6 +123,27 @@ def test_read_parquet_from_url(con):
     assert t.head().execute() is not None
 
 
+@pytest.mark.parametrize(
+    ("deferred_read", "url"),
+    (
+        pytest.param(
+            xo.deferred_read_csv,
+            "https://raw.githubusercontent.com/ibis-project/testing-data/refs/heads/master/csv/astronauts.csv",
+            id="csv",
+        ),
+        pytest.param(
+            xo.deferred_read_parquet,
+            "https://nasa-avionics-data-ml.s3.us-east-2.amazonaws.com/Tail_652_1_parquet/652200101120916.16p0.parquet",
+            id="parquet",
+        ),
+    ),
+)
+def test_deferred_read_from_url(con, deferred_read, url):
+    """GH #805: deferred_read_* accepts a remote object-store path instead of raising NotImplementedError."""
+    t = deferred_read(path=url, con=con)
+    assert len(t.head(3).execute()) == 3
+
+
 def test_register_table(con):
     tab = pa.table({"x": [1, 2, 3]})
     con.create_table("my_table", tab)

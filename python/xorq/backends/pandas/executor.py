@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import operator
-from functools import reduce
+from functools import partial, reduce
 
 import numpy as np
 import pandas as pd
-from packaging.version import parse as vparse
 
 import xorq.backends.pandas.kernels as pandas_kernels
 import xorq.vendor.ibis.expr.operations as ops
@@ -39,9 +39,6 @@ from xorq.vendor.ibis.formats.pandas import PandasData, PandasType
 from xorq.vendor.ibis.util import any_of, gen_name
 
 
-# ruff: noqa: F811
-
-
 def _case_matches(base, case):
     """base == case, where a null on either side matches nothing, itself included.
 
@@ -57,15 +54,117 @@ def _case_matches(base, case):
             return False
 
 
+def _reject_order_by(order_by):
+    if order_by:
+        raise UnsupportedOperationError(
+            "ordering of order-sensitive aggregations via `order_by` is "
+            "not supported for this backend"
+        )
+
+
+def _edge(arg, *, position, include_null):
+    if not include_null:
+        arg = arg.dropna()
+    return arg.iat[position] if len(arg) else None
+
+
+def _pairwise(method, left, right, where, **kwargs):
+    if where is None:
+
+        def agg(df):
+            return method(df[left.name], df[right.name], **kwargs)
+
+    else:
+
+        def agg(df):
+            mask = df[where.name]
+            return method(df[left.name][mask], df[right.name][mask], **kwargs)
+
+    return agg
+
+
+def _hashable(value):
+    # factorize needs hashable values; an array or struct key compares by content
+    if isinstance(value, (list, tuple, np.ndarray)):
+        return tuple(_hashable(item) for item in value)
+    if isinstance(value, dict):
+        return tuple(sorted((key, _hashable(item)) for key, item in value.items()))
+    return value
+
+
+def _hashable_key(series):
+    if series.dtype != object:
+        return series
+    # a 1-D object ndarray filled by hand: Series.map would re-infer the dtype
+    # and widen ints beside a None to float64, and np.array would turn
+    # equal-length tuples into a second dimension
+    out = np.empty(len(series), dtype=object)
+    for position, value in enumerate(series):
+        out[position] = _hashable(value)
+    return out
+
+
+def _by_value(column):
+    # a categorical sorts by category position; a window orders by value, as
+    # SQL does on the string column this backend exposes it as
+    if isinstance(column.dtype, pd.CategoricalDtype):
+        return column.astype(object)
+    return column
+
+
+def _null_position(table, order_keys, nulls_first):
+    if all(nulls_first):
+        return "first"
+    if not any(nulls_first):
+        return "last"
+    # pandas places nulls once per sort; a disagreement only matters when a
+    # key that asked for the other placement actually holds nulls
+    disagreeing = [key for key, first in zip(order_keys, nulls_first) if first]
+    if any(table[key].isna().any() for key in disagreeing):
+        raise ValueError(
+            "pandas does not support specifying null ordering for individual columns"
+        )
+    return "last"
+
+
+def _key_starts(df, order_keys):
+    """Where a new key begins in a frame already sorted by the window's keys.
+
+    The frame arrives sorted with direction and null placement applied, so
+    rank-family functions read it by position: a new rank starts wherever a
+    key differs from the previous row. Factorized codes compare exactly for
+    any dtype and give nulls one code of their own.
+    """
+    if len(order_keys) == 0:
+        raise ValueError("order_by argument is required for rank functions")
+    codes = np.column_stack(
+        [
+            pd.factorize(_hashable_key(df[key]), use_na_sentinel=False)[0]
+            for key in order_keys
+        ]
+    )
+    starts = np.ones(len(df), dtype=bool)
+    starts[1:] = (codes[1:] != codes[:-1]).any(axis=1)
+    return starts
+
+
+def _min_rank(starts):
+    # position of the row that opened the current key group
+    return np.maximum.accumulate(np.where(starts, np.arange(len(starts)), 0))
+
+
+def _max_rank(starts):
+    # position of the row that closes the current key group
+    ends = np.empty(len(starts), dtype=bool)
+    ends[:-1] = starts[1:]
+    ends[-1:] = True
+    last = np.where(ends, np.arange(len(starts)), len(starts) - 1)
+    return np.minimum.accumulate(last[::-1])[::-1]
+
+
 class PandasExecutor(PandasUtils):
     name = "pandas"
     kernels = pandas_kernels
-
-    @classmethod
-    def visit(cls, op: ops.Node, **kwargs):
-        raise OperationNotDefinedError(
-            f"Operation {op!r} is not implemented for the pandas backend"
-        )
 
     @classmethod
     def visit_Literal(cls, op: ops.Literal, value, dtype):
@@ -204,23 +303,20 @@ class PandasExecutor(PandasUtils):
         cls, op: ops.TimestampTruncate | ops.DateTruncate, arg, unit
     ):
         # TODO(kszucs): should use serieswise()
-        if vparse(pd.__version__) >= vparse("2.2"):
-            units = {"m": "min"}
-        else:
-            units = {"m": "Min", "ms": "L"}
+        units = {"m": "min"}
 
         unit = units.get(unit.short, unit.short)
 
+        # a literal arrives as a datetime or date, not a Series
+        is_scalar = not isinstance(arg, pd.Series)
+        series = pd.to_datetime(pd.Series([arg])) if is_scalar else arg
         if unit in "YQMWD":
-            return arg.dt.to_period(unit).dt.to_timestamp()
-        try:
-            return arg.dt.floor(unit)
-        except ValueError:
-            return arg.dt.to_period(unit).dt.to_timestamp()
+            result = series.dt.to_period(unit).dt.to_timestamp()
+        else:
+            result = series.dt.floor(unit)
+        return result.iloc[0] if is_scalar else result
 
-    @classmethod
-    def visit_DateTruncate(cls, op: ops.DateTruncate, arg, unit):
-        return cls.visit_TimestampTruncate(op, arg, unit)
+    visit_DateTruncate = visit_TimestampTruncate
 
     @classmethod
     def visit_IntervalFromInteger(cls, op: ops.IntervalFromInteger, unit, **kwargs):
@@ -284,11 +380,7 @@ class PandasExecutor(PandasUtils):
 
     @classmethod
     def visit_Reduction(cls, op: ops.Reduction, arg, where, order_by=()):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
+        _reject_order_by(order_by)
         func = cls.kernels.reductions[type(op)]
         return cls.agg(func, arg, where)
 
@@ -313,10 +405,6 @@ class PandasExecutor(PandasUtils):
         return agg
 
     @classmethod
-    def visit_Arbitrary(cls, op: ops.Arbitrary, arg, where):
-        return cls.agg(cls.kernels.reductions[ops.Arbitrary], arg, where)
-
-    @classmethod
     def visit_ArgMin(cls, op: ops.ArgMin | ops.ArgMax, arg, key, where):
         func = operator.methodcaller(op.__class__.__name__.lower())
 
@@ -336,111 +424,53 @@ class PandasExecutor(PandasUtils):
         return agg
 
     @classmethod
-    def visit_Variance(cls, op: ops.Variance, arg, where, how):
+    def visit_Variance(cls, op: ops.Variance | ops.StandardDev, arg, where, how):
         ddof = {"pop": 0, "sample": 1}[how]
-        return cls.agg(lambda x: x.var(ddof=ddof), arg, where)
+        method = "std" if isinstance(op, ops.StandardDev) else "var"
+        return cls.agg(operator.methodcaller(method, ddof=ddof), arg, where)
 
-    @classmethod
-    def visit_StandardDev(cls, op: ops.StandardDev, arg, where, how):
-        ddof = {"pop": 0, "sample": 1}[how]
-        return cls.agg(lambda x: x.std(ddof=ddof), arg, where)
+    visit_StandardDev = visit_Variance
 
     @classmethod
     def visit_ArrayCollect(
         cls, op: ops.ArrayCollect, arg, where, order_by, include_null
     ):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
+        _reject_order_by(order_by)
         return cls.agg(
             (lambda x: x.tolist() if include_null else x.dropna().tolist()), arg, where
         )
 
     @classmethod
-    def visit_First(cls, op: ops.First, arg, where, order_by, include_null):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
+    def visit_First(cls, op: ops.First | ops.Last, arg, where, order_by, include_null):
+        _reject_order_by(order_by)
+        position = -1 if isinstance(op, ops.Last) else 0
+        edge = partial(_edge, position=position, include_null=include_null)
+        return cls.agg(edge, arg, where)
 
-        def first(arg):
-            if not include_null:
-                arg = arg.dropna()
-            return arg.iat[0] if len(arg) else None
-
-        return cls.agg(first, arg, where)
-
-    @classmethod
-    def visit_Last(cls, op: ops.Last, arg, where, order_by, include_null):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
-
-        def last(arg):
-            if not include_null:
-                arg = arg.dropna()
-            return arg.iat[-1] if len(arg) else None
-
-        return cls.agg(last, arg, where)
+    visit_Last = visit_First
 
     @classmethod
     def visit_Correlation(cls, op: ops.Correlation, left, right, where, how):
-        if where is None:
-
-            def agg(df):
-                return df[left.name].corr(df[right.name])
-        else:
-
-            def agg(df):
-                mask = df[where.name]
-                lhs = df[left.name][mask]
-                rhs = df[right.name][mask]
-                return lhs.corr(rhs)
-
-        return agg
+        return _pairwise(pd.Series.corr, left, right, where)
 
     @classmethod
     def visit_Covariance(cls, op: ops.Covariance, left, right, where, how):
         ddof = {"pop": 0, "sample": 1}[how]
-        if where is None:
-
-            def agg(df):
-                return df[left.name].cov(df[right.name], ddof=ddof)
-        else:
-
-            def agg(df):
-                mask = df[where.name]
-                lhs = df[left.name][mask]
-                rhs = df[right.name][mask]
-                return lhs.cov(rhs, ddof=ddof)
-
-        return agg
+        return _pairwise(pd.Series.cov, left, right, where, ddof=ddof)
 
     @classmethod
     def visit_GroupConcat(cls, op: ops.GroupConcat, arg, sep, where, order_by):
-        if order_by:
-            raise UnsupportedOperationError(
-                "ordering of order-sensitive aggregations via `order_by` is "
-                "not supported for this backend"
-            )
+        _reject_order_by(order_by)
 
-        if where is None:
-
-            def agg(df):
-                return sep.join(df[arg.name].astype(str))
-        else:
-
-            def agg(df):
-                mask = df[where.name]
-                group = df[arg.name][mask]
-                if group.empty:
-                    return pd.NA
-                return sep.join(group)
+        def agg(df):
+            group = df[arg.name]
+            if where is not None:
+                group = group[df[where.name]]
+            # nulls do not take part, as in SQL; what is left is joined as text
+            group = group.dropna()
+            if group.empty:
+                return pd.NA
+            return sep.join(group.astype(str))
 
         return agg
 
@@ -499,55 +529,36 @@ class PandasExecutor(PandasUtils):
 
         return agg
 
-    @classmethod
-    def visit_Lead(cls, op: ops.Lag | ops.Lead, arg, offset, default):
-        return cls.visit_Lag(op, arg, offset, default)
+    visit_Lead = visit_Lag
 
     @classmethod
     def visit_MinRank(cls, op: ops.MinRank | ops.DenseRank):
         method = "dense" if isinstance(op, ops.DenseRank) else "min"
 
         def agg(df, order_keys):
-            if len(order_keys) == 0:
-                raise ValueError("order_by argument is required for rank functions")
-            elif len(order_keys) == 1:
-                s = df[order_keys[0]]
-            else:
-                s = df[order_keys].apply(tuple, axis=1)
-
-            return s.rank(method=method).astype("int64") - 1
+            starts = _key_starts(df, order_keys)
+            ranks = np.cumsum(starts) - 1 if method == "dense" else _min_rank(starts)
+            return pd.Series(ranks, index=df.index, dtype="int64")
 
         return agg
 
-    @classmethod
-    def visit_DenseRank(cls, op: ops.MinRank | ops.DenseRank):
-        return cls.visit_MinRank(op)
+    visit_DenseRank = visit_MinRank
 
     @classmethod
     def visit_PercentRank(cls, op: ops.PercentRank):
         def agg(df, order_keys):
-            if len(order_keys) == 0:
-                raise ValueError("order_by argument is required for rank functions")
-            elif len(order_keys) == 1:
-                s = df[order_keys[0]]
-            else:
-                s = df[order_keys].apply(tuple, axis=1)
-
-            return s.rank(method="min").sub(1).div(len(df) - 1)
+            # a single-row partition has nothing to rank against: 0, as in SQL
+            ranks = _min_rank(_key_starts(df, order_keys)) / max(len(df) - 1, 1)
+            return pd.Series(ranks, index=df.index)
 
         return agg
 
     @classmethod
     def visit_CumeDist(cls, op: ops.CumeDist):
         def agg(df, order_keys):
-            if len(order_keys) == 0:
-                raise ValueError("order_by argument is required for rank functions")
-            elif len(order_keys) == 1:
-                s = df[order_keys[0]]
-            else:
-                s = df[order_keys].apply(tuple, axis=1)
-
-            return s.rank(method="average", pct=True)
+            # SQL CUME_DIST: rows at or before the end of this key group, over n
+            ranks = (_max_rank(_key_starts(df, order_keys)) + 1) / len(df)
+            return pd.Series(ranks, index=df.index)
 
         return agg
 
@@ -585,11 +596,20 @@ class PandasExecutor(PandasUtils):
         # TODO(kszucs): order by ibis.random() is not supported because it is
         # excluded from the group by keys due to its scalar shape
         group_keys = [group.name for group in op.group_by]
-        order_keys = [key.name for key in op.order_by if key.shape.is_columnar()]
-        ascending = [key.ascending for key in op.order_by if key.shape.is_columnar()]
+        columnar = [key for key in op.order_by if key.shape.is_columnar()]
+        order_keys = [key.name for key in columnar]
+        ascending = [key.ascending for key in columnar]
+        nulls_first = [key.nulls_first for key in columnar]
 
         if order_by:
-            table = table.sort_values(order_keys, ascending=ascending, kind="mergesort")
+            na_position = _null_position(table, order_keys, nulls_first)
+            table = table.sort_values(
+                order_keys,
+                ascending=ascending,
+                na_position=na_position,
+                kind="mergesort",
+                key=_by_value,
+            )
 
         if group_by:
             frame = GroupedFrame(df=table, group_keys=group_keys)
@@ -645,10 +665,6 @@ class PandasExecutor(PandasUtils):
         return parent
 
     @classmethod
-    def visit_JoinReference(cls, op: ops.Reference, parent, **kwargs):
-        return cls.visit_Reference(op, parent, **kwargs)
-
-    @classmethod
     def visit_PandasRename(cls, op: PandasRename, parent, mapping):
         return parent.rename(columns=mapping)
 
@@ -684,7 +700,10 @@ class PandasExecutor(PandasUtils):
                 raise RuntimeError(
                     "Selection predicate length does not match underlying table"
                 )
-            parent = parent.loc[pred].reset_index(drop=True)
+            # a null predicate drops its row, as in SQL: the string kernels
+            # hand back an object series holding None, which .loc refuses,
+            # where the nullable boolean dtype reads NA as False
+            parent = parent.loc[pred.astype("boolean")].reset_index(drop=True)
         return parent
 
     @classmethod
@@ -898,6 +917,8 @@ class PandasExecutor(PandasUtils):
             method = getattr(cls, f"visit_{type(node).__name__}", None)
             if method is not None:
                 return method(node, **kwargs)
+            elif isinstance(node, ops.Reference):
+                return cls.visit_Reference(node, **kwargs)
             elif isinstance(node, ops.Reduction):
                 return cls.visit_Reduction(node, **kwargs)
             elif isinstance(node, ops.Value):
@@ -924,3 +945,24 @@ class PandasExecutor(PandasUtils):
                 raise TypeError(f"Unexpected shape: {original.shape}")
         else:
             return df
+
+
+def _visitor_operations():
+    """The concrete ``ops`` nodes the executor handles through a ``visit_<Op>``."""
+    nodes = (
+        getattr(ops, name.removeprefix("visit_"), None)
+        for name in dir(PandasExecutor)
+        if name.startswith("visit_")
+    )
+    return {
+        node
+        for node in nodes
+        if isinstance(node, type)
+        and issubclass(node, ops.Node)
+        and not inspect.isabstract(node)
+    }
+
+
+supported_operations = frozenset(
+    pandas_kernels.supported_operations | _visitor_operations()
+)

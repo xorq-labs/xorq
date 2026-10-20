@@ -24,7 +24,11 @@ from xorq.vendor.ibis.backends.sql.compilers.base import (
     SQLGlotCompiler,
 )
 from xorq.vendor.ibis.backends.sql.datatypes import PostgresType
-from xorq.vendor.ibis.backends.sql.rewrites import split_select_distinct_with_order_by
+from xorq.vendor.ibis.backends.sql.rewrites import (
+    hoist_sort_keys_out_of_subquery,
+    split_select_distinct_with_order_by,
+    split_select_with_shadowed_sort_key,
+)
 from xorq.vendor.ibis.common.temporal import IntervalUnit, TimestampUnit
 from xorq.vendor.ibis.expr.operations.udf import InputType
 
@@ -87,7 +91,11 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     agg = AggGen(supports_filter=True, supports_order_by=True)
 
-    post_rewrites = (split_select_distinct_with_order_by,)
+    post_rewrites = (
+        hoist_sort_keys_out_of_subquery,
+        split_select_with_shadowed_sort_key,
+        split_select_distinct_with_order_by,
+    )
 
     UNSUPPORTED_OPS = (
         ops.ArgMax,
@@ -586,6 +594,15 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_IntervalFromInteger(self, op, *, arg, unit):
         unit = unit.name.lower()
         return sg.cast(self.f.concat(self.cast(arg, dt.string), f" {unit}"), "interval")
+
+    def visit_DateDiff(self, op, *, left, right):
+        # DataFusion yields date - date as an int64 day count, which pyarrow
+        # cannot cast to the month_day_nano_interval that interval('D') maps
+        # to; parsing "<n> day" is how DataFusion builds that interval. Date
+        # literals and .date() compile to date_trunc timestamps, hence the casts.
+        left, right = (self.cast(arg, dt.date) for arg in (left, right))
+        days = self.cast(self.binop(sge.Sub, op, left, right), dt.string)
+        return sg.cast(sge.DPipe(this=days, expression=sge.convert(" day")), "interval")
 
     def visit_Greatest(self, op, *, arg):
         return self.f.greatest(*arg)

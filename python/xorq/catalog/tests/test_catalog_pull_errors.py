@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from git import Repo
 
+import xorq.api as xo
 from xorq.catalog.catalog import (
     Catalog,
     CatalogMergeConflict,
@@ -22,6 +23,7 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.exceptions import CatalogConfigurationError
+from xorq.catalog.expr_utils import build_expr_context_zip
 
 from .conftest import add_expr_entry
 
@@ -45,7 +47,7 @@ def test_pull_in_detached_head_raises_clear_error(two_clones):
 
 
 def test_pull_remote_without_branch_surfaces_cause(tmpdir):
-    """Pulling from a remote whose branch doesn't exist must surface
+    """Pulling from a remote that has branches, but not this one, must surface
     that as the failure cause (e.g. mention the missing ref or that
     nothing was merged) rather than swallowing the ``git merge`` error
     and falling through to a misleading ``git commit --no-edit``
@@ -55,6 +57,11 @@ def test_pull_remote_without_branch_surfaces_cause(tmpdir):
     user_path = workdir / "user"
 
     Repo.init(origin_path, bare=True, initial_branch=MAIN_BRANCH)
+    other_path = workdir / "other"
+    other = Catalog.from_repo_path(other_path, init=True, annex=False)
+    other.repo.create_remote(name="origin", url=str(origin_path))
+    # The remote has a branch, just not the one being pulled.
+    other.repo.git.push("origin", f"{MAIN_BRANCH}:elsewhere")
     cat = Catalog.from_repo_path(user_path, init=True, annex=False)
     add_expr_entry(cat, "boot", value=0)
     cat.repo.create_remote(name="origin", url=str(origin_path))
@@ -228,3 +235,23 @@ def test_pull_no_remote_is_noop(tmpdir):
     result = cat.pull()
 
     assert result == ()
+
+
+def test_first_add_and_push_publish_to_an_empty_remote(tmp_path: Path):
+    """A freshly created remote (how a hosted catalog starts) has no
+    branches: a synced add must not try to merge one, and the first push
+    publishes the branch and tracks it."""
+    workdir = tmp_path
+    origin_path = workdir / "origin.git"
+    Repo.init(origin_path, bare=True, initial_branch=MAIN_BRANCH)
+    cat = Catalog.from_repo_path(workdir / "user", init=True, annex=False)
+    cat.repo.create_remote(name="origin", url=str(origin_path))
+
+    with build_expr_context_zip(xo.memtable({"x": [0]}, name="boot")) as zip_path:
+        cat.add(zip_path, sync=True)
+
+    origin = Repo(origin_path)
+    assert origin.heads[MAIN_BRANCH].commit == cat.repo.head.commit
+    tracking = cat.repo.active_branch.tracking_branch()
+    assert tracking is not None and tracking.name == f"origin/{MAIN_BRANCH}"
+    cat.push()  # an ordinary push once the upstream exists

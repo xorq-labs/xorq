@@ -48,6 +48,14 @@ def project_and_cast_reader(
     )
 
 
+# dialects whose planner inlines a CTE at every reference, scanning its body
+# once per reference; the others (duckdb) materialise it and scan it once
+CTE_INLINING_DIALECTS = frozenset({"DataFusion"})
+# dialects whose optimiser re-scans a PARTITION BY-only window's input below
+# the SQL layer (a GROUP BY self-join), where counting Table nodes undercounts
+RESCANNING_DIALECTS = frozenset({"DuckDB"})
+
+
 def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     """Best-effort count of how many times each ``RemoteTable`` is scanned.
 
@@ -56,15 +64,23 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     one ``RemoteTable``). Each ``RemoteTable`` is rewritten to a placeholder
     table under a freshly generated, unique name, the placeholder expression is
     compiled to a sqlglot AST, and the ``Table`` nodes bearing that name are
-    counted. Counting ``Table`` AST nodes (rather than substrings of the
-    rendered SQL) ignores column references, aliases, and string literals, so
-    even a short or shared user-supplied table name cannot inflate the count.
+    counted. On a dialect that inlines a CTE at every reference (datafusion),
+    each CTE's body is weighted by its reference count, since a window or join
+    hoisted into a CTE and used twice scans its source twice; a dialect that
+    materialises CTEs (duckdb) scans the body once, and an overcount there
+    would keep every batch buffered waiting for a reader that never comes
+    (eviction starts only once ``max_readers`` readers exist). Counting
+    ``Table`` AST nodes (rather than substrings of the rendered SQL) ignores
+    column references, aliases, and string literals, so even a short or shared
+    user-supplied table name cannot inflate the count.
 
     This is a *lower bound*, not the exact physical scan count: it sees only the
     scans the compiled SQL spells out, and cannot see re-scans the backend's
-    optimiser introduces below the SQL layer. The known gap is a
-    ``PARTITION BY``-only aggregate window on DuckDB, lowered to a ``GROUP BY``
-    self-join that scans its input twice while the AST shows one ``Table`` node.
+    optimiser introduces below the SQL layer. The known such shape, a
+    ``PARTITION BY``-only window on DuckDB (lowered to a ``GROUP BY`` self-join
+    that scans its input twice while the AST shows one ``Table`` node), yields
+    no count for the tables that window reads, so their caches are built
+    unbounded (see ``tables_under_rescans`` and ``RESCANNING_DIALECTS``).
 
     The counts become each ``StreamCache``'s ``max_readers``, which both bounds
     memory (batches are evicted once all readers advance past them) and is a
@@ -79,8 +95,6 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     without eviction. Omitting the count is safe; deriving one too low is not.
     See ADR-0013 ("Counting accuracy").
     """
-    import sqlglot as sg  # noqa: PLC0415
-
     op = expr.op()
     sentinels = {}
 
@@ -107,11 +121,101 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     except Exception:
         return {}
 
+    # xorq's datafusion compiler and the vendored one each carry their own
+    # `DataFusion` dialect class, so the dialect is matched by name
+    dialect = compiler.dialect.__name__
+    inlines_ctes = dialect in CTE_INLINING_DIALECTS
+    queries = out if isinstance(out, list) else [out]
+    rescanned = (
+        set().union(*map(tables_under_rescans, queries))
+        if dialect in RESCANNING_DIALECTS
+        else set()
+    )
     counts = Counter()
-    for query in out if isinstance(out, list) else [out]:
-        for table in query.find_all(sg.exp.Table):
-            counts[table.name] += 1
-    return {node: max(1, counts[name]) for node, name in sentinels.items()}
+    for query in queries:
+        counts.update(_count_table_scans(query, inlines_ctes))
+    return {
+        node: max(1, counts[name])
+        for node, name in sentinels.items()
+        if name not in rescanned
+    }
+
+
+def tables_under_rescans(query) -> set[str]:
+    """The names of the tables read by a shape duckdb re-scans below the SQL
+    layer, so that counting their ``Table`` nodes undercounts: a window with
+    a ``PARTITION BY`` and no ``ORDER BY``, which duckdb lowers to a
+    ``GROUP BY`` self-join for an aggregate. A table is read by the window
+    when it sits under the window's enclosing ``SELECT``, directly or through
+    a CTE reference. The rule over-approximates: any such window, aggregate or
+    ranking, over any input, counts. Which of those duckdb re-scans is its
+    optimiser's rule, not the AST's; the cost of a false positive is eviction,
+    not correctness."""
+    import sqlglot as sg  # noqa: PLC0415
+
+    def read_by(node) -> set[str]:
+        # a CTE reference stands for the tables its body reads; each CTE is
+        # resolved once, in definition order, since a CTE can only reference
+        # the ones before it (a name not yet seen is a plain table)
+        return set().union(
+            *(
+                sources.get(table.name, {table.name})
+                for table in node.find_all(sg.exp.Table)
+            )
+        )
+
+    sources: dict[str, set[str]] = {}
+    for cte in query.find_all(sg.exp.CTE):
+        sources[cte.alias_or_name] = read_by(cte.this)
+
+    return set().union(
+        *(
+            read_by(select)
+            for window in query.find_all(sg.exp.Window)
+            if window.args.get("partition_by") and not window.args.get("order")
+            if (select := window.find_ancestor(sg.exp.Select)) is not None
+        )
+    )
+
+
+def _count_table_scans(query, inlines_ctes: bool) -> Counter:
+    """Count ``Table`` nodes by name; with ``inlines_ctes``, expand each CTE by
+    its reference count, else count each CTE body once.
+
+    The compilers hoist windows and joins into CTEs, and a CTE referenced by
+    both sides of a self cross join is inlined by datafusion (duckdb
+    materialises it): its body is scanned once per reference. The walk only
+    descends (the compiled AST shares nodes, so a node's parent pointer does
+    not say where it was reached from) and stops at each scope: a CTE body, or
+    a nested query with a WITH of its own (an embedded raw-SQL query, whose CTE
+    names may shadow the generated ones). Nested queries are folded in as
+    scanned once; CTE bodies last-to-first, so a later CTE's references to an
+    earlier one are already in ``counts`` when the earlier one's body is
+    weighted.
+    """
+    import sqlglot as sg  # noqa: PLC0415
+
+    def is_scope(node):
+        return isinstance(node, sg.exp.CTE) or (
+            node is not query and isinstance(node, sg.exp.Query) and node.ctes
+        )
+
+    counts = Counter()
+    ctes = []
+    for node in query.walk(prune=is_scope):
+        if isinstance(node, sg.exp.Table):
+            counts[node.name] += 1
+        elif isinstance(node, sg.exp.CTE):
+            ctes.append(node)
+        elif is_scope(node):
+            counts.update(_count_table_scans(node, inlines_ctes))
+    for cte in reversed(ctes):
+        weight = counts.pop(cte.alias_or_name, 0)
+        if not inlines_ctes:
+            weight = min(weight, 1)
+        for name, n in _count_table_scans(cte.this, inlines_ctes).items():
+            counts[name] += weight * n
+    return counts
 
 
 def drop_placeholder(con: BaseBackend, table_name: str) -> None:

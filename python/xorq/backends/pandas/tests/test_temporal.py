@@ -178,3 +178,29 @@ def test_interval_arithmetic(op, expected):
     result = expr.execute()
     expected = pd.Series(expected(data, data), name="td")
     assert_series_equal(result, expected)
+
+
+@pytest.mark.parametrize("unit", ["Y", "M", "D"])
+def test_date_truncate(t, df, unit):
+    expr = t.plain_datetimes_naive.date().truncate(unit)
+    result = expr.execute()
+    expected = df.plain_datetimes_naive.dt.to_period(unit).dt.to_timestamp()
+    assert list(pd.to_datetime(result)) == list(expected)
+
+
+@pytest.mark.parametrize("unit", ["Y", "M", "W", "D", "h", "m", "s"])
+def test_timestamp_truncate_scalar_matches_column(unit):
+    value = datetime.datetime(2024, 5, 17, 13, 42, 29)
+    con = xo.pandas.connect({"t": pd.DataFrame({"ts": [value]})})
+    column = con.table("t").ts.truncate(unit).execute().iloc[0]
+    scalar = con.execute(xo.timestamp(value).truncate(unit))
+    assert scalar == column
+
+
+@pytest.mark.parametrize("unit", ["Y", "M", "W", "D"])
+def test_date_truncate_scalar_matches_column(unit):
+    value = datetime.datetime(2024, 5, 17, 13, 42, 29)
+    con = xo.pandas.connect({"t": pd.DataFrame({"ts": [value]})})
+    column = con.table("t").ts.date().truncate(unit).execute().iloc[0]
+    scalar = con.execute(xo.date(value.date()).truncate(unit))
+    assert scalar == column

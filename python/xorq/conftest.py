@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 
 import numpy as np
@@ -5,6 +6,7 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+from xorq.api import _
 from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY
 
 
@@ -180,3 +182,169 @@ def csv_dir(data_dir):
 def examples_dir(root_dir):
     examples_dir = root_dir / "examples"
     return examples_dir
+
+
+@pytest.fixture
+def union_subsets(alltypes, alltypes_df):
+    """Three overlapping id-range slices of alltypes, each with its columns in a
+    different order, as expressions and as the matching pandas frames."""
+    cols_a, cols_b, cols_c = (alltypes.columns.copy() for _ in range(3))
+
+    random.seed(89)
+    random.shuffle(cols_a)
+    random.shuffle(cols_b)
+    random.shuffle(cols_c)
+    assert cols_a != cols_b != cols_c
+
+    a = alltypes.filter((_.id >= 5200) & (_.id <= 5210))[cols_a]
+    b = alltypes.filter((_.id >= 5205) & (_.id <= 5215))[cols_b]
+    c = alltypes.filter((_.id >= 5213) & (_.id <= 5220))[cols_c]
+
+    da = alltypes_df[(alltypes_df.id >= 5200) & (alltypes_df.id <= 5210)][cols_a]
+    db = alltypes_df[(alltypes_df.id >= 5205) & (alltypes_df.id <= 5215)][cols_b]
+    dc = alltypes_df[(alltypes_df.id >= 5213) & (alltypes_df.id <= 5220)][cols_c]
+
+    return (a, b, c), (da, db, dc)
+
+
+@pytest.fixture(scope="module")
+def time_keyed_df1():
+    return pd.DataFrame(
+        {
+            "time": pd.Series(
+                pd.date_range(start="2017-01-02 01:02:03.234", periods=6)
+            ),
+            "key": [1, 2, 3, 1, 2, 3],
+            "value": [1.2, 1.4, 2.0, 4.0, 8.0, 16.0],
+        }
+    )
+
+
+@pytest.fixture(scope="module")
+def time_keyed_df2():
+    return pd.DataFrame(
+        {
+            "time": pd.Series(
+                pd.date_range(start="2017-01-02 01:02:03.234", freq="3D", periods=3)
+            ),
+            "key": [1, 2, 3],
+            "other_value": [1.1, 1.2, 2.2],
+        }
+    )
+
+
+@pytest.fixture(scope="session")
+def ddl_file(root_dir):
+    return root_dir / "db" / "datafusion.sql"
+
+
+def statements(ddl_file: Path):
+    return (
+        statement
+        for statement in map(str.strip, ddl_file.read_text().split(";"))
+        if statement
+    )
+
+
+def make_xo_con(parquet_dir, ddl_file):
+    """A xorq_datafusion connection over the ibis test data.
+
+    The root `xo_con` is one of these and is shared by every directory that
+    does not override it; a directory whose tests create, register or cache
+    tables on `xo_con` overrides it with its own `make_xo_con` connection so
+    nothing leaks across directories.
+    The table fixtures below are function-scoped on purpose: a session-scoped
+    one would be cached once and bind every directory to the first
+    connection that requested it."""
+    conn = xo.connect()
+    for name in (
+        "astronauts",
+        "awards_players",
+        "batting",
+        "diamonds",
+        "functional_alltypes",
+    ):
+        conn.read_parquet(parquet_dir / f"{name}.parquet", name)
+    # register, not create_table: create_table leaves an ibis_*_memtable_<hash>
+    # registration behind for every frame it materializes
+    conn.register(array_types_df, "array_types")
+    conn.register(win, "win")
+    if ddl_file.is_file():
+        for statement in statements(ddl_file):
+            with conn._safe_raw_sql(statement):  # noqa
+                pass
+    return conn
+
+
+@pytest.fixture(scope="session")
+def xo_con(parquet_dir, ddl_file):
+    return make_xo_con(parquet_dir, ddl_file)
+
+
+@pytest.fixture(scope="session")
+def executed_frames():
+    """Executed frames keyed by (connection, table): the function-scoped
+    `*_df` fixtures below read each table once per directory connection."""
+    return {}
+
+
+def executed(frames, table):
+    key = (id(table._find_backend()), table.get_name())
+    if key not in frames:
+        frames[key] = table.execute()
+    return frames[key].copy()
+
+
+@pytest.fixture
+def alltypes(xo_con):
+    return xo_con.table("functional_alltypes")
+
+
+@pytest.fixture
+def alltypes_df(alltypes, executed_frames):
+    return executed(executed_frames, alltypes)
+
+
+@pytest.fixture
+def sorted_df(alltypes_df):
+    return alltypes_df.sort_values("id").reset_index(drop=True)
+
+
+@pytest.fixture
+def batting(xo_con):
+    return xo_con.table("batting")
+
+
+@pytest.fixture
+def batting_df(batting, executed_frames):
+    return executed(executed_frames, batting)
+
+
+@pytest.fixture
+def awards_players(xo_con):
+    return xo_con.table("awards_players")
+
+
+@pytest.fixture
+def diamonds(xo_con):
+    return xo_con.table("diamonds")
+
+
+@pytest.fixture
+def array_types(xo_con):
+    return xo_con.table("array_types")
+
+
+@pytest.fixture
+def struct(xo_con):
+    return xo_con.table("structs")
+
+
+@pytest.fixture
+def struct_df(struct, executed_frames):
+    return executed(executed_frames, struct)
+
+
+@pytest.fixture
+def win_table(xo_con):
+    return xo_con.table("win")

@@ -44,11 +44,6 @@ def cached_two(ls_con, batting, tmp_path):
     )
 
 
-@pytest.fixture(scope="function")
-def pg_alltypes(pg):
-    return pg.table("functional_alltypes")
-
-
 def test_cache_simple(con, alltypes, alltypes_df):
     initial_tables = con.list_tables()
 

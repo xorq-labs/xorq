@@ -39,6 +39,7 @@ __all__ = [
     "DataFrame",
     "WindowUDF",
     "WindowEvaluator",
+    "udwf",
 ]
 
 

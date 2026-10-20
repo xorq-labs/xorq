@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import abc
+import os
 import shutil
+import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import cached_property
@@ -14,7 +16,7 @@ from attr import (
     frozen,
 )
 from attr.validators import instance_of
-from git import IndexFile, Repo
+from git import IndexFile, Remote, Repo
 from git.exc import GitCommandError
 
 from xorq.catalog.annex import Annex, AnnexError
@@ -24,18 +26,34 @@ from xorq.catalog.constants import (
     POINTER_SUFFIX,
 )
 from xorq.catalog.content_store import (
+    _HOSTED_COMPONENT_MAX_LENGTH,
+    _HOSTED_COMPONENT_RE,
+    _PRESIGNED_BATCH_SIZE,
     ContentCache,
     ContentIntegrityError,
+    ContentSpec,
     ContentStore,
+    ContentStoreCapabilityError,
     ContentStoreConfig,
+    PresignedContentStoreConfig,
     atomic_write,
     compute_content_key,
     compute_sha256,
+    copy_and_digest,
+    hosted_remote_error,
     parse_pointer,
     write_pointer,
 )
 from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.git_utils import commit_context
+
+
+# Objects are staged on disk before being verified and adopted into the cache,
+# so a fetch of N objects must not stage all N at once. Derived from the
+# presigned store's own mint batch size rather than co-declared with it: a
+# group larger than one mint would cost extra round trips, and a smaller one
+# would leave part of each mint unused.
+_FETCH_BATCH_SIZE = _PRESIGNED_BATCH_SIZE
 
 
 def _repo_has_annex_artifacts(repo: Repo) -> bool:
@@ -99,6 +117,20 @@ class CatalogBackend(abc.ABC):
     def repo_config_paths(self) -> tuple[str, ...]:
         """Repo-relative paths that assert_consistency should ignore."""
         return ()
+
+    def validate_catalog_component(self, value: str, *, label: str) -> None:
+        """Reject path traversal while preserving legacy local naming."""
+        if not value or value in {".", ".."} or any(c in value for c in "/\\\0"):
+            raise ValueError(f"{label} must be one safe path component")
+
+    def validate_remote_url(self, remote_url: str) -> None:  # noqa: B027
+        """Validate a prospective Git remote against backend-specific policy."""
+
+    def validate_remote(self, remote: Remote) -> None:  # noqa: B027
+        """Validate the effective URLs used by an existing Git remote."""
+
+    def preflight_content_write(self) -> None:  # noqa: B027
+        """Validate backend dependencies before mutating catalog metadata."""
 
 
 @frozen
@@ -227,8 +259,32 @@ class GitPointerBackend(CatalogBackend):
         )
 
     @cached_property
-    def content_store(self) -> ContentStore:
+    def _content_store(self) -> ContentStore:
+        # Keep third-party ContentStoreConfig implementations compatible with
+        # the original no-argument make_store() contract.
         return self._config.make_store()
+
+    @cached_property
+    def _presigned_stores(self) -> dict[str, ContentStore]:
+        return {}
+
+    @property
+    def content_store(self) -> ContentStore:
+        if not isinstance(self._config, PresignedContentStoreConfig):
+            return self._content_store
+
+        # Re-read and validate the sole Git remote for every hosted operation,
+        # but only once per access: the validated effective URL is also the
+        # key under which stores (and their transport objects) are reused.
+        remotes = tuple(self.repo.remotes)
+        if len(remotes) != 1:
+            raise ValueError("a presigned catalog requires exactly one Git remote")
+        remote_url = self._validated_remote_url(remotes[0])
+        store = self._presigned_stores.get(remote_url)
+        if store is None:
+            store = self._config.make_store_for_remote_url(remote_url)
+            self._presigned_stores[remote_url] = store
+        return store
 
     @cached_property
     def catalog_id(self) -> str:
@@ -236,6 +292,74 @@ class GitPointerBackend(CatalogBackend):
 
     def _pointer_path(self, catalog_path: str | Path) -> Path:
         return Path(catalog_path).with_suffix(POINTER_SUFFIX)
+
+    def validate_catalog_component(self, value: str, *, label: str) -> None:
+        super().validate_catalog_component(value, label=label)
+        if (
+            isinstance(self._config, PresignedContentStoreConfig)
+            and _HOSTED_COMPONENT_RE.fullmatch(value) is None
+        ):
+            raise ValueError(
+                f"hosted {label} must be 1-{_HOSTED_COMPONENT_MAX_LENGTH} ASCII "
+                "characters: an alphanumeric first character followed by "
+                "alphanumerics, '_' or '-'"
+            )
+
+    def validate_remote_url(self, remote_url: str) -> None:
+        if isinstance(self._config, PresignedContentStoreConfig):
+            self._config.validate_remote_url(remote_url)
+
+    @staticmethod
+    def _remote_urls(remote: Remote, *, push: bool) -> tuple[str, ...]:
+        args = ["get-url"]
+        if push:
+            args.append("--push")
+        args.extend(("--all", remote.name))
+        try:
+            output = remote.repo.git.remote(*args)
+        except GitCommandError as exc:
+            raise ValueError(
+                "the presigned catalog Git remote must have exactly one URL"
+            ) from exc
+        return tuple(output.splitlines()) if output else ()
+
+    def validate_remote(self, remote: Remote) -> None:
+        if isinstance(self._config, PresignedContentStoreConfig):
+            self._validated_remote_url(remote)
+
+    def _validated_remote_url(self, remote: Remote) -> str:
+        """Validate *remote*'s effective URLs and return the one it uses."""
+        fetch_urls = self._remote_urls(remote, push=False)
+        push_urls = self._remote_urls(remote, push=True)
+        if len(fetch_urls) != 1 or len(push_urls) != 1:
+            raise ValueError(
+                "the presigned catalog Git remote must have exactly one fetch URL "
+                "and one effective push URL"
+            )
+        if fetch_urls != push_urls:
+            raise ValueError(
+                "the presigned catalog Git remote fetch and push URLs must match"
+            )
+        try:
+            self._config.validate_remote_url(fetch_urls[0])
+        except ValueError as exc:
+            raise hosted_remote_error(exc, fetch_urls[0]) from exc
+        return fetch_urls[0]
+
+    def preflight_content_write(self) -> None:
+        self.content_store.preflight_write()
+
+    @property
+    def _client_managed_lifecycle(self) -> bool:
+        if isinstance(self._config, PresignedContentStoreConfig):
+            return False
+        return self.content_store.client_managed_lifecycle
+
+    def _parse_pointer(self, path: str | Path) -> tuple[str, int]:
+        return parse_pointer(
+            path,
+            canonical=isinstance(self._config, PresignedContentStoreConfig),
+        )
 
     def stage(self, path: str | Path) -> None:
         self.repo.index.add([str(path)])
@@ -251,20 +375,25 @@ class GitPointerBackend(CatalogBackend):
         # local copy is kept intentionally: it's read from at use time
         archive_path = Path(catalog_path)
         uploaded = False
+        store = self.content_store
+        # Before the copy: a write that cannot succeed must not read the
+        # archive first (it can be gigabytes).
+        store.preflight_write()
         with atomic_write(archive_path) as tmp:
-            shutil.copy(source_path, tmp)
-            sha256 = compute_sha256(tmp)
+            # One pass: the store re-verifies the digest against the bytes as
+            # it uploads them, so this copy must not also re-read them.
+            sha256 = copy_and_digest(source_path, tmp)
             size = tmp.stat().st_size
             key = compute_content_key(self.catalog_id, sha256)
 
         try:
-            if not self.content_store.exists(key):
-                self.content_store.put(key, archive_path, sha256=sha256)
-                uploaded = True
+            uploaded = store.ensure_present(
+                key,
+                archive_path,
+                sha256=sha256,
+            )
         except BaseException:
             archive_path.unlink(missing_ok=True)
-            if uploaded and not self._has_references(sha256):
-                self.content_store.delete(key)
             raise
 
         pointer_path = self._pointer_path(catalog_path)
@@ -274,15 +403,20 @@ class GitPointerBackend(CatalogBackend):
         except BaseException:
             pointer_path.unlink(missing_ok=True)
             archive_path.unlink(missing_ok=True)
-            if uploaded and not self._has_references(sha256):
-                self.content_store.delete(key)
+            if (
+                uploaded
+                and store.client_managed_lifecycle
+                and not self._has_references(sha256)
+            ):
+                store.delete(key)
             raise
 
     def stage_unlink(self, path: str | Path) -> None:
         pointer_path = self._pointer_path(path)
         if pointer_path.exists():
+            store = self.content_store if self._client_managed_lifecycle else None
             try:
-                sha256, _ = parse_pointer(pointer_path)
+                sha256, _ = self._parse_pointer(pointer_path)
             except (ValueError, OSError):
                 import structlog  # noqa: PLC0415
 
@@ -295,10 +429,10 @@ class GitPointerBackend(CatalogBackend):
             self._remove_from_index(pointer_path)
             pointer_path.unlink()
 
-            if sha256 is not None:
+            if sha256 is not None and store is not None:
                 key = compute_content_key(self.catalog_id, sha256)
                 if not self._has_references(sha256):
-                    self.content_store.delete(key)
+                    store.delete(key)
 
             archive_path = Path(path)
             if archive_path.exists():
@@ -314,7 +448,7 @@ class GitPointerBackend(CatalogBackend):
             return
         for p in entries_dir.glob(f"*{POINTER_SUFFIX}"):
             try:
-                sha256, _ = parse_pointer(p)
+                sha256, _ = self._parse_pointer(p)
             except (ValueError, OSError):
                 import structlog  # noqa: PLC0415
 
@@ -329,17 +463,7 @@ class GitPointerBackend(CatalogBackend):
         return any(s == sha256 for s in self._iter_pointer_sha256s())
 
     def is_content_local(self, path: str | Path) -> bool:
-        if Path(path).exists():
-            return True
-        pointer_path = self._pointer_path(path)
-        if not pointer_path.exists():
-            return False
-        try:
-            sha256, _ = parse_pointer(pointer_path)
-        except (ValueError, OSError):
-            return False
-        key = compute_content_key(self.catalog_id, sha256)
-        return self.cache.contains(key)
+        return Path(path).exists()
 
     def _verify_content(
         self, local: Path, path: str | Path, sha256: str, size: int
@@ -358,6 +482,7 @@ class GitPointerBackend(CatalogBackend):
             )
 
     def fetch_content(self, *paths: str | Path) -> None:
+        pending: dict[str, tuple[ContentSpec, list[Path]]] = {}
         for path in paths:
             archive_path = Path(path)
             if archive_path.exists():
@@ -368,51 +493,132 @@ class GitPointerBackend(CatalogBackend):
                     f"Pointer file missing for {path}: {pointer_path}"
                 )
             try:
-                sha256, size = parse_pointer(pointer_path)
+                sha256, size = self._parse_pointer(pointer_path)
             except (ValueError, OSError) as exc:
                 raise ContentIntegrityError(
                     f"corrupt pointer file for {path}: {pointer_path}"
                 ) from exc
             key = compute_content_key(self.catalog_id, sha256)
+            spec = ContentSpec(key=key, sha256=sha256, size=size)
+            previous = pending.get(key)
+            if previous is not None:
+                if previous[0] != spec:
+                    raise ContentIntegrityError(
+                        f"Conflicting pointer metadata for content key {key}"
+                    )
+                if archive_path not in previous[1]:
+                    previous[1].append(archive_path)
+                continue
 
             cached = self.cache.get_path(key)
-            fetched = False
-            if cached is None:
-                cached = self.cache.fetch_from(self.content_store, key)
-                fetched = True
-
-            try:
+            if cached is not None:
                 try:
                     self._verify_content(cached, path, sha256, size)
                     with atomic_write(archive_path) as tmp_path:
                         shutil.copy2(cached, tmp_path)
-                except FileNotFoundError:
-                    if fetched:
-                        raise
-                    cached = self.cache.fetch_from(self.content_store, key)
-                    fetched = True
-                    self._verify_content(cached, path, sha256, size)
+                except (FileNotFoundError, ContentIntegrityError):
+                    # The cache entry can be evicted between get_path() and
+                    # copy, or fail verification — which unlinks it. Either
+                    # way it is no longer a hit, so fetch it like a miss.
+                    pass
+                else:
+                    continue
+
+            pending[key] = (spec, [archive_path])
+
+        if not pending:
+            return
+
+        items = tuple(pending.items())
+        for start in range(0, len(items), _FETCH_BATCH_SIZE):
+            self._fetch_batch(items[start : start + _FETCH_BATCH_SIZE])
+
+    def _fetch_batch(
+        self, batch: tuple[tuple[str, tuple[ContentSpec, list[Path]]], ...]
+    ) -> None:
+        """Download one bounded group, then materialise and cache each object.
+
+        Objects are staged next to the cache rather than in the system temp
+        dir: that is the volume sized for content, and it lets ``adopt`` rename
+        instead of copying the whole object a second time.
+
+        ``get_many`` is all-or-nothing, so a transport or in-transit integrity
+        failure discards this whole group — but earlier groups are already
+        adopted and stay cached, which is why ``fetch_content`` splits the work
+        rather than staging every object at once. A local ``_verify_content``
+        failure below is not group-atomic: keys earlier in the group are
+        already written and cached. That leaves valid data, since each key is
+        verified against its own pointer before it is written.
+        """
+        staging_dir = self.cache.staging_dir
+        if staging_dir is not None:
+            # Created when the cache was, but a cache cleanup since then may
+            # have removed it; mkstemp needs it to exist.
+            staging_dir.mkdir(parents=True, exist_ok=True)
+        downloads: dict[str, Path] = {}
+        try:
+            for key, _entry in batch:
+                # Location is what keeps these out of cache eviction and the
+                # budget. The ".tmp" suffix only matters if a
+                # DirectoryContentStore shares this volume, where it keeps
+                # in-flight files out of list_keys.
+                fd, tmp = tempfile.mkstemp(dir=staging_dir, suffix=".tmp")
+                os.close(fd)
+                downloads[key] = Path(tmp)
+
+            verified = (
+                self.content_store.get_many(
+                    (spec, downloads[key]) for key, (spec, _paths) in batch
+                )
+                or frozenset()
+            )
+
+            for key, (spec, archive_paths) in batch:
+                downloaded = downloads[key]
+                if key not in verified:
+                    # The store only moved bytes; prove them here. A store that
+                    # hashed them in transit reports the key and is trusted.
+                    self._verify_content(
+                        downloaded,
+                        archive_paths[0],
+                        spec.sha256,
+                        spec.size,
+                    )
+                for archive_path in archive_paths:
                     with atomic_write(archive_path) as tmp_path:
-                        shutil.copy2(cached, tmp_path)
-            finally:
-                if fetched and self.cache.disabled:
-                    cached.unlink(missing_ok=True)
+                        shutil.copy2(downloaded, tmp_path)
+                # adopt() consumes the staging file, so it goes last.
+                self.cache.adopt(key, downloaded)
+                downloads.pop(key)
+        finally:
+            for downloaded in downloads.values():
+                downloaded.unlink(missing_ok=True)
 
     def gc_content_store(self, dry_run: bool = True) -> list[str]:
         """Find and optionally delete content store keys not referenced by any pointer file."""
+        if isinstance(self._config, PresignedContentStoreConfig):
+            raise ContentStoreCapabilityError(
+                "hosted blob garbage collection is server-owned; "
+                "client-side catalog gc is unavailable"
+            )
+        store = self.content_store
+        if not store.client_managed_lifecycle:
+            raise ContentStoreCapabilityError(
+                "blob garbage collection is unavailable for this content store"
+            )
         referenced = {
             compute_content_key(self.catalog_id, sha)
             for sha in self._iter_pointer_sha256s()
         }
         orphans = [
             key
-            for key in self.content_store.list_keys(prefix=f"{self.catalog_id}/")
+            for key in store.list_keys(prefix=f"{self.catalog_id}/")
             if key not in referenced
         ]
 
         if not dry_run:
             for key in orphans:
-                self.content_store.delete(key)
+                store.delete(key)
 
         return orphans
 

@@ -21,16 +21,18 @@ from xorq.catalog import rebase as rebase_module
 from xorq.catalog.aliases import AliasPlan
 from xorq.catalog.catalog import Catalog, CatalogAlias
 from xorq.catalog.cli import cli
-from xorq.catalog.enums import RebaseStatus
+from xorq.catalog.enums import RebaseExit, RebaseStatus
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
 from xorq.catalog.tests.conftest import (
+    RECORDED,
     TEST_WHEEL_NAME,
     _annex_available,
     alias_target_hash,
     fail_nth_alias_move,
     pull_then,
 )
+from xorq.common.exceptions import UnmatchedSourceError
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
@@ -61,7 +63,11 @@ def backend_type() -> str:
     return "git"
 
 
-RECORDED = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
+@pytest.fixture
+def world_aliases() -> tuple[str, ...]:
+    return ("live", "staging")
+
+
 GROWN = RECORDED.append_column("c", pa.array([1.5, 2.5], pa.float64()))
 
 
@@ -81,25 +87,6 @@ def reopen(world: SimpleNamespace) -> Catalog:
 def targets(world: SimpleNamespace, *aliases: str) -> tuple[str, ...]:
     catalog = reopen(world)
     return tuple(alias_target_hash(catalog, alias) for alias in aliases)
-
-
-@pytest.fixture
-def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
-    """A sqlite table, and an entry over it aliased `live` and `staging`."""
-    db_path = tmp_path / "live.sqlite"
-    con = SqliteBackend().connect(str(db_path))
-    con.create_table("t", RECORDED.to_pandas())
-    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
-    t = con.table("t")
-    entry = catalog.add(t.filter(t.a > 1), aliases=("live", "staging"))
-    return SimpleNamespace(
-        db_path=db_path,
-        con=con,
-        catalog=catalog,
-        catalog_path=catalog_path,
-        name=entry.name,
-        tmp_path=tmp_path,
-    )
 
 
 def rebase(runner: CliRunner, world: SimpleNamespace, *args: str) -> Result:
@@ -307,6 +294,155 @@ def test_an_unregistered_alias_is_named_by_when_it_was_read(
         plan.evolved(pulled=True)
 
 
+def conflict_dropped_column(w: SimpleNamespace) -> str:
+    replace_t(w, pa.table({"b": ["x", "y"]}))
+    return w.name
+
+
+def conflict_gone_table(w: SimpleNamespace) -> str:
+    w.con.drop_table("t")
+    return w.name
+
+
+def two_source_entry(w: SimpleNamespace) -> str:
+    w.con.create_table("u", RECORDED.to_pandas())
+    t, u = w.con.table("t"), w.con.table("u")
+    return w.catalog.add(t.select("a").union(u.select("a"))).name
+
+
+def conflict_two_changed(w: SimpleNamespace) -> str:
+    name = two_source_entry(w)
+    replace_t(w, pa.table({"b": ["x", "y"]}))
+    w.con.drop_table("u")
+    w.con.create_table("u", GROWN.to_pandas())
+    return name
+
+
+def conflict_two_gone(w: SimpleNamespace) -> str:
+    name = two_source_entry(w)
+    w.con.drop_table("t")
+    w.con.drop_table("u")
+    return name
+
+
+def conflict_gone_beside_changed(w: SimpleNamespace) -> str:
+    name = two_source_entry(w)
+    w.con.drop_table("u")
+    replace_t(w, GROWN)
+    return name
+
+
+def conflict_gone_beside_unreachable(w: SimpleNamespace) -> str:
+    name, _, _ = refuse_beside_unreachable(lambda w: w.con.drop_table("t"))(w)
+    return name
+
+
+@pytest.mark.parametrize(
+    "setup, headline, op_name, gone, changed",
+    (
+        pytest.param(
+            conflict_dropped_column,
+            "Field cannot be rebuilt; changed sources in entry:",
+            "Field",
+            [],
+            ["t"],
+            id="dropped-column",
+        ),
+        pytest.param(
+            conflict_gone_table,
+            "is gone",
+            None,
+            ["t"],
+            [],
+            id="gone-table",
+        ),
+        pytest.param(
+            conflict_two_changed,
+            "Field cannot be rebuilt; changed sources in entry:",
+            "Field",
+            [],
+            ["t", "u"],
+            id="two-changed",
+        ),
+        pytest.param(
+            conflict_two_gone,
+            "are gone",
+            None,
+            ["t", "u"],
+            [],
+            id="two-gone",
+        ),
+        pytest.param(
+            conflict_gone_beside_changed,
+            "is gone",
+            None,
+            ["u"],
+            ["t"],
+            id="gone-beside-changed",
+        ),
+        pytest.param(
+            conflict_gone_beside_unreachable,
+            "is gone",
+            None,
+            ["t"],
+            ["u"],
+            id="gone-beside-unreachable",
+        ),
+    ),
+)
+def test_a_conflict_names_the_op_and_source_with_check_sources_schemas(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    setup: Callable,
+    headline: str,
+    op_name: str | None,
+    gone: list[str],
+    changed: list[str],
+) -> None:
+    name = setup(world)
+    checked = runner.invoke(cli, ["--path", world.catalog_path, "check-sources", name])
+    assert checked.exit_code == 3, checked.output
+    pair = [line for line in checked.stdout.splitlines() if line.startswith("    ")]
+
+    result = rebase(runner, world, name, "-a", "v2")
+    assert result.exit_code == 4, result.output
+    # The headline names the gone sources, or every changed one when an op failed.
+    first = result.stderr.splitlines()[0]
+    assert first.startswith(f"{name}: conflict: ") and headline in first
+    assert all(f"DatabaseTable {n}" in first for n in (gone or changed))
+    assert all(f"DatabaseTable {n}" not in first for n in gone and changed)
+    # Every source the sweep did not find equal gets its check-sources block.
+    assert pair and all(line in result.stderr.splitlines() for line in pair)
+    assert "could not rebuild" not in result.stderr
+    assert "Alias 'v2' not added" in result.stderr
+    if op_name is not None:
+        # Named once, by the headline; the cause follows it.
+        assert result.stderr.count(op_name) == 1
+        assert "XorqTypeError: Column 'a' is not found" in result.stderr
+    else:
+        # The blocks already say it; the cause is not echoed a third time.
+        assert " is table-missing" not in result.stderr
+    conflicted = rebase_entry(reopen(world).get_catalog_entry(name))
+    assert conflicted.status == RebaseStatus.CONFLICT
+    assert conflicted.new_entry.name == name
+    assert conflicted.conflict.op_name == op_name
+    assert sorted(r.leaf.name for r in conflicted.conflict.sources) == sorted(
+        gone + changed
+    )
+
+
+@pytest.mark.parametrize("moving", (("--move-aliases",), ("--only-alias", "live")))
+def test_a_conflict_says_the_aliases_were_not_moved(
+    runner: CliRunner, world: SimpleNamespace, moving: tuple[str, ...]
+) -> None:
+    name = conflict_dropped_column(world)
+
+    result = rebase(runner, world, name, *moving)
+    assert result.exit_code == 4, result.output
+    assert "Aliases not moved: the rebase conflicted" in result.stderr
+    assert targets(world, "live") == (name,)
+
+
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
 RUNNING = ".".join(map(str, sys.version_info[:2]))
 UNREADABLE = "{name} is unreadable: ValueError: corrupt"
@@ -447,6 +583,17 @@ def refuse_unprobed_db(w: SimpleNamespace) -> Setup:
     return name, (), (db,)
 
 
+def refuse_unmatched_source(w: SimpleNamespace) -> Setup:
+    """The rewrite disagrees with the sweep: a bug, refused as one."""
+    replace_t(w, GROWN)
+
+    def unmatched(*_: object) -> None:
+        raise UnmatchedSourceError("DatabaseTable", LookupError("t matched no source"))
+
+    w.monkeypatch.setattr(rebase_module, "refresh_schemas", unmatched)
+    return w.name, (), ()
+
+
 def refuse_dropped_column(w: SimpleNamespace) -> Setup:
     replace_t(w, pa.table({"b": ["x", "y"]}))
     return w.name, (), ()
@@ -556,12 +703,15 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             "no source could be probed (t)",
             id="unprobed-new-hash",
         ),
-        pytest.param(refuse_dropped_column, 4, "could not rebuild", id="column"),
+        pytest.param(
+            refuse_unmatched_source, 1, "t matched no source", id="unmatched-source"
+        ),
+        pytest.param(refuse_dropped_column, 4, "cannot be rebuilt", id="column"),
         pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
         pytest.param(
             refuse_beside_unreachable(lambda w: w.con.drop_table("t")),
             4,
-            "table-missing",
+            "DatabaseTable u: unreachable",
             id="gone-outranks-unreachable",
         ),
         pytest.param(
@@ -873,3 +1023,34 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     result = rebase(runner, world, world.name, "--move-aliases")
     assert result.exit_code == 1
     assert "alias move failed" in result.stderr
+
+
+@pytest.mark.parametrize("backend_type", ("pointer",))
+def test_an_entry_whose_archive_is_not_local_is_fetched_first(
+    world: SimpleNamespace,
+) -> None:
+    # A fresh clone of a pointer catalog has the pointer but not the archive.
+    entry = world.catalog.get_catalog_entry(world.name)
+    Path(entry.catalog_path).unlink()
+    assert not entry.is_content_local
+
+    result = rebase_old(world)
+
+    assert result.status == RebaseStatus.NOOP
+    assert entry.is_content_local
+
+
+@pytest.mark.parametrize("backend_type", ("pointer",))
+def test_an_archive_that_cannot_be_fetched_is_refused_as_retryable(
+    world: SimpleNamespace,
+) -> None:
+    backend = world.catalog.backend
+    entry = world.catalog.get_catalog_entry(world.name)
+    Path(entry.catalog_path).unlink()
+    shutil.rmtree(backend.content_store.directory)
+    shutil.rmtree(backend.cache.cache_dir)
+
+    with pytest.raises(RebaseError, match="could not be fetched") as exc_info:
+        rebase_old(world)
+
+    assert exc_info.value.exit_code == RebaseExit.UNREACHABLE

@@ -23,6 +23,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: ibis_testing
     steps:
       - uses: actions/checkout@v6
 
@@ -49,23 +55,46 @@ jobs:
       - name: start services
         run: docker compose up --build --wait
 
+      # Runner speed is bimodal across ubuntu-latest hosts, so a pull request
+      # is judged against the tip of its base branch measured on this same
+      # host, minutes apart. The cross-run history below is kept for the main
+      # branch's chart and comment; it neither fails nor comments on a pull
+      # request.
+      - name: Benchmark the base branch tip on this runner
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          ln -sT "$GITHUB_WORKSPACE/ci" "$RUNNER_TEMP/base/ci"
+          cd "$RUNNER_TEMP/base"
+          uv sync --locked --all-extras --all-groups
+          uv run --no-sync pytest \
+            --import-mode=importlib \
+            --benchmark-save=base \
+            --benchmark-storage="$GITHUB_WORKSPACE/.benchmarks" \
+            --benchmark-warmup=on \
+            --benchmark-only \
+            -m benchmark \
+            python/
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
       - name: Run benchmarks
+        id: bench
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
           --benchmark-json=benchmark-results.json
           --benchmark-warmup=on
+          ${{ github.event_name == 'pull_request' && '--benchmark-compare=0001_base --benchmark-compare-fail=median:80%' || '' }}
           -m benchmark
           python/
         working-directory: ${{ github.workspace }}
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_DATABASE: ibis_testing
 
+      # runs even when the same-runner compare above failed the job, so the
+      # slow run is still recorded; skipped when the benchmarks never ran
       - name: Store / compare benchmark results
+        if: ${{ !cancelled() && steps.bench.outcome != 'skipped' }}
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: pytest
@@ -73,5 +102,5 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.event_name != 'pull_request' }}
           alert-threshold: "180%"
-          comment-on-alert: true
-          fail-on-alert: true
+          comment-on-alert: ${{ github.event_name != 'pull_request' }}
+          fail-on-alert: false

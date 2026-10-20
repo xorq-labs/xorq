@@ -21,12 +21,17 @@ from xorq.catalog.drift import (
 )
 from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf, join_read_path
-from xorq.common.exceptions import InternalError, SchemaRefreshError, XorqError
+from xorq.common.exceptions import (
+    InternalError,
+    SchemaRefreshError,
+    UnmatchedSourceError,
+    XorqError,
+)
 from xorq.common.utils.graph_utils import (
-    OPAQUE_SPECS,
     _opaque_lookup,
-    _require_expr_args_recorded,
-    _require_registered_if_expr_bearing,
+    opaque_ops,
+    recreate_opaque,
+    replace_nodes,
     to_node,
 )
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
@@ -45,6 +50,7 @@ from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.graph import Node
 from xorq.vendor.ibis.expr.schema import Schema
+from xorq.vendor.ibis.expr.types import Expr
 
 
 # Ops storing a schema their parent determines -> the parent field.
@@ -195,15 +201,30 @@ def recreate_over(node: Node, overrides: dict) -> Node:
     if (attr := _opaque_lookup(node, SCHEMA_FOLLOWS_PARENT)) is not None:
         parent = overrides.get(attr, getattr(node, attr))
         overrides = overrides | {"schema": to_node(parent).schema}
-    return recreate(node, **revalidate_flight(node, overrides))
+    return recreate_opaque(node, revalidate_flight(node, overrides))
 
 
-def refuse(offenders: Iterable[tuple[str, str]], separator: str = ", ") -> None:
-    """Raise one ``SchemaRefreshError`` for ``(kind, detail)`` pairs, labeled
-    with their distinct kinds in order."""
+def recreate_changed(node: Node, kwargs: dict) -> Node:
+    """``node`` over the inputs ``replace_nodes`` rewrote; ``node`` if none moved."""
+    changed = {
+        name: value
+        for name, value in kwargs.items()
+        if not (isinstance(value, Expr) and value.op() is to_node(getattr(node, name)))
+    }
+    return rebuild(node, lambda: recreate_over(node, changed)) if changed else node
+
+
+def refuse(
+    offenders: Iterable[tuple[str, str]],
+    *,
+    separator: str = ", ",
+    error_type: type[SchemaRefreshError] = SchemaRefreshError,
+) -> None:
+    """Raise one ``error_type`` for ``(kind, detail)`` pairs, labeled with
+    their distinct kinds in order."""
     kinds, details = zip(*offenders)
     op_name = ", ".join(dict.fromkeys(map(str, kinds)))
-    raise SchemaRefreshError(op_name, LookupError(separator.join(details)))
+    raise error_type(op_name, LookupError(separator.join(details)))
 
 
 def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
@@ -213,48 +234,32 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
     """
     if not live:
         return expr
-    memo: dict[Node, Node] = {}
     matched: set[tuple] = set()
     # Screen before `op_key`: resolving a profile connects a lazy backend.
     candidates = {(kind, name, schema) for (kind, _, name, schema) in live}
 
-    def rewrite(node: Node) -> Node:
-        if node not in memo:
-            memo[node] = node.replace(replacer)
-        return memo[node]
-
     def replacer(node: Node, kwargs: dict | None) -> Node:
-        if isinstance(node, CacheTag):
-            return node
         if source_identity(node) in candidates and (key := op_key(node)) in live:
             matched.add(key)
             return rebuild(node, lambda: with_live_schema(node, live[key]))
-        overrides = dict(kwargs or {})
-        rebound = node
-        # `replace_nodes`'s tripwires: an unregistered Expr field would be
-        # skipped here and keep its stale schema silently.
-        if (spec := _opaque_lookup(node, OPAQUE_SPECS)) is None:
-            _require_registered_if_expr_bearing(node)
-        else:
-            _require_expr_args_recorded(node)
-            for edge in spec.descend_edges:
-                sub = to_node(getattr(node, edge))
-                if (new := rewrite(sub)) is sub:
-                    continue
-                if spec.rebind is not None:
-                    rebound = rebuild(node, lambda: spec.rebind(node, new.to_expr()))
-                else:
-                    as_node = isinstance(getattr(node, edge), Node)
-                    overrides[edge] = new if as_node else new.to_expr()
-        if not overrides and rebound is node:
+        # An opaque op is rebuilt by `recreate_changed`, over its rewritten edges.
+        if kwargs is None or isinstance(node, opaque_ops):
             return node
-        return rebuild(node, lambda: recreate_over(rebound, overrides))
+        return rebuild(node, lambda: recreate_over(node, kwargs))
 
-    refreshed = rewrite(to_node(expr)).to_expr()
+    refreshed = replace_nodes(
+        replacer,
+        expr,
+        recreate=recreate_changed,
+        stop=lambda node: isinstance(node, CacheTag),
+    ).to_expr()
     if unmatched := [key for key in live if key not in matched]:
         refuse(
-            (kind, f"{name} matched no source of the loaded expression")
-            for (kind, _, name, _) in unmatched
+            (
+                (kind, f"{name} matched no source of the loaded expression")
+                for (kind, _, name, _) in unmatched
+            ),
+            error_type=UnmatchedSourceError,
         )
     return refreshed
 

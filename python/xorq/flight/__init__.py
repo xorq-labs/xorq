@@ -1,7 +1,6 @@
 import functools
 import random
 import socket
-import time
 from typing import Optional
 from urllib.parse import urlunparse
 
@@ -258,20 +257,19 @@ class FlightServer:
             self.server.serve()
 
     def close(self, *args):
-        args = args or (None, None, None)
-        self.server.__exit__(*args)
-        self.server = None
-        self.flight_url.bind_socket()
+        if self.server is not None:
+            self.server.__exit__(*(args or (None, None, None)))
+            self.server = None
+            self.flight_url.bind_socket()
 
     def wait(self):
         assert self.server
-        while self.server:
-            try:
-                time.sleep(1)
-            except KeyboardInterrupt:
-                logger = get_print_logger()
-                logger.info("Keyboard Interrupt: server shutting down")
-                break
+        try:
+            while self.server and not self.server.shutdown_requested.wait(1):
+                pass
+        except KeyboardInterrupt:
+            get_print_logger().info("Keyboard Interrupt: server shutting down")
+        self.close()
 
     def __exit__(self, *args):
         self.close(*args)

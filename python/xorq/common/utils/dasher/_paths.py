@@ -61,7 +61,7 @@ def _normalize_path_stat(path: str, **kwargs) -> tuple:
             ("url", path),
             *(
                 (k, headers.get(k))
-                for k in ("Last-Modified", "Content-Length", "Content-Type")
+                for k in ("ETag", "Last-Modified", "Content-Length", "Content-Type")
             ),
         )
     if isinstance(path, str) and path.startswith(CLOUD_SCHEMES):

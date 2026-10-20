@@ -1,8 +1,12 @@
+from __future__ import annotations
+
+import errno
 import gc
 import hashlib
 import os
 import shutil
 import subprocess
+import time
 import uuid
 from pathlib import Path
 
@@ -37,16 +41,23 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.constants import CONTENT_STORE_YAML, MAIN_BRANCH
 from xorq.catalog.content_store import (
+    _MAX_PRESIGNED_BLOB_BYTES,
+    _PRESIGNED_ASSUMED_BYTES_PER_SECOND,
+    _PRESIGNED_BATCH_SIZE,
+    _STAGING_REAP_SECONDS,
     POINTER_VERSION,
     ContentCache,
     ContentIntegrityError,
     ContentStoreConfig,
     DirectoryContentStore,
     DirectoryContentStoreConfig,
+    PresignedContentStore,
+    PresignedContentStoreConfig,
     S3ContentStoreConfig,
     _coerce_port,
     compute_content_key,
     compute_sha256,
+    copy_and_digest,
     parse_pointer,
     write_pointer,
 )
@@ -54,6 +65,7 @@ from xorq.catalog.enums import CatalogInfix
 from xorq.catalog.exceptions import (
     CatalogConfigurationError,
     CatalogPushError,
+    ContentStoreError,
 )
 from xorq.catalog.expr_utils import (
     _live_extract_dirs,
@@ -148,6 +160,73 @@ def test_catalog_addition_from_expr_tmpfile_lifecycle(catalog):
     assert zip_path.exists()
     del catalog_addition
     assert not zip_path.exists()
+
+
+@pytest.mark.parametrize("preexisting_dirs", (False, True))
+def test_catalog_add_upload_failure_preserves_repo_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    preexisting_dirs: bool,
+) -> None:
+    service_url = "http://127.0.0.1:8765/"
+    repo_path = tmp_path / "repo"
+    config = PresignedContentStoreConfig(
+        catalog_id=str(uuid.uuid4()), service_url=service_url
+    )
+    repo = Catalog.init_repo_path(repo_path, content_store_config=config)
+    repo.create_remote("origin", f"{service_url}alice/demo.git")
+    backend = GitPointerBackend.from_repo(
+        repo,
+        cache=ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9),
+    )
+    catalog = Catalog(backend=backend)
+
+    gitignore = repo_path / ".gitignore"
+    gitignore.write_text(gitignore.read_text() + "# staged before add\n")
+    repo.index.add([str(gitignore)])
+    gitignore.write_text(gitignore.read_text() + "# unstaged before add\n")
+
+    def fail_upload(*args, **kwargs):
+        raise ContentStoreError("catalog service unavailable")
+
+    monkeypatch.setattr(PresignedContentStore, "ensure_present", fail_upload)
+    # A hosted add checks its token before reading the archive.
+    monkeypatch.setenv("XORQ_CATALOG_TOKEN", "write-token")
+    monkeypatch.setenv("XORQ_CATALOG_TOKEN_SERVICE_URL", service_url)
+
+    with build_expr_context_zip(xo.memtable({"failed-upload": [1]})) as zip_path:
+        addition = CatalogAddition(BuildZip(zip_path), catalog)
+        entry = addition.catalog_entry
+        if preexisting_dirs:
+            entry.catalog_path.parent.mkdir()
+            entry.metadata_path.parent.mkdir()
+        pointer_path = backend.entry_tracked_path(entry.catalog_path)
+        before = {
+            "head": repo.head.commit.hexsha,
+            "index": repo.index.write_tree().hexsha,
+            "staged": repo.git.diff("--cached", "--binary"),
+            "unstaged": repo.git.diff("--binary"),
+            "untracked": tuple(repo.untracked_files),
+            "catalog_yaml": catalog.catalog_yaml.yaml_path.read_bytes(),
+            "entry_dir": entry.catalog_path.parent.exists(),
+            "metadata_dir": entry.metadata_path.parent.exists(),
+        }
+
+        with pytest.raises(ContentStoreError, match="catalog service unavailable"):
+            addition.add()
+
+    assert repo.head.commit.hexsha == before["head"]
+    assert repo.index.write_tree().hexsha == before["index"]
+    assert repo.git.diff("--cached", "--binary") == before["staged"]
+    assert repo.git.diff("--binary") == before["unstaged"]
+    assert tuple(repo.untracked_files) == before["untracked"]
+    assert catalog.catalog_yaml.yaml_path.read_bytes() == before["catalog_yaml"]
+    assert not catalog.catalog_yaml.contains(addition.name)
+    assert not entry.metadata_path.exists()
+    assert not entry.catalog_path.exists()
+    assert not pointer_path.exists()
+    assert entry.catalog_path.parent.exists() == before["entry_dir"]
+    assert entry.metadata_path.parent.exists() == before["metadata_dir"]
 
 
 def test_catalog_rm(catalog, data_dict):
@@ -637,20 +716,131 @@ def test_from_repo_path_false_forces_plain_git(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_content_cache_fetch_from_protects_fetched_file(tmp_path: Path) -> None:
-    """A fetched file larger than max_bytes is not evicted by its own insertion."""
+def test_content_cache_adopt_consumes_the_staged_file(tmp_path: Path) -> None:
+    """adopt() moves the staged object in and protects it from its own eviction."""
     root = tmp_path
-    store = DirectoryContentStore(directory=root / "store")
     cache = ContentCache(cache_dir=root / "cache", max_bytes=10)
     key = "cat/aa/bb/deadbeef.zip"
-    src = root / "big.bin"
-    src.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
-    store.put(key, src)
+    staged = cache.cache_dir / "staged.tmp"
+    staged.write_bytes(b"x" * 100)  # 100 bytes > max_bytes
 
-    dest = cache.fetch_from(store, key)
-    assert dest.exists()  # protected from its own eviction
+    cache.adopt(key, staged)
+
+    assert not staged.exists()  # consumed, not copied
+    dest = cache.get_path(key)
+    assert dest is not None
     assert dest.read_bytes() == b"x" * 100
-    assert cache.get_path(key) is not None
+
+
+def test_content_cache_adopt_falls_back_to_copy_across_filesystems(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cross-device rename degrades to copy-then-unlink, not a failure."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    staged = tmp_path / "elsewhere.tmp"
+    staged.write_bytes(b"payload")
+
+    real_replace = os.replace
+    failed = []
+
+    def cross_device(src, dst):
+        # Only adopt()'s own rename is cross-device; the copy fallback then
+        # renames within the cache dir and must be allowed to succeed.
+        if not failed:
+            failed.append((src, dst))
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", cross_device)
+    cache.adopt("cat/aa/bb/data.zip", staged)
+
+    assert not staged.exists()
+    dest = cache.get_path("cat/aa/bb/data.zip")
+    assert dest is not None
+    assert dest.read_bytes() == b"payload"
+
+
+def test_content_cache_adopt_disabled_drops_the_staged_file(tmp_path: Path) -> None:
+    """max_bytes=0: adopt() discards the staged file and caches nothing."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=0)
+    staged = tmp_path / "staged.tmp"
+    staged.write_bytes(b"payload")
+
+    cache.adopt("cat/aa/bb/data.zip", staged)
+
+    assert not staged.exists()
+    assert cache.get_path("cat/aa/bb/data.zip") is None
+    assert cache.staging_dir is None
+
+
+def test_copy_and_digest_matches_a_separate_hash_and_keeps_the_mode(
+    tmp_path: Path,
+) -> None:
+    """The single-pass copy is byte- mode- and digest-equivalent to shutil.copy."""
+    src = tmp_path / "src.zip"
+    src.write_bytes(b"payload" * 1000)
+    os.chmod(src, 0o640)
+    dest = tmp_path / "dest.zip"
+
+    digest = copy_and_digest(src, dest)
+
+    assert digest == compute_sha256(src)
+    assert dest.read_bytes() == src.read_bytes()
+    assert dest.stat().st_mode == src.stat().st_mode
+
+
+def test_parse_pointer_rejects_an_oversized_pointer_file(tmp_path: Path) -> None:
+    """A pointer from an untrusted clone is size-bounded before it is read."""
+    pointer = tmp_path / "entry.zip.pointer"
+    sha = "a" * 64
+    padding = b"#" * 8192
+    pointer.write_bytes(f"{POINTER_VERSION}\nsha256 {sha}\nsize 1\n".encode() + padding)
+
+    for canonical in (False, True):
+        with pytest.raises(ValueError, match="Invalid pointer file"):
+            parse_pointer(pointer, canonical=canonical)
+
+
+def test_parse_pointer_rejects_undecodable_bytes(tmp_path: Path) -> None:
+    """Non-UTF-8 pointer bytes fail as an invalid pointer, not a decode error."""
+    pointer = tmp_path / "entry.zip.pointer"
+    pointer.write_bytes(b"\xff\xfe not a pointer\n")
+
+    with pytest.raises(ValueError, match="Invalid pointer file"):
+        parse_pointer(pointer)
+
+
+def test_fetch_content_redownloads_when_the_cache_entry_vanished(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cache hit evicted between get_path() and use falls back to a download."""
+    repo = GitRepo.init(tmp_path / "repo")
+    store_dir = tmp_path / "store"
+    config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
+    config.write_yaml(Path(repo.working_dir) / CONTENT_STORE_YAML)
+    store = DirectoryContentStore(directory=store_dir)
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    backend = GitPointerBackend.from_repo(repo, cache=cache)
+
+    archive = tmp_path / "data.zip"
+    archive.write_bytes(b"real content")
+    sha = compute_sha256(archive)
+    key = compute_content_key("testcat", sha)
+    store.put(key, archive)
+
+    target = tmp_path / "entry.zip"
+    write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
+
+    # Report a cache hit whose file is already gone, as a concurrent eviction
+    # between get_path() and the copy would.
+    monkeypatch.setattr(
+        ContentCache,
+        "get_path",
+        lambda self, key: self.cache_dir / "evicted-under-us.zip",
+    )
+    backend.fetch_content(target)
+
+    assert target.read_bytes() == b"real content"
 
 
 def test_content_cache_put_protects_and_refreshes_atime(tmp_path: Path) -> None:
@@ -679,7 +869,7 @@ def test_content_cache_evicts_older_entries(tmp_path: Path) -> None:
         src.write_bytes(bytes([i]) * 100)
         key = f"cat/{i:02d}/x/h{i}.zip"
         store.put(key, src)
-        cache.fetch_from(store, key)
+        cache.put(key, src)
         keys.append(key)
 
     total = sum(p.stat().st_size for p in (root / "cache").rglob("*") if p.is_file())
@@ -750,7 +940,7 @@ def test_content_cache_unlimited_never_evicts(tmp_path: Path) -> None:
         src.write_bytes(bytes([i]) * 1000)
         key = f"cat/{i:02d}/x/h{i}.zip"
         store.put(key, src)
-        cache.fetch_from(store, key)
+        cache.put(key, src)
         keys.append(key)
 
     for key in keys:
@@ -846,8 +1036,8 @@ def test_parse_pointer_rejects_malformed(tmp_path: Path) -> None:
         parse_pointer(p)
 
 
-def test_fetch_content_drops_corrupt_cache_entry(tmp_path: Path) -> None:
-    """A SHA mismatch removes the cached entry so the next fetch self-heals."""
+def test_fetch_content_refetches_over_a_corrupt_cache_entry(tmp_path: Path) -> None:
+    """A SHA mismatch in the cache is dropped and fetched again in the same call."""
     repo = GitRepo.init(tmp_path / "repo")
     store_dir = tmp_path / "store"
     config = DirectoryContentStoreConfig(catalog_id="testcat", directory=str(store_dir))
@@ -866,17 +1056,14 @@ def test_fetch_content_drops_corrupt_cache_entry(tmp_path: Path) -> None:
     write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
 
     # prime the cache, then corrupt the cached copy
-    cache.fetch_from(store, key)
+    cache.put(key, archive)
     cached_path = cache._path(key)
     cached_path.write_bytes(b"corrupt")
 
-    with pytest.raises(ContentIntegrityError):
-        backend.fetch_content(target)
-    assert not cached_path.exists()  # corrupt entry dropped
-
-    # second attempt re-pulls the good copy from the store and succeeds
     backend.fetch_content(target)
+
     assert target.read_bytes() == b"real content"
+    assert cached_path.read_bytes() == b"real content"  # cache healed too
 
 
 def test_fetch_content_drops_cache_entry_on_size_mismatch(tmp_path: Path) -> None:
@@ -899,7 +1086,7 @@ def test_fetch_content_drops_cache_entry_on_size_mismatch(tmp_path: Path) -> Non
     # write a pointer with the correct sha but wrong size
     write_pointer(backend._pointer_path(target), sha, archive.stat().st_size + 999)
 
-    cache.fetch_from(store, key)
+    cache.put(key, archive)
     cached_path = cache._path(key)
     assert cached_path.exists()
 
@@ -930,7 +1117,7 @@ def test_fetch_content_no_partial_file_on_copy_failure(
     sha = compute_sha256(archive)
     key = compute_content_key("testcat", sha)
     store.put(key, archive)
-    cache.fetch_from(store, key)  # prime cache so the failure hits the archive copy
+    cache.put(key, archive)  # prime cache so the failure hits the archive copy
 
     target = tmp_path / "entry.zip"
     write_pointer(backend._pointer_path(target), sha, archive.stat().st_size)
@@ -1521,6 +1708,17 @@ def test_add_alias(catalog_populated):
     assert catalog_alias.alias_path.parent.name == CatalogInfix.ALIAS
     assert catalog_alias.target == Path("..") / CatalogInfix.ENTRY / (name + ".zip")
     catalog_populated.assert_consistency()
+
+
+@pytest.mark.parametrize(
+    "alias",
+    ("", "..", "nested/alias", r"nested\alias"),
+)
+def test_add_alias_rejects_unsafe_path_components(catalog_populated, alias):
+    name = catalog_populated.list()[0]
+
+    with pytest.raises(ValueError, match="safe path component"):
+        catalog_populated.add_alias(name, alias)
 
 
 def test_add_alias_unknown_name_raises(catalog_populated):
@@ -2330,3 +2528,113 @@ def test_extract_dir_cleaned_up_on_expr_gc(catalog):
 
     assert td not in _live_extract_dirs
     assert not Path(td).exists()
+
+
+def test_content_cache_reaps_staging_debris_but_spares_live_fetches(
+    tmp_path: Path,
+) -> None:
+    """A killed fetch leaves full-size objects behind; nothing else would remove them."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    staging = cache.staging_dir
+    assert staging is not None
+
+    stale = staging / "stale.tmp"
+    stale.write_bytes(b"x" * 5000)
+    old = time.time() - _STAGING_REAP_SECONDS - 60
+    os.utime(stale, (old, old))
+    live = staging / "live.tmp"
+    live.write_bytes(b"y" * 5000)
+
+    reaped = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+
+    assert not stale.exists()
+    assert live.exists(), "an in-flight file must survive a concurrent reap"
+    assert reaped.reap_stale_staging() == 0
+
+
+def test_staging_bytes_do_not_count_against_the_cache_budget(tmp_path: Path) -> None:
+    """The budget bounds entries; in-flight bytes cost no entry its place."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=1000)
+    staging = cache.staging_dir
+    assert staging is not None
+    (staging / "inflight.tmp").write_bytes(b"x" * 900)
+
+    entry = tmp_path / "entry.bin"
+    entry.write_bytes(b"z" * 400)
+    cache.put("cat/aa/bb/old.zip", entry)
+    cache.put("cat/cc/dd/new.zip", entry)
+
+    assert (staging / "inflight.tmp").exists(), "in-flight bytes are not evictable"
+    assert cache.get_path("cat/aa/bb/old.zip") is not None
+    assert cache.get_path("cat/cc/dd/new.zip") is not None
+
+
+def test_staging_dir_is_absent_when_caching_is_disabled(tmp_path: Path) -> None:
+    """A disabled cache stages in the system temp dir and reaps nothing."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=0)
+
+    assert cache.staging_dir is None
+    assert cache.reap_stale_staging() == 0
+
+
+def test_entries_stay_within_the_budget_whatever_is_staged(tmp_path: Path) -> None:
+    """Staging debris larger than the budget does not switch eviction off.
+
+    A process killed mid-fetch leaves its staging behind until the age reaper
+    runs, which only happens when a cache is built. Entries must stay within
+    the budget meanwhile, in a long-lived process too.
+    """
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=1000)
+    staging = cache.staging_dir
+    assert staging is not None
+    (staging / "debris.tmp").write_bytes(b"x" * 1500)
+
+    source = tmp_path / "entry.bin"
+    source.write_bytes(b"z" * 400)
+    keys = ("cat/aa/bb/first.zip", "cat/cc/dd/second.zip", "cat/ee/ff/third.zip")
+    for key in keys:
+        cache.put(key, source)
+
+    kept = [key for key in keys if cache.get_path(key) is not None]
+    assert len(kept) * 400 <= 1000
+    assert kept[-1] == keys[-1]
+    assert (staging / "debris.tmp").exists()
+
+
+def test_reap_threshold_outlasts_the_slowest_batch_the_fetcher_can_run(
+    tmp_path: Path,
+) -> None:
+    """A staging file as old as the slowest legitimate fetch survives a reap.
+
+    A full mint batch of maximum-size objects at the assumed bandwidth is the
+    longest a live fetch can be expected to hold its staging. A cache built
+    while that fetch is still finishing must not take the file from under it.
+    """
+    staging_dir = tmp_path / "cache" / ".staging"
+    staging_dir.mkdir(parents=True)
+    in_flight = staging_dir / "slowest-batch.tmp"
+    in_flight.write_bytes(b"x")
+    started = time.time() - (
+        _PRESIGNED_BATCH_SIZE
+        * _MAX_PRESIGNED_BLOB_BYTES
+        / _PRESIGNED_ASSUMED_BYTES_PER_SECOND
+    )
+    os.utime(in_flight, (started, started))
+
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+
+    assert cache.staging_dir == staging_dir
+    assert in_flight.exists()
+
+
+def test_adopt_names_the_staging_file_a_concurrent_reap_removed(
+    tmp_path: Path,
+) -> None:
+    """A reaped staging file is reported, not surfaced as a bare OS error."""
+    cache = ContentCache(cache_dir=tmp_path / "cache", max_bytes=10**9)
+    staging = cache.staging_dir
+    assert staging is not None
+    vanished = staging / "gone.tmp"
+
+    with pytest.raises(ContentStoreError, match="disappeared before it could be"):
+        cache.adopt("cat/aa/bb/entry.zip", vanished)

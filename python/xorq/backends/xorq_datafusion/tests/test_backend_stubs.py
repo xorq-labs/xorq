@@ -48,10 +48,3 @@ def test_to_parquet_roundtrip(stub_con_with_table, tmp_path):
     written = pq.read_table(out)
     assert written.num_rows == 3
     assert set(written.column_names) == {"a", "b"}
-
-
-def test_extract_catalog(stub_con_with_table):
-    catalog = stub_con_with_table._extract_catalog("SELECT * FROM t")
-
-    assert set(catalog) == {"t"}
-    assert catalog["t"].columns == ["a", "b"]

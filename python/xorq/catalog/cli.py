@@ -22,12 +22,16 @@ from xorq.catalog import constants as catalog_constants
 
 
 if TYPE_CHECKING:
+    from git import Remote
     from opentelemetry.trace import Span
 
     from xorq.api import Expr
     from xorq.catalog.aliases import AliasOutcome
     from xorq.catalog.catalog import Catalog
-    from xorq.catalog.content_store import ContentStoreConfig
+    from xorq.catalog.content_store import (
+        ContentStoreConfig,
+        PresignedContentStoreConfig,
+    )
     from xorq.common.utils.lineage_utils import LineageDAG
     from xorq.ibis_yaml.packager import JointBundle
 
@@ -210,10 +214,9 @@ def cli(ctx, name, path, url, root_repo, init):
     """Manage Xorq build-artifact catalogs.
 
     A catalog is a versioned store of named, sharable, executable
-    expressions: a git repository with an optional object-store backed
-    annex for content. Group options select which catalog a subcommand
-    targets and precede the subcommand name (for example,
-    `xorq catalog -n analytics info`).
+    expressions: a git repository with optional external content storage.
+    Group options select which catalog a subcommand targets and precede the
+    subcommand name (for example, `xorq catalog -n analytics info`).
     """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
 
@@ -284,6 +287,7 @@ def _resolve_content_store_option(
     """Return a ContentStoreConfig from CLI options, or None."""
     from xorq.catalog.content_store import (  # noqa: PLC0415
         DirectoryContentStoreConfig,
+        PresignedContentStoreConfig,
         S3ContentStoreConfig,
     )
 
@@ -296,10 +300,73 @@ def _resolve_content_store_option(
             return S3ContentStoreConfig.from_env()
         case "directory":
             return DirectoryContentStoreConfig.from_env()
+        case "presigned":
+            if gcs:
+                raise click.UsageError(
+                    "--gcs cannot be combined with --content-store presigned."
+                )
+            return PresignedContentStoreConfig.from_env()
         case _:
             raise click.UsageError(
                 f"unknown content store type: {content_store_type!r}"
             )
+
+
+def _hosted_config(
+    content_store_config: ContentStoreConfig | None,
+) -> PresignedContentStoreConfig | None:
+    """Return *content_store_config* when it is the hosted one, else None.
+
+    Callers need the config's type, not the CLI spelling: only the hosted
+    config carries ``validate_remote_url``.
+    """
+    from xorq.catalog.content_store import (  # noqa: PLC0415
+        PresignedContentStoreConfig,
+    )
+
+    if isinstance(content_store_config, PresignedContentStoreConfig):
+        return content_store_config
+    return None
+
+
+def _require_hosted_remote_url(
+    content_store_type: str | None, remote_url: str | None
+) -> None:
+    """Refuse a hosted store without --remote-url, before reading any setting.
+
+    Checked on the option rather than the resolved config so that a usage
+    error (exit 2) wins over a missing hosted environment setting.
+    """
+    from xorq.catalog.enums import ContentStoreType  # noqa: PLC0415
+
+    if content_store_type == ContentStoreType.PRESIGNED and remote_url is None:
+        raise click.UsageError(
+            f"--remote-url is required with --content-store {ContentStoreType.PRESIGNED}."
+        )
+
+
+def _checked_hosted_config(
+    content_store_config: ContentStoreConfig | None, remote_url: str | None
+) -> PresignedContentStoreConfig | None:
+    """The hosted config, if any, after checking the remote it requires."""
+    hosted = _hosted_config(content_store_config)
+    if hosted is not None:
+        hosted.validate_remote_url(remote_url)
+    return hosted
+
+
+def _set_catalog_remote(
+    catalog: Catalog, remote_url: str, hosted: PresignedContentStoreConfig | None
+) -> Remote:
+    """Set the catalog's remote; for a hosted catalog, validate the binding.
+
+    The effective URL can differ from *remote_url* (``insteadOf`` rewrites),
+    so the hosted binding is checked again once the remote exists.
+    """
+    remote = catalog.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
+    if hosted is not None:
+        _ = catalog.backend.content_store
+    return remote
 
 
 def _check_backend_exclusive_cli(
@@ -344,11 +411,15 @@ def init(
       xorq catalog --path ./catalogs/analytics init --remote-url git@github.com:acme/analytics-catalog.git
       # Create with an S3-backed annex remote sourced from an env file
       xorq catalog --name analytics init --env-file .env.catalog.s3
+      # Create a hosted pointer catalog using its service-provided ID and URL
+      xorq catalog --name analytics init --content-store presigned --remote-url https://catalog.example/acme/analytics.git
     """
     with click_context_catalog(ctx):
+        _require_hosted_remote_url(content_store_type, remote_url)
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
+        hosted = _checked_hosted_config(content_store_config, remote_url)
         try:
             catalog = ctx.obj.make_catalog(
                 init=True, annex=annex, content_store_config=content_store_config
@@ -358,11 +429,11 @@ def init(
             raise click.ClickException(
                 f"Catalog already exists at {probe.repo_path}"
             ) from err
+        if remote_url:
+            # Before reporting success, so a hosted binding is checked first.
+            remote = _set_catalog_remote(catalog, remote_url, hosted)
         click.echo(f"Initialized catalog at {catalog.repo_path}")
         if remote_url:
-            from xorq.catalog.constants import DEFAULT_REMOTE  # noqa: PLC0415
-
-            remote = catalog.set_remote(DEFAULT_REMOTE, remote_url)
             click.echo(f"Set remote {remote.name} -> {remote_url}")
 
 
@@ -1198,7 +1269,8 @@ def rebase(
          names an alias on neither the old entry nor the new one (an
          unregistered one before the sweep), --alias names an alias on
          another entry than the old or new one (once there is a new entry),
-         ENTRY is an alias the pull moved or removed, or a write failed
+         ENTRY is an alias the pull moved or removed, a probed source
+         matched no source of the loaded expression, or a write failed
          (the new entry and its alias moves are rolled back locally, a
          failed rollback is logged; a failed push is not)
       2  a source was unreachable or unreadable, its database is
@@ -1206,7 +1278,9 @@ def rebase(
          unreadable or lacks its wheel or requirements; or the options
          were invalid (--move-aliases with --only-alias); nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
-         table is gone; nothing written
+         table is gone; stderr names the op (if one failed) and the
+         sources involved, with their recorded and live schemas;
+         nothing written
 
     \b
     Arguments:
@@ -1226,7 +1300,7 @@ def rebase(
         entry_alias = _given_alias(catalog, entry)
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
-    from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict  # noqa: PLC0415
     from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -1240,6 +1314,33 @@ def rebase(
             cache_dir=_get_cache_dir(cache_dir),
             entry_alias=entry_alias,
         )
+    if (conflict := result.conflict) is not None:
+        if conflict.op_name is None:
+            gone = [r for r in conflict.sources if r.verdict == Verdict.TABLE_MISSING]
+            names = ", ".join(f"{r.leaf.kind} {r.leaf.name}" for r in gone)
+            verb = "is" if len(gone) == 1 else "are"
+            click.echo(
+                f"{result.old_entry.name}: conflict: {names} {verb} gone", err=True
+            )
+        else:
+            names = ", ".join(f"{r.leaf.kind} {r.leaf.name}" for r in conflict.sources)
+            click.echo(
+                f"{result.old_entry.name}: conflict: {conflict.op_name} cannot be "
+                f"rebuilt; changed sources in entry: {names}",
+                err=True,
+            )
+        # One block per source, as `check-sources` prints it.
+        for report in conflict.sources:
+            for line in format_leaf_report(report):
+                click.echo(line, err=True)
+        if conflict.op_name is not None:
+            # The op's own error; a gone table's blocks already say it all.
+            click.echo(conflict.detail, err=True)
+        if alias:
+            click.echo(f"Alias {alias!r} not added: the rebase conflicted", err=True)
+        if move_aliases or only_aliases:
+            click.echo("Aliases not moved: the rebase conflicted", err=True)
+        ctx.exit(RebaseExit.CONFLICT)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
             for line in format_leaf_report(report):
@@ -1610,7 +1711,7 @@ def check(ctx):
 )
 @click.pass_context
 def gc(ctx: click.Context, dry_run: bool) -> None:
-    """Remove orphaned content store objects (pointer backend only)."""
+    """Remove local pointer-store orphans; hosted GC is server-owned."""
     from xorq.catalog.backend import GitPointerBackend  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -1726,8 +1827,11 @@ def replay(
       xorq catalog replay ./mirrored-catalog --dry-run
       # Replay into a new catalog and push to a fresh remote
       xorq catalog replay ./mirrored-catalog --env-file .env.target.s3 --remote-url git@github.com:acme/mirror-catalog.git
+      # Replay into a hosted catalog (the remote is required before uploads)
+      xorq catalog replay ./hosted-catalog --content-store presigned --remote-url https://catalog.example/acme/mirror.git
     """
-    from xorq.catalog.catalog import Catalog  # noqa: PLC0415
+    from xorq.catalog.catalog import Catalog, _format_push_failures  # noqa: PLC0415
+    from xorq.catalog.exceptions import CatalogPushError  # noqa: PLC0415
     from xorq.catalog.replay import Replayer  # noqa: PLC0415
 
     with click_context_catalog(ctx):
@@ -1736,30 +1840,48 @@ def replay(
         if dry_run:
             replayer.print_plan()
             return
+        _require_hosted_remote_url(content_store_type, remote_url)
         annex = _resolve_annex_option(env_file, env_prefix, gcs)
         content_store_config = _resolve_content_store_option(content_store_type, gcs)
         _check_backend_exclusive_cli(content_store_config, annex)
+        hosted = _checked_hosted_config(content_store_config, remote_url)
         target = Catalog.from_repo_path(
             target_path, annex=annex, content_store_config=content_store_config
         )
+        # A hosted binding is validated before replay uploads anything.
+        origin = (
+            _set_catalog_remote(target, remote_url, hosted)
+            if hosted is not None
+            else None
+        )
         replayer.replay(target, preserve_commits=preserve_commits)
         click.echo(f"Replayed {len(replayer.ops)} operations into {target_path}")
-        if remote_url:
-            from xorq.catalog.constants import (  # noqa: PLC0415
-                ANNEX_BRANCH,
-                DEFAULT_REMOTE,
-                MAIN_BRANCH,
-            )
-
-            origin = target.repo.create_remote(DEFAULT_REMOTE, remote_url)
+        if remote_url and origin is None:
+            origin = target.set_remote(catalog_constants.DEFAULT_REMOTE, remote_url)
+        if origin is not None:
+            main_branch = catalog_constants.MAIN_BRANCH
+            annex_branch = catalog_constants.ANNEX_BRANCH
             refspec_prefix = "+" if force else ""
-            origin.push(f"{refspec_prefix}{MAIN_BRANCH}:{MAIN_BRANCH}")
-            origin.push(f"{refspec_prefix}{ANNEX_BRANCH}:{ANNEX_BRANCH}")
+            push_failures = list(
+                _format_push_failures(
+                    origin.push(f"{refspec_prefix}{main_branch}:{main_branch}"),
+                    origin.name,
+                )
+            )
+            if annex_branch in target.repo.heads:
+                push_failures.extend(
+                    _format_push_failures(
+                        origin.push(f"{refspec_prefix}{annex_branch}:{annex_branch}"),
+                        origin.name,
+                    )
+                )
+            if push_failures:
+                raise CatalogPushError(f"push failed: {'; '.join(push_failures)}")
             origin.fetch()
-            target.repo.heads[MAIN_BRANCH].set_tracking_branch(origin.refs[MAIN_BRANCH])
-            if ANNEX_BRANCH in target.repo.heads:
-                target.repo.heads[ANNEX_BRANCH].set_tracking_branch(
-                    origin.refs[ANNEX_BRANCH]
+            target.repo.heads[main_branch].set_tracking_branch(origin.refs[main_branch])
+            if annex_branch in target.repo.heads:
+                target.repo.heads[annex_branch].set_tracking_branch(
+                    origin.refs[annex_branch]
                 )
             click.echo(f"Pushed to {remote_url}")
 

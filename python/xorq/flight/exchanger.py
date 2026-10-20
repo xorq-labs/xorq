@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import functools
+import inspect
+import textwrap
 from abc import (
     ABC,
     abstractmethod,
@@ -392,6 +394,32 @@ def _unbound_exchanger_from_zip_bytes(zip_bytes, make_connection):
     return exchanger
 
 
+def _source_of(func):
+    # a lambda's source is the whole line it sits on, not a definition
+    if getattr(func, "__name__", "<lambda>") == "<lambda>":
+        return None
+    try:
+        return textwrap.dedent(inspect.getsource(func))
+    except (OSError, TypeError):
+        return None
+
+
+def process_batch(process_df, calc_schema_out, batch, metadata=None, **kwargs):
+    schema = calc_schema_out(ibis.Schema.from_pyarrow(batch.schema)).to_pyarrow()
+    out = process_df(batch.to_pandas())
+    match (
+        sorted(set(schema.names) - set(out.columns)),
+        sorted(set(out.columns) - set(schema.names)),
+    ):
+        case ([], []):
+            return pa.RecordBatch.from_pandas(out[schema.names], preserve_index=False)
+        case (missing, extra):
+            raise ValueError(
+                f"process_df returned columns {list(out.columns)}, schema out is "
+                f"{schema.names}: missing columns {missing}, extra columns {extra}"
+            )
+
+
 def make_udxf(
     process_df,
     maybe_schema_in,
@@ -401,11 +429,6 @@ def make_udxf(
     command=None,
     do_wraps=True,
 ):
-    def process_batch(process_df, batch, metadata=None, **kwargs):
-        df = batch.to_pandas()
-        out = process_df(df)
-        return pa.RecordBatch.from_pandas(out, preserve_index=False)
-
     if isinstance(maybe_schema_in, pa.Schema):
         raise ValueError(
             "maybe_schema_in must be an ibis.Schema or Callable, not a pyarrow Schema"
@@ -441,7 +464,7 @@ def make_udxf(
         # wrapping twice only doubles the traceback
         exchange_f = functools.partial(
             streaming_exchange,
-            functools.partial(process_batch, process_df),
+            functools.partial(process_batch, process_df, calc_schema_out),
             out_schema=out_schema.to_pyarrow() if out_schema else None,
         )
     else:
@@ -458,6 +481,8 @@ def make_udxf(
             "calc_schema_out": calc_schema_out,
             "description": description or name,
             "command": command or tokenize(process_df),
+            # read by decompile, which cannot recover it from the pickled class
+            "process_df_source": _source_of(process_df),
         },
     )
     return typ

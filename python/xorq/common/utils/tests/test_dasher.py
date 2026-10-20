@@ -29,7 +29,9 @@ import numbers
 import operator
 import pickle
 import tempfile
+import threading
 import types
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
 import pandas as pd
@@ -45,6 +47,7 @@ import xorq.common.utils.dasher as dasher
 import xorq.expr.datatypes as dt
 import xorq.expr.relations as rel
 from xorq.caching import ParquetCache
+from xorq.caching.strategy import ModificationTimeStrategy
 from xorq.common.utils.dasher import (
     _EXTRA_RULES,
     HASHER,
@@ -594,6 +597,56 @@ def test_http_csv_token_is_stable(make_table):
     cannot resolve (covered by the older xfail test in test_dask_normalize).
     """
     assert tokenize(make_table()) == tokenize(make_table())
+
+
+class _HeadOnlyHandler(BaseHTTPRequestHandler):
+    """Answer HEAD with whatever headers the server currently holds."""
+
+    def do_HEAD(self):
+        self.send_response(200)
+        for name, value in self.server.headers.items():
+            self.send_header(name, value)
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def head_server():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _HeadOnlyHandler)
+    server.headers = {}
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_http_modification_time_key_tracks_etag(head_server):
+    """A server that validates by ETag alone must re-key when the ETag changes.
+
+    Cloudflare-style responses carry an ETag but no Last-Modified or
+    Content-Length; the modification-time key has to see the ETag or the
+    cache serves stale rows forever.
+    """
+    host, port = head_server.server_address
+    expr = xo.deferred_read_csv(
+        f"http://{host}:{port}/data.csv",
+        con=xo.connect(),
+        schema=xo.schema({"a": "int64"}),
+    )
+    strategy = ModificationTimeStrategy()
+
+    def key_for(etag):
+        head_server.headers = {"ETag": etag, "Content-Type": "text/csv"}
+        return strategy.calc_key(expr)
+
+    assert key_for('"v1"') == key_for('"v1"')
+    assert key_for('"v1"') != key_for('"v2"')
 
 
 def test_dasher_tokenize_dunder_is_invoked():

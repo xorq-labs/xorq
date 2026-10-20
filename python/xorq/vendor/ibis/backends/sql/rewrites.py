@@ -17,7 +17,13 @@ from xorq.vendor.ibis.common.annotations import attribute
 from xorq.vendor.ibis.common.collections import FrozenDict  # noqa: TCH001
 from xorq.vendor.ibis.common.deferred import var
 from xorq.vendor.ibis.common.graph import Graph
-from xorq.vendor.ibis.common.patterns import InstanceOf, Object, Pattern, replace
+from xorq.vendor.ibis.common.patterns import (
+    Check,
+    InstanceOf,
+    Object,
+    Pattern,
+    replace,
+)
 from xorq.vendor.ibis.common.typing import VarTuple  # noqa: TCH001
 from xorq.vendor.ibis.expr.rewrites import d, p, replace_parameter
 from xorq.vendor.ibis.expr.schema import Schema
@@ -415,6 +421,91 @@ def sqlize(
 # supplemental rewrites selectively used on a per-backend basis
 
 
+def _shadows_sort_key(select):
+    """Whether a sort key reads a parent column that a selection renames."""
+    return not select.distinct and any(
+        select.selections.get(field.name, field) != field
+        for key in select.sort_keys
+        for field in key.find(ops.Field, filter=ops.Value)
+        if field.rel == select.parent
+    )
+
+
+@replace(InstanceOf(Select) & Check(_shadows_sort_key))
+def split_select_with_shadowed_sort_key(_):
+    """Sort over a subquery when an output alias shadows a sort column.
+
+    DataFusion plans `SELECT t0.b AS a FROM t AS t0 ORDER BY t0.a` with both
+    `a` and `t0.a` in one schema and rejects it as ambiguous, and it drops an
+    ORDER BY inside a subquery. So the projection moves into a subquery that
+    also carries each sort key under a name no output uses, and the outer
+    SELECT orders by those columns.
+    """
+    hidden = {}
+    for i, key in enumerate(_.sort_keys):
+        name = f"__sort{i}"
+        while name in _.selections:
+            name += "_"
+        hidden[name] = key.expr
+    inner = _.copy(selections={**_.selections, **hidden}, sort_keys=())
+    return Select(
+        inner,
+        selections={name: ops.Field(inner, name) for name in _.selections},
+        sort_keys=tuple(
+            key.copy(expr=ops.Field(inner, name))
+            for name, key in zip(hidden, _.sort_keys)
+        ),
+    )
+
+
+def _reads_sorted_select(select):
+    """Whether an unsorted, non-distinct Select reads a sorted Select."""
+    return (
+        not select.sort_keys
+        and not select.distinct
+        and isinstance(select.parent, Select)
+        and bool(select.parent.sort_keys)
+    )
+
+
+@replace(InstanceOf(Select) & Check(_reads_sorted_select))
+def hoist_sort_keys_out_of_subquery(_):
+    """Order the outer SELECT by the sort keys of the subquery it reads.
+
+    DataFusion drops an ORDER BY inside a subquery, so when a projection is
+    not merged into the sorted Select it reads (a window function among the
+    sort keys, a distinct parent) the rows come back unsorted. The subquery
+    keeps each sort key under a name no column uses and loses its ORDER BY,
+    and the outer SELECT orders by those columns.
+    """
+    old = _.parent
+    hidden = {}
+    for i, key in enumerate(old.sort_keys):
+        name = f"__sort{i}"
+        while name in _.selections or name in old.selections:
+            name += "_"
+        hidden[name] = key.expr
+    parent = old.copy(selections={**old.selections, **hidden}, sort_keys=())
+    sort_keys = tuple(
+        key.copy(expr=ops.Field(parent, name))
+        for name, key in zip(hidden, old.sort_keys)
+    )
+    subs = {ops.Field(old, name): ops.Field(parent, name) for name in old.schema}
+    # an IN, EXISTS or scalar subquery over the old parent itself does not
+    # need its ORDER BY, and DataFusion fails to plan one next to the outer sort
+    subs[old] = old.copy(sort_keys=())
+
+    def outer_scope(node):
+        # a relation that reads the old parent as its own input keeps its
+        # fields; a reference to the old parent anywhere else, a correlated
+        # one or a subquery's needle, is rebound
+        return node is _ or not (
+            isinstance(node, ops.Relation) and old in node.__children__
+        )
+
+    return _.replace(subs, filter=outer_scope).copy(parent=parent, sort_keys=sort_keys)
+
+
 @replace(Select)
 def split_select_distinct_with_order_by(_):
     """Split a `SELECT DISTINCT ... ORDER BY` query when needed.
@@ -448,6 +539,21 @@ def split_select_distinct_with_order_by(_):
         inner = _.copy(sort_keys=())
         subs = {v: ops.Field(inner, k) for k, v in inner.values.items()}
         sort_keys = tuple(s.replace(subs, filter=ops.Value) for s in _.sort_keys)
+        # a sort key still reading the parent names a column the projection
+        # drops, and the order of de-duplicated rows by it is undefined
+        dropped = sorted(
+            {
+                field.name
+                for key in sort_keys
+                for field in key.find(ops.Field, filter=ops.Value)
+                if field.rel == _.parent
+            }
+        )
+        if dropped:
+            raise com.UnsupportedOperationError(
+                "DISTINCT with ORDER BY on a column the projection does not "
+                f"select: {', '.join(dropped)}"
+            )
         selections = {
             k: v.replace(subs, filter=ops.Value) for k, v in _.selections.items()
         }

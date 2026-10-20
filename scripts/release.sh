@@ -152,7 +152,7 @@ Inspect it (git show --stat), then push:
 
 Remaining manual steps (CONTRIBUTING.md, Release Flow):
   - open a PR for $branch
-  - run ci-pre-release from $branch (Actions tab: Run workflow -> Branch $branch) and wait for it to pass
+  - the push starts ci-pre-release; once its precheck passes, approve the pre-release deployment
   - "Squash and merge" the PR
   - tag main and push that tag alone:
         git fetch origin && git tag v$version_number origin/main && git push origin v$version_number

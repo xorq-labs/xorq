@@ -1,83 +1,19 @@
-from pathlib import Path
-
 import pyarrow as pa
 import pytest
 
 import xorq.api as xo
-from xorq.conftest import array_types_df, win
-
-
-expected_tables = (
-    "array_types",
-    "astronauts",
-    "awards_players",
-    "awards_players_special_types",
-    "batting",
-    "diamonds",
-    "functional_alltypes",
-    "geo",
-    "geography_columns",
-    "geometry_columns",
-    "json_t",
-    "map",
-    "spatial_ref_sys",
-    "topk",
-    "tzone",
-)
-
-
-def remove_unexpected_tables(dirty):
-    # drop tables
-    for table in dirty.list_tables():
-        if table not in expected_tables:
-            dirty.drop_table(table, force=True)
-
-    # drop view
-    for table in dirty.list_tables():
-        if table not in expected_tables:
-            dirty.drop_view(table, force=True)
-
-    if sorted(dirty.list_tables()) != sorted(expected_tables):
-        raise ValueError(
-            f"unexpected tables after cleanup: {set(dirty.list_tables()) - set(expected_tables)}"
-        )
+from xorq.conftest import make_xo_con
 
 
 @pytest.fixture(scope="session")
-def ddl_file(root_dir):
-    ddl_dir = root_dir / "db" / "datafusion.sql"
-    return ddl_dir
-
-
-def statements(ddl_file: Path):
-    return (
-        statement
-        for statement in map(str.strip, ddl_file.read_text().split(";"))
-        if statement
-    )
+def xo_con(parquet_dir, ddl_file):
+    # this directory's own connection: its tests create and drop tables
+    return make_xo_con(parquet_dir, ddl_file)
 
 
 @pytest.fixture(scope="session")
-def con(data_dir, ddl_file):
-    conn = xo.connect()
-    parquet_dir = data_dir / "parquet"
-    conn.read_parquet(
-        parquet_dir / "functional_alltypes.parquet", "functional_alltypes"
-    )
-    conn.read_parquet(parquet_dir / "batting.parquet", "batting")
-    conn.read_parquet(parquet_dir / "diamonds.parquet", "diamonds")
-    conn.read_parquet(parquet_dir / "astronauts.parquet", "astronauts")
-    conn.read_parquet(parquet_dir / "awards_players.parquet", "awards_players")
-
-    conn.create_table("array_types", array_types_df)
-    conn.create_table("win", win)
-
-    if ddl_file.is_file() and ddl_file.name.endswith(".sql"):
-        for statement in statements(ddl_file):
-            with conn._safe_raw_sql(statement):  # noqa
-                pass
-
-    return conn
+def con(xo_con):
+    return xo_con
 
 
 @pytest.fixture(scope="session")
@@ -98,56 +34,6 @@ def ls_con(dirty_ls_con):
         dirty_ls_con.drop_view(table_name, force=True)
 
 
-@pytest.fixture(scope="session")
-def alltypes(con):
-    return con.table("functional_alltypes")
-
-
-@pytest.fixture(scope="session")
-def batting(con):
-    return con.table("batting")
-
-
-@pytest.fixture(scope="session")
-def awards_players(con):
-    return con.table("awards_players")
-
-
-@pytest.fixture(scope="session")
-def diamonds(con):
-    return con.table("diamonds")
-
-
-@pytest.fixture(scope="session")
-def alltypes_df(alltypes):
-    return alltypes.execute()
-
-
-@pytest.fixture(scope="session")
-def batting_df(batting):
-    return batting.execute()
-
-
-@pytest.fixture(scope="session")
-def sorted_df(alltypes_df):
-    return alltypes_df.sort_values("id").reset_index(drop=True)
-
-
-@pytest.fixture(scope="session")
-def array_types(con):
-    return con.table("array_types")
-
-
-@pytest.fixture(scope="session")
-def struct(con):
-    return con.table("structs")
-
-
-@pytest.fixture(scope="session")
-def struct_df(struct):
-    return struct.execute()
-
-
 @pytest.fixture
 def df():
     # create a RecordBatch and a new DataFrame from it
@@ -161,8 +47,3 @@ def df():
     )
 
     return batch.to_pandas()
-
-
-@pytest.fixture(scope="session")
-def win_table(con):
-    return con.table("win")

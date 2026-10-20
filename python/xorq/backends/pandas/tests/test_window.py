@@ -640,3 +640,280 @@ event_id measured_on  measurement  grouper  bfill
         parse_dates=["measured_on"],
     )
     assert_frame_equal(result, expected)
+
+
+def test_rank_functions_share_the_order_key(t, df):
+    # ties for the rank variants, where they are the point; a tie-free key
+    # for cume_dist, whose tie handling is not pinned here
+    expr = t.select(
+        t.plain_int64,
+        min_rank=t.dup_ints.rank(),
+        dense_rank=t.dup_ints.dense_rank(),
+        percent_rank=t.dup_ints.percent_rank(),
+        cume_dist=t.plain_int64.cume_dist(),
+    )
+    result = expr.execute().sort_values("plain_int64").reset_index(drop=True)
+    tied = df.dup_ints
+    expected = pd.DataFrame(
+        {
+            "plain_int64": df.plain_int64,
+            "min_rank": tied.rank(method="min").astype("int64") - 1,
+            "dense_rank": tied.rank(method="dense").astype("int64") - 1,
+            "percent_rank": tied.rank(method="min").sub(1).div(len(df) - 1),
+            "cume_dist": df.plain_int64.rank(method="max", pct=True),
+        }
+    )
+    assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    ("order", "expected_rank", "expected_dense"),
+    [
+        # expectations are what duckdb returns for the same frame and order
+        pytest.param(
+            lambda k: k.asc(), [1, 3, 0, 3, 1], [1, 2, 0, 2, 1], id="asc-nulls-last"
+        ),
+        pytest.param(
+            lambda k: k.asc(nulls_first=True),
+            [3, 0, 2, 0, 3],
+            [2, 0, 1, 0, 2],
+            id="asc-nulls-first",
+        ),
+        pytest.param(
+            lambda k: k.desc(), [0, 3, 2, 3, 0], [0, 2, 1, 2, 0], id="desc-nulls-last"
+        ),
+        pytest.param(
+            lambda k: k.desc(nulls_first=True),
+            [2, 0, 4, 0, 2],
+            [1, 0, 2, 0, 1],
+            id="desc-nulls-first",
+        ),
+    ],
+)
+def test_rank_over_null_key(order, expected_rank, expected_dense):
+    df = pd.DataFrame({"k": [2.0, None, 1.0, None, 2.0], "id": [1, 2, 3, 4, 5]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    window = ibis.window(order_by=order(t.k))
+    result = t.mutate(
+        r=ibis.rank().over(window), d=ibis.dense_rank().over(window)
+    ).order_by("id")
+    result = result.execute()
+    assert result.r.tolist() == expected_rank
+    assert result.d.tolist() == expected_dense
+
+
+@pytest.mark.parametrize(
+    ("values", "dtype", "expected"),
+    [
+        # a nullable extension integer: the null ranks last, not as a peer
+        pytest.param([1, None], "Int64", [0, 1], id="nullable-int"),
+        # two int64 values that are equal once widened to float64
+        pytest.param([2**53, 2**53 + 1], "int64", [0, 1], id="large-int"),
+        # the same two as Python ints beside a None: no widening on the way
+        pytest.param([2**53, 2**53 + 1, None], object, [0, 1, 2], id="object-int-null"),
+    ],
+)
+def test_rank_keeps_exact_key_identity(values, dtype, expected):
+    ids = list(range(1, len(values) + 1))
+    df = pd.DataFrame({"k": pd.array(values, dtype=dtype), "id": ids})
+    t = xo.pandas.connect({"t": df}).table("t")
+    window = ibis.window(order_by=t.k)
+    result = t.mutate(
+        r=ibis.rank().over(window), d=ibis.dense_rank().over(window)
+    ).order_by("id")
+    result = result.execute()
+    assert result.r.tolist() == expected
+    assert result.d.tolist() == expected
+
+
+def test_rank_over_array_key():
+    # an object column of lists ranks by value, as duckdb does: [1, 0, 1]
+    df = pd.DataFrame({"k": [[2], [1], [2]], "id": [1, 2, 3]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = t.mutate(r=t.k.rank(), d=t.k.dense_rank()).order_by("id").execute()
+    assert result.r.tolist() == [1, 0, 1]
+    assert result.d.tolist() == [1, 0, 1]
+
+
+def test_rank_over_unordered_categorical_key():
+    # an unordered categorical ranks by value, not by category position
+    df = pd.DataFrame(
+        {"k": pd.Categorical(["b", "a"], categories=["b", "a"], ordered=False)}
+    ).assign(id=[1, 2])
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = t.mutate(r=t.k.rank(), d=t.k.dense_rank()).order_by("id").execute()
+    assert result.r.tolist() == [1, 0]
+    assert result.d.tolist() == [1, 0]
+
+
+def test_rank_over_ordered_categorical_key():
+    # an ordered categorical still ranks by value: the backend exposes it as a
+    # string column and SQL knows no category order
+    cat = pd.Categorical(["b", "a"], categories=["b", "a"], ordered=True)
+    df = pd.DataFrame({"k": cat, "c": [0, 0], "id": [1, 2]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = t.mutate(
+        single=t.k.rank(), multi=ibis.rank().over(order_by=[t.k, t.c])
+    ).order_by("id")
+    result = result.execute()
+    assert result.single.tolist() == [1, 0]
+    assert result.multi.tolist() == [1, 0]
+
+
+def test_mixed_null_placement_is_fine_without_nulls():
+    df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "id": [1, 2]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    window = ibis.window(order_by=[t.a.asc(nulls_first=True), t.b.asc()])
+    result = t.mutate(r=ibis.rank().over(window)).order_by("id").execute()
+    assert result.r.tolist() == [0, 1]
+
+
+def test_mixed_null_placement_rejected_when_nulls_present():
+    df = pd.DataFrame({"a": [1.0, None], "b": [3, 4], "id": [1, 2]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    window = ibis.window(order_by=[t.a.asc(nulls_first=True), t.b.asc()])
+    with pytest.raises(ValueError, match="null ordering"):
+        t.mutate(r=ibis.rank().over(window)).execute()
+
+
+def test_rank_over_array_of_struct_key():
+    # equal struct values are peers, as on a hashable key (ordering distinct
+    # structs needs dict comparison, which pandas cannot do on any branch)
+    df = pd.DataFrame({"k": [[{"a": 1}], [{"a": 1}]], "id": [1, 2]})
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = t.mutate(r=t.k.rank(), d=t.k.dense_rank()).order_by("id").execute()
+    assert result.r.tolist() == [0, 0]
+    assert result.d.tolist() == [0, 0]
+
+
+@pytest.fixture
+def percent_rank_table():
+    df = pd.DataFrame({"g": ["a", "a", "a", "b", "b", "c"], "v": [1, 2, 2, 5, 7, 9]})
+    return xo.pandas.connect({"t": df}).table("t")
+
+
+def test_percent_rank_single_row_partitions(percent_rank_table):
+    t = percent_rank_table
+    expr = t.select(
+        t.v, p=ibis.percent_rank().over(group_by=t.v, order_by=t.v)
+    ).order_by("v")
+    # duckdb returns 0.0 for every single-row partition
+    assert expr.execute().p.tolist() == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+def test_percent_rank_partitioned_with_ties(percent_rank_table):
+    t = percent_rank_table
+    expr = t.select(
+        t.g, t.v, p=ibis.percent_rank().over(group_by=t.g, order_by=t.v)
+    ).order_by(["g", "v"])
+    # literal duckdb result for the same frame: a=[1,2,2], b=[5,7], c=[9]
+    assert expr.execute().p.tolist() == [0.0, 0.5, 0.5, 0.0, 1.0, 0.0]
+
+
+@pytest.mark.parametrize(
+    ("window", "expected"),
+    [
+        ({"order_by": "i"}, [1 / 3, 0.5, 1 / 3, 1.0, 1.0, 1.0]),
+        ({"order_by": ["i", "j"]}, [1 / 3, 0.5, 1 / 6, 2 / 3, 1.0, 1.0]),
+        ({"group_by": "g", "order_by": "i"}, [2 / 3, 1.0, 2 / 3, 1.0, 1.0, 1.0]),
+    ],
+    ids=["ties", "multi_key", "partitioned"],
+)
+def test_cume_dist_ties(window, expected):
+    # expected values are what duckdb returns for the same frame and window
+    df = pd.DataFrame(
+        {
+            "g": list("aaabbb"),
+            "i": [1, 2, 1, 5, 5, 5],
+            "j": [9, 8, 7, 1, 2, 2],
+            "row": range(6),
+        }
+    )
+    t = xo.pandas.connect({"t": df}).table("t")
+    result = (
+        t.select(t.row, c=ibis.cume_dist().over(**window)).execute().sort_values("row")
+    )
+    assert result.c.tolist() == pytest.approx(expected)
+
+
+def test_rank_family_follows_descending_order():
+    # verbatim from the upstream issue report: the same expression on the
+    # pandas backend and on datafusion, compared through to_dict("list")
+    df = pd.DataFrame({"v": [3.0, 1.0, 2.0]})
+    results = {}
+    for con in (xo.pandas.connect(), xo.connect()):
+        t = con.create_table("t", df)
+        r = (
+            t.mutate(
+                rank=xo.rank().over(order_by=xo.desc("v")),
+                dense_rank=xo.dense_rank().over(order_by=xo.desc("v")),
+                percent_rank=xo.percent_rank().over(order_by=xo.desc("v")),
+                cume_dist=xo.cume_dist().over(order_by=xo.desc("v")),
+            )
+            .order_by("v")
+            .execute()
+        )
+        results[con.name] = r.to_dict("list")
+
+    expected = {
+        "v": [1.0, 2.0, 3.0],
+        "rank": [2, 1, 0],
+        "dense_rank": [2, 1, 0],
+        "percent_rank": [1.0, 0.5, 0.0],
+        "cume_dist": [1.0, 2 / 3, 1 / 3],
+    }
+    assert results["xorq_datafusion"] == pytest.approx(expected)
+    assert results["pandas"] == pytest.approx(expected)
+
+
+def test_percent_rank_and_cume_dist_desc_with_ties_and_partitions():
+    df = pd.DataFrame({"g": list("aaabbb"), "v": [1, 2, 2, 5, 7, 7]})
+    t = xo.pandas.connect().create_table("t", df)
+    expr = t.mutate(
+        pr=xo.percent_rank().over(order_by=xo.desc("v")),
+        cd=xo.cume_dist().over(order_by=xo.desc("v")),
+        pr_g=xo.percent_rank().over(group_by="g", order_by=xo.desc("v")),
+        cd_g=xo.cume_dist().over(group_by="g", order_by=xo.desc("v")),
+    ).order_by(["g", "v"])
+    result = expr.execute()
+    # literal duckdb and datafusion results for the same frame
+    assert result.pr.tolist() == [1.0, 0.6, 0.6, 0.4, 0.0, 0.0]
+    assert result.cd.tolist() == pytest.approx([1.0, 5 / 6, 5 / 6, 0.5, 1 / 3, 1 / 3])
+    assert result.pr_g.tolist() == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    assert result.cd_g.tolist() == pytest.approx([1.0, 2 / 3, 2 / 3, 1.0, 2 / 3, 2 / 3])
+
+
+@pytest.mark.parametrize(
+    ("order_by", "expected_rk", "expected_pr", "expected_cd"),
+    [
+        ("v", [3, 0, 0, 2], [1.0, 0.0, 0.0, 2 / 3], [1.0, 0.5, 0.5, 0.75]),
+        (xo.desc("v"), [3, 1, 1, 0], [1.0, 1 / 3, 1 / 3, 0.0], [1.0, 0.75, 0.75, 0.25]),
+        (
+            ibis.asc("v", nulls_first=True),
+            [0, 1, 1, 3],
+            [0.0, 1 / 3, 1 / 3, 1.0],
+            [0.25, 0.75, 0.75, 1.0],
+        ),
+        (
+            ibis.desc("v", nulls_first=True),
+            [0, 2, 2, 1],
+            [0.0, 2 / 3, 2 / 3, 1 / 3],
+            [0.25, 1.0, 1.0, 0.5],
+        ),
+    ],
+    ids=["asc", "desc", "asc-nulls-first", "desc-nulls-first"],
+)
+def test_rank_family_over_null_key(order_by, expected_rk, expected_pr, expected_cd):
+    # a null key ranks as one group, last by default and first on request;
+    # the literals are duckdb's and datafusion's for the same frame
+    df = pd.DataFrame({"v": [1.0, None, 1.0, 2.0]})
+    t = xo.pandas.connect().create_table("t", df)
+    expr = t.mutate(
+        rk=xo.rank().over(order_by=order_by),
+        pr=xo.percent_rank().over(order_by=order_by),
+        cd=xo.cume_dist().over(order_by=order_by),
+    ).order_by(ibis.asc("v", nulls_first=True))
+    result = expr.execute()
+    assert result.rk.tolist() == expected_rk
+    assert result.pr.tolist() == pytest.approx(expected_pr)
+    assert result.cd.tolist() == pytest.approx(expected_cd)

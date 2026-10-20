@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
+from xorq.conftest import make_xo_con
 
 
 @pytest.fixture
@@ -60,30 +61,6 @@ def con(trades_df):
 
 
 @pytest.fixture(scope="session")
-def ls_con(parquet_dir):
-    conn = xo.connect()
-
-    for name in ("astronauts", "functional_alltypes", "awards_players", "batting"):
-        conn.read_parquet(parquet_dir / f"{name}.parquet", name)
-
-    return conn
-
-
-@pytest.fixture(scope="session")
-def alltypes(ls_con):
-    return ls_con.table("functional_alltypes")
-
-
-@pytest.fixture(scope="session")
-def alltypes_df(alltypes):
-    return alltypes.execute()
-
-
-@pytest.fixture(scope="session")
-def awards_players(ls_con):
-    return ls_con.table("awards_players")
-
-
-@pytest.fixture(scope="session")
-def batting(ls_con):
-    return ls_con.table("batting")
+def xo_con(parquet_dir, ddl_file):
+    # this directory's own connection: its tests create and drop tables
+    return make_xo_con(parquet_dir, ddl_file)

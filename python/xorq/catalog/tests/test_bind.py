@@ -992,3 +992,15 @@ def test_fuse_multi_origin_relocated_reads_are_correct(
     # A: x in [1,2,3] filtered x>1 -> {2,3}; B: x in [10,20,30] filtered -> all.
     assert len(actual) == 5
     assert set(actual["x"]) == {2, 3, 10, 20, 30}
+
+
+def test_fused_entry_survives_gc_of_loaded_wrapper(catalog: Catalog) -> None:
+    """GH #1998: a fused entry still returns its rows once the loaded Expr wrapper is collected (the catalog run --limit path)."""
+    con = xo.connect()
+    expr = con.create_table("scalar", pa.table({"total": [11910941]})).select("total")
+    catalog.add(expr, aliases=("src",))
+    loaded = _make_source_expr(catalog.get_catalog_entry("src", maybe_alias=True))
+    fused = loaded.ls.fused
+    del loaded
+    gc.collect()
+    assert fused.limit(5).execute()["total"].tolist() == [11910941]

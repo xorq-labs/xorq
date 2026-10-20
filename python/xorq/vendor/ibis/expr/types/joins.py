@@ -189,11 +189,20 @@ def prepare_predicates(
     deref_left = DerefMap.from_targets(chain.tables, extra=reverse)
     deref_both = DerefMap.from_targets([*chain.tables, right], extra=reverse)
 
+    def deref_chain(derefmap, node):
+        # `reverse` binds plain fields of the chain built so far to the left
+        # side, ahead of a right table derived from the chain. A derived
+        # value, e.g. `j.pub` after `j = a.outer_join(b, ...).select(pub=...)`
+        # where `pub` is a coalesce, cannot go in `reverse` (DerefMap maps to
+        # fields only), so peel what is left over to its value over the join
+        # tables, the same step `Join.select` takes (xorq-labs/xorq#2408)
+        return derefmap.dereference(node).replace(peel_join_field, filter=ops.Value)
+
     left, right = chain.to_expr(), right.to_expr()
     for pred in util.promote_list(predicates):
         if isinstance(pred, (Value, Deferred, bool)):
             for bound in bind(left, pred):
-                yield deref_both.dereference(bound.op())
+                yield deref_chain(deref_both, bound.op())
         else:
             if isinstance(pred, tuple):
                 if len(pred) != 2:
@@ -203,7 +212,7 @@ def prepare_predicates(
                 lk = rk = pred
 
             for lhs, rhs in zip(bind(left, lk), bind(right, rk)):
-                lhs = deref_left.dereference(lhs.op())
+                lhs = deref_chain(deref_left, lhs.op())
                 rhs = deref_right.dereference(rhs.op())
                 yield comparison(lhs, rhs)
 

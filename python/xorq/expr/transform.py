@@ -24,7 +24,10 @@ Adjacent *fusable* passes -- pure structural rewrites (``DESCEND`` and
 ``not produces_resources``) -- are coalesced into a single ``replace_nodes``
 walk whose composed replacer applies each pass's rewrite in table order at every
 node. Fusion only collapses *how many* graph traversals a run of pure rewrites
-costs, never their order or result.
+costs, never their order or result. The production table (``_PASSES`` in
+``xorq.expr.api``) currently has one DESCEND pass, so every group there is a
+singleton; fusion is kept for the next DESCEND pass and is exercised by
+``test_transform_driver`` alone.
 
 ``produces_resources`` is read in two places: :func:`_is_fusable` (an effectful
 pass stays off the shared fused walk) and :func:`_pass_ctx` (only a declared
@@ -151,7 +154,7 @@ def _fuse_replacers(replacers: list[Replacer]) -> Replacer:
     replacer to that recreated node with ``kwargs=None`` -- so recreation happens
     exactly once *regardless of pass order*: no replacer has to be a
     "kwargs-consuming head", so reordering the group (or adding a pass that skips
-    the recreate on some branch, as ``remove_tags`` does for a ``Tag``) cannot
+    the recreate on some branch, returning a child instead of the node) cannot
     silently drop the transformed children.
 
     Applying r1-then-r2 at each node of one bottom-up walk equals r1-everywhere

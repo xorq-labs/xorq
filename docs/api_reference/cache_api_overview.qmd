@@ -83,7 +83,7 @@ as expired.
 | PyIceberg | Snapshot IDs | No (uses `create_table`) | Tied to Iceberg's snapshot model |
 | Deferred file reads (parquet, CSV) | inode mtime, size, number | — | |
 | Deferred URL reads (S3/GCS) | `last_modified`, `size`, `e_tag` | — | |
-| Deferred URL reads (HTTP) | `Last-Modified`, `Content-Length` | — | |
+| Deferred URL reads (HTTP) | `ETag`, `Last-Modified`, `Content-Length` | — | |
 
 For a frozen result regardless of source changes, use a snapshot variant
 (`SourceSnapshotCache`, `ParquetSnapshotCache`).

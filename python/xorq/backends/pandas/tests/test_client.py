@@ -10,7 +10,9 @@ import pytest
 from pytest import param
 
 import xorq.api as xo
+import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.caching import SourceCache
 from xorq.tests.util import assert_frame_equal
 
 
@@ -84,6 +86,24 @@ def test_create_table(client, test_data, lamduh):
     assert "testingschema" in client.list_tables()
 
 
+def test_create_table_from_memtable(client, test_data):
+    client.create_table("from_memtable", obj=xo.memtable(test_data))
+    assert_frame_equal(client.table("from_memtable").execute(), test_data)
+
+
+def test_create_table_rejects_non_memtable_expr(client, table):
+    with pytest.raises(com.BackendConversionError):
+        client.create_table("from_expr", obj=table.mutate(c=table.a))
+
+
+def test_create_table_overwrite_replaces_schema(client):
+    client.create_table("t", pd.DataFrame({"a": [1]}))
+    assert client.table("t").columns == ["a"]
+    replaced = client.create_table("t", pd.DataFrame({"b": [2.5]}), overwrite=True)
+    assert replaced.columns == ["b"]
+    assert replaced.execute().b.tolist() == [2.5]
+
+
 def test_literal(client):
     lit = xo.literal(1)
     result = client.execute(lit)
@@ -94,6 +114,14 @@ def test_list_tables(client):
     assert client.list_tables(like="df_unknown")
     assert not client.list_tables(like="not_in_the_database")
     assert client.list_tables()
+
+
+def test_drop_table_before_schema_is_read():
+    con = xo.pandas.connect({"t": pd.DataFrame({"a": [1]})})
+    con.drop_table("t", force=True)
+    assert con.list_tables() == []
+    con.create_table("t", pd.DataFrame({"b": [2]}))
+    assert con.table("t").columns == ["b"]
 
 
 def test_drop(table):
@@ -304,3 +332,28 @@ def test_deferred_read_csv_schema(zero_padded_csv, pandas_con):
     )
     assert expr.execute()["id"].tolist() == ["001", "002"]
     assert pandas_con.table("padded").schema() == schema
+
+
+@pytest.mark.parametrize(
+    ("op", "expected"),
+    [
+        param(ops.StringLength, True, id="kernel-op"),
+        param(ops.Levenshtein, False, id="unhandled-op"),
+    ],
+)
+def test_has_operation(op, expected):
+    assert xo.pandas.has_operation(op) is expected
+
+
+def test_memtable_executes_and_caches_without_backend_hooks():
+    # the pandas backend runs no pre-execute hooks and no cached-table hooks:
+    # the executor visits a memtable directly, and .cache() goes through
+    # xorq's storage. Wiring the base hooks in would raise from
+    # _register_in_memory_table, which the backend does not implement.
+    con = xo.pandas.connect()
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    assert con.execute(xo.memtable(df).a.sum()) == 6
+
+    cached = con.create_table("m", df).cache(cache=SourceCache.from_kwargs(source=con))
+    assert cached.execute().a.tolist() == [1, 2, 3]
+    assert cached.ls.cache_exists()

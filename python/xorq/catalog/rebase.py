@@ -19,9 +19,10 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from attr import field, frozen
-from attr.validators import deep_iterable, in_, instance_of
+from attr.validators import deep_iterable, in_, instance_of, optional
 
 from xorq.catalog.aliases import AliasOutcome, AliasPlan, add_with_aliases, str_tuple
+from xorq.catalog.annex import AnnexError
 from xorq.catalog.catalog import CatalogEntry
 from xorq.catalog.drift import (
     LeafReport,
@@ -34,13 +35,36 @@ from xorq.catalog.drift import (
     unchecked_leaves,
 )
 from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict
-from xorq.catalog.exceptions import RebaseError
+from xorq.catalog.exceptions import (
+    ContentIntegrityError,
+    ContentStoreError,
+    RebaseError,
+)
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
-from xorq.common.exceptions import SchemaRefreshError
+from xorq.common.exceptions import SchemaRefreshError, UnmatchedSourceError
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
+
+
+@frozen
+class RebaseConflict:
+    """What a conflicted rebase could not follow.
+
+    ``op_name`` is the op that could not be rebuilt, ``None`` when a source is
+    gone. ``sources`` are the sweep's reports for every changed source in the
+    entry on an op failure, or for every source the sweep did not find equal
+    (gone, changed, unreachable) on a missing-table conflict. ``detail`` is
+    the cause's text: the op's error, or what refused the live schemas.
+    """
+
+    detail = field(validator=instance_of(str))
+    sources = field(
+        converter=tuple,
+        validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
+    )
+    op_name = field(default=None, validator=optional(instance_of(str)))
 
 
 @frozen
@@ -58,6 +82,31 @@ class RebaseResult:
     aliases = field(factory=AliasOutcome, validator=instance_of(AliasOutcome))
     # The sources no probe could compare, when none could; never on REBASED.
     unprobed = str_tuple()
+
+    # Set exactly when ``status`` is ``CONFLICT``.
+    conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
+
+
+def fetch_archive(catalog_entry: CatalogEntry) -> None:
+    """Make the entry's archive local, refusing with the rebase exit codes.
+
+    A transport failure is retryable; content that arrives but does not match
+    its pointer is not.
+    """
+    if catalog_entry.is_content_local:
+        return
+    try:
+        catalog_entry.fetch()
+    except ContentIntegrityError as e:
+        raise RebaseError(
+            f"{catalog_entry.name} archive is corrupt: {format_error(e)}",
+            RebaseExit.REFUSED,
+        ) from e
+    except (ContentStoreError, AnnexError, OSError) as e:
+        raise RebaseError(
+            f"{catalog_entry.name} archive could not be fetched: {format_error(e)}",
+            RebaseExit.UNREACHABLE,
+        ) from e
 
 
 def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
@@ -174,21 +223,23 @@ def check_databases_exist(catalog_entry: CatalogEntry, record: BuildRecord) -> N
         )
 
 
-def live_or_refuse(
+def live_or_conflict(
     catalog_entry: CatalogEntry, record: BuildRecord, reports: tuple[LeafReport, ...]
-) -> dict:
+) -> dict | RebaseConflict:
+    """The live schemas to refresh over, or the conflict of a gone table."""
     try:
         return live_schemas(record, reports)
     except SchemaRefreshError as e:
         # Worst verdict wins, ranked as `check-sources` ranks it. Below
         # `table-missing`, what refused is an unreachable or unreadable source,
         # or two reads that disagree on a live schema.
-        worst = roll_up(report.verdict for report in reports)
+        if roll_up(report.verdict for report in reports) == Verdict.TABLE_MISSING:
+            # Every source the sweep flagged, so a changed or unreachable
+            # neighbour of the gone table is reported in the same breath.
+            involved = [r for r in reports if r.verdict != Verdict.EQUAL]
+            return RebaseConflict(str(e.cause), involved)
         raise RebaseError(
-            f"{catalog_entry.name}: {e.cause}",
-            RebaseExit.CONFLICT
-            if worst == Verdict.TABLE_MISSING
-            else RebaseExit.UNREACHABLE,
+            f"{catalog_entry.name}: {e.cause}", RebaseExit.UNREACHABLE
         ) from e
 
 
@@ -224,11 +275,12 @@ def rebase_entry(
 
     No alias moves unless asked: ``move_aliases`` moves all of the old
     entry's, ``only_aliases`` just these; ``alias`` registers another. A no-op
-    returns ``catalog_entry`` and commits nothing. ``entry_alias`` is the
-    alias ``catalog_entry`` was named by, if any; a pull that moves or removes
-    it refuses the rebase. Raises ``RebaseError``
-    before the rebase's first write; with ``sync``, an alias refusal can come
-    after the pull.
+    or a conflict returns ``catalog_entry`` and commits nothing.
+    ``entry_alias`` is the alias ``catalog_entry`` was named by, if any; a pull
+    that moves or removes it refuses the rebase. Raises ``RebaseError`` before
+    the rebase's first write; before that it may fetch the entry's archive into
+    the working tree and the content cache. With ``sync``, an alias refusal can
+    come after the pull.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -245,7 +297,10 @@ def rebase_entry(
         raise ValueError("move_aliases and only_aliases are mutually exclusive")
     # `ExprDumper` validates `cache_dir` as a `Path`.
     cache_dir = Path(cache_dir) if cache_dir is not None else None
-    # First: reading the record opens a `BuildZip`, which refuses a
+    # Every check below opens the archive, which a pointer or annex catalog
+    # may not have locally yet (a fresh clone has only the pointer).
+    fetch_archive(catalog_entry)
+    # Then: reading the record opens a `BuildZip`, which refuses a
     # bundle-less archive with a bare assertion.
     check_bundle(catalog_entry)
     record = read_entry_record(catalog_entry)
@@ -266,7 +321,19 @@ def rebase_entry(
         # `alias` is not added.
         plan.evolved(new=catalog_entry.name, alias=None)
         return RebaseResult(RebaseStatus.NOOP, catalog_entry, catalog_entry, reports)
-    live = live_or_refuse(catalog_entry, record, reports)
+
+    def conflicted(conflict: RebaseConflict) -> RebaseResult:
+        return RebaseResult(
+            RebaseStatus.CONFLICT,
+            catalog_entry,
+            catalog_entry,
+            reports,
+            conflict=conflict,
+        )
+
+    live = live_or_conflict(catalog_entry, record, reports)
+    if isinstance(live, RebaseConflict):
+        return conflicted(live)
     check_databases_exist(catalog_entry, record)
     with tempfile.TemporaryDirectory() as td:
         # Loaded inside the block: `load_expr` keeps the archive's extract dir,
@@ -274,8 +341,14 @@ def rebase_entry(
         loaded = catalog_entry.load_expr(cache_dir=cache_dir)
         try:
             expr = refresh_schemas(loaded, live)
+        except UnmatchedSourceError as e:
+            raise RebaseError(
+                f"{catalog_entry.name}: {e.cause}", RebaseExit.REFUSED
+            ) from e
         except SchemaRefreshError as e:
-            raise RebaseError(f"{catalog_entry.name}: {e}", RebaseExit.CONFLICT) from e
+            changed = [r for r in reports if r.verdict == Verdict.CHANGED]
+            # The cause alone: the CLI's headline already names the op.
+            return conflicted(RebaseConflict(format_error(e.cause), changed, e.op_name))
         # `relocate_reads=False` keeps each read's recorded posture: a bundled
         # read stays bundled, an external one external.
         dumper = ExprDumper(

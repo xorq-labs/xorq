@@ -36,7 +36,7 @@ from xorq.caching import (
 )
 from xorq.common.compat import StrEnum
 from xorq.common.constants import REMOTE_SCHEMES
-from xorq.common.exceptions import UnboundExpressionError
+from xorq.common.exceptions import UnboundExpressionError, XorqError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
@@ -64,7 +64,6 @@ from xorq.common.utils.node_utils import (
 )
 from xorq.config import default_backend
 from xorq.expr.api import deferred_read_parquet
-from xorq.expr.operations import _MISSING
 from xorq.expr.relations import (
     CachedNode,
     CacheTag,
@@ -540,16 +539,12 @@ def _extract_sql_queries(expr: ir.Expr, kind: ExprKind) -> SqlQueries:
     from xorq.expr.operations import NamedScalarParameter  # noqa: PLC0415
 
     clean = _remove_tag_nodes(expr)
-    # Bind named params to their defaults so SQL generation doesn't see them
-    named = {n.label: n for n in clean.op().find(NamedScalarParameter)}
-    if named:
-        defaults = {
-            label: node.default
-            for label, node in named.items()
-            if node.default is not _MISSING and node.default is not None
-        }
-        if defaults:
-            clean = bind_params(clean, defaults)
+    # Bind named params to their defaults so SQL generation doesn't see them.
+    # bind_params walks across RemoteTable, so params behind into_backend bind
+    # too; a param without a default raises ValueError, which the caller treats
+    # as "no SQL to record".
+    if walk_nodes(NamedScalarParameter, clean):
+        clean = bind_params(clean, {})
     match kind:
         case ExprKind.UnboundExpr:
             sql = str(xorq_to_sql(clean)).strip()
@@ -781,7 +776,7 @@ class ExprDumper:
         metadata = ExprMetadata.from_expr(expr)
         try:
             sql_queries = _extract_sql_queries(expr, metadata.kind)
-        except (ValueError, RuntimeError, KeyError) as e:
+        except (ValueError, RuntimeError, KeyError, XorqError) as e:
             warnings.warn(
                 f"Failed to extract SQL queries for caching: {e}",
                 stacklevel=2,

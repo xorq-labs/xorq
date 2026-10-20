@@ -17,6 +17,7 @@ class CatalogTag(StrEnum):
 
 class ContentStoreType(StrEnum):
     DIRECTORY = "directory"
+    PRESIGNED = "presigned"
     S3 = "s3"
 
 
@@ -119,19 +120,22 @@ class Verdict(StrEnum):
 
 
 class RebaseStatus(StrEnum):
-    """How a successful ``rebase_entry`` ended.
+    """How a ``rebase_entry`` that raised no ``RebaseError`` ended.
 
     ``ATTEMPTED``: no source could be probed, so the entry was re-derived and
     came back with its own hash; unlike ``NOOP``, that doesn't prove no drift.
+    ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
+    written.
     """
 
     NOOP = "noop"
     ATTEMPTED = "attempted"
     REBASED = "rebased"
+    CONFLICT = "conflict"
 
 
 class RebaseExit(IntEnum):
-    """The exit codes ``xorq catalog rebase`` refuses with."""
+    """The exit codes ``xorq catalog rebase`` refuses or conflicts with."""
 
     # Nothing of the rebase's own written (a sync's pull may have merged): a
     # property of the entry or the request; retrying won't help.

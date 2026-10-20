@@ -12,6 +12,7 @@ import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import pytest
 from batchcorder import StreamCache
+from pandas.testing import assert_frame_equal
 
 import xorq.api as xo
 from xorq.backends.xorq_datafusion.backend import _select_and_cast
@@ -386,3 +387,19 @@ def test_register_unbound_expr_raises():
     t = xo.table({"a": "int64"}, name="unbound")
     with pytest.raises(ValueError, match="unbound tables"):
         con.register(t)
+
+
+def test_register_pandas_backed_read_matches_into_backend(tmp_path: Path) -> None:
+    # https://github.com/xorq-labs/xorq/issues/1553
+    # a pandas-backed deferred read reaches the datafusion connection as a Read
+    # op; register must resolve it the way into_backend does instead of handing
+    # the raw op to the pandas executor
+    path = tmp_path / "t.csv"
+    pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}).to_csv(path, index=False)
+    pd_t = xo.deferred_read_csv(path, xo.pandas.connect())
+    con = xo.connect()
+    t_into_backend = pd_t.into_backend(con, name="pd_t_into_backend")
+    t_registered = con.register(pd_t, table_name="pd_t")
+    assert not pd_t.execute().empty
+    assert not t_into_backend.execute().empty
+    assert_frame_equal(t_registered.execute(), t_into_backend.execute())
