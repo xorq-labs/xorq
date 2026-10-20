@@ -112,10 +112,19 @@ def parquet_inference_con():
     Memoized because a `check-sources` sweep infers once per parquet leaf and a
     build once per `deferred_read_parquet`, and a session costs more to build
     than the read costs to run.
+
+    View types are off so the inferred schema is the file's own: datafusion
+    otherwise reads ``large_string`` as ``string_view``, which maps to
+    ``string`` and loses the width.
     """
     from xorq.backends.xorq_datafusion import connect  # noqa: PLC0415
+    from xorq.internal import SessionConfig  # noqa: PLC0415
 
-    return connect()
+    return connect(
+        SessionConfig().set(
+            "datafusion.execution.parquet.schema_force_view_types", "false"
+        )
+    )
 
 
 def infer_parquet_schema_datafusion(path):
