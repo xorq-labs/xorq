@@ -2255,3 +2255,33 @@ def test_build_writes_cache_source_profile_used_nowhere_else(
         "sqlite",
     }
     assert_frame_equal(expr.execute(), load_expr(build_path).execute())
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    (
+        pytest.param(
+            {"x": "int64", "y": "string"}, {"y": "string", "x": "int64"}, id="columns"
+        ),
+        pytest.param(
+            {"s": "struct<x: int64, y: string>"},
+            {"s": "struct<y: string, x: int64>"},
+            id="struct-fields",
+        ),
+    ),
+)
+def test_yaml_roundtrip_keeps_order_of_same_column_schemas(compiler, first, second):
+    # two schemas that differ only in order must not share a registry entry
+    a = xo.table(first, name="a")
+    b = xo.table(second, name="b")
+    expr = a.cross_join(b.rename(lambda c: f"{c}_b"))
+
+    loaded = compiler().from_yaml(compiler().to_yaml(expr))
+
+    def table_schemas(e):
+        return {
+            op.name: tuple((name, str(typ)) for name, typ in op.schema.items())
+            for op in e.op().find(rel.UnboundTable)
+        }
+
+    assert table_schemas(loaded) == table_schemas(expr)
