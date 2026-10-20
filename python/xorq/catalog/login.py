@@ -1,8 +1,8 @@
-"""OIDC sign-in to a hosted catalog service: settings, discovery, token cache.
+"""OIDC sign-in to a hosted catalog service (`xorq catalog login`).
 
 The service publishes its client settings at an unauthenticated well-known
-URL; everything else is standard OAuth 2.0 / OpenID Connect, so no provider
-is assumed.
+URL; everything else (discovery and the device grant) is standard OAuth 2.0
+/ OpenID Connect, so no provider is assumed.
 """
 
 from __future__ import annotations
@@ -13,27 +13,63 @@ import json
 import os
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import attr
 from attr import field, frozen
 
-from xorq.catalog.content_store import _service_url_identity
-from xorq.catalog.exceptions import LoginError
+from xorq.catalog.content_store import _is_loopback_host, _service_url_identity
+from xorq.catalog.exceptions import LoginError, LoginTimeoutError
 
 
 WELL_KNOWN_PATH = "/.well-known/xorq-catalog"
+DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 HTTP_TIMEOUT_SECONDS = 30
+SLOW_DOWN_SECONDS = 5
 JSON_HEADERS = {"Accept": "application/json"}
+
+
+def _https_url(value: str | None, label: str) -> str | None:
+    # Tokens and codes travel to these URLs: HTTPS, or loopback HTTP for
+    # development, exactly as for the catalog service itself.
+    if value is None:
+        return None
+    parts = urlsplit(value)
+    if parts.scheme == "https" or (
+        parts.scheme == "http" and _is_loopback_host(parts.hostname or "")
+    ):
+        return value
+    raise LoginError(
+        f"{label} must use HTTPS (loopback HTTP is allowed for development): {value}"
+    )
+
+
+class _NoDowngradeRedirect(HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> Request | None:
+        _https_url(newurl, "redirect")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = build_opener(_NoDowngradeRedirect)
 
 
 def _read_json(request: Request) -> dict:
     # OAuth endpoints answer errors with a 4xx and a JSON body naming the
     # error; those bodies are returned so callers can match on "error".
     try:
-        with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        with _opener.open(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
             body = json.load(response)
     except HTTPError as error:
         with error:
@@ -41,11 +77,21 @@ def _read_json(request: Request) -> dict:
                 body = json.load(error)
             except ValueError:
                 body = None
+            except TimeoutError:
+                raise LoginTimeoutError(
+                    f"cannot read {request.full_url}: timed out"
+                ) from None
         if isinstance(body, dict) and "error" in body:
             return body
         raise LoginError(f"{request.full_url} returned HTTP {error.code}") from None
     except OSError as error:
-        raise LoginError(f"cannot reach {request.full_url}: {error}") from None
+        # urllib raises a bare TimeoutError on read, a URLError around one on connect
+        timed_out = isinstance(error, TimeoutError) or isinstance(
+            getattr(error, "reason", None), TimeoutError
+        )
+        raise (LoginTimeoutError if timed_out else LoginError)(
+            f"cannot reach {request.full_url}: {error}"
+        ) from None
     except ValueError:
         raise LoginError(f"{request.full_url} did not return JSON") from None
     if not isinstance(body, dict):
@@ -57,10 +103,16 @@ def _get_json(url: str) -> dict:
     return _read_json(Request(url, headers=JSON_HEADERS))
 
 
+def _post_form(url: str, form: dict) -> dict:
+    return _read_json(Request(url, data=urlencode(form).encode(), headers=JSON_HEADERS))
+
+
 def _failure(response: dict) -> LoginError:
     match response:
         case {"error": "access_denied"}:
             return LoginError("sign-in was denied")
+        case {"error": "expired_token"}:
+            return LoginError("the device code expired before sign-in finished")
         case _:
             detail = response.get("error_description") or response.get("error")
             return LoginError(f"sign-in failed: {detail}")
@@ -102,7 +154,10 @@ def login_path(service_url: str) -> Path:
 class Settings:
     """Client settings published at <service>/.well-known/xorq-catalog."""
 
-    issuer: str = field(validator=attr.validators.instance_of(str))
+    issuer: str = field(
+        converter=lambda value: _https_url(value, "issuer"),
+        validator=attr.validators.instance_of(str),
+    )
     client_id: str = field(validator=attr.validators.instance_of(str))
     audience: str = field(validator=attr.validators.instance_of(str))
     scopes: tuple = field(converter=tuple)
@@ -128,8 +183,13 @@ class Settings:
 class Provider:
     """The endpoints from the issuer's OpenID Connect discovery document."""
 
-    token_endpoint: str
-    device_authorization_endpoint: str | None = None
+    token_endpoint: str = field(
+        converter=lambda value: _https_url(value, "token_endpoint")
+    )
+    device_authorization_endpoint: str | None = field(
+        default=None,
+        converter=lambda value: _https_url(value, "device_authorization_endpoint"),
+    )
 
     @classmethod
     def discover(cls, issuer: str) -> Provider:
@@ -210,3 +270,77 @@ class Login:
             Path(tmp).unlink(missing_ok=True)
             raise
         return self
+
+
+def _device_code(
+    settings: Settings, provider: Provider, emit: Callable[[dict], None]
+) -> dict:
+    if provider.device_authorization_endpoint is None:
+        raise LoginError("the identity provider does not offer device sign-in")
+    grant = _post_form(
+        provider.device_authorization_endpoint,
+        {"client_id": settings.client_id, "scope": settings.scope},
+    )
+    if "error" in grant:
+        raise _failure(grant)
+    emit(
+        {"event": "device_authorization"}
+        | {
+            name: grant[name]
+            for name in (
+                "verification_uri",
+                "verification_uri_complete",
+                "user_code",
+                "expires_in",
+            )
+            if name in grant
+        }
+    )
+    interval = grant.get("interval", 5)
+    deadline = time.monotonic() + grant["expires_in"]
+    while (remaining := deadline - time.monotonic()) > 0:
+        time.sleep(min(interval, remaining))
+        if time.monotonic() >= deadline:
+            break
+        try:
+            response = _post_form(
+                provider.token_endpoint,
+                {
+                    "grant_type": DEVICE_CODE_GRANT,
+                    "device_code": grant["device_code"],
+                    "client_id": settings.client_id,
+                },
+            )
+        except LoginTimeoutError:
+            # RFC 8628 section 3.5: back off after a timeout, keep polling
+            response = {"error": "slow_down"}
+        match response.get("error"):
+            case "authorization_pending":
+                continue
+            case "slow_down":
+                interval += SLOW_DOWN_SECONDS
+            case _:
+                return response
+    raise _failure({"error": "expired_token"})
+
+
+def sign_in(
+    service_url: str,
+    *,
+    settings_file: str | None = None,
+    emit: Callable[[dict], None] = print,
+) -> Login:
+    """Sign in to SERVICE_URL with the device grant and cache the result."""
+    login_path(service_url)  # validates the URL before any network call
+    settings = (
+        Settings.from_dict(json.loads(Path(settings_file).read_text()))
+        if settings_file
+        else Settings.fetch(service_url)
+    )
+    provider = Provider.discover(settings.issuer)
+    return Login.from_token_response(
+        _device_code(settings, provider, emit),
+        service_url=service_url,
+        settings=settings,
+        token_endpoint=provider.token_endpoint,
+    ).save()

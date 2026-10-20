@@ -84,3 +84,7 @@ class RebaseError(XorqError):
 
 class LoginError(XorqError):
     """Signing in to a hosted catalog service failed."""
+
+
+class LoginTimeoutError(LoginError):
+    """An identity provider or catalog service did not answer in time."""
