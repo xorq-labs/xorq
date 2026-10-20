@@ -6,7 +6,6 @@ import shutil
 import sys
 import zipfile
 from collections.abc import Callable
-from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,6 +27,7 @@ from xorq.catalog.tests.conftest import (
     _annex_available,
     alias_target_hash,
     fail_nth_alias_move,
+    pull_then,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
@@ -585,20 +585,6 @@ def test_a_refused_rebase_writes_nothing(
 
 
 # Alias moves and their rollback.
-def pull_then(
-    monkeypatch: pytest.MonkeyPatch, change: Callable[[Catalog], object]
-) -> None:
-    """Stand in for a sync whose pull applies ``change`` to the catalog."""
-
-    @contextmanager
-    def pulling(self: Catalog, sync: bool):
-        if sync:
-            change(self)
-        yield
-
-    monkeypatch.setattr(Catalog, "maybe_synchronizing", pulling)
-
-
 @ALL_BACKENDS
 @pytest.mark.parametrize(
     "after_write",

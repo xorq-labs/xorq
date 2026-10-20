@@ -16,7 +16,14 @@ from xorq.caching import ParquetCache
 from xorq.catalog.bind import bind, fuse_catalog_source
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.tests.conftest import alias_target_hash, fail_nth_alias_move
+from xorq.catalog.enums import RebaseExit
+from xorq.catalog.exceptions import RebaseError
+from xorq.catalog.rebase import AliasPlan
+from xorq.catalog.tests.conftest import (
+    alias_target_hash,
+    fail_nth_alias_move,
+    pull_then,
+)
 from xorq.catalog.zip_utils import extract_build_zip_to
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
@@ -71,6 +78,16 @@ def _add_file_cached_entry(
         relocate_reads=relocate_reads,
     )
     return entry.name
+
+
+def _other_entry(catalog: Catalog, *aliases: str) -> str:
+    """An entry an alias can be moved to, beside the source."""
+    expr = xo.memtable({"a": [1, 2, 3]}, name="t").filter(xo._.a > 1)
+    return catalog.add(expr, sync=False, aliases=aliases).name
+
+
+def _run(runner: CliRunner, catalog_path: str, *args: str) -> Result:
+    return runner.invoke(cli, ["--path", catalog_path, *args])
 
 
 def _last_line(result: Result) -> str:
@@ -235,11 +252,7 @@ def test_catalog_pin_refuses_an_alias_on_another_entry(
 ) -> None:
     """`-a` names another entry's alias: refused, as `rebase` refuses it, not taken."""
     src_name = _add_cached_entry(catalog)
-    other = catalog.add(
-        xo.memtable({"a": [1, 2, 3]}, name="t").filter(xo._.a > 1),
-        sync=False,
-        aliases=("taken",),
-    ).name
+    other = _other_entry(catalog, "taken")
 
     result = runner.invoke(
         cli,
@@ -262,6 +275,123 @@ def test_catalog_pin_refuses_an_alias_on_another_entry(
     reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
     assert set(reloaded.list()) == {src_name, other}
     assert alias_target_hash(reloaded, "taken") == other
+
+
+def test_catalog_pin_exits_with_the_refusals_code(
+    runner: CliRunner,
+    catalog: Catalog,
+    catalog_path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refusal exits with its own code and its bare message, as `rebase` does."""
+    src_name = _add_cached_entry(catalog)
+
+    def refusing(self: AliasPlan) -> AliasPlan:
+        raise RebaseError("refused for the test", RebaseExit.UNREACHABLE)
+
+    monkeypatch.setattr(AliasPlan, "checked", refusing)
+    result = _run(
+        runner,
+        catalog_path,
+        "pin",
+        src_name,
+        "-e",
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--no-sync",
+    )
+    assert result.exit_code == RebaseExit.UNREACHABLE, result.output
+    assert result.stderr == "refused for the test\n"
+
+
+@pytest.mark.parametrize(
+    "command", (pytest.param("pin", id="pin"), pytest.param("unpin", id="unpin"))
+)
+def test_catalog_pin_move_aliases_names_what_the_pull_took(
+    runner: CliRunner,
+    catalog: Catalog,
+    catalog_path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    """A teammate moved `prod` before the sync's pull: said, not refused or taken."""
+    src_name = _add_cached_entry(catalog, "prod", "latest")
+    other = _other_entry(catalog)
+    cache_dir = str(tmp_path / "cache")
+    if command == "unpin":
+        # The entry to unpin is the pinned one, with the aliases on it.
+        pinned = _run(
+            runner,
+            catalog_path,
+            "pin",
+            src_name,
+            "-e",
+            "--cache-dir",
+            cache_dir,
+            "--move-aliases",
+            "--no-sync",
+        )
+        assert pinned.exit_code == 0, pinned.output
+        src_name = _last_line(pinned)
+    pull_then(monkeypatch, lambda c: c.add_alias(other, "prod", sync=False))
+
+    materialize = ("-e",) if command == "pin" else ()
+    result = _run(
+        runner,
+        catalog_path,
+        command,
+        src_name,
+        *materialize,
+        "--cache-dir",
+        cache_dir,
+        "--move-aliases",
+    )
+    monkeypatch.undo()
+    assert result.exit_code == 0, result.output
+    new_name = _last_line(result)
+    assert f"Moved alias 'latest' -> {new_name}" in result.stderr
+    assert (
+        f"Alias 'prod' not moved: no longer on {src_name} after the pull"
+        in result.stderr
+    )
+    reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert alias_target_hash(reloaded, "latest") == new_name
+    assert alias_target_hash(reloaded, "prod") == other
+
+
+def test_catalog_pin_refuses_an_entry_alias_the_pull_moved(
+    runner: CliRunner,
+    catalog: Catalog,
+    catalog_path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ENTRY `prod` meant the source before the pull, not after it: refused."""
+    src_name = _add_cached_entry(catalog, "prod")
+    other = _other_entry(catalog)
+    pull_then(monkeypatch, lambda c: c.add_alias(other, "prod", sync=False))
+
+    result = _run(
+        runner,
+        catalog_path,
+        "pin",
+        "prod",
+        "-e",
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--move-aliases",
+    )
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"alias 'prod' points at {other} after the pull, not {src_name}; "
+        f"rerun with {src_name}\n"
+    )
+    reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert set(reloaded.list()) == {src_name, other}
+    assert alias_target_hash(reloaded, "prod") == other
 
 
 def test_catalog_pin_move_aliases_noop_without_aliases(

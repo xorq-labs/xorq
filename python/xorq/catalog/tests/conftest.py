@@ -1,5 +1,7 @@
 import shutil
 import uuid
+from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -447,6 +449,20 @@ def fail_nth_alias_move(
         return add(self)
 
     monkeypatch.setattr(CatalogAlias, "add", failing_add)
+
+
+def pull_then(
+    monkeypatch: pytest.MonkeyPatch, change: Callable[[Catalog], object]
+) -> None:
+    """Stand in for a sync whose pull applies ``change`` to the catalog."""
+
+    @contextmanager
+    def pulling(self: Catalog, sync: bool):
+        if sync:
+            change(self)
+        yield
+
+    monkeypatch.setattr(Catalog, "maybe_synchronizing", pulling)
 
 
 @pytest.fixture

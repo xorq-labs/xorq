@@ -6,8 +6,9 @@ no-create guard, and nothing loads until the sweep has compared every source it
 can probe. With a sync, the alias checks run again after its pull, so a refusal
 there leaves what the pull merged in place, unpushed.
 
-``AliasPlan`` and ``add_with_aliases`` are shared with ``catalog pin`` and
-``unpin``, which derive a new entry from an old one the same way.
+``AliasPlan``, ``add_with_aliases`` and the ``AliasOutcome`` it returns are
+shared with ``catalog pin`` and ``unpin``, which derive a new entry from an old
+one the same way.
 """
 
 from __future__ import annotations
@@ -57,6 +58,45 @@ def str_tuple() -> Any:
 
 
 @frozen
+class AliasOutcome:
+    """What became of the aliases once the new entry was in.
+
+    Built by ``of`` from two ``AliasPlan``: ``before``, over the aliases the
+    user saw, and ``landed``, over them after the sync's pull, which can move
+    or remove one in between.
+    """
+
+    # Pointed at the new entry by this run: were on the old entry.
+    moved = str_tuple()
+    # Registered by this run: `alias`, which was on no entry.
+    added = str_tuple()
+    # Asked for, or seen on the old entry, and on the new entry already (a
+    # pull or an earlier run put them there).
+    already = str_tuple()
+    # On the old entry before the sync's pull, on neither entry after it; only
+    # with `move_aliases`, which takes what the old entry has once the pull is in.
+    unmoved = str_tuple()
+    # Still on the old entry, not asked for.
+    left = str_tuple()
+
+    @classmethod
+    def of(cls, before: AliasPlan, landed: AliasPlan) -> AliasOutcome:
+        # `move_aliases` takes what the old entry has after the pull; what the
+        # user saw on it before is accounted for too.
+        pulled = landed.pulled_away(before) if landed.move_aliases else ()
+        return cls(
+            moved=landed.moved,
+            added=landed.added,
+            already=(
+                *landed.already,
+                *(n for n in pulled if landed.target(n) == landed.new),
+            ),
+            unmoved=tuple(n for n in pulled if landed.target(n) != landed.new),
+            left=landed.left,
+        )
+
+
+@frozen
 class RebaseResult:
     """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED``."""
 
@@ -67,17 +107,8 @@ class RebaseResult:
         converter=tuple,
         validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
     )
-    moved_aliases = str_tuple()
-    # Registered by the rebase: an `alias` that was on no entry.
-    added_aliases = str_tuple()
-    # Asked for, or seen on the old entry, and on the new entry already (a
-    # pull or an earlier run put them there).
-    already_aliases = str_tuple()
-    # On the old entry before the sync's pull, on neither entry after it; only
-    # with `move_aliases`, which takes what the old entry has once the pull is in.
-    unmoved_aliases = str_tuple()
-    # Still on the old entry, not asked for.
-    left_aliases = str_tuple()
+    # Empty unless REBASED: nothing moves onto an entry that already was.
+    aliases = field(factory=AliasOutcome, validator=instance_of(AliasOutcome))
     # The sources no probe could compare, when none could; never on REBASED.
     unprobed = str_tuple()
 
@@ -396,36 +427,36 @@ def roll_back(
 
 def add_with_aliases(
     plan: AliasPlan, build_path: Path, sync: bool
-) -> tuple[CatalogEntry, AliasPlan]:
+) -> tuple[CatalogEntry, AliasOutcome]:
     """Catalog ``build_path`` and point ``plan``'s aliases at it, all or nothing.
 
-    Returns the new entry and the plan as it stood after the sync's pull, which
-    can move an alias: what it moved, added and left is the plan's.
+    Returns the new entry and what became of the aliases, planned again after
+    the sync's pull, which can move one.
     """
     catalog = plan.old_entry.catalog
     name = build_path.name
     with catalog.maybe_synchronizing(sync):
         # Planned again after the pull: a refusal here still comes before the
         # first write of our own, though after whatever the pull merged.
-        plan = plan.evolved(new=name, targets=alias_targets(catalog))
+        landed = plan.evolved(new=name, targets=alias_targets(catalog))
         # Read after the pull, which can bring in the entry (an earlier
         # derivation of the same one); a rollback must not remove that one.
         added = not catalog.contains(name)
         # `catalog.add` and `add_alias` overwrite an alias, so each is recorded
         # before the call that writes it, for its prior target to be restored.
-        registered = (plan.alias,) if plan.alias else ()
+        registered = (landed.alias,) if landed.alias else ()
         attempted = [*registered]
         try:
             new_entry = catalog.add(
                 build_path, sync=False, aliases=registered, exist_ok=True
             )
-            for alias in plan.moving:
+            for alias in landed.moving:
                 attempted.append(alias)
                 catalog.add_alias(name, alias, sync=False)
         except Exception:
-            roll_back(catalog, name, {n: plan.target(n) for n in attempted}, added)
+            roll_back(catalog, name, {n: landed.target(n) for n in attempted}, added)
             raise
-    return new_entry, plan
+    return new_entry, AliasOutcome.of(plan, landed)
 
 
 def rebase_entry(
@@ -521,21 +552,7 @@ def rebase_entry(
         plan = plan.evolved(new=dumper.expr_hash)
         build_path = dumper.dump_expr()
         stage_bundle(catalog_entry, build_path)
-        new_entry, landed = add_with_aliases(plan, build_path, sync)
-    # `move_aliases` takes what the old entry has after the pull; what the user
-    # saw on it before is accounted for too.
-    pulled = landed.pulled_away(plan) if move_aliases else ()
+        new_entry, aliases = add_with_aliases(plan, build_path, sync)
     return RebaseResult(
-        RebaseStatus.REBASED,
-        catalog_entry,
-        new_entry,
-        reports,
-        moved_aliases=landed.moved,
-        added_aliases=landed.added,
-        already_aliases=(
-            *landed.already,
-            *(n for n in pulled if landed.target(n) == landed.new),
-        ),
-        unmoved_aliases=tuple(n for n in pulled if landed.target(n) != landed.new),
-        left_aliases=landed.left,
+        RebaseStatus.REBASED, catalog_entry, new_entry, reports, aliases=aliases
     )
