@@ -357,6 +357,21 @@ def binary(op, left, right):
     return _maybe_add_parens(op, f"{left} {operator} {right}")
 
 
+@translate.register(ops.WindowBoundary)
+def window_boundary(op, value, preceding):
+    return f"-{value}" if preceding else value
+
+
+@translate.register(ops.WindowFunction)
+def window_function(op, func, how, start, end, group_by, order_by):
+    kwargs = {
+        how: (start or end) and f"({start}, {end})",
+        "group_by": group_by and f"[{_inline(group_by)}]",
+        "order_by": order_by and f"[{_inline(order_by)}]",
+    }
+    return f"{func}.over({', '.join(f'{k}={v}' for k, v in kwargs.items() if v)})"
+
+
 @translate.register(ops.InValues)
 def isin(op, value, options):
     return f"{value}.isin(({', '.join([str(option) for option in options])}))"
@@ -472,7 +487,8 @@ def decompile(
     def lookup(value):
         match value:
             case ir.Expr():
-                return results[value.op()]
+                # None for fields the walk does not descend (FlightExpr.unbound_expr)
+                return results.get(value.op())
             case _:
                 return _recursive_lookup(value, results)
 
