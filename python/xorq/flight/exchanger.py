@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import functools
+import inspect
+import textwrap
 from abc import (
     ABC,
     abstractmethod,
@@ -392,6 +394,16 @@ def _unbound_exchanger_from_zip_bytes(zip_bytes, make_connection):
     return exchanger
 
 
+def _source_of(func):
+    # a lambda's source is the whole line it sits on, not a definition
+    if getattr(func, "__name__", "<lambda>") == "<lambda>":
+        return None
+    try:
+        return textwrap.dedent(inspect.getsource(func))
+    except (OSError, TypeError):
+        return None
+
+
 def make_udxf(
     process_df,
     maybe_schema_in,
@@ -458,6 +470,8 @@ def make_udxf(
             "calc_schema_out": calc_schema_out,
             "description": description or name,
             "command": command or tokenize(process_df),
+            # read by decompile, which cannot recover it from the pickled class
+            "process_df_source": _source_of(process_df),
         },
     )
     return typ
