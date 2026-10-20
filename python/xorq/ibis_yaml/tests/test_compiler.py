@@ -604,6 +604,16 @@ def test_build_pandas_backend(builds_dir, users_df):
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
+def artifact_md5s(build_path):
+    # one snapshot file per build artifact, so a normalization change shows up
+    # as a diff of only the artifacts it touched
+    return {
+        f"{p.name}.md5": hashlib.md5(p.read_bytes()).hexdigest()
+        for p in build_path.iterdir()
+        if p.name != DumpFiles.build_metadata and p.is_file()
+    }
+
+
 @pytest.mark.slow(level=1)
 @pytest.mark.snapshot_check
 def test_build_file_stability_https(builds_dir, snapshot):
@@ -637,17 +647,7 @@ def test_build_file_stability_https(builds_dir, snapshot):
     )
     build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
 
-    actual = json.dumps(
-        {
-            p.name: hashlib.md5(p.read_bytes()).hexdigest()
-            for p in build_path.iterdir()
-            if p.name != DumpFiles.build_metadata
-        },
-        indent=2,
-        sort_keys=True,
-    )
-
-    snapshot.assert_match(actual, "expected.json")
+    snapshot.assert_match_dir(artifact_md5s(build_path), "artifacts")
 
     # test that it also runs
     roundtrip_expr = load_expr(build_path)
@@ -701,17 +701,7 @@ def test_build_file_stability_local(
     build_path = build_expr(
         expr, builds_dir=builds_dir, debug=True, relocate_reads=False
     )
-    actual = json.dumps(
-        {
-            p.name: hashlib.md5(p.read_bytes()).hexdigest()
-            for p in build_path.iterdir()
-            if p.name != DumpFiles.build_metadata
-        },
-        indent=2,
-        sort_keys=True,
-    )
-
-    snapshot.assert_match(actual, "expected.json")
+    snapshot.assert_match_dir(artifact_md5s(build_path), "artifacts")
 
     # test that it also runs
     roundtrip_expr = load_expr(build_path)
@@ -744,19 +734,9 @@ def test_build_file_stability_and_relocatability(
         read_normalize_method=normalize_read_path_md5sum,
         relocate_reads=False,
     )
-    actual = json.dumps(
-        {
-            p.name: hashlib.md5(p.read_bytes()).hexdigest()
-            for p in build_dir.iterdir()
-            if p.name != DumpFiles.build_metadata and p.is_file()
-        }
-        | {
-            "build_dir_name": build_dir.name,
-        },
-        indent=2,
-        sort_keys=True,
+    snapshot.assert_match_dir(
+        artifact_md5s(build_dir) | {"build_dir_name.txt": build_dir.name}, "artifacts"
     )
-    snapshot.assert_match(actual, "expected.json")
 
     # test that it also runs
     roundtrip_expr = load_expr(build_dir)
