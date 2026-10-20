@@ -25,6 +25,7 @@ from xorq.vendor.ibis.common.collections import (
     FrozenOrderedDict,
 )
 from xorq.vendor.ibis.expr import operations as ops
+from xorq.vendor.ibis.expr.decompile import define, translate
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node
 from xorq.writes import DrainingIterator, WriteThrough
@@ -986,3 +987,55 @@ def _fmt_read(op, name, method_name, source, **kwargs):
     backend = render_backend(source)
     name = f"{op.__class__.__name__}[name={name}, method_name={method_name}, source={backend}]\n"
     return name + render_schema(op.schema, 1)
+
+
+def _decompile_backend(con: BaseBackend) -> str:
+    return (
+        "xo.connect()" if con.name == "xorq_datafusion" else f"xo.{con.name}.connect()"
+    )
+
+
+def _decompile_schema(schema: Schema) -> str:
+    return f"ibis.schema({dict(zip(schema.names, map(str, schema.types)))})"
+
+
+@translate.register(RemoteTable)
+def _decompile_remote_table(
+    op: RemoteTable, remote_expr: str, source: BaseBackend, name: str, **kwargs: Any
+) -> str:
+    return f"{remote_expr}.into_backend({_decompile_backend(source)}, {name!r})"
+
+
+@translate.register(CachedNode)
+def _decompile_cached_node(
+    op: CachedNode, parent: str, cache: Any, **kwargs: Any
+) -> str:
+    source = _decompile_backend(cache.storage.source)
+    return f"{parent}.cache(xo.{type(cache).__name__}.from_kwargs(source={source}))"
+
+
+@translate.register(Read)
+def _decompile_read(
+    op: Read,
+    name: str,
+    source: BaseBackend,
+    method_name: str,
+    read_kwargs: tuple,
+    **kwargs: Any,
+) -> str:
+    path = dict(read_kwargs)["hash_path"]
+    return f"xo.deferred_{method_name}({str(path)!r}, {_decompile_backend(source)}, {name!r})"
+
+
+@translate.register(FlightUDXF)
+def _decompile_flight_udxf(
+    op: FlightUDXF, input_expr: str, udxf: type, name: str, **kwargs: Any
+) -> str:
+    schemas = map(_decompile_schema, (op.input_expr.schema(), op.schema))
+    make_udxf = f"xo.flight.exchanger.make_udxf({udxf.__name__}, {', '.join(schemas)})"
+    return f"xo.expr.relations.FlightUDXF.from_expr({input_expr}, {make_udxf}, name={name!r}).to_expr()"
+
+
+@define.register(FlightUDXF)
+def _define_flight_udxf(op: FlightUDXF) -> str | None:
+    return getattr(op.udxf, "process_df_source", None)
