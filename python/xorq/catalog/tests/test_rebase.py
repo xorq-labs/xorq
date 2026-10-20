@@ -781,6 +781,26 @@ def test_an_entry_alias_the_pull_moved_onto_the_new_entry_is_accepted(
     assert targets(world, "live", "staging") == (new, new)
 
 
+def test_an_only_alias_the_pull_removed_is_refused_after_the_pull(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Before the sweep `live` was on the old entry; the pull removed it."""
+    replace_t(world, GROWN)
+    pull_then(monkeypatch, lambda c: c.remove_alias("live", sync=False))
+
+    result = rebase(runner, world, world.name, "--only-alias", "live")
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert (
+        f"alias 'live' points at nothing after the pull, not {world.name}"
+        in result.stderr
+    )
+    assert result.stdout == ""
+    catalog = reopen(world)
+    assert catalog.list() == [world.name]
+    assert "live" not in catalog.list_aliases()
+
+
 @pytest.mark.parametrize("args", (("-a", "fresh"), ("--only-alias", "fresh")))
 def test_an_alias_on_another_entry_is_refused_before_the_pull(
     runner: CliRunner,

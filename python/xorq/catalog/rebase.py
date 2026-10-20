@@ -240,21 +240,23 @@ class AliasPlan:
 
     def checked(self) -> AliasPlan:
         """``self``; raises ``RebaseError`` for an alias the request can't have."""
-        if unknown := tuple(n for n in self.only_aliases if self.target(n) is None):
-            raise RebaseError(
-                f"{self.old} has no alias {', '.join(sorted(unknown))}",
-                RebaseExit.REFUSED,
-            )
         if self.new is None:
+            if unknown := tuple(n for n in self.only_aliases if self.target(n) is None):
+                raise RebaseError(
+                    f"{self.old} has no alias {', '.join(sorted(unknown))}",
+                    RebaseExit.REFUSED,
+                )
             return self
         here = self.here
         if elsewhere := tuple(
             n for n in self.only_aliases if self.target(n) not in here
         ):
-            # Says where it went: the pull can move one.
+            # Says where it went: the pull can move one, or remove it (the
+            # plan before the pull refused an unregistered name already).
             raise RebaseError(
                 "; ".join(
-                    f"alias {n!r} points at {self.target(n)}, not {self.old}"
+                    f"alias {n!r} points at "
+                    f"{self.target(n) or 'nothing after the pull'}, not {self.old}"
                     for n in elsewhere
                 ),
                 RebaseExit.REFUSED,
