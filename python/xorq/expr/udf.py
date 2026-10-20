@@ -1,4 +1,5 @@
 import functools
+from keyword import iskeyword
 from typing import Any
 
 import cloudpickle
@@ -23,6 +24,18 @@ from xorq.vendor.ibis.expr.operations.udf import (
 from xorq.vendor.ibis.expr.operations.udf import (
     agg as _agg,
 )
+
+
+def make_fields(schema):
+    # field names become parameter names, so if any column is not an
+    # identifier all fields are positional; on_expr still selects by column
+    names = tuple(schema)
+    if not all(name.isidentifier() and not iskeyword(name) for name in names):
+        names = tuple(f"arg{i}" for i in range(len(names)))
+    return {
+        name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
+        for name, typ in zip(names, schema.values())
+    }
 
 
 def property_wrap_fn(fn):
@@ -290,10 +303,7 @@ def make_pandas_expr_udf(
 
     name = name if name is not None else _make_udf_name(fn)
     bases = (ExprScalarUDF,)
-    fields = {
-        arg_name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
-        for (arg_name, typ) in schema.items()
-    }
+    fields = make_fields(schema)
     meta = {
         "dtype": return_type,
         "__input_type__": InputType.PYARROW,
@@ -303,6 +313,7 @@ def make_pandas_expr_udf(
             computed_kwargs_expr=computed_kwargs_expr,
             post_process_fn=post_process_fn,
             schema=schema,
+            names=tuple(schema),
             fn=fn,
             **kwargs,
         ),
@@ -485,10 +496,7 @@ def make_pandas_udf(
 
     name = name if name is not None else _make_udf_name(fn)
     bases = (ScalarUDF,)
-    fields = {
-        arg_name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
-        for (arg_name, typ) in schema.items()
-    }
+    fields = make_fields(schema)
     meta = {
         "dtype": return_type,
         "__input_type__": InputType.PYARROW,
@@ -779,16 +787,13 @@ class agg(_agg):
         """
         name = name if name is not None else fn.__name__
         bases = (cls._base,)
-        fields = {
-            arg_name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
-            for (arg_name, typ) in schema.items()
-        }
+        fields = make_fields(schema)
         meta = {
             "dtype": return_type,
             "__input_type__": InputType.PYARROW,
             "__func__": make_dunder_func(fn, schema),
             # valid config keys: volatility
-            "__config__": FrozenDict(fn=fn, **kwargs),
+            "__config__": FrozenDict(fn=fn, names=tuple(schema), **kwargs),
             "__udf_namespace__": Namespace(database=database, catalog=catalog),
             "__module__": fn.__module__,
             # FIXME: determine why this fails with case mismatch by default
@@ -1047,10 +1052,7 @@ def pyarrow_udwf(
     make_pandas_udf : For pandas-based scalar operations
     """
 
-    fields = {
-        arg_name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
-        for (arg_name, typ) in schema.items()
-    }
+    fields = make_fields(schema)
     # which_evaluate = arbitrate_evaluate(**config_kwargs)
     name = name or fn.__name__
     meta = {

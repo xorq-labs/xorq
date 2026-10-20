@@ -240,3 +240,75 @@ def test_builtin_scalar_udf_namespace_roundtrip(compiler, namespace):
     # the xorq backend drops the namespace from the sql; duckdb emits it
     con = xo.duckdb.connect()
     assert con.compile(loaded) == con.compile(expr)
+
+
+DEATHS = "No. of deaths"
+
+
+def _pandas_udf(t):
+    return udf.make_pandas_udf(
+        lambda df: df[DEATHS] + df["class"],
+        schema=t.schema(),
+        return_type=dt.float64,
+        name="add_deaths",
+    )
+
+
+def _pandas_expr_udf(t):
+    return udf.make_pandas_expr_udf(
+        computed_kwargs_expr=udf.agg.pandas_df(
+            lambda df: udf.wrap_model(df[DEATHS].sum()),
+            schema=t.schema(),
+            return_type=dt.binary,
+            name="sum_deaths_model",
+        ).on_expr(t),
+        fn=lambda model, df: df[DEATHS] * model["model"] + df["class"],
+        schema=t.schema(),
+        return_type=dt.float64,
+        name="scale_deaths",
+    )
+
+
+def _agg_pandas_df(t):
+    return udf.agg.pandas_df(
+        lambda df: float(df[DEATHS].sum() + df["class"].sum()),
+        # a plain dict is accepted as well as a Schema
+        schema=dict(t.schema()),
+        return_type=dt.float64,
+        name="sum_deaths",
+    )
+
+
+def _pyarrow_udwf(t):
+    return pyarrow_udwf(
+        lambda self, values, num_rows: pc.add(values[0], values[1]),
+        schema=t.schema(),
+        return_type=dt.float64,
+        name="add_deaths_window",
+    )
+
+
+@pytest.mark.parametrize(
+    "make_udf",
+    (
+        pytest.param(_pandas_udf, id="make_pandas_udf"),
+        pytest.param(_pandas_expr_udf, id="make_pandas_expr_udf"),
+        pytest.param(_agg_pandas_df, id="agg.pandas_df"),
+        pytest.param(_pyarrow_udwf, id="pyarrow_udwf"),
+    ),
+)
+def test_pandas_udf_non_identifier_columns_roundtrip(tmp_path, make_udf):
+    # GH #1605: column names that are not python identifiers (or are keywords),
+    # next to one that looks like a positional name, in unsorted order
+    t = xo.memtable(
+        {"class": [10.0, 20.0, 30.0], DEATHS: [1.0, 2.0, 3.0], "arg0": [0.5] * 3},
+        name="t",
+    )
+    # the udf schema reverses the table's column order
+    expr = t.mutate(val=make_udf(t.select(*reversed(t.columns))).on_expr(t)).order_by(
+        DEATHS
+    )
+
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path / "builds"))
+
+    pd.testing.assert_frame_equal(loaded.execute(), expr.execute())

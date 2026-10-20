@@ -189,9 +189,11 @@ def make_op_kwargs(op):
     return kwargs
 
 
-def kwargs_to_schema(kwargs):
-    schema = ibis.schema({argname: arg.type() for argname, arg in kwargs.items()})
-    return schema
+def kwargs_to_schema(kwargs, names=None):
+    # names keeps the column order: the schema registry does not
+    return ibis.schema(
+        dict(zip(names or kwargs, (arg.type() for arg in kwargs.values())))
+    )
 
 
 @translate_to_yaml.register(ops.udf.AggUDF)
@@ -236,7 +238,9 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     config = meta["__config__"]
     if "fn" in config:
         # pass Schema, not dict, to match the live agg.pandas_df build path (see ExprScalarUDF below)
-        kwds["__func__"] = udf.make_dunder_func(config["fn"], kwargs_to_schema(kwargs))
+        kwds["__func__"] = udf.make_dunder_func(
+            config["fn"], kwargs_to_schema(kwargs, config.get("names"))
+        )
     elif {
         "evaluate",
         "evaluate_all",
@@ -294,7 +298,9 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         | meta
         | {
             "__func__": udf.make_expr_scalar_udf_dunder_func(
-                meta["__config__"]["fn"], kwargs_to_schema(kwargs), meta["dtype"]
+                meta["__config__"]["fn"],
+                kwargs_to_schema(kwargs, meta["__config__"].get("names")),
+                meta["dtype"],
             )
         }
     )
