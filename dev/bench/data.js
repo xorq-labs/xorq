@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792510485180,
+  "lastUpdate": 1792514630212,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -61458,6 +61458,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.11928797513514255",
             "extra": "mean: 1.6123215545999983 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c3f2ac3ea670c47ba074e877a82b5bfd7f5d94cb",
+          "message": "fix(datafusion): compile exact Quantile on the datafusion backend (#2505)\n\nCloses #1456\n\n## What\n\n`col.quantile(q)` now compiles on the `xo.datafusion` backend. A new\n`xorq/backends/datafusion/compiler.py` subclasses the vendored\nDataFusion compiler with a `visit_Quantile`, and xorq's datafusion\n`Backend` uses it; the vendored tree is unchanged. It sorts the non-null\nvalues (after `where=`, if given) with `array_agg` and `array_sort`,\nthen indexes into that array. Numeric columns interpolate between the\ntwo values on either side of position `q * (n - 1)`, which is what\n`percentile_cont` returns. Other types take the value at index `max(1,\nceil(q * n))`, which is what `percentile_disc` returns.\n\n## Why\n\nThe vendored compiler only had a rule for `ApproxQuantile`, so an exact\nquantile raised `OperationNotDefinedError: Compilation rule for\n'Quantile' operation is not defined`. The default `xo.connect()` backend\nalready compiles it to `percentile_cont ... WITHIN GROUP`. That rule\ncannot be copied here, because the pinned `datafusion<49` has no\n`percentile_cont` (`Invalid function 'percentile_cont'`).\n\nThe interpolation weights both endpoints, `lo * (1 - f) + hi * f`, and\nreturns `lo` directly when the two endpoints are equal. The shorter `lo\n+ f * (hi - lo)` returns `inf` for `[-1e308, 1e308]` and `nan` for a\ncolumn of `inf`.\n\n## Verification\n\n- `pytest python/xorq/backends/datafusion/tests/test_quantile.py`: 15\npassed. The cases cover q of 0, 0.5, 0.9 and 1, an int column with a\nnull, `where=`, group_by, a constant `inf` column, opposite-sign\nextremes, and discrete strings.\n- With the `compiler = compiler` override removed from `Backend`, all 15\nfail with the issue's error.\n- On 37 random rows with nulls, results match duckdb's `quantile` within\n1e-9 for 10 values of q. The float, int and string columns had 0\nmismatches.\n- `pytest -m datafusion python/xorq/backends/datafusion/tests`: 51\npassed.\n\n## Not addressed\n\n- Quantile in a window, such as `t.mutate(q=t.a.quantile(0.5))` or\n`.over(...)`, still raises `ParserError`, because `OVER` wraps the whole\nexpression. Wrapping each inner `array_agg` in `OVER` instead gives\nwrong answers, since datafusion ignores `FILTER` under `OVER`. That bug\nexists on main too: `sum(where=a > 1).over(group_by=g)` returns 4.0\ninstead of 3.0. Until it is fixed, a loud error is better than a wrong\nquantile.\n- `col.quantile([...])` (`MultiQuantile`) is still unsupported on both\ndatafusion backends.\n- `approx_quantile` on `xo.datafusion` also fails on main: datafusion 48\nrequires `approx_percentile_cont(q) WITHIN GROUP (ORDER BY x)`.\n- sqlite has no `Quantile` rule.\n\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-10-20T18:38:46+02:00",
+          "tree_id": "07a9b130f414763d419b84fc1f865b43ce0f3a40",
+          "url": "https://github.com/xorq-labs/xorq/commit/c3f2ac3ea670c47ba074e877a82b5bfd7f5d94cb"
+        },
+        "date": 1792514626792,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.197969093026826,
+            "unit": "iter/sec",
+            "range": "stddev: 0.028668491684658796",
+            "extra": "mean: 121.98143084615893 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 4.077782247951524,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010158381069200518",
+            "extra": "mean: 245.23133879999364 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9855200874464553,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15847330889257769",
+            "extra": "mean: 1.0146926610000038 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.188548143132717,
+            "unit": "iter/sec",
+            "range": "stddev: 0.029906419680204556",
+            "extra": "mean: 313.622362000001 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.16544298448108,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0235822432748557",
+            "extra": "mean: 240.07050480000203 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 4.24168419192726,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017546179808761615",
+            "extra": "mean: 235.75541099999668 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 295.7839374311875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0033959469435608583",
+            "extra": "mean: 3.3808461970070445 msec\nrounds: 401"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 6.231296935340239,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10252124373057138",
+            "extra": "mean: 160.48023555555346 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 25.451230825066315,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006682385647089488",
+            "extra": "mean: 39.29083064285927 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 18.235309528270463,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011211699069820037",
+            "extra": "mean: 54.83866333333611 msec\nrounds: 21"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 14.083357224230186,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009378614600929458",
+            "extra": "mean: 71.00579670588178 msec\nrounds: 17"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 8.317688933013303,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02469215295900518",
+            "extra": "mean: 120.22570308333513 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 5.889218323418867,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05018814214005931",
+            "extra": "mean: 169.80182174999925 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 7.317783638281912,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006883442686331358",
+            "extra": "mean: 136.65339799999643 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 4.499196036860482,
+            "unit": "iter/sec",
+            "range": "stddev: 0.017243361695938396",
+            "extra": "mean: 222.26193120000062 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.9374850977262357,
+            "unit": "iter/sec",
+            "range": "stddev: 0.034593463629848824",
+            "extra": "mean: 253.9692151666723 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 2.556569422529336,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06963536844422952",
+            "extra": "mean: 391.14916699999185 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 3.1531316990746348,
+            "unit": "iter/sec",
+            "range": "stddev: 0.025765149093454585",
+            "extra": "mean: 317.14501499999983 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 2.5227273694394468,
+            "unit": "iter/sec",
+            "range": "stddev: 0.054520372566932894",
+            "extra": "mean: 396.39638120000313 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 2.6713813826822865,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023223784109069497",
+            "extra": "mean: 374.3381632000137 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.8917732977487103,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09896490584401242",
+            "extra": "mean: 528.6045643999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.8093844770277785,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1032386623069726",
+            "extra": "mean: 552.6741345999994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.477125113896581,
+            "unit": "iter/sec",
+            "range": "stddev: 0.085832755096898",
+            "extra": "mean: 676.9907237999973 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.8815601710717033,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1745152956601079",
+            "extra": "mean: 1.1343525181999894 sec\nrounds: 5"
           }
         ]
       }
