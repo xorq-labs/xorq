@@ -8,6 +8,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.9] - 2026-10-20
+### Details
+#### Changed
+- Judge pull requests against a same-runner baseline by @mesejo in [#2435](https://github.com/xorq-labs/xorq/pull/2435)
+- Drop dead expected_tables from the xorq_datafusion conftest by @mesejo in [#2456](https://github.com/xorq-labs/xorq/pull/2456)
+- Replace the common/utils conftest symlink with the three fixtures it uses by @mesejo in [#2468](https://github.com/xorq-labs/xorq/pull/2468)
+- One psycopg batch loop for the vendored reader and the ADBC fallback by @mesejo in [#2469](https://github.com/xorq-labs/xorq/pull/2469)
+- One default-binding rule for params when recording SQL by @mesejo in [#2475](https://github.com/xorq-labs/xorq/pull/2475)
+- Compile date minus date to a day interval by @mesejo in [#2486](https://github.com/xorq-labs/xorq/pull/2486)
+- Run refresh_schemas through replace_nodes by @mesejo in [#2490](https://github.com/xorq-labs/xorq/pull/2490)
+- Start the gated pre-release publish from a release-* push by @mesejo in [#2379](https://github.com/xorq-labs/xorq/pull/2379)
+- Describe the push-triggered release flow and recovery
+
+#### Fixed
+- Sort over a subquery when an output alias shadows a sort column by @mesejo in [#2444](https://github.com/xorq-labs/xorq/pull/2444)
+- Order the outer select by the sort keys of its subquery by @mesejo in [#2452](https://github.com/xorq-labs/xorq/pull/2452)
+- Join on a column selected over a join chain by @mesejo in [#2446](https://github.com/xorq-labs/xorq/pull/2446)
+- Load unordered window functions nested in other ops by @mesejo in [#2445](https://github.com/xorq-labs/xorq/pull/2445)
+- Weight CTE scans by reference count when sizing the stream cache by @mesejo in [#2454](https://github.com/xorq-labs/xorq/pull/2454)
+- Spell out the columns of a star selection over a physical table by @mesejo in [#2455](https://github.com/xorq-labs/xorq/pull/2455)
+- Refuse DISTINCT ordered by a column the projection drops by @mesejo in [#2451](https://github.com/xorq-labs/xorq/pull/2451)
+- Skip output metrics when the output path is not a regular file by @mesejo in [#2453](https://github.com/xorq-labs/xorq/pull/2453)
+- Round() keeps nulls and rounds ties away from zero by @mesejo in [#2459](https://github.com/xorq-labs/xorq/pull/2459)
+- Make between yield null for a null operand by @mesejo in [#2460](https://github.com/xorq-labs/xorq/pull/2460)
+- Postgres execute imports the vendored pandas converter by @mesejo in [#2461](https://github.com/xorq-labs/xorq/pull/2461)
+- Round() keeps NA on nullable floats and rounds digit ties away from zero by @mesejo in [#2463](https://github.com/xorq-labs/xorq/pull/2463)
+- Filter drops the rows of a null-bearing string predicate by @mesejo in [#2464](https://github.com/xorq-labs/xorq/pull/2464)
+- Round(digits) converts integers once and survives digit counts outside the float range by @mesejo in [#2465](https://github.com/xorq-labs/xorq/pull/2465)
+- A null string stays null through a negated predicate and the regex kernels by @mesejo in [#2467](https://github.com/xorq-labs/xorq/pull/2467)
+- One ingest_kwargs route for ADBC options on read_csv and read_parquet by @mesejo in [#2462](https://github.com/xorq-labs/xorq/pull/2462)
+- Leave the cache unbounded for a PARTITION BY-only window on duckdb by @mesejo in [#2471](https://github.com/xorq-labs/xorq/pull/2471)
+- Key HTTP modification-time reads on ETag as well by @mesejo in [#2473](https://github.com/xorq-labs/xorq/pull/2473)
+- Discover defaulted params behind into_backend when recording SQL by @Jah-yee in [#2375](https://github.com/xorq-labs/xorq/pull/2375)
+- Bound the exchange error message so it fits gRPC's status metadata by @mesejo in [#2479](https://github.com/xorq-labs/xorq/pull/2479)
+- Parse largestring, binaryview, unknown and geospatial from their own str() by @mesejo in [#2472](https://github.com/xorq-labs/xorq/pull/2472)
+- Pin three fixes already on main for the issues they close by @mesejo in [#2482](https://github.com/xorq-labs/xorq/pull/2482)
+- Pin fixes already on main for the issues they close by @mesejo in [#2483](https://github.com/xorq-labs/xorq/pull/2483)
+- Resolve deferred reads when scanning a registered cross-backend table by @mesejo in [#2484](https://github.com/xorq-labs/xorq/pull/2484)
+- Restore the UDF namespace when a scalar UDF is loaded from yaml by @mesejo in [#2477](https://github.com/xorq-labs/xorq/pull/2477)
+- Pin that an empty UDF namespace writes no yaml key by @mesejo in [#2487](https://github.com/xorq-labs/xorq/pull/2487)
+- Keep the named view so Table.sql resolves over into_backend and alias by @mesejo in [#2485](https://github.com/xorq-labs/xorq/pull/2485)
+- Record attached databases in the profile so a build loads by @mesejo in [#2488](https://github.com/xorq-labs/xorq/pull/2488)
+- Recognize truncated RemoteTable names in get_uid_prefix by @mesejo in [#2491](https://github.com/xorq-labs/xorq/pull/2491)
+- Name pandas_df aggregate nodes from the stable UDF name by @mesejo in [#2489](https://github.com/xorq-labs/xorq/pull/2489)
+
+#### Removed
+- Delete small dead symbols by @mesejo in [#2439](https://github.com/xorq-labs/xorq/pull/2439)
+
+## New Contributors
+* @Jah-yee made their first contribution in [#2375](https://github.com/xorq-labs/xorq/pull/2375)
 ## [0.4.8] - 2026-10-15
 ### Details
 #### Added
