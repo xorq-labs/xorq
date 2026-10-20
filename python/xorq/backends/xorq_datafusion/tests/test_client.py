@@ -81,3 +81,21 @@ def test_register_record_batch_reader_sorted(batting_df, keys):
         assert ordering_string in physical_plan
     else:
         assert ordering_string not in physical_plan
+
+
+def test_insert_into_view_names_the_view():
+    con = xo.connect()
+    data = pa.table({"a": [1]})
+    con.create_view("v", con.create_table("t", data))
+
+    con.insert("t", data)
+    with pytest.raises(ValueError, match="cannot insert into 'v': it is a view"):
+        con.insert("v", data)
+    with pytest.raises(ValueError, match="Table not found: missing"):
+        con.insert("missing", data)
+    # a namespaced target is not the default-schema view: keep its own error
+    with pytest.raises(Exception) as excinfo:
+        con.insert("v", data, schema="other")
+    assert "is a view" not in str(excinfo.value)
+
+    assert con.table("t").count().execute() == 2
