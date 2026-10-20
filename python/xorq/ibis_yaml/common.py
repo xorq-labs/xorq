@@ -39,6 +39,17 @@ def deserialize_callable(encoded_fn: str) -> callable:
     return cloudpickle.loads(pickled)
 
 
+def tuplify(obj):
+    # tokenize sorts dict items, but schema and struct order is meaningful
+    match obj:
+        case dict():
+            return tuple((key, tuplify(value)) for key, value in obj.items())
+        case tuple():
+            return tuple(map(tuplify, obj))
+        case _:
+            return obj
+
+
 class Registry:
     def __init__(self, dtypes=(), nodes=(), schemas=()):
         self.dtypes = dict(dtypes)
@@ -55,7 +66,7 @@ class Registry:
         )
 
     def register_dtype(self, dtype, dtype_dict):
-        dtype_ref = f"dtype_{tokenize(dtype_dict)[: config.hash_length]}"
+        dtype_ref = f"dtype_{tokenize(tuplify(dtype_dict))[: config.hash_length]}"
         self.dtypes.setdefault(dtype_ref, dtype_dict)
         frozen = freeze({RefEnum.dtype_ref: dtype_ref})
         return frozen
@@ -99,7 +110,7 @@ class Registry:
                 schema,
             )
         )
-        schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
+        schema_ref = f"schema_{tokenize(tuplify(frozen_schema))[: config.hash_length]}"
         self.schemas.setdefault(schema_ref, frozen_schema)
         frozen = freeze({RefEnum.schema_ref: schema_ref})
         return frozen
