@@ -52,7 +52,8 @@ def _jwt(**claims: object) -> str:
 class FakeProvider:
     """An OIDC provider and catalog service in one local HTTP server."""
 
-    def __init__(self) -> None:
+    def __init__(self, authorize_query: str = "") -> None:
+        self.authorize_query = authorize_query
         self.requests = []
         self.token_url = None
         self.stall_next_body = False
@@ -112,7 +113,7 @@ class FakeProvider:
                 return 200, self.tokens()
         return 400, {"error": "unsupported_grant_type"}
 
-    def browser(self, url: str) -> bool:
+    def browser(self, url: str, wait: bool = False, stray: bool = False) -> bool:
         # Stands in for the user approving sign-in: record the PKCE challenge
         # and follow the redirect back to the loopback callback.
         params = dict(parse_qsl(urlsplit(url).query))
@@ -126,10 +127,19 @@ class FakeProvider:
             else {"code": code, "state": state}
         )
         query = "&".join(f"{key}={value}" for key, value in reply.items())
-        callback = f"{params['redirect_uri']}?{query}"
-        threading.Thread(
-            target=lambda: urlopen(callback, timeout=15).read(), daemon=True
-        ).start()
+        callback = urlsplit(params["redirect_uri"])._replace(
+            path=urlsplit(params["redirect_uri"]).path or "/", query=query
+        )
+
+        def follow() -> None:
+            if stray:  # e.g. a browser preloading the callback path
+                urlopen(callback._replace(query="").geturl(), timeout=15).read()
+            urlopen(callback.geturl(), timeout=15).read()
+
+        if wait:  # a launcher that returns only once the page has loaded
+            follow()
+        else:
+            threading.Thread(target=follow, daemon=True).start()
         return True
 
 
@@ -164,7 +174,8 @@ class _Handler(BaseHTTPRequestHandler):
                     200,
                     {
                         "issuer": provider.url,
-                        "authorization_endpoint": f"{provider.url}/authorize",
+                        "authorization_endpoint": f"{provider.url}/authorize"
+                        + provider.authorize_query,
                         "token_endpoint": provider.token_url or f"{provider.url}/token",
                         "device_authorization_endpoint": f"{provider.url}/device",
                     },
@@ -509,6 +520,86 @@ def test_callback_with_another_state_is_rejected(
     assert not login_path(provider.url).exists()
 
 
+def _ipv6_loopback() -> bool:
+    try:
+        with socket.socket(socket.AF_INET6) as sock:
+            sock.bind(("::1", 0))
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.parametrize(
+    "make_redirect_uri",
+    (
+        pytest.param(lambda: f"http://127.0.0.1:{_free_port()}", id="no-path"),
+        pytest.param(
+            lambda: f"http://[::1]:{_free_port()}/callback",
+            id="ipv6",
+            marks=pytest.mark.skipif(not _ipv6_loopback(), reason="no IPv6"),
+        ),
+    ),
+)
+def test_browser_sign_in_callback_forms(
+    provider: FakeProvider, tmp_path: Path, make_redirect_uri: object
+) -> None:
+    redirect_uri = make_redirect_uri()
+    settings_file = _settings_file(tmp_path, provider, (redirect_uri,))
+    events = []
+
+    sign_in(
+        provider.url,
+        settings_file=settings_file,
+        open_browser=provider.browser,
+        emit=events.append,
+    )
+
+    assert events == []  # signed in through the browser, not the device grant
+
+
+@pytest.mark.parametrize(
+    "authorize_query, kept",
+    (
+        pytest.param("?tenant=acme", {"tenant": "acme"}, id="query"),
+        pytest.param("?", {}, id="bare-question-mark"),
+    ),
+)
+def test_authorization_endpoint_query_is_kept(
+    config_home: Path, tmp_path: Path, authorize_query: str, kept: dict
+) -> None:
+    provider = FakeProvider(authorize_query=authorize_query)
+    try:
+        settings_file = _settings_file(
+            tmp_path, provider, (f"http://127.0.0.1:{_free_port()}/callback",)
+        )
+        sign_in(
+            provider.url, settings_file=settings_file, open_browser=provider.browser
+        )
+    finally:
+        provider.server.shutdown()
+    ((_, authorize),) = [r for r in provider.requests if r[0] == "/authorize"]
+    assert authorize.items() >= ({"response_type": "code"} | kept).items()
+
+
+def test_stalled_connection_does_not_block_callback(
+    provider: FakeProvider, tmp_path: Path
+) -> None:
+    port = _free_port()
+    settings_file = _settings_file(
+        tmp_path, provider, (f"http://127.0.0.1:{port}/callback",)
+    )
+
+    def browser(url: str) -> bool:
+        # a preconnection that never sends a request, ahead of the callback
+        stalled = socket.create_connection(("127.0.0.1", port))
+        threading.Timer(20, stalled.close).start()
+        return provider.browser(url)
+
+    started = time.monotonic()
+    sign_in(provider.url, settings_file=settings_file, open_browser=browser)
+    assert time.monotonic() - started < 15
+
+
 @pytest.mark.parametrize(
     "field, value",
     (
@@ -524,6 +615,28 @@ def test_plain_http_identity_provider_is_refused(field: str, value: str) -> None
             )
         else:
             login_module.Provider(token_endpoint=value)
+
+
+@pytest.mark.parametrize(
+    "browser_kwargs",
+    (
+        pytest.param({"wait": True}, id="blocking-launcher"),
+        pytest.param({"stray": True}, id="queryless-request-first"),
+    ),
+)
+def test_browser_sign_in_with_awkward_browsers(
+    provider: FakeProvider, tmp_path: Path, browser_kwargs: dict
+) -> None:
+    settings_file = _settings_file(
+        tmp_path, provider, (f"http://127.0.0.1:{_free_port()}/callback",)
+    )
+
+    result = sign_in(
+        provider.url,
+        settings_file=settings_file,
+        open_browser=lambda url: provider.browser(url, **browser_kwargs),
+    )
+    assert Login.load(provider.url) == result
 
 
 def test_no_browser_falls_back_to_device(
@@ -560,3 +673,48 @@ def test_device_only_client_skips_browser(
     )
     assert opened == []
     assert [event["event"] for event in events] == ["device_authorization"]
+
+
+def test_late_browser_failure_falls_back_to_device(
+    provider: FakeProvider, tmp_path: Path, sleeps: list
+) -> None:
+    settings_file = _settings_file(
+        tmp_path, provider, (f"http://127.0.0.1:{_free_port()}/callback",)
+    )
+
+    def slow_failure(url: str) -> bool:
+        threading.Event().wait(2.5)  # reports failure well after the launch
+        return False
+
+    events = []
+    started = time.monotonic()
+    sign_in(
+        provider.url,
+        settings_file=settings_file,
+        open_browser=slow_failure,
+        emit=events.append,
+    )
+    assert [event["event"] for event in events] == ["device_authorization"]
+    assert time.monotonic() - started < 5
+
+
+def test_browser_that_fails_to_start_falls_back_to_device(
+    provider: FakeProvider, tmp_path: Path, sleeps: list
+) -> None:
+    settings_file = _settings_file(
+        tmp_path, provider, (f"http://127.0.0.1:{_free_port()}/callback",)
+    )
+
+    def broken(url: str) -> bool:
+        raise OSError("no display")
+
+    events = []
+    started = time.monotonic()
+    sign_in(
+        provider.url,
+        settings_file=settings_file,
+        open_browser=broken,
+        emit=events.append,
+    )
+    assert [event["event"] for event in events] == ["device_authorization"]
+    assert time.monotonic() - started < 5

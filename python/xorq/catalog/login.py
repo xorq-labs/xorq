@@ -12,14 +12,16 @@ import hashlib
 import json
 import os
 import secrets
+import socket
 import tempfile
+import threading
 import time
 import webbrowser
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import attr
@@ -33,6 +35,10 @@ WELL_KNOWN_PATH = "/.well-known/xorq-catalog"
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 HTTP_TIMEOUT_SECONDS = 30
 CALLBACK_TIMEOUT_SECONDS = 300
+# a connection that sends no request must not hold up the real callback
+CALLBACK_READ_TIMEOUT_SECONDS = 5
+# how often the callback wait checks whether the launcher gave up
+CALLBACK_POLL_SECONDS = 1
 SLOW_DOWN_SECONDS = 5
 JSON_HEADERS = {"Accept": "application/json"}
 CALLBACK_PAGE = b"Signed in to xorq. You can close this window.\n"
@@ -284,6 +290,8 @@ class Login:
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
+    timeout = CALLBACK_READ_TIMEOUT_SECONDS
+
     def do_GET(self) -> None:
         parts = urlsplit(self.path)
         self.server.callbacks.append((parts.path, dict(parse_qsl(parts.query))))
@@ -303,21 +311,32 @@ def _bind_loopback(redirect_uris: tuple) -> tuple[str, HTTPServer] | None:
         parts = urlsplit(uri)
         if parts.scheme != "http" or not _is_loopback_host(parts.hostname or ""):
             continue
+        server_class = (
+            type("_HTTPServer6", (HTTPServer,), {"address_family": socket.AF_INET6})
+            if ":" in parts.hostname
+            else HTTPServer
+        )
         try:
-            server = HTTPServer((parts.hostname, parts.port or 80), _CallbackHandler)
+            server = server_class((parts.hostname, parts.port or 80), _CallbackHandler)
         except OSError:
             continue
         server.callbacks = []
-        server.timeout = CALLBACK_TIMEOUT_SECONDS
+        server.timeout = CALLBACK_POLL_SECONDS
         return uri, server
     return None
 
 
-def _await_callback(server: HTTPServer, path: str) -> dict:
+def _await_callback(
+    server: HTTPServer, path: str, gave_up: Callable[[], bool]
+) -> dict | None:
     deadline = time.monotonic() + CALLBACK_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
+        if gave_up():
+            return None
         server.handle_request()
-        if params := next((p for (got, p) in server.callbacks if got == path), None):
+        if params := next(
+            (p for (got, p) in server.callbacks if got == path and p), None
+        ):
             return params
     raise LoginError("timed out waiting for the browser sign-in")
 
@@ -350,9 +369,29 @@ def _authorization_code(
         }
     )
     with server:
-        if not open_browser(f"{provider.authorization_endpoint}?{query}"):
+        endpoint = urlsplit(provider.authorization_endpoint)
+        url = urlunsplit(
+            (*endpoint[:3], "&".join(filter(None, (endpoint.query, query))), "")
+        )
+        # Some launchers return only when the browser exits, which waits on
+        # this callback, so the launch runs beside the callback server.
+        launched = []
+
+        def launch() -> None:
+            try:
+                opened = open_browser(url)
+            except (OSError, webbrowser.Error):
+                opened = False  # a browser that fails to start is no browser
+            launched.append(opened)
+
+        threading.Thread(target=launch, daemon=True).start()
+        params = _await_callback(
+            server,
+            urlsplit(redirect_uri).path or "/",
+            gave_up=lambda: launched == [False],
+        )
+        if params is None:
             return None
-        params = _await_callback(server, urlsplit(redirect_uri).path)
     if params.get("state") != state:
         raise LoginError("the sign-in callback did not match this login attempt")
     if "error" in params:
