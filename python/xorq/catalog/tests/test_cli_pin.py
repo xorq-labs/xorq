@@ -449,6 +449,54 @@ def test_catalog_pin_noop_without_caches(
     assert new_name == entry.name
 
 
+def _alias_lines(result: Result) -> list[str]:
+    """The stderr lines about aliases; the rest is a warning from the build."""
+    return [line for line in result.stderr.splitlines() if "lias" in line]
+
+
+@pytest.mark.parametrize(
+    "args, expected",
+    (
+        pytest.param((), (), id="bare"),
+        pytest.param(
+            ("--move-aliases",), ("Alias 'prod' already on {name}",), id="move"
+        ),
+        pytest.param(("-a", "prod"), ("Alias 'prod' already on {name}",), id="alias"),
+        pytest.param(("-a", "fresh"), ("Added alias 'fresh' -> {name}",), id="fresh"),
+    ),
+)
+def test_catalog_pin_noop_moves_and_leaves_no_alias(
+    runner: CliRunner,
+    catalog: Catalog,
+    catalog_path: str,
+    tmp_path: Path,
+    args: tuple[str, ...],
+    expected: tuple[str, ...],
+) -> None:
+    """The new entry is the old one: nothing moved onto it, nothing left behind."""
+    entry = catalog.add(
+        xo.memtable({"a": [1, 2, 3]}, name="t").filter(xo._.a > 1),
+        sync=False,
+        aliases=("prod",),
+    )
+
+    result = _run(
+        runner,
+        catalog_path,
+        "pin",
+        entry.name,
+        "--cache-dir",
+        str(tmp_path / "cache"),
+        "--no-sync",
+        *args,
+    )
+    assert result.exit_code == 0, result.output
+    assert _last_line(result) == entry.name
+    assert _alias_lines(result) == [line.format(name=entry.name) for line in expected]
+    reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert alias_target_hash(reloaded, "prod") == entry.name
+
+
 def test_catalog_unpin_inverts_pin(
     runner: CliRunner, catalog: Catalog, catalog_path: str, tmp_path: Path
 ) -> None:

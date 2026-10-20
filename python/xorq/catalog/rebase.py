@@ -318,7 +318,18 @@ class AliasPlan:
         )
 
     @property
+    def derives(self) -> bool:
+        """Whether ``new`` is another entry than ``old``.
+
+        A pin of an entry with no caches hashes to the entry itself: nothing
+        moves onto it and nothing is left behind on it.
+        """
+        return self.new != self.old
+
+    @property
     def moved(self) -> tuple[str, ...]:
+        if not self.derives:
+            return ()
         return tuple(n for n in self.asked if self.target(n) == self.old)
 
     @property
@@ -331,6 +342,8 @@ class AliasPlan:
 
     @property
     def left(self) -> tuple[str, ...]:
+        if not self.derives:
+            return ()
         return tuple(n for n in self.on_old if n not in self.asked)
 
     def pulled_away(self, before: AliasPlan) -> tuple[str, ...]:
