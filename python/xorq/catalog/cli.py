@@ -472,9 +472,7 @@ def _catalog_pin_command(
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
-        source_aliases = (
-            tuple(ca.alias for ca in catalog_entry.aliases) if move_aliases else ()
-        )
+        entry_alias = _given_alias(catalog, entry)
         # `load_expr` pins the entry's temp extract dir to the loaded expr's
         # lifetime (weakref.finalize in load_expr_from_zip). The pinned/unpinned
         # result keeps relocatable reads pointing into that dir, so we must hold
@@ -488,52 +486,35 @@ def _catalog_pin_command(
             ensure_materialized=ensure_materialized,
             cold_cache_hint="Execute the entry first or pass --ensure-materialized/-e.",
         )
-        aliases = (alias,) if alias else ()
-        with catalog.maybe_synchronizing(sync):
-            try:
-                new_entry = catalog.add(
-                    expr,
-                    sync=False,
-                    aliases=aliases,
-                    exist_ok=True,
-                    relocate_reads=relocate_reads,
-                )
-            except FileNotFoundError as err:
-                # a relocating rebuild bundles local reads by opening them, so a
-                # missing source surfaces the same clean hint the build-level
-                # pin/unpin gives instead of a raw traceback. The loaded entry's
-                # extract dirs hold its already-bundled reads; a miss there is a
-                # vanished internal artifact, not a user source, so they join
-                # cache_dir as internal (temp is otherwise treated as source).
-                from xorq.catalog.expr_utils import _live_extract_dirs  # noqa: PLC0415
+        from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
+        from xorq.catalog.rebase import AliasPlan, add_with_aliases  # noqa: PLC0415
 
-                raise_for_missing_relocation_source(
-                    err,
-                    relocate_reads=relocate_reads,
-                    internal_dirs=(cache_dir, *_live_extract_dirs),
+        try:
+            # Built first: the alias plan needs the new entry's name, which is
+            # the build's.
+            with build_expr_context(expr, relocate_reads=relocate_reads) as build:
+                plan = AliasPlan.read(
+                    catalog_entry,
+                    new=build.name,
+                    alias=alias,
+                    move_aliases=move_aliases,
+                    entry_alias=entry_alias,
                 )
-            try:
-                for moved in source_aliases:
-                    catalog.add_alias(new_entry.name, moved, sync=False)
-            except Exception:
-                # An alias move failed after the entry was written and
-                # `maybe_synchronizing` does no rollback; remove the just-added
-                # entry so we restore the pre-operation state instead of orphaning
-                # it with the aliases still on the source, then re-raise. Guard the
-                # removal so a rollback failure doesn't mask the original error.
-                try:
-                    catalog.remove(new_entry.name, sync=False)
-                except Exception:
-                    # Imported lazily: a top-level logging_utils import pulls in
-                    # ~200ms of deps onto the `catalog --help` startup path.
-                    from xorq.common.utils.logging_utils import (  # noqa: PLC0415
-                        get_logger,
-                    )
+                new_entry, _ = add_with_aliases(plan, build, sync)
+        except FileNotFoundError as err:
+            # a relocating rebuild bundles local reads by opening them, so a
+            # missing source surfaces the same clean hint the build-level
+            # pin/unpin gives instead of a raw traceback. The loaded entry's
+            # extract dirs hold its already-bundled reads; a miss there is a
+            # vanished internal artifact, not a user source, so they join
+            # cache_dir as internal (temp is otherwise treated as source).
+            from xorq.catalog.expr_utils import _live_extract_dirs  # noqa: PLC0415
 
-                    get_logger(__name__).exception(
-                        "alias rollback: failed to remove %s", new_entry.name
-                    )
-                raise
+            raise_for_missing_relocation_source(
+                err,
+                relocate_reads=relocate_reads,
+                internal_dirs=(cache_dir, *_live_extract_dirs),
+            )
     click.echo(new_entry.name)
 
 
@@ -542,7 +523,9 @@ def _catalog_pin_shared_options(fn: _F) -> _F:
 
     Each command's own docstring distinguishes its result and what its alias
     options do there, so the help text here stays neutral ("the new entry").
-    Every one of them must take each option added here.
+    Every one of them must take each option added here, and every one of them
+    handles the alias options alike, through ``xorq.catalog.rebase``: -a is
+    refused if it points at another entry, a failed write is rolled back.
     """
     return apply_in_help_order(
         fn,
@@ -583,7 +566,8 @@ def pin(
     Pinning changes the build hash, so it always yields a new content-named
     entry rather than mutating the source. Use --alias to name it, or
     --move-aliases to move every alias (for example, `prod`) from the source
-    entry onto the pinned entry.
+    entry onto the pinned entry. An --alias on another entry is refused, not
+    taken; a failed alias move is rolled back, new entry included.
 
     \b
     Arguments:
@@ -623,7 +607,8 @@ def unpin(
     """Thaw a pinned catalog entry and persist the result as a new entry.
 
     Inverse of `xorq catalog pin`: rebuilds frozen cache reads back into
-    recomputable caches. Like pin, this yields a new content-named entry.
+    recomputable caches. Like pin, this yields a new content-named entry, and
+    handles --alias and --move-aliases as pin does.
 
     \b
     Arguments:

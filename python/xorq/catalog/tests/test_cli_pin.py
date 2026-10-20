@@ -16,7 +16,7 @@ from xorq.caching import ParquetCache
 from xorq.catalog.bind import bind, fuse_catalog_source
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.tests.conftest import alias_target_hash
+from xorq.catalog.tests.conftest import alias_target_hash, fail_nth_alias_move
 from xorq.catalog.zip_utils import extract_build_zip_to
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import walk_nodes
@@ -193,6 +193,75 @@ def test_catalog_pin_move_aliases_moves_every_alias(
     reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
     assert alias_target_hash(reloaded, "prod") == new_name
     assert alias_target_hash(reloaded, "latest") == new_name
+
+
+def test_catalog_pin_failed_alias_move_rolls_back(
+    runner: CliRunner,
+    catalog: Catalog,
+    catalog_path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `latest` move after `prod`'s fails: no new entry, both back on the source."""
+    src_name = _add_cached_entry(catalog, "prod", "latest")
+    fail_nth_alias_move(monkeypatch, 2)
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "pin",
+            src_name,
+            "-e",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--move-aliases",
+            "--no-sync",
+        ],
+    )
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert "alias move failed" in result.output
+
+    reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert reloaded.list() == [src_name]
+    assert alias_target_hash(reloaded, "prod") == src_name
+    assert alias_target_hash(reloaded, "latest") == src_name
+
+
+def test_catalog_pin_refuses_an_alias_on_another_entry(
+    runner: CliRunner, catalog: Catalog, catalog_path: str, tmp_path: Path
+) -> None:
+    """`-a` names another entry's alias: refused, as `rebase` refuses it, not taken."""
+    src_name = _add_cached_entry(catalog)
+    other = catalog.add(
+        xo.memtable({"a": [1, 2, 3]}, name="t").filter(xo._.a > 1),
+        sync=False,
+        aliases=("taken",),
+    ).name
+
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "pin",
+            src_name,
+            "-e",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "-a",
+            "taken",
+            "--no-sync",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert f"alias 'taken' points at {other}" in result.output
+
+    reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
+    assert set(reloaded.list()) == {src_name, other}
+    assert alias_target_hash(reloaded, "taken") == other
 
 
 def test_catalog_pin_move_aliases_noop_without_aliases(
