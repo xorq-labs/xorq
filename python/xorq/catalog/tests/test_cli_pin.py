@@ -394,6 +394,30 @@ def test_catalog_pin_refuses_an_entry_alias_the_pull_moved(
     assert alias_target_hash(reloaded, "prod") == other
 
 
+def test_catalog_pin_names_only_a_missing_source_as_one(
+    runner: CliRunner,
+    catalog: Catalog,
+    catalog_path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file the sync's pull misses is not a read the build could not bundle."""
+    src_name = _add_cached_entry(catalog)
+    gone = tmp_path / "gone.parquet"
+
+    def missing(c: Catalog) -> None:
+        raise FileNotFoundError(2, "No such file or directory", str(gone))
+
+    pull_then(monkeypatch, missing)
+    result = _run(
+        runner, catalog_path, "pin", src_name, "-e", "--cache-dir", str(tmp_path / "c")
+    )
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert "cannot bundle reads" not in result.output
+    assert str(gone) in result.output
+
+
 def test_catalog_pin_move_aliases_noop_without_aliases(
     runner: CliRunner, catalog: Catalog, catalog_path: str, tmp_path: Path
 ) -> None:

@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import zipfile
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from functools import cache, partial, reduce
 from pathlib import Path
 from types import SimpleNamespace
@@ -497,32 +497,37 @@ def _catalog_pin_command(
         from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
         from xorq.catalog.rebase import AliasPlan, add_with_aliases  # noqa: PLC0415
 
-        try:
+        with ExitStack() as stack:
             # Built first: the alias plan needs the new entry's name, which is
             # the build's.
-            with build_expr_context(expr, relocate_reads=relocate_reads) as build:
-                plan = AliasPlan.read(
-                    catalog_entry,
-                    new=build.name,
-                    alias=alias,
-                    move_aliases=move_aliases,
-                    entry_alias=entry_alias,
+            try:
+                build = stack.enter_context(
+                    build_expr_context(expr, relocate_reads=relocate_reads)
                 )
-                new_entry, aliases = add_with_aliases(plan, build, sync)
-        except FileNotFoundError as err:
-            # a relocating rebuild bundles local reads by opening them, so a
-            # missing source surfaces the same clean hint the build-level
-            # pin/unpin gives instead of a raw traceback. The loaded entry's
-            # extract dirs hold its already-bundled reads; a miss there is a
-            # vanished internal artifact, not a user source, so they join
-            # cache_dir as internal (temp is otherwise treated as source).
-            from xorq.catalog.expr_utils import _live_extract_dirs  # noqa: PLC0415
+            except FileNotFoundError as err:
+                # a relocating rebuild bundles local reads by opening them, so a
+                # missing source surfaces the same clean hint the build-level
+                # pin/unpin gives instead of a raw traceback. The loaded entry's
+                # extract dirs hold its already-bundled reads; a miss there is a
+                # vanished internal artifact, not a user source, so they join
+                # cache_dir as internal (temp is otherwise treated as source).
+                # Only the build: a file the sync's pull or the add misses is
+                # not a read that could not be bundled.
+                from xorq.catalog.expr_utils import _live_extract_dirs  # noqa: PLC0415
 
-            raise_for_missing_relocation_source(
-                err,
-                relocate_reads=relocate_reads,
-                internal_dirs=(cache_dir, *_live_extract_dirs),
+                raise_for_missing_relocation_source(
+                    err,
+                    relocate_reads=relocate_reads,
+                    internal_dirs=(cache_dir, *_live_extract_dirs),
+                )
+            plan = AliasPlan.read(
+                catalog_entry,
+                new=build.name,
+                alias=alias,
+                move_aliases=move_aliases,
+                entry_alias=entry_alias,
             )
+            new_entry, aliases = add_with_aliases(plan, build, sync)
         _report_aliases(aliases, catalog_entry.name, new_entry.name, "--move-aliases")
     click.echo(new_entry.name)
 
