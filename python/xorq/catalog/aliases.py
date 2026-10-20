@@ -96,6 +96,9 @@ class AliasPlan:
     the name no longer means this entry.
 
     ``targets`` is the read: each registered alias and the entry it points at.
+    ``pulled`` says the read came after the sync's pull: a name the read lacks
+    is then one the pull removed, not one that was never registered, and is
+    refused as such.
     """
 
     old_entry = field(validator=instance_of(CatalogEntry))
@@ -105,6 +108,7 @@ class AliasPlan:
     move_aliases = field(default=False, validator=instance_of(bool))
     only_aliases = str_tuple()
     entry_alias = field(default=None, validator=optional(instance_of(str)))
+    pulled = field(default=False, validator=instance_of(bool))
 
     @classmethod
     def read(cls, old_entry: CatalogEntry, **kwargs: Any) -> AliasPlan:
@@ -141,23 +145,26 @@ class AliasPlan:
 
     def checked(self) -> AliasPlan:
         """``self``; raises ``RebaseError`` for an alias the request can't have."""
-        if self.new is None:
-            if unknown := tuple(n for n in self.only_aliases if self.target(n) is None):
-                raise RebaseError(
-                    f"{self.old} has no alias {', '.join(sorted(unknown))}",
-                    RebaseExit.REFUSED,
+        if unknown := tuple(n for n in self.only_aliases if self.target(n) is None):
+            raise RebaseError(
+                "; ".join(
+                    f"alias {n!r} points at nothing after the pull, not {self.old}"
+                    for n in unknown
                 )
+                if self.pulled
+                else f"{self.old} has no alias {', '.join(sorted(unknown))}",
+                RebaseExit.REFUSED,
+            )
+        if self.new is None:
             return self
         here = self.here
         if elsewhere := tuple(
             n for n in self.only_aliases if self.target(n) not in here
         ):
-            # Says where it went: the pull can move one, or remove it (the
-            # plan before the pull refused an unregistered name already).
+            # Says where it went.
             raise RebaseError(
                 "; ".join(
-                    f"alias {n!r} points at "
-                    f"{self.target(n) or 'nothing after the pull'}, not {self.old}"
+                    f"alias {n!r} points at {self.target(n)}, not {self.old}"
                     for n in elsewhere
                 ),
                 RebaseExit.REFUSED,
@@ -262,7 +269,7 @@ def add_with_aliases(
     with catalog.maybe_synchronizing(sync):
         # Planned again after the pull: a refusal here still comes before the
         # first write of our own, though after whatever the pull merged.
-        landed = plan.evolved(new=name, targets=alias_targets(catalog))
+        landed = plan.evolved(new=name, targets=alias_targets(catalog), pulled=sync)
         # Read after the pull, which can bring in the entry (an earlier
         # derivation of the same one); a rollback must not remove that one.
         added = not catalog.contains(name)

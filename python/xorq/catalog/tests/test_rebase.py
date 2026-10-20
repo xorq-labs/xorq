@@ -18,9 +18,11 @@ from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog import drift
 from xorq.catalog import rebase as rebase_module
+from xorq.catalog.aliases import AliasPlan
 from xorq.catalog.catalog import Catalog, CatalogAlias
 from xorq.catalog.cli import cli
 from xorq.catalog.enums import RebaseStatus
+from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
@@ -290,6 +292,19 @@ def test_rebase_entry_checks_its_alias_arguments(world: SimpleNamespace) -> None
     # An empty iterator names no alias.
     noop = rebase_entry(entry, move_aliases=True, only_aliases=iter(()))
     assert noop.status == RebaseStatus.NOOP
+
+
+def test_an_unregistered_alias_is_named_by_when_it_was_read(
+    world: SimpleNamespace,
+) -> None:
+    """Whether the pull removed it or it never existed is the read's, not the
+    name's: a plan that knows the new name but was read before the pull."""
+    entry = world.catalog.get_catalog_entry(world.name)
+    plan = AliasPlan(entry, {}, new="0" * 12, only_aliases=("nope",))
+    with pytest.raises(RebaseError, match=f"{world.name} has no alias nope"):
+        plan.checked()
+    with pytest.raises(RebaseError, match="points at nothing after the pull"):
+        plan.evolved(pulled=True)
 
 
 Setup = tuple[str, tuple[str, ...], tuple[Path, ...]]
