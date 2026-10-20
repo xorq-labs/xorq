@@ -1,8 +1,8 @@
 """OIDC sign-in to a hosted catalog service (`xorq catalog login`).
 
 The service publishes its client settings at an unauthenticated well-known
-URL; everything else (discovery and the device grant) is standard OAuth 2.0
-/ OpenID Connect, so no provider is assumed.
+URL; everything else (discovery, the authorization-code and device grants)
+is standard OAuth 2.0 / OpenID Connect, so no provider is assumed.
 """
 
 from __future__ import annotations
@@ -11,12 +11,15 @@ import base64
 import hashlib
 import json
 import os
+import secrets
 import tempfile
 import time
+import webbrowser
 from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import attr
@@ -29,8 +32,10 @@ from xorq.catalog.exceptions import LoginError, LoginTimeoutError
 WELL_KNOWN_PATH = "/.well-known/xorq-catalog"
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 HTTP_TIMEOUT_SECONDS = 30
+CALLBACK_TIMEOUT_SECONDS = 300
 SLOW_DOWN_SECONDS = 5
 JSON_HEADERS = {"Accept": "application/json"}
+CALLBACK_PAGE = b"Signed in to xorq. You can close this window.\n"
 
 
 def _https_url(value: str | None, label: str) -> str | None:
@@ -161,6 +166,8 @@ class Settings:
     client_id: str = field(validator=attr.validators.instance_of(str))
     audience: str = field(validator=attr.validators.instance_of(str))
     scopes: tuple = field(converter=tuple)
+    grant_types: tuple = field(converter=tuple, default=())
+    redirect_uris: tuple = field(converter=tuple, default=())
 
     @classmethod
     def from_dict(cls, dct: dict) -> Settings:
@@ -185,6 +192,10 @@ class Provider:
 
     token_endpoint: str = field(
         converter=lambda value: _https_url(value, "token_endpoint")
+    )
+    authorization_endpoint: str | None = field(
+        default=None,
+        converter=lambda value: _https_url(value, "authorization_endpoint"),
     )
     device_authorization_endpoint: str | None = field(
         default=None,
@@ -272,6 +283,92 @@ class Login:
         return self
 
 
+class _CallbackHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        parts = urlsplit(self.path)
+        self.server.callbacks.append((parts.path, dict(parse_qsl(parts.query))))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(CALLBACK_PAGE)
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+def _bind_loopback(redirect_uris: tuple) -> tuple[str, HTTPServer] | None:
+    # Providers match redirect URIs exactly, so only the published loopback
+    # callbacks can be used; the first free one wins.
+    for uri in redirect_uris:
+        parts = urlsplit(uri)
+        if parts.scheme != "http" or not _is_loopback_host(parts.hostname or ""):
+            continue
+        try:
+            server = HTTPServer((parts.hostname, parts.port or 80), _CallbackHandler)
+        except OSError:
+            continue
+        server.callbacks = []
+        server.timeout = CALLBACK_TIMEOUT_SECONDS
+        return uri, server
+    return None
+
+
+def _await_callback(server: HTTPServer, path: str) -> dict:
+    deadline = time.monotonic() + CALLBACK_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        server.handle_request()
+        if params := next((p for (got, p) in server.callbacks if got == path), None):
+            return params
+    raise LoginError("timed out waiting for the browser sign-in")
+
+
+def _authorization_code(
+    settings: Settings, provider: Provider, open_browser: Callable[[str], bool]
+) -> dict | None:
+    """Sign in through the browser; None when that is not possible here."""
+    if provider.authorization_endpoint is None:
+        return None
+    if (bound := _bind_loopback(settings.redirect_uris)) is None:
+        return None
+    redirect_uri, server = bound
+    verifier = secrets.token_urlsafe(64)
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+        .rstrip(b"=")
+        .decode()
+    )
+    state = secrets.token_urlsafe(32)
+    query = urlencode(
+        {
+            "response_type": "code",
+            "client_id": settings.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": settings.scope,
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+    )
+    with server:
+        if not open_browser(f"{provider.authorization_endpoint}?{query}"):
+            return None
+        params = _await_callback(server, urlsplit(redirect_uri).path)
+    if params.get("state") != state:
+        raise LoginError("the sign-in callback did not match this login attempt")
+    if "error" in params:
+        raise _failure(params)
+    return _post_form(
+        provider.token_endpoint,
+        {
+            "grant_type": "authorization_code",
+            "code": params.get("code", ""),
+            "redirect_uri": redirect_uri,
+            "client_id": settings.client_id,
+            "code_verifier": verifier,
+        },
+    )
+
+
 def _device_code(
     settings: Settings, provider: Provider, emit: Callable[[dict], None]
 ) -> dict:
@@ -327,10 +424,12 @@ def _device_code(
 def sign_in(
     service_url: str,
     *,
+    device: bool = False,
     settings_file: str | None = None,
     emit: Callable[[dict], None] = print,
+    open_browser: Callable[[str], bool] = webbrowser.open,
 ) -> Login:
-    """Sign in to SERVICE_URL with the device grant and cache the result."""
+    """Sign in to SERVICE_URL and cache the result; returns the new login."""
     login_path(service_url)  # validates the URL before any network call
     settings = (
         Settings.from_dict(json.loads(Path(settings_file).read_text()))
@@ -338,8 +437,15 @@ def sign_in(
         else Settings.fetch(service_url)
     )
     provider = Provider.discover(settings.issuer)
+    # an empty grant_types publishes no restriction
+    browser = not device and (
+        not settings.grant_types or "authorization_code" in settings.grant_types
+    )
+    response = (
+        browser and _authorization_code(settings, provider, open_browser)
+    ) or _device_code(settings, provider, emit)
     return Login.from_token_response(
-        _device_code(settings, provider, emit),
+        response,
         service_url=service_url,
         settings=settings,
         token_endpoint=provider.token_endpoint,

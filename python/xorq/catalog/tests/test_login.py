@@ -10,7 +10,8 @@ import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlsplit
+from urllib.request import urlopen
 
 import pytest
 from click.testing import CliRunner
@@ -57,8 +58,10 @@ class FakeProvider:
         self.stall_next_body = False
         self.device_expires_in = 600
         self.non_object = None
+        self.challenges = {}
         self.device_polls = ["authorization_pending", "slow_down"]
         self.deny = False
+        self.forged_state = None
         self.issued = 0
         handler = type("Handler", (_Handler,), {"provider": self})
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -88,6 +91,16 @@ class FakeProvider:
 
     def token(self, form: dict) -> tuple[int, dict]:
         match form:
+            case {"grant_type": "authorization_code", "code": code}:
+                verifier = form["code_verifier"].encode()
+                challenge = (
+                    base64.urlsafe_b64encode(hashlib.sha256(verifier).digest())
+                    .rstrip(b"=")
+                    .decode()
+                )
+                if self.challenges.pop(code, None) != challenge:
+                    return 400, {"error": "invalid_grant"}
+                return 200, self.tokens()
             case {"grant_type": login_module.DEVICE_CODE_GRANT}:
                 if self.deny:
                     return 400, {"error": "access_denied"}
@@ -98,6 +111,26 @@ class FakeProvider:
                     return 400, {"error": poll}
                 return 200, self.tokens()
         return 400, {"error": "unsupported_grant_type"}
+
+    def browser(self, url: str) -> bool:
+        # Stands in for the user approving sign-in: record the PKCE challenge
+        # and follow the redirect back to the loopback callback.
+        params = dict(parse_qsl(urlsplit(url).query))
+        self.requests.append(("/authorize", params))
+        code = f"code-{len(self.challenges)}"
+        self.challenges[code] = params["code_challenge"]
+        state = self.forged_state or params["state"]
+        reply = (
+            {"error": "access_denied", "state": state}
+            if self.deny
+            else {"code": code, "state": state}
+        )
+        query = "&".join(f"{key}={value}" for key, value in reply.items())
+        callback = f"{params['redirect_uri']}?{query}"
+        threading.Thread(
+            target=lambda: urlopen(callback, timeout=15).read(), daemon=True
+        ).start()
+        return True
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -131,6 +164,7 @@ class _Handler(BaseHTTPRequestHandler):
                     200,
                     {
                         "issuer": provider.url,
+                        "authorization_endpoint": f"{provider.url}/authorize",
                         "token_endpoint": provider.token_url or f"{provider.url}/token",
                         "device_authorization_endpoint": f"{provider.url}/device",
                     },
@@ -178,7 +212,10 @@ def config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def provider(config_home: Path) -> Iterator[FakeProvider]:
+def provider(
+    config_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[FakeProvider]:
+    monkeypatch.setattr(login_module, "CALLBACK_TIMEOUT_SECONDS", 10)
     provider = FakeProvider()
     yield provider
     provider.server.shutdown()
@@ -190,6 +227,12 @@ def sleeps(monkeypatch: pytest.MonkeyPatch) -> list:
     calls = []
     monkeypatch.setattr(login_module.time, "sleep", calls.append)
     return calls
+
+
+def _settings_file(tmp_path: Path, provider: FakeProvider, redirect_uris: tuple) -> str:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps(provider.settings(redirect_uris)))
+    return str(path)
 
 
 def test_settings_and_discovery_come_from_the_service(provider: FakeProvider) -> None:
@@ -296,10 +339,33 @@ def test_redirect_to_plain_http_is_refused(provider: FakeProvider) -> None:
         Settings.fetch(f"{provider.url}/downgrade")
 
 
+def test_browser_sign_in_with_pkce_uses_first_free_callback(
+    provider: FakeProvider, tmp_path: Path
+) -> None:
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", 0))
+    busy_uri = f"http://127.0.0.1:{busy.getsockname()[1]}/callback"
+    free_uri = f"http://127.0.0.1:{_free_port()}/callback"
+    settings_file = _settings_file(tmp_path, provider, (busy_uri, free_uri))
+    with busy:
+        result = sign_in(
+            provider.url, settings_file=settings_file, open_browser=provider.browser
+        )
+
+    ((_, authorize),) = [r for r in provider.requests if r[0] == "/authorize"]
+    assert authorize["redirect_uri"] == free_uri
+    assert authorize["code_challenge_method"] == "S256"
+    assert Login.load(provider.url) == result
+    assert result.refresh_token == "refresh-1"
+    assert result.settings.audience in login_module._audiences(
+        login_module._claims(result.token)
+    )
+
+
 def test_well_known_settings_and_no_provider_specific_params(
     provider: FakeProvider, sleeps: list
 ) -> None:
-    sign_in(provider.url, emit=lambda event: None)
+    sign_in(provider.url, device=True, emit=lambda event: None)
 
     paths = [path for path, _ in provider.requests]
     assert paths[:2] == [
@@ -314,7 +380,7 @@ def test_device_sign_in_honours_interval_and_slow_down(
     provider: FakeProvider, sleeps: list
 ) -> None:
     events = []
-    result = sign_in(provider.url, emit=events.append)
+    result = sign_in(provider.url, device=True, emit=events.append)
 
     assert events == [
         {
@@ -387,6 +453,37 @@ def test_settings_without_issuer_are_refused() -> None:
         )
 
 
+def test_no_free_callback_falls_back_to_device(
+    provider: FakeProvider, tmp_path: Path, sleeps: list
+) -> None:
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", 0))
+    with busy:
+        settings_file = _settings_file(
+            tmp_path, provider, (f"http://127.0.0.1:{busy.getsockname()[1]}/cb",)
+        )
+        events = []
+        sign_in(provider.url, settings_file=settings_file, emit=events.append)
+
+    assert [event["event"] for event in events] == ["device_authorization"]
+
+
+def test_denied_sign_in_keeps_previous_login(
+    provider: FakeProvider, tmp_path: Path, sleeps: list
+) -> None:
+    previous = sign_in(provider.url, device=True, emit=lambda event: None)
+    provider.deny = True
+    settings_file = _settings_file(
+        tmp_path, provider, (f"http://127.0.0.1:{_free_port()}/callback",)
+    )
+
+    with pytest.raises(LoginError, match="denied"):
+        sign_in(
+            provider.url, settings_file=settings_file, open_browser=provider.browser
+        )
+    assert Login.load(provider.url) == previous
+
+
 def test_cli_login_prints_device_code(provider: FakeProvider, sleeps: list) -> None:
     result = CliRunner().invoke(cli, ["login", provider.url])
 
@@ -395,6 +492,21 @@ def test_cli_login_prints_device_code(provider: FakeProvider, sleeps: list) -> N
         f"Open {provider.url}/activate and enter the code ABCD-EFGH." in result.output
     )
     assert result.output.splitlines()[-1].startswith(f"Signed in to {provider.url}")
+
+
+def test_callback_with_another_state_is_rejected(
+    provider: FakeProvider, tmp_path: Path
+) -> None:
+    provider.forged_state = "forged"
+    settings_file = _settings_file(
+        tmp_path, provider, (f"http://127.0.0.1:{_free_port()}/callback",)
+    )
+
+    with pytest.raises(LoginError, match="did not match"):
+        sign_in(
+            provider.url, settings_file=settings_file, open_browser=provider.browser
+        )
+    assert not login_path(provider.url).exists()
 
 
 @pytest.mark.parametrize(
@@ -412,3 +524,39 @@ def test_plain_http_identity_provider_is_refused(field: str, value: str) -> None
             )
         else:
             login_module.Provider(token_endpoint=value)
+
+
+def test_no_browser_falls_back_to_device(
+    provider: FakeProvider, tmp_path: Path, sleeps: list
+) -> None:
+    settings_file = _settings_file(
+        tmp_path, provider, (f"http://127.0.0.1:{_free_port()}/callback",)
+    )
+    events = []
+
+    sign_in(
+        provider.url,
+        settings_file=settings_file,
+        open_browser=lambda url: False,
+        emit=events.append,
+    )
+    assert [event["event"] for event in events] == ["device_authorization"]
+
+
+def test_device_only_client_skips_browser(
+    provider: FakeProvider, tmp_path: Path, sleeps: list
+) -> None:
+    settings = provider.settings((f"http://127.0.0.1:{_free_port()}/callback",))
+    settings["grant_types"] = [DEVICE_GRANT]
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text(json.dumps(settings))
+    opened, events = [], []
+
+    sign_in(
+        provider.url,
+        settings_file=str(settings_file),
+        open_browser=opened.append,
+        emit=events.append,
+    )
+    assert opened == []
+    assert [event["event"] for event in events] == ["device_authorization"]

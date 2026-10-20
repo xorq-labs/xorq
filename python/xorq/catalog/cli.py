@@ -3168,16 +3168,21 @@ def serve_unbound(
 @cli.command()
 @click.argument("service_url")
 @click.option(
+    "--device",
+    is_flag=True,
+    help="Sign in with a code on another device (for machines without a browser).",
+)
+@click.option(
     "--settings-file",
     hidden=True,
     type=click.Path(dir_okay=False, exists=True),
     help="Read the service's sign-in settings from a file (development only).",
 )
-def login(service_url: str, settings_file: str | None) -> None:
+def login(service_url: str, device: bool, settings_file: str | None) -> None:
     """Sign in to the hosted catalog service at SERVICE_URL.
 
-    Prints a code to enter in a browser on any device, then caches the
-    tokens under the xorq config directory.
+    Opens a browser for the identity provider, or prints a code to enter on
+    another device, and caches the tokens under the xorq config directory.
     """
     from xorq.catalog.exceptions import LoginError  # noqa: PLC0415
     from xorq.catalog.login import sign_in  # noqa: PLC0415
@@ -3187,7 +3192,7 @@ def login(service_url: str, settings_file: str | None) -> None:
         click.echo(f"Open {uri} and enter the code {event['user_code']}.")
 
     try:
-        sign_in(service_url, settings_file=settings_file, emit=emit)
+        sign_in(service_url, device=device, settings_file=settings_file, emit=emit)
     except (LoginError, ValueError) as error:
         raise click.ClickException(str(error)) from error
     click.echo(f"Signed in to {service_url}.")
