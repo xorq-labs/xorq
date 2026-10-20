@@ -1167,14 +1167,15 @@ def rebase(
     wheels and requirements.
 
     No alias moves unless asked. --move-aliases moves every alias the old
-    entry has once the sync's pull is in; --only-alias moves just the ones it
-    names, each of which must be on the old entry or, after the pull, already
-    on the new one (a rerun after a failed push). --alias registers another,
-    and is refused if it points at any entry but the old or the new one; one
-    already on the old entry moves. Aliases left on the old entry are named
-    on stderr. Alias options apply only to a new entry: with no drift nothing
-    is written and they are ignored, which stderr says, though --only-alias
-    must still name the old entry's aliases.
+    entry has once the sync's pull is in, and names any the pull took off it;
+    --only-alias moves just the ones it names, each of which must be on the
+    old entry or, after the pull, already on the new one (a rerun after a
+    failed push). --alias registers another, and is refused if it points at
+    any entry but the old or the new one; one already on the old entry moves.
+    Aliases left on the old entry are named on stderr. Alias options apply
+    only to a new entry: with no drift nothing is written and they are
+    ignored, which stderr says, though --only-alias must still name the old
+    entry's aliases.
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed. An entry
@@ -1195,8 +1196,8 @@ def rebase(
          unregistered one before the sweep), --alias names an alias on
          another entry than the old or new one (once there is a new entry),
          ENTRY is an alias the pull moved or removed, or a write failed
-         (an alias move is rolled back locally, a failed rollback is logged;
-         a failed push is not)
+         (the new entry and its alias moves are rolled back locally, a
+         failed rollback is logged; a failed push is not)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; or the options
@@ -1219,8 +1220,7 @@ def rebase(
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
-        # Resolved before the pull, which may move it: checked again after.
-        entry_alias = entry if entry in catalog.list_aliases() else None
+        entry_alias = _given_alias(catalog, entry)
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
@@ -1269,25 +1269,25 @@ def rebase(
             click.echo("Aliases not moved: nothing to rebase", err=True)
     else:
         click.echo(f"Rebased {old} -> {new}", err=True)
+        # Each alias named, or seen on the old entry, gets one line.
         for moved in result.moved_aliases:
             click.echo(f"Moved alias {moved!r} -> {new}", err=True)
         for added in result.added_aliases:
             click.echo(f"Added alias {added!r} -> {new}", err=True)
-        # 0.4.5 moved every alias by default; what stays behind is said.
-        if not (move_aliases or only_aliases) and (
-            left := sorted(a.alias for a in result.old_entry.aliases)
-        ):
+        for name in result.already_aliases:
+            click.echo(f"Alias {name!r} already on {new}", err=True)
+        for name in result.unmoved_aliases:
             click.echo(
-                f"Aliases left on {old}: {', '.join(left)}; pass --move-aliases "
-                "or --only-alias to move them",
+                f"Alias {name!r} not moved: no longer on {old} after the pull",
                 err=True,
             )
-        # Each alias named gets one line: one neither moved nor added was
-        # on the new entry already (a pull or an earlier run put it there).
-        done = {*result.moved_aliases, *result.added_aliases}
-        for name in dict.fromkeys((*only_aliases, *((alias,) if alias else ()))):
-            if name not in done:
-                click.echo(f"Alias {name!r} already on {new}", err=True)
+        # 0.4.5 moved every alias by default; what stays behind is said.
+        if result.left_aliases:
+            click.echo(
+                f"Aliases left on {old}: {', '.join(result.left_aliases)}; pass "
+                "--move-aliases or --only-alias to move them",
+                err=True,
+            )
     click.echo(new)
 
 
@@ -1830,6 +1830,11 @@ def _get_catalog_entry(catalog, name):
             f"Entry {name!r} not found — run 'xorq catalog list' "
             f"or 'xorq catalog list-aliases' to see available entries and aliases."
         ) from err
+
+
+def _given_alias(catalog: Catalog, entry: str) -> str | None:
+    """``entry`` if it names an alias: resolved before a pull, which may move it."""
+    return entry if entry in catalog.list_aliases() else None
 
 
 def _eval_entry(catalog_entry, code, instream=None, cache_dir=None):

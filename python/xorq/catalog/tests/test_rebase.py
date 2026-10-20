@@ -27,6 +27,7 @@ from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     _annex_available,
     alias_target_hash,
+    fail_nth_alias_move,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
@@ -146,6 +147,7 @@ def test_move_aliases_moves_them_all(runner: CliRunner, world: SimpleNamespace) 
     new = result.stdout.strip()
     assert f"Moved alias 'live' -> {new}" in result.stderr
     assert f"Moved alias 'staging' -> {new}" in result.stderr
+    assert "Aliases left on" not in result.stderr
     assert targets(world, "live", "staging") == (new, new)
 
 
@@ -176,6 +178,10 @@ def test_only_alias_narrows_and_alias_adds(
     assert result.exit_code == 0, result.output
     new = result.stdout.strip()
     assert targets(world, "live", "v2", "staging") == (new, new, world.name)
+    # What --only-alias leaves behind is named, as it is with no alias option.
+    assert (
+        f"Aliases left on {world.name}: staging; pass --move-aliases" in result.stderr
+    )
 
 
 def test_an_alias_already_on_the_entry_moves_and_is_reported(
@@ -278,6 +284,9 @@ def test_rebase_entry_checks_its_alias_arguments(world: SimpleNamespace) -> None
         rebase_entry(entry, move_aliases=("staging",))
     with pytest.raises(ValueError, match="mutually exclusive"):
         rebase_entry(entry, move_aliases=True, only_aliases=("live",))
+    # A bare string would otherwise be read as one alias per character.
+    with pytest.raises(TypeError, match="only_aliases"):
+        rebase_entry(entry, only_aliases="live")
     # An empty iterator names no alias.
     noop = rebase_entry(entry, move_aliases=True, only_aliases=iter(()))
     assert noop.status == RebaseStatus.NOOP
@@ -315,6 +324,16 @@ def refuse_taken_alias(w: SimpleNamespace) -> Setup:
 def refuse_both_alias_flags(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
     return w.name, ("--move-aliases", "--only-alias", "live"), ()
+
+
+def refuse_alias_add_failing(w: SimpleNamespace) -> Setup:
+    """`catalog.add` fails registering `-a` after staging the entry: rolled back."""
+    replace_t(w, GROWN)
+    entry = w.catalog.get_catalog_entry(w.name)
+    alias_path = CatalogAlias("fresh", entry).alias_path
+    alias_path.parent.mkdir(exist_ok=True)
+    alias_path.write_text("not a symlink")
+    return w.name, ("--only-alias", "live", "-a", "fresh"), ()
 
 
 def refuse_pinned(w: SimpleNamespace) -> Setup:
@@ -462,6 +481,12 @@ def refuse_beside_unreachable(t_drift: Callable) -> Callable:
             "--move-aliases and --only-alias are mutually exclusive",
             id="both-alias-flags",
         ),
+        pytest.param(
+            refuse_alias_add_failing,
+            1,
+            "non symlink already exists",
+            id="alias-add-failing",
+        ),
         pytest.param(refuse_pinned, 1, "xorq catalog unpin {name}", id="pinned"),
         pytest.param(
             refuse_python_minor,
@@ -560,25 +585,6 @@ def test_a_refused_rebase_writes_nothing(
 
 
 # Alias moves and their rollback.
-def fail_nth_alias_move(
-    monkeypatch: pytest.MonkeyPatch, n: int, after_write: bool = False
-) -> None:
-    """Fail the ``n``th alias move; ``after_write`` fails it once the symlink is
-    written, as a failed commit would."""
-    add = CatalogAlias.add
-    calls = []
-
-    def failing_add(self: CatalogAlias) -> None:
-        calls.append(self.alias)
-        if len(calls) == n:
-            if after_write:
-                self._add()
-            raise RuntimeError("alias move failed")
-        return add(self)
-
-    monkeypatch.setattr(CatalogAlias, "add", failing_add)
-
-
 def pull_then(
     monkeypatch: pytest.MonkeyPatch, change: Callable[[Catalog], object]
 ) -> None:
@@ -702,7 +708,12 @@ def test_move_aliases_moves_those_on_the_old_entry_after_the_pull(
     assert result.exit_code == 0, result.output
     new = result.stdout.strip()
     assert f"Moved alias 'staging' -> {new}" in result.stderr
-    assert "'live'" not in result.stderr
+    # The user saw `live` on the old entry; where it went is said, not refused.
+    assert "Moved alias 'live'" not in result.stderr
+    assert (
+        f"Alias 'live' not moved: no longer on {world.name} after the pull"
+        in result.stderr
+    )
     catalog = reopen(world)
     assert alias_target_hash(catalog, "staging") == new
     if pulled == "moved":

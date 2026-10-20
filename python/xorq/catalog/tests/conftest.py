@@ -426,8 +426,27 @@ def remove_alias(catalog, alias):
     CatalogAlias.from_name(alias, catalog).remove()
 
 
-def alias_target_hash(catalog, alias):
+def alias_target_hash(catalog: Catalog, alias: str) -> str:
     return CatalogAlias.from_name(alias, catalog).catalog_entry.name
+
+
+def fail_nth_alias_move(
+    monkeypatch: pytest.MonkeyPatch, n: int, after_write: bool = False
+) -> None:
+    """Fail the ``n``th alias move; ``after_write`` fails it once the symlink is
+    written, as a failed commit would."""
+    add = CatalogAlias.add
+    calls = []
+
+    def failing_add(self: CatalogAlias) -> None:
+        calls.append(self.alias)
+        if len(calls) == n:
+            if after_write:
+                self._add()
+            raise RuntimeError("alias move failed")
+        return add(self)
+
+    monkeypatch.setattr(CatalogAlias, "add", failing_add)
 
 
 @pytest.fixture
