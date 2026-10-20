@@ -80,3 +80,7 @@ class RebaseError(XorqError):
     @property
     def exit_code(self) -> int:
         return self.args[1]
+
+
+class LoginError(XorqError):
+    """Signing in to a hosted catalog service failed."""
