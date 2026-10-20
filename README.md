@@ -18,14 +18,15 @@ you can execute, not prose you have to reread. Entries compose, so new
 pipelines build on cataloged ones instead of starting from scratch. It turns
 ephemeral agent work (pandas scripts, sklearn pipelines, ad-hoc tables) into
 durable artifacts that any future agent or human can discover, reproduce and
-reuse. The catalog is a ledger: an append-only record where each entry is named
-by what it computes and carries its inputs and schema.
+reuse. The catalog is a ledger: each entry is one computation, defined before
+it runs and named by a hash of it, with its inputs and schema alongside.
 
 It comes with a CLI for agents and a TUI for humans with a git-native catalog.
-Below, a catalog of ten entries for an insurance pricing pipeline. The selected
-entry is the scored test set: its lineage runs through three fitted models down
-to the two source reads, next to its schema and a git log with one commit per
-entry.
+Below, the ten-entry ledger of an insurance pricing pipeline from
+[A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/).
+The selected entry is the scored test set: its lineage runs through three
+fitted models down to the two source reads, next to its schema and a git log
+with one commit per entry.
 
 ![xorq catalog TUI: ten entries on the left; the lineage of the scored test set down to the two source reads, its schema, and the git log with one commit per entry](docs/images/ledger-tui.png)
 
@@ -291,6 +292,7 @@ expression:
 - [A Git-Native Semantic Layer](https://xorq.dev/blog/bsl-xorq/): building a portable semantic catalog with Xorq
 - [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/): Haiku with a Xorq catalog hits 84% on DABStep, above the Sonnet baseline
 - [Faithful, Reproducible, Wrong](https://xorq.dev/blog/faithful-reproducible-wrong/): one metric question, 900 runs, and why a reviewed entry beats a bigger model
+- [A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/): why an entry is one computation named by its hash, worked through with TabPFN on French motor liability
 
 ---
 
