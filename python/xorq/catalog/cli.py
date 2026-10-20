@@ -25,9 +25,9 @@ if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
     from xorq.api import Expr
+    from xorq.catalog.aliases import AliasOutcome
     from xorq.catalog.catalog import Catalog
     from xorq.catalog.content_store import ContentStoreConfig
-    from xorq.catalog.rebase import AliasOutcome
     from xorq.common.utils.lineage_utils import LineageDAG
     from xorq.ibis_yaml.packager import JointBundle
 
@@ -494,8 +494,8 @@ def _catalog_pin_command(
             ensure_materialized=ensure_materialized,
             cold_cache_hint="Execute the entry first or pass --ensure-materialized/-e.",
         )
+        from xorq.catalog.aliases import AliasPlan, add_with_aliases  # noqa: PLC0415
         from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
-        from xorq.catalog.rebase import AliasPlan, add_with_aliases  # noqa: PLC0415
 
         with ExitStack() as stack:
             # Built first: the alias plan needs the new entry's name, which is
@@ -539,7 +539,7 @@ def _catalog_pin_shared_options(fn: _F) -> _F:
     options do there, so the help text here stays neutral ("the new entry").
     Every one of them must take each option added here, and every one of them
     handles the alias options alike: one ``AliasPlan`` and one all-or-nothing
-    ``add_with_aliases`` (``xorq.catalog.rebase``), one stderr line per alias
+    ``add_with_aliases`` (``xorq.catalog.aliases``), one stderr line per alias
     from ``_report_aliases``, and a refusal's exit code from
     ``click_context_catalog``.
     """

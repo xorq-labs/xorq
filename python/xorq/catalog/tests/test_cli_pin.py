@@ -13,12 +13,12 @@ from click.testing import CliRunner, Result
 import xorq.api as xo
 from xorq.api import Expr
 from xorq.caching import ParquetCache
+from xorq.catalog.aliases import AliasPlan
 from xorq.catalog.bind import bind, fuse_catalog_source
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
 from xorq.catalog.enums import RebaseExit
 from xorq.catalog.exceptions import RebaseError
-from xorq.catalog.rebase import AliasPlan
 from xorq.catalog.tests.conftest import (
     alias_target_hash,
     fail_nth_alias_move,
