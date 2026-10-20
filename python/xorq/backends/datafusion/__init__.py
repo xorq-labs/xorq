@@ -11,6 +11,7 @@ import sqlglot.expressions as sge
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.datafusion.compiler import compiler
 from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
 from xorq.common.utils.deltalake_utils import import_delta_table
 from xorq.vendor import ibis
@@ -31,6 +32,8 @@ __all__ = [
 
 
 class Backend(IbisDatafusionBackend):
+    compiler = compiler
+
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         self.con.from_arrow(
             drop_pandas_schema_metadata(op.data.to_pyarrow(op.schema)), op.name
