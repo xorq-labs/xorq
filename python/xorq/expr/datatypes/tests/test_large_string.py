@@ -1,7 +1,11 @@
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
 
 import xorq.api as xo
-from xorq.expr.datatypes import Int64, LargeString, String
+from xorq.caching import SourceCache
+from xorq.expr.datatypes import Binary, Int64, LargeString, String
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
 
@@ -92,3 +96,82 @@ def test_cast(utf8_data):
         [("name", String), ("age", Int64), ("a", LargeString)]
     )
     assert isinstance(actual, pd.DataFrame)
+
+
+def test_deferred_read_parquet_keeps_large_string(tmp_path):
+    path = tmp_path / "test_largestring.parquet"
+    expr = xo.memtable({"id": [1, 2, 3], "text_col": ["A", "B", "C"]}).mutate(
+        text_col=xo._.text_col.cast(LargeString)
+    )
+    expr.to_parquet(path)
+
+    read_back = xo.deferred_read_parquet(path=path, con=xo.connect())
+
+    assert read_back.schema() == expr.schema()
+    assert read_back.to_pyarrow().schema == expr.to_pyarrow().schema
+
+
+@pytest.mark.parametrize(
+    ("arrow_type", "value", "expected"),
+    (
+        (pa.string(), "a", String),
+        (pa.large_string(), "a", LargeString),
+        (pa.binary(), b"a", Binary),
+        (pa.large_binary(), b"a", Binary),
+    ),
+)
+def test_deferred_read_parquet_infers_stored_type(
+    tmp_path, arrow_type, value, expected
+):
+    path = tmp_path / "typed.parquet"
+    pq.write_table(pa.table({"col": pa.array([value], arrow_type)}), path)
+
+    read_back = xo.deferred_read_parquet(path=path, con=xo.connect())
+
+    assert read_back.schema()["col"] == expected()
+
+
+@pytest.fixture
+def large_string_parquet(tmp_path):
+    path = tmp_path / "large_string.parquet"
+    table = pa.table({"id": [1, 2], "s": pa.array(["a", "b"], pa.large_string())})
+    pq.write_table(table, path)
+    return path
+
+
+READ_CONNECTS = pytest.mark.parametrize(
+    "connect",
+    (lambda: xo.connect(), lambda: xo.duckdb.connect(), lambda: xo.sqlite.connect()),
+    ids=("xorq", "duckdb", "sqlite"),
+)
+
+
+@READ_CONNECTS
+def test_deferred_read_parquet_unions_with_large_string_table(
+    large_string_parquet, connect
+):
+    read = xo.deferred_read_parquet(path=large_string_parquet, con=connect())
+    other = xo.memtable({"id": [3], "s": ["c"]}).mutate(s=xo._.s.cast(LargeString))
+
+    assert sorted(read.union(other).execute().s) == ["a", "b", "c"]
+
+
+@pytest.mark.parametrize(
+    "connect",
+    (lambda: xo.connect(), lambda: xo.sqlite.connect()),
+    ids=("xorq", "sqlite"),
+)
+def test_deferred_read_parquet_streams_recorded_schema(large_string_parquet, connect):
+    read = xo.deferred_read_parquet(path=large_string_parquet, con=connect())
+
+    assert read.to_pyarrow_batches().schema == read.schema().to_pyarrow()
+
+
+@READ_CONNECTS
+def test_deferred_read_parquet_large_string_caches_into_duckdb(
+    large_string_parquet, connect
+):
+    read = xo.deferred_read_parquet(path=large_string_parquet, con=connect())
+    cached = read.cache(SourceCache.from_kwargs(source=xo.duckdb.connect()))
+
+    assert sorted(cached.execute().s) == ["a", "b"]

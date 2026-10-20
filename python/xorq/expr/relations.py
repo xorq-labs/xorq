@@ -841,6 +841,23 @@ def flight_udxf(
     )
 
 
+def conform_to_schema(table, schema):
+    """Cast the columns whose type differs from ``schema``'s.
+
+    A read records the schema its inference saw, which can be wider than what
+    the engine registers (a ``large_string`` column reads back as ``string``).
+    Executing in the recorded schema keeps set operations and streamed batches
+    consistent with ``.schema()``. A table whose columns differ by name is
+    returned as is.
+    """
+    actual = table.schema()
+    if actual == schema or tuple(actual.names) != tuple(schema.names):
+        return table
+    return table.cast(
+        {name: dtype for name, dtype in schema.items() if actual[name] != dtype}
+    )
+
+
 class Read(ops.DatabaseTable):
     method_name: str = None
     read_kwargs: Any = ()
@@ -852,8 +869,7 @@ class Read(ops.DatabaseTable):
         method = getattr(self.source, self.method_name)
         args = tuple(v for k, v in self.read_kwargs if k == "hash_path")
         kwargs = {k: v for k, v in self.read_kwargs if k not in READ_EXCLUDE_KEYS}
-        dt = method(*args, **kwargs).op()
-        return dt
+        return conform_to_schema(method(*args, **kwargs), self.schema).op()
 
     def make_unbound_dt(self):
         return ops.UnboundTable(
