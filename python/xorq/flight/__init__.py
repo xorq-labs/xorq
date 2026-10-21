@@ -1,6 +1,7 @@
 import functools
 import random
 import socket
+import sys
 from typing import Optional
 from urllib.parse import urlunparse
 
@@ -76,8 +77,8 @@ class FlightUrl:
             except socket.error:
                 pass
 
-    def bind_socket(self):
-        self._socket = self._bind_socket(self.host, self.port)
+    def bind_socket(self, reuse_address=False):
+        self._socket = self._bind_socket(self.host, self.port, reuse_address)
 
     def unbind_socket(self):
         if self._socket is not None:
@@ -96,8 +97,10 @@ class FlightUrl:
         return str(urlunparse(components))
 
     @staticmethod
-    def _bind_socket(host, port):
+    def _bind_socket(host, port, reuse_address=False):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if reuse_address:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((host, port))
         return s
 
@@ -260,7 +263,12 @@ class FlightServer:
         if self.server is not None:
             self.server.__exit__(*(args or (None, None, None)))
             self.server = None
-            self.flight_url.bind_socket()
+            # the closed server's connections can hold the port in TIME_WAIT;
+            # SO_REUSEADDR binds over them, and a plain bind (another server
+            # probing for a free port) still fails against this socket. That
+            # holds on Linux only: elsewhere the flag's semantics differ
+            # (on Windows it can take a port that is already bound)
+            self.flight_url.bind_socket(reuse_address=sys.platform == "linux")
 
     def wait(self):
         assert self.server
