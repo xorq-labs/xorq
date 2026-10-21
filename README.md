@@ -30,8 +30,8 @@ Xorq is three interlinked things, plus the interfaces built on them.
    Arrow tables over Flight.
 
 Interfaces on top serve different kinds of users. The CLI doubles as the
-headless mode for agents and the TUI is the view for humans, both in this repo. A desktop
-app and a sub-agent verifier mode use the same three layers.
+headless mode for agents and the TUI is the view for humans, both in this
+repo. A desktop app and a sub-agent verifier mode use the same three layers.
 
 Below, the ten-entry ledger of an insurance pricing pipeline from
 [A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/).
