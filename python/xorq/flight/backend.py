@@ -25,6 +25,7 @@ from xorq.flight.action import (
     VersionAction,
 )
 from xorq.flight.client import FlightClient
+from xorq.flight.enums import UploadMode
 from xorq.flight.exchanger import UnboundExprExchanger, make_udxf
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
@@ -57,15 +58,53 @@ class Backend(SQLBackend):
         temp: bool = False,
         overwrite: bool = False,
     ) -> ir.Table:
+        """Upload ``obj`` to the Flight server as table ``name``.
+
+        Parameters
+        ----------
+        name
+            Name of the table on the server.
+        obj
+            The rows: a ``pd.DataFrame`` (converted with
+            ``pa.Table.from_pandas``), a ``pa.Table`` or a
+            ``pa.RecordBatchReader``.
+        schema, database, temp
+            Accepted for the ``create_table`` signature and ignored.
+        overwrite
+            ``True`` uploads with ``UploadMode.REPLACE``, ``False`` with
+            ``UploadMode.CREATE``.
+
+        Returns
+        -------
+        Table
+            The server table, looked up by ``name`` after the upload.
+
+        Raises
+        ------
+        TypeError
+            If ``obj`` is any other type, including ``None`` and an ibis
+            ``Table`` despite the annotation (explicit, last line).
+        pyarrow.ArrowException
+            If the server's write fails, e.g. ``overwrite=False`` on an
+            existing name (from ``upload_table`` / ``upload_batches``).
+
+        Contract
+        --------
+        Silences
+            - ``schema``, ``database`` and ``temp`` are ignored without error:
+              the table lands in the server backend's default namespace, as a
+              regular table, with the schema of ``obj``.
+        """
         import pandas as pd  # noqa: PLC0415
 
+        mode = UploadMode.REPLACE if overwrite else UploadMode.CREATE
         if isinstance(obj, pd.DataFrame):
             obj = pa.Table.from_pandas(obj)
         if isinstance(obj, pa.Table):
-            self.con.upload_table(name, obj)
+            self.con.upload_table(name, obj, mode=mode)
             return self.table(name)
         if isinstance(obj, pa.RecordBatchReader):
-            self.con.upload_batches(name, obj)
+            self.con.upload_batches(name, obj, mode=mode)
             return self.table(name)
         raise TypeError(f"Unsupported type for create_table: {type(obj)}")
 

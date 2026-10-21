@@ -5,7 +5,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 from cloudpickle import dumps, loads
@@ -17,13 +17,54 @@ from xorq.common.utils.logging_utils import get_logger
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
 )
+from xorq.flight.enums import UploadMode
 from xorq.vendor import ibis
+
+
+if TYPE_CHECKING:
+    from xorq.flight.server import PutCommand
 
 
 executor = ThreadPoolExecutor()
 
 
 logger = get_logger(__name__)
+
+
+def make_put_descriptor(
+    table_name: str, mode: UploadMode | str | None, kwargs: dict[str, Any]
+) -> pa.flight.FlightDescriptor:
+    """Pickle a ``do_put`` command into a ``FlightDescriptor``.
+
+    Parameters
+    ----------
+    table_name
+        Name of the target table on the server.
+    mode
+        A ``UploadMode`` or its string value, or ``None`` for append-or-create.
+    kwargs
+        Forwarded to the server backend's write.
+
+    Returns
+    -------
+    pyarrow.flight.FlightDescriptor
+        A command descriptor carrying a ``PutCommand``.
+
+    Raises
+    ------
+    ValueError
+        If ``mode`` is not a ``UploadMode`` value (explicit, ``UploadMode(mode)``),
+        before anything is sent.
+    TypeError
+        If a value in ``kwargs`` cannot be pickled, e.g. a generator (implicit,
+        from ``cloudpickle.dumps``).
+    """
+    command: PutCommand = {
+        "table_name": table_name,
+        "kwargs": kwargs,
+        "mode": None if mode is None else UploadMode(mode).value,
+    }
+    return pa.flight.FlightDescriptor.for_command(dumps(command))
 
 
 class FlightClient:
@@ -143,30 +184,78 @@ class FlightClient:
             self, table_name, expr.to_pyarrow_batches(), **kwargs
         )
 
-    def upload_table(self, table_name, data, **kwargs):
-        """
-        Upload data to create or replace a table
+    def upload_table(
+        self,
+        table_name: str,
+        data: pa.Table,
+        mode: UploadMode | str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Upload a ``pa.Table`` to the server as ``table_name``.
 
-        Args:
-            table_name: Name of the table to create
-            data: pa.Table containing the data
-            **kwargs: Additional metadata (e.g., "target": "duckdb" or "iceberg")
-        """
-        command_payload = {"table_name": table_name, "kwargs": kwargs}
+        Parameters
+        ----------
+        table_name
+            Name of the target table on the server.
+        data
+            The rows to upload.
+        mode
+            A ``UploadMode`` or its string value: ``create``, ``append`` or
+            ``replace``. ``None`` appends when the table exists and creates it
+            otherwise.
+        **kwargs
+            Passed to the server backend's ``create_table`` or ``insert``.
 
+        Raises
+        ------
+        ValueError
+            If ``mode`` is not a ``UploadMode`` value, before anything is sent.
+        TypeError
+            If a value in ``kwargs`` cannot be pickled (from
+            ``make_put_descriptor``), before anything is sent.
+        pyarrow.ArrowException
+            If the server's write fails, e.g. ``create`` on an existing table:
+            ``FlightServerError``, or ``ArrowInvalid`` when the backend raised
+            ``ValueError``. It surfaces at ``writer.close()``, after all of
+            ``data`` has been sent.
+        pyarrow.flight.FlightUnavailableError
+            If the server cannot be reached (external, from ``do_put``).
+
+        Contract
+        --------
+        Preconditions
+            - ``kwargs`` must suit the server backend's ``create_table`` or
+              ``insert``; the client cannot check this, so a bad keyword fails
+              on the server, after the upload.
+        """
         writer, _ = self._client.do_put(
-            pa.flight.FlightDescriptor.for_command(dumps(command_payload)),
+            make_put_descriptor(table_name, mode, kwargs),
             data.schema,
             options=self._options,
         )
         writer.write_table(data)
         writer.close()
 
-    def upload_batches(self, table_name, reader, **kwargs):
-        command_payload = {"table_name": table_name, "kwargs": kwargs}
+    def upload_batches(
+        self,
+        table_name: str,
+        reader: pa.RecordBatchReader,
+        mode: UploadMode | str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Upload a ``pa.RecordBatchReader``; see ``upload_table``.
 
+        Parameters, modes and errors are as for ``upload_table``.
+
+        Contract
+        --------
+        Preconditions
+            - ``reader`` is consumed, and a single-use reader cannot be
+              replayed: after a failed upload, the caller needs a new reader
+              to retry.
+        """
         writer, _ = self._client.do_put(
-            pa.flight.FlightDescriptor.for_command(dumps(command_payload)),
+            make_put_descriptor(table_name, mode, kwargs),
             reader.schema,
             options=self._options,
         )
