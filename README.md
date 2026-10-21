@@ -24,13 +24,13 @@ Xorq is three interlinked things, plus the interfaces built on them.
    of its definition, with human-interpretable lineage alongside. The ledger
    steers agent work. An agent selects a reviewed entry instead of
    re-deriving it from source files.
-3. **A harness.** A CLI that governs execution against the ledger: build, add,
-   run, check, pin, rebase, compose. Arbitrary compute enters the
-   deterministic system the ledger builds through UDXFs, Python functions
-   that exchange Arrow tables over Flight.
+3. **A CLI.** It governs execution against the ledger: build, add, run,
+   check, pin, rebase, compose. Arbitrary compute enters the deterministic
+   system the ledger builds through UDXFs, Python functions that exchange
+   Arrow tables over Flight.
 
-Interfaces on top serve different kinds of users. The CLI is the headless mode
-for agents and the TUI is the view for humans, both in this repo. A desktop
+Interfaces on top serve different kinds of users. The CLI doubles as the
+headless mode for agents and the TUI is the view for humans, both in this repo. A desktop
 app and a sub-agent verifier mode use the same three layers.
 
 Below, the ten-entry ledger of an insurance pricing pipeline from
@@ -179,7 +179,7 @@ you run, not something you read about. Xorq reads governed tables through the
 Snowflake and Databricks backends, and its entries can be registered there as
 assets.
 
-## The harness
+## The CLI
 
 Every verb takes an entry or alias. The ones that produce a pipeline (pin,
 rebase, compose) write it back as a new entry. Nothing is edited in place.
