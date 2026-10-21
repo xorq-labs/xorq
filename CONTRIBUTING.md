@@ -303,11 +303,11 @@ change is not present in PyPI.
 ## Release Flow
 ***This section is intended for xorq maintainers***
 
-On main, run `scripts/release.sh <major|minor|patch>` to do steps 1-6. It refuses to start on a dirty tree, an `origin` other than xorq-labs/xorq, or a main with unpushed commits, and it pulls main for you. It needs git-cliff in the project environment (`uv sync --group dev`). Before committing it pauses so you can add CHANGELOG notes, and it never pushes. The manual commands below are the fallback. The script can't set variables in your shell, so afterwards run `version_number=$(uv version --short)` for steps 7-13.
+On main, run `scripts/release.sh [--no-pause] <major|minor|patch>` to do steps 1-6. It refuses to start on a dirty tree, an `origin` other than xorq-labs/xorq, or a main with unpushed commits, and it pulls main for you. It needs git-cliff in the project environment (`uv sync --group dev`). Before committing it pauses so you can add CHANGELOG notes (`--no-pause` commits straight away), and it never pushes. The manual commands below are the fallback. The script can't set variables in your shell, so afterwards run `version_number=$(uv version --short)` for steps 7-14.
 
 ### Steps
 1. Start from upstream main with a clean working tree: `git switch main && git pull`. Step 6 commits every tracked change.
-2. Pick the bump. Before 1.0 it is `patch`, or `minor` when a commit since the last tag is breaking (`!` in its title). Read the new version: `version_number=$(uv version --bump <major|minor|patch> --dry-run --short)`
+2. Pick the bump. Before 1.0 it is `patch`, or `minor` when a change since the last tag is breaking: a commit whose title carries `!` (`scripts/release.sh` lists them) or a PR in the draft release's Breaking changes section. Behaviour changes that are not marked breaking still get a note in step 5 and step 13. Read the new version: `version_number=$(uv version --bump <major|minor|patch> --dry-run --short)`
 3. Create the release branch: `git switch --create=release-$version_number`
 4. Bump the version: `uv version --bump <major|minor|patch> --no-sync`. This updates `pyproject.toml` and `uv.lock`.
 5. Update the CHANGELOG: `uv run --no-sync git-cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`. Add any extra notes (blog links, etc.) inside the new `## [$version_number]` section.
@@ -316,14 +316,15 @@ On main, run `scripts/release.sh <major|minor|patch>` to do steps 1-6. It refuse
 8. Open a PR for `release-$version_number` titled `release: $version_number`. The title becomes the squash commit on main and keeps the PR out of the release notes.
 9. ci-pre-release's `precheck` job checks that `uv.lock` is current, the version is not on PyPI, `CHANGELOG.md` has its section, and tag `v$version_number` does not exist. Once it passes, the `publish` job waits until dlovell, hussainsultan or mesejo approves the `pre-release` deployment on the run page. You can approve your own.
 10. Wait for `publish` to upload the version to TestPyPI. The workflow runs no tests; the PR's CI does.
-11. Check whether main moved since step 3: `git fetch origin && git log --oneline HEAD..origin/main`. If that lists commits, they would ship without a CHANGELOG entry. Run `git rebase origin/main && git checkout origin/main -- CHANGELOG.md`, redo step 5, then `git commit --amend --no-edit -a && git push --force-with-lease`. Reject the deployment that push asks for, since TestPyPI already has the version. When the PR's CI is green, "Squash and merge" it.
+11. Check whether main moved since step 3: `git fetch origin && git log --oneline HEAD..origin/main`. If that lists commits, they would ship without a CHANGELOG entry. Run `git rebase origin/main && git checkout origin/main -- CHANGELOG.md`, redo step 5, then `git commit --amend --no-edit -a && git push --force-with-lease`. Reject the deployment that push asks for, since TestPyPI already has the version. When the PR's CI is green, "Squash and merge" it. `main` requires one approving review, which the maintainers on the bypass list of `main`'s branch protection skip with `gh pr merge --squash --admin`; every release PR so far has been merged that way. Anyone else needs an approval from someone other than the PR author. Do not pass `--delete-branch` to `gh pr merge`: the repository deletes the head branch on merge, and gh's local cleanup tries to remove a worktree that holds the branch.
 12. Run `git fetch origin` and check that `git log -1 origin/main` is the release commit. If something merged after it, use the release commit's SHA in place of `origin/main`. Tag it and push that tag alone: `git tag v$version_number origin/main && git push origin v$version_number`. Never `git push --tags`, which publishes every local tag, including local-only archive or backup tags.
-13. Publish the release. release-drafter keeps a draft release named `xorq unreleased` with the notes for everything merged since the last release. Edit it in the [releases page](https://github.com/xorq-labs/xorq/releases): set the tag and title to `v$version_number` and publish. Or from the command line:
+13. Publish the release. release-drafter keeps a draft release named `xorq unreleased` with the notes for everything merged since the last release. Review its notes first in the [releases page](https://github.com/xorq-labs/xorq/releases): the drafter lists every PR merged to `main`, so drop any merged after the release PR. Then set the tag and title to `v$version_number` and publish. Or from the command line:
     ```bash
-    draft=$(gh api repos/xorq-labs/xorq/releases --jq '.[] | select(.draft and .name == "xorq unreleased") | .tag_name')
-    gh release edit "$draft" -R xorq-labs/xorq --tag "v$version_number" --title "v$version_number" --verify-tag --draft=false --latest
+    draft=$(gh api 'repos/xorq-labs/xorq/releases?per_page=100' --jq '[.[] | select(.draft and .name == "xorq unreleased") | .tag_name] | if length == 1 then .[0] else error("expected one draft named xorq unreleased, found \(length)") end') \
+      && gh release edit "$draft" -R xorq-labs/xorq --tag "v$version_number" --title "v$version_number" --verify-tag --draft=false --latest
     ```
-    `--verify-tag` stops if step 12's tag is not on origin. Publishing starts `ci-release`, which uploads to PyPI.
+    The lookup stops unless exactly one such draft exists, and `--verify-tag` stops if step 12's tag is not on origin. Publishing starts `ci-release`, which uploads to PyPI.
+14. Once ci-release passes, install the release from PyPI: `uv run --no-project --refresh-package xorq --with xorq==$version_number python -c 'import xorq; print(xorq.__version__)'` prints `$version_number`.
 
 ### When something goes wrong
 A filename uploaded to PyPI or TestPyPI can never be uploaded again, even after the file is deleted. Everything else can be redone.
