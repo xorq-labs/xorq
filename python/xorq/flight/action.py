@@ -18,6 +18,22 @@ make_flight_result = toolz.compose(
 )
 
 
+def drop_relation(con, name, **kwargs):
+    """Drop ``name`` whether the backend registered it as a table or a view.
+
+    An uploaded name is whatever ``read_record_batches`` registered (a view on
+    duckdb); the backend decides which. Raises the ``drop_table`` error when
+    ``name`` is neither.
+    """
+    try:
+        con.drop_table(name, **kwargs)
+    except Exception as table_error:
+        try:
+            con.drop_view(name, **kwargs)
+        except Exception:
+            raise table_error from None
+
+
 class AbstractAction(ABC):
     @classproperty
     @abstractmethod
@@ -194,7 +210,8 @@ class DropTableAction(AbstractAction):
     def do_action(cls, server, context, action):
         kwargs = loads(action.body)
         table_name = kwargs.pop("name")
-        server._conn.drop_table(table_name, **kwargs)
+        con = server._conn  # xorq-style: disable=protected-access
+        drop_relation(con, table_name, **kwargs)
         yield make_flight_result(f"dropped table {table_name}")
 
 

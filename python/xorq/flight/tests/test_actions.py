@@ -1,10 +1,12 @@
 import os
 import signal
 import threading
+from types import SimpleNamespace
 
 import pandas as pd
 import pyarrow as pa
 import pytest
+from cloudpickle import dumps
 
 import xorq.api as xo
 import xorq.flight.exchanger as E
@@ -134,3 +136,18 @@ def test_wait_closes_server_on_keyboard_interrupt():
     server.wait()
 
     assert server.server is None
+
+
+def test_drop_table_action_drops_a_view():
+    # gRPC runs actions on native threads, so drive this one on a Python thread
+    con = xo.duckdb.connect()
+    con.create_view("v", con.create_table("t", pa.table({"a": [1]})))
+
+    def drop(name):
+        action = pa.flight.Action(DropTableAction.name, dumps({"name": name}))
+        return list(DropTableAction.do_action(SimpleNamespace(_conn=con), None, action))
+
+    drop("v")
+    assert "v" not in con.tables
+    with pytest.raises(Exception, match="missing"):
+        drop("missing")

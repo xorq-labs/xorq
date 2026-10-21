@@ -1,4 +1,5 @@
 import base64
+import contextlib
 import functools
 import logging
 import secrets
@@ -6,6 +7,7 @@ import threading
 
 import pyarrow as pa
 import pyarrow.flight
+from batchcorder import StreamCache
 from cloudpickle import loads
 
 import xorq.flight.action as A
@@ -63,6 +65,40 @@ def bounded_status(f):
             raise pa.flight.FlightServerError(bounded_message(exc)) from exc
 
     return wrapper
+
+
+def put_record_batches(con, table, reader, lock, **kwargs):
+    """Hand an uploaded stream to ``con.read_record_batches`` as ``table``.
+
+    A Flight upload stream is only readable while ``do_put`` runs: reading it
+    after the call returns is a use-after-free in Arrow Flight, which
+    segfaults. Backends that ingest (ADBC) consume the cache inside
+    ``read_record_batches``; backends that register it (duckdb, xorq) leave it
+    unread, so drain it into the cache before returning. A failed upload
+    drops what it created: the registration when the drain fails, and a table
+    an ingesting backend created before failing, but never a name that
+    existed before the upload.
+    """
+
+    def discard():
+        with contextlib.suppress(Exception):
+            A.drop_relation(con, table)
+
+    cache = StreamCache(reader)
+    with lock:
+        existed = table in con.tables
+        try:
+            con.read_record_batches(cache, table, **kwargs)
+        except BaseException:
+            if not existed:
+                discard()
+            raise
+    try:
+        cache.ingest_all()
+    except BaseException:
+        with lock:
+            discard()
+        raise
 
 
 class BasicAuthServerMiddlewareFactory(pa.flight.ServerMiddlewareFactory):
@@ -219,12 +255,9 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             table = cmd["table_name"]
             kwargs = cmd.get("kwargs", {})
 
-        data = copy_rbr_batches(reader).read_all()
-        with self.lock:
-            if table in self._conn.tables:
-                self._conn.insert(table, data, **kwargs)
-            else:
-                self._conn.create_table(table, data, **kwargs)
+        put_record_batches(
+            self._conn, table, copy_rbr_batches(reader), self.lock, **kwargs
+        )
 
     @maybe_log_excepts
     def do_action(self, context, action):
