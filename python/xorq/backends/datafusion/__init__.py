@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import pandas as pd
+    from batchcorder import StreamCache
 
 
 __all__ = [
@@ -50,6 +51,65 @@ class Backend(IbisDatafusionBackend):
         if isinstance(source, (pa.Table, pa.RecordBatch, ds.Dataset)):
             source = drop_pandas_schema_metadata(source)
         return super()._register(source, table_name, **kwargs)
+
+    def read_record_batches(
+        self,
+        source: pa.Table | pa.RecordBatchReader | StreamCache,
+        table_name: str | None = None,
+    ) -> ir.Table:
+        """Register ``source`` as an in-memory table named ``table_name``.
+
+        The whole stream is read into a ``pa.Table`` first; datafusion-python
+        has no stream-backed table provider, so unlike duckdb's
+        ``read_record_batches`` nothing is registered lazily.
+
+        Parameters
+        ----------
+        source
+            Any Arrow stream: a ``pa.Table``, a ``pa.RecordBatchReader`` or a
+            batchcorder ``StreamCache``.
+        table_name
+            Name to register under; a ``read_record_batches`` name is
+            generated when ``None``.
+
+        Returns
+        -------
+        Table
+            The registered table.
+
+        Raises
+        ------
+        TypeError
+            If ``source`` does not implement the Arrow stream PyCapsule
+            protocol, e.g. a list (implicit, from
+            ``pa.RecordBatchReader.from_stream``).
+        MemoryError
+            If the stream does not fit in memory (external, from
+            ``read_all``).
+
+        Contract
+        --------
+        Preconditions
+            - ``source`` must still be readable. A ``StreamCache`` replays
+              from its cache, so it can be passed more than once; a
+              ``StreamCache`` that has not ingested its upstream pulls it
+              here, so that upstream must still be alive (a Flight upload
+              stream after its RPC has returned crashes the process).
+
+        Silences
+            - A ``pa.RecordBatchReader`` that was already read registers an
+              empty table with the reader's schema: 0 rows, no error.
+            - An existing table or view named ``table_name`` is deregistered
+              and replaced, whatever its schema, without warning.
+        """
+        # read before from_arrow: from_arrow holds the session context while it
+        # consumes a stream, and a tee into this connection re-enters it from
+        # inside that stream; datafusion-python has no stream-backed provider
+        table_name = table_name or gen_name("read_record_batches")
+        table = pa.RecordBatchReader.from_stream(source).read_all()
+        self.con.deregister_table(table_name)
+        self.con.from_arrow(drop_pandas_schema_metadata(table), table_name)
+        return self.table(table_name)
 
     def read_delta(
         self, source_table: str | Path, table_name: str | None = None, **kwargs: Any
