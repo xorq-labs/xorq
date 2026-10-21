@@ -353,11 +353,13 @@ class FlightClient:
 
         def get_output_schema(command, reader):
             (dct,) = self.do_action("query-exchange", command, options=self._options)
-            assert dct["schema-in-condition"](ibis.schema(reader.schema))
-            output_schema = dct["calc-schema-out"](
-                ibis.schema(reader.schema)
-            ).to_pyarrow()
-            return output_schema
+            schema_in = ibis.schema(reader.schema)
+            if not dct["schema-in-condition"](schema_in):
+                raise ValueError(
+                    f"exchange {command!r} rejects input schema {schema_in}; "
+                    f"it requires {dct['schema-in-required']}"
+                )
+            return dct["calc-schema-out"](schema_in).to_pyarrow()
 
         queue = Queue()
         output_schema = get_output_schema(command, reader)
