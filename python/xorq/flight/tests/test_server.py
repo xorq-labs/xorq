@@ -1,6 +1,7 @@
 import datetime
 import functools
 import operator
+import sys
 import threading
 import time
 
@@ -488,3 +489,24 @@ def test_exchange_server_from_udxf(con, diamonds, baseline):
             expected,
             check_exact=False,
         )
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="close re-binds with SO_REUSEADDR on Linux only"
+)
+def test_close_after_unfinished_exchange_keeps_the_port_reserved():
+    schema_in = xo.schema({"dummy": "int64"})
+    udxf = E.make_udxf(
+        lambda df: pd.DataFrame({"row_count": [len(df)]}),
+        schema_in,
+        xo.schema({"row_count": "int64"}),
+    )
+    for _ in range(20):
+        server = FlightServer(exchangers=[udxf])
+        with server:
+            # the result reader is dropped unread, leaving the exchange unfinished
+            server.client.do_exchange(
+                udxf.command, xo.memtable({"dummy": [0]}, schema=schema_in)
+            )
+        assert FlightUrl.port_in_use(server.flight_url.port)
+        server.flight_url.unbind_socket()
