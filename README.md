@@ -41,12 +41,6 @@ with one commit per entry.
 
 ![xorq catalog TUI: ten entries on the left; the lineage of the scored test set down to the two source reads, its schema, and the git log with one commit per entry](docs/images/ledger-tui.png)
 
-A fitted model is an entry too. The classifier below is a one-column table
-named after the features and target it was fit on, with its training slice as
-its lineage.
-
-![The claim-model entry in the xorq catalog TUI: a one-column table whose lineage is the fit slice, the split, the join and the two source reads](docs/images/ledger-claim-model.png)
-
 ## Why a ledger steers agents
 
 On [DABStep](https://huggingface.co/spaces/adyen/DABstep), 450 data-analysis
