@@ -30,8 +30,7 @@ Xorq is three interlinked things, plus the interfaces built on them.
    Arrow tables over Flight.
 
 Interfaces on top serve different kinds of users. The CLI doubles as the
-headless mode for agents and the TUI is the view for humans, both in this
-repo. A desktop app and a sub-agent verifier mode use the same three layers.
+headless mode for agents, and `xorq catalog tui` is the view for humans.
 
 Below, the ten-entry ledger of an insurance pricing pipeline from
 [A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/).
@@ -51,12 +50,12 @@ expressions takes Haiku from 50% to 84%, 9 points above the Sonnet baseline
 ![DABStep accuracy: Haiku 4.5 50%, Sonnet 4.6 75%, Haiku 4.5 + Semantic Catalog
 84%](docs/images/dabstep-benchmark.png)
 
-One metric question, run 900 times with Haiku
+One metric question, 100 runs per configuration
 ([Faithful, Reproducible, Wrong](https://xorq.dev/blog/faithful-reproducible-wrong/)).
-Where the agent looked for the definition mattered more than which model it
-used:
+Two of the post's nine configurations, both Haiku running with Xorq, differing
+only in whether a reviewed definition of the metric was preloaded:
 
-| | Derived from source files | Selected from a reviewed entry |
+| | Re-derived from source files | Selected from a reviewed entry |
 |---|---|---|
 | Correct | 0 of 100 | 100 of 100 |
 | Median turns | 21 | 4 |
@@ -73,13 +72,14 @@ builds/4c915297a711
 Initialized catalog at ~/.local/share/xorq/catalogs/default
 ❯ xorq catalog add builds/4c915297a711/ -a penguins-predict
 Added 4c915297a711
-❯ xorq uv run builds/4c915297a711 -o out.parquet
+❯ xorq catalog run penguins-predict -o out.parquet
 ```
 
 Build turns an expression into a directory named by its hash, holding the
 manifest, the project wheel, and pinned requirements. Add puts that directory
-in the ledger under its hash and an alias. Run executes it in the environment
-the entry pins.
+in the ledger under its hash and an alias. Run executes the entry in the
+environment it pins. The template's build needs Python 3.11 or newer; if uv
+picks a 3.10 interpreter, set `UV_PYTHON_PREFERENCE=only-managed`.
 
 ## The IR
 
@@ -99,18 +99,20 @@ expr = (
 )
 ```
 
-`.cache(ParquetCache.from_kwargs())` materializes any node.
-`.into_backend(con)` moves its data to another engine. The same expression
-runs on DataFusion, DuckDB, SQLite, pandas, Snowflake, Databricks, BigQuery,
-Trino, Postgres, PyIceberg, and GizmoSQL. Operators exchange Arrow
-RecordBatches, with no DAG of tasks to checkpoint. `Pipeline.from_instance`
-turns a scikit-learn pipeline into a deferred expression.
+`.cache(xo.ParquetCache.from_kwargs())` materializes any node.
+`.into_backend(xo.duckdb.connect())` moves its data to another engine. The
+same expression runs on DataFusion, DuckDB, SQLite, pandas, Snowflake,
+Databricks, BigQuery, Trino, Postgres, PyIceberg, and GizmoSQL. Operators
+exchange Arrow RecordBatches, with no DAG of tasks to checkpoint.
+`xo.Pipeline.from_instance` turns a scikit-learn pipeline into a deferred
+expression.
 
 ## The ledger
 
-The ledger is a git repo on the filesystem. Aliases are symlinks, entries are
-zipped builds, and metadata sidecars are plain YAML, so an agent that clones
-it can discover everything with file operations:
+The ledger is a git repo on the filesystem, which the CLI calls a catalog.
+Aliases are symlinks, entries are zipped builds, and metadata sidecars are
+plain YAML, so an agent that clones it can discover everything with file
+operations. The hashes below come from one build and will not match yours:
 
 ```
 ❯ tree git-catalogs/penguins
@@ -123,9 +125,10 @@ git-catalogs/penguins
 └── metadata
     └── b45d9db8189a.zip.metadata.yaml
 
-❯ git -C git-catalogs/penguins reflog
-81a694a HEAD@{0}: add: b45d9db8189a (aliases penguins-agg)
-e00f12c HEAD@{1}: add catalog.yaml
+❯ git -C git-catalogs/penguins log --format=%s
+add: b45d9db8189a (aliases penguins-agg)
+add catalog.yaml
+initial commit
 ```
 
 An entry is a manifest plus the environment to run it. The manifest is the
@@ -167,25 +170,21 @@ expression:
 
 </details>
 
-Governance catalogs (Atlan, Collibra, Unity Catalog) inventory the tables you
-already have. The ledger catalogs the computation, so an entry is something
-you run, not something you read about. Xorq reads governed tables through the
-Snowflake and Databricks backends, and its entries can be registered there as
-assets.
-
 ## The CLI
 
-Every verb takes an entry or alias. The ones that produce a pipeline (pin,
-rebase, compose) write it back as a new entry. Nothing is edited in place.
+Verbs that act on an entry take its hash or an alias such as `prod`. The ones
+that produce a pipeline (pin, rebase, compose) write it back as a new entry;
+entries are never edited in place, though aliases can move. Writes push the
+catalog to its remotes by default.
 
 ```bash
 ❯ xorq catalog run prod -o out.parquet          # execute in the entry's pinned environment
-❯ xorq catalog run-cached prod                  # execute through the entry's caches
+❯ xorq catalog run-cached prod -o out.parquet   # run, wrapping the result in a parquet cache
 ❯ xorq catalog check                            # entries, aliases and metadata agree with disk
 ❯ xorq catalog check-sources prod               # did a source schema drift? reports, never repairs
-❯ xorq catalog rebase prod                      # re-derive over live sources as a new entry
-❯ xorq catalog pin prod --alias prod-pinned     # freeze the caches as a new entry
-❯ xorq catalog compose src transform -a pipeline  # source entry + transform entry, cataloged as one
+❯ xorq catalog rebase prod                      # rebuild over drifted source schemas as a new entry
+❯ xorq catalog pin prod -e --alias prod-pinned  # materialize and freeze the caches as a new entry
+❯ xorq catalog compose src transform -a pipeline  # source entry + unbound transform entry, as one
 ❯ xorq serve-flight-udxf builds/<hash>          # serve a build's UDXF nodes over Arrow Flight
 ```
 
@@ -197,7 +196,6 @@ and cataloged like any other node. See
 ## Learn more
 
 - [Quickstart](https://docs.xorq.dev/getting_started/quickstart)
-- [Why Xorq?](https://docs.xorq.dev/#why-xorq)
 - [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
 - [xorq-gallery](https://github.com/xorq-labs/xorq-gallery): end-to-end examples
 - [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/): Haiku with a Xorq catalog hits 84% on DABStep, above the Sonnet baseline
