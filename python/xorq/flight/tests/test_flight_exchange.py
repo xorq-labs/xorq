@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 import operator
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import cloudpickle
@@ -26,8 +28,10 @@ from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import (
     AbstractExchanger,
     UnboundExprExchanger,
+    input_cache,
     make_udxf,
     process_batch,
+    streaming_expr_exchange,
 )
 from xorq.flight.server import STATUS_MESSAGE_BUDGET, bounded_message, bounded_status
 from xorq.flight.tests.conftest import (
@@ -547,3 +551,188 @@ def test_process_batch_keeps_returned_dtypes() -> None:
     batch = pa.RecordBatch.from_pydict({"a": [1, 2], "b": [0.5, 1.5]})
     out = process_batch(lambda df: df.assign(b=df["a"]), toolz.identity, batch)
     assert out.schema.field("b").type == pa.int64()
+
+
+EXCHANGE_CONNECTS = {
+    "duckdb": lambda: xo.duckdb.connect(),
+    "xorq": lambda: xo.connect(),
+}
+EXCHANGE_SCHEMA = xo.schema({"k": "int64", "v": "float64"})
+
+
+def exchange_num_rows(backend: str, make_expr: Callable, n_batches: int = 200) -> int:
+    """Rows out of an exchange over ``n_batches`` x 1000 rows, ``v`` unique."""
+    unbound = xo.table(EXCHANGE_SCHEMA, name="in")
+    exchanger = UnboundExprExchanger(
+        make_expr(unbound), make_connection=EXCHANGE_CONNECTS[backend]
+    )
+    arrow_schema = EXCHANGE_SCHEMA.to_pyarrow()
+
+    def batches():
+        for i in range(n_batches):
+            v = pa.array(range(i * 1000, (i + 1) * 1000), type=pa.float64())
+            yield pa.record_batch({"k": [i % 10] * 1000, "v": v}, schema=arrow_schema)
+
+    server = FlightServer(exchangers=[exchanger])
+    server.serve()
+    try:
+        _, out = server.client.do_exchange_batches(
+            exchanger.command,
+            pa.RecordBatchReader.from_batches(arrow_schema, batches()),
+        )
+        return out.read_all().num_rows
+    finally:
+        # close() re-binds the port and can hit EADDRINUSE after an exchange;
+        # that flake is not what these tests check
+        with contextlib.suppress(OSError):
+            server.close()
+
+
+@pytest.mark.parametrize("backend", tuple(EXCHANGE_CONNECTS))
+@pytest.mark.parametrize(
+    ("make_expr", "expected"),
+    (
+        param(lambda u: u.filter(u.v > u.v.mean()), 100_000, id="scalar_subquery"),
+        param(
+            lambda u: u.join(u.group_by("k").agg(m=u.v.max()), "k"),
+            200_000,
+            id="self_join",
+        ),
+        param(lambda u: u.union(u), 400_000, id="self_union"),
+        param(lambda u: u.filter(u.k == 3), 20_000, id="single_scan"),
+        # duckdb re-scans this below the SQL, so its count is unknown
+        param(
+            lambda u: u.mutate(s=u.v.sum().over(xo.window(group_by="k"))),
+            200_000,
+            id="partition_window",
+        ),
+    ),
+)
+def test_exchange_multi_scan(backend: str, make_expr: Callable, expected: int) -> None:
+    assert exchange_num_rows(backend, make_expr) == expected
+
+
+@pytest.mark.parametrize("backend", tuple(EXCHANGE_CONNECTS))
+def test_input_cache_replays_for_every_scan(backend: str) -> None:
+    # exchanges run on gRPC threads, so drive the cache on this one too
+    con = EXCHANGE_CONNECTS[backend]()
+    unbound = xo.table(EXCHANGE_SCHEMA, name="in")
+    expr = unbound.union(unbound)
+    data = pa.table({"k": [1, 2], "v": [0.5, 1.5]}, schema=EXCHANGE_SCHEMA.to_pyarrow())
+    cache = input_cache(expr, con, data.to_reader())
+
+    assert (
+        con.read_record_batches(cache)
+        .union(con.read_record_batches(cache))
+        .count()
+        .execute()
+        == 4
+    )
+    # bounded to the plan's two scans, so batches can be evicted
+    with pytest.raises(ValueError, match="Maximum number of readers"):
+        cache.reader()
+
+
+def test_exchange_releases_its_input_on_a_reused_connection() -> None:
+    # unbounded cache (duckdb re-scans this window), on a connection that
+    # outlives the exchange
+    con = xo.duckdb.connect()
+    unbound = xo.table(EXCHANGE_SCHEMA, name="in")
+    expr = unbound.mutate(s=unbound.v.sum().over(xo.window(group_by="k")))
+    exchanger = UnboundExprExchanger(expr, make_connection=lambda: con)
+    data = pa.table({"k": [1, 2], "v": [0.5, 1.5]}, schema=EXCHANGE_SCHEMA.to_pyarrow())
+    before = set(con.list_tables())
+
+    server = FlightServer(exchangers=[exchanger])
+    server.serve()
+    try:
+        _, out = server.client.do_exchange_batches(exchanger.command, data.to_reader())
+        assert out.read_all().num_rows == 2
+    finally:
+        with contextlib.suppress(OSError):
+            server.close()
+
+    assert set(con.list_tables()) == before
+
+
+def test_input_cache_is_unbounded_without_a_compiler() -> None:
+    con = xo.pandas.connect()
+    unbound = xo.table(EXCHANGE_SCHEMA, name="in")
+    data = pa.table({"k": [1, 2], "v": [0.5, 1.5]}, schema=EXCHANGE_SCHEMA.to_pyarrow())
+    cache = input_cache(unbound.union(unbound), con, data.to_reader())
+
+    assert [
+        con.read_record_batches(cache, f"t{i}").count().execute() for i in (1, 2)
+    ] == [2, 2]
+    cache.reader()  # no count, no reader cap
+
+
+def test_exchange_closes_its_input_when_binding_fails() -> None:
+    # a raw Flight caller can skip the client's schema check
+    con = xo.duckdb.connect()
+    unbound = xo.table(EXCHANGE_SCHEMA, name="in")
+    before = set(con.list_tables())
+    wrong = FlightChunkReader(pa.table({"x": ["a"]}))
+
+    with pytest.raises(ValueError, match="does not match table schema"):
+        streaming_expr_exchange(unbound, lambda: con, None, wrong, None)
+
+    assert set(con.list_tables()) == before
+
+
+class FlightChunkReader:
+    """Stands in for the Flight reader: yields chunks carrying ``.data``."""
+
+    def __init__(self, table: pa.Table) -> None:
+        self.schema = table.schema
+        self.chunks = [SimpleNamespace(data=batch) for batch in table.to_batches()]
+
+    def __iter__(self):
+        return iter(self.chunks)
+
+
+class CollectingWriter:
+    """Stands in for the Flight writer: keeps what the exchange writes."""
+
+    def __init__(self) -> None:
+        self.batches = []
+
+    def begin(self, schema, options=None) -> None:
+        self.schema = schema
+
+    def write_batch(self, batch) -> None:
+        self.batches.append(batch)
+
+
+def test_exchange_pandas_registers_its_input_by_name() -> None:
+    # pandas read_record_batches has no name of its own to fall back on
+    con = xo.pandas.connect()
+    unbound = xo.table(EXCHANGE_SCHEMA, name="in")
+    data = pa.table({"k": [1, 2], "v": [0.5, 1.5]}, schema=EXCHANGE_SCHEMA.to_pyarrow())
+    writer = CollectingWriter()
+
+    streaming_expr_exchange(
+        unbound.filter(unbound.k == 1),
+        lambda: con,
+        None,
+        FlightChunkReader(data),
+        writer,
+    )
+
+    assert sum(batch.num_rows for batch in writer.batches) == 1
+
+
+def test_streaming_expr_exchange_writes_every_scan() -> None:
+    # the gRPC thread is not traced, so run the exchange body on this one
+    con = xo.duckdb.connect()
+    unbound = xo.table(EXCHANGE_SCHEMA, name="in")
+    data = pa.table({"k": [1, 2], "v": [0.5, 1.5]}, schema=EXCHANGE_SCHEMA.to_pyarrow())
+    writer = CollectingWriter()
+
+    flight_reader = FlightChunkReader(data)
+
+    streaming_expr_exchange(
+        unbound.union(unbound), lambda: con, None, flight_reader, writer
+    )
+
+    assert sum(batch.num_rows for batch in writer.batches) == 4
