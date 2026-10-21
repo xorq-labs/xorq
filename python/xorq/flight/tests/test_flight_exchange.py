@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 import operator
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -23,13 +25,20 @@ from xorq.expr.relations import (
 )
 from xorq.flight import FlightServer
 from xorq.flight.action import AddExchangeAction
+from xorq.flight.client import write_unless_closed
 from xorq.flight.exchanger import (
     AbstractExchanger,
+    EchoExchanger,
     UnboundExprExchanger,
     make_udxf,
     process_batch,
 )
-from xorq.flight.server import STATUS_MESSAGE_BUDGET, bounded_message, bounded_status
+from xorq.flight.server import (
+    STATUS_MESSAGE_BUDGET,
+    CallScopedReader,
+    bounded_message,
+    bounded_status,
+)
 from xorq.flight.tests.conftest import (
     do_agg,
     field_name,
@@ -547,3 +556,168 @@ def test_process_batch_keeps_returned_dtypes() -> None:
     batch = pa.RecordBatch.from_pydict({"a": [1, 2], "b": [0.5, 1.5]})
     out = process_batch(lambda df: df.assign(b=df["a"]), toolz.identity, batch)
     assert out.schema.field("b").type == pa.int64()
+
+
+EXCHANGE_CONNECTS = {
+    "duckdb": lambda: xo.duckdb.connect(),
+    "xorq": lambda: xo.connect(),
+}
+EXCHANGE_SCHEMA = xo.schema({"k": "int64", "v": "float64"})
+EXCHANGE_IN = xo.table(EXCHANGE_SCHEMA, name="in")
+
+
+def exchange_limit(expr: xo.Table, backend: str, n: int = 1_000) -> tuple:
+    """Exchange ``n`` batches of 1000 rows through ``expr``; (result, batches sent)."""
+    exchanger = UnboundExprExchanger(expr, make_connection=EXCHANGE_CONNECTS[backend])
+    schema = EXCHANGE_SCHEMA.to_pyarrow()
+    sent = []
+
+    def batches():
+        for i in range(n):
+            sent.append(i)
+            yield pa.record_batch(
+                {
+                    "k": [i % 10] * 1_000,
+                    "v": [float(i * 1_000 + j) for j in range(1_000)],
+                },
+                schema=schema,
+            )
+
+    server = FlightServer(exchangers=[exchanger])
+    server.serve()
+    try:
+        _, result = server.client.do_exchange_batches(
+            exchanger.command, pa.RecordBatchReader.from_batches(schema, batches())
+        )
+        table = result.read_all()
+    finally:
+        # close() re-binds the port and can fail with EADDRINUSE after an
+        # exchange the server ended early; that is not what these tests check
+        with contextlib.suppress(OSError):
+            server.close()
+    return table, len(sent)
+
+
+# a regression of the duckdb case segfaults: the server's scan thread reads the
+# exchange stream after the call ended, which takes down this test process
+@pytest.mark.parametrize("backend", tuple(EXCHANGE_CONNECTS))
+def test_exchange_limit_returns_rows_without_reading_all_input(backend: str) -> None:
+    table, sent = exchange_limit(EXCHANGE_IN.limit(3), backend)
+
+    assert table.num_rows == 3
+    assert sent < 1_000
+
+
+@pytest.mark.parametrize("backend", tuple(EXCHANGE_CONNECTS))
+@pytest.mark.parametrize(
+    ("expr", "rows"),
+    (
+        param(EXCHANGE_IN.order_by(EXCHANGE_IN.v.desc()).limit(5), 5, id="top_k"),
+        param(EXCHANGE_IN.count().as_table(), 1, id="count"),
+    ),
+)
+def test_exchange_reading_all_input_is_unchanged(
+    backend: str, expr: xo.Table, rows: int
+) -> None:
+    table, sent = exchange_limit(expr, backend)
+
+    assert (table.num_rows, sent) == (rows, 1_000)
+    if rows == 1:
+        assert table.column(0)[0].as_py() == 1_000_000
+
+
+def test_call_scoped_reader_stops_after_close() -> None:
+    # the server iterates this on a gRPC thread; drive it on this one too
+    reader = CallScopedReader(
+        pa.table({"a": list(range(4))}).to_reader(max_chunksize=1)
+    )
+    chunks = iter(reader)
+
+    assert next(chunks).num_rows == 1
+    reader.close()
+    assert list(chunks) == []
+    assert reader.schema == pa.schema([("a", pa.int64())])
+
+
+class CloserLosesTheRace:
+    """A lock that lets the reading thread back in before ``close`` gets it."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.closer: threading.Thread | None = None
+        self.closer_waiting = threading.Event()
+
+    def __enter__(self) -> None:
+        if threading.current_thread() is self.closer:
+            self.closer_waiting.set()
+            time.sleep(0.2)
+        self.lock.acquire()
+
+    def __exit__(self, *exc: object) -> None:
+        self.lock.release()
+
+
+def test_call_scoped_reader_close_stops_reads_before_it_gets_the_lock() -> None:
+    reads = []
+
+    def source():
+        for i in range(3):
+            reads.append(i)
+            yield i
+
+    lock = CloserLosesTheRace()
+    reader = CallScopedReader(source(), lock=lock)
+    chunks = iter(reader)
+    assert next(chunks) == 0
+    lock.closer = threading.Thread(target=reader.close)
+    lock.closer.start()
+    lock.closer_waiting.wait(5)
+
+    assert list(chunks) == []
+    lock.closer.join(5)
+    assert reads == [0]
+
+
+def test_exchange_input_failure_reaches_the_caller() -> None:
+    schema = pa.schema([("a", pa.int64())])
+
+    def batches():
+        yield pa.record_batch([[1]], schema=schema)
+        raise ConnectionError("input failed")
+
+    server = FlightServer(exchangers=[EchoExchanger])
+    server.serve()
+    outcome = []
+
+    def run():
+        _, result = server.client.do_exchange_batches(
+            EchoExchanger.command, pa.RecordBatchReader.from_batches(schema, batches())
+        )
+        try:
+            result.read_all()
+        except Exception as e:
+            outcome.append(e)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(timeout=30)
+    with contextlib.suppress(OSError):
+        server.close()
+
+    assert not thread.is_alive(), "the exchange hung instead of raising"
+    assert "input failed" in str(outcome[0])
+
+
+def test_write_unless_closed_returns_only_the_closed_call_error() -> None:
+    def fail(message):
+        def write():
+            raise pa.ArrowInvalid(message)
+
+        return write
+
+    assert write_unless_closed(lambda: None) is None
+    assert "already closed" in str(
+        write_unless_closed(fail("Destination already closed"))
+    )
+    with pytest.raises(pa.ArrowInvalid, match="schema mismatch"):
+        write_unless_closed(fail("schema mismatch"))
