@@ -24,6 +24,7 @@ from xorq.flight import (
 )
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
+from xorq.flight.server import put_record_batches
 from xorq.flight.tests.conftest import do_agg, field_name, my_udf, return_type
 from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal
@@ -488,3 +489,96 @@ def test_exchange_server_from_udxf(con, diamonds, baseline):
             expected,
             check_exact=False,
         )
+
+
+UPLOAD_CONNECTS = {
+    "duckdb": lambda: xo.duckdb.connect(),
+    "xorq": lambda: xo.connect(),
+}
+
+
+def make_upload():
+    data = pa.table({"a": list(range(10))})
+    return data, data.to_batches(max_chunksize=2)
+
+
+@pytest.mark.parametrize("backend", tuple(UPLOAD_CONNECTS))
+def test_upload_is_readable_after_do_put_returns(backend):
+    con = UPLOAD_CONNECTS[backend]()
+    data, batches = make_upload()
+    with FlightServer(make_connection=lambda: con) as server:
+        server.client.upload_batches(
+            "t", pa.RecordBatchReader.from_batches(data.schema, batches)
+        )
+        actual = [server.client.execute(server.con.table("t")) for _ in range(2)]
+
+    assert all(table.equals(data) for table in actual)
+
+
+@pytest.mark.parametrize("backend", tuple(UPLOAD_CONNECTS))
+def test_put_record_batches_reads_the_upload_before_returning(backend):
+    # do_put runs on a gRPC thread, so drive its body on this one too
+    con = UPLOAD_CONNECTS[backend]()
+    data, batches = make_upload()
+    pulled = []
+
+    def upload():
+        for batch in batches:
+            pulled.append(batch)
+            yield batch
+
+    put_record_batches(
+        con,
+        "t",
+        pa.RecordBatchReader.from_batches(data.schema, upload()),
+        threading.Lock(),
+    )
+
+    assert len(pulled) == len(batches)
+    assert [con.table("t").count().execute() for _ in range(2)] == [10, 10]
+
+
+@pytest.mark.parametrize("backend", tuple(UPLOAD_CONNECTS))
+def test_put_record_batches_drops_a_failed_upload(backend):
+    con = UPLOAD_CONNECTS[backend]()
+    data, batches = make_upload()
+
+    def upload():
+        yield batches[0]
+        raise ConnectionError("client went away")
+
+    with pytest.raises(Exception, match="client went away"):
+        put_record_batches(
+            con,
+            "t",
+            pa.RecordBatchReader.from_batches(data.schema, upload()),
+            threading.Lock(),
+        )
+
+    assert "t" not in con.tables
+
+
+def test_put_record_batches_drops_a_table_an_ingesting_backend_created(tmp_path):
+    pytest.importorskip("pyiceberg")
+    # pyiceberg creates the catalog table before it reads the stream
+    con = xo.pyiceberg.connect(warehouse_path=tmp_path)
+    data, batches = make_upload()
+
+    def upload():
+        yield batches[0]
+        raise ConnectionError("client went away")
+
+    def put(name, match):
+        with pytest.raises(Exception, match=match):
+            put_record_batches(
+                con,
+                name,
+                pa.RecordBatchReader.from_batches(data.schema, upload()),
+                threading.Lock(),
+            )
+
+    put("new", "client went away")
+    assert "new" not in con.tables
+    con.create_table("kept", data)
+    put("kept", "already exists")
+    assert "kept" in con.tables
