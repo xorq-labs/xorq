@@ -206,10 +206,7 @@ and cataloged like any other node. See
 - [Why Xorq?](https://docs.xorq.dev/#why-xorq)
 - [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
 - [xorq-gallery](https://github.com/xorq-labs/xorq-gallery): end-to-end examples
-- [A Git-Native Semantic Layer](https://xorq.dev/blog/bsl-xorq/): building a portable semantic catalog with Xorq
 - [Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/): Haiku with a Xorq catalog hits 84% on DABStep, above the Sonnet baseline
-- [Faithful, Reproducible, Wrong](https://xorq.dev/blog/faithful-reproducible-wrong/): one metric question, 900 runs, and why a reviewed entry beats a bigger model
-- [A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/): why an entry is one computation named by its hash, worked through with TabPFN on French motor liability
 
 ---
 
