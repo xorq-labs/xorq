@@ -36,9 +36,9 @@ Below, the ten-entry ledger of an insurance pricing pipeline from
 [A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/).
 The selected entry is the scored test set: its lineage runs through three
 fitted models down to the two source reads, next to its schema and a git log
-with one commit per entry.
+with one commit per change.
 
-![xorq catalog TUI: ten entries on the left; the lineage of the scored test set down to the two source reads, its schema, and the git log with one commit per entry](docs/images/ledger-tui.png)
+![xorq catalog TUI: ten entries on the left; the lineage of the scored test set down to the two source reads, its schema, and the git log with one commit per change](docs/images/ledger-tui.png)
 
 ## Why a ledger steers agents
 
