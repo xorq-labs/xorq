@@ -4,10 +4,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from hypothesis import settings
 
 import xorq.api as xo
 from xorq.api import _
 from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY
+
+
+# one Hypothesis profile, locally and on CI: 75 examples per property, no
+# deadline (backend execution time varies with load)
+settings.register_profile("xorq", max_examples=75, deadline=None)
+settings.load_profile("xorq")
 
 
 @pytest.fixture
