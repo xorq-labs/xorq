@@ -77,13 +77,15 @@ def find_by_expr_hash(expr, to_replace_hash, typs=None, strategy=None):
         return compute_expr_hash(node, strategy) == to_replace_hash
 
     typs = get_typs(typs)
-    (to_replace, *rest) = filter(
-        matches_hash,
-        walk_nodes(typs, expr),
-    )
-    if rest:
-        raise ValueError(f"found multiple nodes with hash {to_replace_hash!r}")
-    return to_replace
+    match tuple(filter(matches_hash, walk_nodes(typs, expr))):
+        case (to_replace,):
+            return to_replace
+        case ():
+            raise ValueError(
+                f"found no node with hash {to_replace_hash!r} among {[typ.__name__ for typ in typs]}"
+            )
+        case _:
+            raise ValueError(f"found multiple nodes with hash {to_replace_hash!r}")
 
 
 def find_by_expr_tag(expr, tag):
@@ -99,11 +101,13 @@ def find_node(expr, hash, tag, typs=None, strategy=None):
                 raise ValueError("typs must not include Tag when searching by hash")
             return find_by_expr_hash(expr, hash, typs=typs, strategy=strategy)
         case [None, _]:
-            (node, *rest) = find_by_expr_tag(expr, tag)
-            if rest:
-                raise ValueError(f"found multiple nodes with tag {tag!r}")
-            else:
-                return node
+            match tuple(find_by_expr_tag(expr, tag)):
+                case (node,):
+                    return node
+                case ():
+                    raise ValueError(f"found no node with tag {tag!r}")
+                case _:
+                    raise ValueError(f"found multiple nodes with tag {tag!r}")
         case _:
             raise ValueError("cannot specify both hash and tag")
 
