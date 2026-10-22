@@ -69,6 +69,11 @@ from xorq.cli_options import (
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
+# Click's own outcomes: errors it already formats, plus `ctx.exit` and `Abort`,
+# which subclass `RuntimeError` and would otherwise be caught as failures.
+CLICK_PASSTHROUGH = (click.ClickException, click.exceptions.Exit, click.Abort)
+
+
 def click_handler(e: Exception) -> None:
     raise click.ClickException(str(e)) from e
 
@@ -94,7 +99,7 @@ def _pdb_active(ctx):
 def click_context(ctx: click.Context, *typs: type[Exception]) -> Iterator[None]:
     try:
         yield
-    except click.ClickException:
+    except CLICK_PASSTHROUGH:
         raise
     except typs as e:
         if _pdb_active(ctx):
@@ -108,7 +113,7 @@ def click_context_catalog(ctx: click.Context) -> Iterator[None]:
 
     try:
         yield
-    except click.ClickException:
+    except CLICK_PASSTHROUGH:
         raise
     except NoSuchPathError as e:
         hint = _init_hint(ctx)
