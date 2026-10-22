@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792660598803,
+  "lastUpdate": 1792676853288,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -63762,6 +63762,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.09170904496585786",
             "extra": "mean: 1.6798046359999943 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6154a3b5c0f70d5a9065f478812393e65d06e2c",
+          "message": "feat(catalog)!: rebase moves no alias unless asked; pin/unpin refuse -a on another entry (#2348)\n\nFollow-up to #2346 (#2323).\n\n## What\n\n`xorq catalog rebase` moves no alias unless asked. `pin` and `unpin`\nhandle their alias options the same way. All three report what happened\nto every alias they were given.\n\n- `catalog/aliases.py` (new): `AliasPlan` reads every alias once and\nholds every alias refusal. `add_with_aliases` plans again after the\nsync's pull, adds the entry and moves the aliases, and rolls all of it\nback if any step fails. `AliasOutcome` records what became of each\nalias. Nothing in this module rebases: `pin` imports it without pulling\nin drift, refresh or the packager.\n- `catalog/cli.py`: rebase takes `_catalog_pin_shared_options` unchanged\n(`-a`, `--move-aliases`, ENTRY, `--sync`, `--cache-dir`) plus\n`--only-alias`. `pin` and `unpin` build the expression first, so the new\nentry's name is known, then go through `AliasPlan` and\n`add_with_aliases`. `_report_aliases` prints one stderr line per alias\nfor all three commands (`Moved` / `Added` / `already on` / not moved),\nplus one line naming the aliases left on the source. When a rebase\nconflicts, as on no drift, stderr says the alias options did nothing.\n`click_context_catalog` exits a `RebaseError` with its own code. Help\ntext and exit codes rewritten.\n- `catalog/rebase.py`: `RebaseResult` carries the `AliasOutcome`.\n`move_aliases` is a bool.\n- `catalog/enums.py`, `catalog/exceptions.py`: docstrings for refusals\nafter the pull.\n- `catalog/tests/test_rebase.py`, `catalog/tests/test_cli_pin.py`,\n`catalog/tests/conftest.py`.\n\n## Why\n\nA reviewer asked that everything rebase does be explicit. Several things\nhappened silently, all with exit 0:\n\n- A bare `rebase` moved `prod`, which changes what every consumer\nresolves.\n- `-a` took an alias off an unrelated entry.\n- An alias the pull had moved was skipped.\n- ENTRY given as an alias that the pull moved rebased the old entry\nanyway.\n\n`pin` and `unpin` share these options with rebase and had the same gaps.\n`-a` took an alias from whatever entry had it. A failed alias move\nremoved the new entry, which took the aliases already moved onto it\nalong instead of restoring them to the source. Nothing said which alias\nmoved.\n\n- **Default:** rebase moves nothing; `--move-aliases` and `--only-alias`\nopt in. An earlier version of this PR added `--no-move-aliases` and kept\n\"move all\" as the default; that version was replaced.\n- **`-a` on another entry is refused, not taken, by all three\ncommands:** `add-alias` is the command that overwrites, and the refusal\nsays so.\n- **Kept `-a` rather than removing it:** it is part of the option set\nshared with `pin`/`unpin`, and unlike `add-alias` it never takes another\nentry's alias.\n- **Checks wait for the new name, not the pull:** an earlier rebase,\npulled in or committed before a failed push, may already have put the\nalias on the new entry, so a rerun goes through. ENTRY given as an alias\nthe pull moved onto that entry is accepted too. Before the sweep, only\nan unregistered `--only-alias` is refused. Once the re-derivation knows\nthe new name, an alias on any other entry is refused before the dump and\nthe pull, and the refusal names that entry. An `--only-alias` the pull\nremoved is refused as removed by the pull.\n- **A pin that hashes to its own entry:** a pin of an entry with no\ncaches, or an unpin of one with nothing frozen, produces the same entry.\nIn that case no alias is reported as moved onto it or left behind on it.\n\n## Breaking\n\n- `rebase` with no alias option no longer moves aliases. To keep the\n0.4.5 behaviour, pass `--move-aliases`.\n- `pin`/`unpin --alias X`, where `X` points at another entry, now exits\n1 instead of moving `X`. To retarget it, leave `--alias` off and run\n`xorq catalog add-alias <new> X`.\n- Python API: `move_aliases` is a bool. Passing names raises\n`TypeError`; pass names as `only_aliases`. `RebaseResult.taken_aliases`\nand `skipped_aliases` are removed; the outcome is in `RebaseResult`'s\n`AliasOutcome`.\n- `pin`/`unpin` print one stderr line per alias they were given or that\nis on the source, and their refusals exit through `RebaseError`'s codes.\n\n## Verification\n\nMerged with main, which now has #2349's conflict outcome: `uv run pytest\n-q -n 8 python/xorq/catalog/tests`: 2112 passed, 48 skipped.\n\nAs each guard was added, it was removed again to confirm a test failed\nwithout it: the entry-alias check, accepting an alias already on the new\nentry, not moving it again, the no-drift `--only-alias` check, the\n`already on` line, the refusal before the dump and pull (the test fails\nif either runs), the entry alias the pull moved onto the new entry, and\nthe aliases-left line. The pin tests run with a sync: they cover the\nre-plan after the pull, the not-moved line, and ENTRY given as an alias\nthe pull moved.\n\n## Not addressed\n\n- From #2357, still open for `pin`/`unpin`: a failed rollback is logged\nrather than raised (the original error is the one the user sees), and a\npush failure after the local commit has no exit code of its own. Its\nfirst two bullets, refusing `-a` on another entry and reading aliases\nafter the pull, are done here.\n- `add -a` and `add-alias` still overwrite an alias on another entry and\nprint \"Added\".\n\nCo-authored-by: Claude Opus 5.5 (1M context) <noreply@anthropic.com>\nCo-authored-by: dlovell <dlovell@gmail.com>",
+          "timestamp": "2026-10-22T15:41:28+02:00",
+          "tree_id": "65d8ef063634e4b1e5851c42f1d47ae777891431",
+          "url": "https://github.com/xorq-labs/xorq/commit/a6154a3b5c0f70d5a9065f478812393e65d06e2c"
+        },
+        "date": 1792676848653,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.269129110227055,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00746597448386913",
+            "extra": "mean: 120.93171925000235 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.2504176063945294,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06313339093694707",
+            "extra": "mean: 444.36196960000416 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7421102396624512,
+            "unit": "iter/sec",
+            "range": "stddev: 0.20729494311572758",
+            "extra": "mean: 1.3475086942000019 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.0508988645489517,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011431751055282975",
+            "extra": "mean: 327.77225480000993 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.8584512143654957,
+            "unit": "iter/sec",
+            "range": "stddev: 0.055592627300088716",
+            "extra": "mean: 349.8397995999994 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.76432630184627,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07709873071148288",
+            "extra": "mean: 361.7517943999985 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 166.53021913339404,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006323714962423004",
+            "extra": "mean: 6.004916135965568 msec\nrounds: 228"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.447244073533724,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015108752961376225",
+            "extra": "mean: 224.8583579999945 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 12.010636894562442,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02326167863685994",
+            "extra": "mean: 83.259531428573 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 12.659962787466227,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005696366826790735",
+            "extra": "mean: 78.98917372727449 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 10.25596226450305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006068560158593818",
+            "extra": "mean: 97.50425890909366 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 7.23532681600429,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010004876996218243",
+            "extra": "mean: 138.21075749999778 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.8769678976962085,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013331129100773633",
+            "extra": "mean: 205.04543416666365 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.723283520675026,
+            "unit": "iter/sec",
+            "range": "stddev: 0.012955170130415026",
+            "extra": "mean: 211.7171234000125 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.3348088411520282,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05761654418366414",
+            "extra": "mean: 428.30058820001113 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.3080737401475284,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016850384368863706",
+            "extra": "mean: 302.29072219998443 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.8194964420744308,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08313754486492207",
+            "extra": "mean: 549.6026135999955 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.847801191048991,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10645046742634572",
+            "extra": "mean: 541.1837620000142 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4643154876058753,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12591956960817982",
+            "extra": "mean: 682.9129436000017 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.6217465927127637,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09240941543639074",
+            "extra": "mean: 616.6191465999987 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2225851100160778,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12342291908737008",
+            "extra": "mean: 817.9389654000033 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.0277444255127495,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19098958278641062",
+            "extra": "mean: 973.0045477999965 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.005862411767399,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14140504543303267",
+            "extra": "mean: 994.1717557999823 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5935082647403317,
+            "unit": "iter/sec",
+            "range": "stddev: 0.25368056977813386",
+            "extra": "mean: 1.684896503400023 sec\nrounds: 5"
           }
         ]
       }
