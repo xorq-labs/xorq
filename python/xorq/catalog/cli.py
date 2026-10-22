@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import zipfile
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from functools import cache, partial, reduce
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
     from xorq.api import Expr
+    from xorq.catalog.aliases import AliasOutcome
     from xorq.catalog.catalog import Catalog
     from xorq.catalog.content_store import (
         ContentStoreConfig,
@@ -114,6 +115,13 @@ def click_context_catalog(ctx: click.Context) -> Iterator[None]:
             f"Catalog not found: {e}\nRun `{hint}` to create it."
         ) from e
     except Exception as e:
+        from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
+
+        if isinstance(e, RebaseError):
+            # A refusal, not a failure: its message bare, and the `RebaseExit`
+            # it carries, which `click_handler` would collapse to 1.
+            click.echo(str(e), err=True)
+            ctx.exit(e.exit_code)
         if _pdb_active(ctx):
             raise
         click_handler(e)
@@ -543,9 +551,7 @@ def _catalog_pin_command(
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
-        source_aliases = (
-            tuple(ca.alias for ca in catalog_entry.aliases) if move_aliases else ()
-        )
+        entry_alias = _given_alias(catalog, entry)
         # `load_expr` pins the entry's temp extract dir to the loaded expr's
         # lifetime (weakref.finalize in load_expr_from_zip). The pinned/unpinned
         # result keeps relocatable reads pointing into that dir, so we must hold
@@ -559,15 +565,15 @@ def _catalog_pin_command(
             ensure_materialized=ensure_materialized,
             cold_cache_hint="Execute the entry first or pass --ensure-materialized/-e.",
         )
-        aliases = (alias,) if alias else ()
-        with catalog.maybe_synchronizing(sync):
+        from xorq.catalog.aliases import AliasPlan, add_with_aliases  # noqa: PLC0415
+        from xorq.catalog.expr_utils import build_expr_context  # noqa: PLC0415
+
+        with ExitStack() as stack:
+            # Built first: the alias plan needs the new entry's name, which is
+            # the build's.
             try:
-                new_entry = catalog.add(
-                    expr,
-                    sync=False,
-                    aliases=aliases,
-                    exist_ok=True,
-                    relocate_reads=relocate_reads,
+                build = stack.enter_context(
+                    build_expr_context(expr, relocate_reads=relocate_reads)
                 )
             except FileNotFoundError as err:
                 # a relocating rebuild bundles local reads by opening them, so a
@@ -576,6 +582,8 @@ def _catalog_pin_command(
                 # extract dirs hold its already-bundled reads; a miss there is a
                 # vanished internal artifact, not a user source, so they join
                 # cache_dir as internal (temp is otherwise treated as source).
+                # Only the build: a file the sync's pull or the add misses is
+                # not a read that could not be bundled.
                 from xorq.catalog.expr_utils import _live_extract_dirs  # noqa: PLC0415
 
                 raise_for_missing_relocation_source(
@@ -583,36 +591,28 @@ def _catalog_pin_command(
                     relocate_reads=relocate_reads,
                     internal_dirs=(cache_dir, *_live_extract_dirs),
                 )
-            try:
-                for moved in source_aliases:
-                    catalog.add_alias(new_entry.name, moved, sync=False)
-            except Exception:
-                # An alias move failed after the entry was written and
-                # `maybe_synchronizing` does no rollback; remove the just-added
-                # entry so we restore the pre-operation state instead of orphaning
-                # it with the aliases still on the source, then re-raise. Guard the
-                # removal so a rollback failure doesn't mask the original error.
-                try:
-                    catalog.remove(new_entry.name, sync=False)
-                except Exception:
-                    # Imported lazily: a top-level logging_utils import pulls in
-                    # ~200ms of deps onto the `catalog --help` startup path.
-                    from xorq.common.utils.logging_utils import (  # noqa: PLC0415
-                        get_logger,
-                    )
-
-                    get_logger(__name__).exception(
-                        "alias rollback: failed to remove %s", new_entry.name
-                    )
-                raise
+            plan = AliasPlan.read(
+                catalog_entry,
+                new=build.name,
+                alias=alias,
+                move_aliases=move_aliases,
+                entry_alias=entry_alias,
+            )
+            new_entry, aliases = add_with_aliases(plan, build, sync)
+        _report_aliases(aliases, catalog_entry.name, new_entry.name, "--move-aliases")
     click.echo(new_entry.name)
 
 
 def _catalog_pin_shared_options(fn: _F) -> _F:
-    """Options common to `catalog pin` and `catalog unpin`.
+    """Options common to `catalog pin`, `catalog unpin` and `catalog rebase`.
 
-    The command's own docstring distinguishes the pinned/unpinned result, so the
-    help text here stays neutral ("the new entry").
+    Each command's own docstring distinguishes its result and what its alias
+    options do there, so the help text here stays neutral ("the new entry").
+    Every one of them must take each option added here, and every one of them
+    handles the alias options alike: one ``AliasPlan`` and one all-or-nothing
+    ``add_with_aliases`` (``xorq.catalog.aliases``), one stderr line per alias
+    from ``_report_aliases``, and a refusal's exit code from
+    ``click_context_catalog``.
     """
     return apply_in_help_order(
         fn,
@@ -653,11 +653,14 @@ def pin(
     Pinning changes the build hash, so it always yields a new content-named
     entry rather than mutating the source. Use --alias to name it, or
     --move-aliases to move every alias (for example, `prod`) from the source
-    entry onto the pinned entry.
+    entry onto the pinned entry. An --alias on another entry is refused, not
+    taken; a failed alias move is rolled back, new entry included. What each
+    alias did, and which stayed on the source, is said on stderr.
 
     \b
     Arguments:
-      ENTRY  An entry name or alias.
+      ENTRY  An entry name or alias. An alias the sync's pull moves off the
+             source is refused: rerun with the entry's name.
 
     \b
     Examples:
@@ -693,7 +696,8 @@ def unpin(
     """Thaw a pinned catalog entry and persist the result as a new entry.
 
     Inverse of `xorq catalog pin`: rebuilds frozen cache reads back into
-    recomputable caches. Like pin, this yields a new content-named entry.
+    recomputable caches. Like pin, this yields a new content-named entry, and
+    handles ENTRY, --alias and --move-aliases as pin does.
 
     \b
     Arguments:
@@ -1210,48 +1214,49 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
 
 
 @cli.command("rebase")
-@click.argument("entry", shell_complete=_complete_entry_or_alias_names)
-@click.option(
-    "-a",
-    "--alias",
-    default=None,
-    help="Also register this alias for the new entry.",
-)
+@_catalog_pin_shared_options
 @click.option(
     "--only-alias",
     "only_aliases",
     multiple=True,
-    help="Move only this alias onto the new entry (repeatable).",
+    help="Move only this alias of the source entry onto the new entry (repeatable).",
 )
-@sync_option
-@cache_dir_option
 @ignore_venv_mismatch_option
 @click.pass_context
 def rebase(
     ctx: click.Context,
     entry: str,
-    alias: str | None,
-    only_aliases: tuple[str, ...],
     sync: bool,
     cache_dir: str | None,
+    alias: str | None,
+    move_aliases: bool,
+    only_aliases: tuple[str, ...],
     ignore_venv_mismatch: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
 
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
-    old entry is never edited or removed. Every alias moves to the new entry
-    unless --only-alias names the ones that should; an --alias already on the
-    old entry moves too, and one on another entry is taken from it. An alias
-    the sync's pull has moved off the old entry stays where the pull put it.
-    The new entry keeps the old one's wheels and requirements.
+    old entry is never edited or removed. The new entry keeps the old one's
+    wheels and requirements.
+
+    No alias moves unless asked. --move-aliases moves every alias the old
+    entry has once the sync's pull is in, and names any the pull took off it;
+    --only-alias moves just the ones it names, each of which must be on the
+    old entry or, after the pull, already on the new one (a rerun after a
+    failed push). --alias registers another, and is refused if it points at
+    any entry but the old or the new one; one already on the old entry moves.
+    Aliases left on the old entry are named on stderr. Alias options apply
+    only to a new entry: with no drift nothing is written and they are
+    ignored, which stderr says, though --only-alias must still name the old
+    entry's aliases.
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
-    no drift that name is the entry's own, and nothing is committed: not even
-    the --alias, which stderr says was not added. An entry none of whose
-    sources can be probed is re-derived anyway; if it comes back with its own
-    hash, stderr says that drift was not ruled out, and if it comes back with
-    a new hash, the rebase is refused, since nothing was refreshed.
+    no drift that name is the entry's own, and nothing is committed. An entry
+    none of whose sources can be probed is re-derived anyway; if it comes back
+    with its own hash, stderr says that drift was not ruled out, and if it
+    comes back with a new hash, the rebase is refused, since nothing was
+    refreshed.
 
     \b
     Exit codes:
@@ -1261,14 +1266,17 @@ def rebase(
          not open, the entry is pinned, some but not all of its sources
          cannot be probed, none could be but the entry re-derived to a new
          hash, the entry was built on another Python minor, --only-alias
-         names an alias the entry lacks, a probed source matched no source
-         of the loaded expression, or a write failed (an alias move is
-         rolled back locally, a failed rollback is logged; a failed push
-         is not)
+         names an alias on neither the old entry nor the new one (an
+         unregistered one before the sweep), --alias names an alias on
+         another entry than the old or new one (once there is a new entry),
+         ENTRY is an alias the pull moved or removed, a probed source
+         matched no source of the loaded expression, or a write failed
+         (the new entry and its alias moves are rolled back locally, a
+         failed rollback is logged; a failed push is not)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; or the options
-         were invalid; nothing written
+         were invalid (--move-aliases with --only-alias); nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
          table is gone; stderr names the op (if one failed) and the
          sources involved, with their recorded and live schemas;
@@ -1281,33 +1289,31 @@ def rebase(
     \b
     Examples:
       xorq catalog rebase prod-matches
+      xorq catalog rebase prod-matches --move-aliases
       xorq catalog rebase prod-matches --only-alias prod -a matches-v2
     """
+    if move_aliases and only_aliases:
+        raise click.UsageError("--move-aliases and --only-alias are mutually exclusive")
     with click_context_catalog(ctx):
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
+        entry_alias = _given_alias(catalog, entry)
 
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict  # noqa: PLC0415
-    from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
     from xorq.catalog.rebase import rebase_entry  # noqa: PLC0415
 
     with click_context_catalog(ctx):
-        try:
-            result = rebase_entry(
-                catalog_entry,
-                alias=alias,
-                move_aliases=only_aliases or None,
-                sync=sync,
-                ignore_mismatch=ignore_venv_mismatch,
-                cache_dir=_get_cache_dir(cache_dir),
-            )
-        except RebaseError as e:
-            # Kept from the handler, which collapses every error to exit 1.
-            result = e
-    if isinstance(result, RebaseError):
-        click.echo(str(result), err=True)
-        ctx.exit(result.exit_code)
+        result = rebase_entry(
+            catalog_entry,
+            alias=alias,
+            move_aliases=move_aliases,
+            only_aliases=only_aliases,
+            sync=sync,
+            ignore_mismatch=ignore_venv_mismatch,
+            cache_dir=_get_cache_dir(cache_dir),
+            entry_alias=entry_alias,
+        )
     if (conflict := result.conflict) is not None:
         if conflict.op_name is None:
             gone = [r for r in conflict.sources if r.verdict == Verdict.TABLE_MISSING]
@@ -1332,6 +1338,8 @@ def rebase(
             click.echo(conflict.detail, err=True)
         if alias:
             click.echo(f"Alias {alias!r} not added: the rebase conflicted", err=True)
+        if move_aliases or only_aliases:
+            click.echo("Aliases not moved: the rebase conflicted", err=True)
         ctx.exit(RebaseExit.CONFLICT)
     for report in result.reports:
         if report.verdict == Verdict.CHANGED:
@@ -1353,14 +1361,11 @@ def rebase(
         )
         if alias:
             click.echo(f"Alias {alias!r} not added: nothing to rebase", err=True)
+        if move_aliases or only_aliases:
+            click.echo("Aliases not moved: nothing to rebase", err=True)
     else:
         click.echo(f"Rebased {old} -> {new}", err=True)
-        for moved in result.moved_aliases:
-            click.echo(f"Moved alias {moved!r} -> {new}", err=True)
-        for taken, other in result.taken_aliases:
-            click.echo(f"Moved alias {taken!r} from {other} -> {new}", err=True)
-        for skipped in result.skipped_aliases:
-            click.echo(f"Alias {skipped!r} not moved: no longer on {old}", err=True)
+        _report_aliases(result.aliases, old, new, "--move-aliases or --only-alias")
     click.echo(new)
 
 
@@ -1924,6 +1929,33 @@ def _get_catalog_entry(catalog, name):
             f"Entry {name!r} not found — run 'xorq catalog list' "
             f"or 'xorq catalog list-aliases' to see available entries and aliases."
         ) from err
+
+
+def _given_alias(catalog: Catalog, entry: str) -> str | None:
+    """``entry`` if it names an alias: resolved before a pull, which may move it."""
+    return entry if entry in catalog.list_aliases() else None
+
+
+def _report_aliases(aliases: AliasOutcome, old: str, new: str, move_hint: str) -> None:
+    """One stderr line per alias named, or seen on ``old``, for the entry derived
+    from it; ``move_hint`` names the command's options that move what was left."""
+    for name in aliases.moved:
+        click.echo(f"Moved alias {name!r} -> {new}", err=True)
+    for name in aliases.added:
+        click.echo(f"Added alias {name!r} -> {new}", err=True)
+    for name in aliases.already:
+        click.echo(f"Alias {name!r} already on {new}", err=True)
+    for name in aliases.unmoved:
+        click.echo(
+            f"Alias {name!r} not moved: no longer on {old} after the pull", err=True
+        )
+    # 0.4.5's rebase moved every alias by default; what stays behind is said.
+    if aliases.left:
+        click.echo(
+            f"Aliases left on {old}: {', '.join(aliases.left)}; pass {move_hint} "
+            "to move them",
+            err=True,
+        )
 
 
 def _eval_entry(catalog_entry, code, instream=None, cache_dir=None):
