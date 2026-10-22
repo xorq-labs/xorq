@@ -156,13 +156,28 @@ class SQLBackend(BaseBackend, _DatabaseSchemaHandler):
         pretty: bool = False,
     ):
         """Compile an Ibis expression to a SQL string."""
-        query = self.compiler.to_sqlglot(expr, limit=limit, params=params)
+        query = self._to_sqlglot(expr, limit=limit, params=params)
         # Render a copy: the tree shares nodes and the generator mutates in
         # place; see `SQLGlotCompiler.to_sqlglot`.
         sql = query.sql(dialect=self.dialect, pretty=pretty)
         get_current_span().add_event("compile.sql", {"sql": sql})
         self._log(sql)
         return sql
+
+    def _to_sqlglot(
+        self,
+        expr: ir.Expr,
+        *,
+        limit: str | None = None,
+        params: Mapping[ir.Expr, Any] | None = None,
+    ) -> sge.Expression:
+        """Translate `expr` to the sqlglot tree this backend runs.
+
+        Subclasses override this to adjust the tree before it is rendered;
+        the result follows the `SQLGlotCompiler.to_sqlglot` contract and must
+        not be edited in place.
+        """
+        return self.compiler.to_sqlglot(expr, limit=limit, params=params)
 
     def _log(self, sql: str) -> None:
         """Log `sql`.

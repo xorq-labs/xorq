@@ -49,7 +49,12 @@ def project_and_cast_reader(
 
 
 # dialects whose planner inlines a CTE at every reference, scanning its body
-# once per reference; the others (duckdb) materialise it and scan it once
+# once per reference; the others scan it once. For duckdb that holds because
+# xorq's duckdb Backend._to_sqlglot marks MATERIALIZED every CTE that reads a
+# registered stream (duckdb itself inlines a twice-referenced CTE under a
+# LIMIT); the gizmosql backend compiles with the vendored duckdb compiler and
+# is safe only because its read_record_batches ingests the whole cache eagerly
+# (one reader)
 CTE_INLINING_DIALECTS = frozenset({"DataFusion"})
 # dialects whose optimiser re-scans a PARTITION BY-only window's input below
 # the SQL layer (a GROUP BY self-join), where counting Table nodes undercounts
@@ -66,8 +71,9 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     compiled to a sqlglot AST, and the ``Table`` nodes bearing that name are
     counted. On a dialect that inlines a CTE at every reference (datafusion),
     each CTE's body is weighted by its reference count, since a window or join
-    hoisted into a CTE and used twice scans its source twice; a dialect that
-    materialises CTEs (duckdb) scans the body once, and an overcount there
+    hoisted into a CTE and used twice scans its source twice; on duckdb, where
+    xorq's ``Backend._to_sqlglot`` marks a CTE over a registered stream
+    MATERIALIZED, the body is scanned once, and an overcount there
     would keep every batch buffered waiting for a reader that never comes
     (eviction starts only once ``max_readers`` readers exist). Counting
     ``Table`` AST nodes (rather than substrings of the rendered SQL) ignores
@@ -150,7 +156,9 @@ def tables_under_rescans(query) -> set[str]:
     a CTE reference. The rule over-approximates: any such window, aggregate or
     ranking, over any input, counts. Which of those duckdb re-scans is its
     optimiser's rule, not the AST's; the cost of a false positive is eviction,
-    not correctness."""
+    not correctness. (A CTE is counted once on duckdb because xorq's duckdb
+    ``Backend._to_sqlglot`` marks a CTE over a registered stream
+    MATERIALIZED.)"""
     import sqlglot as sg  # noqa: PLC0415
 
     def read_by(node) -> set[str]:
@@ -166,7 +174,10 @@ def tables_under_rescans(query) -> set[str]:
 
     sources: dict[str, set[str]] = {}
     for cte in query.find_all(sg.exp.CTE):
-        sources[cte.alias_or_name] = read_by(cte.this)
+        # an embedded raw-SQL query may define a CTE named like a generated
+        # one; merge rather than overwrite, so neither definition is lost
+        name = cte.alias_or_name
+        sources[name] = sources.get(name, set()) | read_by(cte.this)
 
     return set().union(
         *(
@@ -182,9 +193,11 @@ def _count_table_scans(query, inlines_ctes: bool) -> Counter:
     """Count ``Table`` nodes by name; with ``inlines_ctes``, expand each CTE by
     its reference count, else count each CTE body once.
 
-    The compilers hoist windows and joins into CTEs, and a CTE referenced by
-    both sides of a self cross join is inlined by datafusion (duckdb
-    materialises it): its body is scanned once per reference. The walk only
+    The compilers hoist windows and joins into CTEs, and datafusion inlines a
+    CTE at every reference, so a CTE referenced by both sides of a self cross
+    join has its body scanned once per reference. duckdb inlines it too under
+    a LIMIT; a CTE there is scanned once only because xorq's duckdb
+    ``Backend._to_sqlglot`` marks one over a registered stream MATERIALIZED. The walk only
     descends (the compiled AST shares nodes, so a node's parent pointer does
     not say where it was reached from) and stops at each scope: a CTE body, or
     a nested query with a WITH of its own (an embedded raw-SQL query, whose CTE
