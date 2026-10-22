@@ -2096,7 +2096,7 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
 
 
 def _assert_requirements_identical(entry_reqs):
-    distinct = {content for _, content in entry_reqs}
+    distinct = {content.replace(b"\r\n", b"\n").strip() for _, content in entry_reqs}
     if len(distinct) <= 1:
         return
     names = ", ".join(repr(name) for name, _ in entry_reqs)
