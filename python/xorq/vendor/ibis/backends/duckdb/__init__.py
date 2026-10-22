@@ -185,7 +185,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
             self._run_pre_execute_hooks(table)
 
-            query = self.compiler.to_sqlglot(table)
+            query = self._to_sqlglot(table)
         else:
             query = None
 
