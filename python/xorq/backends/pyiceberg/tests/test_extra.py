@@ -1,6 +1,7 @@
 import pyarrow as pa
 
 import xorq.api as xo
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
 from xorq.caching import SourceCache
 from xorq.tests.util import assert_frame_equal
@@ -104,3 +105,25 @@ def test_filter_by_snapshot(iceberg_con, quotes_df):
     actual = iceberg_con.table(table_name, snapshot_id=second_id).execute()
 
     assert not first["bid"].equals(actual["bid"])
+
+
+def test_read_at_latest_and_pinned_snapshot(iceberg_con, quotes_df):
+    table_name = "snapshot_rows"
+    iceberg_con.create_table(table_name, quotes_df, overwrite=True)
+    iceberg_con.insert(table_name, quotes_df)
+    *_, first_id, second_id = iceberg_con.list_snapshots()[table_name]
+    exprs = {
+        "latest": iceberg_con.table(table_name),
+        "first": iceberg_con.table(table_name, snapshot_id=first_id),
+        "second": iceberg_con.table(table_name, snapshot_id=second_id),
+        "hand_built": ops.DatabaseTable(
+            name=table_name,
+            schema=iceberg_con.get_schema(table_name),
+            source=iceberg_con,
+        ).to_expr(),
+    }
+
+    actual = {key: len(expr.execute()) for key, expr in exprs.items()}
+
+    n = len(quotes_df)
+    assert actual == {"latest": 2 * n, "first": n, "second": 2 * n, "hand_built": 2 * n}

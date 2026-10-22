@@ -4,7 +4,6 @@ import pyiceberg.expressions as ice
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.backends.pyiceberg.relations import PyIcebergTable
 from xorq.vendor.ibis.backends.sql.dialects import Postgres
 
 
@@ -35,21 +34,6 @@ def column(op, **_):
     return op.name
 
 
-@translate.register(PyIcebergTable)
-def iceberg_table(op, catalog=None, namespace=None, **kwargs):
-    if catalog is None:
-        raise ValueError("catalog cannot be None")
-    if namespace is None:
-        raise ValueError("namespace cannot be None")
-
-    ice_table = catalog.load_table(f"{namespace}.{op.name}")
-
-    if op.snapshot_id is not None:
-        return ice_table.scan(snapshot_id=op.snapshot_id)
-
-    return ice_table.scan()
-
-
 @translate.register(ops.DatabaseTable)
 def table(op, catalog=None, namespace=None, **kwargs):
     if catalog is None:
@@ -59,7 +43,7 @@ def table(op, catalog=None, namespace=None, **kwargs):
 
     ice_table = catalog.load_table(f"{namespace}.{op.name}")
 
-    return ice_table.scan()
+    return ice_table.scan(snapshot_id=getattr(op, "snapshot_id", None))
 
 
 @translate.register(ops.Filter)
