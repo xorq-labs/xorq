@@ -606,6 +606,16 @@ def test_assert_requirements_identical_raises_on_mismatch():
     assert "'a'" in msg and "'b'" in msg
 
 
+def test_assert_requirements_identical_ignores_line_endings():
+    _assert_requirements_identical(
+        [("linux", b"foo==1.0\nbar==2.0\n"), ("windows", b"foo==1.0\r\nbar==2.0")]
+    )
+    with pytest.raises(click.ClickException):
+        _assert_requirements_identical(
+            [("linux", b"foo==1.0\n"), ("windows", b"foo==2.0\r\n")]
+        )
+
+
 # --- uv-subprocess test helpers ---
 
 
