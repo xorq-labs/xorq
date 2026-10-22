@@ -15,6 +15,7 @@ from xorq.common.utils.graph_utils import (
 from xorq.common.utils.node_utils import (
     expr_to_unbound,
     find_by_expr_hash,
+    find_node,
     replace_by_expr_hash,
 )
 
@@ -183,3 +184,15 @@ def test_snapshot_hash_alignment_with_ibis_yaml(to_find_name):
     )
 
     assert found == node
+
+
+def test_find_by_expr_hash_unmatched_names_hash():
+    expr = xo.memtable({"a": [1]})
+    with pytest.raises(ValueError, match="no node with hash 'stale-hash'"):
+        find_by_expr_hash(expr, "stale-hash")
+
+
+def test_find_node_unmatched_tag_names_tag():
+    expr = xo.memtable({"a": [1]}).tag("present")
+    with pytest.raises(ValueError, match="no node with tag 'absent'"):
+        find_node(expr, None, "absent")
