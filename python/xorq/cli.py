@@ -901,7 +901,7 @@ class PdbGroup(click.Group):
             if ctx.params.get("pdb_runcall"):
                 return pdb.runcall(super().invoke, ctx)
             return super().invoke(ctx)
-        except (click.ClickException, click.exceptions.Exit, SystemExit):
+        except (click.ClickException, click.exceptions.Exit, click.Abort, SystemExit):
             raise
         except Exception as e:
             if ctx.params.get("use_pdb"):
