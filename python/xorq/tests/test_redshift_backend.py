@@ -74,11 +74,10 @@ import xorq  # noqa: E402
 import xorq.api as xo  # noqa: E402
 import xorq.backends.redshift as redshift_module  # noqa: E402
 import xorq.common.exceptions as exc  # noqa: E402
-import xorq.ibis_yaml.translate  # noqa: E402, F401 -- registers the yaml rules
 import xorq.vendor.ibis.expr.datatypes as dt  # noqa: E402
 from xorq.backends.postgres import Backend as PostgresBackend  # noqa: E402
 from xorq.backends.redshift import Backend as RedshiftBackend  # noqa: E402
-from xorq.ibis_yaml.common import TranslationContext  # noqa: E402
+from xorq.ibis_yaml.translate import make_context  # noqa: E402
 from xorq.vendor.ibis.backends.profiles import (  # noqa: E402
     Profile,
     check_for_exposed_secrets,
@@ -2750,7 +2749,7 @@ def test_an_unmappable_column_round_trips_through_yaml_with_its_spelling() -> No
     a dtype by its class name in the datatypes module, so a class defined
     anywhere else would serialise and then fail to load."""
     schema = RedshiftBackend._schema_from_catalog_rows(OFFERS_CATALOG_ROWS)
-    context = TranslationContext()
+    context = make_context()
 
     loaded = context.translate_from_yaml(context.translate_to_yaml(schema))
 
