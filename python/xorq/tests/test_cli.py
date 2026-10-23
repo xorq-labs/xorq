@@ -858,7 +858,9 @@ def test_run_cached_command_cache_types(tmp_path, fixture_dir, cache_type, ttl):
 @pytest.mark.parametrize(
     "host,port,cache_dir", [(None, None, None), ("localhost", None, "cache")]
 )
-def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
+def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port, monkeypatch):
+    # serve writes xorq_serve.db into its cwd
+    monkeypatch.chdir(tmp_path)
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "udxf_pipeline.py"
 
@@ -1151,7 +1153,10 @@ def test_examples(
     expr_name,
     examples_dir,
     tmp_path,
+    monkeypatch,
 ):
+    # the examples write caches and warehouses into the subprocesses' cwd
+    monkeypatch.chdir(tmp_path)
     # build
     builds_dir = tmp_path / "builds"
     example_path = examples_dir / example
@@ -1273,6 +1278,8 @@ def test_init_uv_build_uv_run(template, tmpdir):
         "xorq",
         "uv",
         "build",
+        "--builds-dir",
+        str(tmpdir / "builds"),
         str(path.joinpath("expr.py")),
     )
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
@@ -1319,6 +1326,8 @@ def test_uv_build_with_project_path(tmpdir):
         "xorq",
         "uv",
         "build",
+        "--builds-dir",
+        str(tmpdir / "builds"),
         str(script_path),
         "--project-path",
         str(path),
@@ -1343,6 +1352,8 @@ def test_uv_build_no_all_extras(tmpdir):
         "xorq",
         "uv",
         "build",
+        "--builds-dir",
+        str(tmpdir / "builds"),
         str(path / "expr.py"),
         "--no-all-extras",
     )
@@ -1374,6 +1385,8 @@ def test_uv_build_with_extra(tmpdir):
         "xorq",
         "uv",
         "build",
+        "--builds-dir",
+        str(tmpdir / "builds"),
         str(path / "expr.py"),
         "--no-all-extras",
         "--extra",
@@ -1754,7 +1767,15 @@ def test_uv_run_cached_roundtrip(tmpdir):
     path.joinpath("requirements.txt").unlink(missing_ok=True)
 
     (returncode, stdout, stderr) = subprocess_run(
-        ("xorq", "uv", "build", str(path / "expr.py")), text=True
+        (
+            "xorq",
+            "uv",
+            "build",
+            "--builds-dir",
+            str(tmpdir / "builds"),
+            str(path / "expr.py"),
+        ),
+        text=True,
     )
     assert returncode == 0, stderr
     # build_command prints the build directory path as the last line of stdout
@@ -1854,7 +1875,15 @@ def uv_unbound_build(tmp_path_factory, fixture_dir):
     shutil.copy2(fixture_dir / "pipeline_unbound.py", path / "expr.py")
 
     (returncode, stdout, stderr) = subprocess_run(
-        ("xorq", "uv", "build", str(path / "expr.py")), text=True
+        (
+            "xorq",
+            "uv",
+            "build",
+            "--builds-dir",
+            str(tmpdir / "builds"),
+            str(path / "expr.py"),
+        ),
+        text=True,
     )
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])

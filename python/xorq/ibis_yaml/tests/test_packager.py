@@ -100,6 +100,7 @@ def test_wheel_builder(template, tmpdir):
     packaged_builder = PackagedBuilder(
         script_path=script_path,
         bundle=packager.build(),
+        builds_dir=str(Path(tmpdir) / "builds"),
     )
     assert packaged_builder.build_path, packaged_builder.build_result.stderr
     assert list(packaged_builder.build_path.glob("*.whl"))
@@ -137,6 +138,7 @@ def test_wheel_runner(template, tmpdir):
     packaged_builder = PackagedBuilder(
         script_path=script_path,
         bundle=packager.build(),
+        builds_dir=str(Path(tmpdir) / "builds"),
     )
     packaged_runner = PackagedRunner(
         packaged_builder.build_path, output_path=str(output_path)

@@ -365,9 +365,14 @@ markers = [
     "bare_install: tests that build the wheel and drive the CLI against declared dependencies only",
     "bigquery: BigQuery tests",
     "redshift: Redshift tests",
+    "installs_entry_wheel: catalog test that installs an entry's wheel with uv, so entries carry the full wheel",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
+# keep only the last session's tmp_path dirs, and only for failed tests: a full
+# run writes tens of thousands of files (catalog repos, builds)
+tmp_path_retention_count = 1
+tmp_path_retention_policy = "failed"
 
 [tool.coverage.run]
 source = ["python/xorq"]

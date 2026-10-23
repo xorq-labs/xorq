@@ -1,5 +1,6 @@
 import shutil
 import uuid
+import zipfile
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
@@ -61,26 +62,67 @@ def _replay_rebuild(source_catalog_obj, target_path, on_unrebuilt_builder="raise
 TEST_WHEEL_NAME = "pkg-0.0.0-py3-none-any.whl"
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _cached_wheel_artifacts():
-    """Build the wheel once per test session and patch _ensure_wheel_artifacts to reuse it."""
-    pyproject_path = find_file_upwards(Path.cwd(), PYPROJECT_NAME)
-    packager = WheelPackager(pyproject_path.parent)
-    bundle = packager.build()
+def dist_info_only_wheel(wheel_path: Path, out_dir: Path) -> Path:
+    """A copy of ``wheel_path`` holding only its ``.dist-info`` members.
 
-    original = catalog_mod._ensure_wheel_artifacts
+    Same file name and metadata, a few KB instead of the 2 MB package. Catalog
+    tests carry an entry's wheel but, unless marked ``installs_entry_wheel``,
+    never install it: ``run`` and ``compose`` get ``--use-this-venv`` and
+    ``uv tool run`` is stubbed.
+    """
+    out_path = out_dir / wheel_path.name
+    with (
+        zipfile.ZipFile(wheel_path) as src,
+        zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as dst,
+    ):
+        for info in src.infolist():
+            if ".dist-info/" in info.filename:
+                dst.writestr(info, src.read(info))
+    return out_path
 
-    def _fast_ensure(build_dir, project_path=None):
+
+def wheel_artifacts_copier(wheel_path: Path, requirements_path: Path) -> Callable:
+    """An ``_ensure_wheel_artifacts`` that copies these files instead of building."""
+
+    def ensure(build_dir, project_path=None):
         build_dir = Path(build_dir)
         reqs_path = build_dir / DumpFiles.requirements
         if not list(build_dir.glob("*.whl")):
-            shutil.copy2(bundle.wheel_path, build_dir / bundle.wheel_path.name)
+            shutil.copy2(wheel_path, build_dir / wheel_path.name)
         if not reqs_path.exists():
-            shutil.copy2(bundle.requirements_path, reqs_path)
+            shutil.copy2(requirements_path, reqs_path)
 
-    catalog_mod._ensure_wheel_artifacts = _fast_ensure
-    yield
-    catalog_mod._ensure_wheel_artifacts = original
+    return ensure
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cached_wheel_artifacts(tmp_path_factory):
+    """Build the wheel once per test session; entries get its metadata-only
+    copy, including those the session-scoped templates add."""
+    pyproject_path = find_file_upwards(Path.cwd(), PYPROJECT_NAME)
+    bundle = WheelPackager(pyproject_path.parent).build()
+    metadata_only = dist_info_only_wheel(
+        bundle.wheel_path, tmp_path_factory.mktemp("wheel")
+    )
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            catalog_mod,
+            "_ensure_wheel_artifacts",
+            wheel_artifacts_copier(metadata_only, bundle.requirements_path),
+        )
+        yield bundle
+
+
+@pytest.fixture(autouse=True)
+def _installable_entry_wheel(request, monkeypatch, _cached_wheel_artifacts):
+    # autouse, so it is in place before the test's catalog fixtures add entries
+    if request.node.get_closest_marker("installs_entry_wheel"):
+        bundle = _cached_wheel_artifacts
+        monkeypatch.setattr(
+            catalog_mod,
+            "_ensure_wheel_artifacts",
+            wheel_artifacts_copier(bundle.wheel_path, bundle.requirements_path),
+        )
 
 
 def get_split_tree(repo):
@@ -276,6 +318,12 @@ def _catalog_populated_template(tmp_path_factory, backend_type, _data_dict_templ
     for path in _data_dict_template.values():
         catalog.add(path)
     return repo_path, store_dir
+
+
+@pytest.fixture(autouse=True)
+def _cwd_in_tmp_path(tmp_path, monkeypatch):
+    # compose, join and union build into ./builds; keep that out of the repo
+    monkeypatch.chdir(tmp_path)
 
 
 @pytest.fixture

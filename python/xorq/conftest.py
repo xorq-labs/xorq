@@ -7,6 +7,7 @@ import pytest
 from hypothesis import settings
 
 import xorq.api as xo
+import xorq.config
 from xorq.api import _
 from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY
 
@@ -15,6 +16,27 @@ from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY
 # deadline (backend execution time varies with load)
 settings.register_profile("xorq", max_examples=75, deadline=None)
 settings.load_profile("xorq")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _scratch_env(tmp_path_factory):
+    """Keep what tests' git and ``xorq`` subprocesses write inside the session.
+
+    ``git init`` copies its sample hooks into every repo the catalog tests make
+    (~1,800 a run), and each ``xorq run`` subprocess leaves a run log under
+    ``~/.local/share/xorq/runs``. An empty template dir and a session runs dir
+    stop both: the env var reaches subprocesses, and in-process runs read
+    ``env_config``, which was built from the environment at import.
+    """
+    runs_dir = str(tmp_path_factory.mktemp("runs"))
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("GIT_TEMPLATE_DIR", str(tmp_path_factory.mktemp("git-template")))
+        mp.setenv("XORQ_RUNS_LOGS_DIR", runs_dir)
+        mp.setattr(
+            "xorq.config.env_config",
+            xorq.config.env_config.clone(XORQ_RUNS_LOGS_DIR=runs_dir),
+        )
+        yield
 
 
 @pytest.fixture

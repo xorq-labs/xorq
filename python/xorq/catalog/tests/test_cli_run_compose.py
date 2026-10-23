@@ -799,6 +799,7 @@ def test_catalog_run_cached_reinvokes_via_uv(
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.installs_entry_wheel
 def test_catalog_run_uv_path_end_to_end(catalog_with_source_and_transform, tmp_path):
     """Full pipeline: archive => `uv tool run xorq run`. Slow because uv
     resolves and installs the entry's pinned env."""
@@ -1025,6 +1026,7 @@ def test_catalog_compose_emit_build_path_to_short_circuits(
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.installs_entry_wheel
 def test_catalog_compose_uv_path_end_to_end(
     catalog_with_source_and_transform, tmp_path
 ):
