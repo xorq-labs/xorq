@@ -1,4 +1,5 @@
 import shutil
+import stat
 import uuid
 import zipfile
 from collections.abc import Callable
@@ -73,7 +74,7 @@ def dist_info_only_wheel(wheel_path: Path, out_dir: Path) -> Path:
     out_path = out_dir / wheel_path.name
     with (
         zipfile.ZipFile(wheel_path) as src,
-        zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as dst,
+        zipfile.ZipFile(out_path, "w") as dst,
     ):
         for info in src.infolist():
             if ".dist-info/" in info.filename:
@@ -117,6 +118,12 @@ def _cached_wheel_artifacts(tmp_path_factory):
 def _installable_entry_wheel(request, monkeypatch, _cached_wheel_artifacts):
     # autouse, so it is in place before the test's catalog fixtures add entries
     if request.node.get_closest_marker("installs_entry_wheel"):
+        if "_data_dict_template" in request.fixturenames:
+            pytest.fail(
+                "installs_entry_wheel cannot use data_dict or catalog_populated: "
+                "their session templates carry the metadata-only wheel",
+                pytrace=False,
+            )
         bundle = _cached_wheel_artifacts
         monkeypatch.setattr(
             catalog_mod,
@@ -324,6 +331,20 @@ def _catalog_populated_template(tmp_path_factory, backend_type, _data_dict_templ
 def _cwd_in_tmp_path(tmp_path, monkeypatch):
     # compose, join and union build into ./builds; keep that out of the repo
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _removable_tmp_path(tmp_path):
+    """Make ``tmp_path`` writable again once the test is done.
+
+    git-annex makes its object directories read-only, and pytest removes a
+    passing test's ``tmp_path`` with ``rmtree(ignore_errors=True)``, which
+    leaves them behind. This teardown runs before that removal.
+    """
+    yield
+    for path in (tmp_path, *tmp_path.rglob("*")):
+        if path.is_dir() and not path.is_symlink():
+            path.chmod(path.stat().st_mode | stat.S_IWUSR)
 
 
 @pytest.fixture

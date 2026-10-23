@@ -369,9 +369,8 @@ markers = [
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
-# keep only the last session's tmp_path dirs, and only for failed tests: a full
-# run writes tens of thousands of files (catalog repos, builds)
-tmp_path_retention_count = 1
+# keep tmp_path dirs only for failed tests: a full run writes tens of thousands
+# of files (catalog repos, builds)
 tmp_path_retention_policy = "failed"
 
 [tool.coverage.run]
