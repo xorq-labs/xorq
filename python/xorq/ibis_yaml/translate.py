@@ -5,7 +5,7 @@ import datetime
 import decimal
 import functools
 import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -33,12 +33,11 @@ from xorq.expr.relations import (
     into_backend,
 )
 from xorq.ibis_yaml.common import (
+    FromYaml,
+    ToYaml,
     TranslationContext,
-    _translate_type,
     deserialize_callable,
-    register_from_yaml_handler,
     serialize_callable,
-    translate_to_yaml,
 )
 from xorq.ibis_yaml.enums import (
     NamespaceKey,
@@ -51,7 +50,8 @@ from xorq.ibis_yaml.normalize_registry import (
     deserialize_normalize_method,
     serialize_normalize_method,
 )
-from xorq.ibis_yaml.udf import _scalar_udf_from_yaml, _scalar_udf_to_yaml  # noqa: F401
+from xorq.ibis_yaml.udf import FROM_YAML_RULES as UDF_FROM_YAML_RULES
+from xorq.ibis_yaml.udf import TO_YAML_RULES as UDF_TO_YAML_RULES
 from xorq.ibis_yaml.utils import (
     freeze,
     load_cache_from_yaml,
@@ -89,7 +89,6 @@ convert_to_node_ref = convert_to_ref(RegistryEnum.nodes)
 convert_to_schema_ref = convert_to_ref(RegistryEnum.schemas)
 
 
-@translate_to_yaml.register(ops.Node)
 def _object_to_yaml(obj: ops.Node, context: Any) -> dict:
     return freeze(
         {"op": obj.__class__.__name__}
@@ -105,7 +104,6 @@ def _object_to_yaml(obj: ops.Node, context: Any) -> dict:
     )
 
 
-@translate_to_yaml.register(Callable)
 def _callable_to_yaml(obj: Callable, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -115,24 +113,20 @@ def _callable_to_yaml(obj: Callable, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("Callable")
 def _callable_from_yaml(yaml_dict: dict, compiler: Any) -> Callable:
     return deserialize_callable(yaml_dict["pickled_fn"])
 
 
-@translate_to_yaml.register(tuple)
 def _tuple_to_yaml(tpl: tuple, context: TranslationContext) -> dict:
     return freeze(
         {"op": "tuple", "values": [context.translate_to_yaml(value) for value in tpl]}
     )
 
 
-@register_from_yaml_handler("tuple")
 def _tuple_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     return tuple(context.translate_from_yaml(value) for value in yaml_dict["values"])
 
 
-@translate_to_yaml.register(frozenset)
 def _frozenset_to_yaml(tpl: tuple, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -142,14 +136,12 @@ def _frozenset_to_yaml(tpl: tuple, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("frozenset")
 def _frozenset_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     return frozenset(
         context.translate_from_yaml(value) for value in yaml_dict["values"]
     )
 
 
-@translate_to_yaml.register(tm.IntervalUnit)
 def _interval_unit_to_yaml(
     interval_unit: tm.IntervalUnit, context: TranslationContext
 ) -> dict:
@@ -165,24 +157,20 @@ def _interval_unit_to_yaml(
     )
 
 
-@translate_to_yaml.register(tm.DateUnit)
 def _date_unit_to_yaml(unit: tm.DateUnit, context: TranslationContext) -> dict:
     return freeze({"op": "IntervalUnit", "name": "DateUnit", "value": unit.value})
 
 
-@translate_to_yaml.register(tm.TimeUnit)
 def _time_unit_to_yaml(unit: tm.TimeUnit, context: TranslationContext) -> dict:
     return freeze({"op": "IntervalUnit", "name": "TimeUnit", "value": unit.value})
 
 
-@translate_to_yaml.register(tm.TimestampUnit)
 def _timestamp_unit_to_yaml(
     unit: tm.TimestampUnit, context: TranslationContext
 ) -> dict:
     return freeze({"op": "IntervalUnit", "name": "TimestampUnit", "value": unit.value})
 
 
-@register_from_yaml_handler("IntervalUnit")
 def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     unit_classes = {
         "DateUnit": tm.DateUnit,
@@ -195,37 +183,30 @@ def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> an
     return cls(yaml_dict["value"])
 
 
-@translate_to_yaml.register(bool)
 def _bool_to_yaml(value: bool, context: TranslationContext) -> bool:
     return value
 
 
-@register_from_yaml_handler("bool")
 def _bool_from_yaml(yaml_dict: dict, context: TranslationContext) -> bool:
     return yaml_dict["value"]
 
 
-@translate_to_yaml.register(int)
 def _int_to_yaml(val: int, context: TranslationContext) -> int:
     return val
 
 
-@register_from_yaml_handler("int")
 def _int_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return int(yaml_dict["value"])
 
 
-@translate_to_yaml.register(float)
 def _float_to_yaml(dct: float, context: TranslationContext) -> dict:
     return freeze({"op": "float", "value": str(dct)})
 
 
-@register_from_yaml_handler("float")
 def _float_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return float(yaml_dict["value"])
 
 
-@_translate_type.register(dt.Timestamp)
 def _translate_timestamp_type(dtype: dt.Timestamp) -> dict:
     base = {"name": "Timestamp", "nullable": dtype.nullable}
     if dtype.timezone is not None:
@@ -233,7 +214,6 @@ def _translate_timestamp_type(dtype: dt.Timestamp) -> dict:
     return freeze(base)
 
 
-@_translate_type.register(dt.Decimal)
 def _translate_decimal_type(dtype: dt.Decimal) -> dict:
     base = {"name": "Decimal", "nullable": dtype.nullable}
     if dtype.precision is not None:
@@ -243,7 +223,6 @@ def _translate_decimal_type(dtype: dt.Decimal) -> dict:
     return freeze(base)
 
 
-@_translate_type.register(dt.Array)
 def _translate_array_type(dtype: dt.Array) -> dict:
     return freeze(
         {
@@ -254,7 +233,6 @@ def _translate_array_type(dtype: dt.Array) -> dict:
     )
 
 
-@_translate_type.register(dt.Map)
 def _translate_map_type(dtype: dt.Map) -> dict:
     return freeze(
         {
@@ -266,7 +244,6 @@ def _translate_map_type(dtype: dt.Map) -> dict:
     )
 
 
-@_translate_type.register(dt.Interval)
 def _translate_type_interval(dtype: dt.Interval) -> dict:
     return freeze(
         {
@@ -277,7 +254,6 @@ def _translate_type_interval(dtype: dt.Interval) -> dict:
     )
 
 
-@_translate_type.register(dt.Struct)
 def _translate_struct_type(dtype: dt.Struct) -> dict:
     return freeze(
         {
@@ -326,7 +302,6 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
         return value
 
 
-@translate_to_yaml.register(dt.DataType)
 @convert_to_dtype_ref
 def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
     return freeze(
@@ -343,7 +318,6 @@ def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("DataType")
 def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     typ = getattr(dt, yaml_dict["type"])
     dct = toolz.dissoc(yaml_dict, "op", "type")
@@ -355,12 +329,10 @@ def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     )
 
 
-@translate_to_yaml.register(ir.Expr)
 def _expr_to_yaml(expr: ir.Expr, context: any) -> dict:
     return context.translate_to_yaml(expr.op())
 
 
-@translate_to_yaml.register(ops.WindowFunction)
 def _window_function_to_yaml(
     op: ops.WindowFunction, context: TranslationContext
 ) -> dict:
@@ -393,7 +365,6 @@ def _window_function_to_yaml(
     return freeze(result)
 
 
-@register_from_yaml_handler("WindowFunction")
 def _window_function_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     func = context.translate_from_yaml(yaml_dict["args"][0])
     group_by = [context.translate_from_yaml(g) for g in yaml_dict.get("group_by", [])]
@@ -415,7 +386,6 @@ def _window_function_from_yaml(yaml_dict: dict, context: TranslationContext) -> 
     ).to_expr()
 
 
-@translate_to_yaml.register(ops.WindowBoundary)
 def _window_boundary_to_yaml(
     op: ops.WindowBoundary, context: TranslationContext
 ) -> dict:
@@ -429,13 +399,11 @@ def _window_boundary_to_yaml(
     )
 
 
-@register_from_yaml_handler("WindowBoundary")
 def _window_boundary_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     value = context.translate_from_yaml(yaml_dict["value"])
     return ops.WindowBoundary(value, preceding=yaml_dict["preceding"])
 
 
-@translate_to_yaml.register(ops.UnboundTable)
 @convert_to_node_ref
 def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) -> dict:
     namespace_dict = freeze(
@@ -450,11 +418,10 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) ->
             "name": op.name,
             "namespace": namespace_dict,
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
-@register_from_yaml_handler("UnboundTable")
 def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     table_name = yaml_dict["name"]
     namespace_dict = yaml_dict.get("namespace", {})
@@ -465,7 +432,6 @@ def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
     return ibis.table(schema, name=table_name, catalog=catalog, database=database)
 
 
-@translate_to_yaml.register(ops.DatabaseTable)
 @convert_to_node_ref
 def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) -> dict:
     profile_name = op.source._profile.hash_name
@@ -483,12 +449,11 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
             NodeKey.profile: profile_name,
             NodeKey.namespace: namespace_dict,
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
     return node_dict
 
 
-@register_from_yaml_handler("DatabaseTable")
 def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ibis.Expr:
     profile_name = yaml_dict.get(NodeKey.profile)
     table_name = yaml_dict.get(NodeKey.table)
@@ -512,7 +477,6 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
     ).to_expr()
 
 
-@translate_to_yaml.register(CachedNode)
 @convert_to_node_ref
 def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
     # source should be called profile_name
@@ -524,11 +488,10 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
             "source": op.source._profile.hash_name,
             "cache": translate_cache(op.cache, context),
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
-@register_from_yaml_handler("CachedNode")
 def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     name = yaml_dict["name"]
@@ -644,7 +607,6 @@ def load_writer_from_yaml(writer_yaml: dict, context: TranslationContext) -> Any
             raise ValueError(f"Unknown writer kind {kind!r}")
 
 
-@translate_to_yaml.register(TeeNode)
 @convert_to_node_ref
 def _tee_node_to_yaml(op: TeeNode, context: TranslationContext) -> dict:
     return freeze(
@@ -654,11 +616,10 @@ def _tee_node_to_yaml(op: TeeNode, context: TranslationContext) -> dict:
             "drain": op.drain,
             "writer": translate_writer(op.writer),
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
-@register_from_yaml_handler("TeeNode")
 def _tee_node_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     parent = context.translate_from_yaml(yaml_dict["parent"])
@@ -672,7 +633,6 @@ def _tee_node_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr
     return op.to_expr()
 
 
-@translate_to_yaml.register(RemoteTable)
 @convert_to_node_ref
 def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
     deterministic_name = tokenize(op)
@@ -686,11 +646,10 @@ def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
             "profile": profile_name,
             "remote_expr": remote_expr_yaml,
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
-@register_from_yaml_handler("RemoteTable")
 def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     profile_name = yaml_dict.get("profile")
     table_name = yaml_dict.get("table")
@@ -734,7 +693,6 @@ def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
             )
 
 
-@translate_to_yaml.register(Read)
 @convert_to_node_ref
 def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
     profile_hash_name = (
@@ -762,11 +720,10 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
             NodeKey.read_kwargs: read_kwargs,
             NodeKey.normalize_method: serialize_normalize_method(op.normalize_method),
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
-@register_from_yaml_handler("Read")
 def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     source = context.profiles[yaml_dict[NodeKey.profile]]
@@ -788,17 +745,14 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return read_op.to_expr()
 
 
-@translate_to_yaml.register(str)
 def _str_to_yaml(string: str, context: TranslationContext) -> str:
     return string
 
 
-@register_from_yaml_handler("str")
 def _str_from_yaml(yaml_dict: dict, context: TranslationContext) -> str:
     return yaml_dict["value"]
 
 
-@translate_to_yaml.register(bytes)
 def _bytes_to_yaml(value: bytes, context: TranslationContext) -> dict:
     return {
         "op": "bytes",
@@ -806,17 +760,14 @@ def _bytes_to_yaml(value: bytes, context: TranslationContext) -> dict:
     }
 
 
-@register_from_yaml_handler("bytes")
 def _bytes_from_yaml(yaml_dict: dict, context: TranslationContext) -> bytes:
     return base64.b64decode(yaml_dict["value"])
 
 
-@translate_to_yaml.register(type(None))
 def _none_to_yaml(value: None, context: TranslationContext) -> None:
     return None
 
 
-@translate_to_yaml.register(NamedScalarParameter)
 def _named_scalar_param_to_yaml(
     op: NamedScalarParameter, context: TranslationContext
 ) -> dict:
@@ -834,7 +785,6 @@ def _named_scalar_param_to_yaml(
     )
 
 
-@register_from_yaml_handler("NamedScalarParameter")
 def _named_scalar_param_from_yaml(
     yaml_dict: dict, context: TranslationContext
 ) -> ir.Expr:
@@ -848,7 +798,6 @@ def _named_scalar_param_from_yaml(
     return NamedScalarParameter(dtype=dtype, label=label, default=default).to_expr()
 
 
-@translate_to_yaml.register(ops.Literal)
 def _literal_to_yaml(op: ops.Literal, context: TranslationContext) -> dict:
     value = _translate_literal_value(op.value, op.dtype)
     return freeze(
@@ -856,14 +805,12 @@ def _literal_to_yaml(op: ops.Literal, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("Literal")
 def _literal_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     value = yaml_dict["value"]
     dtype = context.translate_from_yaml(yaml_dict["type"])
     return ibis.literal(value, type=dtype)
 
 
-@translate_to_yaml.register(ops.Lag)
 def _lag_to_yaml(op: ops.Lag, context: TranslationContext) -> dict:
     result = {
         "op": "Lag",
@@ -882,7 +829,6 @@ def _lag_to_yaml(op: ops.Lag, context: TranslationContext) -> dict:
     return node_dict
 
 
-@register_from_yaml_handler("Lag")
 def _lag_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = context.translate_from_yaml(yaml_dict["arg"])
 
@@ -897,9 +843,6 @@ def _lag_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return arg.lag(offset, default)
 
 
-@translate_to_yaml.register(ops.Intersection)
-@translate_to_yaml.register(ops.Union)
-@translate_to_yaml.register(ops.Difference)
 def _set_op_to_yaml(op: ops.Set, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -921,7 +864,6 @@ set_ops_map = {
 }
 
 
-@register_from_yaml_handler("Intersection", "Union", "Difference")
 def _set_op(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     left = context.translate_from_yaml(yaml_dict["left"])
     right = context.translate_from_yaml(yaml_dict["right"])
@@ -930,7 +872,6 @@ def _set_op(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return set_op(left, right, distinct=distinct).to_expr()
 
 
-@translate_to_yaml.register(ops.Filter)
 @convert_to_node_ref
 def _filter_to_yaml(op: ops.Filter, context: TranslationContext) -> dict:
     node_dict = freeze(
@@ -943,7 +884,6 @@ def _filter_to_yaml(op: ops.Filter, context: TranslationContext) -> dict:
     return node_dict
 
 
-@register_from_yaml_handler("Filter")
 def _filter_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     parent = context.translate_from_yaml(yaml_dict["parent"])
     predicates = [context.translate_from_yaml(pred) for pred in yaml_dict["predicates"]]
@@ -951,7 +891,6 @@ def _filter_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return filter_op.to_expr()
 
 
-@translate_to_yaml.register(ops.Project)
 @convert_to_node_ref
 def _project_to_yaml(op: ops.Project, context: TranslationContext) -> dict:
     node_dict = {
@@ -964,7 +903,6 @@ def _project_to_yaml(op: ops.Project, context: TranslationContext) -> dict:
     return freeze(node_dict)
 
 
-@register_from_yaml_handler("Project")
 def _project_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     parent = context.translate_from_yaml(yaml_dict["parent"])
 
@@ -978,7 +916,6 @@ def _project_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return projected
 
 
-@translate_to_yaml.register(ops.Aggregate)
 @convert_to_node_ref
 def _aggregate_to_yaml(op: ops.Aggregate, context: TranslationContext) -> dict:
     return freeze(
@@ -997,7 +934,6 @@ def _aggregate_to_yaml(op: ops.Aggregate, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("Aggregate")
 def _aggregate_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     parent = context.translate_from_yaml(yaml_dict["parent"])
     by = yaml_dict.get("by", {})
@@ -1029,7 +965,6 @@ def _aggregate_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Exp
     return result
 
 
-@translate_to_yaml.register(ops.JoinChain)
 @convert_to_node_ref
 def _join_to_yaml(op: ops.JoinChain, context: TranslationContext) -> dict:
     node_dict = {
@@ -1052,7 +987,6 @@ def _join_to_yaml(op: ops.JoinChain, context: TranslationContext) -> dict:
     return freeze(node_dict)
 
 
-@translate_to_yaml.register(ops.DropColumns)
 @convert_to_node_ref
 def _drop_columns_to_yaml(op: ops.DropColumns, context: TranslationContext) -> dict:
     return freeze(
@@ -1064,7 +998,6 @@ def _drop_columns_to_yaml(op: ops.DropColumns, context: TranslationContext) -> d
     )
 
 
-@register_from_yaml_handler("JoinChain")
 def _join_chain_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     first = context.translate_from_yaml(yaml_dict["first"])
     result = first
@@ -1082,7 +1015,6 @@ def _join_chain_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Ex
     return result
 
 
-@translate_to_yaml.register(ops.InSubquery)
 def _in_subquery_to_yaml(op: ops.InSubquery, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -1094,14 +1026,12 @@ def _in_subquery_to_yaml(op: ops.InSubquery, context: TranslationContext) -> dic
     )
 
 
-@register_from_yaml_handler("InSubquery")
 def _in_subquery_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     needle = context.translate_from_yaml(yaml_dict["needle"])
     haystack = context.translate_from_yaml(yaml_dict["haystack"])
     return ops.InSubquery(haystack, needle).to_expr()
 
 
-@translate_to_yaml.register(ops.Field)
 def _field_to_yaml(op: ops.Field, context: TranslationContext) -> dict:
     result = {
         "op": "Field",
@@ -1119,7 +1049,6 @@ def _field_to_yaml(op: ops.Field, context: TranslationContext) -> dict:
     return node_dict
 
 
-@register_from_yaml_handler("Field")
 def field_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     relation = context.translate_from_yaml(yaml_dict["relation"])
     target_name = yaml_dict["name"]
@@ -1131,7 +1060,6 @@ def field_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return freeze(field)
 
 
-@translate_to_yaml.register(ops.SelfReference)
 def _self_reference_to_yaml(op: ops.SelfReference, context: TranslationContext) -> dict:
     result = {"op": "SelfReference", "identifier": op.identifier}
     if op.args:
@@ -1139,7 +1067,6 @@ def _self_reference_to_yaml(op: ops.SelfReference, context: TranslationContext) 
     return freeze(result)
 
 
-@register_from_yaml_handler("SelfReference")
 def _self_reference_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     underlying = None
     if "args" in yaml_dict and yaml_dict["args"]:
@@ -1154,7 +1081,6 @@ def _self_reference_from_yaml(yaml_dict: dict, context: TranslationContext) -> i
     return ref.to_expr()
 
 
-@translate_to_yaml.register(ops.JoinReference)
 @convert_to_node_ref
 def _joinreference_to_yaml(op: ops.JoinReference, context: TranslationContext) -> dict:
     return freeze(
@@ -1166,14 +1092,11 @@ def _joinreference_to_yaml(op: ops.JoinReference, context: TranslationContext) -
     )
 
 
-@register_from_yaml_handler("JoinReference")
 def _join_reference_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     table_yaml = yaml_dict["parent"]
     return context.translate_from_yaml(table_yaml)
 
 
-@translate_to_yaml.register(FrozenDict)
-@translate_to_yaml.register(FrozenOrderedDict)
 def _frozenordereddict_to_yaml(dct: dict, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -1188,7 +1111,6 @@ def _frozenordereddict_to_yaml(dct: dict, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("FrozenOrderedDict")
 def _frozenordereddict_from_yaml(
     yaml_dict: dict, context: TranslationContext
 ) -> FrozenOrderedDict:
@@ -1201,7 +1123,6 @@ def _frozenordereddict_from_yaml(
     return dct
 
 
-@register_from_yaml_handler("FrozenDict")
 def _frozendict_from_yaml(yaml_dict: dict, context: TranslationContext) -> FrozenDict:
     dct = FrozenDict(
         {
@@ -1212,8 +1133,6 @@ def _frozendict_from_yaml(yaml_dict: dict, context: TranslationContext) -> Froze
     return dct
 
 
-@translate_to_yaml.register(HashingTag)
-@translate_to_yaml.register(Tag)
 @convert_to_node_ref
 def _tag_to_yaml(op: Tag, context: Any) -> dict:
     return freeze(
@@ -1222,14 +1141,13 @@ def _tag_to_yaml(op: Tag, context: Any) -> dict:
             "parent": context.translate_to_yaml(op.parent),
             "metadata": context.translate_to_yaml(op.metadata),
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
 _tag_classes = {"Tag": Tag, "HashingTag": HashingTag}
 
 
-@register_from_yaml_handler("Tag", "HashingTag")
 def _tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     cls = _tag_classes[yaml_dict["op"]]
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
@@ -1242,7 +1160,6 @@ def _tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     ).to_expr()
 
 
-@translate_to_yaml.register(CacheTag)
 @convert_to_node_ref
 def _cache_tag_to_yaml(op: CacheTag, context: Any) -> dict:
     return freeze(
@@ -1252,11 +1169,10 @@ def _cache_tag_to_yaml(op: CacheTag, context: Any) -> dict:
             "uncached": context.translate_to_yaml(op.uncached),
             "cache": translate_cache(op.cache, context),
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
-@register_from_yaml_handler("CacheTag")
 def _cache_tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
@@ -1270,7 +1186,6 @@ def _cache_tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     ).to_expr()
 
 
-@translate_to_yaml.register(ops.Argument)
 def _array_filter_to_yaml(op: ops.Argument, context: Any) -> dict:
     return freeze(
         {
@@ -1282,7 +1197,6 @@ def _array_filter_to_yaml(op: ops.Argument, context: Any) -> dict:
     )
 
 
-@register_from_yaml_handler("Argument")
 def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     name = context.translate_from_yaml(yaml_dict["name"])
     shape = context.translate_from_yaml(yaml_dict["shape"])
@@ -1291,7 +1205,6 @@ def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     return ops.Argument(name, shape=shape, dtype=dtype).to_expr()
 
 
-@translate_to_yaml.register(ds.DataShape)
 def _columnar_to_yaml(op, context) -> dict:
     return freeze(
         {
@@ -1301,12 +1214,10 @@ def _columnar_to_yaml(op, context) -> dict:
     )
 
 
-@register_from_yaml_handler("Columnar")
-def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> Any:
+def _columnar_from_yaml(yaml_dict: dict, context: Any) -> Any:
     return Columnar()
 
 
-@translate_to_yaml.register(Schema)
 @convert_to_schema_ref
 def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
     return freeze(
@@ -1317,7 +1228,6 @@ def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler(Schema.__name__)
 def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
     return Schema(toolz.valmap(context.translate_from_yaml, yaml_dict["value"]))
 
@@ -1360,10 +1270,206 @@ def _import_estimator_class(module: str, classname: str):
     return getattr(mod, classname)
 
 
-@register_from_yaml_handler("SklearnEstimator")
 def _sklearn_estimator_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     cls = _import_estimator_class(
         yaml_dict["estimator_module"], yaml_dict["estimator_class"]
     )
     params = {k: context.translate_from_yaml(v) for k, v in yaml_dict["params"].items()}
     return cls(**params)
+
+
+TO_YAML_RULES: FrozenDict[type, ToYaml] = FrozenDict(
+    {
+        ops.Node: _object_to_yaml,
+        Callable: _callable_to_yaml,
+        tuple: _tuple_to_yaml,
+        frozenset: _frozenset_to_yaml,
+        tm.IntervalUnit: _interval_unit_to_yaml,
+        tm.DateUnit: _date_unit_to_yaml,
+        tm.TimeUnit: _time_unit_to_yaml,
+        tm.TimestampUnit: _timestamp_unit_to_yaml,
+        bool: _bool_to_yaml,
+        int: _int_to_yaml,
+        float: _float_to_yaml,
+        dt.DataType: _datatype_to_yaml,
+        ir.Expr: _expr_to_yaml,
+        ops.WindowFunction: _window_function_to_yaml,
+        ops.WindowBoundary: _window_boundary_to_yaml,
+        ops.UnboundTable: _unbound_table_to_yaml,
+        ops.DatabaseTable: _database_table_to_yaml,
+        CachedNode: _cached_node_to_yaml,
+        TeeNode: _tee_node_to_yaml,
+        RemoteTable: _remotetable_to_yaml,
+        Read: _read_to_yaml,
+        str: _str_to_yaml,
+        bytes: _bytes_to_yaml,
+        type(None): _none_to_yaml,
+        NamedScalarParameter: _named_scalar_param_to_yaml,
+        ops.Literal: _literal_to_yaml,
+        ops.Lag: _lag_to_yaml,
+        ops.Intersection: _set_op_to_yaml,
+        ops.Union: _set_op_to_yaml,
+        ops.Difference: _set_op_to_yaml,
+        ops.Filter: _filter_to_yaml,
+        ops.Project: _project_to_yaml,
+        ops.Aggregate: _aggregate_to_yaml,
+        ops.JoinChain: _join_to_yaml,
+        ops.DropColumns: _drop_columns_to_yaml,
+        ops.InSubquery: _in_subquery_to_yaml,
+        ops.Field: _field_to_yaml,
+        ops.SelfReference: _self_reference_to_yaml,
+        ops.JoinReference: _joinreference_to_yaml,
+        FrozenDict: _frozenordereddict_to_yaml,
+        FrozenOrderedDict: _frozenordereddict_to_yaml,
+        HashingTag: _tag_to_yaml,
+        Tag: _tag_to_yaml,
+        CacheTag: _cache_tag_to_yaml,
+        ops.Argument: _array_filter_to_yaml,
+        ds.DataShape: _columnar_to_yaml,
+        Schema: _schema_to_yaml,
+    }
+)
+
+FROM_YAML_RULES: FrozenDict[str, FromYaml] = FrozenDict(
+    {
+        "Callable": _callable_from_yaml,
+        "tuple": _tuple_from_yaml,
+        "frozenset": _frozenset_from_yaml,
+        "IntervalUnit": _interval_unit_from_yaml,
+        "bool": _bool_from_yaml,
+        "int": _int_from_yaml,
+        "float": _float_from_yaml,
+        "DataType": _datatype_from_yaml,
+        "WindowFunction": _window_function_from_yaml,
+        "WindowBoundary": _window_boundary_from_yaml,
+        "UnboundTable": _unbound_table_from_yaml,
+        "DatabaseTable": database_table_from_yaml,
+        "CachedNode": _cached_node_from_yaml,
+        "TeeNode": _tee_node_from_yaml,
+        "RemoteTable": _remotetable_from_yaml,
+        "Read": _read_from_yaml,
+        "str": _str_from_yaml,
+        "bytes": _bytes_from_yaml,
+        "NamedScalarParameter": _named_scalar_param_from_yaml,
+        "Literal": _literal_from_yaml,
+        "Lag": _lag_from_yaml,
+        "Intersection": _set_op,
+        "Union": _set_op,
+        "Difference": _set_op,
+        "Filter": _filter_from_yaml,
+        "Project": _project_from_yaml,
+        "Aggregate": _aggregate_from_yaml,
+        "JoinChain": _join_chain_from_yaml,
+        "InSubquery": _in_subquery_from_yaml,
+        "Field": field_from_yaml,
+        "SelfReference": _self_reference_from_yaml,
+        "JoinReference": _join_reference_from_yaml,
+        "FrozenOrderedDict": _frozenordereddict_from_yaml,
+        "FrozenDict": _frozendict_from_yaml,
+        "Tag": _tag_from_yaml,
+        "HashingTag": _tag_from_yaml,
+        "CacheTag": _cache_tag_from_yaml,
+        "Argument": _array_filter_from_yaml,
+        "Columnar": _columnar_from_yaml,
+        Schema.__name__: _schema_from_yaml,
+        "SklearnEstimator": _sklearn_estimator_from_yaml,
+    }
+)
+
+TYPE_RULES: FrozenDict[type, Callable[[dt.DataType], dict]] = FrozenDict(
+    {
+        dt.Timestamp: _translate_timestamp_type,
+        dt.Decimal: _translate_decimal_type,
+        dt.Array: _translate_array_type,
+        dt.Map: _translate_map_type,
+        dt.Interval: _translate_type_interval,
+        dt.Struct: _translate_struct_type,
+    }
+)
+
+
+def dispatch_on_type(rules: Mapping[type, Callable], default: Callable) -> Callable:
+    """A ``singledispatch`` over ``rules``, falling back to ``default``."""
+    dispatch = functools.singledispatch(default)
+    for typ, rule in rules.items():
+        dispatch.register(typ, rule)
+    return dispatch
+
+
+def _no_to_yaml_rule(op: Any, context: TranslationContext | None) -> dict:
+    raise NotImplementedError(f"No translation rule for {type(op)}")
+
+
+def _plain_type(dtype: dt.DataType) -> dict:
+    return freeze({"name": type(dtype).__name__, "nullable": dtype.nullable})
+
+
+_translate_type = dispatch_on_type(TYPE_RULES, default=_plain_type)
+translate_to_yaml = functools.lru_cache(maxsize=None, typed=True)(
+    dispatch_on_type(UDF_TO_YAML_RULES | TO_YAML_RULES, default=_no_to_yaml_rule)
+)
+FROM_YAML: FrozenDict[str, FromYaml] = FrozenDict(UDF_FROM_YAML_RULES | FROM_YAML_RULES)
+
+
+@functools.wraps(translate_to_yaml)
+def safe_translate_to_yaml(*args, **kwargs):
+    # the cache needs hashable arguments; an unhashable one is translated uncached
+    try:
+        return translate_to_yaml(*args, **kwargs)
+    except Exception:
+        return translate_to_yaml.__wrapped__(*args, **kwargs)
+
+
+def default_handler(yaml_dict: dict, context: TranslationContext):
+    spec = dict(yaml_dict)
+    cls = getattr(ops, spec["op"])
+    return cls(
+        **{
+            key: translate_from_yaml(spec[key], context)
+            for key in tuple(cls.__signature__.parameters)
+        }
+    ).to_expr()
+
+
+@functools.lru_cache(maxsize=None, typed=True)
+def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
+    match yaml_dict:
+        case None:
+            return None
+        case bool() | int() | float() | str():
+            return yaml_dict
+        case {RefEnum.dtype_ref: dtype_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_dtype(dtype_ref)
+        case {RefEnum.node_ref: node_ref, RefEnum.schema_ref: _schema_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_node(node_ref)
+        case {RefEnum.node_ref: node_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_node(node_ref)
+        case {"op": op_type}:
+            return FROM_YAML.get(op_type, default_handler)(yaml_dict, context)
+        case {RefEnum.schema_ref: schema_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_schema(schema_ref)
+        case _:
+            raise ValueError(f"don't know how to handle keys ({tuple(yaml_dict)})")
+
+
+def make_context(**kwargs) -> TranslationContext:
+    """A TranslationContext that translates with this module's rules."""
+    return TranslationContext(
+        to_yaml=safe_translate_to_yaml, from_yaml=translate_from_yaml, **kwargs
+    )
