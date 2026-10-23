@@ -142,7 +142,6 @@ class PgADBC(ADBCBase):
 PostgresConfig = EnvConfigable.subclass_from_env_file(
     env_templates_dir.joinpath(".env.postgres.template")
 )
-postgres_config = PostgresConfig.from_env()
 
 
 def make_credential_defaults():
@@ -153,10 +152,11 @@ def make_credential_defaults():
 
 
 def make_connection_defaults():
+    config = PostgresConfig.from_env()
     return {
-        "host": postgres_config["POSTGRES_HOST"],
-        "port": postgres_config["POSTGRES_PORT"],
-        "database": postgres_config["POSTGRES_DATABASE"],
+        "host": config["POSTGRES_HOST"],
+        "port": config["POSTGRES_PORT"],
+        "database": config["POSTGRES_DATABASE"],
     }
 
 
