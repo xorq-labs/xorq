@@ -53,6 +53,7 @@ jobs:
             extras:
               - --extra postgres
               - --extra examples
+              - --extra pyiceberg  # test_pyiceberg_catalog: an iceberg catalog in postgres
             sys-deps:
               - libpq5
           - name: pandas

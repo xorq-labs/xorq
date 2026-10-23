@@ -1,7 +1,3 @@
-import os
-
-import pytest
-
 from xorq.backends.pyiceberg import Backend as PyIcebergBackend
 
 
@@ -9,23 +5,7 @@ def test_can_connect(iceberg_con):
     assert iceberg_con is not None
 
 
-@pytest.mark.parametrize(
-    "uri",
-    [
-        pytest.param(None, id="default"),
-        pytest.param(
-            (
-                f"postgresql://{os.environ['POSTGRES_USER']}:"
-                f"{os.environ['POSTGRES_PASSWORD']}@"
-                f"{os.environ['POSTGRES_HOST']}:"
-                f"{os.environ['POSTGRES_PORT']}/"
-                f"{os.environ['POSTGRES_DATABASE']}"
-            ),
-            id="postgresql",
-        ),
-    ],
-)
-def test_connect_env(trades_df, monkeypatch, tmp_path, uri):
+def test_connect_env(trades_df, monkeypatch, tmp_path):
     name = "test"
     warehouse_path = tmp_path / "another_warehouse"
     warehouse_path.mkdir(exist_ok=True)
@@ -33,11 +13,8 @@ def test_connect_env(trades_df, monkeypatch, tmp_path, uri):
     monkeypatch.setenv("ICEBERG_WAREHOUSE_PATH", str(warehouse_path))
     monkeypatch.setenv("ICEBERG_NAMESPACE", name)
     monkeypatch.setenv("ICEBERG_CATALOG_NAME", name)
-
-    if uri:
-        monkeypatch.setenv("ICEBERG_URI", str(uri))
-        # assert uri is points to the right DB
-        assert os.environ["ICEBERG_URI"] == uri
+    monkeypatch.delenv("ICEBERG_URI", raising=False)
+    monkeypatch.setenv("ICEBERG_CATALOG_TYPE", "sql")
 
     # assert connection can be established
     con = PyIcebergBackend.connect_env()
