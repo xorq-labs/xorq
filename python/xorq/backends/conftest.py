@@ -31,7 +31,7 @@ def have_snowflake_credentials() -> bool:
     # not be installed; only consulted after connector is importorskip'd above
     snowflake_utils = pytest.importorskip("xorq.common.utils.snowflake_utils")
     return all(
-        snowflake_utils.snowflake_config.get(varname)
+        snowflake_utils.SnowflakeConfig.from_env().get(varname)
         for varname in required_snowflake_credentials_varnames
     )
 
@@ -142,8 +142,9 @@ def maybe_snowflake_decrypt_failure():
     try:
         SKU = pytest.importorskip("xorq.common.utils.snowflake_keypair_utils")
         SFU = pytest.importorskip("xorq.common.utils.snowflake_utils")
+        config = SFU.SnowflakeConfig.from_env()
         kwargs = {
-            varname[len("SNOWFLAKE_") :].lower(): SFU.snowflake_config.get(varname)
+            varname[len("SNOWFLAKE_") :].lower(): config.get(varname)
             for varname in snowflake_credentials_varnames
         }
         SKU.maybe_decrypt_private_key(kwargs)
