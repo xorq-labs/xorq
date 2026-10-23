@@ -154,7 +154,7 @@ def _rows_match(left, right):
 
 @pytest.fixture(scope="module")
 def local_postgres(live_config, run_select):
-    config = postgres_utils.postgres_config
+    config = postgres_utils.PostgresConfig.from_env()
     if not config["POSTGRES_HOST"]:
         pytest.skip("differential execution needs the local POSTGRES_* database")
     con = psycopg.connect(
