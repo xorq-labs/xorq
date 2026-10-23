@@ -28,3 +28,21 @@ def test_connect_env(trades_df, monkeypatch, tmp_path):
     t = con.create_table(table_name, trades_df, overwrite=True)
     assert table_name in con.list_tables()
     assert not t.execute().empty
+
+
+def test_connect_env_follows_the_environment_between_connects(monkeypatch, tmp_path):
+    monkeypatch.delenv("ICEBERG_URI", raising=False)
+    monkeypatch.setenv("ICEBERG_CATALOG_TYPE", "sql")
+
+    def connect_as(name):
+        warehouse_path = tmp_path / name
+        monkeypatch.setenv("ICEBERG_WAREHOUSE_PATH", str(warehouse_path))
+        monkeypatch.setenv("ICEBERG_NAMESPACE", name)
+        monkeypatch.setenv("ICEBERG_CATALOG_NAME", name)
+        con = PyIcebergBackend.connect_env()
+        return (con.catalog.name, con.catalog.properties["uri"])
+
+    names = ("first", "second")
+    assert [connect_as(name) for name in names] == [
+        (name, f"sqlite:///{tmp_path / name}/pyiceberg_catalog.db") for name in names
+    ]
