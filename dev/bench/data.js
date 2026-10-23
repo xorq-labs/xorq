@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1792676853288,
+  "lastUpdate": 1792761973928,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -63954,6 +63954,198 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.25368056977813386",
             "extra": "mean: 1.684896503400023 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8389d793187b3069c4bd54b269792fcfa86e1e34",
+          "message": "fix(pyiceberg): connect_env reads the environment when it connects (#2530)\n\n## What\n\n`connect_env` now reads the `ICEBERG_*` environment each time it\nconnects, instead of once when `pyiceberg_utils` is first imported.\n\n- `pyiceberg_utils.py`: drops the module-level `pyiceberg_config` and\ncalls `PyIcebergConfig.from_env()` inside `make_connection_defaults`.\n- `backends/pyiceberg/tests/test_connect.py`: the `postgresql` case of\n`test_connect_env` is gone. A new test connects twice in one process\nwith different env and checks that each catalog gets its own name and\nsqlite URI.\n- `backends/postgres/tests/test_pyiceberg_catalog.py`:\n`test_connect_env_with_a_postgres_catalog` moves the postgres case into\nthe postgres suite. It builds the URI inside a fixture, so collecting\nthe module does not need `POSTGRES_PORT`, and it closes the catalog's\nengine when it is done.\n- `ci-test.yml`: the postgres job lists `--extra pyiceberg`.\n\n## Why\n\n`pyiceberg_utils` froze its config at import. In `test_connect_env` the\n`default` case imported it first, so the `postgresql` case ignored its\n`ICEBERG_URI` and opened the `default` case's sqlite catalog in that\ncase's `tmp_path`. It passes on main with postgres down, so it never\ntested postgres.\n\nThe postgres case can't stay in the pyiceberg suite. The pyiceberg job\nhas no postgres service, and `pytest_ignore_collect` skips\n`backends/pyiceberg/` for any `-m` that does not name `pyiceberg`.\n\n`examples` already pulls in `pyiceberg[sql-sqlite,sql-postgres]`, so the\njob had pyiceberg before this PR. The extra is named anyway so the test\nkeeps running if `examples` ever drops it.\n\n## Verification\n\n- On main with postgres down, `pytest -m pyiceberg\npython/xorq/backends/pyiceberg/tests/test_connect.py` reports\n`test_connect_env[postgresql] PASSED`.\n- On this branch, `pytest -m pyiceberg python/xorq/backends/pyiceberg`\ngives 50 passed.\n- Positive control: with `pyiceberg_utils.py` reverted to main, the new\ntwo-connect test fails and the other 49 still pass. In CI each job's\nfirst import happens inside a monkeypatched test, so before this test\nnothing would have caught a revert.\n- The postgres test fails locally with `Connection refused` while\npostgres is down, so it does reach postgres. I haven't run it against a\nlive database; the postgres CI job does.\n\n## Not addressed\n\n- `postgres_utils` and `snowflake_utils` freeze their config at import\nthe same way.\n- `pyiceberg_config` is removed, not kept as an alias, because an alias\nwould be the same stale snapshot. Nothing in the repo imports it; code\noutside the repo that does will get an `ImportError`.\n- pyiceberg's own catalog tables (`iceberg_tables`,\n`iceberg_namespace_properties`) are left in the test database. The test\ndrops only its own table and namespace. The next test that uses the `pg`\nfixture removes them, since `remove_unexpected_tables` treats them as\nstrays.\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-10-23T15:20:52+02:00",
+          "tree_id": "c4e5acaf6541a61a4d326c7a640dc956f54621a9",
+          "url": "https://github.com/xorq-labs/xorq/commit/8389d793187b3069c4bd54b269792fcfa86e1e34"
+        },
+        "date": 1792761970355,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.889398581615318,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018569547536768486",
+            "extra": "mean: 91.83243615384876 msec\nrounds: 13"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.0733696393808763,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04700705535945875",
+            "extra": "mean: 325.3757657999927 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 1.0437672234143158,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18301772761510254",
+            "extra": "mean: 958.0680228000006 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.438342906506027,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005753310246442571",
+            "extra": "mean: 225.30931500000406 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.460206580587385,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011592233977889495",
+            "extra": "mean: 224.20486179998989 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.3506306199105707,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07221551578769946",
+            "extra": "mean: 298.4512807999977 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 211.87675968999983,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01643227393671428",
+            "extra": "mean: 4.71972481296729 msec\nrounds: 401"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.55717830092256,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12196810463673238",
+            "extra": "mean: 219.43403000000217 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 17.47384802745776,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011074565058752756",
+            "extra": "mean: 57.228379142856056 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 17.50856584007046,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0033946339988048585",
+            "extra": "mean: 57.11490073683702 msec\nrounds: 19"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 14.094891430354748,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004372104342672006",
+            "extra": "mean: 70.94769086666399 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 9.779522439147113,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003084379263080573",
+            "extra": "mean: 102.25448187500774 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 6.238882584186312,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0044349241387588905",
+            "extra": "mean: 160.2851129999944 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.549401304742884,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018199631512126616",
+            "extra": "mean: 180.19961885714307 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 3.261751717314536,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05893148425184867",
+            "extra": "mean: 306.5837276000025 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 4.223495915963602,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02334898026698924",
+            "extra": "mean: 236.77068000001782 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 2.2602317612264984,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07959061748876978",
+            "extra": "mean: 442.4325049999993 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 2.564201452860359,
+            "unit": "iter/sec",
+            "range": "stddev: 0.044145454077926485",
+            "extra": "mean: 389.9849595999967 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.940018443041417,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08849977515125752",
+            "extra": "mean: 515.4590171999985 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.8869672920988936,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1204066676201775",
+            "extra": "mean: 529.9508921999859 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.8006954551630674,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08939555087568263",
+            "extra": "mean: 555.3409917999943 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.5082640156408162,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10258174102777053",
+            "extra": "mean: 663.0138951999925 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.2335156526867876,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17678149474635604",
+            "extra": "mean: 810.6909691999817 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.7529749678043988,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14116562425797238",
+            "extra": "mean: 1.3280653976000054 sec\nrounds: 5"
           }
         ]
       }
