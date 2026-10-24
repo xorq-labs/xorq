@@ -60,7 +60,7 @@ MIXED_OUTCOMES = textwrap.dedent(
 )
 
 
-def run_inner(tmp_path, source):
+def run_inner(tmp_path, source, policy="failed"):
     test_file = tmp_path / "test_inner.py"
     test_file.write_text(source)
     basetemp = tmp_path / "basetemp"
@@ -68,7 +68,7 @@ def run_inner(tmp_path, source):
         (
             *(sys.executable, "-m", "pytest", "-p", "xorq.conftest"),
             *("-p", "no:cacheprovider", "-p", "no:randomly"),
-            *("-o", "tmp_path_retention_policy=failed"),
+            *("-o", f"tmp_path_retention_policy={policy}"),
             *(f"--basetemp={basetemp}", f"--rootdir={tmp_path}", str(test_file)),
         ),
         cwd=tmp_path,
@@ -103,3 +103,56 @@ def test_failed_policy_removes_basetemp_after_a_green_run(tmp_path):
     basetemp, result = run_inner(tmp_path, "def test_passes(tmp_path):\n    pass\n")
     assert result.returncode == 0, result.stdout
     assert not basetemp.exists()
+
+
+CLEANUP_ERROR = textwrap.dedent(
+    """
+    import pytest
+
+    import xorq.conftest
+
+
+    def raise_os_error(path):
+        raise OSError("cannot remove")
+
+
+    # the hook looks the name up at teardown, after any monkeypatch is undone
+    xorq.conftest.rmtree_writable = raise_os_error
+
+
+    @pytest.fixture
+    def teardown_error(tmp_path):
+        yield
+        raise RuntimeError("fixture teardown")
+    """
+)
+
+
+def test_cleanup_error_fails_the_test(tmp_path):
+    _, result = run_inner(
+        tmp_path, CLEANUP_ERROR + "\n\ndef test_passes(tmp_path):\n    pass\n"
+    )
+    assert result.returncode == 1, result.stdout
+    assert "tmp_path cleanup failed" in result.stdout
+
+
+def test_cleanup_error_fails_an_xfail_test(tmp_path):
+    _, result = run_inner(
+        tmp_path,
+        CLEANUP_ERROR
+        + "\n\n@pytest.mark.xfail(raises=RuntimeError)\n"
+        + "def test_xfail(teardown_error):\n    pass\n",
+    )
+    assert result.returncode == 1, result.stdout
+    assert "tmp_path cleanup failed" in result.stdout
+
+
+def test_cleanup_error_keeps_the_teardown_error(tmp_path):
+    _, result = run_inner(
+        tmp_path,
+        CLEANUP_ERROR + "\n\ndef test_teardown(teardown_error):\n    pass\n",
+        policy="none",
+    )
+    assert result.returncode == 1, result.stdout
+    assert "fixture teardown" in result.stdout
+    assert "tmp_path cleanup failed" in result.stdout

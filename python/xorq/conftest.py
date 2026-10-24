@@ -131,9 +131,16 @@ def pytest_runtest_makereport(item, call):
             rmtree_writable(path)
             path.mkdir()
         except OSError as e:
-            # raised from this hook it would abort the run; report it instead
-            report.outcome = "failed"
-            report.longrepr = f"tmp_path cleanup failed for {path}: {e!r}"
+            # raised from this hook it would abort the run; report it instead,
+            # after a teardown failure already reported, not in its place
+            message = f"tmp_path cleanup failed for {path}: {e!r}"
+            if report.failed:
+                report.sections.append(("tmp_path cleanup", message))
+            else:
+                report.outcome = "failed"
+                report.longrepr = message
+                # an xfail-marked test's teardown report would not count
+                vars(report).pop("wasxfail", None)
     return report
 
 
