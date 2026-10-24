@@ -369,12 +369,10 @@ markers = [
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
-# keep tmp_path dirs only for failed tests, and only the last run's: a full run
-# writes tens of thousands of files (catalog repos, builds);
-# python/xorq/conftest.py applies the policy, so pass
-# -o tmp_path_retention_policy=all to keep every dir
+# keep tmp_path dirs only for failed tests: a full run writes tens of thousands
+# of files (catalog repos, builds); git-annex's read-only object dirs outlive a
+# passing test, and pytest removes them with the run's basetemp in a later run
 tmp_path_retention_policy = "failed"
-tmp_path_retention_count = 1
 
 [tool.coverage.run]
 source = ["python/xorq"]
