@@ -127,8 +127,13 @@ def pytest_runtest_makereport(item, call):
         and path is not None
         and (policy == "none" or (policy == "failed" and all(not_failed.values())))
     ):
-        rmtree_writable(path)
-        path.mkdir()
+        try:
+            rmtree_writable(path)
+            path.mkdir()
+        except OSError as e:
+            # raised from this hook it would abort the run; report it instead
+            report.outcome = "failed"
+            report.longrepr = f"tmp_path cleanup failed for {path}: {e!r}"
     return report
 
 
