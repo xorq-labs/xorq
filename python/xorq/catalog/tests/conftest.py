@@ -96,40 +96,55 @@ def wheel_artifacts_copier(wheel_path: Path, requirements_path: Path) -> Callabl
     return ensure
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _cached_wheel_artifacts(tmp_path_factory):
-    """Build the wheel once per test session; entries get its metadata-only
-    copy, including those the session-scoped templates add."""
+@pytest.fixture(scope="session")
+def _wheel_bundle(tmp_path_factory):
+    """Build the wheel once per test session, and its metadata-only copy.
+
+    Copied out of the bundle, whose temporary dir goes with it.
+    """
     pyproject_path = find_file_upwards(Path.cwd(), PYPROJECT_NAME)
     bundle = WheelPackager(pyproject_path.parent).build()
-    metadata_only = dist_info_only_wheel(
-        bundle.wheel_path, tmp_path_factory.mktemp("wheel")
+    full_dir = tmp_path_factory.mktemp("wheel")
+    return SimpleNamespace(
+        wheel_path=Path(shutil.copy2(bundle.wheel_path, full_dir)),
+        metadata_only_path=dist_info_only_wheel(
+            bundle.wheel_path, tmp_path_factory.mktemp("wheel-metadata-only")
+        ),
+        requirements_path=Path(shutil.copy2(bundle.requirements_path, full_dir)),
+    )
+
+
+@contextmanager
+def entry_wheel_artifacts(wheel_bundle, installable=False):
+    """Entries added inside get ``wheel_bundle``'s wheel instead of a fresh build.
+
+    Patched only for the block, so nothing outside the catalog tests sees it;
+    fixtures wider than function scope that add entries enter it themselves.
+    """
+    wheel_path = (
+        wheel_bundle.wheel_path if installable else wheel_bundle.metadata_only_path
     )
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             catalog_mod,
             "_ensure_wheel_artifacts",
-            wheel_artifacts_copier(metadata_only, bundle.requirements_path),
+            wheel_artifacts_copier(wheel_path, wheel_bundle.requirements_path),
         )
-        yield bundle
+        yield
 
 
 @pytest.fixture(autouse=True)
-def _installable_entry_wheel(request, monkeypatch, _cached_wheel_artifacts):
+def _entry_wheel(request, _wheel_bundle):
     # autouse, so it is in place before the test's catalog fixtures add entries
-    if request.node.get_closest_marker("installs_entry_wheel"):
-        if "_data_dict_template" in request.fixturenames:
-            pytest.fail(
-                "installs_entry_wheel cannot use data_dict or catalog_populated: "
-                "their session templates carry the metadata-only wheel",
-                pytrace=False,
-            )
-        bundle = _cached_wheel_artifacts
-        monkeypatch.setattr(
-            catalog_mod,
-            "_ensure_wheel_artifacts",
-            wheel_artifacts_copier(bundle.wheel_path, bundle.requirements_path),
+    installable = request.node.get_closest_marker("installs_entry_wheel") is not None
+    if installable and "_data_dict_template" in request.fixturenames:
+        pytest.fail(
+            "installs_entry_wheel cannot use data_dict or catalog_populated: "
+            "their session templates carry the metadata-only wheel",
+            pytrace=False,
         )
+    with entry_wheel_artifacts(_wheel_bundle, installable):
+        yield
 
 
 def get_split_tree(repo):
@@ -316,14 +331,17 @@ def data_dict(tmpdir, _data_dict_template):
 
 
 @pytest.fixture(scope="session")
-def _catalog_populated_template(tmp_path_factory, backend_type, _data_dict_template):
+def _catalog_populated_template(
+    tmp_path_factory, backend_type, _data_dict_template, _wheel_bundle
+):
     root = tmp_path_factory.mktemp(f"catalog-populated-template-{backend_type}")
     repo_path = root / "repo"
     store_dir = root / "content-store"
     repo = _init_catalog_repo(repo_path, backend_type, store_dir=store_dir)
     catalog = _make_catalog_from_repo(repo, backend_type, store_dir=store_dir)
-    for path in _data_dict_template.values():
-        catalog.add(path)
+    with entry_wheel_artifacts(_wheel_bundle):
+        for path in _data_dict_template.values():
+            catalog.add(path)
     return repo_path, store_dir
 
 
