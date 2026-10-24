@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from _pytest.pathlib import rm_rf
 from _pytest.tmpdir import tmppath_result_key
 from hypothesis import settings
 
@@ -45,10 +46,18 @@ _TMP_PATH = pytest.StashKey[Path]()
 
 @pytest.fixture
 def tmp_path(tmp_path, request):
+    """pytest's ``tmp_path``, removed even when parts of it are read-only.
+
+    pytest removes a passing test's dir with ``rmtree(ignore_errors=True)``,
+    which skips git-annex's read-only object dirs; ``rm_rf`` makes them
+    writable first. Same rule as pytest's: only when the call did not fail.
+    """
     # recorded for pytest_runtest_makereport; tests that reach tmp_path only
     # through tmpdir or another fixture do not have it in item.funcargs
     request.node.stash[_TMP_PATH] = tmp_path
-    return tmp_path
+    yield tmp_path
+    if request.node.stash.get(tmppath_result_key, {}).get("call", True):
+        rm_rf(tmp_path)
 
 
 @pytest.hookimpl(wrapper=True)

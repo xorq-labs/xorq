@@ -1,5 +1,4 @@
 import shutil
-import stat
 import uuid
 import zipfile
 from collections.abc import Callable
@@ -10,6 +9,7 @@ from types import SimpleNamespace
 import pyarrow as pa
 import pytest
 import toolz
+from _pytest.pathlib import rm_rf
 from click.testing import CliRunner
 from git import (
     Blob,
@@ -344,27 +344,16 @@ def _catalog_populated_template(
     with entry_wheel_artifacts(_wheel_bundle):
         for path in _data_dict_template.values():
             catalog.add(path)
-    return repo_path, store_dir
+    yield repo_path, store_dir
+    # git-annex makes its object dirs read-only, which pytest's own removal
+    # of the session's dirs skips
+    rm_rf(root)
 
 
 @pytest.fixture(autouse=True)
 def _cwd_in_tmp_path(tmp_path, monkeypatch):
     # compose, join and union build into ./builds; keep that out of the repo
     monkeypatch.chdir(tmp_path)
-
-
-@pytest.fixture(autouse=True)
-def _removable_tmp_path(tmp_path):
-    """Make ``tmp_path`` writable again once the test is done.
-
-    git-annex makes its object directories read-only, and pytest removes a
-    passing test's ``tmp_path`` with ``rmtree(ignore_errors=True)``, which
-    leaves them behind. This teardown runs before that removal.
-    """
-    yield
-    for path in (tmp_path, *tmp_path.rglob("*")):
-        if path.is_dir() and not path.is_symlink():
-            path.chmod(path.stat().st_mode | stat.S_IWUSR)
 
 
 @pytest.fixture
