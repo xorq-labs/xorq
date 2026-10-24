@@ -33,6 +33,7 @@ from xorq.catalog.inspection import (
     translation_context,
     walk_node_refs,
 )
+from xorq.catalog.tests.conftest import EntryWheel, entry_wheel_artifacts
 from xorq.catalog.zip_utils import BuildZip
 from xorq.ibis_yaml.compiler import build_expr
 from xorq.ibis_yaml.enums import BundledSourceTypes, DumpFiles
@@ -115,7 +116,9 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
 
 @pytest.fixture(scope="module")
 def entries(
-    tmp_path_factory: pytest.TempPathFactory, world: SimpleNamespace
+    tmp_path_factory: pytest.TempPathFactory,
+    world: SimpleNamespace,
+    _metadata_only_wheel: EntryWheel,
 ) -> dict[str, CatalogEntry]:
     """One catalog entry per build shape, built once for the whole module."""
     catalog = make_catalog(tmp_path_factory.mktemp("inspection-catalog") / "repo")
@@ -131,21 +134,24 @@ def entries(
     # relocate_reads=False so the pin's frozen read keeps its absolute cache-dir
     # path: an unbundled read is exactly the shape a false external leaf takes.
     pinned = read.filter(read.a > 1).cache(cache=cache).ls.pin(ensure_materialized=True)
-    return {
-        "sqlite": catalog.add(t.filter(t.a > 1)),
-        "pinned": catalog.add(pinned, relocate_reads=False),
-        "read_relocated": catalog.add(read.filter(read.a > 1)),
-        "read_absolute": catalog.add(read.filter(read.a > 1), relocate_reads=False),
-        "exotic": catalog.add(exotic, relocate_reads=False),
-        "self_join": catalog.add(t.join(world.con.table("t").view(), "a")),
-        "cached": catalog.add(t.into_backend(xo.duckdb.connect(), "t_remote").cache()),
-        "mixed": catalog.add(read.join(t.into_backend(con, "t_mixed"), "a")),
-        "bundled_only": catalog.add(
-            world.ddb_con.table("dt")
-            .select("a")
-            .union(xo.memtable({"z": [1]}).select(a="z"))
-        ),
-    }
+    with entry_wheel_artifacts(_metadata_only_wheel):
+        return {
+            "sqlite": catalog.add(t.filter(t.a > 1)),
+            "pinned": catalog.add(pinned, relocate_reads=False),
+            "read_relocated": catalog.add(read.filter(read.a > 1)),
+            "read_absolute": catalog.add(read.filter(read.a > 1), relocate_reads=False),
+            "exotic": catalog.add(exotic, relocate_reads=False),
+            "self_join": catalog.add(t.join(world.con.table("t").view(), "a")),
+            "cached": catalog.add(
+                t.into_backend(xo.duckdb.connect(), "t_remote").cache()
+            ),
+            "mixed": catalog.add(read.join(t.into_backend(con, "t_mixed"), "a")),
+            "bundled_only": catalog.add(
+                world.ddb_con.table("dt")
+                .select("a")
+                .union(xo.memtable({"z": [1]}).select(a="z"))
+            ),
+        }
 
 
 def test_database_table_leaf(entries: dict[str, CatalogEntry]) -> None:

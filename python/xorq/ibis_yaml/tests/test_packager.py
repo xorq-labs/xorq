@@ -10,6 +10,7 @@ from pathlib import (
 
 import pytest
 
+import xorq.config
 from xorq.catalog.catalog import _ensure_wheel_artifacts
 from xorq.cli_constants import OutputFormats
 from xorq.common.utils.download_utils import (
@@ -21,7 +22,6 @@ from xorq.common.utils.zip_utils import (
 )
 from xorq.config import (
     _default_use_hardlink,
-    env_config,
     options,
 )
 from xorq.ibis_yaml.enums import DumpFiles
@@ -100,6 +100,7 @@ def test_wheel_builder(template, tmpdir):
     packaged_builder = PackagedBuilder(
         script_path=script_path,
         bundle=packager.build(),
+        builds_dir=str(tmpdir / "builds"),
     )
     assert packaged_builder.build_path, packaged_builder.build_result.stderr
     assert list(packaged_builder.build_path.glob("*.whl"))
@@ -137,6 +138,7 @@ def test_wheel_runner(template, tmpdir):
     packaged_builder = PackagedBuilder(
         script_path=script_path,
         bundle=packager.build(),
+        builds_dir=str(tmpdir / "builds"),
     )
     packaged_runner = PackagedRunner(
         packaged_builder.build_path, output_path=str(output_path)
@@ -648,7 +650,8 @@ def test_link_mode_args_from_platform_and_env(
 ):
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(
-        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK=env_value)
+        "xorq.config.env_config",
+        xorq.config.env_config.clone(XORQ_UV_USE_HARDLINK=env_value),
     )
     monkeypatch.setattr(options.uv, "use_hardlink", _default_use_hardlink())
     assert _link_mode_args() == expected_args
@@ -671,7 +674,8 @@ def test_default_use_hardlink(monkeypatch, platform, env_value, expected):
     case exercises the function end-to-end with no args."""
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(
-        "xorq.config.env_config", env_config.clone(XORQ_UV_USE_HARDLINK=env_value)
+        "xorq.config.env_config",
+        xorq.config.env_config.clone(XORQ_UV_USE_HARDLINK=env_value),
     )
     assert _default_use_hardlink() is expected
 

@@ -15,8 +15,9 @@ IMPORTANT — populating the catalog tree in pilot tests:
 """
 
 import asyncio
-import importlib
 import re
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,7 +27,6 @@ from textual.pilot import Pilot
 from textual.widgets import DataTable, Input, Select, Static, Tree
 
 import xorq.api as xo
-import xorq.config
 from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.bind import _eval_code
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
@@ -2076,23 +2076,29 @@ def test_row_limit_clamp_and_default(
     monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: int
 ) -> None:
     # Exercise the real TUI.row_limit field definition in config.py: the field
-    # default is evaluated at import time against env_config, so reload the
-    # module with XORQ_TUI_ROW_LIMIT set to re-run the class body. Reading
-    # TUI().row_limit or options.tui({...}) would NOT hit the parse/clamp path
-    # (import-time eval, and context-manager overrides bypass the max(...,1)
-    # floor). Guards the floor (1) + default (10000) contract against drift.
+    # default is evaluated at import time against env_config, so import the
+    # module fresh with XORQ_TUI_ROW_LIMIT set. Reading TUI().row_limit or
+    # options.tui({...}) would NOT hit the parse/clamp path (import-time eval,
+    # and context-manager overrides bypass the max(..., 1) floor). Guards the
+    # floor (1) + default (10000) contract against drift. A subprocess, not
+    # importlib.reload: a reload replaces this worker's env_config and options,
+    # which other test modules imported at collection.
     if raw is None:
         monkeypatch.delenv("XORQ_TUI_ROW_LIMIT", raising=False)
     else:
         monkeypatch.setenv("XORQ_TUI_ROW_LIMIT", raw)
-    try:
-        reloaded = importlib.reload(xorq.config)
-        assert reloaded.TUI().row_limit == expected
-    finally:
-        # restore module-global env_config/options to the unset-env defaults so
-        # later tests in this worker see the original config singletons.
-        monkeypatch.undo()
-        importlib.reload(xorq.config)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import xorq.config; print(xorq.config.TUI().row_limit)",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout) == expected
 
 
 def test_tui_options_apply_column_widths(catalog):

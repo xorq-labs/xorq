@@ -858,7 +858,9 @@ def test_run_cached_command_cache_types(tmp_path, fixture_dir, cache_type, ttl):
 @pytest.mark.parametrize(
     "host,port,cache_dir", [(None, None, None), ("localhost", None, "cache")]
 )
-def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
+def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port, monkeypatch):
+    # serve writes xorq_serve.db into its cwd
+    monkeypatch.chdir(tmp_path)
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "udxf_pipeline.py"
 
@@ -1151,7 +1153,10 @@ def test_examples(
     expr_name,
     examples_dir,
     tmp_path,
+    monkeypatch,
 ):
+    # the examples write caches and warehouses into the subprocesses' cwd
+    monkeypatch.chdir(tmp_path)
     # build
     builds_dir = tmp_path / "builds"
     example_path = examples_dir / example
@@ -1243,6 +1248,19 @@ def test_init_command_path_exists(template, tmpdir):
     assert returncode != 0
 
 
+def uv_build_args(script_path, root, *options):
+    """``xorq uv build`` args that build under ``root``, not ``./builds``."""
+    return (
+        "xorq",
+        "uv",
+        "build",
+        "--builds-dir",
+        str(Path(root) / "builds"),
+        str(script_path),
+        *options,
+    )
+
+
 @pytest.mark.slow(level=2)
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
@@ -1269,12 +1287,7 @@ def test_init_uv_build_uv_run(template, tmpdir):
     # exported with a different uv version than CI, causing a sync-check failure.
     path.joinpath("requirements.txt").unlink()
 
-    build_args = (
-        "xorq",
-        "uv",
-        "build",
-        str(path.joinpath("expr.py")),
-    )
+    build_args = uv_build_args(path.joinpath("expr.py"), tmpdir)
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
@@ -1315,14 +1328,7 @@ def test_uv_build_with_project_path(tmpdir):
     script_path = tmpdir / "expr.py"
     shutil.copy2(path / "expr.py", script_path)
 
-    build_args = (
-        "xorq",
-        "uv",
-        "build",
-        str(script_path),
-        "--project-path",
-        str(path),
-    )
+    build_args = uv_build_args(script_path, tmpdir, "--project-path", str(path))
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
@@ -1339,13 +1345,7 @@ def test_uv_build_no_all_extras(tmpdir):
     (returncode, _, stderr) = subprocess_run(("xorq", "init", "--path", str(path)))
     assert returncode == 0, stderr
     (path / "requirements.txt").unlink(missing_ok=True)
-    build_args = (
-        "xorq",
-        "uv",
-        "build",
-        str(path / "expr.py"),
-        "--no-all-extras",
-    )
+    build_args = uv_build_args(path / "expr.py", tmpdir, "--no-all-extras")
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
@@ -1370,14 +1370,8 @@ def test_uv_build_with_extra(tmpdir):
     pyproject.write_text(tomlkit.dumps(data))
     subprocess_run(("uv", "lock", "--directory", str(path)))
     (path / "requirements.txt").unlink(missing_ok=True)
-    build_args = (
-        "xorq",
-        "uv",
-        "build",
-        str(path / "expr.py"),
-        "--no-all-extras",
-        "--extra",
-        "testgroup",
+    build_args = uv_build_args(
+        path / "expr.py", tmpdir, "--no-all-extras", "--extra", "testgroup"
     )
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
@@ -1754,7 +1748,7 @@ def test_uv_run_cached_roundtrip(tmpdir):
     path.joinpath("requirements.txt").unlink(missing_ok=True)
 
     (returncode, stdout, stderr) = subprocess_run(
-        ("xorq", "uv", "build", str(path / "expr.py")), text=True
+        uv_build_args(path / "expr.py", tmpdir), text=True
     )
     assert returncode == 0, stderr
     # build_command prints the build directory path as the last line of stdout
@@ -1854,7 +1848,7 @@ def uv_unbound_build(tmp_path_factory, fixture_dir):
     shutil.copy2(fixture_dir / "pipeline_unbound.py", path / "expr.py")
 
     (returncode, stdout, stderr) = subprocess_run(
-        ("xorq", "uv", "build", str(path / "expr.py")), text=True
+        uv_build_args(path / "expr.py", tmpdir), text=True
     )
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
