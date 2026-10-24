@@ -1,4 +1,5 @@
 import random
+import re
 import shutil
 import stat
 import sys
@@ -21,16 +22,27 @@ settings.register_profile("xorq", max_examples=75, deadline=None)
 settings.load_profile("xorq")
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _remove_basetemp_when_green(request, tmp_path_factory):
-    """Remove the session's temp dir once no test failed.
+_BASETEMP = pytest.StashKey[Path]()
 
-    Defined first, so it is torn down after the other session fixtures. Under
-    xdist each worker removes its own dir.
+
+@pytest.fixture(scope="session", autouse=True)
+def _record_basetemp(request, tmp_path_factory):
+    # for pytest_sessionfinish, which cannot request fixtures
+    request.config.stash[_BASETEMP] = tmp_path_factory.getbasetemp()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    """Remove the session's temp dir after a green run, as policy "failed" does.
+
+    pytest's own removal skips git-annex's read-only dirs, and under xdist
+    each worker has a dir pytest never removes. Here, after every fixture's
+    teardown, so a teardown error has counted against the exit status.
     """
-    yield
-    if request.session.testsfailed == 0:
-        rmtree_writable(tmp_path_factory.getbasetemp())
+    basetemp = session.config.stash.get(_BASETEMP, None)
+    policy = session.config.getini("tmp_path_retention_policy")
+    if basetemp is not None and policy == "failed" and exitstatus == 0:
+        rmtree_writable(basetemp)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -59,11 +71,12 @@ _NOT_FAILED = pytest.StashKey[dict[str, bool]]()
 
 def _make_writable_and_retry(func, path, exc):
     # git-annex makes its object dirs read-only, so their entries cannot be
-    # removed until the dir is writable
+    # removed until the dir is writable; Windows also refuses read-only files
     if isinstance(exc, FileNotFoundError):
         return
-    parent = Path(path).parent
-    parent.chmod(parent.stat().st_mode | stat.S_IWUSR)
+    path = Path(path)
+    for writable in (path.parent, *((path,) if not path.is_symlink() else ())):
+        writable.chmod(writable.stat().st_mode | stat.S_IWUSR)
     func(path)
 
 
@@ -80,18 +93,27 @@ def rmtree_writable(path):
 
 
 @pytest.fixture
-def tmp_path(tmp_path, request):
-    """pytest's ``tmp_path``, emptied once its test passed setup and call.
+def tmp_path(request, tmp_path_factory):
+    """pytest's ``tmp_path``, kept by ``tmp_path_retention_policy`` our way.
 
-    A full run writes tens of thousands of files (catalog repos, builds). The
-    dir itself stays, so its name stays taken: pytest numbers a new dir after
-    the existing ones, and would hand a removed dir's path to a later test. A
-    test that failed or errored keeps its files, read-only modes included.
+    pytest's own fixture, under "failed", keeps a dir only when the call
+    failed, so a test that errored in setup loses it; removes the rest with
+    ``rmtree(ignore_errors=True)``, which skips git-annex's read-only dirs;
+    and frees a removed dir's name for a later test. Here a test that failed
+    or errored keeps its files, read-only modes included, and a passing
+    test's dir is emptied, not removed, so its name stays taken. "all" keeps
+    every dir and "none" empties every dir, as in pytest.
     """
-    yield tmp_path
-    if all(request.node.stash.get(_NOT_FAILED, {}).values()):
-        rmtree_writable(tmp_path)
-        tmp_path.mkdir()
+    # same name as pytest's own
+    path = tmp_path_factory.mktemp(
+        re.sub(r"[\W]", "_", request.node.name)[:30], numbered=True
+    )
+    yield path
+    policy = request.config.getini("tmp_path_retention_policy")
+    passed = all(request.node.stash.get(_NOT_FAILED, {}).values())
+    if policy == "none" or (policy == "failed" and passed):
+        rmtree_writable(path)
+        path.mkdir()
 
 
 @pytest.hookimpl(wrapper=True)
