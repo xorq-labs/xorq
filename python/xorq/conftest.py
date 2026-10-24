@@ -67,6 +67,7 @@ def _scratch_env(tmp_path_factory):
 
 
 _NOT_FAILED = pytest.StashKey[dict[str, bool]]()
+_TMP_PATH = pytest.StashKey[Path]()
 
 
 def _make_writable_and_retry(func, path, exc):
@@ -97,30 +98,37 @@ def tmp_path(request, tmp_path_factory):
     """pytest's ``tmp_path``, kept by ``tmp_path_retention_policy`` our way.
 
     pytest's own fixture, under "failed", keeps a dir only when the call
-    failed, so a test that errored in setup loses it; removes the rest with
-    ``rmtree(ignore_errors=True)``, which skips git-annex's read-only dirs;
-    and frees a removed dir's name for a later test. Here a test that failed
-    or errored keeps its files, read-only modes included, and a passing
-    test's dir is emptied, not removed, so its name stays taken. "all" keeps
-    every dir and "none" empties every dir, as in pytest.
+    failed, so a test that errored in setup or teardown loses it; removes the
+    rest with ``rmtree(ignore_errors=True)``, which skips git-annex's
+    read-only dirs; and frees a removed dir's name for a later test. Here a
+    test that failed or errored keeps its files, read-only modes included,
+    and a passing test's dir is emptied, not removed, so its name stays
+    taken. "all" keeps every dir and "none" empties every dir, as in pytest.
     """
     # same name as pytest's own
     path = tmp_path_factory.mktemp(
         re.sub(r"[\W]", "_", request.node.name)[:30], numbered=True
     )
-    yield path
-    policy = request.config.getini("tmp_path_retention_policy")
-    passed = all(request.node.stash.get(_NOT_FAILED, {}).values())
-    if policy == "none" or (policy == "failed" and passed):
-        rmtree_writable(path)
-        path.mkdir()
+    request.node.stash[_TMP_PATH] = path
+    return path
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
-    # recorded for tmp_path's teardown
+    # applies tmp_path's policy at the teardown report, the first point that
+    # knows whether a finalizer failed, a session fixture's included
     report = yield
-    item.stash.setdefault(_NOT_FAILED, {})[report.when] = not report.failed
+    not_failed = item.stash.setdefault(_NOT_FAILED, {})
+    not_failed[report.when] = not report.failed
+    path = item.stash.get(_TMP_PATH, None)
+    policy = item.config.getini("tmp_path_retention_policy")
+    if (
+        report.when == "teardown"
+        and path is not None
+        and (policy == "none" or (policy == "failed" and all(not_failed.values())))
+    ):
+        rmtree_writable(path)
+        path.mkdir()
     return report
 
 
