@@ -1,6 +1,7 @@
 """The root conftest's ``tmp_path`` retention, run in an inner pytest session."""
 
 import re
+import stat
 import subprocess
 import sys
 import textwrap
@@ -10,6 +11,8 @@ import pytest
 
 MIXED_OUTCOMES = textwrap.dedent(
     """
+    from pathlib import Path
+
     import pytest
 
 
@@ -35,8 +38,14 @@ MIXED_OUTCOMES = textwrap.dedent(
     def test_passes(tmp_path):
         read_only = tmp_path / "objects"
         read_only.mkdir()
+        # as git leaves its objects: Windows refuses to remove a read-only file
         (read_only / "removed").write_text("")
+        (read_only / "removed").chmod(0o444)
         read_only.chmod(0o555)
+        outside = Path(__file__).parent / "outside"
+        outside.write_text("")
+        outside.chmod(0o444)
+        (tmp_path / "link").symlink_to(outside)
         for mode in (0o000, 0o300):
             unreadable = tmp_path / f"unreadable{mode:o}"
             (unreadable / "nested").mkdir(parents=True)
@@ -139,6 +148,8 @@ def test_failed_policy_keeps_failed_and_errored_tests_files(tmp_path):
         "test_parametrized_with_a_name_1",
     }
     assert "tmp_path cleanup errors" not in result.stdout
+    # cleanup removed the link and left what it pointed to alone
+    assert stat.S_IMODE((tmp_path / "outside").stat().st_mode) == 0o444
 
 
 GREEN_WITH_READ_ONLY_SESSION_DIR = textwrap.dedent(

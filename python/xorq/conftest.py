@@ -74,16 +74,19 @@ _TMP_PATH = pytest.StashKey[Path]()
 
 
 def _make_removable(path):
-    # git-annex makes its object dirs read-only, and a test may leave a dir
-    # unreadable: give every dir read, write and search before removing it, so
-    # shutil.rmtree meets no permission error of ours
-    path.chmod(path.stat().st_mode | stat.S_IRWXU)
-    with os.scandir(path) as entries:
-        subdirs = tuple(
-            Path(entry.path) for entry in entries if entry.is_dir(follow_symlinks=False)
-        )
-    for subdir in subdirs:
-        _make_removable(subdir)
+    # removal needs read, write and search on each dir on POSIX (git-annex
+    # makes its object dirs read-only, a test may leave one unreadable) and no
+    # read-only file on Windows (git makes its objects read-only): the tree is
+    # going, so give the owner everything, and shutil.rmtree meets no
+    # permission error of ours; a symlink's chmod would reach its target
+    path.chmod(stat.S_IRWXU)
+    with os.scandir(path) as scanned:
+        entries = tuple(scanned)
+    for entry in entries:
+        if entry.is_dir(follow_symlinks=False):
+            _make_removable(Path(entry.path))
+        elif not entry.is_symlink():
+            os.chmod(entry.path, stat.S_IRUSR | stat.S_IWUSR)
 
 
 def _remove(path, recreate=False):
