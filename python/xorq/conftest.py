@@ -1,11 +1,12 @@
 import random
+import shutil
+import stat
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
-from _pytest.pathlib import rm_rf
-from _pytest.tmpdir import tmppath_result_key
 from hypothesis import settings
 
 import xorq.api as xo
@@ -18,6 +19,18 @@ from xorq.expr.builders import _FROM_TAG_NODE_REGISTRY
 # deadline (backend execution time varies with load)
 settings.register_profile("xorq", max_examples=75, deadline=None)
 settings.load_profile("xorq")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _remove_basetemp_when_green(request, tmp_path_factory):
+    """Remove the session's temp dir once no test failed.
+
+    Defined first, so it is torn down after the other session fixtures. Under
+    xdist each worker removes its own dir.
+    """
+    yield
+    if request.session.testsfailed == 0:
+        rmtree_writable(tmp_path_factory.getbasetemp())
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -41,39 +54,51 @@ def _scratch_env(tmp_path_factory):
         yield
 
 
-_TMP_PATH = pytest.StashKey[Path]()
+_NOT_FAILED = pytest.StashKey[dict[str, bool]]()
+
+
+def _make_writable_and_retry(func, path, exc):
+    # git-annex makes its object dirs read-only, so their entries cannot be
+    # removed until the dir is writable
+    if isinstance(exc, FileNotFoundError):
+        return
+    parent = Path(path).parent
+    parent.chmod(parent.stat().st_mode | stat.S_IWUSR)
+    func(path)
+
+
+def rmtree_writable(path):
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_make_writable_and_retry)
+    else:
+        shutil.rmtree(
+            path,
+            onerror=lambda func, path, exc_info: _make_writable_and_retry(
+                func, path, exc_info[1]
+            ),
+        )
 
 
 @pytest.fixture
 def tmp_path(tmp_path, request):
-    """pytest's ``tmp_path``, removed even when parts of it are read-only.
+    """pytest's ``tmp_path``, emptied once its test passed setup and call.
 
-    pytest removes a passing test's dir with ``rmtree(ignore_errors=True)``,
-    which skips git-annex's read-only object dirs; ``rm_rf`` makes them
-    writable first. Same rule as pytest's: only when the call did not fail.
+    A full run writes tens of thousands of files (catalog repos, builds). The
+    dir itself stays, so its name stays taken: pytest numbers a new dir after
+    the existing ones, and would hand a removed dir's path to a later test. A
+    test that failed or errored keeps its files, read-only modes included.
     """
-    # recorded for pytest_runtest_makereport; tests that reach tmp_path only
-    # through tmpdir or another fixture do not have it in item.funcargs
-    request.node.stash[_TMP_PATH] = tmp_path
     yield tmp_path
-    if request.node.stash.get(tmppath_result_key, {}).get("call", True):
-        rm_rf(tmp_path)
+    if all(request.node.stash.get(_NOT_FAILED, {}).values()):
+        rmtree_writable(tmp_path)
+        tmp_path.mkdir()
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
-    """Patch two gaps in ``tmp_path_retention_policy = "failed"``.
-
-    pytest keeps a ``tmp_path`` only when the call phase failed, so a test
-    that errored in setup loses its dir: record its call as failed. And a
-    removed dir frees its name for the next test in the session: recreate
-    it empty, so every test still gets a path of its own.
-    """
+    # recorded for tmp_path's teardown
     report = yield
-    if report.when == "setup" and report.failed:
-        item.stash.setdefault(tmppath_result_key, {})["call"] = False
-    if report.when == "teardown" and (tmp_path := item.stash.get(_TMP_PATH, None)):
-        tmp_path.mkdir(exist_ok=True)
+    item.stash.setdefault(_NOT_FAILED, {})[report.when] = not report.failed
     return report
 
 

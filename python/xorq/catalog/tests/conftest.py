@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pyarrow as pa
 import pytest
 import toolz
-from _pytest.pathlib import rm_rf
 from click.testing import CliRunner
 from git import (
     Blob,
@@ -344,10 +343,7 @@ def _catalog_populated_template(
     with entry_wheel_artifacts(_wheel_bundle):
         for path in _data_dict_template.values():
             catalog.add(path)
-    yield repo_path, store_dir
-    # git-annex makes its object dirs read-only, which pytest's own removal
-    # of the session's dirs skips
-    rm_rf(root)
+    return repo_path, store_dir
 
 
 @pytest.fixture(autouse=True)
