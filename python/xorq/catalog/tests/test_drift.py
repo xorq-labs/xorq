@@ -108,6 +108,7 @@ def test_renamed_table_is_missing(runner: CliRunner, world: SimpleNamespace) -> 
     assert result.exit_code == 3
     assert "DatabaseTable t: table-missing" in result.output
     assert "live:     -" in result.output
+    assert "1 entries, 0 drifted" in result.output
 
 
 def test_unreachable_leaf_exits_two_not_one(
