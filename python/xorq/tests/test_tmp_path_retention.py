@@ -1,8 +1,11 @@
 """The root conftest's ``tmp_path`` retention, run in an inner pytest session."""
 
+import re
 import subprocess
 import sys
 import textwrap
+
+import pytest
 
 
 MIXED_OUTCOMES = textwrap.dedent(
@@ -34,6 +37,22 @@ MIXED_OUTCOMES = textwrap.dedent(
         read_only.mkdir()
         (read_only / "removed").write_text("")
         read_only.chmod(0o555)
+        for mode in (0o000, 0o300):
+            unreadable = tmp_path / f"unreadable{mode:o}"
+            (unreadable / "nested").mkdir(parents=True)
+            (unreadable / "nested" / "removed").write_text("")
+            unreadable.chmod(mode)
+
+
+    @pytest.mark.xfail(raises=AssertionError, strict=True)
+    def test_xfails(tmp_path):
+        (tmp_path / "kept").write_text("")
+        assert False
+
+
+    def test_skips_in_call(tmp_path):
+        (tmp_path / "kept").write_text("")
+        pytest.skip("in call")
 
 
     def test_fails(tmp_path):
@@ -60,22 +79,42 @@ MIXED_OUTCOMES = textwrap.dedent(
 )
 
 
-def run_inner(tmp_path, source, policy="failed"):
+XDIST = pytest.mark.parametrize("xdist", ((), ("-n", "2")), ids=("in-process", "xdist"))
+
+
+@pytest.fixture(autouse=True)
+def temproot(tmp_path, monkeypatch):
+    # where an inner run without --basetemp numbers its dirs, as pytest does
+    # under the system temp dir on a developer's machine
+    path = tmp_path / "temproot"
+    path.mkdir()
+    monkeypatch.setenv("PYTEST_DEBUG_TEMPROOT", str(path))
+    return path
+
+
+def run_inner(tmp_path, source, *args, policy="failed", basetemp=True):
+    """Run source as a test file; return the --basetemp given and the result."""
     test_file = tmp_path / "test_inner.py"
     test_file.write_text(source)
-    basetemp = tmp_path / "basetemp"
+    given = (f"--basetemp={tmp_path / 'basetemp'}",) if basetemp else ()
     result = subprocess.run(
         (
             *(sys.executable, "-m", "pytest", "-p", "xorq.conftest"),
             *("-p", "no:cacheprovider", "-p", "no:randomly"),
             *("-o", f"tmp_path_retention_policy={policy}"),
-            *(f"--basetemp={basetemp}", f"--rootdir={tmp_path}", str(test_file)),
+            *given,
+            *args,
+            *(f"--rootdir={tmp_path}", str(test_file)),
         ),
         cwd=tmp_path,
         capture_output=True,
         text=True,
     )
-    return basetemp, result
+    return tmp_path / "basetemp", result
+
+
+def numbered_basetemps(temproot):
+    return tuple(temproot.glob("pytest-of-*/pytest-[0-9]*"))
 
 
 def test_failed_policy_keeps_failed_and_errored_tests_files(tmp_path):
@@ -88,6 +127,8 @@ def test_failed_policy_keeps_failed_and_errored_tests_files(tmp_path):
         if not path.parent.is_symlink()
     } == {
         "test_fails0/kept",
+        "test_xfails0/kept",
+        "test_skips_in_call0/kept",
         "test_setup_error0/kept",
         "test_teardown_error0/kept",
         "test_last_before_session_teard0/kept",
@@ -97,12 +138,48 @@ def test_failed_policy_keeps_failed_and_errored_tests_files(tmp_path):
         "test_parametrized_with_a_name_0",
         "test_parametrized_with_a_name_1",
     }
+    assert "tmp_path cleanup errors" not in result.stdout
 
 
-def test_failed_policy_removes_basetemp_after_a_green_run(tmp_path):
-    basetemp, result = run_inner(tmp_path, "def test_passes(tmp_path):\n    pass\n")
+GREEN_WITH_READ_ONLY_SESSION_DIR = textwrap.dedent(
+    """
+    import pytest
+
+
+    @pytest.fixture(scope="session")
+    def annex(tmp_path_factory):
+        # as git-annex leaves its object dirs: pytest's own removal skips these
+        objects = tmp_path_factory.mktemp("annex") / "objects"
+        objects.mkdir()
+        (objects / "removed").write_text("")
+        objects.chmod(0o555)
+        return objects
+
+
+    @pytest.mark.parametrize("i", range(4))
+    def test_passes(annex, tmp_path, i):
+        (tmp_path / "removed").write_text("")
+    """
+)
+
+
+@XDIST
+def test_failed_policy_removes_basetemp_after_a_green_run(tmp_path, temproot, xdist):
+    _, result = run_inner(
+        tmp_path, GREEN_WITH_READ_ONLY_SESSION_DIR, *xdist, basetemp=False
+    )
     assert result.returncode == 0, result.stdout
-    assert not basetemp.exists()
+    assert not numbered_basetemps(temproot)
+    assert "tmp_path cleanup errors" not in result.stdout
+
+
+@XDIST
+def test_failed_policy_keeps_a_given_basetemp(tmp_path, xdist):
+    basetemp, result = run_inner(
+        tmp_path, "def test_passes(tmp_path):\n    pass\n", *xdist
+    )
+    assert result.returncode == 0, result.stdout
+    assert basetemp.is_dir()
 
 
 CLEANUP_ERROR = textwrap.dedent(
@@ -112,12 +189,13 @@ CLEANUP_ERROR = textwrap.dedent(
     import xorq.conftest
 
 
-    def raise_os_error(path):
-        raise OSError("cannot remove")
+    def refuse(path):
+        raise PermissionError(f"cannot chmod {path}")
 
 
-    # the hook looks the name up at teardown, after any monkeypatch is undone
-    xorq.conftest.rmtree_writable = raise_os_error
+    # as for a dir another user owns; a conftest, so an xdist controller
+    # patches it too, and the hooks look the name up at cleanup
+    xorq.conftest._make_removable = refuse
 
 
     @pytest.fixture
@@ -128,31 +206,31 @@ CLEANUP_ERROR = textwrap.dedent(
 )
 
 
-def test_cleanup_error_fails_the_test(tmp_path):
-    _, result = run_inner(
-        tmp_path, CLEANUP_ERROR + "\n\ndef test_passes(tmp_path):\n    pass\n"
-    )
-    assert result.returncode == 1, result.stdout
-    assert "tmp_path cleanup failed" in result.stdout
-
-
-def test_cleanup_error_fails_an_xfail_test(tmp_path):
+@XDIST
+def test_cleanup_error_is_reported_not_failed(tmp_path, xdist):
+    (tmp_path / "conftest.py").write_text(CLEANUP_ERROR)
     _, result = run_inner(
         tmp_path,
-        CLEANUP_ERROR
-        + "\n\n@pytest.mark.xfail(raises=RuntimeError)\n"
-        + "def test_xfail(teardown_error):\n    pass\n",
+        "def test_passes(tmp_path):\n    pass\n",
+        *xdist,
+        basetemp=False,
     )
-    assert result.returncode == 1, result.stdout
-    assert "tmp_path cleanup failed" in result.stdout
+    assert result.returncode == 0, result.stdout
+    summary = result.stdout.split("tmp_path cleanup errors", 1)[1]
+    # the test's dir, then the session's: the controller's under xdist
+    assert re.findall(r"cannot chmod \S+/(\S+)'", summary) == [
+        "test_passes0",
+        "pytest-0",
+    ], result.stdout
 
 
 def test_cleanup_error_keeps_the_teardown_error(tmp_path):
+    (tmp_path / "conftest.py").write_text(CLEANUP_ERROR)
     _, result = run_inner(
         tmp_path,
-        CLEANUP_ERROR + "\n\ndef test_teardown(teardown_error):\n    pass\n",
+        "def test_teardown(teardown_error):\n    pass\n",
         policy="none",
     )
     assert result.returncode == 1, result.stdout
     assert "fixture teardown" in result.stdout
-    assert "tmp_path cleanup failed" in result.stdout
+    assert "tmp_path cleanup errors" in result.stdout

@@ -1,8 +1,8 @@
+import os
 import random
 import re
 import shutil
 import stat
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -22,27 +22,30 @@ settings.register_profile("xorq", max_examples=75, deadline=None)
 settings.load_profile("xorq")
 
 
-_BASETEMP = pytest.StashKey[Path]()
+_SESSION_CLEANUP_ERROR = pytest.StashKey[str | None]()
+_CLEANUP_SECTION = "tmp_path cleanup"
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _record_basetemp(request, tmp_path_factory):
-    # for pytest_sessionfinish, which cannot request fixtures
-    request.config.stash[_BASETEMP] = tmp_path_factory.getbasetemp()
-
-
-@pytest.hookimpl(trylast=True)
+@pytest.hookimpl(tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
-    """Remove the session's temp dir after a green run, as policy "failed" does.
+    """Remove the session's temp dir after a green run, as pytest itself does.
 
-    pytest's own removal skips git-annex's read-only dirs, and under xdist
-    each worker has a dir pytest never removes. Here, after every fixture's
-    teardown, so a teardown error has counted against the exit status.
+    The same rule as pytest's own hook, which runs after this one and then
+    finds nothing to remove: policy "failed", exit status 0, and a basetemp
+    pytest chose. A ``--basetemp`` the user gave is kept, and so is each xdist
+    worker's, which xdist passes as ``--basetemp``: the controller removes the
+    whole tree once every worker is done. pytest's removal ignores errors and
+    so leaves git-annex's read-only dirs behind; this one makes them
+    removable first and reports what it still cannot remove.
     """
-    basetemp = session.config.stash.get(_BASETEMP, None)
-    policy = session.config.getini("tmp_path_retention_policy")
-    if basetemp is not None and policy == "failed" and exitstatus == 0:
-        rmtree_writable(basetemp)
+    factory = session.config._tmp_path_factory
+    if (
+        factory._basetemp is not None
+        and factory._given_basetemp is None
+        and session.config.getini("tmp_path_retention_policy") == "failed"
+        and exitstatus == 0
+    ):
+        session.config.stash[_SESSION_CLEANUP_ERROR] = _remove(factory._basetemp)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -66,44 +69,65 @@ def _scratch_env(tmp_path_factory):
         yield
 
 
-_NOT_FAILED = pytest.StashKey[dict[str, bool]]()
+_OUTCOMES = pytest.StashKey[dict[str, str]]()
 _TMP_PATH = pytest.StashKey[Path]()
 
 
-def _make_writable_and_retry(func, path, exc):
-    # git-annex makes its object dirs read-only, so their entries cannot be
-    # removed until the dir is writable; Windows also refuses read-only files
-    if isinstance(exc, FileNotFoundError):
-        return
-    path = Path(path)
-    for writable in (path.parent, *((path,) if not path.is_symlink() else ())):
-        writable.chmod(writable.stat().st_mode | stat.S_IWUSR)
-    func(path)
-
-
-def rmtree_writable(path):
-    if sys.version_info >= (3, 12):
-        shutil.rmtree(path, onexc=_make_writable_and_retry)
-    else:
-        shutil.rmtree(
-            path,
-            onerror=lambda func, path, exc_info: _make_writable_and_retry(
-                func, path, exc_info[1]
-            ),
+def _make_removable(path):
+    # git-annex makes its object dirs read-only, and a test may leave a dir
+    # unreadable: give every dir read, write and search before removing it, so
+    # shutil.rmtree meets no permission error of ours
+    path.chmod(path.stat().st_mode | stat.S_IRWXU)
+    with os.scandir(path) as entries:
+        subdirs = tuple(
+            Path(entry.path) for entry in entries if entry.is_dir(follow_symlinks=False)
         )
+    for subdir in subdirs:
+        _make_removable(subdir)
+
+
+def _remove(path, recreate=False):
+    """Remove path; return why it could not be, else None.
+
+    What is left is a leaked writer or a dir we do not own: worth reporting,
+    not a reason to fail a test or the run.
+    """
+    try:
+        _make_removable(path)
+        shutil.rmtree(path)
+        if recreate:
+            path.mkdir()
+    except OSError as e:
+        return f"{path}: {e!r}"
+    return None
+
+
+def _keeps_tmp_path(outcomes, policy):
+    # pytest keys "failed" on the call passing; a failed setup or teardown
+    # keeps the dir too, and an xfailed or skipped call keeps it as in pytest
+    match policy:
+        case "all":
+            return True
+        case "none":
+            return False
+        case "failed":
+            return "failed" in outcomes.values() or (
+                outcomes.get("call", "passed") != "passed"
+            )
 
 
 @pytest.fixture
 def tmp_path(request, tmp_path_factory):
     """pytest's ``tmp_path``, kept by ``tmp_path_retention_policy`` our way.
 
-    pytest's own fixture, under "failed", keeps a dir only when the call
-    failed, so a test that errored in setup or teardown loses it; removes the
-    rest with ``rmtree(ignore_errors=True)``, which skips git-annex's
+    pytest's own fixture, under "failed", keeps a dir only when the call did
+    not pass, so a test that errored in setup or teardown loses it; removes
+    the rest with ``rmtree(ignore_errors=True)``, which skips git-annex's
     read-only dirs; and frees a removed dir's name for a later test. Here a
-    test that failed or errored keeps its files, read-only modes included,
-    and a passing test's dir is emptied, not removed, so its name stays
-    taken. "all" keeps every dir and "none" empties every dir, as in pytest.
+    test whose call did not pass, or that errored, keeps its files, read-only
+    modes included, and any other test's dir is emptied, not removed, so its
+    name stays taken. "all" keeps every dir and "none" empties every dir, as
+    in pytest. What cannot be removed is listed in the terminal summary.
     """
     # same name as pytest's own
     path = tmp_path_factory.mktemp(
@@ -116,32 +140,40 @@ def tmp_path(request, tmp_path_factory):
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
     # applies tmp_path's policy at the teardown report, the first point that
-    # knows whether a finalizer failed, a session fixture's included
+    # knows whether a finalizer failed, a session fixture's included; the
+    # report's outcome is the test's, never the cleanup's
     report = yield
-    not_failed = item.stash.setdefault(_NOT_FAILED, {})
-    not_failed[report.when] = not report.failed
+    outcomes = item.stash.setdefault(_OUTCOMES, {})
+    outcomes[report.when] = report.outcome
     path = item.stash.get(_TMP_PATH, None)
     policy = item.config.getini("tmp_path_retention_policy")
     if (
         report.when == "teardown"
         and path is not None
-        and (policy == "none" or (policy == "failed" and all(not_failed.values())))
+        and not _keeps_tmp_path(outcomes, policy)
+        and (error := _remove(path, recreate=True)) is not None
     ):
-        try:
-            rmtree_writable(path)
-            path.mkdir()
-        except OSError as e:
-            # raised from this hook it would abort the run; report it instead,
-            # after a teardown failure already reported, not in its place
-            message = f"tmp_path cleanup failed for {path}: {e!r}"
-            if report.failed:
-                report.sections.append(("tmp_path cleanup", message))
-            else:
-                report.outcome = "failed"
-                report.longrepr = message
-                # an xfail-marked test's teardown report would not count
-                vars(report).pop("wasxfail", None)
+        # a section reaches the xdist controller with the report
+        report.sections.append((_CLEANUP_SECTION, error))
     return report
+
+
+def pytest_terminal_summary(terminalreporter, config):
+    # the reporter holds every report, a worker's under xdist included
+    errors = (
+        *(
+            error
+            for reports in terminalreporter.stats.values()
+            for report in reports
+            for name, error in getattr(report, "sections", ())
+            if name == _CLEANUP_SECTION
+        ),
+        *filter(None, [config.stash.get(_SESSION_CLEANUP_ERROR, None)]),
+    )
+    if errors:
+        terminalreporter.write_sep("=", "tmp_path cleanup errors", yellow=True)
+        for error in errors:
+            terminalreporter.line(error)
 
 
 @pytest.fixture
