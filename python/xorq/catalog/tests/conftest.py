@@ -314,11 +314,13 @@ _DATA_DICT_NAMES = tuple(
 
 
 @pytest.fixture(scope="session")
-def _data_dict_template(tmp_path_factory):
+def _data_dict_template(tmp_path_factory, _wheel_bundle):
     root = tmp_path_factory.mktemp("data-dict-template")
-    return {
-        (target := make_build_zip(root, name)).name: target for name in _DATA_DICT_NAMES
-    }
+    with entry_wheel_artifacts(_wheel_bundle):
+        return {
+            (target := make_build_zip(root, name)).name: target
+            for name in _DATA_DICT_NAMES
+        }
 
 
 @pytest.fixture
