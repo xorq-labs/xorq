@@ -370,7 +370,7 @@ markers = [
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
 # keep tmp_path dirs only for failed tests: a full run writes tens of thousands
-# of files (catalog repos, builds)
+# of files (catalog repos, builds); python/xorq/conftest.py patches its gaps
 tmp_path_retention_policy = "failed"
 
 [tool.coverage.run]

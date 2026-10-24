@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from _pytest.tmpdir import tmppath_result_key
 from hypothesis import settings
 
 import xorq.api as xo
@@ -37,6 +38,34 @@ def _scratch_env(tmp_path_factory):
             xorq.config.env_config.clone(XORQ_RUNS_LOGS_DIR=runs_dir),
         )
         yield
+
+
+_TMP_PATH = pytest.StashKey[Path]()
+
+
+@pytest.fixture
+def tmp_path(tmp_path, request):
+    # recorded for pytest_runtest_makereport; tests that reach tmp_path only
+    # through tmpdir or another fixture do not have it in item.funcargs
+    request.node.stash[_TMP_PATH] = tmp_path
+    return tmp_path
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Patch two gaps in ``tmp_path_retention_policy = "failed"``.
+
+    pytest keeps a ``tmp_path`` only when the call phase failed, so a test
+    that errored in setup loses its dir: record its call as failed. And a
+    removed dir frees its name for the next test in the session: recreate
+    it empty, so every test still gets a path of its own.
+    """
+    report = yield
+    if report.when == "setup" and report.failed:
+        item.stash.setdefault(tmppath_result_key, {})["call"] = False
+    if report.when == "teardown" and (tmp_path := item.stash.get(_TMP_PATH, None)):
+        tmp_path.mkdir(exist_ok=True)
+    return report
 
 
 @pytest.fixture
