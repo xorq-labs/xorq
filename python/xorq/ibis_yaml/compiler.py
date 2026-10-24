@@ -71,12 +71,7 @@ from xorq.expr.relations import (
     relocate_cache,
     relocate_cache_tag,
 )
-from xorq.ibis_yaml.common import (
-    Registry,
-    TranslationContext,
-    translate_from_yaml,
-    translate_to_yaml,
-)
+from xorq.ibis_yaml.common import Registry
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import (
     BundledSourceTypes,
@@ -89,16 +84,16 @@ from xorq.ibis_yaml.enums import (
     WritePhase,
 )
 from xorq.ibis_yaml.sql import find_relations, generate_sql_plans
+from xorq.ibis_yaml.translate import (
+    make_context,
+    translate_from_yaml,
+    translate_to_yaml,
+)
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 from xorq.vendor.ibis.expr.types.core import ExprMetadata, SqlQueries
-
-
-@functools.cache
-def _ensure_translate_registered():
-    import xorq.ibis_yaml.translate  # noqa: PLC0415, F401
 
 
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq_datafusion")
@@ -303,8 +298,7 @@ class ArtifactStore:
 class YamlExpressionTranslator:
     @staticmethod
     def to_yaml(expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
-        _ensure_translate_registered()
-        context = TranslationContext(
+        context = make_context(
             profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
         )
@@ -313,7 +307,7 @@ class YamlExpressionTranslator:
             expr_dict = freeze(
                 expr_dict
                 | {
-                    RefEnum.schema_ref: context.registry.register_schema(expr.schema())
+                    RefEnum.schema_ref: context.register_schema(expr.schema())
                     if hasattr(expr, "schema")
                     else None,
                 }
@@ -330,8 +324,7 @@ class YamlExpressionTranslator:
         yaml_dict: Dict[str, Any],
         profiles=(),
     ) -> ir.Expr:
-        _ensure_translate_registered()
-        context = TranslationContext(
+        context = make_context(
             registry=Registry(**yaml_dict.get(DocKey.definitions, {})),
             profiles=freeze(dict(profiles)),
         )

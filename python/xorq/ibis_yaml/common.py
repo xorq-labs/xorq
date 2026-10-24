@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import base64
-import functools
+from collections.abc import Callable
 from contextlib import contextmanager
-from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +14,6 @@ from attr import (
 )
 from attr.validators import instance_of
 
-import xorq.expr.datatypes as dt
-import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
 from xorq.expr.relations import Read
@@ -23,9 +22,6 @@ from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, RefEnum, RegistryEnum
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.schema import Schema
-
-
-FROM_YAML_HANDLERS: dict[str, Any] = {}
 
 
 def serialize_callable(fn: callable) -> str:
@@ -103,13 +99,7 @@ class Registry:
         frozen = freeze({RefEnum.node_ref: node_ref})
         return frozen
 
-    def register_schema(self, schema):
-        frozen_schema = freeze(
-            toolz.valmap(
-                functools.partial(translate_to_yaml, context=None),
-                schema,
-            )
-        )
+    def register_schema(self, frozen_schema):
         schema_ref = f"schema_{tokenize(tuplify(frozen_schema))[: config.hash_length]}"
         self.schemas.setdefault(schema_ref, frozen_schema)
         frozen = freeze({RefEnum.schema_ref: schema_ref})
@@ -133,6 +123,12 @@ class Registry:
             ) from err
 
 
+# a rule: one value to its yaml, or one yaml dict back to its value; to_yaml
+# with context None writes the value inline instead of registering a ref
+ToYaml = Callable[[Any, "TranslationContext | None"], Any]
+FromYaml = Callable[[dict, "TranslationContext"], Any]
+
+
 def _is_absolute_path(instance, attribute, value):
     if value and not Path(value).is_absolute():
         raise ValueError("cache_dir must be absolute")
@@ -140,6 +136,15 @@ def _is_absolute_path(instance, attribute, value):
 
 @frozen
 class TranslationContext:
+    """The state one translation shares, and the translators it runs.
+
+    ``to_yaml`` and ``from_yaml`` are the dispatchers ``translate.py`` builds
+    from its rule tables; a context is made with them (``make_context``), so a
+    context that cannot translate cannot be constructed.
+    """
+
+    to_yaml: ToYaml = field(kw_only=True, eq=False, repr=False)
+    from_yaml: FromYaml = field(kw_only=True, eq=False, repr=False)
     registry: Registry = field(factory=Registry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
     cache_dir: Path = field(
@@ -168,10 +173,16 @@ class TranslationContext:
         return self.remote_table_stack[-1] if self.remote_table_stack else None
 
     def translate_from_yaml(self, yaml_dict: dict) -> Any:
-        return translate_from_yaml(yaml_dict, self)
+        return self.from_yaml(yaml_dict, self)
 
     def translate_to_yaml(self, op: Any) -> dict:
-        return safe_translate_to_yaml(op, self)
+        return self.to_yaml(op, self)
+
+    def register_schema(self, schema: Schema) -> dict:
+        # dtypes inside a schema are written inline (context=None), not as refs
+        return self.registry.register_schema(
+            freeze({name: self.to_yaml(dtype, None) for name, dtype in schema.items()})
+        )
 
     def register(self, which, op, frozen=None):
         match which:
@@ -180,7 +191,7 @@ class TranslationContext:
             case RegistryEnum.nodes:
                 return self.registry.register_node(op, frozen)
             case RegistryEnum.schemas:
-                return self.registry.register_schema(op)
+                return self.register_schema(op)
             case _:
                 raise ValueError(f"don't know how to register {which}")
 
@@ -199,80 +210,3 @@ class TranslationContext:
         schema_def = self.get_definition(RegistryEnum.schemas, schema_ref)
         schema = Schema(toolz.valmap(self.translate_from_yaml, schema_def))
         return schema
-
-
-def register_from_yaml_handler(*op_names: str):
-    def decorator(func):
-        for name in op_names:
-            FROM_YAML_HANDLERS[name] = func
-        return func
-
-    return decorator
-
-
-def default_handler(yaml_dict: dict, context: TranslationContext):
-    spec = dict(yaml_dict)
-    cls = getattr(ops, spec["op"])
-    return cls(
-        **{
-            key: translate_from_yaml(spec[key], context)
-            for key in tuple(cls.__signature__.parameters)
-        }
-    ).to_expr()
-
-
-@functools.lru_cache(maxsize=None, typed=True)
-@functools.singledispatch
-def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
-    match yaml_dict:
-        case None:
-            return None
-        case bool() | int() | float() | str():
-            return yaml_dict
-        case {RefEnum.dtype_ref: dtype_ref, **rest}:
-            if rest:
-                raise ValueError(
-                    f"don't know how to handle additional keys ({tuple(rest)}"
-                )
-            return context.get_dtype(dtype_ref)
-        case {RefEnum.node_ref: node_ref, RefEnum.schema_ref: _schema_ref, **rest}:
-            if rest:
-                raise ValueError(
-                    f"don't know how to handle additional keys ({tuple(rest)}"
-                )
-            return context.get_node(node_ref)
-        case {RefEnum.node_ref: node_ref, **rest}:
-            if rest:
-                raise ValueError(
-                    f"don't know how to handle additional keys ({tuple(rest)}"
-                )
-            return context.get_node(node_ref)
-        case {"op": op_type}:
-            return FROM_YAML_HANDLERS.get(op_type, default_handler)(yaml_dict, context)
-        case {RefEnum.schema_ref: schema_ref, **rest}:
-            if rest:
-                raise ValueError(
-                    f"don't know how to handle additional keys ({tuple(rest)}"
-                )
-            return context.get_schema(schema_ref)
-        case _:
-            raise ValueError(f"don't know how to handle keys ({tuple(yaml_dict)})")
-
-
-@functools.lru_cache(maxsize=None, typed=True)
-@functools.singledispatch
-def translate_to_yaml(op: Any, context: TranslationContext) -> dict:
-    raise NotImplementedError(f"No translation rule for {type(op)}")
-
-
-@wraps(translate_to_yaml)
-def safe_translate_to_yaml(*args, **kwargs):
-    try:
-        return translate_to_yaml(*args, **kwargs)
-    except Exception:
-        return translate_to_yaml.__wrapped__(*args, **kwargs)
-
-
-@functools.singledispatch
-def _translate_type(dtype: dt.DataType) -> dict:
-    return freeze({"name": type(dtype).__name__, "nullable": dtype.nullable})
