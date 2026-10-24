@@ -27,6 +27,12 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.enums import DumpFiles
 
 
+@pytest.fixture(autouse=True)
+def _cwd_in_tmp_path(tmp_path, monkeypatch):
+    # compose, join and union build into ./builds; keep that out of the repo
+    monkeypatch.chdir(tmp_path)
+
+
 # --- run command ---
 
 

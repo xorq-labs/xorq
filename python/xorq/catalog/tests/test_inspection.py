@@ -33,7 +33,7 @@ from xorq.catalog.inspection import (
     translation_context,
     walk_node_refs,
 )
-from xorq.catalog.tests.conftest import entry_wheel_artifacts
+from xorq.catalog.tests.conftest import EntryWheel, entry_wheel_artifacts
 from xorq.catalog.zip_utils import BuildZip
 from xorq.ibis_yaml.compiler import build_expr
 from xorq.ibis_yaml.enums import BundledSourceTypes, DumpFiles
@@ -118,7 +118,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
 def entries(
     tmp_path_factory: pytest.TempPathFactory,
     world: SimpleNamespace,
-    _wheel_bundle: SimpleNamespace,
+    _metadata_only_wheel: EntryWheel,
 ) -> dict[str, CatalogEntry]:
     """One catalog entry per build shape, built once for the whole module."""
     catalog = make_catalog(tmp_path_factory.mktemp("inspection-catalog") / "repo")
@@ -134,7 +134,7 @@ def entries(
     # relocate_reads=False so the pin's frozen read keeps its absolute cache-dir
     # path: an unbundled read is exactly the shape a false external leaf takes.
     pinned = read.filter(read.a > 1).cache(cache=cache).ls.pin(ensure_materialized=True)
-    with entry_wheel_artifacts(_wheel_bundle):
+    with entry_wheel_artifacts(_metadata_only_wheel):
         return {
             "sqlite": catalog.add(t.filter(t.a > 1)),
             "pinned": catalog.add(pinned, relocate_reads=False),

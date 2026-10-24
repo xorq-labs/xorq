@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import shutil
 import uuid
 import zipfile
@@ -9,6 +11,8 @@ from types import SimpleNamespace
 import pyarrow as pa
 import pytest
 import toolz
+from attr import evolve, field, frozen
+from attr.validators import instance_of
 from click.testing import CliRunner
 from git import (
     Blob,
@@ -37,11 +41,7 @@ from xorq.catalog.expr_utils import build_expr_context_zip
 from xorq.catalog.replay import Replayer
 from xorq.catalog.zip_utils import with_pure_suffix
 from xorq.ibis_yaml.enums import DumpFiles
-from xorq.ibis_yaml.packager import (
-    PYPROJECT_NAME,
-    WheelPackager,
-    find_file_upwards,
-)
+from xorq.ibis_yaml.packager import WheelPackager
 from xorq.vendor.ibis.expr import operations as ops
 
 
@@ -81,48 +81,55 @@ def dist_info_only_wheel(wheel_path: Path, out_dir: Path) -> Path:
     return out_path
 
 
-def wheel_artifacts_copier(wheel_path: Path, requirements_path: Path) -> Callable:
-    """An ``_ensure_wheel_artifacts`` that copies these files instead of building."""
+@frozen
+class EntryWheel:
+    """The wheel and requirements an entry's build carries, instead of a fresh build."""
 
-    def ensure(build_dir, project_path=None):
+    wheel_path: Path = field(validator=instance_of(Path))
+    requirements_path: Path = field(validator=instance_of(Path))
+
+    def ensure_wheel_artifacts(self, build_dir, project_path=None):
+        """Stands in for ``catalog._ensure_wheel_artifacts``: copy, never build."""
         build_dir = Path(build_dir)
         reqs_path = build_dir / DumpFiles.requirements
-        if not list(build_dir.glob("*.whl")):
-            shutil.copy2(wheel_path, build_dir / wheel_path.name)
+        if not tuple(build_dir.glob("*.whl")):
+            shutil.copy2(self.wheel_path, build_dir / self.wheel_path.name)
         if not reqs_path.exists():
-            shutil.copy2(requirements_path, reqs_path)
+            shutil.copy2(self.requirements_path, reqs_path)
 
-    return ensure
+    def metadata_only(self, out_dir: Path) -> EntryWheel:
+        return evolve(self, wheel_path=dist_info_only_wheel(self.wheel_path, out_dir))
 
 
 @pytest.fixture(scope="session")
-def _wheel_bundle(tmp_path_factory):
-    """Build the wheel once per test session, and its metadata-only copy.
+def _installable_wheel(tmp_path_factory, root_dir) -> EntryWheel:
+    """xorq's wheel, built once per test session.
 
     Copied out of the bundle, whose temporary dir goes with it.
     """
-    pyproject_path = find_file_upwards(Path.cwd(), PYPROJECT_NAME)
-    bundle = WheelPackager(pyproject_path.parent).build()
-    full_dir = tmp_path_factory.mktemp("wheel")
-    return SimpleNamespace(
-        wheel_path=Path(shutil.copy2(bundle.wheel_path, full_dir)),
-        metadata_only_path=dist_info_only_wheel(
-            bundle.wheel_path, tmp_path_factory.mktemp("wheel-metadata-only")
-        ),
-        requirements_path=Path(shutil.copy2(bundle.requirements_path, full_dir)),
+    bundle = WheelPackager(root_dir).build()
+    out_dir = tmp_path_factory.mktemp("wheel")
+    return EntryWheel(
+        wheel_path=Path(shutil.copy2(bundle.wheel_path, out_dir)),
+        requirements_path=Path(shutil.copy2(bundle.requirements_path, out_dir)),
     )
 
 
-def entry_wheel_copier(wheel_bundle, installable=False) -> Callable:
-    wheel_path = (
-        wheel_bundle.wheel_path if installable else wheel_bundle.metadata_only_path
+@pytest.fixture(scope="session")
+def _metadata_only_wheel(tmp_path_factory, _installable_wheel) -> EntryWheel:
+    """The wheel entries carry unless a test is marked ``installs_entry_wheel``.
+
+    A fixture wider than function scope that adds entries requests this, so
+    an ``installs_entry_wheel`` test that uses it is refused by ``_entry_wheel``.
+    """
+    return _installable_wheel.metadata_only(
+        tmp_path_factory.mktemp("wheel-metadata-only")
     )
-    return wheel_artifacts_copier(wheel_path, wheel_bundle.requirements_path)
 
 
 @contextmanager
-def entry_wheel_artifacts(wheel_bundle):
-    """Entries added inside get ``wheel_bundle``'s wheel instead of a fresh build.
+def entry_wheel_artifacts(entry_wheel: EntryWheel):
+    """Entries added inside carry ``entry_wheel`` instead of a fresh build.
 
     For fixtures wider than function scope that add entries; tests get it
     from ``_entry_wheel``. Patched only for the block, so nothing outside the
@@ -130,27 +137,32 @@ def entry_wheel_artifacts(wheel_bundle):
     """
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
-            catalog_mod, "_ensure_wheel_artifacts", entry_wheel_copier(wheel_bundle)
+            catalog_mod, "_ensure_wheel_artifacts", entry_wheel.ensure_wheel_artifacts
         )
         yield
 
 
 @pytest.fixture(autouse=True)
-def _entry_wheel(request, monkeypatch, _wheel_bundle):
-    # autouse, so it is in place before the test's catalog fixtures add entries
-    installable = request.node.get_closest_marker("installs_entry_wheel") is not None
-    if installable and "_data_dict_template" in request.fixturenames:
-        pytest.fail(
-            "installs_entry_wheel cannot use data_dict or catalog_populated: "
-            "their session templates carry the metadata-only wheel",
-            pytrace=False,
-        )
+def _entry_wheel(request, monkeypatch):
+    # autouse, so it is in place before the test's catalog fixtures add entries;
+    # the wheel is requested here, not as a parameter, so _metadata_only_wheel
+    # is in the test's closure only when a wider fixture added entries with it
+    installs = request.node.get_closest_marker("installs_entry_wheel") is not None
+    match (installs, "_metadata_only_wheel" in request.fixturenames):
+        case (True, True):
+            pytest.fail(
+                "installs_entry_wheel cannot use a fixture that requests "
+                "_metadata_only_wheel: its entries carry the metadata-only wheel",
+                pytrace=False,
+            )
+        case (True, False):
+            entry_wheel = request.getfixturevalue("_installable_wheel")
+        case _:
+            entry_wheel = request.getfixturevalue("_metadata_only_wheel")
     # the test's own monkeypatch: a test that patches the function again, a
     # spy say, is undone first, then this
     monkeypatch.setattr(
-        catalog_mod,
-        "_ensure_wheel_artifacts",
-        entry_wheel_copier(_wheel_bundle, installable),
+        catalog_mod, "_ensure_wheel_artifacts", entry_wheel.ensure_wheel_artifacts
     )
 
 
@@ -321,9 +333,9 @@ _DATA_DICT_NAMES = tuple(
 
 
 @pytest.fixture(scope="session")
-def _data_dict_template(tmp_path_factory, _wheel_bundle):
+def _data_dict_template(tmp_path_factory, _metadata_only_wheel):
     root = tmp_path_factory.mktemp("data-dict-template")
-    with entry_wheel_artifacts(_wheel_bundle):
+    with entry_wheel_artifacts(_metadata_only_wheel):
         return {
             (target := make_build_zip(root, name)).name: target
             for name in _DATA_DICT_NAMES
@@ -341,23 +353,17 @@ def data_dict(tmpdir, _data_dict_template):
 
 @pytest.fixture(scope="session")
 def _catalog_populated_template(
-    tmp_path_factory, backend_type, _data_dict_template, _wheel_bundle
+    tmp_path_factory, backend_type, _data_dict_template, _metadata_only_wheel
 ):
     root = tmp_path_factory.mktemp(f"catalog-populated-template-{backend_type}")
     repo_path = root / "repo"
     store_dir = root / "content-store"
     repo = _init_catalog_repo(repo_path, backend_type, store_dir=store_dir)
     catalog = _make_catalog_from_repo(repo, backend_type, store_dir=store_dir)
-    with entry_wheel_artifacts(_wheel_bundle):
+    with entry_wheel_artifacts(_metadata_only_wheel):
         for path in _data_dict_template.values():
             catalog.add(path)
     return repo_path, store_dir
-
-
-@pytest.fixture(autouse=True)
-def _cwd_in_tmp_path(tmp_path, monkeypatch):
-    # compose, join and union build into ./builds; keep that out of the repo
-    monkeypatch.chdir(tmp_path)
 
 
 @pytest.fixture

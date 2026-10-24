@@ -2095,8 +2095,9 @@ def test_row_limit_clamp_and_default(
         ],
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert result.returncode == 0, result.stderr
     assert int(result.stdout) == expected
 
 
