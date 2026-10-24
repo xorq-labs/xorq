@@ -113,27 +113,30 @@ def _wheel_bundle(tmp_path_factory):
     )
 
 
-@contextmanager
-def entry_wheel_artifacts(wheel_bundle, installable=False):
-    """Entries added inside get ``wheel_bundle``'s wheel instead of a fresh build.
-
-    Patched only for the block, so nothing outside the catalog tests sees it;
-    fixtures wider than function scope that add entries enter it themselves.
-    """
+def entry_wheel_copier(wheel_bundle, installable=False) -> Callable:
     wheel_path = (
         wheel_bundle.wheel_path if installable else wheel_bundle.metadata_only_path
     )
+    return wheel_artifacts_copier(wheel_path, wheel_bundle.requirements_path)
+
+
+@contextmanager
+def entry_wheel_artifacts(wheel_bundle):
+    """Entries added inside get ``wheel_bundle``'s wheel instead of a fresh build.
+
+    For fixtures wider than function scope that add entries; tests get it
+    from ``_entry_wheel``. Patched only for the block, so nothing outside the
+    catalog tests sees it.
+    """
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
-            catalog_mod,
-            "_ensure_wheel_artifacts",
-            wheel_artifacts_copier(wheel_path, wheel_bundle.requirements_path),
+            catalog_mod, "_ensure_wheel_artifacts", entry_wheel_copier(wheel_bundle)
         )
         yield
 
 
 @pytest.fixture(autouse=True)
-def _entry_wheel(request, _wheel_bundle):
+def _entry_wheel(request, monkeypatch, _wheel_bundle):
     # autouse, so it is in place before the test's catalog fixtures add entries
     installable = request.node.get_closest_marker("installs_entry_wheel") is not None
     if installable and "_data_dict_template" in request.fixturenames:
@@ -142,8 +145,13 @@ def _entry_wheel(request, _wheel_bundle):
             "their session templates carry the metadata-only wheel",
             pytrace=False,
         )
-    with entry_wheel_artifacts(_wheel_bundle, installable):
-        yield
+    # the test's own monkeypatch: a test that patches the function again, a
+    # spy say, is undone first, then this
+    monkeypatch.setattr(
+        catalog_mod,
+        "_ensure_wheel_artifacts",
+        entry_wheel_copier(_wheel_bundle, installable),
+    )
 
 
 def get_split_tree(repo):
