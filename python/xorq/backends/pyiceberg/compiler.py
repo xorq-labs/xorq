@@ -35,14 +35,16 @@ def column(op, **_):
     return op.name
 
 
-@translate.register(ops.DatabaseTable)
-def table(op, catalog=None, namespace=None, **kwargs):
-    if catalog is None:
-        raise ValueError("catalog cannot be None")
-    if namespace is None:
-        raise ValueError("namespace cannot be None")
+def load_op_table(op):
+    """The Iceberg table ``op`` names, loaded through ``op.source``."""
+    return op.source.load_iceberg_table(
+        op.name, catalog=op.namespace.catalog, database=op.namespace.database
+    )
 
-    ice_table = catalog.load_table(f"{namespace}.{op.name}")
+
+@translate.register(ops.DatabaseTable)
+def table(op, **_):
+    ice_table = load_op_table(op)
 
     match op:
         case PyIcebergTable(snapshot_id=snapshot_id):
