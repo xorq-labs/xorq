@@ -109,7 +109,7 @@ class Backend(SQLBackend):
         name: str,
         schema: str | None = None,
         database: tuple[str, str] | str | None = None,
-        snapshot_id: str | None = None,
+        snapshot_id: int | None = None,
     ) -> ir.Table:
         table_schema = self.get_schema(name, catalog=schema, database=database)
 
