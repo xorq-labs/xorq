@@ -1262,9 +1262,6 @@ def uv_build_args(script_path, root, *options):
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 @pytest.mark.parametrize("template", InitTemplates)
 def test_init_uv_build_uv_run(template, tmpdir):
     tmpdir = Path(tmpdir)
@@ -1308,9 +1305,6 @@ def test_init_uv_build_uv_run(template, tmpdir):
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 def test_uv_build_with_project_path(tmpdir):
     tmpdir = Path(tmpdir)
     path = tmpdir.joinpath("xorq-template-default")
@@ -1336,9 +1330,6 @@ def test_uv_build_with_project_path(tmpdir):
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 def test_uv_build_no_all_extras(tmpdir):
     tmpdir = Path(tmpdir)
     path = tmpdir.joinpath("xorq-template-default")
@@ -1353,9 +1344,6 @@ def test_uv_build_no_all_extras(tmpdir):
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 def test_uv_build_with_extra(tmpdir):
     import tomlkit  # noqa: PLC0415
 
@@ -1734,9 +1722,6 @@ def test_catalog_serve_unbound_help():
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 def test_uv_run_cached_roundtrip(tmpdir):
     tmpdir = Path(tmpdir)
     path = tmpdir / "xorq-template-penguins"
@@ -1857,9 +1842,6 @@ def uv_unbound_build(tmp_path_factory, fixture_dir):
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 def test_uv_run_unbound_roundtrip_stdin(uv_unbound_build, tmp_path):
     ipc_data = _make_penguins_ipc_bytes()
     output_path = tmp_path / "unbound_output.parquet"
@@ -1889,9 +1871,6 @@ def test_uv_run_unbound_roundtrip_stdin(uv_unbound_build, tmp_path):
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 def test_uv_run_unbound_roundtrip_file(uv_unbound_build, tmp_path):
     ipc_data = _make_penguins_ipc_bytes()
     ipc_path = tmp_path / "input.arrow"
@@ -1926,9 +1905,6 @@ def test_uv_run_unbound_roundtrip_file(uv_unbound_build, tmp_path):
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 def test_uv_run_unbound_roundtrip_popen(uv_unbound_build, tmp_path):
     ipc_data = _make_penguins_ipc_bytes()
     output_path = tmp_path / "fd_output.parquet"

@@ -89,9 +89,6 @@ def test_wheel_packager(template, tmpdir):
 
 
 @pytest.mark.slow(level=1)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_wheel_builder(template, tmpdir):
     zip_path, project_path = prep_template_tmpdir(template, tmpdir)
@@ -108,9 +105,6 @@ def test_wheel_builder(template, tmpdir):
 
 
 @pytest.mark.slow(level=2)
-@pytest.mark.skipif(
-    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
-)
 @pytest.mark.parametrize(
     "template",
     [
