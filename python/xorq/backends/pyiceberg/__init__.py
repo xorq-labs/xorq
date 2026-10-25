@@ -11,7 +11,7 @@ from pyiceberg.table import Table as IcebergTable
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.postgres.compiler import compiler as postgres_compiler
 from xorq.backends.pyiceberg.compiler import PyIceberg, translate
-from xorq.backends.pyiceberg.relations import PyIcebergTable
+from xorq.expr.relations import PyIcebergTable
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch

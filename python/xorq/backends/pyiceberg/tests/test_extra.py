@@ -3,6 +3,7 @@ import pyarrow as pa
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.tests.util import assert_frame_equal
 
 
@@ -111,3 +112,22 @@ def test_filter_by_snapshot(iceberg_con, quotes_df):
 
     n = len(quotes_df)
     assert actual == {"latest": 3 * n, "first": n, "second": 2 * n, "hand_built": 3 * n}
+
+
+def test_snapshot_pin_survives_build_and_load(iceberg_con, quotes_df, tmp_path):
+    table_name = "snapshot_build"
+    iceberg_con.create_table(table_name, quotes_df, overwrite=True)
+    first_id = current_snapshot_id(iceberg_con, table_name)
+    iceberg_con.insert(table_name, quotes_df)
+    paths = {
+        "first": build_expr(
+            iceberg_con.table(table_name, snapshot_id=first_id), builds_dir=tmp_path
+        ),
+        "latest": build_expr(iceberg_con.table(table_name), builds_dir=tmp_path),
+    }
+
+    actual = {key: len(load_expr(path).execute()) for key, path in paths.items()}
+
+    n = len(quotes_df)
+    assert actual == {"first": n, "latest": 2 * n}
+    assert paths["first"].name != paths["latest"].name

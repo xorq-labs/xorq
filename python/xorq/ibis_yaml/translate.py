@@ -26,6 +26,7 @@ from xorq.expr.relations import (
     CachedNode,
     CacheTag,
     HashingTag,
+    PyIcebergTable,
     Read,
     RemoteTable,
     Tag,
@@ -484,8 +485,17 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
             NodeKey.namespace: namespace_dict,
         }
         | context.registry.register_schema(op.schema)
+        | _snapshot_pin_to_yaml(op)
     )
     return node_dict
+
+
+def _snapshot_pin_to_yaml(op: ops.DatabaseTable) -> dict:
+    match op:
+        case PyIcebergTable(snapshot_id=int() as snapshot_id):
+            return {NodeKey.snapshot_id: snapshot_id}
+        case _:
+            return {}
 
 
 @register_from_yaml_handler("DatabaseTable")
@@ -504,12 +514,17 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
         raise ValueError(
             f"Profile {profile_name!r} not found in context.profiles"
         ) from err
-    return ops.DatabaseTable(
-        schema=schema,
-        source=con,
-        name=table_name,
-        namespace=Namespace(catalog=catalog, database=database),
-    ).to_expr()
+    kwargs = {
+        "schema": schema,
+        "source": con,
+        "name": table_name,
+        "namespace": Namespace(catalog=catalog, database=database),
+    }
+    match yaml_dict.get(NodeKey.snapshot_id):
+        case None:
+            return ops.DatabaseTable(**kwargs).to_expr()
+        case snapshot_id:
+            return PyIcebergTable(**kwargs, snapshot_id=snapshot_id).to_expr()
 
 
 @translate_to_yaml.register(CachedNode)

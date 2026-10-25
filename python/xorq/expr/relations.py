@@ -144,6 +144,12 @@ class DatabaseTableView(ops.DatabaseTable):
     pass
 
 
+class PyIcebergTable(ops.DatabaseTable):
+    """A table that is bound to a PyIceberg backend."""
+
+    snapshot_id: int | None = None
+
+
 class CachedNode(DatabaseTableView):
     parent: Any = None
     cache: Any = None

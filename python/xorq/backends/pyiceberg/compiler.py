@@ -4,7 +4,7 @@ import pyiceberg.expressions as ice
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.backends.pyiceberg.relations import PyIcebergTable
+from xorq.expr.relations import PyIcebergTable
 from xorq.vendor.ibis.backends.sql.dialects import Postgres
 
 
