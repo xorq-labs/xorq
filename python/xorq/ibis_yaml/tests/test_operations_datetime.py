@@ -7,8 +7,8 @@ import pytest
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations.temporal as tm
-from xorq.ibis_yaml.common import TranslationContext, translate_to_yaml
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
+from xorq.ibis_yaml.translate import make_context, translate_to_yaml
 
 
 def test_date_extract(compiler):
@@ -174,7 +174,7 @@ def test_temporal_unit_direct_serialization(
     compiler, unit_cls, unit_value, expected_name
 ):
     """Test that DateUnit, TimeUnit, and TimestampUnit enums serialize directly."""
-    ctx = TranslationContext()
+    ctx = make_context()
     unit = unit_cls(unit_value)
     result = translate_to_yaml(unit, ctx)
     assert result["op"] == "IntervalUnit"
