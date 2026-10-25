@@ -1,7 +1,7 @@
 import pyarrow as pa
 
 import xorq.api as xo
-from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
 from xorq.tests.util import assert_frame_equal
 
@@ -84,23 +84,30 @@ def test_list_snapshots(iceberg_con):
     assert isinstance(actual, dict)
 
 
-def test_filter_by_snapshot_simple(iceberg_con):
-    lookup = iceberg_con.list_snapshots()
-    first, *_ = lookup[QUOTES_TABLE_NAME]
-
-    table = iceberg_con.table(QUOTES_TABLE_NAME, snapshot_id=first)
-    assert not table.execute().empty
+def current_snapshot_id(con, table_name):
+    ice_table = con.catalog.load_table(f"{con.namespace}.{table_name}")
+    return ice_table.current_snapshot().snapshot_id
 
 
 def test_filter_by_snapshot(iceberg_con, quotes_df):
-    table_name = "double_quotes"
-    iceberg_con.create_table(table_name, quotes_df)
-    quotes_double_bid = quotes_df.assign(bid=quotes_df.bid * 2)
-    iceberg_con.insert(table_name, quotes_double_bid)
-    lookup = iceberg_con.list_snapshots()
-    first_id, second_id = lookup[table_name]
+    table_name = "snapshot_rows"
+    iceberg_con.create_table(table_name, quotes_df, overwrite=True)
+    first_id = current_snapshot_id(iceberg_con, table_name)
+    iceberg_con.insert(table_name, quotes_df)
+    second_id = current_snapshot_id(iceberg_con, table_name)
+    iceberg_con.insert(table_name, quotes_df)
+    exprs = {
+        "latest": iceberg_con.table(table_name),
+        "first": iceberg_con.table(table_name, snapshot_id=first_id),
+        "second": iceberg_con.table(table_name, snapshot_id=second_id),
+        "hand_built": ops.DatabaseTable(
+            name=table_name,
+            schema=iceberg_con.get_schema(table_name),
+            source=iceberg_con,
+        ).to_expr(),
+    }
 
-    first = iceberg_con.table(table_name, snapshot_id=first_id).execute()
-    actual = iceberg_con.table(table_name, snapshot_id=second_id).execute()
+    actual = {key: len(expr.execute()) for key, expr in exprs.items()}
 
-    assert not first["bid"].equals(actual["bid"])
+    n = len(quotes_df)
+    assert actual == {"latest": 3 * n, "first": n, "second": 2 * n, "hand_built": 3 * n}
