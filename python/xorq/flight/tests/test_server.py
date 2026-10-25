@@ -510,3 +510,23 @@ def test_close_after_unfinished_exchange_keeps_the_port_reserved():
             )
         assert FlightUrl.port_in_use(server.flight_url.port)
         server.flight_url.unbind_socket()
+
+
+UPLOAD_CONNECTS = {
+    "duckdb": lambda: xo.duckdb.connect(),
+    "xorq": lambda: xo.connect(),
+}
+
+
+@pytest.mark.parametrize("backend", tuple(UPLOAD_CONNECTS))
+def test_upload_is_readable_after_do_put_returns(backend):
+    con = UPLOAD_CONNECTS[backend]()
+    data = pa.table({"a": list(range(10))})
+    batches = data.to_batches(max_chunksize=2)
+    with FlightServer(make_connection=lambda: con) as server:
+        server.client.upload_batches(
+            "t", pa.RecordBatchReader.from_batches(data.schema, batches)
+        )
+        actual = [server.client.execute(server.con.table("t")) for _ in range(2)]
+
+    assert all(table.equals(data) for table in actual)
