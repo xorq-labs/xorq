@@ -2095,8 +2095,12 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
     return current
 
 
+def _normalize_requirements(content):
+    return content.replace(b"\r\n", b"\n").strip() + b"\n"
+
+
 def _assert_requirements_identical(entry_reqs):
-    distinct = {content.replace(b"\r\n", b"\n").strip() for _, content in entry_reqs}
+    distinct = {_normalize_requirements(content) for _, content in entry_reqs}
     if len(distinct) <= 1:
         return
     names = ", ".join(repr(name) for name, _ in entry_reqs)
@@ -2163,7 +2167,7 @@ def _entry_run_bundle(
             if not ignore_mismatch:
                 _assert_requirements_identical(req_contents)
             req_path = harvest_dir / DumpFiles.requirements
-            req_path.write_bytes(req_contents[0][1])
+            req_path.write_bytes(_normalize_requirements(req_contents[0][1]))
 
             distinct_pins = {pin for _, pin in python_pins if pin is not None}
             unpinned = [e for e, pin in python_pins if pin is None]

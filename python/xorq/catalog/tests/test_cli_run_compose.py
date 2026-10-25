@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 import xorq.api as xo
 from xorq.catalog import cli as cli_mod
+from xorq.catalog import zip_utils
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import (
     _assert_requirements_identical,
@@ -620,6 +621,30 @@ def test_assert_requirements_identical_ignores_line_endings():
         _assert_requirements_identical(
             [("linux", b"foo==1.0\n"), ("windows", b"foo==2.0\r\n")]
         )
+
+
+def test_entry_run_bundle_writes_lf_requirements_from_crlf_entry(
+    catalog_with_source_and_transform,
+):
+
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    harvest = zip_utils.harvest_entry_from_zip
+    seen = []
+
+    def harvest_first_as_crlf(*args, **kwargs):
+        wheel_paths, req_bytes, python_pin = harvest(*args, **kwargs)
+        seen.append(req_bytes)
+        if len(seen) == 1:
+            req_bytes = req_bytes.replace(b"\n", b"\r\n")
+        return wheel_paths, req_bytes, python_pin
+
+    with patch.object(zip_utils, "harvest_entry_from_zip", harvest_first_as_crlf):
+        with _entry_run_bundle(catalog, ("src", "trn")) as bundle:
+            written = bundle.requirements_path.read_bytes()
+
+    assert b"\r\n" not in written
+    assert written == seen[1].strip() + b"\n"
 
 
 # --- uv-subprocess test helpers ---
