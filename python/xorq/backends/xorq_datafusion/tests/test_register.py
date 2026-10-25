@@ -332,6 +332,22 @@ def test_read_record_batches_empty_generator_raises():
         con.read_record_batches(empty())
 
 
+@pytest.mark.parametrize(
+    "source,error,match",
+    [
+        pytest.param([], ValueError, "no rows", id="empty-iterable"),
+        pytest.param("t", TypeError, "unsupported source type", id="str"),
+        pytest.param(object(), TypeError, "unsupported source type", id="object"),
+    ],
+)
+def test_read_record_batches_rejected_source_keeps_existing_table(source, error, match):
+    con = xo.connect()
+    con.read_record_batches(pa.table({"a": [1, 2]}), table_name="t")
+    with pytest.raises(error, match=match):
+        con.read_record_batches(source, table_name="t")
+    assert con.table("t").execute()["a"].tolist() == [1, 2]
+
+
 def test_read_record_batches_empty_reader_returns_empty():
     con = xo.connect()
     schema = pa.schema([("a", pa.int64())])

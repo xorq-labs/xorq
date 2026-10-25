@@ -843,7 +843,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
-        self.con.deregister_table(table_ident)
         registered: Any = None
         match source:
             case StreamCache():
@@ -879,6 +878,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
         if registered is None:
             registered = _casting_reader(target_schema, batches)
+        self.con.deregister_table(table_ident)
         # Build the ir.Table after registering; if that build fails, deregister
         # so a failed call never leaves a half-registered table behind. Applies
         # to every source type, not just the lazy StreamCache path.
