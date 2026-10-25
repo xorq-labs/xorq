@@ -365,6 +365,60 @@ def test_count_embedded_sql_cte_shadowing_generated_alias(
     assert _only_count(expr.cross_join(inner)) == 4
 
 
+def test_count_duckdb_rescan_survives_a_shadowing_embedded_cte() -> None:
+    # the PARTITION BY window reads the RemoteTable through a generated CTE; a
+    # raw-SQL CTE named like it must not replace what that CTE reads, or the
+    # duckdb re-scan rule stops seeing the RemoteTable and counts it once
+    target = xo.duckdb.connect()
+    rt = xo.connect().create_table("r", pa.table({"k": [1, 2], "v": [1.0, 2.0]}))
+    m = rt.into_backend(target).filter(lambda t: t.v > 0)
+    j = m.join(m.view(), "k").select("k", v=m.v)
+    outer = j.mutate(s=j.v.sum().over(group_by="k"))
+    target.create_table("other", pa.table({"z": [1]}))
+    plain = outer.cross_join(target.sql('SELECT "z" FROM "other"'))
+    alias = xo.to_sql(plain).split('WITH "')[1].split('"')[0]
+    inner = target.sql(
+        f'WITH "{alias}" AS (SELECT "z" FROM "other") SELECT "z" FROM "{alias}"'
+    )
+    expr = outer.cross_join(inner)
+
+    assert count_remote_table_readers(expr) == {}
+    assert len(expr.execute()) == 2
+
+
+def test_count_duckdb_cte_read_twice_under_limit_is_one_scan() -> None:
+    # duckdb inlines a twice-referenced CTE under a LIMIT unless it is marked
+    # MATERIALIZED, which xorq's duckdb Backend._to_sqlglot does for a CTE over a
+    # registered stream; counted once, read once
+    rt = xo.connect().create_table("r", pa.table({"k": [1, 2], "v": [1.0, 2.0]}))
+    m = rt.into_backend(xo.duckdb.connect()).filter(lambda t: t.v > 0)
+    expr = m.union(m).limit(1)
+
+    assert list(count_remote_table_readers(expr).values()) == [1]
+    assert len(expr.execute()) == 1
+
+
+@pytest.mark.parametrize(
+    "make_expr",
+    (
+        pytest.param(lambda m: m.join(m.view(), "k"), id="self_join"),
+        pytest.param(lambda m: m.union(m), id="self_union"),
+        pytest.param(
+            lambda m: m.join(m.group_by("k").agg(x=m.v.max()), "k"), id="agg_back"
+        ),
+    ),
+)
+def test_count_duckdb_cte_read_twice_stays_one(make_expr) -> None:
+    # a CTE read twice without a LIMIT keeps a count of 1 (its cache keeps
+    # evicting), rather than being left uncounted
+    rt = xo.connect().create_table("r", pa.table({"k": [1, 2], "v": [1.0, 2.0]}))
+    m = rt.into_backend(xo.duckdb.connect()).filter(lambda t: t.v > 0)
+    expr = make_expr(m)
+
+    assert list(count_remote_table_readers(expr).values()) == [1]
+    assert len(expr.execute()) > 0
+
+
 def test_count_join_plus_scalar_subquery(remote_table: Table) -> None:
     # referenced in a scalar subquery and both sides of a self-join: 3 scans
     r = remote_table

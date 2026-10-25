@@ -21,6 +21,24 @@ __all__ = [
 ]
 
 
+def materialize_ctes_reading(
+    query: sge.Expression, names: frozenset[str]
+) -> sge.Expression:
+    # duckdb inlines a CTE referenced twice under a LIMIT, scanning its body once
+    # per reference; a registered stream is sized for (or only survives) one
+    # scan per CTE, so the CTEs that read one are forced MATERIALIZED
+    def mark(node: sge.Expression) -> sge.Expression:
+        if isinstance(node, sge.CTE) and any(
+            table.name in names for table in node.this.find_all(sge.Table)
+        ):
+            node.set("materialized", True)
+        return node
+
+    # transform copies the tree before marking it: to_sqlglot's tree is a DAG
+    # and must not be edited in place
+    return query.transform(mark) if names and query.ctes else query
+
+
 def parse_column_type(name, typ, type_mapper) -> tuple[str, dt.DataType]:
     """DuckDB type string and ibis dtype for `typ`: an ibis dtype, an ibis type
     string, or a DuckDB type string ibis can represent. Ibis spellings win; a
@@ -49,6 +67,20 @@ def parse_column_type(name, typ, type_mapper) -> tuple[str, dt.DataType]:
 
 
 class Backend(IbisDuckDBBackend):
+    # names read_record_batches registered a stream under; a pa.Table can be
+    # scanned any number of times and is not recorded
+    _stream_names: frozenset[str] = frozenset()
+
+    def _to_sqlglot(
+        self,
+        expr: ir.Expr,
+        *,
+        limit: str | None = None,
+        params: Mapping[ir.Expr, Any] | None = None,
+    ) -> sge.Expression:
+        query = super()._to_sqlglot(expr, limit=limit, params=params)
+        return materialize_ctes_reading(query, self._stream_names)
+
     def execute(
         self,
         expr: ir.Expr,
@@ -72,6 +104,8 @@ class Backend(IbisDuckDBBackend):
         # the StreamCache, in the remote pass (REMOTE_PASS / _make_remote_replacer).
         table_name = table_name or gen_name("read_record_batches")
         self.con.register(table_name, source)
+        if not isinstance(source, pa.Table):
+            self._stream_names = self._stream_names | {table_name}
         return self.table(table_name)
 
     def to_pyarrow_batches(
