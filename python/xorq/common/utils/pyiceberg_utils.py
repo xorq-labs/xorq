@@ -1,6 +1,7 @@
 from xorq.backends.pyiceberg import (
     Backend as PyIcebergBackend,
 )
+from xorq.backends.pyiceberg.compiler import load_op_table
 from xorq.common.utils.env_utils import EnvConfigable, env_templates_dir
 
 
@@ -33,10 +34,5 @@ def make_connection(**kwargs):
 
 
 def get_iceberg_snapshots_ids(dt):
-    database = dt.source.namespace
-    catalog = dt.source.catalog
-    table_name = dt.name
-
-    table = catalog.load_table(f"{database}.{table_name}")
-
+    table = load_op_table(dt)
     return tuple(snapshot.snapshot_id for snapshot in table.metadata.snapshots)

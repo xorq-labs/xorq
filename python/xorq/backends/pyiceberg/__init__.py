@@ -1,3 +1,4 @@
+import functools
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
@@ -65,6 +66,7 @@ class Backend(SQLBackend):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.catalog = None
+        self._load_catalog = None
         self.namespace = "default"
         self.warehouse_path = None
         self.catalog_params = None
@@ -99,7 +101,11 @@ class Backend(SQLBackend):
             "warehouse": f"file://{self.warehouse_path}",
         }
 
-        self.catalog = load_catalog(catalog_name, **self.catalog_params)
+        # one catalog per name for the life of the connection
+        self._load_catalog = functools.cache(
+            functools.partial(load_catalog, **self.catalog_params)
+        )
+        self.catalog = self._load_catalog(catalog_name)
 
         if self.namespace not in [n[0] for n in self.catalog.list_namespaces()]:
             self.catalog.create_namespace(self.namespace)
@@ -243,7 +249,7 @@ class Backend(SQLBackend):
         chunk_size: int = 10_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
-        query = translate(expr.op(), namespace=self.namespace, catalog=self.catalog)
+        query = translate(expr.op())
         return query.to_arrow_batch_reader()
 
     def list_tables(
@@ -273,6 +279,16 @@ class Backend(SQLBackend):
         if self.catalog.table_exists(full_table_name):
             self.catalog.drop_table(full_table_name)
 
+    def load_iceberg_table(
+        self,
+        name: str,
+        *,
+        catalog: Optional[str] = None,
+        database: Optional[str] = None,
+    ) -> IcebergTable:
+        ice_catalog = self.catalog if catalog is None else self._load_catalog(catalog)
+        return ice_catalog.load_table(f"{database or self.namespace}.{name}")
+
     def get_schema(
         self,
         table_name: str,
@@ -280,14 +296,7 @@ class Backend(SQLBackend):
         catalog: Optional[str] = None,
         database: Optional[str] = None,
     ) -> sch.Schema:
-        database = database or self.namespace
-        catalog = (
-            self.catalog
-            if catalog is None
-            else load_catalog(catalog, **self.catalog_params)
-        )
-
-        table = catalog.load_table(f"{database}.{table_name}")
+        table = self.load_iceberg_table(table_name, catalog=catalog, database=database)
         return sch.Schema.from_pyarrow(table.schema().as_arrow())
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
