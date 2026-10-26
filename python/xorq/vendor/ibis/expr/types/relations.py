@@ -22,7 +22,7 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.common.deferred import Deferred, Resolver
 from xorq.vendor.ibis.common.selectors import Expandable, Selector
-from xorq.vendor.ibis.expr.rewrites import DerefMap
+from xorq.vendor.ibis.expr.rewrites import DerefMap, bind_earlier_chain_fields
 from xorq.vendor.ibis.expr.types.core import Expr, _FixedTextJupyterMixin
 from xorq.vendor.ibis.expr.types.generic import Value, literal
 from xorq.vendor.ibis.expr.types.temporal import TimestampColumn
@@ -284,10 +284,14 @@ class Table(Expr, _FixedTextJupyterMixin):
         """
         values = self._fast_bind(*args, **kwargs)
         # dereference the values to `self`
-        dm = DerefMap.from_targets(self.op())
+        node = self.op()
+        dm = DerefMap.from_targets(node)
         result = []
         for original in values:
-            value = dm.dereference(original.op()).to_expr()
+            value = original.op()
+            if isinstance(node, ops.JoinChain):
+                value = bind_earlier_chain_fields(value, node)
+            value = dm.dereference(value).to_expr()
             value = value.name(original.get_name())
             result.append(value)
         return tuple(result)

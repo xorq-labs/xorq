@@ -164,3 +164,47 @@ def test_select_after_two_derived_copies_matches_merge(
         "pub_second",
     )
     assert_same_rows(run(expr, backend), expected, ["pub", "pub_right", "pub_second"])
+
+
+def filter_pub(df, condition):
+    # a comparison with a null key is null in SQL, so the row is dropped
+    compare, threshold = condition
+    return df[df["pub"].notna() & compare(df["pub"], threshold)]
+
+
+# after `q` extends `j` with a derived copy, a field of `j` still names the
+# chain's own value, never the copy's: each use pairs the expression over `q`
+# with the same step on the merged oracle
+EARLIER_CHAIN_USES = {
+    "filter": (
+        lambda q, j, r, condition: q.filter(condition[0](j.pub, condition[1])),
+        filter_pub,
+    ),
+    "select": (
+        lambda q, j, r, condition: q.select(j.pub, pub_right=r.pub),
+        lambda df, condition: df,
+    ),
+}
+
+
+@BACKENDS
+@given(
+    a_frame=key_frames("a_pub"),
+    e_frame=key_frames("e_pub"),
+    how=st.sampled_from(sorted(PUB_SOURCES)),
+    copy=derived_copies,
+    condition=derived_copies,
+    predicate=st.sampled_from(sorted(PREDICATES)),
+    use=st.sampled_from(sorted(EARLIER_CHAIN_USES)),
+)
+def test_earlier_chain_field_after_join_to_derived_copy_matches_merge(
+    backend, a_frame, e_frame, how, copy, condition, predicate, use
+):
+    j = pub_chain(how, a_frame, e_frame)
+    r = derived_copy(j, copy)
+    q = j.left_join(r, PREDICATES[predicate](j, r))
+    make_expr, oracle_step = EARLIER_CHAIN_USES[use]
+    expected = oracle_step(left_merge(j.execute(), r.execute(), "pub_right"), condition)
+    assert_same_rows(
+        run(make_expr(q, j, r, condition), backend), expected, ["pub", "pub_right"]
+    )
