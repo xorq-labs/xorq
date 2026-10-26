@@ -8,7 +8,7 @@ from xorq.caching import SourceCache
 from xorq.catalog.drift import iter_leaf_reports
 from xorq.catalog.enums import Verdict
 from xorq.catalog.inspection import BuildRecord
-from xorq.catalog.refresh import op_key, refresh_schemas
+from xorq.catalog.refresh import op_key, refresh_build, refresh_schemas
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.tests.util import assert_frame_equal
 
@@ -198,3 +198,26 @@ def test_pinned_table_does_not_drift_on_a_new_column(iceberg_con, quotes_df, tmp
     (report,) = iter_leaf_reports(record)
 
     assert report.verdict == Verdict.EQUAL
+
+
+def test_refresh_keeps_a_pinned_read_apart_from_the_current_one(
+    iceberg_con, quotes_df, tmp_path
+):
+    table_name = "snapshot_refresh_both"
+    exprs = pinned_and_latest(iceberg_con, table_name, quotes_df)
+    expr = exprs["first"].select("symbol").union(exprs["latest"].select("symbol"))
+    build_path = build_expr(expr, builds_dir=tmp_path)
+    ice_table = iceberg_con.catalog.load_table(f"{iceberg_con.namespace}.{table_name}")
+    with ice_table.update_schema() as update:
+        update.add_column("note", StringType())
+
+    refreshed = refresh_build(build_path)
+
+    actual = {
+        node.snapshot_id: tuple(node.schema)
+        for node in refreshed.op().find(ops.DatabaseTable)
+    }
+    assert actual == {
+        exprs["first"].op().snapshot_id: tuple(quotes_df.columns),
+        None: (*quotes_df.columns, "note"),
+    }

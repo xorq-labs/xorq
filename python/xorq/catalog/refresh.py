@@ -45,6 +45,7 @@ from xorq.expr.relations import (
     RemoteTable,
     Tag,
     TeeNode,
+    snapshot_pin,
 )
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.backends.profiles import Profile
@@ -80,12 +81,14 @@ def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
     """``leaf``'s identity, matched against ``op_key``.
 
     Profile content hash, not backend name, so one table name on two
-    connections is two sources.
+    connections is two sources; the snapshot pin, so a pinned and a current
+    read of one table are two sources whose live schemas may differ.
     """
     return (
         str(leaf.kind),
         leaf_profile_key(leaf, record),
         leaf.name,
+        leaf.snapshot_id,
         leaf.recorded,
     )
 
@@ -104,7 +107,7 @@ def source_identity(node: Node) -> tuple | None:
             name = join_read_path(path)
         case _:
             return None
-    return (kind, name, node.schema)
+    return (kind, name, snapshot_pin(node), node.schema)
 
 
 def op_key(node: Node) -> tuple | None:
@@ -114,10 +117,10 @@ def op_key(node: Node) -> tuple | None:
     """
     if (identity := source_identity(node)) is None:
         return None
-    (kind, name, schema) = identity
+    (kind, name, snapshot_id, schema) = identity
     profile = Profile.from_con(node.source)
     profile_key = None if profile is None else profile.content_hash
-    return (kind, profile_key, name, schema)
+    return (kind, profile_key, name, snapshot_id, schema)
 
 
 def with_live_schema(node: Node, schema: Schema) -> Node:
@@ -244,7 +247,10 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
         return expr
     matched: set[tuple] = set()
     # Screen before `op_key`: resolving a profile connects a lazy backend.
-    candidates = {(kind, name, schema) for (kind, _, name, schema) in live}
+    candidates = {
+        (kind, name, snapshot_id, schema)
+        for (kind, _, name, snapshot_id, schema) in live
+    }
 
     def replacer(node: Node, kwargs: dict | None) -> Node:
         if source_identity(node) in candidates and (key := op_key(node)) in live:
@@ -265,7 +271,7 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
         refuse(
             (
                 (kind, f"{name} matched no source of the loaded expression")
-                for (kind, _, name, _) in unmatched
+                for (kind, _, name, _, _) in unmatched
             ),
             error_type=UnmatchedSourceError,
         )
