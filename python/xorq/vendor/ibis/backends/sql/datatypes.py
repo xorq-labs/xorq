@@ -187,12 +187,17 @@ class SqlglotType(TypeMapper):
 
     @classmethod
     def from_ibis(cls, dtype: dt.DataType) -> sge.DataType:
-        """Convert an Ibis dtype to an sqlglot dtype."""
+        """Convert an Ibis dtype to an sqlglot dtype.
 
-        if method := getattr(cls, f"_from_ibis_{dtype.name}", None):
-            return method(dtype)
-        else:
-            return sge.DataType(this=_to_sqlglot_types[type(dtype)])
+        A dtype with no mapping of its own, such as ``LargeString``, takes
+        the mapping of its nearest base class.
+        """
+        for typ in type(dtype).__mro__:
+            if method := getattr(cls, f"_from_ibis_{typ.__name__}", None):
+                return method(dtype)
+            if typ in _to_sqlglot_types:
+                return sge.DataType(this=_to_sqlglot_types[typ])
+        raise KeyError(type(dtype))
 
     @classmethod
     def from_string(cls, text: str, nullable: bool | None = None) -> dt.DataType:
