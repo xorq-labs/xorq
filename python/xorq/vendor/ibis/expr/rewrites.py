@@ -198,6 +198,52 @@ def peel_join_field(_):
     return _.rel.values[_.name]
 
 
+def bind_earlier_chain_fields(value, chain, kept=()):
+    """Bind fields of the chain `chain` extends to `chain`'s own fields.
+
+    `chain` extends an earlier chain when it starts from the same table,
+    repeats the earlier chain's links and adds more, and holds exactly the
+    earlier chain's values over the earlier tables, as `j.left_join(m, ...)`
+    extends `j`; a projection over the same links, `j.select(...)`, is not
+    extended. A field of the earlier chain backtracks to no field of `chain`,
+    so it would dereference to a table derived from that chain and joined in,
+    e.g. `j.filter(...)`. A chain joined in as a table keeps its fields, as do
+    the chains in `kept`.
+
+    Parameters
+    ----------
+    value : ops.Value
+        The value to bind.
+    chain : ops.JoinChain
+        The join chain the value is bound to.
+    kept : iterable of ops.Relation, optional
+        Chains whose fields are left as they are.
+
+    Returns
+    -------
+    ops.Value
+        The value with those fields replaced by fields of `chain`.
+    """
+    kept = {*kept, *(link.table.parent for link in chain.rest)}
+
+    def extended(rel):
+        tables = frozenset(rel.tables)
+        return (
+            rel not in kept
+            and rel.first == chain.first
+            and rel.rest == chain.rest[: len(rel.rest)] != chain.rest
+            and dict(rel.values)
+            == {k: v for k, v in chain.values.items() if v.relations <= tables}
+        )
+
+    subs = {
+        field: ops.Field(chain, field.name)
+        for field in value.find(ops.Field, filter=ops.Value)
+        if isinstance(field.rel, ops.JoinChain) and extended(field.rel)
+    }
+    return value.replace(subs, filter=ops.Value)
+
+
 @replace(p.ScalarParameter)
 def replace_parameter(_, params, **kwargs):
     """Replace scalar parameters with their values; pass through unbound ones."""

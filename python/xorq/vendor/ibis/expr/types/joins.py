@@ -16,7 +16,11 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.common.deferred import Deferred
 from xorq.vendor.ibis.common.egraph import DisjointSet
-from xorq.vendor.ibis.expr.rewrites import flatten_predicates, peel_join_field
+from xorq.vendor.ibis.expr.rewrites import (
+    bind_earlier_chain_fields,
+    flatten_predicates,
+    peel_join_field,
+)
 from xorq.vendor.ibis.expr.types.generic import Value
 from xorq.vendor.ibis.expr.types.relations import (
     DerefMap,
@@ -184,13 +188,15 @@ def prepare_predicates(
     deref_left = DerefMap.from_targets(chain.tables)
     deref_both = DerefMap.from_targets([*chain.tables, right])
 
-    # fields of the chain being extended are peeled to their values over the
-    # join tables first; fields of an earlier or nested chain are dereferenced
-    # first, then peeled, which is where `Join.select` ends up too: there
-    # `bind` dereferences to the chain before `peel_join_field` runs
+    # fields of the chain being extended, and of the chains it extends, are
+    # peeled to their values over the join tables first, except those of the
+    # right table's parent; fields of a nested chain are dereferenced first,
+    # then peeled
     peel_chain = {ops.Field(chain, k): v for k, v in chain.values.items()}
+    kept = (right.parent,)
 
     def deref_chain(derefmap, node):
+        node = bind_earlier_chain_fields(node, chain, kept)
         node = derefmap.dereference(node.replace(peel_chain, filter=ops.Value))
         return node.replace(peel_join_field, filter=ops.Value)
 
