@@ -2265,3 +2265,19 @@ def test_yaml_roundtrip_keeps_order_of_same_column_schemas(compiler, first, seco
         }
 
     assert table_schemas(loaded) == table_schemas(expr)
+
+
+def test_snapshot_pin_on_a_non_pinning_backend_refuses_to_load(builds_dir, tmp_path):
+    con = xo.sqlite.connect(str(tmp_path / "db.sqlite"))
+    con.create_table("t", pd.DataFrame({"a": [1, 2]}))
+    build_path = build_expr(con.table("t"), builds_dir=builds_dir)
+    expr_path = build_path / DumpFiles.expr
+    text = expr_path.read_text()
+    (line,) = (
+        line for line in text.splitlines() if line.strip() == "op: DatabaseTable"
+    )
+    indent = line[: len(line) - len(line.lstrip())]
+    expr_path.write_text(text.replace(line, f"{line}\n{indent}snapshot_id: 1"))
+
+    with pytest.raises(ValueError, match="snapshot_id"):
+        load_expr(build_path)

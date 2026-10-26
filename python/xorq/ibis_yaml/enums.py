@@ -80,6 +80,7 @@ class NodeKey(StrEnum):
     read_kwargs = "read_kwargs"
     normalize_method = "normalize_method"
     snapshot_hash = "snapshot_hash"
+    snapshot_id = "snapshot_id"
 
 
 class ReadKwarg(StrEnum):

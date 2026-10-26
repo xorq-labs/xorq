@@ -529,6 +529,19 @@ def test_malformed_read_kwargs_names_the_node(read_kwargs: object) -> None:
         iter_source_leaves(read_doc(read_kwargs=read_kwargs))
 
 
+@pytest.mark.parametrize(
+    "snapshot_id",
+    [
+        pytest.param("123", id="string"),
+        pytest.param(1.5, id="float"),
+        pytest.param(True, id="bool"),
+    ],
+)
+def test_malformed_snapshot_id_names_the_node(snapshot_id: object) -> None:
+    with pytest.raises(ValueError, match="@read_0"):
+        iter_source_leaves(read_doc(snapshot_id=snapshot_id))
+
+
 def test_null_read_kwargs_names_the_node() -> None:
     """A `read_kwargs:` truncated to null is corruption, not an absent key.
 

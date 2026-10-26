@@ -777,9 +777,9 @@ def test_an_unrecorded_expr_arg_of_a_registered_op_is_refused(
 
 def test_every_unmatched_key_is_named_and_labeled(world_leaf: tuple) -> None:
     build_path, record, leaf = world_leaf
-    _, profile_key, _, recorded = leaf_key(leaf, record)
+    _, profile_key, _, snapshot_id, recorded = leaf_key(leaf, record)
     live = {
-        (str(kind), profile_key, name, recorded): xo.schema(GROWN.schema)
+        (str(kind), profile_key, name, snapshot_id, recorded): xo.schema(GROWN.schema)
         for kind, name in (
             (LeafKind.DATABASE_TABLE, "not-a-table"),
             (LeafKind.READ, "not-a-read"),
@@ -1011,5 +1011,5 @@ def test_a_flight_source_keys_without_a_profile() -> None:
         make_connection=xo.duckdb.connect,
     ) as server:
         table = server.con.create_table("t", RECORDED)
-        (kind, profile_key, name, _) = op_key(table.op())
+        (kind, profile_key, name, _, _) = op_key(table.op())
     assert (kind, profile_key, name) == (LeafKind.DATABASE_TABLE, None, "t")

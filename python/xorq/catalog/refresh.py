@@ -40,10 +40,12 @@ from xorq.expr.relations import (
     CacheTag,
     FlightExpr,
     FlightUDXF,
+    PyIcebergTable,
     Read,
     RemoteTable,
     Tag,
     TeeNode,
+    snapshot_pin,
 )
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.backends.profiles import Profile
@@ -61,6 +63,18 @@ SCHEMA_FOLLOWS_PARENT = {
     Tag: "parent",
 }
 
+# (kind, name, snapshot_id, schema): a source's identity without its profile.
+SourceIdentity = tuple[str, str, int | None, Schema]
+# (kind, profile content hash, name, snapshot_id, schema).
+LeafKey = tuple[str, str | None, str, int | None, Schema]
+
+# Exact source op class -> the `op` name it serializes as in expr.yaml.
+SOURCE_LEAF_KINDS: dict[type[Node], LeafKind] = {
+    ops.DatabaseTable: LeafKind.DATABASE_TABLE,
+    PyIcebergTable: LeafKind.DATABASE_TABLE,
+    Read: LeafKind.READ,
+}
+
 
 def leaf_profile_key(leaf: SourceLeaf, record: BuildRecord) -> str | None:
     """The content hash of the profile ``leaf`` records, or ``None`` if none."""
@@ -68,26 +82,28 @@ def leaf_profile_key(leaf: SourceLeaf, record: BuildRecord) -> str | None:
     return None if profile_dict is None else make_profile(profile_dict).content_hash
 
 
-def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
+def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> LeafKey:
     """``leaf``'s identity, matched against ``op_key``.
 
     Profile content hash, not backend name, so one table name on two
-    connections is two sources.
+    connections is two sources; the snapshot pin, so a pinned and a current
+    read of one table are two sources whose live schemas may differ.
     """
     return (
         str(leaf.kind),
         leaf_profile_key(leaf, record),
         leaf.name,
+        leaf.snapshot_id,
         leaf.recorded,
     )
 
 
-def source_identity(node: Node) -> tuple | None:
+def source_identity(node: Node) -> SourceIdentity | None:
     """``op_key`` minus the profile; never touches ``node.source``.
 
-    Exact type name: ``CachedNode``/``RemoteTable`` subclass ``DatabaseTable``.
+    Exact class: ``CachedNode``/``RemoteTable`` subclass ``DatabaseTable``.
     """
-    match type(node).__name__:
+    match kind := SOURCE_LEAF_KINDS.get(type(node)):
         case LeafKind.DATABASE_TABLE:
             name = node.to_expr().get_name()
         case LeafKind.READ:
@@ -96,20 +112,20 @@ def source_identity(node: Node) -> tuple | None:
             name = join_read_path(path)
         case _:
             return None
-    return (type(node).__name__, name, node.schema)
+    return (kind, name, snapshot_pin(node), node.schema)
 
 
-def op_key(node: Node) -> tuple | None:
+def op_key(node: Node) -> LeafKey | None:
     """``node``'s ``leaf_key``, or ``None`` when it is not a source.
 
     Profile name carries a session-local index; content hash does not.
     """
     if (identity := source_identity(node)) is None:
         return None
-    (kind, name, schema) = identity
+    (kind, name, snapshot_id, schema) = identity
     profile = Profile.from_con(node.source)
     profile_key = None if profile is None else profile.content_hash
-    return (kind, profile_key, name, schema)
+    return (kind, profile_key, name, snapshot_id, schema)
 
 
 def with_live_schema(node: Node, schema: Schema) -> Node:
@@ -227,16 +243,19 @@ def refuse(
     raise error_type(op_name, LookupError(separator.join(details)))
 
 
-def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
+def refresh_schemas(expr: Any, live: Mapping[LeafKey, Schema]) -> Any:
     """``expr`` rebuilt over ``live`` (``leaf_key`` -> live schema).
 
     Raises if a key matches no source: that source would stay stale silently.
     """
     if not live:
         return expr
-    matched: set[tuple] = set()
+    matched: set[LeafKey] = set()
     # Screen before `op_key`: resolving a profile connects a lazy backend.
-    candidates = {(kind, name, schema) for (kind, _, name, schema) in live}
+    candidates = {
+        (kind, name, snapshot_id, schema)
+        for (kind, _, name, snapshot_id, schema) in live
+    }
 
     def replacer(node: Node, kwargs: dict | None) -> Node:
         if source_identity(node) in candidates and (key := op_key(node)) in live:
@@ -257,20 +276,22 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
         refuse(
             (
                 (kind, f"{name} matched no source of the loaded expression")
-                for (kind, _, name, _) in unmatched
+                for (kind, _, name, _, _) in unmatched
             ),
             error_type=UnmatchedSourceError,
         )
     return refreshed
 
 
-def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
+def live_schemas(
+    record: BuildRecord, reports: Iterable[LeafReport]
+) -> dict[LeafKey, Schema]:
     """The ``refresh_schemas`` mapping for the changed leaves in ``reports``.
 
     Raises, naming every offender, on an uncomparable source or on a key seen
     at two schemas (two reads of one path with different options).
     """
-    found: dict[tuple, dict[Schema, LeafReport]] = {}
+    found: dict[LeafKey, dict[Schema, LeafReport]] = {}
     uncomparable = []
     for report in reports:
         match report.verdict:

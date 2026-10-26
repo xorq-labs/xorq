@@ -144,6 +144,21 @@ class DatabaseTableView(ops.DatabaseTable):
     pass
 
 
+class PyIcebergTable(ops.DatabaseTable):
+    """A table that is bound to a PyIceberg backend."""
+
+    snapshot_id: int | None = None
+
+
+def snapshot_pin(op: ops.Node) -> int | None:
+    """The snapshot id ``op`` reads, or ``None`` when its read is not pinned."""
+    match op:
+        case PyIcebergTable(snapshot_id=int() as snapshot_id):
+            return snapshot_id
+        case _:
+            return None
+
+
 class CachedNode(DatabaseTableView):
     parent: Any = None
     cache: Any = None

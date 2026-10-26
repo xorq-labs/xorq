@@ -21,6 +21,7 @@ class BackendName(StrEnum):
     SQLITE = "sqlite"
     BIGQUERY = "bigquery"
     REDSHIFT = "redshift"
+    PYICEBERG = "pyiceberg"
 
 
 class RunLogFile(StrEnum):

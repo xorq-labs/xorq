@@ -236,6 +236,23 @@ def get_node_key(node_ref: str, node_def: dict, key: str) -> Any:
     return value
 
 
+def get_snapshot_id(node_ref: str, node_def: dict) -> int | None:
+    """The optional ``snapshot_id``, naming the node when it is not an integer.
+
+    ``bool`` is excluded explicitly: it subclasses ``int``, so ``true`` would
+    otherwise read as snapshot 1.
+    """
+    match snapshot_id := node_def.get(NodeKey.snapshot_id):
+        case None:
+            return None
+        case int() if not isinstance(snapshot_id, bool):
+            return snapshot_id
+        case _:
+            raise ValueError(
+                f"node {node_ref!r} has snapshot_id {snapshot_id!r}, not an integer"
+            )
+
+
 def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
     """``read_kwargs`` as ``(key, value)`` pairs, naming the node on a bad entry.
 
@@ -286,7 +303,8 @@ class SourceLeaf:
     them. ``pinned`` says the leaf is a
     ``CacheTag``'s frozen read of its cache artifact, a machine-local cache path
     rather than a user source, so equally nothing to check. Both are
-    ``drift_exempt``.
+    ``drift_exempt``. ``snapshot_id`` is the snapshot an iceberg table read is
+    pinned to; its schema, not the table's current one, is what to compare.
     """
 
     node_ref = field(validator=instance_of(str))
@@ -310,6 +328,7 @@ class SourceLeaf:
         # the leaf unhashable the moment a consumer puts it in a set.
         converter=lambda kwargs: tuple((k, freeze(v)) for k, v in kwargs),
     )
+    snapshot_id = field(default=None, validator=optional(instance_of(int)))
 
     @property
     def drift_exempt(self) -> bool:
@@ -381,6 +400,7 @@ class SourceLeaf:
             namespace=(catalog, database),
             method_name=node_def.get(NodeKey.method_name),
             read_kwargs=read_kwargs,
+            snapshot_id=get_snapshot_id(node_ref, node_def),
         )
 
 

@@ -11,7 +11,7 @@ from pyiceberg.table import Table as IcebergTable
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.postgres.compiler import compiler as postgres_compiler
 from xorq.backends.pyiceberg.compiler import PyIceberg, translate
-from xorq.backends.pyiceberg.relations import PyIcebergTable
+from xorq.expr.relations import PyIcebergTable
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
@@ -117,7 +117,9 @@ class Backend(SQLBackend):
         database: tuple[str, str] | str | None = None,
         snapshot_id: int | None = None,
     ) -> ir.Table:
-        table_schema = self.get_schema(name, catalog=schema, database=database)
+        table_schema = self.get_schema(
+            name, catalog=schema, database=database, snapshot_id=snapshot_id
+        )
 
         return PyIcebergTable(
             name=name,
@@ -295,9 +297,13 @@ class Backend(SQLBackend):
         *,
         catalog: Optional[str] = None,
         database: Optional[str] = None,
+        snapshot_id: Optional[int] = None,
     ) -> sch.Schema:
         table = self.load_iceberg_table(table_name, catalog=catalog, database=database)
-        return sch.Schema.from_pyarrow(table.schema().as_arrow())
+        # A scan's projection is the schema its snapshot was written with, which
+        # is what a pinned scan returns; unpinned, it is the current schema.
+        projection = table.scan(snapshot_id=snapshot_id).projection()
+        return sch.Schema.from_pyarrow(projection.as_arrow())
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         raise NotImplementedError("_get_schema_using_query")
@@ -431,6 +437,16 @@ class Backend(SQLBackend):
         if data_files:
             self.catalog.load_table(full_final).add_files(data_files)
         self.drop_table(staging)
+
+    def has_snapshot(
+        self, name: str, snapshot_id: int, database: Optional[str] = None
+    ) -> bool:
+        """Whether table ``name`` still lists ``snapshot_id``; an expired one is gone.
+
+        Loads only ``name``, resolving ``database`` as ``table`` does.
+        """
+        table = self.load_iceberg_table(name, database=database)
+        return table.snapshot_by_id(snapshot_id) is not None
 
     def list_snapshots(self, database: Optional[str] = None) -> dict[str, int]:
         database = database or self.namespace

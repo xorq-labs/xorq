@@ -4,7 +4,7 @@ import pyiceberg.expressions as ice
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.backends.pyiceberg.relations import PyIcebergTable
+from xorq.expr.relations import snapshot_pin
 from xorq.vendor.ibis.backends.sql.dialects import Postgres
 
 
@@ -44,13 +44,7 @@ def load_op_table(op):
 
 @translate.register(ops.DatabaseTable)
 def table(op, **_):
-    ice_table = load_op_table(op)
-
-    match op:
-        case PyIcebergTable(snapshot_id=snapshot_id):
-            return ice_table.scan(snapshot_id=snapshot_id)
-        case _:
-            return ice_table.scan()
+    return load_op_table(op).scan(snapshot_id=snapshot_pin(op))
 
 
 @translate.register(ops.Filter)

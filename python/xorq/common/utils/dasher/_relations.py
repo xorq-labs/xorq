@@ -462,6 +462,20 @@ def _dispatch_databasetable(dt: ops.DatabaseTable) -> tuple:
     normalizer = lookup_view_normalizer(dt, snapshot=False)
     if normalizer is not None:
         return normalizer(dt)
+    from xorq.expr.relations import snapshot_pin  # noqa: PLC0415
+
+    # A pinned iceberg scan reads one immutable snapshot: key on it, not on
+    # dasher's list of every snapshot id, which grows with each commit and
+    # carries no pin (an unpinned read of the same table would share it).
+    if (snapshot_id := snapshot_pin(dt)) is not None:
+        return (
+            "ibis.DatabaseTable.pyiceberg.snapshot",
+            dt.name,
+            normalize_ibis_schema(dt.schema),
+            dt.namespace,
+            dt.source,
+            snapshot_id,
+        )
     # For datafusion-backed file tables, dasher's normalize_datafusion_
     # databasetable stops at ep_str — which captures the path but no stat —
     # so file edits don't invalidate the cache key. _normalize_datafusion_

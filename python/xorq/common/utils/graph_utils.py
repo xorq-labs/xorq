@@ -12,6 +12,7 @@ from attrs.validators import deep_iterable, instance_of, optional
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.enums import BackendName
 from xorq.expr.operations import NamedScalarParameter
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.common.graph import Graph
@@ -422,6 +423,10 @@ def replace_nodes(
     return to_node(expr).replace(process_node)
 
 
+# Exact source classes whose data lives in their backend, so it is copied over.
+TRANSFERRED_TABLE_TYPES = (ops.DatabaseTable, rel.PyIcebergTable)
+
+
 def replace_sources(source_mapping, expr, *, transfer_tables=False):
     """Rewrite an expression graph, replacing backend sources.
 
@@ -474,6 +479,8 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
 
     # Track DatabaseTable nodes that need data transferred: (old_backend, new_backend, table_name)
     tables_to_transfer = []
+    # `_probe_key` -> snapshot id, for transfers a copy by name cannot honor.
+    pinned: dict[tuple[int, str, str | None, str | None], int] = {}
 
     def replacer(node, kwargs):
         overrides = {}
@@ -484,11 +491,26 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             overrides["source"] = new_source
 
             # DatabaseTable (but not its subclasses like CachedNode, RemoteTable,
-            # Read) needs its data transferred to the new backend.
-            if type(node) is ops.DatabaseTable:
+            # Read) needs its data transferred to the new backend. A
+            # PyIcebergTable is a backend table too.
+            if type(node) in TRANSFERRED_TABLE_TYPES:
+                snapshot_id = rel.snapshot_pin(node)
+                backend_name = new_source.__class__.name
+                if snapshot_id is not None and backend_name != BackendName.PYICEBERG:
+                    # Refused whether or not the table is already there: a
+                    # table of that name holds some other snapshot's rows.
+                    raise ValueError(
+                        f"cannot move {node.name!r} to a {backend_name} backend: "
+                        f"it is pinned to snapshot {snapshot_id}, which only a "
+                        "pyiceberg backend can read"
+                    )
                 tables_to_transfer.append(
                     (source, new_source, node.name, node.namespace)
                 )
+                if snapshot_id is not None:
+                    pinned[_probe_key(new_source, node.name, node.namespace)] = (
+                        snapshot_id
+                    )
 
         cache = getattr(node, "cache", None)
         if cache is not None:
@@ -506,6 +528,15 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             if kwargs:
                 merged |= kwargs
             merged |= overrides
+            # Only a pyiceberg backend scans a PyIcebergTable; on any other
+            # backend the transferred copy is a plain table.
+            if (
+                type(node) is rel.PyIcebergTable
+                and overrides.get("source", node.source).__class__.name
+                != BackendName.PYICEBERG
+            ):
+                merged.pop("snapshot_id")
+                return ops.DatabaseTable(**merged)
             return node.__recreate__(merged)
         return node
 
@@ -516,6 +547,16 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
         # (e.g. cloned backends that share the same underlying connection).
         probe_errors = {}
         missing = _find_missing_tables(tables_to_transfer, errors=probe_errors)
+        if copied_pins := sorted(
+            (table_name, pinned[key])
+            for (_, new_backend, table_name, namespace) in missing
+            if (key := _probe_key(new_backend, table_name, namespace)) in pinned
+        ):
+            raise ValueError(
+                f"cannot copy {copied_pins} (table, snapshot id) to another "
+                "backend: tables are copied by name, which reads the current "
+                "snapshot, not the pinned one"
+            )
         if missing:
             if not transfer_tables:
                 raise ValueError(_missing_tables_message(missing, probe_errors))
