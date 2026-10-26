@@ -28,3 +28,16 @@ def test_table_with_database(con, tmp_table, to_database):
     result = t.order_by("a").execute()
     assert result["a"].tolist() == [1, 2, 3]
     assert result["b"].tolist() == ["x", "y", "z"]
+
+
+@pytest.mark.parametrize(
+    ("args", "kwargs"),
+    [
+        pytest.param(("t", "default"), {}, id="positional-database"),
+        pytest.param(("t",), {"schema": "default"}, id="schema-kwarg"),
+    ],
+)
+def test_table_rejects_schema_argument(args, kwargs):
+    backend = pytest.importorskip("xorq.backends.databricks.backend").Backend()
+    with pytest.raises(TypeError):
+        backend.table(*args, **kwargs)
