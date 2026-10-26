@@ -494,10 +494,20 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             # Read) needs its data transferred to the new backend. A
             # PyIcebergTable is a backend table too.
             if type(node) in TRANSFERRED_TABLE_TYPES:
+                snapshot_id = rel.snapshot_pin(node)
+                backend_name = new_source.__class__.name
+                if snapshot_id is not None and backend_name != BackendName.PYICEBERG:
+                    # Refused whether or not the table is already there: a
+                    # table of that name holds some other snapshot's rows.
+                    raise ValueError(
+                        f"cannot move {node.name!r} to a {backend_name} backend: "
+                        f"it is pinned to snapshot {snapshot_id}, which only a "
+                        "pyiceberg backend can read"
+                    )
                 tables_to_transfer.append(
                     (source, new_source, node.name, node.namespace)
                 )
-                if (snapshot_id := rel.snapshot_pin(node)) is not None:
+                if snapshot_id is not None:
                     pinned[_probe_key(new_source, node.name, node.namespace)] = (
                         snapshot_id
                     )

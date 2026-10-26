@@ -257,3 +257,14 @@ def test_an_expired_pin_is_table_missing(iceberg_con, quotes_df, tmp_path):
     (report,) = iter_leaf_reports(record)
 
     assert report.verdict == Verdict.TABLE_MISSING
+
+
+def test_replace_sources_refuses_a_pinned_table_already_on_the_target(
+    iceberg_con, quotes_df
+):
+    exprs = pinned_and_latest(iceberg_con, "snapshot_replace_present", quotes_df)
+    con = xo.connect()
+    replace_sources({id(iceberg_con): con}, exprs["latest"], transfer_tables=True)
+
+    with pytest.raises(ValueError, match="snapshot"):
+        replace_sources({id(iceberg_con): con}, exprs["first"], transfer_tables=True)
