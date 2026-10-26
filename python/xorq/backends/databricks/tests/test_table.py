@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis.util import gen_name
 
 
@@ -22,9 +23,13 @@ def tmp_table(con):
     ],
 )
 def test_table_with_database(con, tmp_table, to_database):
-    database = to_database(con.current_catalog, con.current_database)
-    t = con.table(tmp_table, database=database)
-    assert t.schema() == con.table(tmp_table).schema()
+    catalog, database = con.current_catalog, con.current_database
+    t = con.table(tmp_table, database=to_database(catalog, database))
+    assert t.op().namespace == ops.Namespace(catalog=catalog, database=database)
+    assert {name: dtype.name for name, dtype in t.schema().items()} == {
+        "a": "Int64",
+        "b": "String",
+    }
     result = t.order_by("a").execute()
     assert result["a"].tolist() == [1, 2, 3]
     assert result["b"].tolist() == ["x", "y", "z"]
