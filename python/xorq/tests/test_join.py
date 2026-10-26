@@ -193,3 +193,25 @@ def test_extend_join_chain_to_its_own_filtered_result(extend, expected):
     pd.testing.assert_frame_equal(
         df[list(expected)].astype("float64"), pd.DataFrame(expected, dtype="float64")
     )
+
+
+@pytest.mark.parametrize(
+    "make_predicate",
+    [
+        pytest.param(lambda j, r: j.pub == r.pub, id="value"),
+        pytest.param(lambda j, r: "pub", id="name"),
+    ],
+)
+def test_select_from_join_chain_to_its_own_filtered_result(make_predicate):
+    # selecting from the join dereferences the chain's computed `pub` again;
+    # it must keep binding to the chain, not to the table derived from it
+    j = pub_over_join("outer")
+    r = j.filter(j.pub == 1)
+    expr = j.left_join(r, make_predicate(j, r)).select("pub", "pub_right")
+    df = expr.execute().sort_values("pub").reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        df.astype("float64"),
+        pd.DataFrame(
+            {"pub": [-1, 1, 2], "pub_right": [None, 1, None]}, dtype="float64"
+        ),
+    )

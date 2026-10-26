@@ -78,11 +78,17 @@ class DerefMap(Concrete, Traversable):
         DerefMap
         """
         rels = promote_list(rels)
+        targets = frozenset(rels)
         mapping = defaultdict(dict)
         for rel in rels:
             for field in rel.fields.values():
                 for value, distance in cls.backtrack(field):
-                    mapping[value][field] = distance
+                    # a value already over the targets is a fixed point: a
+                    # target derived from the others, e.g. a join chain
+                    # joined to its own filter, backtracks to the chain's
+                    # values and must not take them over
+                    if not value.relations <= targets:
+                        mapping[value][field] = distance
 
         subs, ambigs = {}, {}
         for from_, to in mapping.items():

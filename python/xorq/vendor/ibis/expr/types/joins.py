@@ -180,25 +180,9 @@ def prepare_predicates(
         The comparison operation to construct if the input is a pair of
         expression-like objects
     """
-    # a table in the chain or on the right that derives from the chain
-    # backtracks to values already over the chain tables, e.g.
-    # `j.left_join(j.filter(...), j.pub == r.pub)` reaches the coalesce behind
-    # `j.pub` from both sides; such a value is the left side as it stands, so
-    # no substitution or ambiguity may apply to it
-    chain_tables = frozenset(chain.tables)
-
-    def outside_chain(mapping):
-        return {k: v for k, v in mapping.items() if not k.relations <= chain_tables}
-
-    def deref_map(rels):
-        derefmap = DerefMap.from_targets(rels)
-        return derefmap.copy(
-            subs=outside_chain(derefmap.subs), ambigs=outside_chain(derefmap.ambigs)
-        )
-
     deref_right = DerefMap.from_targets(right)
-    deref_left = deref_map(chain.tables)
-    deref_both = deref_map([*chain.tables, right])
+    deref_left = DerefMap.from_targets(chain.tables)
+    deref_both = DerefMap.from_targets([*chain.tables, right])
 
     # fields of the chain being extended are peeled to their values over the
     # join tables first; fields of an earlier or nested chain are dereferenced
