@@ -18,16 +18,15 @@ import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
-from xorq.common.enums import BackendName
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
+    BACKEND_TABLE_OPS,
     CachedNode,
     CacheTag,
     HashingTag,
-    PyIcebergTable,
     Read,
     RemoteTable,
     Tag,
@@ -523,20 +522,21 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
         "namespace": Namespace(catalog=catalog, database=database),
     }
     # The profile's backend picks the op class, so a pinned and an unpinned
-    # pyiceberg table load back as the same class `Backend.table` builds.
+    # table load back as the same class `Backend.table` builds.
     # Read off the class: a lazy profile must not connect here.
-    snapshot_id = yaml_dict.get(NodeKey.snapshot_id)
-    match con.__class__.name:
-        case BackendName.PYICEBERG:
-            return PyIcebergTable(**kwargs, snapshot_id=snapshot_id).to_expr()
-        case backend_name if snapshot_id is not None:
+    backend_name = con.__class__.name
+    table_op = BACKEND_TABLE_OPS.get(backend_name, ops.DatabaseTable)
+    match yaml_dict.get(NodeKey.snapshot_id):
+        case None:
+            return table_op(**kwargs).to_expr()
+        case snapshot_id if NodeKey.snapshot_id not in table_op.__argnames__:
             # Loading unpinned would silently read the latest data instead.
             raise ValueError(
                 f"{table_name!r} records snapshot_id {snapshot_id}, but its "
                 f"profile is a {backend_name} backend, which cannot pin a read"
             )
-        case _:
-            return ops.DatabaseTable(**kwargs).to_expr()
+        case snapshot_id:
+            return table_op(**kwargs, snapshot_id=snapshot_id).to_expr()
 
 
 @translate_to_yaml.register(CachedNode)

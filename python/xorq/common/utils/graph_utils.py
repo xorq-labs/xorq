@@ -12,7 +12,6 @@ from attrs.validators import deep_iterable, instance_of, optional
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.enums import BackendName
 from xorq.expr.operations import NamedScalarParameter
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.common.graph import Graph
@@ -423,8 +422,9 @@ def replace_nodes(
     return to_node(expr).replace(process_node)
 
 
-# Exact source classes whose data lives in their backend, so it is copied over.
-TRANSFERRED_TABLE_TYPES = (ops.DatabaseTable, rel.PyIcebergTable)
+def _scans(backend_name: str, node: ops.DatabaseTable) -> bool:
+    """Whether a ``backend_name`` backend builds ``node``'s exact op class."""
+    return rel.BACKEND_TABLE_OPS.get(backend_name, ops.DatabaseTable) is type(node)
 
 
 def replace_sources(source_mapping, expr, *, transfer_tables=False):
@@ -490,13 +490,12 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             new_source = source_mapping[id(source)]
             overrides["source"] = new_source
 
-            # DatabaseTable (but not its subclasses like CachedNode, RemoteTable,
-            # Read) needs its data transferred to the new backend. A
-            # PyIcebergTable is a backend table too.
-            if type(node) in TRANSFERRED_TABLE_TYPES:
+            # A backend table (but not a DatabaseTable subclass like CachedNode,
+            # RemoteTable, Read) needs its data transferred to the new backend.
+            if type(node) in rel.BACKEND_TABLE_TYPES:
                 snapshot_id = rel.snapshot_pin(node)
                 backend_name = new_source.__class__.name
-                if snapshot_id is not None and backend_name != BackendName.PYICEBERG:
+                if snapshot_id is not None and not _scans(backend_name, node):
                     # Refused whether or not the table is already there: a
                     # table of that name holds some other snapshot's rows.
                     raise ValueError(
@@ -528,15 +527,16 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             if kwargs:
                 merged |= kwargs
             merged |= overrides
-            # Only a pyiceberg backend scans a PyIcebergTable; on any other
-            # backend the transferred copy is a plain table.
-            if (
-                type(node) is rel.PyIcebergTable
-                and overrides.get("source", node.source).__class__.name
-                != BackendName.PYICEBERG
+            # On a backend that does not scan it, a backend table op's
+            # transferred copy is a plain table.
+            if type(node) in rel.BACKEND_TABLE_OPS.values() and not _scans(
+                overrides.get("source", node.source).__class__.name, node
             ):
-                merged.pop("snapshot_id")
-                return ops.DatabaseTable(**merged)
+                return ops.DatabaseTable(
+                    **toolz.keyfilter(
+                        ops.DatabaseTable.__argnames__.__contains__, merged
+                    )
+                )
             return node.__recreate__(merged)
         return node
 
