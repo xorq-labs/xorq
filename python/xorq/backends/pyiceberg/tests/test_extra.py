@@ -243,3 +243,17 @@ def test_replace_sources_refuses_a_pinned_iceberg_table(iceberg_con, quotes_df):
 
     with pytest.raises(ValueError, match="snapshot"):
         replace_sources({id(iceberg_con): con}, exprs["first"], transfer_tables=True)
+
+
+def test_an_expired_pin_is_table_missing(iceberg_con, quotes_df, tmp_path):
+    table_name = "snapshot_expired"
+    exprs = pinned_and_latest(iceberg_con, table_name, quotes_df)
+    record = BuildRecord.from_build_dir(build_expr(exprs["first"], builds_dir=tmp_path))
+    ice_table = iceberg_con.catalog.load_table(f"{iceberg_con.namespace}.{table_name}")
+    ice_table.maintenance.expire_snapshots().by_id(
+        exprs["first"].op().snapshot_id
+    ).commit()
+
+    (report,) = iter_leaf_reports(record)
+
+    assert report.verdict == Verdict.TABLE_MISSING

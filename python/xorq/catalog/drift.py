@@ -394,7 +394,8 @@ def close_cons(con_cache: dict) -> None:
 def get_table_schema(
     con: Any, leaf: SourceLeaf, location: tuple[str, str] | str | None
 ) -> Schema | None:
-    """``leaf``'s live schema, or ``None`` when the backend does not list the table.
+    """``leaf``'s live schema, or ``None`` when the backend does not list the table
+    or, for a pinned leaf, its snapshot.
 
     The listing is the only positive evidence of absence. Vendored ibis raises a
     typed ``TableNotFound`` in some backends and a bare error carrying the same
@@ -404,9 +405,17 @@ def get_table_schema(
     """
     if leaf.table not in con.list_tables(database=location):
         return None
-    # Only pyiceberg's `table` takes a pin; an unpinned leaf passes none.
-    pin = {} if leaf.snapshot_id is None else {"snapshot_id": leaf.snapshot_id}
-    return con.table(leaf.table, database=location, **pin).schema()
+    if leaf.snapshot_id is None:
+        return con.table(leaf.table, database=location).schema()
+    # Only pyiceberg pins a read. A pinned snapshot can be expired, and the
+    # snapshot listing is the positive evidence of that, as `list_tables` is
+    # of a dropped table.
+    snapshot_ids = con.list_snapshots(database=location).get(leaf.table, ())
+    if leaf.snapshot_id not in snapshot_ids:
+        return None
+    return con.table(
+        leaf.table, database=location, snapshot_id=leaf.snapshot_id
+    ).schema()
 
 
 def read_call(leaf: SourceLeaf) -> tuple[tuple, dict]:
