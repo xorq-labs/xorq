@@ -404,7 +404,9 @@ def get_table_schema(
     """
     if leaf.table not in con.list_tables(database=location):
         return None
-    return con.table(leaf.table, database=location).schema()
+    # Only pyiceberg's `table` takes a pin; an unpinned leaf passes none.
+    pin = {} if leaf.snapshot_id is None else {"snapshot_id": leaf.snapshot_id}
+    return con.table(leaf.table, database=location, **pin).schema()
 
 
 def read_call(leaf: SourceLeaf) -> tuple[tuple, dict]:

@@ -1,9 +1,13 @@
 import pyarrow as pa
 import pytest
+from pyiceberg.types import StringType
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
+from xorq.catalog.drift import iter_leaf_reports
+from xorq.catalog.enums import Verdict
+from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import op_key, refresh_schemas
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.tests.util import assert_frame_equal
@@ -165,3 +169,32 @@ def test_source_cache_keeps_pinned_and_latest_apart(iceberg_con, quotes_df):
 
     n = len(quotes_df)
     assert actual == {"first": n, "latest": 2 * n}
+
+
+def pinned_before_a_new_column(con, table_name, df):
+    con.create_table(table_name, df, overwrite=True)
+    first_id = current_snapshot_id(con, table_name)
+    ice_table = con.catalog.load_table(f"{con.namespace}.{table_name}")
+    with ice_table.update_schema() as update:
+        update.add_column("note", StringType())
+    con.insert(table_name, df.assign(note="added"))
+    return con.table(table_name, snapshot_id=first_id)
+
+
+def test_pinned_table_carries_its_snapshot_schema(iceberg_con, quotes_df):
+    pinned = pinned_before_a_new_column(iceberg_con, "snapshot_schema", quotes_df)
+
+    actual = pinned.execute()
+
+    assert tuple(pinned.schema()) == tuple(quotes_df.columns)
+    assert tuple(actual.columns) == tuple(quotes_df.columns)
+    assert len(actual) == len(quotes_df)
+
+
+def test_pinned_table_does_not_drift_on_a_new_column(iceberg_con, quotes_df, tmp_path):
+    pinned = pinned_before_a_new_column(iceberg_con, "snapshot_drift", quotes_df)
+    record = BuildRecord.from_build_dir(build_expr(pinned, builds_dir=tmp_path))
+
+    (report,) = iter_leaf_reports(record)
+
+    assert report.verdict == Verdict.EQUAL

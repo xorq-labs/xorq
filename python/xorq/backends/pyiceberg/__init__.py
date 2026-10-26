@@ -117,7 +117,9 @@ class Backend(SQLBackend):
         database: tuple[str, str] | str | None = None,
         snapshot_id: int | None = None,
     ) -> ir.Table:
-        table_schema = self.get_schema(name, catalog=schema, database=database)
+        table_schema = self.get_schema(
+            name, catalog=schema, database=database, snapshot_id=snapshot_id
+        )
 
         return PyIcebergTable(
             name=name,
@@ -295,9 +297,13 @@ class Backend(SQLBackend):
         *,
         catalog: Optional[str] = None,
         database: Optional[str] = None,
+        snapshot_id: Optional[int] = None,
     ) -> sch.Schema:
         table = self.load_iceberg_table(table_name, catalog=catalog, database=database)
-        return sch.Schema.from_pyarrow(table.schema().as_arrow())
+        # A scan's projection is the schema its snapshot was written with, which
+        # is what a pinned scan returns; unpinned, it is the current schema.
+        projection = table.scan(snapshot_id=snapshot_id).projection()
+        return sch.Schema.from_pyarrow(projection.as_arrow())
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         raise NotImplementedError("_get_schema_using_query")

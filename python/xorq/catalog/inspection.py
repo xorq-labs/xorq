@@ -286,7 +286,8 @@ class SourceLeaf:
     them. ``pinned`` says the leaf is a
     ``CacheTag``'s frozen read of its cache artifact, a machine-local cache path
     rather than a user source, so equally nothing to check. Both are
-    ``drift_exempt``.
+    ``drift_exempt``. ``snapshot_id`` is the snapshot an iceberg table read is
+    pinned to; its schema, not the table's current one, is what to compare.
     """
 
     node_ref = field(validator=instance_of(str))
@@ -310,6 +311,7 @@ class SourceLeaf:
         # the leaf unhashable the moment a consumer puts it in a set.
         converter=lambda kwargs: tuple((k, freeze(v)) for k, v in kwargs),
     )
+    snapshot_id = field(default=None, validator=optional(instance_of(int)))
 
     @property
     def drift_exempt(self) -> bool:
@@ -381,6 +383,7 @@ class SourceLeaf:
             namespace=(catalog, database),
             method_name=node_def.get(NodeKey.method_name),
             read_kwargs=read_kwargs,
+            snapshot_id=node_def.get(NodeKey.snapshot_id),
         )
 
 
