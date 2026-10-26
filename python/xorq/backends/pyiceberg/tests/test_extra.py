@@ -9,6 +9,7 @@ from xorq.catalog.drift import iter_leaf_reports
 from xorq.catalog.enums import Verdict
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import op_key, refresh_build, refresh_schemas
+from xorq.common.utils.graph_utils import replace_sources
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.tests.util import assert_frame_equal
 
@@ -221,3 +222,24 @@ def test_refresh_keeps_a_pinned_read_apart_from_the_current_one(
         exprs["first"].op().snapshot_id: tuple(quotes_df.columns),
         None: (*quotes_df.columns, "note"),
     }
+
+
+def test_replace_sources_transfers_a_loaded_iceberg_table(
+    iceberg_con, quotes_df, tmp_path
+):
+    exprs = pinned_and_latest(iceberg_con, "snapshot_replace", quotes_df)
+    loaded = load_expr(build_expr(exprs["latest"], builds_dir=tmp_path))
+    (source,) = loaded.ls.backends
+    con = xo.connect()
+
+    moved = replace_sources({id(source): con}, loaded, transfer_tables=True)
+
+    assert len(moved.execute()) == 2 * len(quotes_df)
+
+
+def test_replace_sources_refuses_a_pinned_iceberg_table(iceberg_con, quotes_df):
+    exprs = pinned_and_latest(iceberg_con, "snapshot_replace_pinned", quotes_df)
+    con = xo.connect()
+
+    with pytest.raises(ValueError, match="snapshot"):
+        replace_sources({id(iceberg_con): con}, exprs["first"], transfer_tables=True)
