@@ -525,11 +525,16 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
     # The profile's backend picks the op class, so a pinned and an unpinned
     # pyiceberg table load back as the same class `Backend.table` builds.
     # Read off the class: a lazy profile must not connect here.
+    snapshot_id = yaml_dict.get(NodeKey.snapshot_id)
     match con.__class__.name:
         case BackendName.PYICEBERG:
-            return PyIcebergTable(
-                **kwargs, snapshot_id=yaml_dict.get(NodeKey.snapshot_id)
-            ).to_expr()
+            return PyIcebergTable(**kwargs, snapshot_id=snapshot_id).to_expr()
+        case backend_name if snapshot_id is not None:
+            # Loading unpinned would silently read the latest data instead.
+            raise ValueError(
+                f"{table_name!r} records snapshot_id {snapshot_id}, but its "
+                f"profile is a {backend_name} backend, which cannot pin a read"
+            )
         case _:
             return ops.DatabaseTable(**kwargs).to_expr()
 
