@@ -62,7 +62,7 @@ class DerefMap(Concrete, Traversable):
     ambigs: FrozenDict[ops.Value, VarTuple[ops.Value]]
 
     @classmethod
-    def from_targets(cls, rels, extra=None):
+    def from_targets(cls, rels):
         """Create a dereference map from a list of target relations.
 
         Usually a single relation is passed except for joins where multiple
@@ -72,8 +72,6 @@ class DerefMap(Concrete, Traversable):
         ----------
         rels : list of ops.Relation
             The target relations to dereference to.
-        extra : dict, optional
-            Extra substitutions to be added to the dereference map.
 
         Returns
         -------
@@ -96,9 +94,6 @@ class DerefMap(Concrete, Traversable):
                 subs[from_] = minkeys[0]
             else:
                 ambigs[from_] = minkeys
-
-        if extra is not None:
-            subs.update(extra)
 
         return cls(rels, subs, ambigs)
 
