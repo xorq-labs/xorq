@@ -765,6 +765,19 @@ def test_write_requirements_path_rejects_stale_requirements(tmp_path, monkeypatc
     assert "uv export" in message
 
 
+def test_write_requirements_path_writes_lf_line_endings(tmp_path, monkeypatch):
+    _make_pyproject(tmp_path)
+    (tmp_path / UVLOCK_NAME).write_text("# lockfile")
+    packager = WheelPackager(tmp_path)
+    monkeypatch.setattr(
+        "xorq.ibis_yaml.packager.uv_export_requirements",
+        lambda *a, **kw: "requests==2.31.0\nflask==3.0.0\n",
+    )
+    packager._write_requirements_path()
+    written = (packager.tmpdir / DumpFiles.requirements).read_bytes()
+    assert written == b"requests==2.31.0\nflask==3.0.0\n"
+
+
 # ---------------------------------------------------------------------------
 # _ensure_wheel_artifacts: branching logic
 # ---------------------------------------------------------------------------
