@@ -40,14 +40,31 @@ def _init_sqlite3():
     sqlite3.register_adapter(pd.Timestamp, pd.Timestamp.isoformat)
 
 
+# numpy dtype kinds whose columns already iterate as Python scalars sqlite3
+# binds, NaN included (stored as NULL)
+NATIVE_KINDS = frozenset("iufb")
+
+
 def _bindable_rows(df: pd.DataFrame) -> Iterator[tuple]:
     """Rows of ``df`` as values sqlite3 binds: Python scalars, nulls as None.
 
-    Nullable extension columns (``Int64``, ``boolean``, ``string``, ...) hold
-    numpy scalars and ``pd.NA``/``NaT``, which sqlite3 binds as blobs or
-    refuses; ``astype(object)`` unboxes the scalars and ``where`` nulls them.
+    numpy int, uint, float and bool columns pass through untouched. Every other
+    column is converted: extension dtypes (``Int64``, ``boolean``,
+    ``ArrowDtype``, ...) iterate as numpy scalars or ``pd.NA``, datetimes as
+    ``NaT``, and object columns can hold either; sqlite3 stores the first as a
+    blob and refuses the rest. ``pd.Timedelta`` and ``Decimal`` values have no
+    sqlite3 adapter and still fail to bind.
     """
-    return df.astype(object).where(df.notna(), None).itertuples(index=False)
+    import numpy as np
+
+    return zip(
+        *(
+            column
+            if isinstance(column.dtype, np.dtype) and column.dtype.kind in NATIVE_KINDS
+            else column.astype(object).where(column.notna(), None)
+            for _, column in df.items()
+        )
+    )
 
 
 def _quote(name: str) -> str:
