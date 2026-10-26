@@ -492,7 +492,7 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
     return node_dict
 
 
-def _snapshot_pin_to_yaml(op: ops.DatabaseTable) -> dict:
+def _snapshot_pin_to_yaml(op: ops.DatabaseTable) -> dict[NodeKey, int]:
     match snapshot_pin(op):
         case None:
             return {}

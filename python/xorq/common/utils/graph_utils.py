@@ -480,7 +480,7 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
     # Track DatabaseTable nodes that need data transferred: (old_backend, new_backend, table_name)
     tables_to_transfer = []
     # `_probe_key` -> snapshot id, for transfers a copy by name cannot honor.
-    pinned = {}
+    pinned: dict[tuple[int, str, str | None, str | None], int] = {}
 
     def replacer(node, kwargs):
         overrides = {}

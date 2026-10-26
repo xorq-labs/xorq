@@ -63,8 +63,13 @@ SCHEMA_FOLLOWS_PARENT = {
     Tag: "parent",
 }
 
+# (kind, name, snapshot_id, schema): a source's identity without its profile.
+SourceIdentity = tuple[str, str, int | None, Schema]
+# (kind, profile content hash, name, snapshot_id, schema).
+LeafKey = tuple[str, str | None, str, int | None, Schema]
+
 # Exact source op class -> the `op` name it serializes as in expr.yaml.
-SOURCE_LEAF_KINDS = {
+SOURCE_LEAF_KINDS: dict[type[Node], LeafKind] = {
     ops.DatabaseTable: LeafKind.DATABASE_TABLE,
     PyIcebergTable: LeafKind.DATABASE_TABLE,
     Read: LeafKind.READ,
@@ -77,7 +82,7 @@ def leaf_profile_key(leaf: SourceLeaf, record: BuildRecord) -> str | None:
     return None if profile_dict is None else make_profile(profile_dict).content_hash
 
 
-def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
+def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> LeafKey:
     """``leaf``'s identity, matched against ``op_key``.
 
     Profile content hash, not backend name, so one table name on two
@@ -93,7 +98,7 @@ def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
     )
 
 
-def source_identity(node: Node) -> tuple | None:
+def source_identity(node: Node) -> SourceIdentity | None:
     """``op_key`` minus the profile; never touches ``node.source``.
 
     Exact class: ``CachedNode``/``RemoteTable`` subclass ``DatabaseTable``.
@@ -110,7 +115,7 @@ def source_identity(node: Node) -> tuple | None:
     return (kind, name, snapshot_pin(node), node.schema)
 
 
-def op_key(node: Node) -> tuple | None:
+def op_key(node: Node) -> LeafKey | None:
     """``node``'s ``leaf_key``, or ``None`` when it is not a source.
 
     Profile name carries a session-local index; content hash does not.
@@ -238,14 +243,14 @@ def refuse(
     raise error_type(op_name, LookupError(separator.join(details)))
 
 
-def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
+def refresh_schemas(expr: Any, live: Mapping[LeafKey, Schema]) -> Any:
     """``expr`` rebuilt over ``live`` (``leaf_key`` -> live schema).
 
     Raises if a key matches no source: that source would stay stale silently.
     """
     if not live:
         return expr
-    matched: set[tuple] = set()
+    matched: set[LeafKey] = set()
     # Screen before `op_key`: resolving a profile connects a lazy backend.
     candidates = {
         (kind, name, snapshot_id, schema)
@@ -278,13 +283,15 @@ def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
     return refreshed
 
 
-def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
+def live_schemas(
+    record: BuildRecord, reports: Iterable[LeafReport]
+) -> dict[LeafKey, Schema]:
     """The ``refresh_schemas`` mapping for the changed leaves in ``reports``.
 
     Raises, naming every offender, on an uncomparable source or on a key seen
     at two schemas (two reads of one path with different options).
     """
-    found: dict[tuple, dict[Schema, LeafReport]] = {}
+    found: dict[LeafKey, dict[Schema, LeafReport]] = {}
     uncomparable = []
     for report in reports:
         match report.verdict:
