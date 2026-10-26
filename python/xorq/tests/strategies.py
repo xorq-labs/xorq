@@ -40,3 +40,17 @@ def numeric_frames(draw, max_rows=20):
         return pd.Series(values, dtype=dtype)
 
     return pd.DataFrame({"k": range(n), **{name: column() for name in "abc"}})
+
+
+# -- join keys --
+
+# A narrow range, so keys repeat and join matches happen often, with nulls,
+# which an outer join's coalesced key and a SQL equality treat specially
+JOIN_KEYS = st.one_of(st.integers(-3, 3), st.none())
+
+
+@st.composite
+def key_frames(draw, column, max_rows=6):
+    """A one-column frame of nullable Int64 join keys named ``column``."""
+    keys = draw(st.lists(JOIN_KEYS, max_size=max_rows))
+    return pd.DataFrame({column: pd.Series(keys, dtype="Int64")})
