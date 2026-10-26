@@ -40,6 +40,15 @@ def _init_sqlite3():
     sqlite3.register_adapter(pd.Timestamp, pd.Timestamp.isoformat)
 
 
+def _arrow_frame(table: pa.Table) -> pd.DataFrame:
+    """``table`` as a frame whose int columns with nulls hold Python ints.
+
+    A plain ``to_pandas()`` turns such a column into float64, which rounds every
+    value above 2**53.
+    """
+    return table.to_pandas(integer_object_nulls=True)
+
+
 # numpy dtype kinds whose columns already iterate as Python scalars sqlite3
 # binds, NaN included (stored as NULL)
 NATIVE_KINDS = frozenset("iufb")
@@ -396,7 +405,14 @@ class Backend(SQLBackend, UrlFromPath):
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         table = sg.table(op.name, quoted=self.compiler.quoted, catalog="temp")
         create_stmt = self._generate_create_table(table, op.schema).sql(self.name)
-        data = _bindable_rows(op.data.to_frame())
+        from xorq.vendor.ibis.formats.pyarrow import PyArrowTableProxy
+
+        match op.data:
+            case PyArrowTableProxy(obj=table):
+                frame = _arrow_frame(table)
+            case data:
+                frame = data.to_frame()
+        data = _bindable_rows(frame)
         insert_stmt = self._build_insert_template(
             op.name, schema=op.schema, catalog="temp", columns=True
         )

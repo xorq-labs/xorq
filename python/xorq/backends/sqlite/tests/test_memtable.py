@@ -66,3 +66,23 @@ def test_memtable_nulls_and_values_roundtrip(
     column = con.to_pyarrow(xo.memtable(frame))["k"]
     assert column.to_pylist() == expected
     assert column.type == expected_type
+
+
+@pytest.mark.parametrize("con_name", ["sqlite_con", "persistent_sqlite_con"])
+@pytest.mark.parametrize(
+    "register",
+    [
+        pytest.param(lambda con, table: xo.memtable(table), id="memtable"),
+        pytest.param(
+            lambda con, table: con.read_record_batches(table.to_reader()),
+            id="record-batches",
+        ),
+    ],
+)
+def test_arrow_int64_with_nulls_keeps_precision(request, con_name, register):
+    # an int64 column with a null must not pass through float64 on its way in;
+    # counted inside sqlite, since reading the value back is a separate path
+    big = 2**53 + 1
+    con = request.getfixturevalue(con_name)
+    t = register(con, pa.table({"k": pa.array([big, None], type=pa.int64())}))
+    assert con.execute(t.filter(t.k == big).count()) == 1
