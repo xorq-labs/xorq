@@ -40,6 +40,16 @@ def _init_sqlite3():
     sqlite3.register_adapter(pd.Timestamp, pd.Timestamp.isoformat)
 
 
+def _bindable_rows(df: pd.DataFrame) -> Iterator[tuple]:
+    """Rows of ``df`` as values sqlite3 binds: Python scalars, nulls as None.
+
+    Nullable extension columns (``Int64``, ``boolean``, ``string``, ...) hold
+    numpy scalars and ``pd.NA``/``NaT``, which sqlite3 binds as blobs or
+    refuses; ``astype(object)`` unboxes the scalars and ``where`` nulls them.
+    """
+    return df.astype(object).where(df.notna(), None).itertuples(index=False)
+
+
 def _quote(name: str) -> str:
     return sg.to_identifier(name, quoted=True).sql("sqlite")
 
@@ -369,9 +379,7 @@ class Backend(SQLBackend, UrlFromPath):
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         table = sg.table(op.name, quoted=self.compiler.quoted, catalog="temp")
         create_stmt = self._generate_create_table(table, op.schema).sql(self.name)
-        df = op.data.to_frame()
-
-        data = df.itertuples(index=False)
+        data = _bindable_rows(op.data.to_frame())
         insert_stmt = self._build_insert_template(
             op.name, schema=op.schema, catalog="temp", columns=True
         )

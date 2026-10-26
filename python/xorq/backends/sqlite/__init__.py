@@ -12,7 +12,7 @@ from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.config import default_backend
 from xorq.vendor.ibis import Schema, util
 from xorq.vendor.ibis.backends.sqlite import Backend as IbisSQLiteBackend
-from xorq.vendor.ibis.backends.sqlite import _quote
+from xorq.vendor.ibis.backends.sqlite import _bindable_rows, _quote
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
 
@@ -86,10 +86,9 @@ class Backend(IbisSQLiteBackend):
         schema = Schema.from_pyarrow(record_batches.schema)
         table = sg.table(table_name, quoted=self.compiler.quoted, catalog="temp")
         create_stmt = self._generate_create_table(table, schema).sql(self.name)
-        df = coerce_to_arrow_table(record_batches).to_pandas()
-        # sqlite3 binds None, not pd.NA or NaT; pandas' nullable dtypes come
-        # back through the arrow metadata of a frame that was read with them
-        data = df.astype(object).where(df.notna(), None).itertuples(index=False)
+        # pandas' nullable dtypes come back through the arrow metadata of a
+        # frame that was read with them
+        data = _bindable_rows(coerce_to_arrow_table(record_batches).to_pandas())
         insert_stmt = self._build_insert_template(
             table_name, schema=schema, catalog="temp", columns=True
         )
