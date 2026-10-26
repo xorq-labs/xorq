@@ -186,7 +186,8 @@ def prepare_predicates(
 
     # fields of the chain being extended are peeled to their values over the
     # join tables first; fields of an earlier or nested chain are dereferenced
-    # first, then peeled, the same step `Join.select` takes
+    # first, then peeled, which is where `Join.select` ends up too: there
+    # `bind` dereferences to the chain before `peel_join_field` runs
     peel_chain = {ops.Field(chain, k): v for k, v in chain.values.items()}
 
     def deref_chain(derefmap, node):

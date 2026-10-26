@@ -75,6 +75,19 @@ def test_asof_join_on_column_selected_over_join():
     )
 
 
+def test_asof_join_to_its_own_filtered_result():
+    # executed on duckdb, as above; the inequality's left side binds to the
+    # chain, not to the table derived from it
+    j = pub_over_join("outer")
+    r = j.filter(j.pub >= 1)
+    expr = j.asof_join(r, on=j.pub >= r.pub)
+    df = xo.duckdb.connect().execute(expr).sort_values("pub").reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        df[["pub", "pub_right"]].astype("float64"),
+        pd.DataFrame({"pub": [-1, 1, 2], "pub_right": [None, 1, 2]}, dtype="float64"),
+    )
+
+
 def test_join_chain_to_its_own_filtered_result():
     # the right table derives from the chain, so its fields backtrack to the
     # chain's fields; the predicate's left side must still bind to the left
@@ -181,6 +194,19 @@ def test_join_on_field_of_nested_join_chain():
             ),
             {"pub": [-1, 1, 2], "pub_second": [None, None, 2]},
             id="second-copy",
+        ),
+        pytest.param(
+            # `pub` backtracks to the same coalesce through both copies, so
+            # selecting it must not read as ambiguous
+            lambda q, j: q.left_join(
+                s := j.filter(j.pub == 2), q.pub == s.pub, rname="{name}_second"
+            ).select("pub", "pub_right", "pub_second"),
+            {
+                "pub": [-1, 1, 2],
+                "pub_right": [None, 1, None],
+                "pub_second": [None, None, 2],
+            },
+            id="second-copy-select",
         ),
     ],
 )
