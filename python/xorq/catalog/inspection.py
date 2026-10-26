@@ -236,6 +236,23 @@ def get_node_key(node_ref: str, node_def: dict, key: str) -> Any:
     return value
 
 
+def get_snapshot_id(node_ref: str, node_def: dict) -> int | None:
+    """The optional ``snapshot_id``, naming the node when it is not an integer.
+
+    ``bool`` is excluded explicitly: it subclasses ``int``, so ``true`` would
+    otherwise read as snapshot 1.
+    """
+    match snapshot_id := node_def.get(NodeKey.snapshot_id):
+        case None:
+            return None
+        case int() if not isinstance(snapshot_id, bool):
+            return snapshot_id
+        case _:
+            raise ValueError(
+                f"node {node_ref!r} has snapshot_id {snapshot_id!r}, not an integer"
+            )
+
+
 def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
     """``read_kwargs`` as ``(key, value)`` pairs, naming the node on a bad entry.
 
@@ -383,7 +400,7 @@ class SourceLeaf:
             namespace=(catalog, database),
             method_name=node_def.get(NodeKey.method_name),
             read_kwargs=read_kwargs,
-            snapshot_id=node_def.get(NodeKey.snapshot_id),
+            snapshot_id=get_snapshot_id(node_ref, node_def),
         )
 
 
