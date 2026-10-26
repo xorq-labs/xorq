@@ -1,8 +1,10 @@
 import pyarrow as pa
+import pytest
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
+from xorq.catalog.refresh import op_key, refresh_schemas
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.tests.util import assert_frame_equal
 
@@ -131,3 +133,35 @@ def test_snapshot_pin_survives_build_and_load(iceberg_con, quotes_df, tmp_path):
     n = len(quotes_df)
     assert actual == {"first": n, "latest": 2 * n}
     assert paths["first"].name != paths["latest"].name
+
+
+def pinned_and_latest(con, table_name, df):
+    con.create_table(table_name, df, overwrite=True)
+    first_id = current_snapshot_id(con, table_name)
+    con.insert(table_name, df)
+    return {
+        "first": con.table(table_name, snapshot_id=first_id),
+        "latest": con.table(table_name),
+    }
+
+
+@pytest.mark.parametrize("which", ["first", "latest"])
+def test_refresh_matches_loaded_iceberg_table(iceberg_con, quotes_df, tmp_path, which):
+    expr = pinned_and_latest(iceberg_con, f"snapshot_refresh_{which}", quotes_df)[which]
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path))
+    (leaf,) = loaded.op().find(ops.DatabaseTable)
+
+    refreshed = refresh_schemas(loaded, {op_key(leaf): leaf.schema})
+
+    n = len(quotes_df)
+    assert len(refreshed.execute()) == {"first": n, "latest": 2 * n}[which]
+
+
+def test_source_cache_keeps_pinned_and_latest_apart(iceberg_con, quotes_df):
+    exprs = pinned_and_latest(iceberg_con, "snapshot_source_cache", quotes_df)
+    cache = SourceCache.from_kwargs(source=iceberg_con)
+
+    actual = {key: len(expr.cache(cache).execute()) for key, expr in exprs.items()}
+
+    n = len(quotes_df)
+    assert actual == {"first": n, "latest": 2 * n}

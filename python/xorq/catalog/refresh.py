@@ -40,6 +40,7 @@ from xorq.expr.relations import (
     CacheTag,
     FlightExpr,
     FlightUDXF,
+    PyIcebergTable,
     Read,
     RemoteTable,
     Tag,
@@ -59,6 +60,13 @@ SCHEMA_FOLLOWS_PARENT = {
     RemoteTable: "remote_expr",
     TeeNode: "parent",
     Tag: "parent",
+}
+
+# Exact source op class -> the `op` name it serializes as in expr.yaml.
+SOURCE_LEAF_KINDS = {
+    ops.DatabaseTable: LeafKind.DATABASE_TABLE,
+    PyIcebergTable: LeafKind.DATABASE_TABLE,
+    Read: LeafKind.READ,
 }
 
 
@@ -85,9 +93,9 @@ def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
 def source_identity(node: Node) -> tuple | None:
     """``op_key`` minus the profile; never touches ``node.source``.
 
-    Exact type name: ``CachedNode``/``RemoteTable`` subclass ``DatabaseTable``.
+    Exact class: ``CachedNode``/``RemoteTable`` subclass ``DatabaseTable``.
     """
-    match type(node).__name__:
+    match kind := SOURCE_LEAF_KINDS.get(type(node)):
         case LeafKind.DATABASE_TABLE:
             name = node.to_expr().get_name()
         case LeafKind.READ:
@@ -96,7 +104,7 @@ def source_identity(node: Node) -> tuple | None:
             name = join_read_path(path)
         case _:
             return None
-    return (type(node).__name__, name, node.schema)
+    return (kind, name, node.schema)
 
 
 def op_key(node: Node) -> tuple | None:

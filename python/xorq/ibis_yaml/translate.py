@@ -18,6 +18,7 @@ import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.enums import BackendName
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
@@ -32,6 +33,7 @@ from xorq.expr.relations import (
     Tag,
     TeeNode,
     into_backend,
+    snapshot_pin,
 )
 from xorq.ibis_yaml.common import (
     TranslationContext,
@@ -491,11 +493,11 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
 
 
 def _snapshot_pin_to_yaml(op: ops.DatabaseTable) -> dict:
-    match op:
-        case PyIcebergTable(snapshot_id=int() as snapshot_id):
-            return {NodeKey.snapshot_id: snapshot_id}
-        case _:
+    match snapshot_pin(op):
+        case None:
             return {}
+        case snapshot_id:
+            return {NodeKey.snapshot_id: snapshot_id}
 
 
 @register_from_yaml_handler("DatabaseTable")
@@ -520,11 +522,16 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
         "name": table_name,
         "namespace": Namespace(catalog=catalog, database=database),
     }
-    match yaml_dict.get(NodeKey.snapshot_id):
-        case None:
+    # The profile's backend picks the op class, so a pinned and an unpinned
+    # pyiceberg table load back as the same class `Backend.table` builds.
+    # Read off the class: a lazy profile must not connect here.
+    match con.__class__.name:
+        case BackendName.PYICEBERG:
+            return PyIcebergTable(
+                **kwargs, snapshot_id=yaml_dict.get(NodeKey.snapshot_id)
+            ).to_expr()
+        case _:
             return ops.DatabaseTable(**kwargs).to_expr()
-        case snapshot_id:
-            return PyIcebergTable(**kwargs, snapshot_id=snapshot_id).to_expr()
 
 
 @translate_to_yaml.register(CachedNode)
