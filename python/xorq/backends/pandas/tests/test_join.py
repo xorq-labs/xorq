@@ -692,3 +692,51 @@ def test_self_join_through_view(left, df1):
         }
     )
     assert_frame_equal(result, expected)
+
+
+def test_join_does_not_match_null_keys():
+    # verbatim from the issue report
+    a = xo.memtable(pd.DataFrame({"a_pub": pd.Series([None, 1], dtype="Int64")}))
+    b = xo.memtable(pd.DataFrame({"e_pub": pd.Series([None, 1], dtype="Int64")}))
+    expr = a.join(b, a.a_pub == b.e_pub)
+    assert len(xo.pandas.connect().execute(expr)) == 1
+
+
+null_keys_left = xo.memtable(
+    pd.DataFrame(
+        {
+            "a_k1": pd.Series([None, 1, 1, 2, None], dtype="Int64"),
+            "a_k2": pd.Series([1, None, 1, 2, None], dtype="Int64"),
+            "a_v": [10, 11, 12, 13, 14],
+        }
+    )
+)
+null_keys_right = xo.memtable(
+    pd.DataFrame(
+        {
+            "b_k1": pd.Series([None, 1, 1, 3, None], dtype="Int64"),
+            "b_k2": pd.Series([1, None, 1, 3, None], dtype="Int64"),
+            "b_v": [20, 21, 22, 23, 24],
+        }
+    )
+)
+
+
+@pytest.mark.parametrize("how", ["inner", "left", "right", "outer", "semi", "anti"])
+@pytest.mark.parametrize(
+    "predicates",
+    [
+        pytest.param(lambda a, b: [a.a_k1 == b.b_k1], id="single"),
+        pytest.param(lambda a, b: [a.a_k1 == b.b_k1, a.a_k2 == b.b_k2], id="multi"),
+        pytest.param(lambda a, b: [(a.a_k1 + 1) == (b.b_k1 + 1)], id="expression"),
+    ],
+)
+def test_join_null_keys_match_datafusion(how, predicates):
+    a, b = null_keys_left, null_keys_right
+    expr = a.join(b, predicates(a, b), how=how)
+
+    def rows(con):
+        df = con.execute(expr).astype("Float64")
+        return df.sort_values(list(df.columns)).reset_index(drop=True)
+
+    assert_frame_equal(rows(xo.pandas.connect()), rows(xo.connect()))
