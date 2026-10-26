@@ -408,10 +408,9 @@ def get_table_schema(
     if leaf.snapshot_id is None:
         return con.table(leaf.table, database=location).schema()
     # Only pyiceberg pins a read. A pinned snapshot can be expired, and the
-    # snapshot listing is the positive evidence of that, as `list_tables` is
-    # of a dropped table.
-    snapshot_ids = con.list_snapshots(database=location).get(leaf.table, ())
-    if leaf.snapshot_id not in snapshot_ids:
+    # table's snapshot listing is the positive evidence of that, as
+    # `list_tables` is of a dropped table.
+    if not con.has_snapshot(leaf.table, leaf.snapshot_id, database=location):
         return None
     return con.table(
         leaf.table, database=location, snapshot_id=leaf.snapshot_id

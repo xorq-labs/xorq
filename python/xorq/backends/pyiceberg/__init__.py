@@ -438,6 +438,16 @@ class Backend(SQLBackend):
             self.catalog.load_table(full_final).add_files(data_files)
         self.drop_table(staging)
 
+    def has_snapshot(
+        self, name: str, snapshot_id: int, database: Optional[str] = None
+    ) -> bool:
+        """Whether table ``name`` still lists ``snapshot_id``; an expired one is gone.
+
+        Loads only ``name``, resolving ``database`` as ``table`` does.
+        """
+        table = self.load_iceberg_table(name, database=database)
+        return table.snapshot_by_id(snapshot_id) is not None
+
     def list_snapshots(self, database: Optional[str] = None) -> dict[str, int]:
         database = database or self.namespace
         table_names = [t[1] for t in self.catalog.list_tables(database)]

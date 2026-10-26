@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pyarrow as pa
 import pytest
 from pyiceberg.types import StringType
@@ -268,3 +270,21 @@ def test_replace_sources_refuses_a_pinned_table_already_on_the_target(
 
     with pytest.raises(ValueError, match="snapshot"):
         replace_sources({id(iceberg_con): con}, exprs["first"], transfer_tables=True)
+
+
+def test_a_broken_unrelated_table_does_not_affect_a_pinned_probe(
+    iceberg_con, quotes_df, tmp_path
+):
+    exprs = pinned_and_latest(iceberg_con, "snapshot_probe_target", quotes_df)
+    record = BuildRecord.from_build_dir(build_expr(exprs["first"], builds_dir=tmp_path))
+    iceberg_con.create_table("snapshot_probe_broken", quotes_df, overwrite=True)
+    broken = iceberg_con.catalog.load_table(
+        f"{iceberg_con.namespace}.snapshot_probe_broken"
+    )
+    Path(broken.metadata_location.removeprefix("file://")).unlink()
+    try:
+        (report,) = iter_leaf_reports(record)
+    finally:
+        iceberg_con.catalog.drop_table(f"{iceberg_con.namespace}.snapshot_probe_broken")
+
+    assert report.verdict == Verdict.EQUAL
