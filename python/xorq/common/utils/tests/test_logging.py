@@ -282,6 +282,23 @@ def test_hung_git_times_out(tmp_path, monkeypatch, log_output):
     started = time.monotonic()
     log_initial_state(cwd=repo)
     assert time.monotonic() - started < 10
+    assert _has_event(log_output.entries, "failed to read git state")
+    assert _has_event(log_output.entries, "xorq version")
+
+
+def test_refused_repo_logs_why(tmp_path, monkeypatch, log_output):
+    # a repo git refuses to read (safe.directory) answers with stderr and 128
+    repo = tmp_path / "repo"
+    repo.joinpath(".git").mkdir(parents=True)
+    _fake_git_on_path(
+        tmp_path, monkeypatch, "echo 'fatal: detected dubious ownership' >&2; exit 128"
+    )
+
+    log_initial_state(cwd=repo)
+    (event,) = (
+        e for e in log_output.entries if e["event"] == "failed to read git state"
+    )
+    assert "dubious ownership" in event["git_stderr"]
     assert _has_event(log_output.entries, "xorq version")
 
 

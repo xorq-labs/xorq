@@ -38,6 +38,7 @@ _log_env_config = EnvConfigable.subclass_from_env_file(
 # a hung git (network filesystem, stuck fsmonitor) must not hang the import
 # or the build that records its state
 GIT_TIMEOUT_SECONDS = 30
+GIT_FAILURE_EVENT = "failed to read git state"
 
 
 def _git(args, cwd=None):
@@ -54,21 +55,33 @@ def _has_dot_git_ancestor(cwd=None):
     return any(path.joinpath(".git").exists() for path in (start, *start.parents))
 
 
+def _git_stderr(error_or_completed):
+    # git's own explanation lives in stderr, which an exception's message
+    # leaves out; a timeout or an OSError carries none
+    stderr = getattr(error_or_completed, "stderr", None) or b""
+    return stderr.decode("utf-8", errors="replace").strip()
+
+
 def _git_is_present(cwd=None):
     """True when `cwd` is inside a git work tree, commits or not.
 
     Git only runs below a `.git` entry, so `import xorq` outside any repo
-    forks nothing. A missing git binary, a missing `cwd`, a bare repo, a
-    directory outside any repo, a repo git refuses to read (ownership,
-    corruption) and a git that times out all answer False.
+    forks nothing. A missing `cwd`, a bare repo and a directory outside any
+    repo answer False; so do a missing git binary, a repo git refuses to
+    read (ownership, corruption) and a git that times out, which also log
+    why.
     """
+    logger = structlog.get_logger(__name__)
     try:
         # an unreadable ancestor raises from the `.git` lookup too
         if not _has_dot_git_ancestor(cwd=cwd):
             return False
         inside = _git(["rev-parse", "--is-inside-work-tree"], cwd=cwd)
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.exception(GIT_FAILURE_EVENT, git_stderr=_git_stderr(e))
         return False
+    if inside.returncode != 0:
+        logger.warning(GIT_FAILURE_EVENT, git_stderr=_git_stderr(inside))
     return inside.stdout.strip() == b"true"
 
 
@@ -119,12 +132,8 @@ def git_state_or_none(hash_diffs=False, cwd=None):
     try:
         return get_git_state(hash_diffs=hash_diffs, cwd=cwd)
     except (subprocess.SubprocessError, OSError) as e:
-        # git's own explanation lives in stderr, which the exception's message
-        # leaves out; a timeout or an OSError carries none
-        stderr = getattr(e, "stderr", None) or b""
         structlog.get_logger(__name__).exception(
-            "failed to read git state",
-            git_stderr=stderr.decode("utf-8", errors="replace").strip(),
+            GIT_FAILURE_EVENT, git_stderr=_git_stderr(e)
         )
         return None
 
