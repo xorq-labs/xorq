@@ -307,7 +307,7 @@ On main, run `scripts/release.sh [--no-pause] <major|minor|patch>` to do steps 1
 
 ### Steps
 1. Start from upstream main with a clean working tree: `git switch main && git pull`. Step 6 commits every tracked change.
-2. Pick the bump. Before 1.0 it is `patch`, or `minor` when a change since the last tag is breaking: a commit whose title carries `!` (`scripts/release.sh` lists them) or a PR in the draft release's Breaking changes section. Behaviour changes that are not marked breaking still get a note in step 5 and step 13. Read the new version: `version_number=$(uv version --bump <major|minor|patch> --dry-run --short)`
+2. Pick the bump. Before 1.0 it is `patch`, or `minor` when a change since the last tag is breaking: a commit whose title carries `!` (`scripts/release.sh` lists them and asks before a `patch` bump) or a PR in the draft release's Breaking changes section. Behaviour changes that are not marked breaking still get a note in step 5 and step 13. Read the new version: `version_number=$(uv version --bump <major|minor|patch> --dry-run --short)`
 3. Create the release branch: `git switch --create=release-$version_number`
 4. Bump the version: `uv version --bump <major|minor|patch> --no-sync`. This updates `pyproject.toml` and `uv.lock`.
 5. Update the CHANGELOG: `uv run --no-sync git-cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`. Add any extra notes (blog links, etc.) inside the new `## [$version_number]` section.
