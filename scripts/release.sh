@@ -125,8 +125,15 @@ last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --excl
 breaking=$(git log --format='%h %s' "$last_tag..HEAD" | grep -E '^[0-9a-f]+ [[:alnum:]_]+(\([^)]*\))?!:' || true)
 if [ -n "$breaking" ] && [ "$bump_type" = patch ]; then
     warn "commits since $last_tag declare a breaking change; step 2 of the Release Flow (CONTRIBUTING.md) asks for a minor bump:
-$breaking
-Ctrl-C now and rerun with minor, or continue with patch."
+$breaking"
+    [ "$pause" = true ] \
+        || die "nothing changed; rerun with minor, or without --no-pause to confirm patch"
+    printf 'Release a patch anyway? [y/N] '
+    read -r answer || die "stdin closed before an answer; nothing changed"
+    case "$answer" in
+        y | Y | yes) ;;
+        *) die "nothing changed; rerun with minor" ;;
+    esac
 fi
 
 next_version=$(uv --color never version --bump "$bump_type" --dry-run --short)
