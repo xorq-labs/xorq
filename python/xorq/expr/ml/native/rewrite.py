@@ -9,6 +9,7 @@ from xorq.expr.enums import Traversal
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.native.lower import has_ml_nodes, make_lower_replacer, model_fit
 from xorq.expr.ml.native.ops import FittedModel, PickledEstimator, Predict
+from xorq.expr.ml.native.rules import push_aggregate
 from xorq.expr.transform import TransformPass
 
 
@@ -70,6 +71,9 @@ def make_ml_replacer(expr):
                 features = (kwargs or {}).get("features", node.features)
                 inlined = "inline" in rules and try_inline(fitted, features)
                 return inlined or lower(fitted, kwargs)
+            case ops.Aggregate() if "agg" in rules and node.find(Predict):
+                pushed = push_aggregate(node.__recreate__(kwargs) if kwargs else node)
+                return pushed or lower(node, kwargs)
             case _:
                 return lower(node, kwargs)
 
