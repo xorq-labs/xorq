@@ -42,6 +42,30 @@ def fixture_configure_structlog(log_output):
     structlog.configure(**saved)
 
 
+# git reads these before it looks at the cwd: exported by a git hook or a
+# developer's shell, they would point the tmp repos, and the logger under
+# test, at another repository
+GIT_REPO_ENV_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+)
+
+
+@pytest.fixture(autouse=True)
+def fixture_isolated_git(monkeypatch):
+    for name in GIT_REPO_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    # no global or system config: no hooksPath, templateDir or diff driver
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
 def _has_event(events, event_name):
     return any(entry.get("event", "") == event_name for entry in events)
 
