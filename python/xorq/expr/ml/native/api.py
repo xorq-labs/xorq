@@ -34,10 +34,11 @@ def predict_dtype(fit_node):
 def predict(model, expr, method=ResponseMethod.PREDICT):
     """Score `expr`'s rows with `model`, reading the features it was fitted on."""
     fit_node, _ = model_fit(model.op())
+    method = ResponseMethod(method)
     return_type = {
         ResponseMethod.PREDICT: predict_dtype(fit_node),
         ResponseMethod.PREDICT_PROBA: dt.Array(dt.float64),
-    }[ResponseMethod(method)]
+    }[method]
     return Predict(
         model=model.op(),
         features=tuple(expr[name].op() for name in fit_node.feature_names),

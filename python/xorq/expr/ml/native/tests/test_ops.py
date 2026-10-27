@@ -10,8 +10,9 @@ from xorq.expr.ml.native.tests.taxi import FEATURES, TARGET, make_pipeline
 
 
 MODELS = (
-    pytest.param(Ridge(alpha=1.0), id="ridge"),
-    pytest.param(DecisionTreeRegressor(max_depth=8, random_state=0), id="tree"),
+    pytest.param(Ridge(alpha=1.0), 1e-9, id="ridge"),
+    # inlined trees score with float32 leaf values
+    pytest.param(DecisionTreeRegressor(max_depth=8, random_state=0), 1e-6, id="tree"),
 )
 
 
@@ -20,14 +21,16 @@ def taxi(taxi_df):
     return xo.connect().create_table("taxi", taxi_df)
 
 
-@pytest.mark.parametrize("model", MODELS)
-def test_predict_matches_sklearn(taxi_df, taxi, model):
+@pytest.mark.parametrize("model,rtol", MODELS)
+def test_predict_matches_sklearn(taxi_df, taxi, model, rtol):
     expected = make_pipeline(model).fit(taxi_df[list(FEATURES)], taxi_df[TARGET])
     fitted = fit(taxi, FEATURES, TARGET, make_pipeline(model))
 
     actual = taxi.mutate(predicted=predict(fitted, taxi)).execute()["predicted"]
 
-    np.testing.assert_array_equal(actual, expected.predict(taxi_df[list(FEATURES)]))
+    np.testing.assert_allclose(
+        actual, expected.predict(taxi_df[list(FEATURES)]), rtol=rtol
+    )
 
 
 def test_fit_executes_to_fitted_estimator(taxi_df, taxi):
