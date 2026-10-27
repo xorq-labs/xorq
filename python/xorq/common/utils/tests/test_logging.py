@@ -188,6 +188,21 @@ def test_build_git_state_keeps_crlf_and_utf8(empty_repo):
     assert "+se\u00f1or\r\n+second" in diff_cached
 
 
+def test_build_git_state_ignores_diff_config(empty_repo):
+    (empty_repo / "pipeline.py").write_text("expr = None\n")
+    (empty_repo / ".gitattributes").write_text("*.py diff=upper\n")
+    _git(empty_repo, "add", "pipeline.py")
+    _git(empty_repo, "config", "color.ui", "always")
+    _git(empty_repo, "config", "diff.external", "false")
+    _git(empty_repo, "config", "diff.upper.textconv", "tr a-z A-Z")
+    (empty_repo / "pipeline.py").write_text("expr = 1\n")
+
+    git_state = _build_git_state(empty_repo / "builds")
+    assert "\x1b" not in git_state["diff"] + git_state["diff_cached"]
+    assert "+expr = 1" in git_state["diff"]
+    assert "+expr = None" in git_state["diff_cached"]
+
+
 def test_build_git_state_with_commit(empty_repo):
     _git(empty_repo, "commit", "-q", "--allow-empty", "-m", "first")
 

@@ -76,6 +76,11 @@ def _git_head(cwd=None):
     return head.stdout.decode().strip() if head.returncode == 0 else None
 
 
+# a plain patch whatever the user's config says: no external diff driver,
+# textconv filter or color.ui=always reaches the recorded diff
+PLAIN_DIFF_ARGS = ("--no-ext-diff", "--no-textconv", "--no-color")
+
+
 def _git_output(args, cwd=None):
     # decoded as UTF-8 with replacement: a diff must not abort the build that
     # records it, while valid UTF-8 and CRLF content stay exactly as git
@@ -90,8 +95,8 @@ def get_git_state(hash_diffs, cwd=None):
     # `git init; git add` project records what is staged
     git_state = {
         "commit": _git_head(cwd=cwd),
-        "diff": _git_output(["diff"], cwd=cwd),
-        "diff_cached": _git_output(["diff", "--cached"], cwd=cwd),
+        "diff": _git_output(["diff", *PLAIN_DIFF_ARGS], cwd=cwd),
+        "diff_cached": _git_output(["diff", "--cached", *PLAIN_DIFF_ARGS], cwd=cwd),
     }
     if hash_diffs:
         for key in ("diff", "diff_cached"):
