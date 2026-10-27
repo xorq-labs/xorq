@@ -70,6 +70,16 @@ def _has_event(events, event_name):
     return any(entry.get("event", "") == event_name for entry in events)
 
 
+@pytest.fixture(name="outside_repo")
+def fixture_outside_repo(tmp_path):
+    # a dotfile repo at $HOME or a --basetemp inside a checkout puts tmp_path
+    # below a `.git`, where "outside any repository" cannot be arranged
+    start = tmp_path.absolute()
+    if any(path.joinpath(".git").exists() for path in (start, *start.parents)):
+        pytest.skip(f"{tmp_path} is inside a git repository")
+    return tmp_path
+
+
 def test_logging_with_git(log_output):
     log_initial_state()
 
@@ -77,16 +87,16 @@ def test_logging_with_git(log_output):
     assert not _has_event(log_output.entries, "xorq version")
 
 
-def test_logging_without_git(log_output, tmp_path):
-    log_initial_state(cwd=tmp_path)
+def test_logging_without_git(log_output, outside_repo):
+    log_initial_state(cwd=outside_repo)
 
     assert not _has_event(log_output.entries, "git state")
     assert _has_event(log_output.entries, "xorq version")
 
 
-def test_import_outside_repo_logs_version(tmp_path, monkeypatch):
+def test_import_outside_repo_logs_version(outside_repo, monkeypatch):
     # the module logs its initial state while it is still being imported
-    log_path = tmp_path / "xorq.log"
+    log_path = outside_repo / "xorq.log"
     monkeypatch.setenv("XORQ_LOG_LEVEL", "INFO")
     monkeypatch.setenv("XORQ_LOG_PATH", str(log_path))
     completed = subprocess.run(
@@ -95,7 +105,7 @@ def test_import_outside_repo_logs_version(tmp_path, monkeypatch):
             "-c",
             "import xorq.common.utils.logging_utils",
         ],
-        cwd=tmp_path,
+        cwd=outside_repo,
         capture_output=True,
         text=True,
     )
@@ -242,10 +252,10 @@ def _fake_git_on_path(tmp_path, monkeypatch, body):
     return fake_git
 
 
-def test_no_git_runs_outside_any_repo(tmp_path, monkeypatch, log_output):
-    marker = tmp_path / "git-ran"
-    _fake_git_on_path(tmp_path, monkeypatch, f"touch {marker}")
-    outside = tmp_path / "outside"
+def test_no_git_runs_outside_any_repo(outside_repo, monkeypatch, log_output):
+    marker = outside_repo / "git-ran"
+    _fake_git_on_path(outside_repo, monkeypatch, f"touch {marker}")
+    outside = outside_repo / "outside"
     outside.mkdir()
 
     log_initial_state(cwd=outside)
