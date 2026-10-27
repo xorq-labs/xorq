@@ -228,6 +228,19 @@ def test_no_git_runs_outside_any_repo(tmp_path, monkeypatch, log_output):
     assert _has_event(log_output.entries, "xorq version")
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any directory")
+def test_unreadable_directory_logs_version(tmp_path, log_output):
+    locked = tmp_path / "locked"
+    inner = locked / "inner"
+    inner.mkdir(parents=True)
+    locked.chmod(0)
+    try:
+        log_initial_state(cwd=inner)
+    finally:
+        locked.chmod(0o755)
+    assert _has_event(log_output.entries, "xorq version")
+
+
 def test_hung_git_times_out(tmp_path, monkeypatch, log_output):
     repo = tmp_path / "repo"
     repo.joinpath(".git").mkdir(parents=True)

@@ -60,9 +60,10 @@ def _git_is_present(cwd=None):
     directory outside any repo, a repo git refuses to read (ownership,
     corruption) and a git that times out all answer False.
     """
-    if not _has_dot_git_ancestor(cwd=cwd):
-        return False
     try:
+        # an unreadable ancestor raises from the `.git` lookup too
+        if not _has_dot_git_ancestor(cwd=cwd):
+            return False
         inside = _git(["rev-parse", "--is-inside-work-tree"], cwd=cwd)
     except (OSError, subprocess.TimeoutExpired):
         return False
