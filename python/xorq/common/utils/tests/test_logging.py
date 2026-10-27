@@ -228,7 +228,10 @@ def test_no_git_runs_outside_any_repo(tmp_path, monkeypatch, log_output):
     assert _has_event(log_output.entries, "xorq version")
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any directory")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="POSIX permissions, which root bypasses",
+)
 def test_unreadable_directory_logs_version(tmp_path, log_output):
     locked = tmp_path / "locked"
     inner = locked / "inner"
