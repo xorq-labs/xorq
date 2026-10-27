@@ -162,7 +162,7 @@ echo
 echo "CHANGELOG.md now has the [$version_number] section under the Unreleased placeholder."
 if [ "$pause" = true ]; then
     printf 'Add any judgement-only notes (blog links, etc.) to CHANGELOG.md, then press Enter to commit: '
-    read -r _ || die "stdin closed before Enter; nothing committed. Branch $branch holds the bump and changelog; commit by hand (step 6), or 'git switch main && git branch -D $branch' and rerun with --no-pause."
+    read -r _ || die "stdin closed before Enter; nothing committed. Branch $branch holds the bump and changelog; commit by hand (step 6), or 'git switch --discard-changes main && git branch -D $branch' and rerun with --no-pause."
 fi
 
 step "git add --update && git commit -m \"release: $version_number\""
