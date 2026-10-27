@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import json
 import logging.handlers
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -95,9 +96,29 @@ def _git_head(cwd=None):
     return head.stdout.decode().strip() if head.returncode == 0 else None
 
 
-# a plain patch whatever the user's config says: no external diff driver,
-# textconv filter or color.ui=always reaches the recorded diff
-PLAIN_DIFF_ARGS = ("--no-ext-diff", "--no-textconv", "--no-color")
+# the same patch bytes whatever the user's config and wherever in the work
+# tree git runs: each flag pins a diff.* setting (external driver, textconv,
+# color, relative paths, prefixes, context, hunk joining, algorithm, rename
+# detection, file order, submodule format), and core.quotePath pins how
+# non-ASCII paths are written
+PLAIN_DIFF = (
+    "-c",
+    "core.quotePath=true",
+    "diff",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-color",
+    "--no-relative",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "-U3",
+    "--inter-hunk-context=0",
+    "--diff-algorithm=myers",
+    "--indent-heuristic",
+    "--no-renames",
+    f"-O{os.devnull}",
+    "--submodule=short",
+)
 
 
 def _git_output(args, cwd=None):
@@ -114,8 +135,8 @@ def get_git_state(hash_diffs, cwd=None):
     # `git init; git add` project records what is staged
     git_state = {
         "commit": _git_head(cwd=cwd),
-        "diff": _git_output(["diff", *PLAIN_DIFF_ARGS], cwd=cwd),
-        "diff_cached": _git_output(["diff", "--cached", *PLAIN_DIFF_ARGS], cwd=cwd),
+        "diff": _git_output(PLAIN_DIFF, cwd=cwd),
+        "diff_cached": _git_output([*PLAIN_DIFF, "--cached"], cwd=cwd),
     }
     if hash_diffs:
         for key in ("diff", "diff_cached"):

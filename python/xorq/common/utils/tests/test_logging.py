@@ -19,6 +19,7 @@ import xorq.common.utils.logging_utils as logging_utils
 from xorq.common.utils.logging_utils import (
     RunLogger,
     _NullRunLogger,
+    get_git_state,
     get_log_path,
     log_initial_state,
 )
@@ -216,6 +217,38 @@ def test_build_git_state_ignores_diff_config(empty_repo):
     assert "\x1b" not in git_state["diff"] + git_state["diff_cached"]
     assert "+expr = 1" in git_state["diff"]
     assert "+expr = None" in git_state["diff_cached"]
+
+
+def test_git_state_same_under_any_diff_config(empty_repo):
+    (empty_repo / "sub").mkdir()
+    (empty_repo / "top.txt").write_text("".join(f"{c}\n" for c in "abcdefg"))
+    (empty_repo / "sub" / "s.txt").write_text("x\n")
+    (empty_repo / "\u00f1.txt").write_text("n\n")
+    _git(empty_repo, "add", ".")
+    _git(empty_repo, "commit", "-q", "-m", "first")
+    _git(empty_repo, "mv", "top.txt", "moved.txt")
+    (empty_repo / "moved.txt").write_text("".join(f"{c}\n" for c in "Abcdefg"))
+    (empty_repo / "\u00f1.txt").write_text("n\nz\n")
+    _git(empty_repo, "add", "-A")
+    (empty_repo / "moved.txt").write_text("".join(f"{c}\n" for c in "AbcdefG"))
+    (empty_repo / "sub" / "s.txt").write_text("x\ny\n")
+    plain = get_git_state(hash_diffs=False, cwd=empty_repo)
+
+    for key, value in {
+        "diff.relative": "true",
+        "diff.noprefix": "true",
+        "diff.mnemonicPrefix": "true",
+        "diff.context": "0",
+        "diff.interHunkContext": "5",
+        "diff.algorithm": "patience",
+        "diff.renames": "copies",
+        "diff.orderFile": "order.txt",
+        "core.quotePath": "false",
+    }.items():
+        _git(empty_repo, "config", key, value)
+    (empty_repo / "order.txt").write_text("sub/*\n")
+    # from a subdirectory, where diff.relative would drop the rest of the tree
+    assert get_git_state(hash_diffs=False, cwd=empty_repo / "sub") == plain
 
 
 def test_build_git_state_with_commit(empty_repo):
