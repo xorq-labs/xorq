@@ -264,6 +264,15 @@ def test_unreadable_directory_logs_version(tmp_path, log_output):
     assert _has_event(log_output.entries, "xorq version")
 
 
+def test_symlink_loop_cwd_logs_version(tmp_path, log_output):
+    loop = tmp_path / "loop"
+    loop.symlink_to(tmp_path / "back")
+    (tmp_path / "back").symlink_to(loop)
+
+    log_initial_state(cwd=loop)
+    assert _has_event(log_output.entries, "xorq version")
+
+
 def test_hung_git_times_out(tmp_path, monkeypatch, log_output):
     repo = tmp_path / "repo"
     repo.joinpath(".git").mkdir(parents=True)
