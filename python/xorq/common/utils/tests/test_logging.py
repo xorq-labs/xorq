@@ -279,6 +279,20 @@ def test_unreadable_directory_logs_version(tmp_path, log_output):
     assert _has_event(log_output.entries, "xorq version")
 
 
+def test_git_state_through_symlink_into_repo(tmp_path, log_output):
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "first")
+    link = tmp_path / "elsewhere" / "link"
+    link.parent.mkdir()
+    link.symlink_to(repo / "src")
+
+    log_initial_state(cwd=link)
+    (event,) = (e for e in log_output.entries if e["event"] == "git state")
+    assert event["commit"] == _git(repo, "rev-parse", "HEAD")
+
+
 def test_symlink_loop_cwd_logs_version(tmp_path, log_output):
     loop = tmp_path / "loop"
     loop.symlink_to(tmp_path / "back")

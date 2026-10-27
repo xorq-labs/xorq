@@ -49,9 +49,13 @@ def _git(args, cwd=None):
 
 
 def _has_dot_git_ancestor(cwd=None):
-    # absolute, not resolve: resolve raises RuntimeError on a symlink loop
-    # before Python 3.13, and the walk only needs the lexical ancestors
-    start = Path(cwd or ".").absolute()
+    # resolved, as git resolves it: a symlink into a repo's subdirectory is
+    # inside that repo, whatever its own lexical parents are
+    try:
+        start = Path(cwd or ".").resolve()
+    except RuntimeError:
+        # a symlink loop, before Python 3.13; it leads to no directory
+        return False
     return any(path.joinpath(".git").exists() for path in (start, *start.parents))
 
 
