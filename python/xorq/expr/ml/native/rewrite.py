@@ -2,26 +2,65 @@ import functools
 from importlib.util import find_spec
 
 import cloudpickle
+import pandas as pd
 
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.config import options
 from xorq.expr.enums import Traversal
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.native.lower import has_ml_nodes, make_lower_replacer, model_fit
-from xorq.expr.ml.native.ops import FittedModel, PickledEstimator, Predict
+from xorq.expr.ml.native.ops import Fit, FittedModel, PickledEstimator, Predict
 from xorq.expr.ml.native.rules import push_aggregate
 from xorq.expr.transform import TransformPass
+from xorq.vendor.ibis.expr.api import memtable
+
+
+def fit_frame(fit, df):
+    """Pickled bytes of `fit`'s estimator fitted on the rows of `df`."""
+    target = (df[fit.target.name],) if fit.target is not None else ()
+    model = fit.estimator.instance.fit(df[list(fit.feature_names)], *target)
+    return cloudpickle.dumps(model)
+
+
+def training_columns(fit):
+    columns = (*fit.features, *((fit.target,) if fit.target is not None else ()))
+    return tuple(column.name for column in columns)
 
 
 @functools.lru_cache(maxsize=128)
 def materialize(subquery):
     """Fit the model behind a Predict's model argument, once per subquery."""
     fit, parent = model_fit(subquery)
-    columns = (*fit.features, *((fit.target,) if fit.target is not None else ()))
-    df = parent.to_expr().select(*(column.name for column in columns)).execute()
-    target = (df[fit.target.name],) if fit.target is not None else ()
-    model = fit.estimator.instance.fit(df[list(fit.feature_names)], *target)
-    return FittedModel(PickledEstimator(cloudpickle.dumps(model)))
+    df = parent.to_expr().select(*training_columns(fit)).execute()
+    return FittedModel(PickledEstimator(fit_frame(fit, df)))
+
+
+def grouped_fit(node):
+    """The (metric name, Fit) of an Aggregate fitting one model per group of
+    plain columns, else None."""
+    match node:
+        case ops.Aggregate(groups=groups, metrics=metrics) if groups and all(
+            isinstance(group, ops.Field) and group.name == name
+            for name, group in groups.items()
+        ):
+            match tuple(metrics.items()):
+                case ((name, Fit() as fit),):
+                    return name, fit
+    return None
+
+
+@functools.lru_cache(maxsize=128)
+def materialize_by(node):
+    """An Aggregate fitting per group, as a table of each group's fitted model."""
+    name, fit = grouped_fit(node)
+    keys = list(node.groups)
+    df = node.parent.to_expr().select(*dict.fromkeys((*keys, *training_columns(fit))))
+    rows = [
+        (*key, fit_frame(fit, group))
+        for key, group in df.execute().groupby(keys, dropna=False)
+    ]
+    frame = pd.DataFrame(rows, columns=[*keys, name])
+    return memtable(frame, schema=node.schema).op()
 
 
 def try_inline(node, features):
@@ -71,6 +110,8 @@ def make_ml_replacer(expr):
                 features = (kwargs or {}).get("features", node.features)
                 inlined = "inline" in rules and try_inline(fitted, features)
                 return inlined or lower(fitted, kwargs)
+            case ops.Aggregate() if grouped_fit(node):
+                return materialize_by(node)
             case ops.Aggregate() if "agg" in rules and node.find(Predict):
                 pushed = push_aggregate(node.__recreate__(kwargs) if kwargs else node)
                 return pushed or lower(node, kwargs)
