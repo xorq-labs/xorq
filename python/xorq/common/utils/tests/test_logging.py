@@ -204,6 +204,24 @@ def test_build_git_state_keeps_crlf_and_utf8(empty_repo):
     assert "+se\u00f1or\r\n+second" in diff_cached
 
 
+def test_git_state_diff_applies_with_trailing_blank_context(empty_repo):
+    # the last context line of this hunk is blank, written as a lone space
+    (empty_repo / "f.txt").write_text("a\nb\nc\n\n")
+    _git(empty_repo, "add", "f.txt")
+    _git(empty_repo, "commit", "-q", "-m", "first")
+    (empty_repo / "f.txt").write_text("a\nB\nc\n\n")
+
+    diff = get_git_state(hash_diffs=False, cwd=empty_repo)["diff"]
+    subprocess.run(
+        ["git", "apply", "--check", "--reverse"],
+        input=diff,
+        cwd=empty_repo,
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+
+
 def test_build_git_state_ignores_diff_config(empty_repo):
     (empty_repo / "pipeline.py").write_text("expr = None\n")
     (empty_repo / ".gitattributes").write_text("*.py diff=upper\n")

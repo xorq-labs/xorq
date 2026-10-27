@@ -127,10 +127,11 @@ PLAIN_DIFF = (
 def _git_output(args, cwd=None):
     # decoded as UTF-8 with replacement: a diff must not abort the build that
     # records it, while valid UTF-8 and CRLF content stay exactly as git
-    # printed them (text=True would decode with the locale and fold newlines)
+    # printed them (text=True would decode with the locale and fold newlines);
+    # not stripped, which would cut a trailing blank context line off the patch
     completed = _git(args, cwd=cwd)
     completed.check_returncode()
-    return completed.stdout.decode("utf-8", errors="replace").strip()
+    return completed.stdout.decode("utf-8", errors="replace")
 
 
 def get_git_state(hash_diffs, cwd=None):
