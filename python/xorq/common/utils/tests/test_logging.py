@@ -1,9 +1,11 @@
 import json
 import logging
 import logging.handlers
+import os
 import pathlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -13,6 +15,7 @@ from opentelemetry.trace import StatusCode
 from structlog.testing import LogCapture
 
 import xorq.api as xo
+import xorq.common.utils.logging_utils as logging_utils
 from xorq.common.utils.logging_utils import (
     RunLogger,
     _NullRunLogger,
@@ -177,6 +180,39 @@ def test_build_survives_git_failure(empty_repo, log_output):
 
     log_initial_state(cwd=empty_repo)
     assert _has_event(log_output.entries, "failed to read git state")
+    assert _has_event(log_output.entries, "xorq version")
+
+
+def _fake_git_on_path(tmp_path, monkeypatch, body):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_git = bin_dir / "git"
+    fake_git.write_text(f"#!/bin/sh\n{body}\n")
+    fake_git.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir), prepend=os.pathsep)
+    return fake_git
+
+
+def test_no_git_runs_outside_any_repo(tmp_path, monkeypatch, log_output):
+    marker = tmp_path / "git-ran"
+    _fake_git_on_path(tmp_path, monkeypatch, f"touch {marker}")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    log_initial_state(cwd=outside)
+    assert not marker.exists()
+    assert _has_event(log_output.entries, "xorq version")
+
+
+def test_hung_git_times_out(tmp_path, monkeypatch, log_output):
+    repo = tmp_path / "repo"
+    repo.joinpath(".git").mkdir(parents=True)
+    _fake_git_on_path(tmp_path, monkeypatch, "exec sleep 30")
+    monkeypatch.setattr(logging_utils, "GIT_TIMEOUT_SECONDS", 0.2)
+
+    started = time.monotonic()
+    log_initial_state(cwd=repo)
+    assert time.monotonic() - started < 10
     assert _has_event(log_output.entries, "xorq version")
 
 

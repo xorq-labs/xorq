@@ -35,20 +35,36 @@ _log_env_config = EnvConfigable.subclass_from_env_file(
 ).from_env()
 
 
+# a hung git (network filesystem, stuck fsmonitor) must not hang the import
+# or the build that records its state
+GIT_TIMEOUT_SECONDS = 30
+
+
 def _git(args, cwd=None):
     # bytes: a diff can carry any encoding, so each caller decodes
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True)
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, timeout=GIT_TIMEOUT_SECONDS
+    )
+
+
+def _has_dot_git_ancestor(cwd=None):
+    start = Path(cwd or ".").resolve()
+    return any(path.joinpath(".git").exists() for path in (start, *start.parents))
 
 
 def _git_is_present(cwd=None):
     """True when `cwd` is inside a git work tree, commits or not.
 
-    A missing git binary, a missing `cwd`, a bare repo, a directory outside any repo and a
-    repo git refuses to read (ownership, corruption) all answer False.
+    Git only runs below a `.git` entry, so `import xorq` outside any repo
+    forks nothing. A missing git binary, a missing `cwd`, a bare repo, a
+    directory outside any repo, a repo git refuses to read (ownership,
+    corruption) and a git that times out all answer False.
     """
+    if not _has_dot_git_ancestor(cwd=cwd):
+        return False
     try:
         inside = _git(["rev-parse", "--is-inside-work-tree"], cwd=cwd)
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
     return inside.stdout.strip() == b"true"
 
@@ -94,7 +110,7 @@ def git_state_or_none(hash_diffs=False, cwd=None):
         return None
     try:
         return get_git_state(hash_diffs=hash_diffs, cwd=cwd)
-    except (subprocess.CalledProcessError, OSError):
+    except (subprocess.SubprocessError, OSError):
         structlog.get_logger(__name__).exception("failed to read git state")
         return None
 
