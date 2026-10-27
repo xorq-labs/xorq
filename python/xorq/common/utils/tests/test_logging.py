@@ -3,6 +3,7 @@ import logging
 import logging.handlers
 import pathlib
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -56,6 +57,22 @@ def test_logging_without_git(log_output, tmp_path):
     assert _has_event(log_output.entries, "xorq version")
 
 
+def test_import_outside_repo_logs_version(tmp_path, monkeypatch):
+    # the module logs its initial state while it is still being imported
+    monkeypatch.setenv("XORQ_LOG_LEVEL", "INFO")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import xorq.common.utils.logging_utils",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def _git(cwd, *args):
     return subprocess.run(
         [
@@ -100,7 +117,7 @@ def test_build_git_state_without_commits(empty_repo, log_output):
 
     log_initial_state(cwd=empty_repo)
     assert _has_event(log_output.entries, "git state")
-    assert not _has_event(log_output.entries, "failed to log git repo info")
+    assert not _has_event(log_output.entries, "failed to read git state")
 
 
 def test_build_git_state_staged_without_commits(empty_repo):
@@ -125,7 +142,7 @@ def test_git_state_follows_cwd_not_process_cwd(tmp_path, log_output, monkeypatch
     log_initial_state(cwd=repo)
     (event,) = (e for e in log_output.entries if e["event"] == "git state")
     assert event["commit"] == _git(repo, "rev-parse", "HEAD")
-    assert not _has_event(log_output.entries, "failed to log git repo info")
+    assert not _has_event(log_output.entries, "failed to read git state")
 
 
 def test_build_git_state_staged_non_utf8_file(empty_repo):
@@ -149,6 +166,18 @@ def test_build_git_state_with_commit(empty_repo):
 
     git_state = _build_git_state(empty_repo / "builds")
     assert git_state["commit"] == _git(empty_repo, "rev-parse", "HEAD")
+
+
+def test_build_survives_git_failure(empty_repo, log_output):
+    # inside a work tree, but `git diff` cannot read the index
+    _git(empty_repo, "commit", "-q", "--allow-empty", "-m", "first")
+    (empty_repo / ".git" / "index").write_bytes(b"garbage")
+
+    assert _build_git_state(empty_repo / "builds") is None
+
+    log_initial_state(cwd=empty_repo)
+    assert _has_event(log_output.entries, "failed to read git state")
+    assert _has_event(log_output.entries, "xorq version")
 
 
 def test_temp_log_path():

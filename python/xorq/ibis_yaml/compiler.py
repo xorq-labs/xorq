@@ -752,9 +752,7 @@ class ExprDumper:
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
-            "git_state": lu.get_git_state(hash_diffs=False)
-            if lu._git_is_present()
-            else None,
+            "git_state": lu.git_state_or_none(),
             "sys-version_info": tuple(sys.version_info),
         }
         metadata_json = json.dumps(metadata, indent=2)

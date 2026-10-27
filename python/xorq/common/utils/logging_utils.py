@@ -7,7 +7,6 @@ import importlib.metadata
 import json
 import logging.handlers
 import pathlib
-import shutil
 import subprocess
 import tempfile
 import uuid
@@ -36,44 +35,37 @@ _log_env_config = EnvConfigable.subclass_from_env_file(
 ).from_env()
 
 
+def _git(args, cwd=None):
+    # bytes: a diff can carry any encoding, so each caller decodes
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True)
+
+
 def _git_is_present(cwd=None):
     """True when `cwd` is inside a git work tree, commits or not.
 
-    A missing git binary, a bare repo, a directory outside any repo and a
+    A missing git binary, a missing `cwd`, a bare repo, a directory outside any repo and a
     repo git refuses to read (ownership, corruption) all answer False.
     """
-    return bool(shutil.which("git")) and (
-        subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        == "true"
-    )
+    try:
+        inside = _git(["rev-parse", "--is-inside-work-tree"], cwd=cwd)
+    except OSError:
+        return False
+    return inside.stdout.strip() == b"true"
 
 
 def _git_head(cwd=None):
     """The commit HEAD points at, or None on an unborn branch (no commit yet)."""
-    head = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", "HEAD"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    return head.stdout.strip() if head.returncode == 0 else None
+    head = _git(["rev-parse", "--verify", "--quiet", "HEAD"], cwd=cwd)
+    return head.stdout.decode().strip() if head.returncode == 0 else None
 
 
 def _git_output(args, cwd=None):
-    # bytes, decoded as UTF-8 with replacement: a diff can carry any encoding
-    # and must not abort the build that records it, while valid UTF-8 and
-    # CRLF content stay exactly as git printed them (text=True would decode
-    # with the locale and fold newlines)
-    return (
-        subprocess.run(["git", *args], cwd=cwd, capture_output=True, check=True)
-        .stdout.decode("utf-8", errors="replace")
-        .strip()
-    )
+    # decoded as UTF-8 with replacement: a diff must not abort the build that
+    # records it, while valid UTF-8 and CRLF content stay exactly as git
+    # printed them (text=True would decode with the locale and fold newlines)
+    completed = _git(args, cwd=cwd)
+    completed.check_returncode()
+    return completed.stdout.decode("utf-8", errors="replace").strip()
 
 
 def get_git_state(hash_diffs, cwd=None):
@@ -92,22 +84,36 @@ def get_git_state(hash_diffs, cwd=None):
     return git_state
 
 
+def git_state_or_none(hash_diffs=False, cwd=None):
+    """The git state of `cwd`, or None outside a work tree or when git fails.
+
+    Recording the git state is best effort: a git error is logged and never
+    aborts the build or the import that asked for it.
+    """
+    if not _git_is_present(cwd=cwd):
+        return None
+    try:
+        return get_git_state(hash_diffs=hash_diffs, cwd=cwd)
+    except (subprocess.CalledProcessError, OSError):
+        structlog.get_logger(__name__).exception("failed to read git state")
+        return None
+
+
+@functools.cache
+def _get_xorq_version() -> str:
+    try:
+        return importlib.metadata.version("xorq")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
 def log_initial_state(hash_diffs=False, cwd=None):
     logger = structlog.get_logger(__name__)
     logger.info("initial log level", log_level=log_level)
-    try:
-        if _git_is_present(cwd=cwd):
-            git_state = get_git_state(hash_diffs=hash_diffs, cwd=cwd)
-            logger.info(
-                "git state",
-                **git_state,
-            )
-        else:
-            import xorq  # noqa: PLC0415
-
-            logger.info("xorq version", version=xorq.__version__)
-    except Exception:
-        logger.exception("failed to log git repo info")
+    if (git_state := git_state_or_none(hash_diffs=hash_diffs, cwd=cwd)) is not None:
+        logger.info("git state", **git_state)
+    else:
+        logger.info("xorq version", version=_get_xorq_version())
 
 
 def get_log_path(log_path=default_log_path):
@@ -200,14 +206,6 @@ def get_xorq_runs_dir() -> Path:
     if path := env_config.XORQ_RUNS_LOGS_DIR:
         return Path(path).expanduser()
     return Path("~/.local/share/xorq/runs").expanduser()
-
-
-@functools.cache
-def _get_xorq_version() -> str:
-    try:
-        return importlib.metadata.version("xorq")
-    except importlib.metadata.PackageNotFoundError:
-        return "unknown"
 
 
 @frozen
