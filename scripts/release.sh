@@ -30,15 +30,19 @@ step() {
 # ---------------------------------------------------------------- preflight --
 
 pause=true
-if [ "${1-}" = --no-pause ]; then
-    pause=false
-    shift
-fi
-[ "$#" -le 1 ] || {
-    usage
-    die "too many arguments"
-}
-bump_type="${1-}"
+bump_type=
+for arg in "$@"; do
+    case "$arg" in
+        --no-pause) pause=false ;;
+        *)
+            [ -z "$bump_type" ] || {
+                usage
+                die "too many arguments"
+            }
+            bump_type=$arg
+            ;;
+    esac
+done
 case "$bump_type" in
     major | minor | patch) ;;
     "")
@@ -114,14 +118,22 @@ if [ -z "${GITHUB_TOKEN-}" ]; then
     warn "Ctrl-C now and 'export GITHUB_TOKEN=\$(gh auth token)', or continue without."
 fi
 
-# A "!" title is how a PR declares a breaking change (.github/release-drafter.yml), and the squash commit keeps it.
-last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD) \
+# A "!" title is how a PR declares a breaking change, and the squash commit keeps it; the pattern is release-drafter's breaking rule (.github/release-drafter.yml).
+# Release tags are exactly vX.Y.Z; skip local-only ones such as v0.1.2.post or archive and backup tags.
+last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude 'v*[!0-9.]*' --exclude 'v*.*.*.*' HEAD) \
     || die "no v* tag reachable from main; cannot list the commits this release ships"
-breaking=$(git log --format='%h %s' "$last_tag..HEAD" | grep -E '^[0-9a-f]+ [a-z]+(\([^)]*\))?!: ' || true)
+breaking=$(git log --format='%h %s' "$last_tag..HEAD" | grep -E '^[0-9a-f]+ [[:alnum:]_]+(\([^)]*\))?!:' || true)
 if [ -n "$breaking" ] && [ "$bump_type" = patch ]; then
     warn "commits since $last_tag declare a breaking change; step 2 of the Release Flow (CONTRIBUTING.md) asks for a minor bump:
-$breaking
-Ctrl-C now and rerun with minor, or continue with patch."
+$breaking"
+    [ "$pause" = true ] \
+        || die "nothing changed; rerun with minor, or without --no-pause to confirm patch"
+    printf 'Release a patch anyway? [y/N] '
+    read -r answer || die "stdin closed before an answer; nothing changed"
+    case "$answer" in
+        y | Y | yes) ;;
+        *) die "nothing changed; rerun with minor" ;;
+    esac
 fi
 
 next_version=$(uv --color never version --bump "$bump_type" --dry-run --short)
@@ -158,7 +170,7 @@ echo
 echo "CHANGELOG.md now has the [$version_number] section under the Unreleased placeholder."
 if [ "$pause" = true ]; then
     printf 'Add any judgement-only notes (blog links, etc.) to CHANGELOG.md, then press Enter to commit: '
-    read -r _ || die "stdin closed before Enter; nothing committed. Branch $branch holds the bump and changelog; commit by hand (step 6), or 'git switch main && git branch -D $branch' and rerun with --no-pause."
+    read -r _ || die "stdin closed before Enter; nothing committed. Branch $branch holds the bump and changelog; commit by hand (step 6), or 'git switch --discard-changes main && git branch -D $branch' and rerun with --no-pause."
 fi
 
 step "git add --update && git commit -m \"release: $version_number\""
