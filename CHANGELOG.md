@@ -8,6 +8,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.10] - 2026-10-27
+### Details
+#### Added
+- Add ShutdownAction so a served process can be stopped remotely by @mesejo in [#2506](https://github.com/xorq-labs/xorq/pull/2506)
+- Add reads accessor listing Read nodes by @mesejo in [#2508](https://github.com/xorq-labs/xorq/pull/2508)
+- Add read_record_batches to the datafusion backend by @mesejo in [#2514](https://github.com/xorq-labs/xorq/pull/2514)
+- Add Hypothesis and a pandas-vs-duckdb numeric property by @mesejo in [#2520](https://github.com/xorq-labs/xorq/pull/2520)
+
+#### Changed
+- Explicit write mode for uploads by @mesejo in [#2515](https://github.com/xorq-labs/xorq/pull/2515)
+- Open with the IR, ledger and CLI, and refresh the walkthrough by @hussainsultan in [#2502](https://github.com/xorq-labs/xorq/pull/2502)
+- Rebase moves no alias unless asked; pin/unpin refuse -a on another entry by @mesejo in [#2348](https://github.com/xorq-labs/xorq/pull/2348)
+- Merge the duplicate table translate arms by @mesejo in [#2522](https://github.com/xorq-labs/xorq/pull/2522)
+- Document the review gate, draft publish and PyPI check
+
+#### Fixed
+- Accept non-identifier column names in pandas UDF schemas by @mesejo in [#2494](https://github.com/xorq-labs/xorq/pull/2494)
+- Keep column order in schema and struct registry refs by @mesejo in [#2495](https://github.com/xorq-labs/xorq/pull/2495)
+- Render zero-arg window functions and xorq relations by @mesejo in [#2503](https://github.com/xorq-labs/xorq/pull/2503)
+- Round-trip window functions and stop crashing on FlightExpr by @mesejo in [#2504](https://github.com/xorq-labs/xorq/pull/2504)
+- Compile exact Quantile on the datafusion backend by @mesejo in [#2505](https://github.com/xorq-labs/xorq/pull/2505)
+- Order make_udxf output by the declared schema out by @mesejo in [#2509](https://github.com/xorq-labs/xorq/pull/2509)
+- Name the view when inserting into one by @mesejo in [#2510](https://github.com/xorq-labs/xorq/pull/2510)
+- Pin serve and build-stability hashes in per-file snapshots by @mesejo in [#2513](https://github.com/xorq-labs/xorq/pull/2513)
+- Re-bind a closed server's port with SO_REUSEADDR by @mesejo in [#2516](https://github.com/xorq-labs/xorq/pull/2516)
+- Log generator handler errors and name a rejected input schema by @mesejo in [#2518](https://github.com/xorq-labs/xorq/pull/2518)
+- Connect_env reads the environment when it connects by @mesejo in [#2530](https://github.com/xorq-labs/xorq/pull/2530)
+- Convert time columns to datetime.time values by @mesejo in [#2393](https://github.com/xorq-labs/xorq/pull/2393)
+- Write less to disk during a test run by @mesejo in [#2529](https://github.com/xorq-labs/xorq/pull/2529)
+- Compare test_date_now against the UTC date by @mesejo in [#2523](https://github.com/xorq-labs/xorq/pull/2523)
+- Execute table() against its own database and catalog by @mesejo in [#2535](https://github.com/xorq-labs/xorq/pull/2535)
+- Ignore line endings when compose compares requirements.txt by @mesejo in [#2525](https://github.com/xorq-labs/xorq/pull/2525)
+- Keep the snapshot pin through build and load by @mesejo in [#2536](https://github.com/xorq-labs/xorq/pull/2536)
+- Bind a join chain's computed key left when joined to itself by @mesejo in [#2540](https://github.com/xorq-labs/xorq/pull/2540)
+- Bind fields of an earlier join chain to the extended chain by @mesejo in [#2545](https://github.com/xorq-labs/xorq/pull/2545)
+- Bind nullable memtable columns as Python scalars by @mesejo in [#2543](https://github.com/xorq-labs/xorq/pull/2543)
+- Harden release.sh breaking-change check and argument handling
+
 ## [0.4.9] - 2026-10-20
 ### Details
 #### Changed
