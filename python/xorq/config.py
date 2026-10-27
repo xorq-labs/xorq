@@ -290,6 +290,22 @@ class UV(Config):
     use_hardlink: bool = _default_use_hardlink()
 
 
+class ML(Config):
+    """Rewrites of native ML nodes (``xorq.expr.ml.native``).
+
+    Attributes
+    ----------
+    rewrite : bool
+        Fit models before execution and rewrite scoring; False lowers
+        Fit/Predict straight to the UDF path.
+    rules : frozenset[str]
+        The rewrite rules enabled when ``rewrite`` is True.
+    """
+
+    rewrite: bool = True
+    rules: frozenset[str] = frozenset({"inline", "agg"})
+
+
 class Options(IbisOptions):
     """xorq configuration options
 
@@ -307,6 +323,8 @@ class Options(IbisOptions):
         Options controlling the catalog TUI layout.
     uv : UV
         Options controlling how xorq invokes uv subprocesses.
+    ml : ML
+        Options controlling rewrites of native ML nodes.
     """
 
     cache: Cache = Cache()
@@ -315,6 +333,7 @@ class Options(IbisOptions):
     pins: Pins = Pins()
     tui: TUI = TUI()
     uv: UV = UV()
+    ml: ML = ML()
     default_backend: Optional[BaseBackend] = None
     debug: bool = bool(env_config.XORQ_DEBUG) and parse_bool_env(env_config.XORQ_DEBUG)
 

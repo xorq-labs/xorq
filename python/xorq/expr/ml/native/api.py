@@ -2,16 +2,18 @@ import cloudpickle
 from sklearn.base import clone, is_classifier, is_regressor
 
 import xorq.expr.datatypes as dt
+from xorq.expr.api import to_sql
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.native.lower import model_fit
-from xorq.expr.ml.native.ops import EstimatorSpec, Fit, Predict
+from xorq.expr.ml.native.ops import Fit, PickledEstimator, Predict
+from xorq.expr.ml.native.rewrite import rewrite
 
 
 def fit(expr, features, target, estimator):
     """A scalar expression whose value is `estimator` fitted on `expr`."""
     node = Fit(
         features=tuple(expr[name].op() for name in features),
-        estimator=EstimatorSpec(cloudpickle.dumps(clone(estimator))),
+        estimator=PickledEstimator(cloudpickle.dumps(clone(estimator))),
         target=expr[target].op() if target is not None else None,
     )
     return expr.aggregate(model=node.to_expr()).as_scalar()
@@ -42,3 +44,8 @@ def predict(model, expr, method=ResponseMethod.PREDICT):
         return_type=return_type,
         method=method,
     ).to_expr()
+
+
+def explain(expr):
+    """The SQL `expr` runs after ML rewrites; fits its models to get there."""
+    return to_sql(rewrite(expr))

@@ -33,7 +33,7 @@ from xorq.expr.ml import (
     calc_split_column,
     train_test_splits,
 )
-from xorq.expr.ml.native.lower import ML_PASS
+from xorq.expr.ml.native.rewrite import ML_PASS
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     TEE_PASS,

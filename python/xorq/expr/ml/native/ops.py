@@ -3,6 +3,7 @@ from attr import field, frozen
 from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
+import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.rules as rlz
 from xorq.expr.ml.enums import ResponseMethod
@@ -11,8 +12,8 @@ from xorq.vendor.ibis.common.typing import VarTuple
 
 
 @frozen
-class EstimatorSpec:
-    """An unfitted sklearn estimator, hashable by its pickled bytes."""
+class PickledEstimator:
+    """A sklearn estimator, hashable and tokenized by its pickled bytes."""
 
     pickled = field(validator=instance_of(bytes))
 
@@ -28,7 +29,7 @@ class Fit(ops.Reduction):
     """Fit an estimator over a relation's rows; the value is the pickled model."""
 
     features: VarTuple[ops.Column]
-    estimator: EstimatorSpec
+    estimator: PickledEstimator
     target: ops.Column | None = None
 
     dtype = dt.binary
@@ -36,6 +37,15 @@ class Fit(ops.Reduction):
     @property
     def feature_names(self):
         return tuple(feature.name for feature in self.features)
+
+
+class FittedModel(ops.Value):
+    """A model already fitted: a literal standing in for its Fit subquery."""
+
+    estimator: PickledEstimator
+
+    shape = ds.scalar
+    dtype = dt.binary
 
 
 class Predict(ops.Value):

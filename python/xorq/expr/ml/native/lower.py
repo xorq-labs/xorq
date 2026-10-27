@@ -1,15 +1,16 @@
 import toolz
 
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.expr.enums import Traversal
+from xorq.common.utils.name_utils import make_name
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.fit_lib import (
     DeferredFitOther,
     predict_proba_sklearn,
     predict_sklearn,
 )
-from xorq.expr.ml.native.ops import Fit, Predict
-from xorq.expr.transform import TransformPass
+from xorq.expr.ml.native.ops import Fit, FittedModel, Predict
+from xorq.expr.udf import make_pandas_udf
+from xorq.vendor import ibis
 
 
 METHOD_FNS = {
@@ -54,6 +55,19 @@ def lower_predict(node, features):
     return construct(*(feature.to_expr() for feature in features)).op()
 
 
+def lower_fitted_predict(node, features):
+    """Score with a FittedModel: a pandas UDF closing over the fitted estimator."""
+    model = node.model.estimator.instance
+    fn = METHOD_FNS[node.method]
+    construct = make_pandas_udf(
+        fn=lambda df: fn(model, df),
+        schema=ibis.schema({feature.name: feature.dtype for feature in features}),
+        return_type=node.return_type,
+        name=make_name(f"fitted_{node.method}", (node.model.estimator,)),
+    )
+    return construct(*(feature.to_expr() for feature in features)).op()
+
+
 def lower_fit(node):
     (parent,) = {feature.rel for feature in node.features}
     udaf = deferred_fit(node, parent).model_udaf
@@ -70,6 +84,10 @@ def make_lower_replacer():
 
     def replacer(node, kwargs):
         match node:
+            case Predict(model=FittedModel()):
+                return lower_fitted_predict(
+                    node, (kwargs or {}).get("features", node.features)
+                )
             case Predict():
                 return lower_predict(
                     node, (kwargs or {}).get("features", node.features)
@@ -86,12 +104,3 @@ def make_lower_replacer():
 
 def has_ml_nodes(expr):
     return bool(expr.op().find((Predict, Fit)))
-
-
-ML_PASS = TransformPass(
-    name="ml",
-    traversal=Traversal.BOUNDARY,
-    build=lambda expr, ctx: make_lower_replacer(),
-    when=lambda expr, ctx: has_ml_nodes(expr),
-    after=("cache",),
-)
