@@ -218,7 +218,12 @@ def test_build_survives_git_failure(empty_repo, log_output):
     assert _build_git_state(empty_repo / "builds") is None
 
     log_initial_state(cwd=empty_repo)
-    assert _has_event(log_output.entries, "failed to read git state")
+    # once from the build, once from the logger, each with git's reason
+    failures = [
+        e for e in log_output.entries if e["event"] == "failed to read git state"
+    ]
+    assert len(failures) == 2
+    assert all("index file" in e["git_stderr"] for e in failures)
     assert _has_event(log_output.entries, "xorq version")
 
 

@@ -116,8 +116,14 @@ def git_state_or_none(hash_diffs=False, cwd=None):
         return None
     try:
         return get_git_state(hash_diffs=hash_diffs, cwd=cwd)
-    except (subprocess.SubprocessError, OSError):
-        structlog.get_logger(__name__).exception("failed to read git state")
+    except (subprocess.SubprocessError, OSError) as e:
+        # git's own explanation lives in stderr, which the exception's message
+        # leaves out; a timeout or an OSError carries none
+        stderr = getattr(e, "stderr", None) or b""
+        structlog.get_logger(__name__).exception(
+            "failed to read git state",
+            git_stderr=stderr.decode("utf-8", errors="replace").strip(),
+        )
         return None
 
 
