@@ -46,6 +46,8 @@ EXTRAS_GATED_MODULES = {
         "snowflake",
     },
     "python/xorq/common/utils/sqlite_utils.py": {"adbc_driver_sqlite"},
+    # ml-integration spike: orbital ships only in the ml-spike dependency group
+    "python/xorq/expr/ml/native/inline.py": {"ibis", "orbital"},
     "python/xorq/expr/ml/sklearn_utils.py": {"sklearn"},
 }
 
