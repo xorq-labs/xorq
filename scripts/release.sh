@@ -30,15 +30,19 @@ step() {
 # ---------------------------------------------------------------- preflight --
 
 pause=true
-if [ "${1-}" = --no-pause ]; then
-    pause=false
-    shift
-fi
-[ "$#" -le 1 ] || {
-    usage
-    die "too many arguments"
-}
-bump_type="${1-}"
+bump_type=
+for arg in "$@"; do
+    case "$arg" in
+        --no-pause) pause=false ;;
+        *)
+            [ -z "$bump_type" ] || {
+                usage
+                die "too many arguments"
+            }
+            bump_type=$arg
+            ;;
+    esac
+done
 case "$bump_type" in
     major | minor | patch) ;;
     "")
