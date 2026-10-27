@@ -16,7 +16,7 @@
 Xorq is three interlinked things, plus the interfaces built on them.
 
 1. **An IR.** An agent-native intermediate representation for cross-engine,
-   composable, cacheable, declarative execution. A pipeline is an Ibis
+   composable, cacheable, declarative execution. A pipeline is an
    expression that compiles to many engines, caches at any node, and composes
    with other expressions.
 2. **A ledger.** The IR makes every pipeline a durable artifact that is
@@ -83,9 +83,9 @@ picks a 3.10 interpreter, set `UV_PYTHON_PREFERENCE=only-managed`.
 
 ## The IR
 
-Xorq extends [Ibis](https://ibis-project.org/) with caching, multi-engine
-execution, and UDFs. `xo._` is the Ibis row reference, so `xo._.species` is
-the `species` column of the current table.
+Xorq expressions support caching, multi-engine execution, and UDFs. `xo._`
+is the row reference, so `xo._.species` is the `species` column of the current
+table.
 
 ```python
 import xorq.api as xo
