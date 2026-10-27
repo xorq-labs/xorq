@@ -221,16 +221,16 @@ def test_build_git_state_ignores_diff_config(empty_repo):
 
 def test_git_state_same_under_any_diff_config(empty_repo):
     (empty_repo / "sub").mkdir()
-    (empty_repo / "top.txt").write_text("".join(f"{c}\n" for c in "abcdefg"))
+    (empty_repo / "top.txt").write_text("".join(f"{c}\n\n" for c in "abcdefg"))
     (empty_repo / "sub" / "s.txt").write_text("x\n")
     (empty_repo / "\u00f1.txt").write_text("n\n")
     _git(empty_repo, "add", ".")
     _git(empty_repo, "commit", "-q", "-m", "first")
     _git(empty_repo, "mv", "top.txt", "moved.txt")
-    (empty_repo / "moved.txt").write_text("".join(f"{c}\n" for c in "Abcdefg"))
+    (empty_repo / "moved.txt").write_text("".join(f"{c}\n\n" for c in "Abcdefg"))
     (empty_repo / "\u00f1.txt").write_text("n\nz\n")
     _git(empty_repo, "add", "-A")
-    (empty_repo / "moved.txt").write_text("".join(f"{c}\n" for c in "AbcdefG"))
+    (empty_repo / "moved.txt").write_text("".join(f"{c}\n\n" for c in "AbcdefG"))
     (empty_repo / "sub" / "s.txt").write_text("x\ny\n")
     plain = get_git_state(hash_diffs=False, cwd=empty_repo)
 
@@ -244,6 +244,8 @@ def test_git_state_same_under_any_diff_config(empty_repo):
         "diff.renames": "copies",
         "diff.orderFile": "order.txt",
         "core.quotePath": "false",
+        "core.abbrev": "12",
+        "diff.suppressBlankEmpty": "true",
     }.items():
         _git(empty_repo, "config", key, value)
     (empty_repo / "order.txt").write_text("sub/*\n")

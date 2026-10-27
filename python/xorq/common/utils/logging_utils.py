@@ -99,12 +99,15 @@ def _git_head(cwd=None):
 # the same patch bytes whatever the user's config and wherever in the work
 # tree git runs: each flag pins a diff.* setting (external driver, textconv,
 # color, relative paths, prefixes, context, hunk joining, algorithm, rename
-# detection, file order, submodule format), and core.quotePath pins how
-# non-ASCII paths are written
+# detection, file order, submodule format, object id length), and the -c
+# pairs pin how non-ASCII paths and blank context lines are written
 PLAIN_DIFF = (
     "-c",
     "core.quotePath=true",
+    "-c",
+    "diff.suppressBlankEmpty=false",
     "diff",
+    "--full-index",
     "--no-ext-diff",
     "--no-textconv",
     "--no-color",
