@@ -62,9 +62,13 @@ NULL_KEY_SURVIVORS = MappingProxyType(
         "left": ("left",),
         "right": ("right",),
         "outer": ("left", "right"),
+        "semi": (),
         "anti": ("left",),
     }
 )
+
+# the merge indicator value of the left rows a membership join keeps
+MEMBERSHIP_INDICATOR = MappingProxyType({"semi": "both", "anti": "left_only"})
 
 
 def _split_null_keys(df, keys):
@@ -783,11 +787,6 @@ class PandasExecutor(PandasUtils):
         elif how == "positional":
             assert not left_on and not right_on
             return cls.concat([left, right], axis=1)
-        elif how == "semi":
-            mask = cls.asseries(True, like=left)
-            for left_pred, right_pred in zip(left_on, right_on):
-                mask = mask & left_pred.isin(right_pred)
-            return left[mask]
         else:
             left_columns = {gen_name("left"): s for s in left_on}
             right_columns = {gen_name("right"): s for s in right_on}
@@ -801,15 +800,18 @@ class PandasExecutor(PandasUtils):
                 right.assign(**right_columns), right_keys
             )
             match how:
-                case "anti":
+                case "semi" | "anti":
+                    # match key tuples, not each key on its own, and keep
+                    # every left row at most once
                     df = left.merge(
-                        right,
+                        right[right_keys].drop_duplicates(),
                         how="left",
                         left_on=left_keys,
                         right_on=right_keys,
                         indicator=True,
                     )
-                    df = df[df["_merge"] == "left_only"].drop(columns=["_merge"])
+                    keep = df["_merge"] == MEMBERSHIP_INDICATOR[how]
+                    df = df[keep].drop(columns=["_merge"])
                 case _:
                     df = left.merge(
                         right, how=how, left_on=left_keys, right_on=right_keys
