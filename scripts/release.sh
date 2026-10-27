@@ -118,10 +118,10 @@ if [ -z "${GITHUB_TOKEN-}" ]; then
     warn "Ctrl-C now and 'export GITHUB_TOKEN=\$(gh auth token)', or continue without."
 fi
 
-# A "!" title is how a PR declares a breaking change (.github/release-drafter.yml), and the squash commit keeps it.
+# A "!" title is how a PR declares a breaking change, and the squash commit keeps it; the pattern is release-drafter's breaking rule (.github/release-drafter.yml).
 last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD) \
     || die "no v* tag reachable from main; cannot list the commits this release ships"
-breaking=$(git log --format='%h %s' "$last_tag..HEAD" | grep -E '^[0-9a-f]+ [a-z]+(\([^)]*\))?!: ' || true)
+breaking=$(git log --format='%h %s' "$last_tag..HEAD" | grep -E '^[0-9a-f]+ [[:alnum:]_]+(\([^)]*\))?!:' || true)
 if [ -n "$breaking" ] && [ "$bump_type" = patch ]; then
     warn "commits since $last_tag declare a breaking change; step 2 of the Release Flow (CONTRIBUTING.md) asks for a minor bump:
 $breaking
