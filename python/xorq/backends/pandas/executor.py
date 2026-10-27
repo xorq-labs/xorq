@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import operator
 from functools import partial, reduce
+from types import MappingProxyType
 
 import numpy as np
 import pandas as pd
@@ -52,6 +53,28 @@ def _case_matches(base, case):
             return pd.Series(False, index=series.index)
         case _:
             return False
+
+
+# the sides of an equality join whose null-keyed rows survive, unmatched
+NULL_KEY_SURVIVORS = MappingProxyType(
+    {
+        "inner": (),
+        "left": ("left",),
+        "right": ("right",),
+        "outer": ("left", "right"),
+        "semi": (),
+        "anti": ("left",),
+    }
+)
+
+# the merge indicator value of the left rows a membership join keeps
+MEMBERSHIP_INDICATOR = MappingProxyType({"semi": "both", "anti": "left_only"})
+
+
+def _split_null_keys(df, keys):
+    """Split df into the rows whose keys are all non-null and the rest."""
+    has_null = df[keys].isna().any(axis=1)
+    return df[~has_null], df[has_null]
 
 
 def _reject_order_by(order_by):
@@ -764,31 +787,40 @@ class PandasExecutor(PandasUtils):
         elif how == "positional":
             assert not left_on and not right_on
             return cls.concat([left, right], axis=1)
-        elif how == "anti":
-            df = cls.merge(
-                left,
-                right,
-                how="outer",
-                left_on=left_on,
-                right_on=right_on,
-                indicator=True,
-            )
-            df = df[df["_merge"] == "left_only"]
-            return df.drop(columns=["_merge"])
-        elif how == "semi":
-            mask = cls.asseries(True, like=left)
-            for left_pred, right_pred in zip(left_on, right_on):
-                mask = mask & left_pred.isin(right_pred)
-            return left[mask]
         else:
             left_columns = {gen_name("left"): s for s in left_on}
             right_columns = {gen_name("right"): s for s in right_on}
             left_keys = list(left_columns.keys())
             right_keys = list(right_columns.keys())
-            left = left.assign(**left_columns)
-            right = right.assign(**right_columns)
-            df = left.merge(right, how=how, left_on=left_keys, right_on=right_keys)
-            return df
+            # pandas.merge pairs a null key with a null key, SQL never does:
+            # merge the non-null rows, then add back the null-keyed rows of
+            # the sides the join keeps unmatched
+            left, left_null = _split_null_keys(left.assign(**left_columns), left_keys)
+            right, right_null = _split_null_keys(
+                right.assign(**right_columns), right_keys
+            )
+            match how:
+                case "semi" | "anti":
+                    # match key tuples, not each key on its own, and keep
+                    # every left row at most once
+                    df = left.merge(
+                        right[right_keys].drop_duplicates(),
+                        how="left",
+                        left_on=left_keys,
+                        right_on=right_keys,
+                        indicator=True,
+                    )
+                    keep = df["_merge"] == MEMBERSHIP_INDICATOR[how]
+                    df = df[keep].drop(columns=["_merge"])
+                case _:
+                    df = left.merge(
+                        right, how=how, left_on=left_keys, right_on=right_keys
+                    )
+            unmatched = {"left": left_null, "right": right_null}
+            return cls.concat(
+                [df, *(unmatched[side] for side in NULL_KEY_SURVIVORS[how])],
+                ignore_index=True,
+            )
 
     @classmethod
     def visit_PandasAsofJoin(
