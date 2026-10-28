@@ -52,9 +52,9 @@ whether a reviewed definition of the metric was preloaded:
 
 ## The IR
 
-A Xorq expression is deferred: it describes the computation and runs only when
-you execute it. `xo._` is a deferred reference to the current table, so
-`xo._.species` is its `species` column.
+A Xorq expression describes a computation without running it. Each method call
+adds one operation to a tree of operations, and that tree is the IR. This
+example builds one, runs it, and saves it:
 
 ```python
 import xorq.api as xo
@@ -63,17 +63,43 @@ penguins = xo.examples.penguins.fetch()
 expr = (
     penguins
     .filter(xo._.species.notnull())
+    .cache(xo.ParquetCache.from_kwargs())
+    .into_backend(xo.duckdb.connect())
     .group_by("species")
     .agg(avg_bill_length=xo._.bill_length_mm.mean())
 )
+
+df = expr.execute()
+batches = expr.to_pyarrow_batches()
+build_path = xo.build_expr(expr)
 ```
 
-`.cache(xo.ParquetCache.from_kwargs())` materializes any node, and
-`.into_backend(xo.duckdb.connect())` moves its data to another engine. The same
-expression runs on DataFusion, DuckDB, SQLite, pandas, Snowflake, Databricks,
-BigQuery, Trino, Postgres, PyIceberg, and GizmoSQL. Operators exchange Arrow
-RecordBatches. `xo.Pipeline.from_instance` wraps a scikit-learn pipeline whose
-fit and predict steps are deferred expressions.
+`fetch` returns a read of the penguins data, bound to Xorq's embedded engine.
+`xo._` is a deferred reference to the current table, so `xo._.species` is its
+`species` column. Each call after that (`filter`, `cache`, `into_backend`,
+`group_by`, `agg`) adds a node on top of the previous one. When the assignment
+to `expr` finishes, no data has been read or computed.
+
+`expr.execute()` compiles the tree, runs it, and returns a pandas DataFrame.
+`expr.to_pyarrow_batches()` runs the same tree but streams the result as Arrow
+record batches instead.
+
+Because the whole pipeline exists before it runs, the tree can say where each
+part runs and what to keep:
+
+- `.cache(xo.ParquetCache.from_kwargs())` stores the filtered rows as Parquet
+  the first time `expr` runs. The cache key comes from the operations under
+  that node and the modification time of the penguins source, so the second
+  call, `to_pyarrow_batches()`, reads the stored rows instead of filtering
+  again. A change to either gives a new key.
+- `.into_backend(xo.duckdb.connect())` hands those rows to DuckDB as Arrow
+  record batches. The `group_by` and `agg` after it run on DuckDB, while the
+  read and the filter ran on the embedded engine. The other supported engines
+  are listed in [Supported backends](/api_reference/backends/supported_backends.qmd).
+
+`xo.build_expr(expr)` saves the tree. It writes `builds/<hash>/expr.yaml`, one
+node per operation, each named by a hash of its definition. That directory is
+what `xorq catalog add` puts in the ledger.
 
 The expression API is Ibis, vendored into Xorq. If you know pandas or SQL, it
 looks familiar.
