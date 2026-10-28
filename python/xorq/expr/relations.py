@@ -11,6 +11,7 @@ import pyarrow as pa
 import toolz
 
 from xorq.backends.xorq_datafusion import connect as xo_connect
+from xorq.common.enums import BackendName
 from xorq.common.exceptions import IntegrityError
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -157,6 +158,19 @@ def snapshot_pin(op: ops.Node) -> int | None:
             return snapshot_id
         case _:
             return None
+
+
+# Backend name -> the DatabaseTable subclass its `Backend.table` builds. Only
+# that backend scans the subclass; any other backend builds a plain
+# DatabaseTable. Register a new backend table op here.
+BACKEND_TABLE_OPS: FrozenDict[str, type[ops.DatabaseTable]] = FrozenDict(
+    {BackendName.PYICEBERG: PyIcebergTable}
+)
+# Exact classes of a table whose data lives in its backend.
+BACKEND_TABLE_TYPES: tuple[type[ops.DatabaseTable], ...] = (
+    ops.DatabaseTable,
+    *BACKEND_TABLE_OPS.values(),
+)
 
 
 class CachedNode(DatabaseTableView):

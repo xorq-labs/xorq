@@ -36,11 +36,11 @@ from xorq.common.utils.graph_utils import (
 )
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
 from xorq.expr.relations import (
+    BACKEND_TABLE_TYPES,
     CachedNode,
     CacheTag,
     FlightExpr,
     FlightUDXF,
-    PyIcebergTable,
     Read,
     RemoteTable,
     Tag,
@@ -70,8 +70,7 @@ LeafKey = tuple[str, str | None, str, int | None, Schema]
 
 # Exact source op class -> the `op` name it serializes as in expr.yaml.
 SOURCE_LEAF_KINDS: dict[type[Node], LeafKind] = {
-    ops.DatabaseTable: LeafKind.DATABASE_TABLE,
-    PyIcebergTable: LeafKind.DATABASE_TABLE,
+    **dict.fromkeys(BACKEND_TABLE_TYPES, LeafKind.DATABASE_TABLE),
     Read: LeafKind.READ,
 }
 
