@@ -1,4 +1,5 @@
 import numpy as np
+import pyarrow as pa
 import pytest
 
 import xorq.api as xo
@@ -167,3 +168,19 @@ def test_array_filter_cached(con, duckdb_con):
 
     assert tokenize(uncached)
     assert not expr.execute().empty
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        pa.array(["a", None], pa.large_string()),
+        pa.array([b"a", None], pa.large_binary()),
+        pa.array([["a"], None], pa.large_list(pa.large_string())),
+        pa.array([b"a", None], pa.binary_view()),
+    ],
+    ids=["large_string", "large_binary", "large_list", "binary_view"],
+)
+def test_create_table_from_arrow_large_types(duckdb_con, column):
+    t = duckdb_con.create_table("large_types", pa.table({"c": column}), overwrite=True)
+
+    assert t.to_pyarrow().column("c").to_pylist() == column.to_pylist()
