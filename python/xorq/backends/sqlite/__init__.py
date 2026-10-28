@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot as sg
 import sqlglot.expressions as sge
 
-from xorq.common.utils.defer_utils import read_csv_schema_kwargs
+from xorq.common.utils.defer_utils import csv_shape_kwargs, read_csv_schema_kwargs
 from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.config import default_backend
 from xorq.vendor.ibis import Schema, util
@@ -129,7 +129,12 @@ class Backend(IbisSQLiteBackend):
     ) -> ir.Table:
         table_name = table_name or gen_name("xo_read_csv")
         reader = default_backend()
+        # column selection and naming go to the reader, the rest to the ingest
+        reader_kwargs = csv_shape_kwargs(kwargs)
+        kwargs = {
+            key: value for key, value in kwargs.items() if key not in reader_kwargs
+        }
         record_batches = reader.read_csv(
-            path, **read_csv_schema_kwargs(reader, schema)
+            path, **read_csv_schema_kwargs(reader, schema), **reader_kwargs
         ).to_pyarrow_batches()
         return self.read_record_batches(record_batches, table_name, mode, **kwargs)
