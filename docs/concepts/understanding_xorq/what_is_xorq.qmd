@@ -17,7 +17,7 @@ Xorq is three interlinked things, plus the interfaces built on them:
    agent work. An agent selects a reviewed entry instead of re-deriving it from
    source files.
 3. **A command-line tool.** It governs execution against the ledger: build,
-   add, run, check, pin, rebase, compose. Arbitrary compute enters the
+   add, run, check-sources, pin, rebase, compose. Arbitrary compute enters the
    deterministic system through UDXFs, Python functions that exchange Arrow
    tables over Flight.
 
@@ -36,15 +36,15 @@ commit per change.
 
 [DABStep](https://huggingface.co/spaces/adyen/DABstep) is 450 data-analysis
 questions over payment transaction data. With a Xorq ledger of 33 named
-expressions, Haiku goes from 50% to 84%, 9 points over the Sonnet baseline
+expressions, Haiku goes from 50% to 84%, ahead of the 75% Sonnet baseline
 ([Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/)).
 
-![](/images/dabstep-benchmark.png){fig-alt="DABStep accuracy by model, Haiku 4.5 at 50%, Sonnet 4.6 at 75%, and Haiku 4.5 with a semantic catalog at 84%"}
+![](/images/dabstep-benchmark.png){fig-alt="DABStep accuracy by model, Haiku at 50%, Sonnet at 75%, and Haiku with a semantic catalog at 84%"}
 
 [Faithful, Reproducible, Wrong](https://xorq.dev/blog/faithful-reproducible-wrong/)
 asks one metric question 100 times per configuration. Two of its nine
-configurations both run Haiku with Xorq. The only difference is whether a
-reviewed definition of the metric was preloaded:
+configurations run Haiku with Xorq on the same prompt. The only difference is
+whether a reviewed definition of the metric was preloaded:
 
 | | Re-derived from source files | Selected from a reviewed entry |
 |---|---|---|
@@ -74,9 +74,8 @@ expr = (
 `.into_backend(xo.duckdb.connect())` moves its data to another engine. The same
 expression runs on DataFusion, DuckDB, SQLite, pandas, Snowflake, Databricks,
 BigQuery, Trino, Postgres, PyIceberg, and GizmoSQL. Operators exchange Arrow
-RecordBatches, so there is no DAG of tasks to checkpoint.
-`xo.Pipeline.from_instance` turns a scikit-learn pipeline into a deferred
-expression.
+RecordBatches. `xo.Pipeline.from_instance` wraps a scikit-learn pipeline whose
+fit and predict steps are deferred expressions.
 
 The expression API is inspired by Ibis. If you know pandas or SQL, it looks
 familiar.
@@ -91,29 +90,30 @@ agent that clones the repo can discover everything with file operations.
 An entry is a manifest plus the environment to run it. The manifest is the
 content-addressed specification of the pipeline: one node per operation, each
 referenced by hash, with schema, lineage, and inputs read straight off it. The
-wheel and pinned `requirements.txt` next to it let the entry run in another
-sandbox, on your machine, or in production. Identical computations get identical
-hashes, so an entry also works as a contract between teams: they find an
-existing computation by name and build on it.
+wheel and `requirements.txt` next to it let the entry run in another sandbox, on
+your machine, or in production. `xorq catalog add` takes both from your project,
+so it needs a `pyproject.toml` and a `uv.lock` or `requirements.txt`. Identical
+computations get identical hashes, so an entry also works as a contract between
+teams: they find an existing computation by name and build on it.
 
 ## The command line
 
-Commands that act on an entry take its hash or an alias such as `prod`. The ones
-that produce a pipeline (pin, rebase, compose) write it back as a new entry.
-Entries are never edited in place, though aliases can move. By default, writes
-push the ledger to its remote.
+Commands that act on an entry take its hash or an alias such as `prod`. When
+pin, rebase, or compose produce a different pipeline, they write it as a new
+entry. Entries are never edited in place, though aliases can move. By default,
+writes push the ledger to its remote.
 
 ```bash
-xorq catalog run prod -o out.parquet          # execute in the entry's pinned environment
+xorq catalog run prod -o out.parquet          # execute in the entry's own environment
 xorq catalog check-sources prod               # did a source schema drift? reports, never repairs
 xorq catalog rebase prod                      # rebuild over drifted source schemas as a new entry
 xorq catalog pin prod -e --alias prod-pinned  # materialize and freeze the caches as a new entry
 xorq catalog compose src transform -a pipeline  # source entry + unbound transform entry, as one
 ```
 
-A UDXF is how arbitrary compute joins the system. It's a Python function that
-takes an Arrow table and returns one, runs in its own process behind Flight, and
-gets named and cataloged like any other node. See the
+A UDXF is how arbitrary compute joins the system. It's a Python function from a
+pandas DataFrame to a DataFrame, served behind an Arrow Flight server, that gets
+named and cataloged like any other node. See the
 [UDF system](udf_system.qmd).
 
 ## Who Xorq is for
@@ -129,11 +129,11 @@ work alongside them. It fits teams that:
 
 ## Built on open standards
 
-- **Apache Arrow Flight** moves data between processes without copying it.
+- **Apache Arrow Flight** streams Arrow data between processes.
 - **Apache DataFusion** is the embedded engine for Arrow-native execution.
-- **uv** manages the reproducible Python environment each entry pins.
+- **uv** builds the Python environment each entry records.
 
-Xorq is pre-1.0. Expect breaking changes, each with a migration guide.
+Xorq is pre-1.0. Expect breaking changes; the changelog marks them.
 
 ## Next steps
 
