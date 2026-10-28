@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from xorq.ibis_yaml.packager import JointBundle
 
 from xorq.cli import (
+    CLICK_PASSTHROUGH,
     _get_cache_dir,
     _lazy_span,
     apply_pin_transform,
@@ -67,11 +68,6 @@ from xorq.cli_options import (
     unbind_options,
 )
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
-
-
-# Click's own outcomes: errors it already formats, plus `ctx.exit` and `Abort`,
-# which subclass `RuntimeError` and would otherwise be caught as failures.
-CLICK_PASSTHROUGH = (click.ClickException, click.exceptions.Exit, click.Abort)
 
 
 def click_handler(e: Exception) -> None:
