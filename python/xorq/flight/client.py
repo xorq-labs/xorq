@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import itertools
 import time
-from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Queue
 from typing import TYPE_CHECKING, Any
 
@@ -65,6 +65,40 @@ def make_put_descriptor(
         "mode": None if mode is None else UploadMode(mode).value,
     }
     return pa.flight.FlightDescriptor.for_command(dumps(command))
+
+
+def write_unless_closed(
+    write: Callable[..., None], *args: Any
+) -> pa.ArrowInvalid | None:
+    """Run ``write``; return the error if the server already ended the call.
+
+    A server that stops reading early (an exchange over a ``limit``) ends the
+    call while the client is still sending, and the next write fails with
+    ``ArrowInvalid: Destination already closed``. The read side still carries
+    the full result, so that one error is returned, not raised; every other
+    error is raised.
+
+    Returns
+    -------
+    pyarrow.ArrowInvalid or None
+        The "Destination already closed" error, or ``None`` if the write
+        succeeded.
+
+    Contract
+    --------
+    Silences
+        - Any ``ArrowInvalid`` whose message contains "Destination already
+          closed" is returned instead of raised, whatever closed the call:
+          the server finishing early, or the server failing. In the second
+          case the failure still reaches the caller through the read side.
+    """
+    try:
+        write(*args)
+    except pa.ArrowInvalid as e:
+        if "Destination already closed" not in str(e):
+            raise
+        return e
+    return None
 
 
 class FlightClient:
@@ -303,14 +337,63 @@ class FlightClient:
             )
         )
 
-    def do_exchange_batches(self, command, reader):
-        def do_writes(writer, reader):
+    def do_exchange_batches(
+        self, command: str, reader: pa.RecordBatchReader
+    ) -> tuple[Future[dict[str, int]], pa.RecordBatchReader]:
+        """Stream ``reader`` through the exchanger ``command`` on the server.
+
+        Parameters
+        ----------
+        command
+            Name of a registered exchanger on the server.
+        reader
+            The input batches; consumed once, on a background thread.
+
+        Returns
+        -------
+        tuple[concurrent.futures.Future, pyarrow.RecordBatchReader]
+            A future for the write and read threads (``{"n_writes",
+            "n_reads"}`` on success) and the result stream with the
+            exchanger's output schema.
+
+        Raises
+        ------
+        AssertionError
+            If ``reader``'s schema does not satisfy the exchanger's input
+            condition (explicit ``assert`` in ``get_output_schema``, before
+            the exchange opens; skipped under ``python -O``).
+        Exception
+            Errors from opening the exchange, writing or reading are raised
+            when the returned stream is read, not from this call.
+
+        Contract
+        --------
+        Preconditions
+            - Runs its threads on the module-level ``executor``; nested
+              exchanges can exhaust it and hang.
+
+        Silences
+            - When the server ends the call before all input is sent (an
+              early-stopping exchanger such as ``limit``), the stream ends
+              normally with the full result and the "Destination already
+              closed" error is set on the future only. Callers that drop the
+              future never see it.
+            - The result queue is unbounded: if the caller stops reading the
+              returned stream, the read thread keeps buffering the server's
+              output in memory until the exchange ends.
+        """
+
+        def do_writes(
+            writer: pa.flight.FlightStreamWriter, reader: pa.RecordBatchReader
+        ) -> tuple[int, pa.ArrowInvalid | None]:
             writer.begin(reader.schema)
             i = -1
             for i, batch in enumerate(reader, 1):  # noqa: B007
-                writer.write_batch(batch)
-            writer.done_writing()
-            return i
+                if (
+                    closed := write_unless_closed(writer.write_batch, batch)
+                ) is not None:
+                    return i, closed
+            return i, write_unless_closed(writer.done_writing)
 
         def do_reads(_reader, queue):
             i = -1
@@ -331,7 +414,7 @@ class FlightClient:
                 with writer:
                     do_writes_fut = executor.submit(do_writes, writer, reader)
                     do_reads_fut = executor.submit(do_reads, _reader, queue)
-                    (n_writes, n_reads) = (
+                    ((n_writes, write_error), n_reads) = (
                         do_writes_fut.result(),
                         do_reads_fut.result(),
                     )
@@ -339,6 +422,10 @@ class FlightClient:
                 queue.put(e)
                 raise
             queue.put(None)
+            # the caller has the whole result; the server just stopped reading
+            # early (a limit), so the write-side error belongs on `fut` only
+            if write_error is not None:
+                raise write_error
             return {"n_writes": n_writes, "n_reads": n_reads}
 
         def queue_to_rbr(schema, queue):
