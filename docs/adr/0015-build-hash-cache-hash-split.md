@@ -304,6 +304,12 @@ cache lives is a runtime choice, not part of what was built. `replace_base_path`
 `XORQ_CACHE_DIR`, and that relocation is only sound because the build hash and the cache
 key are independent of `base_path`.
 
+`relative_path` is left out too, though relocation does not need that: `replace_base_path`
+rewrites only `base_path`. Two builds that differ only in `relative_path` are one catalog
+entry carrying the storage of whichever was added first. Adding the second is refused as a
+duplicate, or with `exist_ok` returns the first, so a load writes its caches under the
+first build's `relative_path`.
+
 Alternatives rejected:
 
 - *Fold `relative_path` only.* Builds caching to different subdirectories would get
