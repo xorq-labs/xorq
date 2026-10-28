@@ -257,34 +257,34 @@ def roll_back(
 
 
 def add_with_aliases(
-    plan: AliasPlan, build_path: Path, sync: bool
+    plan: AliasPlan, build_path: Path, pulled: bool
 ) -> tuple[CatalogEntry, AliasOutcome]:
     """Catalog ``build_path`` and point ``plan``'s aliases at it, all or nothing.
 
-    Returns the new entry and what became of the aliases, planned again after
-    the sync's pull, which can move one.
+    Returns the new entry and what became of the aliases, planned again here,
+    after the sync's pull (``pulled``), which can move one. The caller owns the
+    sync: it pulls before and pushes after, and decides what a failed push is.
     """
     catalog = plan.old_entry.catalog
     name = build_path.name
-    with catalog.maybe_synchronizing(sync):
-        # Planned again after the pull: a refusal here still comes before the
-        # first write of our own, though after whatever the pull merged.
-        landed = plan.evolved(new=name, targets=alias_targets(catalog), pulled=sync)
-        # Read after the pull, which can bring in the entry (an earlier
-        # derivation of the same one); a rollback must not remove that one.
-        added = not catalog.contains(name)
-        # `catalog.add` and `add_alias` overwrite an alias, so each is recorded
-        # before the call that writes it, for its prior target to be restored.
-        registered = (landed.alias,) if landed.alias else ()
-        attempted = [*registered]
-        try:
-            new_entry = catalog.add(
-                build_path, sync=False, aliases=registered, exist_ok=True
-            )
-            for alias in landed.moving:
-                attempted.append(alias)
-                catalog.add_alias(name, alias, sync=False)
-        except Exception:
-            roll_back(catalog, name, {n: landed.target(n) for n in attempted}, added)
-            raise
+    # Planned again after the pull: a refusal here still comes before the
+    # first write of our own, though after whatever the pull merged.
+    landed = plan.evolved(new=name, targets=alias_targets(catalog), pulled=pulled)
+    # Read after the pull, which can bring in the entry (an earlier
+    # derivation of the same one); a rollback must not remove that one.
+    added = not catalog.contains(name)
+    # `catalog.add` and `add_alias` overwrite an alias, so each is recorded
+    # before the call that writes it, for its prior target to be restored.
+    registered = (landed.alias,) if landed.alias else ()
+    attempted = [*registered]
+    try:
+        new_entry = catalog.add(
+            build_path, sync=False, aliases=registered, exist_ok=True
+        )
+        for alias in landed.moving:
+            attempted.append(alias)
+            catalog.add_alias(name, alias, sync=False)
+    except Exception:
+        roll_back(catalog, name, {n: landed.target(n) for n in attempted}, added)
+        raise
     return new_entry, AliasOutcome.of(plan, landed)

@@ -125,13 +125,15 @@ class RebaseStatus(StrEnum):
     ``ATTEMPTED``: no source could be probed, so the entry was re-derived and
     came back with its own hash; unlike ``NOOP``, that doesn't prove no drift.
     ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
-    written.
+    written. ``PUSH_FAILED``: rebased as ``REBASED`` is, but the sync's push
+    failed, so the new entry and its alias moves are committed only locally.
     """
 
     NOOP = "noop"
     ATTEMPTED = "attempted"
     REBASED = "rebased"
     CONFLICT = "conflict"
+    PUSH_FAILED = "push_failed"
 
 
 class RebaseExit(IntEnum):
@@ -144,3 +146,6 @@ class RebaseExit(IntEnum):
     UNREACHABLE = 2
     # The re-derivation can't follow the drift; retrying won't help.
     CONFLICT = 4
+    # Rebased locally, but the push failed; `xorq catalog sync` finishes it: a
+    # push the remote rejected needs the pull first.
+    PUSH_FAILED = 5

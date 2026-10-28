@@ -4,7 +4,9 @@ The old entry is never edited or removed. Every refusal comes before the first
 write: the checks read only the archive, the sweep connects through ``drift``'s
 no-create guard, and nothing loads until the sweep has compared every source it
 can probe. With a sync, the alias checks run again after its pull, so a refusal
-there leaves what the pull merged in place, unpushed.
+there leaves what the pull merged in place, unpushed. A pull that fails is
+retryable and leaves nothing written; a push that fails after the write is not
+an error but its own outcome, ``PUSH_FAILED``: the rebase is committed locally.
 
 The aliases go through ``xorq.catalog.aliases``, shared with ``catalog pin``
 and ``unpin``, which derive a new entry from an old one the same way.
@@ -20,10 +22,16 @@ from pathlib import Path
 
 from attr import field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
+from git.exc import GitCommandError
 
 from xorq.catalog.aliases import AliasOutcome, AliasPlan, add_with_aliases, str_tuple
 from xorq.catalog.annex import AnnexError
-from xorq.catalog.catalog import CatalogEntry
+from xorq.catalog.catalog import (
+    Catalog,
+    CatalogEntry,
+    CatalogMergeConflict,
+    CatalogPullError,
+)
 from xorq.catalog.drift import (
     LeafReport,
     format_error,
@@ -36,6 +44,7 @@ from xorq.catalog.drift import (
 )
 from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict
 from xorq.catalog.exceptions import (
+    CatalogPushError,
     ContentIntegrityError,
     ContentStoreError,
     RebaseError,
@@ -69,7 +78,8 @@ class RebaseConflict:
 
 @frozen
 class RebaseResult:
-    """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED``."""
+    """``new_entry`` is ``old_entry`` unless ``status`` is ``REBASED`` or
+    ``PUSH_FAILED``."""
 
     status = field(validator=in_(tuple(RebaseStatus)))
     old_entry = field(validator=instance_of(CatalogEntry))
@@ -78,13 +88,40 @@ class RebaseResult:
         converter=tuple,
         validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
     )
-    # Empty unless REBASED: nothing moves onto an entry that already was.
+    # Empty unless REBASED or PUSH_FAILED: nothing moves onto an entry that
+    # already was.
     aliases = field(factory=AliasOutcome, validator=instance_of(AliasOutcome))
     # The sources no probe could compare, when none could; never on REBASED.
     unprobed = str_tuple()
 
     # Set exactly when ``status`` is ``CONFLICT``.
     conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
+    # Set exactly when ``status`` is ``PUSH_FAILED``: what the push raised.
+    push_error = field(default=None, validator=optional(instance_of(str)))
+
+
+def pull_before(catalog: Catalog) -> None:
+    """The sync's pull, refused as retryable: nothing of the rebase is written."""
+    try:
+        catalog.pull()
+    except (CatalogPullError, CatalogMergeConflict, GitCommandError) as e:
+        raise RebaseError(
+            f"the sync's pull failed: {format_error(e)}", RebaseExit.UNREACHABLE
+        ) from e
+
+
+def push_after(catalog: Catalog) -> str | None:
+    """The sync's push, after the write: its error, or ``None`` once pushed.
+
+    Not raised: the rebase is committed locally either way. Only a push's own
+    failures are caught; one ``Catalog.push`` raises before pushing, such as a
+    consistency check, would fail a retried push the same way.
+    """
+    try:
+        catalog.push()
+    except (CatalogPushError, GitCommandError) as e:
+        return format_error(e)
+    return None
 
 
 def fetch_archive(catalog_entry: CatalogEntry) -> None:
@@ -375,7 +412,16 @@ def rebase_entry(
         plan = plan.evolved(new=dumper.expr_hash)
         build_path = dumper.dump_expr()
         stage_bundle(catalog_entry, build_path)
-        new_entry, aliases = add_with_aliases(plan, build_path, sync)
+        catalog = catalog_entry.catalog
+        if sync:
+            pull_before(catalog)
+        new_entry, aliases = add_with_aliases(plan, build_path, pulled=sync)
+    push_error = push_after(catalog) if sync else None
     return RebaseResult(
-        RebaseStatus.REBASED, catalog_entry, new_entry, reports, aliases=aliases
+        RebaseStatus.REBASED if push_error is None else RebaseStatus.PUSH_FAILED,
+        catalog_entry,
+        new_entry,
+        reports,
+        aliases=aliases,
+        push_error=push_error,
     )
