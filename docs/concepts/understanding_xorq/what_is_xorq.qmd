@@ -25,10 +25,8 @@ The interfaces on top serve different users. The command-line tool doubles as
 the headless mode for agents, and `xorq catalog tui` is the view for people.
 
 The screenshot shows the ten-entry ledger of an insurance pricing pipeline from
-[A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/).
-The selected entry is the scored test set. Its lineage runs through three fitted
-models down to the two source reads, next to its schema and a git log with one
-commit per change.
+[A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/),
+with the scored test set's lineage, schema, and git log.
 
 ![](/images/ledger-tui.png){fig-alt="Xorq catalog TUI: ten entries on the left; the lineage of the scored test set down to the two source reads, its schema, and the git log with one commit per change"}
 
@@ -55,8 +53,8 @@ whether a reviewed definition of the metric was preloaded:
 ## The IR
 
 A Xorq expression is deferred: it describes the computation and runs only when
-you execute it. `xo._` is the row reference, so `xo._.species` is the `species`
-column of the current table.
+you execute it. `xo._` is a deferred reference to the current table, so
+`xo._.species` is its `species` column.
 
 ```python
 import xorq.api as xo
@@ -77,8 +75,8 @@ BigQuery, Trino, Postgres, PyIceberg, and GizmoSQL. Operators exchange Arrow
 RecordBatches. `xo.Pipeline.from_instance` wraps a scikit-learn pipeline whose
 fit and predict steps are deferred expressions.
 
-The expression API is inspired by Ibis. If you know pandas or SQL, it looks
-familiar.
+The expression API is Ibis, vendored into Xorq. If you know pandas or SQL, it
+looks familiar.
 
 ## The ledger
 
@@ -91,10 +89,11 @@ An entry is a manifest plus the environment to run it. The manifest is the
 content-addressed specification of the pipeline: one node per operation, each
 referenced by hash, with schema, lineage, and inputs read straight off it. The
 wheel and `requirements.txt` next to it let the entry run in another sandbox, on
-your machine, or in production. `xorq catalog add` takes both from your project,
-so it needs a `pyproject.toml` and a `uv.lock` or `requirements.txt`. Identical
-computations get identical hashes, so an entry also works as a contract between
-teams: they find an existing computation by name and build on it.
+your machine, or in production. When a build lacks them, `xorq catalog add`
+builds them from your project, which then needs a `pyproject.toml` and a
+`uv.lock` or `requirements.txt`. Identical computations get identical hashes, so
+an entry also works as a contract between teams: they find an existing
+computation by name and build on it.
 
 ## The command line
 
@@ -113,8 +112,8 @@ xorq catalog compose src transform -a pipeline  # source entry + unbound transfo
 
 A UDXF is how arbitrary compute joins the system. It's a Python function from a
 pandas DataFrame to a DataFrame, served behind an Arrow Flight server, that gets
-named and cataloged like any other node. See the
-[UDF system](udf_system.qmd).
+named and cataloged like any other node. See
+[User-defined exchange functions](/api_reference/user_defined_exchange_functions.qmd).
 
 ## Who Xorq is for
 
@@ -133,7 +132,8 @@ work alongside them. It fits teams that:
 - **Apache DataFusion** is the embedded engine for Arrow-native execution.
 - **uv** builds the Python environment each entry records.
 
-Xorq is pre-1.0. Expect breaking changes; the changelog marks them.
+Xorq is open source under Apache 2.0 and pre-1.0. Expect breaking changes; the
+changelog marks them.
 
 ## Next steps
 
