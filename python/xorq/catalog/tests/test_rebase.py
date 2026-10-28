@@ -1160,7 +1160,6 @@ ROOT_KEYS = {
     "exit_code",
     "old_entry",
     "new_entry",
-    "build_path",
     "failing_op",
     "drift",
     "aliases",
@@ -1188,7 +1187,6 @@ def rebase_json(runner: CliRunner, world: SimpleNamespace, *args: str) -> tuple:
     assert result.stderr == ""
     assert document["exit_code"] == result.exit_code
     assert set(document) - {"error"} == ROOT_KEYS
-    assert document["build_path"] is None
     return result, document
 
 

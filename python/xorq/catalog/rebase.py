@@ -19,7 +19,6 @@ way a rebase of a resolved entry can end, buffered and emitted once::
       "exit_code": 4,              # what the command exits with
       "old_entry": "b0e5f7bd7d78",
       "new_entry": null,           # old_entry on a no-op or an attempted entry
-      "build_path": null,          # always null: the build is not kept
       "failing_op": "Field",       # null unless an op could not be rebuilt
       "drift": {...},              # this entry's `check-sources --json` document
       "aliases": {"moved": [], "added": [], "already": [], "unmoved": [], "left": []},
@@ -182,8 +181,6 @@ def make_rebase_document(
         **state_and_code(state),
         "old_entry": old_entry,
         "new_entry": new_entry,
-        # Set by `--no-add`; until then no rebase keeps its build.
-        "build_path": None,
         "failing_op": failing_op,
         "drift": drift,
         "aliases": {
