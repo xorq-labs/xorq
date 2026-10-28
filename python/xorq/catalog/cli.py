@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from xorq.ibis_yaml.packager import JointBundle
 
 from xorq.cli import (
+    CLICK_PASSTHROUGH,
     _get_cache_dir,
     _lazy_span,
     apply_pin_transform,
@@ -93,7 +94,7 @@ def _pdb_active(ctx):
 def click_context(ctx: click.Context, *typs: type[Exception]) -> Iterator[None]:
     try:
         yield
-    except click.ClickException:
+    except CLICK_PASSTHROUGH:
         raise
     except typs as e:
         if _pdb_active(ctx):
@@ -107,7 +108,7 @@ def click_context_catalog(ctx: click.Context) -> Iterator[None]:
 
     try:
         yield
-    except click.ClickException:
+    except CLICK_PASSTHROUGH:
         raise
     except NoSuchPathError as e:
         hint = _init_hint(ctx)
