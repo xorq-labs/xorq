@@ -44,7 +44,7 @@ from xorq.catalog.tests.conftest import (
     pull_then,
 )
 from xorq.cli import cli as top_cli
-from xorq.common.exceptions import UnmatchedSourceError
+from xorq.common.exceptions import LocalReadPathWarning, UnmatchedSourceError
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
@@ -1416,7 +1416,7 @@ def test_json_keeps_the_local_path_warning_off_stderr(
 
     _, document = rebase_json(runner, world, name)
     assert document["state"] == "rebased"
-    assert not [w for w in document["warnings"] if "local filesystem path" in w]
+    assert not [w for w in document["warnings"] if w.startswith("LocalReadPathWarning")]
 
 
 def test_a_plain_rebase_keeps_the_local_path_warning_off_stderr(
@@ -1438,7 +1438,7 @@ def test_a_plain_rebase_keeps_the_local_path_warning_off_stderr(
         warnings.simplefilter("always")
         result = rebase(runner, world, name)
     assert result.exit_code == 0, result.output
-    assert not [w for w in caught if "local filesystem path" in str(w.message)]
+    assert not [w for w in caught if w.category is LocalReadPathWarning]
 
 
 @pytest.mark.parametrize(

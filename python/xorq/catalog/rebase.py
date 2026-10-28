@@ -83,7 +83,11 @@ from xorq.catalog.exceptions import (
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
-from xorq.common.exceptions import SchemaRefreshError, UnmatchedSourceError
+from xorq.common.exceptions import (
+    LocalReadPathWarning,
+    SchemaRefreshError,
+    UnmatchedSourceError,
+)
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
 
@@ -229,9 +233,7 @@ def keeping_read_posture() -> Iterator[None]:
     one's posture.
     """
     with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message="The Read op path is using a local filesystem path"
-        )
+        warnings.simplefilter("ignore", LocalReadPathWarning)
         yield
 
 

@@ -36,6 +36,7 @@ from xorq.caching.strategy import SnapshotStrategy, snapshot_normalize_read
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
 from xorq.common.constants import READ_IDENTITY_KEYS
+from xorq.common.exceptions import LocalReadPathWarning
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
@@ -1908,7 +1909,7 @@ def test_warn_on_local_path_warns_for_non_relocatable_local(
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         warn_on_local_path(items)
-    assert len(caught) == 1
+    assert [w.category for w in caught] == [LocalReadPathWarning]
     assert "relocatable=True" in str(caught[0].message)
     assert "--relocate-reads" in str(caught[0].message)
 
