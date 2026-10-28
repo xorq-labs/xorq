@@ -162,8 +162,9 @@ class RebaseExit(IntEnum):
     UNREACHABLE = 2
     # The re-derivation can't follow the drift; retrying won't help.
     CONFLICT = 4
-    # Rebased locally, but the push failed; `xorq catalog sync` finishes it: a
-    # push the remote rejected needs the pull first.
+    # Rebased locally, but the push failed; `xorq catalog sync` finishes it
+    # once the push can succeed: a push the remote rejected needs the pull
+    # first, one that failed a check needs that fixed.
     PUSH_FAILED = 5
 
 

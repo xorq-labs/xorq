@@ -76,6 +76,7 @@ from xorq.catalog.drift import (
 )
 from xorq.catalog.enums import RebaseFailure, RebaseStatus, Verdict
 from xorq.catalog.exceptions import (
+    CatalogPushError,
     ContentIntegrityError,
     ContentStoreError,
     RebaseError,
@@ -90,6 +91,12 @@ from xorq.common.exceptions import (
 )
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
+
+
+# A push the remote rejected or could not take: `xorq catalog sync` pulls and
+# pushes again, which finishes it. Anything else the push raises (a failed
+# consistency check, a misconfigured remote) fails a sync the same way.
+SYNC_FINISHES = (CatalogPushError, GitCommandError)
 
 
 @frozen
@@ -135,7 +142,7 @@ class RebaseResult:
     # Set exactly when ``status`` is ``CONFLICT``.
     conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
     # Set exactly when ``status`` is ``PUSH_FAILED``: what the push raised.
-    push_error = field(default=None, validator=optional(instance_of(str)))
+    push_error = field(default=None, validator=optional(instance_of(Exception)))
 
     def __attrs_post_init__(self) -> None:
         conflicted = self.status == RebaseStatus.CONFLICT
@@ -145,6 +152,15 @@ class RebaseResult:
             raise ValueError(
                 f"a {self.status} rebase has push_error={self.push_error!r}"
             )
+
+    @property
+    def push_message(self) -> str | None:
+        return None if self.push_error is None else format_error(self.push_error)
+
+    @property
+    def sync_finishes(self) -> bool:
+        """Whether ``xorq catalog sync`` alone can finish a failed push."""
+        return isinstance(self.push_error, SYNC_FINISHES)
 
     def to_dict(self) -> dict:
         """The ``rebase --json`` document; see the module docstring."""
@@ -159,7 +175,7 @@ class RebaseResult:
             drift=drift,
             aliases=self.aliases,
         )
-        error = conflict.detail if conflicted else self.push_error
+        error = conflict.detail if conflicted else self.push_message
         if error is not None:
             document["error"] = error
         return document
@@ -260,8 +276,8 @@ def pull_before(catalog: Catalog) -> None:
         ) from e
 
 
-def push_after(catalog: Catalog) -> str | None:
-    """The sync's push, after the write: its error, or ``None`` once pushed.
+def push_after(catalog: Catalog) -> Exception | None:
+    """The sync's push, after the write: what it raised, or ``None`` once pushed.
 
     Not raised: the rebase is committed locally either way, so whatever the
     push raises, a consistency check before pushing included, leaves a
@@ -270,7 +286,7 @@ def push_after(catalog: Catalog) -> str | None:
     try:
         catalog.push()
     except Exception as e:
-        return format_error(e)
+        return e
     return None
 
 

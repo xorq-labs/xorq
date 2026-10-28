@@ -1406,13 +1406,16 @@ def rebase(
         if move_aliases or only_aliases:
             click.echo("Aliases not moved: nothing to rebase", err=True)
     else:
-        click.echo(
-            f"Rebased {old} -> {new}"
-            if result.push_error is None
-            else f"Rebased {old} -> {new} locally; push failed: "
-            f"{result.push_error}; run `xorq catalog sync`",
-            err=True,
-        )
+        if result.push_error is None:
+            click.echo(f"Rebased {old} -> {new}", err=True)
+        else:
+            # Only a rejected or unreachable remote is something sync finishes.
+            then = "run" if result.sync_finishes else "fix that, then run"
+            click.echo(
+                f"Rebased {old} -> {new} locally; push failed: "
+                f"{result.push_message}; {then} `xorq catalog sync`",
+                err=True,
+            )
         _report_aliases(result.aliases, old, new, "--move-aliases or --only-alias")
     click.echo(new)
     ctx.exit(result.status.exit_code)

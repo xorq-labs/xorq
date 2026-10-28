@@ -1079,6 +1079,25 @@ def test_a_failed_push_keeps_the_rebase_and_exits_5(
     assert targets(world, "live", "staging") == (new, new)
 
 
+def test_a_push_that_fails_a_check_says_to_fix_it_before_syncing(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sync runs the same push, so a check that failed would fail it again."""
+
+    def inconsistent(catalog: Catalog) -> None:
+        raise AssertionError("catalog inconsistent")
+
+    replace_t(world, GROWN)
+    monkeypatch.setattr(Catalog, "push", inconsistent)
+    result = rebase(runner, world)
+    monkeypatch.undo()
+    assert result.exit_code == RebaseExit.PUSH_FAILED, result.output
+    assert (
+        "push failed: AssertionError: catalog inconsistent; fix that, then run "
+        "`xorq catalog sync`" in result.stderr
+    )
+
+
 def test_the_hint_finishes_a_rejected_push(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
