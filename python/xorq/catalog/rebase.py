@@ -146,7 +146,7 @@ class RebaseResult:
                 f"a {self.status} rebase has push_error={self.push_error!r}"
             )
 
-    def to_dict(self, caught: Iterable[warnings.WarningMessage] = ()) -> dict:
+    def to_dict(self) -> dict:
         """The ``rebase --json`` document; see the module docstring."""
         conflict = self.conflict
         conflicted = self.status == RebaseStatus.CONFLICT
@@ -158,7 +158,6 @@ class RebaseResult:
             failing_op=conflict.op_name if conflicted else None,
             drift=drift,
             aliases=self.aliases,
-            caught=caught,
         )
         error = conflict.detail if conflicted else self.push_error
         if error is not None:
@@ -174,7 +173,6 @@ def make_rebase_document(
     failing_op: str | None = None,
     drift: dict | None = None,
     aliases: AliasOutcome | None = None,
-    caught: Iterable[warnings.WarningMessage] = (),
 ) -> dict:
     """The keys every ``rebase --json`` document carries, built in one place.
 
@@ -192,7 +190,8 @@ def make_rebase_document(
             name: list(names)
             for name, names in asdict(aliases or AliasOutcome()).items()
         },
-        "warnings": [f"{w.category.__name__}: {w.message}" for w in caught],
+        # The run's, not the outcome's: `rebase_document` fills it in.
+        "warnings": [],
     }
 
 
@@ -211,16 +210,19 @@ def rebase_document(
     ``caught`` is what the rebase warned, which the document carries instead of
     stderr.
     """
-    if not isinstance(outcome, Exception):
-        return outcome.to_dict(caught)
-    swept = isinstance(outcome, RebaseError) and outcome.record is not None
-    document = make_rebase_document(
-        rebase_failure(outcome),
-        catalog_entry.name,
-        drift=reports_document(outcome.record, outcome.reports)[1] if swept else None,
-        caught=caught,
-    )
-    document["error"] = format_error(outcome)
+    if isinstance(outcome, Exception):
+        swept = isinstance(outcome, RebaseError) and outcome.record is not None
+        document = make_rebase_document(
+            rebase_failure(outcome),
+            catalog_entry.name,
+            drift=reports_document(outcome.record, outcome.reports)[1]
+            if swept
+            else None,
+        )
+        document["error"] = format_error(outcome)
+    else:
+        document = outcome.to_dict()
+    document["warnings"] = [f"{w.category.__name__}: {w.message}" for w in caught]
     return document
 
 
