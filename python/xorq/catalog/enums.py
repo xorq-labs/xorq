@@ -135,6 +135,20 @@ class RebaseStatus(StrEnum):
     CONFLICT = "conflict"
     PUSH_FAILED = "push_failed"
 
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case RebaseStatus.NOOP | RebaseStatus.ATTEMPTED | RebaseStatus.REBASED:
+                return 0
+            case RebaseStatus.CONFLICT:
+                return RebaseExit.CONFLICT
+            case RebaseStatus.PUSH_FAILED:
+                return RebaseExit.PUSH_FAILED
+            # As with `Verdict`: a new member fails here rather than exiting 0,
+            # which a script would read as success.
+            case _:
+                raise ValueError(f"no exit code for rebase status {self}")
+
 
 class RebaseExit(IntEnum):
     """The exit codes ``xorq catalog rebase`` refuses or conflicts with."""
@@ -149,3 +163,25 @@ class RebaseExit(IntEnum):
     # Rebased locally, but the push failed; `xorq catalog sync` finishes it: a
     # push the remote rejected needs the pull first.
     PUSH_FAILED = 5
+
+
+class RebaseFailure(StrEnum):
+    """How a rebase that returned no ``RebaseResult`` ended.
+
+    ``REFUSED`` and ``UNREACHABLE`` are a ``RebaseError``'s exit codes;
+    ``FAILED`` is any other error, such as a write that failed.
+    """
+
+    REFUSED = "refused"
+    UNREACHABLE = "unreachable"
+    FAILED = "failed"
+
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case RebaseFailure.REFUSED | RebaseFailure.FAILED:
+                return RebaseExit.REFUSED
+            case RebaseFailure.UNREACHABLE:
+                return RebaseExit.UNREACHABLE
+            case _:
+                raise ValueError(f"no exit code for failure {self}")

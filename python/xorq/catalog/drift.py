@@ -112,7 +112,7 @@ from urllib.parse import quote
 from attr import field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 
-from xorq.catalog.enums import LeafKind, Verdict
+from xorq.catalog.enums import LeafKind, RebaseFailure, RebaseStatus, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
 from xorq.common.constants import READ_EXCLUDE_KEYS
 from xorq.ibis_yaml.enums import BundledSourceTypes, ReadKwarg
@@ -863,16 +863,16 @@ def leaf_document(report: LeafReport) -> dict:
     return document
 
 
-def state_and_code(verdict: Verdict | None) -> dict:
-    """The two keys a verdict decides, or the pair that says none was reached.
+def state_and_code(state: Verdict | RebaseStatus | RebaseFailure | None) -> dict:
+    """The two keys a state decides, or the pair that says none was reached.
 
     ``None`` is not a verdict spelled differently: it says this sweep compared
     nothing here, so there is no state to report. It still exits 0, since
     finding nothing to compare is not a finding about a source.
     """
-    if verdict is None:
+    if state is None:
         return {"state": None, "exit_code": 0}
-    return {"state": str(verdict), "exit_code": verdict.exit_code}
+    return {"state": str(state), "exit_code": int(state.exit_code)}
 
 
 def make_entry_document(
@@ -917,7 +917,19 @@ def record_document(
     writer of that key a source of ``ValueError`` -- raised after the whole
     sweep has been probed, discarding a complete document.
     """
-    reports = tuple(iter_leaf_reports(record, con_cache))
+    return reports_document(record, tuple(iter_leaf_reports(record, con_cache)))
+
+
+def reports_document(
+    record: BuildRecord, reports: Iterable[LeafReport]
+) -> tuple[Verdict | None, dict]:
+    """``record``'s document over ``reports`` already probed from it.
+
+    What ``record_document`` builds once it has swept, split out so a caller
+    that swept already (`rebase`) publishes the same document without probing
+    a second time.
+    """
+    reports = tuple(reports)
     unchecked = unchecked_leaves(record)
     # No verdict at all where nothing was probed and a source was left
     # unprobed: rolling those up to `equal` would state the strongest positive

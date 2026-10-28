@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from xorq.catalog.enums import RebaseExit
 from xorq.common.exceptions import XorqError
 
 
@@ -72,12 +73,16 @@ class RebaseError(XorqError):
     CLI's, a ``RebaseExit``. One raised after a sync's pull leaves what the
     pull merged in place, unpushed."""
 
-    def __init__(self, message: str, exit_code: int) -> None:
-        super().__init__(message, exit_code)
+    def __init__(self, message: str, exit_code: RebaseExit) -> None:
+        # A conflict or a failed push ends in a `RebaseResult`, not a raise; a
+        # refusal with either code would have no `--json` state to report.
+        if exit_code not in (RebaseExit.REFUSED, RebaseExit.UNREACHABLE):
+            raise ValueError(f"a rebase refuses with exit 1 or 2, not {exit_code}")
+        super().__init__(message, RebaseExit(exit_code))
 
     def __str__(self) -> str:
         return self.args[0]
 
     @property
-    def exit_code(self) -> int:
+    def exit_code(self) -> RebaseExit:
         return self.args[1]
