@@ -35,7 +35,6 @@ from xorq.caching import (
 from xorq.caching.strategy import SnapshotStrategy, snapshot_normalize_read
 from xorq.catalog.backend import GitBackend
 from xorq.catalog.catalog import Catalog
-from xorq.common.constants import READ_IDENTITY_KEYS
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
@@ -1730,11 +1729,6 @@ def test_prepare_relocatable_reads_skips_remote(sample_parquet: pathlib.Path) ->
 # ---------------------------------------------------------------------------
 
 
-def test_identity_keys_includes_relocatable() -> None:
-    """READ_IDENTITY_KEYS must contain 'relocatable'."""
-    assert "relocatable" in READ_IDENTITY_KEYS
-
-
 def test_tokenize_differs_by_relocatable(sample_parquet: pathlib.Path) -> None:
     """Two Reads differing only in relocatable should produce different tokens."""
     plain = deferred_read_parquet(sample_parquet)
@@ -1754,6 +1748,32 @@ def test_snapshot_normalize_read_differs_by_relocatable(
     reloc_read = list(walk_nodes(Read, reloc))[0]
 
     assert snapshot_normalize_read(plain_read) != snapshot_normalize_read(reloc_read)
+
+
+@pytest.mark.parametrize(
+    "connect",
+    [
+        pytest.param(lambda: xo.duckdb.connect(), id="duckdb"),
+        pytest.param(lambda: xo.connect(), id="datafusion"),
+    ],
+)
+def test_csv_read_identity_survives_build_round_trip(
+    builds_dir, tmp_path, connect
+) -> None:
+    """The schema bears identity and loads back as a plain mapping (duckdb's
+    ``columns``) or as a Schema (``schema``); the read must keep its token
+    and cache keys either way."""
+    path = tmp_path / "a.csv"
+    path.write_text("x,y\n1,2\n")
+    expr = deferred_read_csv(
+        path,
+        connect(),
+        schema=xo.schema({"x": "int64", "y": "int64"}),
+        skip=1,
+    )
+    loaded = load_expr(build_expr(expr, builds_dir=builds_dir, relocate_reads=False))
+    assert tokenize(loaded.op()) == tokenize(expr.op())
+    assert SnapshotStrategy().calc_key(loaded) == SnapshotStrategy().calc_key(expr)
 
 
 # ---------------------------------------------------------------------------
