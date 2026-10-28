@@ -10,17 +10,7 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
-from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-
-
-def freeze(obj):
-    if isinstance(obj, dict):
-        return FrozenOrderedDict({k: freeze(v) for k, v in obj.items()})
-    elif isinstance(obj, list):
-        return tuple(freeze(x) for x in obj)
-    elif isinstance(obj, tuple):
-        return tuple(freeze(x) for x in obj)
-    return obj
+from xorq.common.utils.defer_utils import freeze  # noqa: F401
 
 
 class MissingValue:

@@ -27,6 +27,7 @@ from xorq.common.utils.defer_utils import (
 from xorq.common.utils.inspect_utils import (
     get_partial_arguments,
 )
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.tests.util import assert_frame_equal
 
 
@@ -433,3 +434,26 @@ def test_read_csv_schema_kwargs(backend_name, keyword):
     schema = xo.schema({"id": "string"})
     assert read_csv_schema_kwargs(con, schema) == {keyword: schema}
     assert read_csv_schema_kwargs(con, None) == {}
+
+
+# a deferred read records the pandas spelling of its reader options (a list of
+# columns, a dict of null markers) and replays it after a build and a load;
+# before, expression construction raised TypeError: unhashable type
+def test_deferred_read_csv_records_list_and_dict_kwargs(tmp_path):
+    path = tmp_path / "three.csv"
+    pd.DataFrame({"a": [1, 2], "b": [3.5, 4.5], "c": ["x", "y"]}).to_csv(
+        path, index=False
+    )
+    expr = xo.deferred_read_csv(
+        path,
+        con=xo.pandas.connect(),
+        table_name="three",
+        schema=xo.schema({"a": "int64", "c": "string"}),
+        usecols=["a", "c"],
+        # a nested list inside the dict: the freeze must recurse
+        na_values={"c": ["x"]},
+    )
+    expected = pd.DataFrame({"a": [1, 2], "c": [None, "y"]})
+    assert_frame_equal(xo.execute(expr), expected)
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path, relocate_reads=False))
+    assert_frame_equal(xo.execute(loaded), expected)
