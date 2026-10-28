@@ -1045,10 +1045,21 @@ def origin_gone(world: SimpleNamespace, origin: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "push_fails, raised",
+    "push_fails, raised, hint",
     (
-        pytest.param(origin_moved_on, "CatalogPushError", id="rejected"),
-        pytest.param(origin_gone, "GitCommandError", id="unreachable"),
+        pytest.param(
+            origin_moved_on,
+            "CatalogPushError",
+            "if the remote moved on, run `xorq catalog sync`; if it rejected the "
+            "entry, fix that first",
+            id="rejected",
+        ),
+        pytest.param(
+            origin_gone,
+            "GitCommandError",
+            "; run `xorq catalog sync`",
+            id="unreachable",
+        ),
     ),
 )
 def test_a_failed_push_keeps_the_rebase_and_exits_5(
@@ -1057,6 +1068,7 @@ def test_a_failed_push_keeps_the_rebase_and_exits_5(
     monkeypatch: pytest.MonkeyPatch,
     push_fails: Callable,
     raised: str,
+    hint: str,
 ) -> None:
     origin = push_to_origin(world)
     replace_t(world, GROWN)
@@ -1071,7 +1083,7 @@ def test_a_failed_push_keeps_the_rebase_and_exits_5(
         f"Rebased {world.name} -> {new} locally; push failed: {raised}: "
         in result.stderr
     )
-    assert "run `xorq catalog sync`" in result.stderr
+    assert hint in result.stderr
     assert f"Moved alias 'live' -> {new}" in result.stderr
     # Committed locally, not rolled back.
     catalog = reopen(world)

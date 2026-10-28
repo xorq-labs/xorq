@@ -93,12 +93,6 @@ from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
 
 
-# A push the remote rejected or could not take: `xorq catalog sync` pulls and
-# pushes again, which finishes it. Anything else the push raises (a failed
-# consistency check, a misconfigured remote) fails a sync the same way.
-SYNC_FINISHES = (CatalogPushError, GitCommandError)
-
-
 @frozen
 class RebaseConflict:
     """What a conflicted rebase could not follow.
@@ -158,9 +152,28 @@ class RebaseResult:
         return None if self.push_error is None else format_error(self.push_error)
 
     @property
-    def sync_finishes(self) -> bool:
-        """Whether ``xorq catalog sync`` alone can finish a failed push."""
-        return isinstance(self.push_error, SYNC_FINISHES)
+    def sync_hint(self) -> str | None:
+        """What finishes a failed push: ``xorq catalog sync``, once it can push.
+
+        Sync pulls and pushes again. That alone finishes a push the remote
+        could not be reached for. A ``CatalogPushError`` is any rejection: a
+        remote that moved on, which the pull fixes, or a hook that refused the
+        entry, which it does not. Anything else (a failed consistency check, a
+        misconfigured remote) would fail the sync's push the same way.
+        """
+        sync = "`xorq catalog sync`"
+        match self.push_error:
+            case None:
+                return None
+            case GitCommandError():
+                return f"run {sync}"
+            case CatalogPushError():
+                return (
+                    f"if the remote moved on, run {sync}; if it rejected the "
+                    "entry, fix that first"
+                )
+            case _:
+                return f"fix that, then run {sync}"
 
     def to_dict(self) -> dict:
         """The ``rebase --json`` document; see the module docstring."""

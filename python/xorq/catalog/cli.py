@@ -1409,11 +1409,9 @@ def rebase(
         if result.push_error is None:
             click.echo(f"Rebased {old} -> {new}", err=True)
         else:
-            # Only a rejected or unreachable remote is something sync finishes.
-            then = "run" if result.sync_finishes else "fix that, then run"
             click.echo(
                 f"Rebased {old} -> {new} locally; push failed: "
-                f"{result.push_message}; {then} `xorq catalog sync`",
+                f"{result.push_message}; {result.sync_hint}",
                 err=True,
             )
         _report_aliases(result.aliases, old, new, "--move-aliases or --only-alias")
