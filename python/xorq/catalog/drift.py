@@ -450,7 +450,7 @@ def path_resolves(path: Any) -> bool:
         return False
 
 
-def get_read_inference(method_name: str | None) -> Callable[[Any], Schema] | None:
+def get_read_inference(method_name: str | None) -> Callable[..., Schema] | None:
     """The inference ``method_name``'s deferred read ran at build time, if any.
 
     A deferred read records the schema *its own* inference produced, not the
@@ -513,10 +513,10 @@ def get_read_schema(
     if not all(map(path_resolves, paths)):
         return None
     if (infer := get_read_inference(leaf.method_name)) is not None:
-        # The path parameter unsplit, glob and all: the deferred read hands its
-        # own to the inference the same way, and the two answers are only
-        # comparable if the input was.
-        return infer(args[0])
+        # The path parameter unsplit, glob and all, and the read's kwargs with
+        # it: the deferred read hands its own to the inference the same way, and
+        # the two answers are only comparable if the input was.
+        return infer(args[0], **kwargs)
     # The recorded name is a *destination*. Replaying it registers the probe's
     # own table over whatever already carries that name on the sweep-wide
     # `con_cache` connection -- and `list_tables`, which `get_table_schema`

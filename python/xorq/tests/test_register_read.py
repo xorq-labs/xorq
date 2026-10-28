@@ -10,6 +10,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import ParquetCache
+from xorq.common.utils.defer_utils import infer_csv_schema_pandas
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis import Schema
@@ -302,3 +303,79 @@ def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
     assert (first := expr.execute()) is not None
     assert (second := expr.execute()) is not None
     assert_frame_equal(first.sort_values(col), second.sort_values(col))
+
+
+@pytest.mark.parametrize(
+    "get_con,read_kwargs",
+    [
+        pytest.param(lambda: xo.duckdb.connect(), {"sep": ";"}, id="duckdb"),
+        pytest.param(lambda: xo.connect(), {"delimiter": ";"}, id="datafusion"),
+        pytest.param(lambda: xo.pandas.connect(), {"sep": ";"}, id="pandas"),
+        pytest.param(
+            lambda: xo.postgres.connect_env(),
+            {"sep": ";"},
+            id="postgres",
+            marks=pytest.mark.postgres,
+        ),
+    ],
+)
+def test_deferred_read_csv_kwargs(get_con, read_kwargs, tmp_path):
+    """The reader kwargs reach schema inference, in the backend's own spelling."""
+    path = tmp_path / "semicolon.csv"
+    path.write_text("a;b;c\n1;x;2.5\n2;y;3.5\n")
+    expr = xo.deferred_read_csv(path, get_con(), **read_kwargs)
+    assert expr.schema() == xo.schema({"a": "int64", "b": "string", "c": "float64"})
+    assert_frame_equal(
+        expr.execute(),
+        pd.DataFrame({"a": [1, 2], "b": ["x", "y"], "c": [2.5, 3.5]}),
+    )
+
+
+@pytest.mark.parametrize(
+    "get_con,read_kwargs",
+    [
+        pytest.param(
+            lambda: xo.duckdb.connect(), {"delim": "|", "header": False}, id="duckdb"
+        ),
+        pytest.param(
+            lambda: xo.connect(),
+            {"delimiter": "|", "has_header": False},
+            id="datafusion",
+        ),
+    ],
+)
+def test_deferred_read_csv_headerless(get_con, read_kwargs, tmp_path):
+    """The issue's file: one pipe-delimited row and no header row."""
+    path = tmp_path / "Acquisition_2000Q1.txt"
+    path.write_text("100007365142|R|JPMORGAN CHASE BANK|8|75000")
+    df = xo.deferred_read_csv(path, get_con(), **read_kwargs).execute()
+    assert df.values.tolist() == [[100007365142, "R", "JPMORGAN CHASE BANK", 8, 75000]]
+
+
+def test_deferred_read_csv_custom_inference_is_called_with_the_path(tmp_path):
+    """A custom ``infer_schema=`` reads the file its own way; the reader kwargs
+    still reach the backend."""
+    path = tmp_path / "semicolon.csv"
+    path.write_text("a;b\n1;x\n2;y\n")
+    declared = xo.schema({"a": "int64", "b": "string"})
+    expr = xo.deferred_read_csv(
+        path, xo.duckdb.connect(), infer_schema=lambda path: declared, sep=";"
+    )
+    assert expr.schema() == declared
+    assert_frame_equal(expr.execute(), pd.DataFrame({"a": [1, 2], "b": ["x", "y"]}))
+
+
+def test_infer_csv_schema_pandas_takes_pandas_kwargs(tmp_path):
+    path = tmp_path / "comma.csv"
+    path.write_text("a,b\n1,x\n")
+    assert infer_csv_schema_pandas(path, usecols=["b"]) == xo.schema({"b": "string"})
+
+
+def test_deferred_read_csv_names(tmp_path):
+    """``names`` reaches the inference with the header option it goes with."""
+    path = tmp_path / "headerless.csv"
+    path.write_text("1,x\n2,y\n")
+    expr = xo.deferred_read_csv(
+        path, xo.pandas.connect(), header=None, names=("a", "b")
+    )
+    assert_frame_equal(expr.execute(), pd.DataFrame({"a": [1, 2], "b": ["x", "y"]}))

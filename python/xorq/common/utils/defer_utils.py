@@ -92,6 +92,30 @@ def relocatable_read_path_str(path: str | Path) -> str:
     return "/".join(relocatable_read_path(path))
 
 
+def csv_inference_kwarg(key, value):
+    """``pd.read_csv``'s spelling of one backend ``read_csv`` kwarg, or nothing.
+
+    The delimiter is ``delim`` or ``sep`` on duckdb, ``delimiter`` on datafusion
+    and ``sep`` on pandas; the header is a boolean on duckdb (``header``) and
+    datafusion (``has_header``) where pandas takes the row index or ``None``;
+    ``names`` is spelt the same everywhere.
+    Every other kwarg says where the rows land (``table_name``, ``mode``,
+    ``temporary``, ``ingest_kwargs``) or how the backend parses past the
+    columns, and stays with the backend.
+    """
+    match key, value:
+        case (("sep" | "delim" | "delimiter"), _):
+            return {"sep": value}
+        case (("header" | "has_header"), bool()):
+            return {"header": 0 if value else None}
+        case (("header" | "has_header"), _):
+            return {"header": value}
+        case ("names", _):
+            return {"names": value}
+        case _:
+            return {}
+
+
 @toolz.curry
 def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
     import pandas as pd  # noqa: PLC0415
@@ -103,6 +127,18 @@ def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
     batch = pa.RecordBatch.from_pandas(df, preserve_index=False)
     schema = ibis.Schema.from_pyarrow(batch.schema)
     return schema
+
+
+def infer_csv_schema(path, **read_kwargs):
+    """The inference ``deferred_read_csv`` records for a csv file.
+
+    pandas', reading the file with the reader options among the bound backend's
+    ``read_csv`` kwargs, in pandas' spelling (`csv_inference_kwarg`), so the
+    inferred columns are the ones the backend will read.
+    """
+    return infer_csv_schema_pandas(
+        path, **toolz.merge(itertools.starmap(csv_inference_kwarg, read_kwargs.items()))
+    )
 
 
 @cache
@@ -118,13 +154,15 @@ def parquet_inference_con():
     return connect()
 
 
-def infer_parquet_schema_datafusion(path):
+def infer_parquet_schema_datafusion(path, **read_kwargs):
     """The inference ``deferred_read_parquet`` records for a parquet file.
 
     Always datafusion's, whatever backend the read is bound to: a parquet file
     carries its own schema, but the arrow type each engine maps a given logical
     type onto is not the same everywhere, so the recorded schema is pinned to
-    one engine and re-read with that same one.
+    one engine and re-read with that same one. The file's own schema is also
+    why ``read_kwargs`` is accepted and unread: no reader option changes it,
+    and the drift probe hands every inference the read's kwargs the same way.
 
     The session is shared, so the registration is not: a generated name keeps
     two concurrent inferences from reading each other's file, and dropping it
@@ -149,7 +187,7 @@ def infer_parquet_schema_datafusion(path):
 # make impossible.
 DEFAULT_READ_INFERENCE = MappingProxyType(
     {
-        "read_csv": infer_csv_schema_pandas,
+        "read_csv": infer_csv_schema,
         "read_parquet": infer_parquet_schema_datafusion,
     }
 )
@@ -256,7 +294,8 @@ def deferred_read_csv(
 
     kwargs : Any
         Additional keyword arguments that will be passed to the backend's read_csv
-        method.
+        method. The schema inference reads the file with the delimiter and
+        header among them, in the backend's own spelling.
 
     Returns
     -------
@@ -265,7 +304,11 @@ def deferred_read_csv(
     """
 
     method_name = "read_csv"
-    infer_schema = kwargs.pop("infer_schema", DEFAULT_READ_INFERENCE[method_name])
+    # a custom inference reads the file its own way and is handed the path alone;
+    # the default reads it with the reader kwargs the backend will
+    infer_schema = kwargs.pop("infer_schema", None) or partial(
+        DEFAULT_READ_INFERENCE[method_name], **kwargs
+    )
 
     if con is None:
         con = default_backend()
