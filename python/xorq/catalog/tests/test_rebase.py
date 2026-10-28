@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import warnings
@@ -1291,6 +1292,7 @@ def test_json_reports_a_rebase_that_wrote_nothing(
     assert document["state"] == ("failed" if failed else FAILURE_STATES[exit_code])
     assert (document["old_entry"], document["new_entry"]) == (old_entry, None)
     assert document["aliases"] == aliases_document()
+    assert re.fullmatch(r"\w+: .+", document["error"], re.DOTALL)
     if exit_code == 4:
         # The headline's facts are the drift document; `error` is the detail.
         assert document["drift"]["state"] in ("changed", "table-missing")
@@ -1333,6 +1335,7 @@ def test_json_conflict_embeds_the_check_sources_entry_document(
     assert document["failing_op"] == failing_op
     assert document["drift"] == checked
     assert error in document["error"]
+    assert re.fullmatch(r"\w+: .+", document["error"], re.DOTALL)
     assert "v2" not in reopen(world).list_aliases()
 
 

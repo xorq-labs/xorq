@@ -33,10 +33,11 @@ disagree. ``drift`` is the document ``check-sources --json`` publishes under
 it is ``null`` on a failure, which returns no sweep. ``aliases`` is what the
 rebase did to them, as stderr reports it, so it is empty unless a new entry was
 written (``rebased`` or ``push-failed``). ``error`` is present only when there
-is one: a failure's message, what a conflict's op or source raised, or what a
-failed push raised. ``warnings`` holds each warning the rebase raised, as
-``Category: message``, so stderr stays empty. On ``push-failed`` the new entry and its aliases are
-committed locally, and `xorq catalog sync` publishes them.
+is one, always as ``Type: message``: what refused or failed the rebase, what a
+conflict's op or source raised, or what a failed push raised. ``warnings`` holds
+each warning the rebase raised, as ``Category: message``, so stderr stays empty.
+On ``push-failed`` the new entry and its aliases are committed locally, and
+`xorq catalog sync` publishes them.
 """
 
 from __future__ import annotations
@@ -95,7 +96,8 @@ class RebaseConflict:
     gone. ``sources`` are the sweep's reports for every changed source in the
     entry on an op failure, or for every source the sweep did not find equal
     (gone, changed, unreachable) on a missing-table conflict. ``detail`` is
-    the cause's text: the op's error, or what refused the live schemas.
+    the cause as ``Type: message``: the op's error, or what refused the live
+    schemas.
     """
 
     detail = field(validator=instance_of(str))
@@ -220,9 +222,7 @@ def rebase_document(
     document = make_rebase_document(
         rebase_failure(outcome), catalog_entry.name, caught=caught
     )
-    document["error"] = (
-        str(outcome) if isinstance(outcome, RebaseError) else format_error(outcome)
-    )
+    document["error"] = format_error(outcome)
     return document
 
 
@@ -415,7 +415,7 @@ def live_or_conflict(
             # Every source the sweep flagged, so a changed or unreachable
             # neighbour of the gone table is reported in the same breath.
             involved = [r for r in reports if r.verdict != Verdict.EQUAL]
-            return RebaseConflict(str(e.cause), involved)
+            return RebaseConflict(format_error(e.cause), involved)
         raise RebaseError(
             f"{catalog_entry.name}: {e.cause}", RebaseExit.UNREACHABLE
         ) from e
