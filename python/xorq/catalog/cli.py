@@ -1284,8 +1284,8 @@ def rebase(
          sources involved, with their recorded and live schemas;
          nothing written
       5  rebased locally, but the sync's push failed: the new entry is
-         printed and its alias moves are kept; `xorq catalog push`
-         finishes it
+         printed and its alias moves are kept; `xorq catalog sync`
+         (pull, then push) finishes it
 
     \b
     Arguments:
@@ -1373,7 +1373,7 @@ def rebase(
             f"Rebased {old} -> {new}"
             if result.push_error is None
             else f"Rebased {old} -> {new} locally; push failed: "
-            f"{result.push_error}; run `xorq catalog push`",
+            f"{result.push_error}; run `xorq catalog sync`",
             err=True,
         )
         _report_aliases(result.aliases, old, new, "--move-aliases or --only-alias")

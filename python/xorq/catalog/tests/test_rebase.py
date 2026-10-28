@@ -1062,12 +1062,27 @@ def test_a_failed_push_keeps_the_rebase_and_exits_5(
         f"Rebased {world.name} -> {new} locally; push failed: {raised}: "
         in result.stderr
     )
-    assert "run `xorq catalog push`" in result.stderr
+    assert "run `xorq catalog sync`" in result.stderr
     assert f"Moved alias 'live' -> {new}" in result.stderr
     # Committed locally, not rolled back.
     catalog = reopen(world)
     assert set(catalog.list()) == {world.name, new}
     assert targets(world, "live", "staging") == (new, new)
+
+
+def test_the_hint_finishes_a_rejected_push(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origin = push_to_origin(world)
+    replace_t(world, GROWN)
+    pull_then(monkeypatch, lambda c: origin_moved_on(world, origin))
+    new = rebase(runner, world, world.name).stdout.strip()
+    monkeypatch.undo()
+
+    result = runner.invoke(cli, ["--path", world.catalog_path, "sync"])
+    assert result.exit_code == 0, result.output
+    pushed = Repo(origin).git.ls_tree("-r", "--name-only", MAIN_BRANCH)
+    assert f"entries/{new}" in pushed
 
 
 def test_a_failed_pull_is_retryable_and_writes_nothing(
