@@ -17,7 +17,7 @@ from attr import evolve, field, frozen
 from attr.validators import deep_iterable, instance_of, optional
 
 from xorq.catalog.catalog import Catalog, CatalogEntry
-from xorq.catalog.enums import RebaseExit
+from xorq.catalog.enums import RebaseFailure
 from xorq.catalog.exceptions import RebaseError
 from xorq.common.utils.logging_utils import get_logger
 
@@ -153,7 +153,7 @@ class AliasPlan:
                 )
                 if self.pulled
                 else f"{self.old} has no alias {', '.join(sorted(unknown))}",
-                RebaseExit.REFUSED,
+                RebaseFailure.REFUSED,
             )
         if self.new is None:
             return self
@@ -167,7 +167,7 @@ class AliasPlan:
                     f"alias {n!r} points at {self.target(n)}, not {self.old}"
                     for n in elsewhere
                 ),
-                RebaseExit.REFUSED,
+                RebaseFailure.REFUSED,
             )
         if self.alias and self.target(self.alias) not in {None, *here}:
             # `add-alias` moves it in one commit; removing it first would leave
@@ -176,14 +176,14 @@ class AliasPlan:
                 f"alias {self.alias!r} points at {self.target(self.alias)}; pick "
                 "another name, or leave it off and then run "
                 f"`xorq catalog add-alias {self.new} {self.alias}`",
-                RebaseExit.REFUSED,
+                RebaseFailure.REFUSED,
             )
         if self.entry_alias and self.target(self.entry_alias) not in here:
             now = self.target(self.entry_alias)
             raise RebaseError(
                 f"alias {self.entry_alias!r} points at {now or 'nothing'} after "
                 f"the pull, not {self.old}; rerun with {self.old}",
-                RebaseExit.REFUSED,
+                RebaseFailure.REFUSED,
             )
         return self
 

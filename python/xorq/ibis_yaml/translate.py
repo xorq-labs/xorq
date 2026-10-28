@@ -19,6 +19,7 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.enums import BackendName
+from xorq.common.exceptions import LocalReadPathWarning
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
@@ -757,6 +758,7 @@ def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
                 " the build may not work in other environments. Consider"
                 " using relocatable=True in deferred_read_parquet/deferred_read_csv"
                 " or --relocate-reads when building.",
+                LocalReadPathWarning,
                 stacklevel=2,
             )
 

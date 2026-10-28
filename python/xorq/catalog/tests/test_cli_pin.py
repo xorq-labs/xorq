@@ -17,7 +17,7 @@ from xorq.catalog.aliases import AliasPlan
 from xorq.catalog.bind import bind, fuse_catalog_source
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
-from xorq.catalog.enums import RebaseExit
+from xorq.catalog.enums import RebaseExit, RebaseFailure
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.tests.conftest import (
     alias_target_hash,
@@ -288,7 +288,7 @@ def test_catalog_pin_exits_with_the_refusals_code(
     src_name = _add_cached_entry(catalog)
 
     def refusing(self: AliasPlan) -> AliasPlan:
-        raise RebaseError("refused for the test", RebaseExit.UNREACHABLE)
+        raise RebaseError("refused for the test", RebaseFailure.UNREACHABLE)
 
     monkeypatch.setattr(AliasPlan, "checked", refusing)
     result = _run(

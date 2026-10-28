@@ -10,17 +10,47 @@ an error but its own outcome, ``PUSH_FAILED``: the rebase is committed locally.
 
 The aliases go through ``xorq.catalog.aliases``, shared with ``catalog pin``
 and ``unpin``, which derive a new entry from an old one the same way.
+
+The JSON document (``rebase_document``, behind ``rebase --json``) covers every
+way a rebase of a resolved entry can end, buffered and emitted once::
+
+    {
+      "state": "conflict",         # a RebaseStatus or a RebaseFailure
+      "exit_code": 4,              # what the command exits with
+      "old_entry": "b0e5f7bd7d78",
+      "new_entry": null,           # old_entry on a no-op or an attempted entry
+      "failing_op": "Field",       # null unless an op could not be rebuilt
+      "drift": {...},              # this entry's `check-sources --json` document
+      "aliases": {"moved": [], "added": [], "already": [], "unmoved": [], "left": []},
+      "warnings": [],              # what the rebase warned, instead of stderr
+      "error": "XorqTypeError: ..."
+    }
+
+``state`` and ``exit_code`` come from one enum member, so the two cannot
+disagree. ``drift`` is the document ``check-sources --json`` publishes under
+``entries`` for this entry, built by the same code over the rebase's own sweep;
+a refusal after the sweep carries it too, so it is ``null`` only when nothing
+was swept or the rebase failed rather than refused. ``aliases`` is what the
+rebase did to them, as stderr reports it, so it is empty unless a new entry was
+written (``rebased`` or ``push-failed``). ``error`` is present only when there
+is one, always as ``Type: message``: what refused or failed the rebase, what a
+conflict's op or source raised, or what a failed push raised. ``warnings`` holds
+each warning the rebase raised, as ``Category: message``, so stderr stays empty.
+On ``push-failed`` the new entry and its aliases are committed locally, and
+`xorq catalog sync` publishes them.
 """
 
 from __future__ import annotations
 
 import sys
 import tempfile
+import warnings
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
-from attr import field, frozen
+from attr import asdict, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 from git.exc import GitCommandError
 
@@ -39,10 +69,12 @@ from xorq.catalog.drift import (
     make_profile,
     missing_database,
     read_record,
+    reports_document,
     roll_up,
+    state_and_code,
     unchecked_leaves,
 )
-from xorq.catalog.enums import RebaseExit, RebaseStatus, Verdict
+from xorq.catalog.enums import RebaseFailure, RebaseStatus, Verdict
 from xorq.catalog.exceptions import (
     CatalogPushError,
     ContentIntegrityError,
@@ -52,7 +84,11 @@ from xorq.catalog.exceptions import (
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
-from xorq.common.exceptions import SchemaRefreshError, UnmatchedSourceError
+from xorq.common.exceptions import (
+    LocalReadPathWarning,
+    SchemaRefreshError,
+    UnmatchedSourceError,
+)
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
 
@@ -65,7 +101,8 @@ class RebaseConflict:
     gone. ``sources`` are the sweep's reports for every changed source in the
     entry on an op failure, or for every source the sweep did not find equal
     (gone, changed, unreachable) on a missing-table conflict. ``detail`` is
-    the cause's text: the op's error, or what refused the live schemas.
+    the cause as ``Type: message``: the op's error, or what refused the live
+    schemas.
     """
 
     detail = field(validator=instance_of(str))
@@ -88,6 +125,8 @@ class RebaseResult:
         converter=tuple,
         validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
     )
+    # The record ``reports`` were probed from.
+    record = field(validator=instance_of(BuildRecord))
     # Empty unless REBASED or PUSH_FAILED: nothing moves onto an entry that
     # already was.
     aliases = field(factory=AliasOutcome, validator=instance_of(AliasOutcome))
@@ -97,7 +136,147 @@ class RebaseResult:
     # Set exactly when ``status`` is ``CONFLICT``.
     conflict = field(default=None, validator=optional(instance_of(RebaseConflict)))
     # Set exactly when ``status`` is ``PUSH_FAILED``: what the push raised.
-    push_error = field(default=None, validator=optional(instance_of(str)))
+    push_error = field(default=None, validator=optional(instance_of(Exception)))
+
+    def __attrs_post_init__(self) -> None:
+        conflicted = self.status == RebaseStatus.CONFLICT
+        if conflicted != (self.conflict is not None):
+            raise ValueError(f"a {self.status} rebase has conflict={self.conflict!r}")
+        if (self.status == RebaseStatus.PUSH_FAILED) != (self.push_error is not None):
+            raise ValueError(
+                f"a {self.status} rebase has push_error={self.push_error!r}"
+            )
+
+    @property
+    def push_message(self) -> str | None:
+        return None if self.push_error is None else format_error(self.push_error)
+
+    @property
+    def sync_hint(self) -> str | None:
+        """What finishes a failed push: ``xorq catalog sync``, once it can push.
+
+        Sync pulls and pushes again. That alone finishes a push the remote
+        could not be reached for. A ``CatalogPushError`` is any rejection: a
+        remote that moved on, which the pull fixes, or a hook that refused the
+        entry, which it does not. Anything else (a failed consistency check, a
+        misconfigured remote) would fail the sync's push the same way.
+        """
+        sync = "`xorq catalog sync`"
+        match self.push_error:
+            case None:
+                return None
+            case GitCommandError():
+                return f"run {sync}"
+            case CatalogPushError():
+                return (
+                    f"if the remote moved on, run {sync}; if it rejected the "
+                    "entry, fix that first"
+                )
+            case _:
+                return f"fix that, then run {sync}"
+
+    def to_dict(self) -> dict:
+        """The ``rebase --json`` document; see the module docstring."""
+        conflict = self.conflict
+        conflicted = self.status == RebaseStatus.CONFLICT
+        _, drift = reports_document(self.record, self.reports)
+        document = make_rebase_document(
+            self.status,
+            self.old_entry.name,
+            new_entry=None if conflicted else self.new_entry.name,
+            failing_op=conflict.op_name if conflicted else None,
+            drift=drift,
+            aliases=self.aliases,
+        )
+        error = conflict.detail if conflicted else self.push_message
+        if error is not None:
+            document["error"] = error
+        return document
+
+
+def make_rebase_document(
+    state: RebaseStatus | RebaseFailure,
+    old_entry: str,
+    *,
+    new_entry: str | None = None,
+    failing_op: str | None = None,
+    drift: dict | None = None,
+    aliases: AliasOutcome | None = None,
+) -> dict:
+    """The keys every ``rebase --json`` document carries, built in one place.
+
+    Every outcome comes through here, so the key set cannot grow on one and
+    not another, and ``exit_code`` is read off ``state``, the value the CLI
+    exits with.
+    """
+    return {
+        **state_and_code(state),
+        "old_entry": old_entry,
+        "new_entry": new_entry,
+        "failing_op": failing_op,
+        "drift": drift,
+        "aliases": {
+            name: list(names)
+            for name, names in asdict(aliases or AliasOutcome()).items()
+        },
+        # The run's, not the outcome's: `rebase_document` fills it in.
+        "warnings": [],
+    }
+
+
+def rebase_failure(e: Exception) -> RebaseFailure:
+    """The failure ``e`` ends a rebase with: a ``RebaseError``'s own."""
+    return e.failure if isinstance(e, RebaseError) else RebaseFailure.FAILED
+
+
+def rebase_document(
+    catalog_entry: CatalogEntry,
+    outcome: RebaseResult | Exception,
+    caught: Iterable[warnings.WarningMessage] = (),
+) -> dict:
+    """``outcome`` of rebasing ``catalog_entry``, as ``rebase --json`` prints it.
+
+    ``caught`` is what the rebase warned, which the document carries instead of
+    stderr.
+    """
+    if isinstance(outcome, Exception):
+        swept = isinstance(outcome, RebaseError) and outcome.record is not None
+        document = make_rebase_document(
+            rebase_failure(outcome),
+            catalog_entry.name,
+            drift=reports_document(outcome.record, outcome.reports)[1]
+            if swept
+            else None,
+        )
+        document["error"] = format_error(outcome)
+    else:
+        document = outcome.to_dict()
+    document["warnings"] = [f"{w.category.__name__}: {w.message}" for w in caught]
+    return document
+
+
+@contextmanager
+def keeping_read_posture() -> Iterator[None]:
+    """Silence the local-path warning a dump with ``relocate_reads=False`` raises.
+
+    The warning asks for ``--relocate-reads``, which rebase deliberately does
+    not do: an external read stays external so the new entry matches the old
+    one's posture.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", LocalReadPathWarning)
+        yield
+
+
+@contextmanager
+def refusing_with_sweep(
+    record: BuildRecord, reports: tuple[LeafReport, ...]
+) -> Iterator[None]:
+    """Attach the sweep to a ``RebaseError`` raised inside, for its document."""
+    try:
+        yield
+    except RebaseError as e:
+        raise e.after_sweep(record, reports) from e
 
 
 def pull_before(catalog: Catalog) -> None:
@@ -106,21 +285,21 @@ def pull_before(catalog: Catalog) -> None:
         catalog.pull()
     except (CatalogPullError, CatalogMergeConflict, GitCommandError) as e:
         raise RebaseError(
-            f"the sync's pull failed: {format_error(e)}", RebaseExit.UNREACHABLE
+            f"the sync's pull failed: {format_error(e)}", RebaseFailure.UNREACHABLE
         ) from e
 
 
-def push_after(catalog: Catalog) -> str | None:
-    """The sync's push, after the write: its error, or ``None`` once pushed.
+def push_after(catalog: Catalog) -> Exception | None:
+    """The sync's push, after the write: what it raised, or ``None`` once pushed.
 
-    Not raised: the rebase is committed locally either way. Only a push's own
-    failures are caught; one ``Catalog.push`` raises before pushing, such as a
-    consistency check, would fail a retried push the same way.
+    Not raised: the rebase is committed locally either way, so whatever the
+    push raises, a consistency check before pushing included, leaves a
+    ``PUSH_FAILED`` rebase rather than a failure that reads as nothing written.
     """
     try:
         catalog.push()
-    except (CatalogPushError, GitCommandError) as e:
-        return format_error(e)
+    except Exception as e:
+        return e
     return None
 
 
@@ -137,12 +316,12 @@ def fetch_archive(catalog_entry: CatalogEntry) -> None:
     except ContentIntegrityError as e:
         raise RebaseError(
             f"{catalog_entry.name} archive is corrupt: {format_error(e)}",
-            RebaseExit.REFUSED,
+            RebaseFailure.REFUSED,
         ) from e
     except (ContentStoreError, AnnexError, OSError) as e:
         raise RebaseError(
             f"{catalog_entry.name} archive could not be fetched: {format_error(e)}",
-            RebaseExit.UNREACHABLE,
+            RebaseFailure.UNREACHABLE,
         ) from e
 
 
@@ -151,7 +330,7 @@ def read_entry_record(catalog_entry: CatalogEntry) -> BuildRecord:
     if isinstance(record, Exception):
         raise RebaseError(
             f"{catalog_entry.name} is unreadable: {format_error(record)}",
-            RebaseExit.UNREACHABLE,
+            RebaseFailure.UNREACHABLE,
         )
     return record
 
@@ -171,7 +350,7 @@ def check_rebasable(
         raise RebaseError(
             f"{name} is pinned, and a pin is drift-exempt; run "
             f"`xorq catalog unpin {name}` and rebase the result",
-            RebaseExit.REFUSED,
+            RebaseFailure.REFUSED,
         )
     unchecked = unchecked_leaves(record)
     if unchecked and len(unchecked) == len(record.external_leaves):
@@ -180,7 +359,7 @@ def check_rebasable(
         check_refreshable(record)
     except SchemaRefreshError as e:
         raise RebaseError(
-            f"{name} cannot be rebased: {e.cause}", RebaseExit.REFUSED
+            f"{name} cannot be rebased: {e.cause}", RebaseFailure.REFUSED
         ) from e
     return ()
 
@@ -202,7 +381,7 @@ def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> No
         recorded = recorded_python_minor(catalog_entry)
     except Exception as e:
         raise RebaseError(
-            f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
+            f"{name} is unreadable: {format_error(e)}", RebaseFailure.UNREACHABLE
         ) from e
     running = tuple(sys.version_info[:2])
     if recorded not in (None, running) and not ignore_mismatch:
@@ -210,7 +389,7 @@ def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> No
             f"{name} was built on Python {'.'.join(map(str, recorded))}, this is "
             f"{'.'.join(map(str, running))}; pass --ignore-venv-mismatch to rebase "
             "anyway",
-            RebaseExit.REFUSED,
+            RebaseFailure.REFUSED,
         )
 
 
@@ -222,17 +401,17 @@ def check_bundle(catalog_entry: CatalogEntry) -> None:
             wheels, requirements, _ = bundle_members(zf)
     except Exception as e:
         raise RebaseError(
-            f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
+            f"{name} is unreadable: {format_error(e)}", RebaseFailure.UNREACHABLE
         ) from e
     if not wheels:
         raise RebaseError(
-            f"{name} carries no wheel for the rebased entry", RebaseExit.UNREACHABLE
+            f"{name} carries no wheel for the rebased entry", RebaseFailure.UNREACHABLE
         )
     # Without it, `catalog.add` would package the cwd's project requirements.
     if requirements is None:
         raise RebaseError(
             f"{name} carries no {DumpFiles.requirements} for the rebased entry",
-            RebaseExit.UNREACHABLE,
+            RebaseFailure.UNREACHABLE,
         )
 
 
@@ -251,12 +430,12 @@ def check_databases_exist(catalog_entry: CatalogEntry, record: BuildRecord) -> N
     except Exception as e:
         raise RebaseError(
             f"{catalog_entry.name} is unreadable: {format_error(e)}",
-            RebaseExit.UNREACHABLE,
+            RebaseFailure.UNREACHABLE,
         ) from e
     if missing := [path for path in paths if path is not None]:
         raise RebaseError(
             f"{catalog_entry.name}: database {', '.join(missing)} does not exist",
-            RebaseExit.UNREACHABLE,
+            RebaseFailure.UNREACHABLE,
         )
 
 
@@ -274,9 +453,9 @@ def live_or_conflict(
             # Every source the sweep flagged, so a changed or unreachable
             # neighbour of the gone table is reported in the same breath.
             involved = [r for r in reports if r.verdict != Verdict.EQUAL]
-            return RebaseConflict(str(e.cause), involved)
+            return RebaseConflict(format_error(e.cause), involved)
         raise RebaseError(
-            f"{catalog_entry.name}: {e.cause}", RebaseExit.UNREACHABLE
+            f"{catalog_entry.name}: {e.cause}", RebaseFailure.UNREACHABLE
         ) from e
 
 
@@ -292,7 +471,7 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
             _, requirements, _ = harvest_entry_from_zip(zf, build_path)
     except Exception as e:
         raise RebaseError(
-            f"{name} is unreadable: {format_error(e)}", RebaseExit.UNREACHABLE
+            f"{name} is unreadable: {format_error(e)}", RebaseFailure.UNREACHABLE
         ) from e
     (build_path / DumpFiles.requirements).write_bytes(requirements)
 
@@ -352,76 +531,93 @@ def rebase_entry(
         entry_alias=entry_alias,
     )
     reports = tuple(iter_leaf_reports(record))
-    # Only a sweep that probed every source can prove a no-op on its own.
-    if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
-        # The new entry is this one, so each of `only_aliases` must be on it;
-        # `alias` is not added.
-        plan.evolved(new=catalog_entry.name, alias=None)
-        return RebaseResult(RebaseStatus.NOOP, catalog_entry, catalog_entry, reports)
-
-    def conflicted(conflict: RebaseConflict) -> RebaseResult:
-        return RebaseResult(
-            RebaseStatus.CONFLICT,
-            catalog_entry,
-            catalog_entry,
-            reports,
-            conflict=conflict,
-        )
-
-    live = live_or_conflict(catalog_entry, record, reports)
-    if isinstance(live, RebaseConflict):
-        return conflicted(live)
-    check_databases_exist(catalog_entry, record)
-    with tempfile.TemporaryDirectory() as td:
-        # Loaded inside the block: `load_expr` keeps the archive's extract dir,
-        # which bundled reads point into, alive only as long as the expression.
-        loaded = catalog_entry.load_expr(cache_dir=cache_dir)
-        try:
-            expr = refresh_schemas(loaded, live)
-        except UnmatchedSourceError as e:
-            raise RebaseError(
-                f"{catalog_entry.name}: {e.cause}", RebaseExit.REFUSED
-            ) from e
-        except SchemaRefreshError as e:
-            changed = [r for r in reports if r.verdict == Verdict.CHANGED]
-            # The cause alone: the CLI's headline already names the op.
-            return conflicted(RebaseConflict(format_error(e.cause), changed, e.op_name))
-        # `relocate_reads=False` keeps each read's recorded posture: a bundled
-        # read stays bundled, an external one external.
-        dumper = ExprDumper(
-            expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
-        )
-        if dumper.expr_hash == catalog_entry.name:
+    # A refusal from here on reports the sweep, as a conflict does.
+    with refusing_with_sweep(record, reports):
+        # Only a sweep that probed every source can prove a no-op on its own.
+        if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
+            # The new entry is this one, so each of `only_aliases` must be on it;
+            # `alias` is not added.
             plan.evolved(new=catalog_entry.name, alias=None)
-            status = RebaseStatus.ATTEMPTED if unprobed else RebaseStatus.NOOP
             return RebaseResult(
-                status, catalog_entry, catalog_entry, reports, unprobed=unprobed
+                RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
             )
-        if unprobed:
-            # Nothing was refreshed, so the new hash follows no drift (the
-            # build hash reads a source's path, not its contents); a new entry
-            # would carry the old schemas under a rebased name.
-            raise RebaseError(
-                f"{catalog_entry.name}: re-derived to a new hash, but no source "
-                f"could be probed ({', '.join(unprobed)}), so nothing was "
-                "refreshed",
-                RebaseExit.REFUSED,
+
+        def conflicted(conflict: RebaseConflict) -> RebaseResult:
+            return RebaseResult(
+                RebaseStatus.CONFLICT,
+                catalog_entry,
+                catalog_entry,
+                reports,
+                record,
+                conflict=conflict,
             )
-        # The new name is known now: an alias on another entry is refused
-        # before the dump and the sync's pull, not after them.
-        plan = plan.evolved(new=dumper.expr_hash)
-        build_path = dumper.dump_expr()
-        stage_bundle(catalog_entry, build_path)
-        catalog = catalog_entry.catalog
-        if sync:
-            pull_before(catalog)
-        new_entry, aliases = add_with_aliases(plan, build_path, pulled=sync)
-    push_error = push_after(catalog) if sync else None
-    return RebaseResult(
-        RebaseStatus.REBASED if push_error is None else RebaseStatus.PUSH_FAILED,
-        catalog_entry,
-        new_entry,
-        reports,
-        aliases=aliases,
-        push_error=push_error,
-    )
+
+        live = live_or_conflict(catalog_entry, record, reports)
+        if isinstance(live, RebaseConflict):
+            return conflicted(live)
+        check_databases_exist(catalog_entry, record)
+        # A failed cleanup must not end a rebase whose entry is already committed.
+        with (
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td,
+            keeping_read_posture(),
+        ):
+            # Loaded inside the block: `load_expr` keeps the archive's extract dir,
+            # which bundled reads point into, alive only as long as the expression.
+            loaded = catalog_entry.load_expr(cache_dir=cache_dir)
+            try:
+                expr = refresh_schemas(loaded, live)
+            except UnmatchedSourceError as e:
+                raise RebaseError(
+                    f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED
+                ) from e
+            except SchemaRefreshError as e:
+                changed = [r for r in reports if r.verdict == Verdict.CHANGED]
+                # The cause alone: the CLI's headline already names the op.
+                return conflicted(
+                    RebaseConflict(format_error(e.cause), changed, e.op_name)
+                )
+            # `relocate_reads=False` keeps each read's recorded posture: a bundled
+            # read stays bundled, an external one external.
+            dumper = ExprDumper(
+                expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
+            )
+            if dumper.expr_hash == catalog_entry.name:
+                plan.evolved(new=catalog_entry.name, alias=None)
+                status = RebaseStatus.ATTEMPTED if unprobed else RebaseStatus.NOOP
+                return RebaseResult(
+                    status,
+                    catalog_entry,
+                    catalog_entry,
+                    reports,
+                    record,
+                    unprobed=unprobed,
+                )
+            if unprobed:
+                # Nothing was refreshed, so the new hash follows no drift (the
+                # build hash reads a source's path, not its contents); a new entry
+                # would carry the old schemas under a rebased name.
+                raise RebaseError(
+                    f"{catalog_entry.name}: re-derived to a new hash, but no source "
+                    f"could be probed ({', '.join(unprobed)}), so nothing was "
+                    "refreshed",
+                    RebaseFailure.REFUSED,
+                )
+            # The new name is known now: an alias on another entry is refused
+            # before the dump and the sync's pull, not after them.
+            plan = plan.evolved(new=dumper.expr_hash)
+            build_path = dumper.dump_expr()
+            stage_bundle(catalog_entry, build_path)
+            catalog = catalog_entry.catalog
+            if sync:
+                pull_before(catalog)
+            new_entry, aliases = add_with_aliases(plan, build_path, pulled=sync)
+        push_error = push_after(catalog) if sync else None
+        return RebaseResult(
+            RebaseStatus.REBASED if push_error is None else RebaseStatus.PUSH_FAILED,
+            catalog_entry,
+            new_entry,
+            reports,
+            record,
+            aliases=aliases,
+            push_error=push_error,
+        )

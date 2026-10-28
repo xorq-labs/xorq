@@ -133,19 +133,58 @@ class RebaseStatus(StrEnum):
     ATTEMPTED = "attempted"
     REBASED = "rebased"
     CONFLICT = "conflict"
-    PUSH_FAILED = "push_failed"
+    PUSH_FAILED = "push-failed"
+
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case RebaseStatus.NOOP | RebaseStatus.ATTEMPTED | RebaseStatus.REBASED:
+                return 0
+            case RebaseStatus.CONFLICT:
+                return RebaseExit.CONFLICT
+            case RebaseStatus.PUSH_FAILED:
+                return RebaseExit.PUSH_FAILED
+            # As with `Verdict`: a new member fails here rather than exiting 0,
+            # which a script would read as success.
+            case _:
+                raise ValueError(f"no exit code for rebase status {self}")
 
 
 class RebaseExit(IntEnum):
     """The exit codes ``xorq catalog rebase`` refuses or conflicts with."""
 
-    # Nothing of the rebase's own written (a sync's pull may have merged): a
-    # property of the entry or the request; retrying won't help.
+    # Nothing of the rebase's own written (a sync's pull may have merged). A
+    # refusal is a property of the entry or the request, and retrying won't
+    # help; a write that failed and was rolled back (`failed`) exits 1 too,
+    # and may be transient: its `error` says which.
     REFUSED = 1
     # A source or the record could not be read; retryable.
     UNREACHABLE = 2
     # The re-derivation can't follow the drift; retrying won't help.
     CONFLICT = 4
-    # Rebased locally, but the push failed; `xorq catalog sync` finishes it: a
-    # push the remote rejected needs the pull first.
+    # Rebased locally, but the push failed; `xorq catalog sync` finishes it
+    # once the push can succeed: a push the remote rejected needs the pull
+    # first, one that failed a check needs that fixed.
     PUSH_FAILED = 5
+
+
+class RebaseFailure(StrEnum):
+    """How a rebase that returned no ``RebaseResult`` ended.
+
+    ``REFUSED`` and ``UNREACHABLE`` are what a ``RebaseError`` carries;
+    ``FAILED`` is any other error, such as a write that failed.
+    """
+
+    REFUSED = "refused"
+    UNREACHABLE = "unreachable"
+    FAILED = "failed"
+
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case RebaseFailure.REFUSED | RebaseFailure.FAILED:
+                return RebaseExit.REFUSED
+            case RebaseFailure.UNREACHABLE:
+                return RebaseExit.UNREACHABLE
+            case _:
+                raise ValueError(f"no exit code for failure {self}")

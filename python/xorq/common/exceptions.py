@@ -291,3 +291,11 @@ class RedshiftFreshnessUnavailable(XorqError):
     to catch it can import it from the module every other xorq exception lives
     in. See ``xorq.common.utils.redshift_utils`` for why.
     """
+
+
+class LocalReadPathWarning(UserWarning):
+    """A build records a read of a local path that another machine may lack.
+
+    Its own category so that a caller keeping a read external on purpose
+    (``catalog rebase``) silences it by class, not by matching its text.
+    """
