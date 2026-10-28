@@ -133,7 +133,7 @@ class RebaseStatus(StrEnum):
     ATTEMPTED = "attempted"
     REBASED = "rebased"
     CONFLICT = "conflict"
-    PUSH_FAILED = "push_failed"
+    PUSH_FAILED = "push-failed"
 
     @property
     def exit_code(self) -> int:

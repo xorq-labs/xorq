@@ -1347,7 +1347,7 @@ def test_json_reports_a_failed_push_with_the_entry_it_kept(
 
     result, document = rebase_json(runner, world, world.name, "--move-aliases")
     monkeypatch.undo()
-    assert (document["state"], result.exit_code) == ("push_failed", 5)
+    assert (document["state"], result.exit_code) == ("push-failed", 5)
     new = document["new_entry"]
     assert new not in (None, world.name)
     assert document["aliases"] == aliases_document(moved=["live", "staging"])
@@ -1369,7 +1369,7 @@ def test_json_reports_a_push_that_raised_before_pushing_as_push_failed(
     result, document = rebase_json(runner, world, world.name, "--move-aliases")
     monkeypatch.undo()
 
-    assert (document["state"], result.exit_code) == ("push_failed", 5)
+    assert (document["state"], result.exit_code) == ("push-failed", 5)
     new = document["new_entry"]
     assert new not in (None, world.name)
     assert document["aliases"] == aliases_document(moved=["live", "staging"])

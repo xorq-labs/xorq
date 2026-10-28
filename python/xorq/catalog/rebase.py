@@ -32,10 +32,10 @@ disagree. ``drift`` is the document ``check-sources --json`` publishes under
 ``entries`` for this entry, built by the same code over the rebase's own sweep;
 it is ``null`` on a failure, which returns no sweep. ``aliases`` is what the
 rebase did to them, as stderr reports it, so it is empty unless a new entry was
-written (``rebased`` or ``push_failed``). ``error`` is present only when there
+written (``rebased`` or ``push-failed``). ``error`` is present only when there
 is one: a failure's message, what a conflict's op or source raised, or what a
 failed push raised. ``warnings`` holds each warning the rebase raised, as
-``Category: message``, so stderr stays empty. On ``push_failed`` the new entry and its aliases are
+``Category: message``, so stderr stays empty. On ``push-failed`` the new entry and its aliases are
 committed locally, and `xorq catalog sync` publishes them.
 """
 
