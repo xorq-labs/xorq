@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 import re
 import shutil
 import sys
@@ -1169,6 +1170,20 @@ ALIAS_KEYS = ("moved", "added", "already", "unmoved", "left")
 FAILURE_STATES = {1: "refused", 2: "unreachable", 4: "conflict"}
 # A usage error exits before the entry resolves, so it prints no document.
 JSON_REFUSALS = tuple(p for p in REFUSALS if p.id != "both-alias-flags")
+# The refusals that come after the sweep, so their document carries it.
+SWEPT_REFUSALS = frozenset(
+    (
+        "elsewhere-alias-no-drift",
+        "taken-alias",
+        "unprobed-new-hash",
+        "unprobed-db",
+        "unmatched-source",
+        "unreachable-outranks-changed",
+        "unreadable-profile",
+        "unreadable-bundle",
+        "deleted-db",
+    )
+)
 
 
 def aliases_document(**names: list[str]) -> dict[str, list[str]]:
@@ -1271,6 +1286,7 @@ def test_json_reports_the_aliases_the_pull_took_off_the_old_entry(
 
 @pytest.mark.parametrize("setup, exit_code, message", JSON_REFUSALS)
 def test_json_reports_a_rebase_that_wrote_nothing(
+    request: pytest.FixtureRequest,
     runner: CliRunner,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -1296,8 +1312,10 @@ def test_json_reports_a_rebase_that_wrote_nothing(
         assert document["drift"]["state"] in ("changed", "table-missing")
         assert document["error"]
     else:
-        # A refusal returns no sweep to report.
-        assert document["drift"] is None
+        # A refusal after the sweep reports it, as `check-sources` would.
+        swept = request.node.callspec.id in SWEPT_REFUSALS
+        checked = check_sources_entry(runner, world, old_entry) if swept else None
+        assert document["drift"] == checked
         assert document["failing_op"] is None
         other = getattr(world, "other", None)
         assert message.format(name=name, gone=gone, other=other) in document["error"]
@@ -1462,7 +1480,7 @@ def test_json_puts_what_the_rebase_warned_in_the_document(
 
 
 def failing_check(catalog_entry: object) -> None:
-    raise RebaseError("no bundle", RebaseExit.REFUSED)
+    raise RebaseError("no bundle", RebaseFailure.REFUSED)
 
 
 def test_json_reports_a_failed_write_as_one_document(
@@ -1535,13 +1553,30 @@ def test_json_never_started_prints_no_document_like_check_sources(
     assert result.stderr
 
 
-@pytest.mark.parametrize(
-    "exit_code", (RebaseExit.CONFLICT, RebaseExit.PUSH_FAILED, 0, 3)
-)
-def test_a_rebase_error_refuses_only_with_a_refusal_code(exit_code: int) -> None:
-    """A conflict or failed push is a result; a raise with its code has no state."""
-    with pytest.raises(ValueError, match="exit 1 or 2"):
-        RebaseError("refused", exit_code)
+def test_a_rebase_error_names_its_refusal() -> None:
+    """Any other error ends a rebase as `failed`; a refusal says which it is."""
+    with pytest.raises(ValueError, match="not failed"):
+        RebaseError("refused", RebaseFailure.FAILED)
+
+
+def test_a_rebase_error_keeps_its_sweep_across_processes(
+    world: SimpleNamespace,
+) -> None:
+    """Every field lives in `args`, so a process pool can pickle it."""
+    record = rebase_module.read_entry_record(
+        world.catalog.get_catalog_entry(world.name)
+    )
+    reports = tuple(drift.iter_leaf_reports(record))
+    error = RebaseError("refused", RebaseFailure.UNREACHABLE).after_sweep(
+        record, reports
+    )
+    restored = pickle.loads(pickle.dumps(error))
+    assert (str(restored), restored.failure, restored.exit_code) == (
+        "refused",
+        RebaseFailure.UNREACHABLE,
+        RebaseExit.UNREACHABLE,
+    )
+    assert restored.reports == reports
 
 
 def test_every_rebase_state_has_its_own_exit_code() -> None:

@@ -1,7 +1,15 @@
 from __future__ import annotations
 
-from xorq.catalog.enums import RebaseExit
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
+
+from xorq.catalog.enums import RebaseFailure
 from xorq.common.exceptions import XorqError
+
+
+if TYPE_CHECKING:
+    from xorq.catalog.drift import LeafReport
+    from xorq.catalog.inspection import BuildRecord
 
 
 class ContentIntegrityError(XorqError):
@@ -69,20 +77,44 @@ class WheelCollisionError(ValueError):
 
 
 class RebaseError(XorqError):
-    """A rebase refused before its own first write; ``exit_code`` is the
-    CLI's, a ``RebaseExit``. One raised after a sync's pull leaves what the
-    pull merged in place, unpushed."""
+    """A rebase refused before its own first write; ``failure`` says how, and
+    its exit code is the CLI's. One raised after the sweep carries the sweep's
+    ``record`` and ``reports``, so it reports the drift a conflict would. One
+    raised after a sync's pull leaves what the pull merged in place, unpushed."""
 
-    def __init__(self, message: str, exit_code: RebaseExit) -> None:
-        # A conflict or a failed push ends in a `RebaseResult`, not a raise; a
-        # refusal with either code would have no `--json` state to report.
-        if exit_code not in (RebaseExit.REFUSED, RebaseExit.UNREACHABLE):
-            raise ValueError(f"a rebase refuses with exit 1 or 2, not {exit_code}")
-        super().__init__(message, RebaseExit(exit_code))
+    def __init__(
+        self,
+        message: str,
+        failure: RebaseFailure,
+        record: BuildRecord | None = None,
+        reports: Iterable[LeafReport] = (),
+    ) -> None:
+        # `FAILED` is any error that is not a refusal; a refusal names which.
+        if failure not in (RebaseFailure.REFUSED, RebaseFailure.UNREACHABLE):
+            raise ValueError(f"a rebase refuses or is unreachable, not {failure}")
+        super().__init__(message, RebaseFailure(failure), record, tuple(reports))
 
     def __str__(self) -> str:
         return self.args[0]
 
     @property
-    def exit_code(self) -> RebaseExit:
+    def failure(self) -> RebaseFailure:
         return self.args[1]
+
+    @property
+    def record(self) -> BuildRecord | None:
+        return self.args[2]
+
+    @property
+    def reports(self) -> tuple[LeafReport, ...]:
+        return self.args[3]
+
+    @property
+    def exit_code(self) -> int:
+        return self.failure.exit_code
+
+    def after_sweep(
+        self, record: BuildRecord, reports: Iterable[LeafReport]
+    ) -> RebaseError:
+        """This refusal, carrying the sweep it came after."""
+        return type(self)(str(self), self.failure, record, reports)

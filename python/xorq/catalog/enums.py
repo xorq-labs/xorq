@@ -168,7 +168,7 @@ class RebaseExit(IntEnum):
 class RebaseFailure(StrEnum):
     """How a rebase that returned no ``RebaseResult`` ended.
 
-    ``REFUSED`` and ``UNREACHABLE`` are a ``RebaseError``'s exit codes;
+    ``REFUSED`` and ``UNREACHABLE`` are what a ``RebaseError`` carries;
     ``FAILED`` is any other error, such as a write that failed.
     """
 

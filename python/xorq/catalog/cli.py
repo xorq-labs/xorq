@@ -119,8 +119,8 @@ def click_context_catalog(ctx: click.Context) -> Iterator[None]:
         from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
 
         if isinstance(e, RebaseError):
-            # A refusal, not a failure: its message bare, and the `RebaseExit`
-            # it carries, which `click_handler` would collapse to 1.
+            # A refusal, not a failure: its message bare, and the exit code
+            # of its `RebaseFailure`, which `click_handler` would collapse to 1.
             click.echo(str(e), err=True)
             ctx.exit(e.exit_code)
         if _pdb_active(ctx):
