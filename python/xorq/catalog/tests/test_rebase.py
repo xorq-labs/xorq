@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pyarrow as pa
 import pytest
 from click.testing import CliRunner, Result
+from git import Repo
 
 import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
@@ -19,8 +20,9 @@ from xorq.caching import ParquetCache
 from xorq.catalog import drift
 from xorq.catalog import rebase as rebase_module
 from xorq.catalog.aliases import AliasPlan
-from xorq.catalog.catalog import Catalog, CatalogAlias
+from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogPullError
 from xorq.catalog.cli import cli
+from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.enums import RebaseExit, RebaseStatus
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
@@ -28,6 +30,7 @@ from xorq.catalog.tests.conftest import (
     RECORDED,
     TEST_WHEEL_NAME,
     _annex_available,
+    add_expr_entry,
     alias_target_hash,
     fail_nth_alias_move,
     pull_then,
@@ -1008,6 +1011,81 @@ def test_a_new_alias_is_reported_as_added(
     assert [line for line in result.stderr.splitlines() if "'fresh'" in line] == [
         f"Added alias 'fresh' -> {new}"
     ]
+
+
+def push_to_origin(world: SimpleNamespace) -> Path:
+    """Give the world's catalog a bare origin it is in step with."""
+    origin = world.tmp_path / "origin.git"
+    Repo.init(origin, bare=True, initial_branch=MAIN_BRANCH)
+    world.catalog.repo.create_remote(name="origin", url=str(origin))
+    world.catalog.repo.git.push("-u", "origin", MAIN_BRANCH)
+    return origin
+
+
+def origin_moved_on(world: SimpleNamespace, origin: Path) -> None:
+    """Another clone pushes after our pull: our push is rejected."""
+    other = Catalog.clone_from(
+        url=str(origin), repo_path=world.tmp_path / "other", annex=False
+    )
+    add_expr_entry(other, "elsewhere", value=1)
+    other.push()
+
+
+def origin_gone(world: SimpleNamespace, origin: Path) -> None:
+    shutil.rmtree(origin)
+
+
+@pytest.mark.parametrize(
+    "push_fails, raised",
+    (
+        pytest.param(origin_moved_on, "CatalogPushError", id="rejected"),
+        pytest.param(origin_gone, "GitCommandError", id="unreachable"),
+    ),
+)
+def test_a_failed_push_keeps_the_rebase_and_exits_5(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    push_fails: Callable,
+    raised: str,
+) -> None:
+    origin = push_to_origin(world)
+    replace_t(world, GROWN)
+    # The remote changes between the pull and the push.
+    pull_then(monkeypatch, lambda c: push_fails(world, origin))
+
+    result = rebase(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert result.exit_code == RebaseExit.PUSH_FAILED, result.output
+    new = result.stdout.strip()
+    assert (
+        f"Rebased {world.name} -> {new} locally; push failed: {raised}: "
+        in result.stderr
+    )
+    assert "run `xorq catalog push`" in result.stderr
+    assert f"Moved alias 'live' -> {new}" in result.stderr
+    # Committed locally, not rolled back.
+    catalog = reopen(world)
+    assert set(catalog.list()) == {world.name, new}
+    assert targets(world, "live", "staging") == (new, new)
+
+
+def test_a_failed_pull_is_retryable_and_writes_nothing(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replace_t(world, GROWN)
+    before = commit_count(world.catalog)
+
+    def failing_pull(self: Catalog) -> None:
+        raise CatalogPullError("fetch failed")
+
+    monkeypatch.setattr(Catalog, "pull", failing_pull)
+    result = rebase(runner, world, world.name, "--move-aliases")
+    assert result.exit_code == RebaseExit.UNREACHABLE, result.output
+    assert "the sync's pull failed: CatalogPullError: fetch failed" in result.stderr
+    assert result.stdout == ""
+    assert commit_count(reopen(world)) == before
+    assert targets(world, "live", "staging") == (world.name, world.name)
 
 
 def test_a_failed_rollback_surfaces_the_error_that_caused_it(

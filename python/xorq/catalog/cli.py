@@ -598,7 +598,8 @@ def _catalog_pin_command(
                 move_aliases=move_aliases,
                 entry_alias=entry_alias,
             )
-            new_entry, aliases = add_with_aliases(plan, build, sync)
+            with catalog.maybe_synchronizing(sync):
+                new_entry, aliases = add_with_aliases(plan, build, pulled=sync)
         _report_aliases(aliases, catalog_entry.name, new_entry.name, "--move-aliases")
     click.echo(new_entry.name)
 
@@ -1272,15 +1273,19 @@ def rebase(
          ENTRY is an alias the pull moved or removed, a probed source
          matched no source of the loaded expression, or a write failed
          (the new entry and its alias moves are rolled back locally, a
-         failed rollback is logged; a failed push is not)
+         failed rollback is logged)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
-         unreadable or lacks its wheel or requirements; or the options
-         were invalid (--move-aliases with --only-alias); nothing written
+         unreadable or lacks its wheel or requirements; the sync's pull
+         failed; or the options were invalid (--move-aliases with
+         --only-alias); nothing written
       4  conflict: an op no longer fits its new inputs, or a source's
          table is gone; stderr names the op (if one failed) and the
          sources involved, with their recorded and live schemas;
          nothing written
+      5  rebased locally, but the sync's push failed: the new entry is
+         printed and its alias moves are kept; `xorq catalog push`
+         finishes it
 
     \b
     Arguments:
@@ -1352,7 +1357,7 @@ def rebase(
             "re-derived without refreshing any",
             err=True,
         )
-    if result.status != RebaseStatus.REBASED:
+    if result.status in (RebaseStatus.NOOP, RebaseStatus.ATTEMPTED):
         click.echo(
             f"{old}: no drift"
             if result.status == RebaseStatus.NOOP
@@ -1364,9 +1369,17 @@ def rebase(
         if move_aliases or only_aliases:
             click.echo("Aliases not moved: nothing to rebase", err=True)
     else:
-        click.echo(f"Rebased {old} -> {new}", err=True)
+        click.echo(
+            f"Rebased {old} -> {new}"
+            if result.push_error is None
+            else f"Rebased {old} -> {new} locally; push failed: "
+            f"{result.push_error}; run `xorq catalog push`",
+            err=True,
+        )
         _report_aliases(result.aliases, old, new, "--move-aliases or --only-alias")
     click.echo(new)
+    if result.status == RebaseStatus.PUSH_FAILED:
+        ctx.exit(RebaseExit.PUSH_FAILED)
 
 
 def _resolve_lineage(dag: LineageDAG, handle: str, name: str) -> tuple[dict, ...]:

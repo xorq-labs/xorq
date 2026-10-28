@@ -576,14 +576,7 @@ def pull_then(
     monkeypatch: pytest.MonkeyPatch, change: Callable[[Catalog], object]
 ) -> None:
     """Stand in for a sync whose pull applies ``change`` to the catalog."""
-
-    @contextmanager
-    def pulling(self: Catalog, sync: bool):
-        if sync:
-            change(self)
-        yield
-
-    monkeypatch.setattr(Catalog, "maybe_synchronizing", pulling)
+    monkeypatch.setattr(Catalog, "pull", change)
 
 
 @pytest.fixture
