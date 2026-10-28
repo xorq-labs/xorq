@@ -1,6 +1,6 @@
 ---
 title: "What's Xorq?"
-description: "Xorq's three parts: an IR for pipelines, a ledger of reviewed entries, and a CLI that runs them"
+description: "Xorq's three parts: an IR for pipelines, a ledger of reviewed entries, and a command-line tool that runs them"
 icon: "info-circle"
 headline: "Learn what Xorq is and why it exists"
 ---
@@ -11,17 +11,18 @@ Xorq is three interlinked things, plus the interfaces built on them:
    composable, cacheable, declarative execution. A pipeline is an expression
    that compiles to many engines, caches at any node, and composes with other
    expressions.
-2. **A ledger.** The IR makes every pipeline a durable artifact that is cheap to
+2. **A ledger.** The IR makes every pipeline a durable artifact that's cheap to
    verify: one computation, defined before it runs, named by a hash of its
    definition, with lineage a person can read alongside it. The ledger steers
    agent work. An agent selects a reviewed entry instead of re-deriving it from
    source files.
-3. **A CLI.** It governs execution against the ledger: build, add, run, check,
-   pin, rebase, compose. Arbitrary compute enters the deterministic system
-   through UDXFs, Python functions that exchange Arrow tables over Flight.
+3. **A command-line tool.** It governs execution against the ledger: build,
+   add, run, check, pin, rebase, compose. Arbitrary compute enters the
+   deterministic system through UDXFs, Python functions that exchange Arrow
+   tables over Flight.
 
-The interfaces on top serve different users. The CLI doubles as the headless
-mode for agents, and `xorq catalog tui` is the view for people.
+The interfaces on top serve different users. The command-line tool doubles as
+the headless mode for agents, and `xorq catalog tui` is the view for people.
 
 The screenshot shows the ten-entry ledger of an insurance pricing pipeline from
 [A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/).
@@ -38,7 +39,7 @@ questions over payment transaction data. With a Xorq ledger of 33 named
 expressions, Haiku goes from 50% to 84%, 9 points over the Sonnet baseline
 ([Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/)).
 
-![](/images/dabstep-benchmark.png){fig-alt="DABStep accuracy: Haiku 4.5 50%, Sonnet 4.6 75%, Haiku 4.5 with a semantic catalog 84%"}
+![](/images/dabstep-benchmark.png){fig-alt="DABStep accuracy by model, Haiku 4.5 at 50%, Sonnet 4.6 at 75%, and Haiku 4.5 with a semantic catalog at 84%"}
 
 [Faithful, Reproducible, Wrong](https://xorq.dev/blog/faithful-reproducible-wrong/)
 asks one metric question 100 times per configuration. Two of its nine
@@ -82,10 +83,10 @@ familiar.
 
 ## The ledger
 
-The ledger is a git repo on the filesystem. The CLI calls it a catalog, which is
-why its commands live under `xorq catalog`. Aliases are symlinks, entries are
-zipped builds, and metadata sidecars are plain YAML, so an agent that clones the
-repo can discover everything with file operations.
+The ledger is a git repo on the filesystem. The command-line tool calls it a
+catalog, which is why its commands live under `xorq catalog`. Aliases are
+symlinks, entries are zipped builds, and metadata sidecars are plain YAML, so an
+agent that clones the repo can discover everything with file operations.
 
 An entry is a manifest plus the environment to run it. The manifest is the
 content-addressed specification of the pipeline: one node per operation, each
@@ -95,7 +96,7 @@ sandbox, on your machine, or in production. Identical computations get identical
 hashes, so an entry also works as a contract between teams: they find an
 existing computation by name and build on it.
 
-## The CLI
+## The command line
 
 Commands that act on an entry take its hash or an alias such as `prod`. The ones
 that produce a pipeline (pin, rebase, compose) write it back as a new entry.
@@ -110,7 +111,7 @@ xorq catalog pin prod -e --alias prod-pinned  # materialize and freeze the cache
 xorq catalog compose src transform -a pipeline  # source entry + unbound transform entry, as one
 ```
 
-A UDXF is how arbitrary compute joins the system. It is a Python function that
+A UDXF is how arbitrary compute joins the system. It's a Python function that
 takes an Arrow table and returns one, runs in its own process behind Flight, and
 gets named and cataloged like any other node. See the
 [UDF system](udf_system.qmd).
