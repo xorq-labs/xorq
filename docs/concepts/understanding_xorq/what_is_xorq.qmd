@@ -1,100 +1,172 @@
 ---
 title: "What's Xorq?"
-description: "Understand what Xorq is, why it exists, and how it fits into your ML infrastructure"
+description: "Xorq's three parts: an IR for pipelines, a ledger of reviewed entries, and a command-line tool that runs them"
 icon: "info-circle"
 headline: "Learn what Xorq is and why it exists"
 ---
 
-Xorq is an open source compute catalog for AI. It helps teams catalog, compose, reuse, and observe transformations, features, models, and pipelines across multiple engines.
+Xorq is three interlinked things, plus the interfaces built on them:
 
-Think of it this way—Apache Iceberg standardized data. Xorq standardizes compute.
+1. **An IR.** An agent-native intermediate representation for cross-engine,
+   composable, cacheable, declarative execution. A pipeline is an expression
+   that compiles to many engines, caches at any node, and composes with other
+   expressions.
+2. **A ledger.** The IR makes every pipeline a durable artifact that's cheap to
+   verify: one computation, defined before it runs, named by a hash of its
+   definition, with lineage a person can read alongside it. The ledger steers
+   agent work. An agent selects a reviewed entry instead of re-deriving it from
+   source files.
+3. **A command-line tool.** It governs execution against the ledger: build,
+   add, run, check-sources, pin, rebase, compose. Arbitrary compute enters the
+   deterministic system through UDXFs, Python functions that exchange Arrow
+   tables over Flight.
 
-## What's Xorq?
+The interfaces on top serve different users. The command-line tool doubles as
+the headless mode for agents, and `xorq catalog tui` is the view for people.
 
-Xorq is an open source compute catalog for reusing, shipping, and observing ML pipelines across multiple engines.
+The screenshot shows the ten-entry ledger of an insurance pricing pipeline from
+[A Commit vs. a Ledger Entry](https://xorq.dev/blog/commit-vs-ledger-entry/),
+with the scored test set's lineage, schema, and git log.
 
-::: {.callout-note}
-Data has standards like Iceberg and Delta. Xorq is the missing analog to Apache Iceberg, but for compute.
-:::
+![](/images/ledger-tui.png){fig-alt="Xorq catalog TUI: ten entries on the left; the lineage of the scored test set down to the two source reads, its schema, and the git log with one commit per change"}
 
-## ML pipeline problems
+## Why a ledger steers agents
 
-Data infrastructure has standards. Iceberg and Delta solved how teams store and version data. But compute remains fragmented.
+[DABStep](https://huggingface.co/spaces/adyen/DABstep) is 450 data-analysis
+questions over payment transaction data. With a Xorq ledger of 33 named
+expressions, Haiku goes from 50% to 84%, ahead of the 75% Sonnet baseline
+([Orientation Over Reasoning](https://xorq.dev/blog/orientation-over-reasoning/)).
 
-ML pipelines suffer from four problems:
+![](/images/dabstep-benchmark.png){fig-alt="DABStep accuracy by model, Haiku at 50%, Sonnet at 75%, and Haiku with a semantic catalog at 84%"}
 
-- **Leakage prone**: Feature generation on historical data causes silent temporal leakage. Models train on information they shouldn't have access to at prediction time.
-- **Disjointed**: Pipelines communicate through runtime artifacts. Monitoring gets bolted on as an afterthought rather than built in from the start.
-- **Research-only**: Features trapped in notebooks require complete rewrites for batch and online serving. What works in Jupyter fails in production.
-- **Undecipherable**: ML pipelines become black boxes with no lineage or computation visibility. When something breaks, there is no way to trace back to the root cause.
+[Faithful, Reproducible, Wrong](https://xorq.dev/blog/faithful-reproducible-wrong/)
+asks one metric question 100 times per configuration. Two of its nine
+configurations run Haiku with Xorq on the same prompt. The only difference is
+whether a reviewed definition of the metric was preloaded:
 
-These problems compound over time. A single invisible imputation in opaque preprocessing can run undetected for months, breaking model assumptions and invalidating predictions.
+| | Re-derived from source files | Selected from a reviewed entry |
+|---|---|---|
+| Correct | 0 of 100 | 100 of 100 |
+| Median turns | 21 | 4 |
+| Cost per run | $0.09 | $0.02 |
 
-## The solution: Xorq
+## The IR
 
-Traditional approaches force a choice between the expressiveness of pandas and the scalability of SQL engines. This creates SQL-pandas impedance mismatches, wasteful recomputation, and pipelines that work in notebooks but fail in production.
+A Xorq expression describes a computation without running it. Each method call
+adds one operation to a tree of operations, and that tree is the IR. This
+example builds one, runs it, and saves it:
 
-Xorq provides a compute catalog with five core capabilities:
+```python
+import xorq.api as xo
 
-- **Multi-engine workflows**: Combine Snowflake, DuckDB, and Python in a single declarative pipeline. No engine-specific rewrites.
-- **Portable UDFs**: Define user-defined functions once and run them across supported engines. Xorq serializes logic to YAML artifacts for reproducibility.
-- **Automatic caching**: Cache intermediate results to avoid recomputing expensive joins after every change.
-- **Dev-to-prod consistency**: A pipeline that works locally runs in production without code changes. Compile-time validation catches errors early.
-- **Built-in lineage**: Automatic column-level lineage tracking and fail-fast execution provide visibility for production systems.
+penguins = xo.examples.penguins.fetch()
+expr = (
+    penguins
+    .filter(xo._.species.notnull())
+    .cache(xo.ParquetCache.from_kwargs())
+    .into_backend(xo.duckdb.connect())
+    .group_by("species")
+    .agg(avg_bill_length=xo._.bill_length_mm.mean())
+)
 
+df = expr.execute()
+batches = expr.to_pyarrow_batches()
+build_path = xo.build_expr(expr)
+```
 
-## Core features
+`fetch` returns a read of the penguins data, bound to Xorq's embedded engine.
+`xo._` is a deferred reference to the current table, so `xo._.species` is its
+`species` column. Each call after that (`filter`, `cache`, `into_backend`,
+`group_by`, `agg`) adds a node on top of the previous one. When the assignment
+to `expr` finishes, no data has been read or computed.
 
-Xorq's architecture provides six core capabilities that work together with:
+`expr.execute()` compiles the tree, runs it, and returns a pandas DataFrame.
+`expr.to_pyarrow_batches()` runs the same tree but streams the result as Arrow
+record batches instead.
 
-- **Deferred execution**: Builds expression graphs before computation. Execution happens when explicitly triggered, allowing optimization of the full pipeline.
-- **Automatic caching**: Caches intermediate results and invalidates cache when source data changes. Avoids unnecessary recomputation.
-- **Multi-engine execution**: A single typed plan (YAML manifest) executes on DuckDB, Snowflake, DataFusion, BigQuery, Pandas, PostgreSQL, PyIceberg, and Trino.
-- **Content-addressed artifacts**: Features, models, and pipelines are versioned by content hash. Identical computation produces identical hashes.
-- **Composable catalog**: Catalog entries act as contracts between teams. Teams discover existing computations, compose on previous work, and share validated logic.
-- **Built-in governance**: Column-level lineage tracking and compile-time schema validation. Policies enforce through compiled plans, not runtime checks.
+Because the whole pipeline exists before it runs, the tree can say where each
+part runs and what to keep:
 
+- `.cache(xo.ParquetCache.from_kwargs())` stores the filtered rows as Parquet
+  the first time `expr` runs. The cache key comes from the operations under
+  that node and the modification time of the penguins source, so the second
+  call, `to_pyarrow_batches()`, reads the stored rows instead of filtering
+  again. A change to either gives a new key.
+- `.into_backend(xo.duckdb.connect())` hands those rows to DuckDB as Arrow
+  record batches. The `group_by` and `agg` after it run on DuckDB, while the
+  read and the filter ran on the embedded engine. The other supported engines
+  are listed in [Supported backends](/api_reference/backends/supported_backends.qmd).
 
-## Where Xorq fits
+`xo.build_expr(expr)` saves the tree. It writes `builds/<hash>/expr.yaml`, one
+node per operation, each named by a hash of its definition. That directory is
+what `xorq catalog add` puts in the ledger.
 
-Xorq sits between your data sources and your ML applications. It's not a replacement for your data warehouse or your model serving infrastructure, it's the layer that connects them.
+The expression API is Ibis, vendored into Xorq. If you know pandas or SQL, it
+looks familiar.
 
-The architecture image here illustrates this positioning. Expressions and UDFs flow through the manifest layer into stateless, Arrow-native execution across any supported engine.
+## The ledger
 
-![](/images/introduction/architecture-dark.png){fig-alt="Architecture diagram showing expressions and UDFs flowing through manifest to stateless Arrow-native execution"}
+The ledger is a git repo on the filesystem. The command-line tool calls it a
+catalog, which is why its commands live under `xorq catalog`. Aliases are
+symlinks, entries are zipped builds, and metadata sidecars are plain YAML, so an
+agent that clones the repo can discover everything with file operations.
 
-Teams use Xorq for feature stores, semantic layers, ML pipelines, batch scoring, and data CI. In each case, the value comes from the same properties: reproducibility, multi-engine portability, and full lineage.
+An entry is a manifest plus the environment to run it. The manifest is the
+content-addressed specification of the pipeline: one node per operation, each
+referenced by hash, with schema, lineage, and inputs read straight off it. The
+wheel and `requirements.txt` next to it let the entry run in another sandbox, on
+your machine, or in production. When a build lacks them, `xorq catalog add`
+builds them from your project, which then needs a `pyproject.toml` and a
+`uv.lock` or `requirements.txt`. Identical computations get identical hashes, so
+an entry also works as a contract between teams: they find an existing
+computation by name and build on it.
 
+## The command line
+
+Commands that act on an entry take its hash or an alias such as `prod`. When
+pin, rebase, or compose produce a different pipeline, they write it as a new
+entry. Entries are never edited in place, though aliases can move. By default,
+writes push the ledger to its remote.
+
+```bash
+xorq catalog run prod -o out.parquet          # execute in the entry's own environment
+xorq catalog check-sources prod               # did a source schema drift? reports, never repairs
+xorq catalog rebase prod                      # rebuild over drifted source schemas as a new entry
+xorq catalog pin prod -e --alias prod-pinned  # materialize and freeze the caches as a new entry
+xorq catalog compose src transform -a pipeline  # source entry + unbound transform entry, as one
+```
+
+A UDXF is how arbitrary compute joins the system. It's a Python function from a
+pandas DataFrame to a DataFrame, served behind an Arrow Flight server, that gets
+named and cataloged like any other node. See
+[User-defined exchange functions](/api_reference/user_defined_exchange_functions.qmd).
 
 ## Who Xorq is for
 
-Xorq is designed for data scientists, data engineers, and ML engineers who:
+Xorq is for data scientists, data engineers, ML engineers, and the agents that
+work alongside them. It fits teams that:
 
-- Work with SQL-heavy pipelines but need Python for ML.
-- Run pipelines across multiple engines such as DuckDB locally and Snowflake in production.
+- Write SQL-heavy pipelines but need Python for ML.
+- Run the same pipeline on several engines, such as DuckDB locally and Snowflake
+  in production.
 - Need reproducibility and lineage for compliance or debugging.
-- Want to share and reuse validated computations across teams.
-
-If you are comfortable with pandas and SQL, then the Xorq API feels familiar.
+- Want to reuse reviewed computations instead of rewriting them.
 
 ## Built on open standards
 
-Xorq builds on battle-tested foundations:
+- **Apache Arrow Flight** streams Arrow data between processes.
+- **Apache DataFusion** is the embedded engine for Arrow-native execution.
+- **uv** builds the Python environment each entry records.
 
-- **Apache Arrow Flight**: Zero-copy data transfer between processes.
-- **Ibis**: Cross-engine expression trees serialized to YAML.
-- **Apache DataFusion**: Embedded engine for stateless Arrow-native execution.
-- **uv**: Reproducible Python environment management.
-
-The core expression and build logic remains open source.
+Xorq is open source under Apache 2.0 and pre-1.0. Expect breaking changes; the
+changelog marks them.
 
 ## Next steps
 
-Now that you understand what Xorq is and why it exists, choose your path:
-
-- [Quickstart](/getting_started/quickstart.qmd) to build your first pipeline in under five minutes
+- [Quickstart](/getting_started/quickstart.qmd) to build your first pipeline
+- [The catalog as executable memory](catalog_as_executable_memory.qmd) for more
+  on the ledger
+- [Content-addressed artifacts](why_content_addressed_artifacts.qmd) for why
+  entries are named by hash
 - [GitHub](https://github.com/xorq-labs/xorq) to star the repo and contribute
 - [Discord](https://discord.gg/8Kma9DhcJG) to join the community
-
-
-
