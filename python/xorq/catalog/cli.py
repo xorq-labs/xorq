@@ -1312,21 +1312,22 @@ def rebase(
     """
     if move_aliases and only_aliases:
         raise click.UsageError("--move-aliases and --only-alias are mutually exclusive")
-    with click_context_catalog(ctx):
-        catalog = ctx.obj.make_catalog(init=False)
-        catalog_entry = _get_catalog_entry(catalog, entry)
-        entry_alias = _given_alias(catalog, entry)
-
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
+    from xorq.catalog.exceptions import RebaseError  # noqa: PLC0415
     from xorq.catalog.rebase import rebase_document, rebase_entry  # noqa: PLC0415
 
+    document = None
+    # One scope from resolving the entry to printing the document: under --json
+    # whatever warns goes in the document, and whatever raises is handled.
     with ExitStack() as stack:
-        # Under --json what the rebase warns goes in the document, not stderr.
         caught = (
             stack.enter_context(warnings.catch_warnings(record=True)) if as_json else []
         )
         stack.enter_context(click_context_catalog(ctx))
+        catalog = ctx.obj.make_catalog(init=False)
+        catalog_entry = _get_catalog_entry(catalog, entry)
+        entry_alias = _given_alias(catalog, entry)
         try:
             result = rebase_entry(
                 catalog_entry,
@@ -1341,16 +1342,19 @@ def rebase(
         except Exception as e:
             # The handler prints an error and no document; with --json, a
             # failure after the entry resolved is an outcome the document
-            # reports.
-            if not as_json or _pdb_active(ctx):
+            # reports. `--pdb` takes any other error, which it can inspect; a
+            # refusal is no bug to step into.
+            if not as_json or (_pdb_active(ctx) and not isinstance(e, RebaseError)):
                 raise
             result = e
-    if as_json:
-        # Printed once the rebase has ended, not during it, and alone: the
-        # document carries what stderr would, so nothing else is printed. The
+        if as_json:
+            # Printed once the rebase has ended, not during it, and alone: the
+            # document carries what stderr would, so nothing else is printed.
+            document = rebase_document(catalog_entry, result, caught)
+            click.echo(json.dumps(document, indent=2))
+    if document is not None:
+        # Outside the handler, which would read the exit as an error. The
         # process exits with the document's own code, as `check-sources` does.
-        document = rebase_document(catalog_entry, result, caught)
-        click.echo(json.dumps(document, indent=2))
         ctx.exit(document["exit_code"])
     if (conflict := result.conflict) is not None:
         if conflict.op_name is None:

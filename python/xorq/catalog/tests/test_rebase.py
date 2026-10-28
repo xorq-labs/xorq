@@ -12,6 +12,7 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import click
 import pyarrow as pa
@@ -23,6 +24,7 @@ from git import Repo
 import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
+from xorq.catalog import cli as catalog_cli
 from xorq.catalog import drift
 from xorq.catalog import rebase as rebase_module
 from xorq.catalog.aliases import AliasPlan
@@ -41,6 +43,7 @@ from xorq.catalog.tests.conftest import (
     fail_nth_alias_move,
     pull_then,
 )
+from xorq.cli import cli as top_cli
 from xorq.common.exceptions import UnmatchedSourceError
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import pin_cache
@@ -1521,6 +1524,55 @@ def test_json_prints_nothing_until_the_rebase_ends(
     _, document = rebase_json(runner, world)
     assert document["state"] == "rebased"
     assert echoed == [True]
+
+
+def test_json_puts_what_resolving_the_entry_warned_in_the_document(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The document's scope starts at resolving the entry, not at the rebase."""
+    real_get_catalog_entry = catalog_cli._get_catalog_entry
+
+    def warning_get_catalog_entry(*args: object) -> object:
+        warnings.warn("resolving knob", FutureWarning, stacklevel=1)
+        return real_get_catalog_entry(*args)
+
+    monkeypatch.setattr(catalog_cli, "_get_catalog_entry", warning_get_catalog_entry)
+    _, document = rebase_json(runner, world)
+    assert "FutureWarning: resolving knob" in document["warnings"]
+
+
+def test_json_reports_a_document_that_cannot_be_built_as_an_error(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Building the document is handled like the rebase: an error, no traceback."""
+
+    def broken_document(*args: object) -> dict:
+        raise RuntimeError("document broke")
+
+    monkeypatch.setattr(rebase_module, "rebase_document", broken_document)
+    result = rebase(runner, world, world.name, "--json")
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "document broke" in result.stderr
+    assert isinstance(result.exception, SystemExit)
+
+
+def test_json_under_pdb_still_reports_a_refusal(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refusal is no bug to debug, so `--pdb` leaves the document alone."""
+    post_mortem = MagicMock()
+    monkeypatch.setattr("xorq.cli.pdb.post_mortem", post_mortem)
+    name, args, _ = refuse_unknown_alias(world)
+    result = runner.invoke(
+        top_cli,
+        ["--pdb", "catalog", "--path", world.catalog_path, "rebase", name, *args]
+        + ["--json"],
+    )
+    document = json.loads(result.stdout)
+    assert (document["state"], result.exit_code) == ("refused", 1)
+    assert result.stderr == ""
+    assert not post_mortem.called
 
 
 @pytest.mark.parametrize(
