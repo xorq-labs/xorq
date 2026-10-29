@@ -37,7 +37,7 @@ from xorq.catalog.catalog import (
 from xorq.catalog.cli import cli
 from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus
-from xorq.catalog.exceptions import RebaseError
+from xorq.catalog.exceptions import PythonMinorWarning, RebaseError
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
 from xorq.catalog.tests.conftest import (
     RECORDED,
@@ -300,17 +300,33 @@ def test_the_rebased_archive_inherits_wheels_and_requirements(
     assert requirements == b"pinned-dep==1.0\n"
 
 
-def test_a_python_minor_mismatch_is_overridable(
-    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "recorded, problem",
+    (
+        pytest.param((3, 0), "was built on Python 3.0", id="other-minor"),
+        pytest.param(None, "records no Python minor", id="unrecorded"),
+    ),
+)
+def test_a_python_minor_mismatch_is_overridable_and_warned(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    recorded: tuple[int, int] | None,
+    problem: str,
 ) -> None:
     entry = world.catalog.get_catalog_entry(world.name)
     assert recorded_python_minor(entry) == tuple(sys.version_info[:2])
     replace_t(world, GROWN)
-    monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: (3, 0))
+    monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: recorded)
 
-    result = rebase(runner, world, world.name, "--ignore-venv-mismatch")
+    with pytest.warns(PythonMinorWarning, match=problem):
+        result = rebase(runner, world, world.name, "--ignore-venv-mismatch")
     assert result.exit_code == 0, result.output
     assert result.stdout.strip() != world.name
+    _, document = rebase_json(
+        runner, world, world.name, "--ignore-venv-mismatch", "--no-sync"
+    )
+    assert [w for w in document["warnings"] if w.startswith("PythonMinorWarning")]
 
 
 def test_rebase_entry_checks_its_alias_arguments(world: SimpleNamespace) -> None:
@@ -1026,6 +1042,12 @@ def refuse_pinned(w: SimpleNamespace) -> Setup:
     return w.catalog.add(expr).name, (), ()
 
 
+def refuse_no_python_minor(w: SimpleNamespace) -> Setup:
+    replace_t(w, GROWN)
+    w.monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: None)
+    return w.name, (), ()
+
+
 def refuse_python_minor(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
     w.monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: (3, 0))
@@ -1207,6 +1229,12 @@ REFUSALS = (
         id="alias-add-failing",
     ),
     pytest.param(refuse_pinned, 1, "xorq catalog unpin {name}", id="pinned"),
+    pytest.param(
+        refuse_no_python_minor,
+        1,
+        f"records no Python minor, this is {RUNNING}; pass --ignore-venv-mismatch",
+        id="no-python-minor",
+    ),
     pytest.param(
         refuse_python_minor,
         1,

@@ -76,6 +76,12 @@ class WheelCollisionError(ValueError):
     """Raised when two entries carry same-named wheels that differ."""
 
 
+class PythonMinorWarning(UserWarning):
+    """A rebase ran under another Python minor than its entry was built on, or
+    one the entry does not record, because ``--ignore-venv-mismatch`` said to:
+    its cloudpickled UDFs may not load."""
+
+
 class RebaseOptionsError(ValueError):
     """Rebase options that contradict each other, or one that would do nothing.
 

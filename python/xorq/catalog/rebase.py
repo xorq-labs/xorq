@@ -94,6 +94,7 @@ from xorq.catalog.exceptions import (
     CatalogPushError,
     ContentIntegrityError,
     ContentStoreError,
+    PythonMinorWarning,
     RebaseError,
     RebaseOptionsError,
 )
@@ -499,7 +500,9 @@ def recorded_python_minor(catalog_entry: CatalogEntry) -> tuple[int, int] | None
 
 
 def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> None:
-    """Refuse an entry built on another Python minor: its UDFs are cloudpickled."""
+    """Refuse an entry built on another Python minor, or on one it doesn't
+    record: its UDFs are cloudpickled. ``ignore_mismatch`` turns the refusal
+    into a ``PythonMinorWarning``."""
     name = catalog_entry.name
     try:
         recorded = recorded_python_minor(catalog_entry)
@@ -507,14 +510,25 @@ def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> No
         raise RebaseError(
             f"{name} is unreadable: {format_error(e)}", RebaseFailure.UNREACHABLE
         ) from e
-    running = tuple(sys.version_info[:2])
-    if recorded not in (None, running) and not ignore_mismatch:
+    if recorded == tuple(sys.version_info[:2]):
+        return
+    running = ".".join(map(str, sys.version_info[:2]))
+    problem = (
+        f"{name} records no Python minor"
+        if recorded is None
+        else f"{name} was built on Python {'.'.join(map(str, recorded))}"
+    )
+    if not ignore_mismatch:
         raise RebaseError(
-            f"{name} was built on Python {'.'.join(map(str, recorded))}, this is "
-            f"{'.'.join(map(str, running))}; pass --ignore-venv-mismatch to rebase "
+            f"{problem}, this is {running}; pass --ignore-venv-mismatch to rebase "
             "anyway",
             RebaseFailure.REFUSED,
         )
+    warnings.warn(
+        f"{problem}; rebasing under {running}, but its cloudpickled UDFs may not load",
+        PythonMinorWarning,
+        stacklevel=2,
+    )
 
 
 def check_bundle(catalog_entry: CatalogEntry) -> None:

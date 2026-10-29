@@ -1302,7 +1302,8 @@ def rebase(
          the rebase succeeded
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, some but not all of its sources
-         cannot be probed, the entry was built on another Python minor, --only-alias
+         cannot be probed, the entry was built on another Python minor or
+         records none (--ignore-venv-mismatch overrides it, with a warning), --only-alias
          names an alias on neither the old entry nor the new one (an
          unregistered one before the sweep), --alias names an alias on
          another entry than the old or new one (once there is a new entry),
