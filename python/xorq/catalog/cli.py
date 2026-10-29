@@ -1310,8 +1310,8 @@ def rebase(
          ENTRY is an alias the pull moved or removed, a probed source
          matched no source of the loaded expression, --no-add found its
          BUILDS_DIR/<hash> taken, or a write failed
-         (the new entry and its alias moves are rolled back locally, a
-         failed rollback is logged)
+         (the new entry and its alias moves are rolled back locally; if that
+         fails too, the error names what may be left)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; the sync's pull

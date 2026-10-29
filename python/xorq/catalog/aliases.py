@@ -18,11 +18,7 @@ from attr.validators import deep_iterable, instance_of, optional
 
 from xorq.catalog.catalog import Catalog, CatalogEntry
 from xorq.catalog.enums import RebaseFailure
-from xorq.catalog.exceptions import RebaseError
-from xorq.common.utils.logging_utils import get_logger
-
-
-logger = get_logger(__name__)
+from xorq.catalog.exceptions import RebaseError, RollbackError
 
 
 def str_tuple() -> Any:
@@ -236,24 +232,21 @@ def roll_back(
 ) -> None:
     """Remove entry ``name`` if ``added``, and point each alias back at ``prior``.
 
-    An alias ``prior`` maps to ``None`` did not exist, and is removed. Logged,
-    not raised, so the error that caused it is the one that surfaces.
+    An alias ``prior`` maps to ``None`` did not exist, and is removed. What it
+    raises, the caller reports beside the error that caused the rollback.
     """
-    try:
-        # First: removing the entry takes the aliases on it along. An add that
-        # failed part-way left some of the entry's pieces; `remove` takes
-        # whichever are there.
-        pieces = CatalogEntry(name, catalog, require_exists=False)._exists_components  # noqa: SLF001  # xorq-style: disable=protected-access
-        if added and any(pieces.values()):
-            catalog.remove(name, sync=False)
-        for alias, target in prior.items():
-            if target is not None:
-                if target != name:
-                    catalog.add_alias(target, alias, sync=False)
-            elif alias in catalog.list_aliases():
-                catalog.remove_alias(alias, sync=False)
-    except Exception:
-        logger.exception("rollback failed for %s", name)
+    # First: removing the entry takes the aliases on it along. An add that
+    # failed part-way left some of the entry's pieces; `remove` takes
+    # whichever are there.
+    pieces = CatalogEntry(name, catalog, require_exists=False)._exists_components  # noqa: SLF001  # xorq-style: disable=protected-access
+    if added and any(pieces.values()):
+        catalog.remove(name, sync=False)
+    for alias, target in prior.items():
+        if target is not None:
+            if target != name:
+                catalog.add_alias(target, alias, sync=False)
+        elif alias in catalog.list_aliases():
+            catalog.remove_alias(alias, sync=False)
 
 
 def add_with_aliases(
@@ -284,7 +277,17 @@ def add_with_aliases(
         for alias in landed.moving:
             attempted.append(alias)
             catalog.add_alias(name, alias, sync=False)
-    except Exception:
-        roll_back(catalog, name, {n: landed.target(n) for n in attempted}, added)
+    except Exception as e:
+        try:
+            roll_back(catalog, name, {n: landed.target(n) for n in attempted}, added)
+        except Exception as rollback_error:
+            # Raised: the local catalog may now hold what the write left.
+            left = [f"entry {name}"] if added else []
+            left += [f"alias {alias!r}" for alias in attempted]
+            raise RollbackError(
+                f"{type(e).__name__}: {e}; undoing it failed too "
+                f"({type(rollback_error).__name__}: {rollback_error}), so the "
+                f"local catalog may still hold {', '.join(left) or 'nothing'}"
+            ) from e
         raise
     return new_entry, AliasOutcome.of(plan, landed)

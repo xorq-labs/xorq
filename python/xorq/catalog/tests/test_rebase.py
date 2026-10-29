@@ -1725,6 +1725,8 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     result = rebase(runner, world, world.name, "--move-aliases")
     assert result.exit_code == 1
     assert "alias move failed" in result.stderr
+    assert "undoing it failed too (OSError: rollback failed)" in result.stderr
+    assert "may still hold entry" in result.stderr
 
 
 @pytest.mark.parametrize("backend_type", ("pointer",))
