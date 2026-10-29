@@ -18,11 +18,7 @@ from attr.validators import deep_iterable, instance_of, optional
 
 from xorq.catalog.catalog import Catalog, CatalogEntry
 from xorq.catalog.enums import RebaseFailure
-from xorq.catalog.exceptions import RebaseError
-from xorq.common.utils.logging_utils import get_logger
-
-
-logger = get_logger(__name__)
+from xorq.catalog.exceptions import RebaseError, RollbackError
 
 
 def str_tuple() -> Any:
@@ -236,34 +232,68 @@ def roll_back(
 ) -> None:
     """Remove entry ``name`` if ``added``, and point each alias back at ``prior``.
 
-    An alias ``prior`` maps to ``None`` did not exist, and is removed. Logged,
-    not raised, so the error that caused it is the one that surfaces.
+    An alias ``prior`` maps to ``None`` did not exist, and is removed. What it
+    raises, the caller reports beside the error that caused the rollback.
     """
+    # First: removing the entry takes the aliases on it along. An add that
+    # failed part-way left some of the entry's pieces; `remove` takes
+    # whichever are there.
+    pieces = CatalogEntry(name, catalog, require_exists=False)._exists_components  # noqa: SLF001  # xorq-style: disable=protected-access
+    if added and any(pieces.values()):
+        catalog.remove(name, sync=False)
+    for alias, target in prior.items():
+        if target is not None:
+            if target != name:
+                catalog.add_alias(target, alias, sync=False)
+        elif alias in catalog.list_aliases():
+            catalog.remove_alias(alias, sync=False)
+
+
+def left_behind(
+    catalog: Catalog, name: str, prior: Mapping[str, str | None], added: bool
+) -> str:
+    """What a failed rollback left, read from the catalog as it is now: the
+    entry, if this write added it, and each alias not back on its prior target.
+
+    Each is read on its own, so a half-removed entry that the alias read trips
+    over is still named.
+    """
+    left = []
     try:
-        # First: removing the entry takes the aliases on it along. An add that
-        # failed part-way left some of the entry's pieces; `remove` takes
-        # whichever are there.
+        # Any of its pieces, as `roll_back` reads them: a removal that failed
+        # part-way leaves an entry `contains` no longer sees.
         pieces = CatalogEntry(name, catalog, require_exists=False)._exists_components  # noqa: SLF001  # xorq-style: disable=protected-access
         if added and any(pieces.values()):
-            catalog.remove(name, sync=False)
-        for alias, target in prior.items():
-            if target is not None:
-                if target != name:
-                    catalog.add_alias(target, alias, sync=False)
-            elif alias in catalog.list_aliases():
-                catalog.remove_alias(alias, sync=False)
-    except Exception:
-        logger.exception("rollback failed for %s", name)
+            left.append(f"entry {name}")
+    except Exception as e:
+        left.append(f"entry {name}, perhaps (unreadable: {type(e).__name__}: {e})")
+    try:
+        targets = alias_targets(catalog)
+    except Exception as e:
+        left.append(
+            f"aliases {', '.join(map(repr, prior))} somewhere (unreadable: "
+            f"{type(e).__name__}: {e})"
+        )
+    else:
+        left += [
+            f"alias {alias!r} on {targets.get(alias) or 'no entry'}, was on "
+            f"{target or 'no entry'}"
+            for alias, target in prior.items()
+            if targets.get(alias) != target
+        ]
+    return ", ".join(left) or "nothing: the rollback undid the write before failing"
 
 
 def add_with_aliases(
     plan: AliasPlan, build_path: Path, pulled: bool
-) -> tuple[CatalogEntry, AliasOutcome]:
+) -> tuple[CatalogEntry, AliasOutcome, bool]:
     """Catalog ``build_path`` and point ``plan``'s aliases at it, all or nothing.
 
-    Returns the new entry and what became of the aliases, planned again here,
-    after the sync's pull (``pulled``), which can move one. The caller owns the
-    sync: it pulls before and pushes after, and decides what a failed push is.
+    Returns the new entry, what became of the aliases, planned again here,
+    after the sync's pull (``pulled``), which can move one, and whether this
+    call added the entry (false when it was cataloged already). The caller
+    owns the sync: it pulls before and pushes after, and decides what a failed
+    push is.
     """
     catalog = plan.old_entry.catalog
     name = build_path.name
@@ -284,7 +314,16 @@ def add_with_aliases(
         for alias in landed.moving:
             attempted.append(alias)
             catalog.add_alias(name, alias, sync=False)
-    except Exception:
-        roll_back(catalog, name, {n: landed.target(n) for n in attempted}, added)
+    except Exception as e:
+        prior = {n: landed.target(n) for n in attempted}
+        try:
+            roll_back(catalog, name, prior, added)
+        except Exception as rollback_error:
+            # Raised: the local catalog may now hold what the write left.
+            raise RollbackError(
+                f"{type(e).__name__}: {e}; undoing it failed too "
+                f"({type(rollback_error).__name__}: {rollback_error}); the local "
+                f"catalog now holds {left_behind(catalog, name, prior, added)}"
+            ) from e
         raise
-    return new_entry, AliasOutcome.of(plan, landed)
+    return new_entry, AliasOutcome.of(plan, landed), added

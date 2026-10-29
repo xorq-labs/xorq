@@ -28,12 +28,17 @@ from xorq.catalog import cli as catalog_cli
 from xorq.catalog import drift
 from xorq.catalog import rebase as rebase_module
 from xorq.catalog.aliases import AliasPlan
-from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogPullError
+from xorq.catalog.catalog import (
+    Catalog,
+    CatalogAlias,
+    CatalogEntry,
+    CatalogPullError,
+)
 from xorq.catalog.cli import cli
 from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus
 from xorq.catalog.exceptions import RebaseError
-from xorq.catalog.rebase import rebase_entry, recorded_python_minor
+from xorq.catalog.rebase import ColumnChange, rebase_entry, recorded_python_minor
 from xorq.catalog.tests.conftest import (
     RECORDED,
     TEST_WHEEL_NAME,
@@ -81,6 +86,7 @@ def world_aliases() -> tuple[str, ...]:
 
 
 GROWN = RECORDED.append_column("c", pa.array([1.5, 2.5], pa.float64()))
+RETYPED = pa.table({"a": pa.array([1.0, 2.0], pa.float64()), "b": ["x", "y"]})
 
 
 def replace_t(world: SimpleNamespace, table: pa.Table) -> None:
@@ -138,6 +144,156 @@ def test_a_grown_source_rebases_to_a_new_entry(
         f"Aliases left on {world.name}: live, staging; pass --move-aliases"
         in result.stderr
     )
+
+
+def test_a_rebase_onto_an_entry_already_cataloged_keeps_it_and_says_so(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The old entry still drifts, so a second rebase derives the same hash."""
+    replace_t(world, GROWN)
+    _, first = rebase_json(runner, world, world.name, "--no-sync")
+    new = first["new_entry"]
+    archive = Path(reopen(world).get_catalog_entry(new).catalog_path)
+    mtime = archive.stat().st_mtime_ns
+
+    again = rebase(runner, world, world.name, "--no-sync")
+    _, again_document = rebase_json(runner, world, world.name, "--no-sync")
+    assert (first["created"], again_document["created"]) == (True, False)
+    assert again.exit_code == 0, again.output
+    assert again.stdout == f"{new}\n"
+    assert (
+        f"Rebased {world.name} -> {new} (already cataloged; existing archive kept)"
+        in again.stderr
+    )
+    assert archive.stat().st_mtime_ns == mtime
+
+
+@pytest.mark.parametrize(
+    "live, output",
+    (
+        pytest.param(GROWN, "Output: c float64 added", id="added"),
+        pytest.param(RETYPED, "Output: a int64 -> float64", id="retyped"),
+    ),
+)
+def test_a_rebase_states_how_the_output_schema_changed(
+    runner: CliRunner, world: SimpleNamespace, live: pa.Table, output: str
+) -> None:
+    replace_t(world, live)
+    result = rebase(runner, world)
+    assert result.exit_code == 0, result.output
+    assert output in result.stderr.splitlines()
+
+
+def test_the_output_names_a_derived_column_its_source_retyped(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The sweep compares sources; only the output shows `a2` became float64."""
+    t = world.con.table("t")
+    name = world.catalog.add(t.select(a2=t.a + 1)).name
+    replace_t(world, RETYPED)
+    _, document = rebase_json(runner, world, name, "--no-sync")
+    assert document["output_changes"] == [
+        {"name": "a2", "before": "int64", "after": "float64"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "make, change",
+    (
+        pytest.param(
+            lambda t: (t.a + 1).name("a2"),
+            {"name": "a2", "before": "int64", "after": "float64"},
+            id="column",
+        ),
+        pytest.param(
+            lambda t: t.a.max().name("top"),
+            {"name": "top", "before": "int64", "after": "float64"},
+            id="scalar",
+        ),
+    ),
+)
+def test_a_column_or_scalar_entry_states_its_output_change(
+    runner: CliRunner, world: SimpleNamespace, make: Callable, change: dict
+) -> None:
+    """Compared as a table, as an entry's metadata is."""
+    name = world.catalog.add(make(world.con.table("t"))).name
+    replace_t(world, RETYPED)
+    _, document = rebase_json(runner, world, name, "--no-sync")
+    assert document["state"] == "rebased"
+    assert document["output_changes"] == [change]
+
+
+@pytest.mark.parametrize("side", (None, "int64"))
+def test_a_column_change_changes_something(side: str | None) -> None:
+    """Neither side, or the same type on both, would print as a change."""
+    with pytest.raises(ValueError, match="changes nothing"):
+        ColumnChange("a", side, side)
+
+
+def test_an_unprobed_result_names_its_sources(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An UNPROBED result with no names would print an empty list."""
+    monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
+    unprobed = rebase_old(world)
+    with pytest.raises(ValueError, match="unprobed"):
+        evolve(unprobed, unprobed=())
+
+
+@pytest.mark.parametrize("args", (("--dry-run",), ("--no-add",)))
+def test_an_unprobed_entry_writes_nothing_under_dry_run_or_no_add(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    args: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
+    result = rebase(runner, world, world.name, *args)
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{world.name}\n"
+    assert not any(cwd.iterdir())
+
+
+@pytest.mark.parametrize(
+    "make, live, output, change",
+    (
+        pytest.param(
+            lambda t: t.select("a"),
+            GROWN,
+            "Output: unchanged",
+            None,
+            id="unchanged",
+        ),
+        pytest.param(
+            None,
+            pa.table({"a": pa.array([1, 2], pa.int64())}),
+            "Output: b removed",
+            {"name": "b", "before": "string", "after": None},
+            id="removed",
+        ),
+    ),
+)
+def test_the_output_line_says_unchanged_or_removed(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    make: Callable,
+    live: pa.Table,
+    output: str,
+    change: dict | None,
+) -> None:
+    # The world's own entry keeps every column; `None` rebases that one.
+    name = (
+        world.name
+        if make is None
+        else world.catalog.add(make(world.con.table("t"))).name
+    )
+    replace_t(world, live)
+    result = rebase(runner, world, name, "--no-sync")
+    assert result.exit_code == 0, result.output
+    assert output in result.stderr.splitlines()
+    _, document = rebase_json(runner, world, name, "--no-sync")
+    assert document["output_changes"] == ([] if change is None else [change])
 
 
 def test_move_aliases_moves_them_all(runner: CliRunner, world: SimpleNamespace) -> None:
@@ -218,24 +374,32 @@ def test_an_alias_named_twice_moves_once(
     assert targets(world, "live") == (new,)
 
 
-def test_an_entry_with_only_unprobed_sources_is_attempted(
+def test_an_entry_with_only_unprobed_sources_is_left_alone(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Re-derived and settled by the hash, but not declared drift-free."""
+    """Nothing can be refreshed, so it is not loaded, nor declared drift-free."""
     monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
     commits = commit_count(world.catalog)
+    loads = []
+    real_load = CatalogEntry.load_expr
+    monkeypatch.setattr(
+        CatalogEntry,
+        "load_expr",
+        lambda self, **kw: loads.append(self.name) or real_load(self, **kw),
+    )
 
     result = rebase(runner, world, world.name, "--move-aliases")
     assert result.exit_code == 0, result.output
     assert result.stdout == f"{world.name}\n"
-    assert "No source could be probed (t)" in result.stderr
+    assert "no source can be probed (t); nothing done" in result.stderr
     assert "drift not ruled out" in result.stderr
     assert "no drift" not in result.stderr
     assert "Aliases not moved: nothing to rebase" in result.stderr
     assert targets(world, "live", "staging") == (world.name, world.name)
     assert commit_count(reopen(world)) == commits
-    attempted = rebase_old(world)
-    assert (attempted.status, attempted.unprobed) == (RebaseStatus.ATTEMPTED, ("t",))
+    assert loads == []
+    unprobed = rebase_old(world)
+    assert (unprobed.status, unprobed.unprobed) == (RebaseStatus.UNPROBED, ("t",))
 
 
 @ALL_BACKENDS
@@ -265,17 +429,33 @@ def test_the_rebased_archive_inherits_wheels_and_requirements(
     assert requirements == b"pinned-dep==1.0\n"
 
 
-def test_a_python_minor_mismatch_is_overridable(
-    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "recorded, problem",
+    (
+        pytest.param((3, 0), "was built on Python 3.0", id="other-minor"),
+        pytest.param(None, "records no Python minor", id="unrecorded"),
+    ),
+)
+def test_a_python_minor_mismatch_is_overridable_and_warned(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    recorded: tuple[int, int] | None,
+    problem: str,
 ) -> None:
     entry = world.catalog.get_catalog_entry(world.name)
     assert recorded_python_minor(entry) == tuple(sys.version_info[:2])
     replace_t(world, GROWN)
-    monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: (3, 0))
+    monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: recorded)
 
     result = rebase(runner, world, world.name, "--ignore-venv-mismatch")
     assert result.exit_code == 0, result.output
+    assert f"PythonMinorWarning: {world.name} {problem}" in result.stderr
     assert result.stdout.strip() != world.name
+    _, document = rebase_json(
+        runner, world, world.name, "--ignore-venv-mismatch", "--no-sync"
+    )
+    assert [w for w in document["warnings"] if w.startswith("PythonMinorWarning")]
 
 
 def test_rebase_entry_checks_its_alias_arguments(world: SimpleNamespace) -> None:
@@ -991,6 +1171,22 @@ def refuse_pinned(w: SimpleNamespace) -> Setup:
     return w.catalog.add(expr).name, (), ()
 
 
+def test_an_entry_recording_no_python_minor_needs_no_override_without_drift(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing is loaded, so no UDF is unpickled under the wrong minor."""
+    monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: None)
+    result = rebase(runner, world)
+    assert result.exit_code == 0, result.output
+    assert "no drift" in result.stderr
+
+
+def refuse_no_python_minor(w: SimpleNamespace) -> Setup:
+    replace_t(w, GROWN)
+    w.monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: None)
+    return w.name, (), ()
+
+
 def refuse_python_minor(w: SimpleNamespace) -> Setup:
     replace_t(w, GROWN)
     w.monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: (3, 0))
@@ -1001,13 +1197,6 @@ def refuse_some_unprobed(w: SimpleNamespace) -> Setup:
     u = w.con.create_table("u", RECORDED.to_pandas())
     w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: leaf.name != "u")
     return w.catalog.add(w.con.table("t").union(u)).name, (), ()
-
-
-def refuse_unprobed_new_hash(w: SimpleNamespace) -> Setup:
-    """No source probed, yet the re-derivation hashes anew: nothing to follow."""
-    w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
-    w.monkeypatch.setattr(ExprDumper, "expr_hash", property(lambda _: "0" * 12))
-    return w.name, (), ()
 
 
 def refuse_unreadable(target: str) -> Callable:
@@ -1180,6 +1369,12 @@ REFUSALS = (
     ),
     pytest.param(refuse_pinned, 1, "xorq catalog unpin {name}", id="pinned"),
     pytest.param(
+        refuse_no_python_minor,
+        1,
+        f"records no Python minor, this is {RUNNING}; pass --ignore-venv-mismatch",
+        id="no-python-minor",
+    ),
+    pytest.param(
         refuse_python_minor,
         1,
         f"built on Python 3.0, this is {RUNNING}; pass --ignore-venv-mismatch",
@@ -1225,12 +1420,6 @@ REFUSALS = (
     pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
     pytest.param(
         refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
-    ),
-    pytest.param(
-        refuse_unprobed_new_hash,
-        1,
-        "no source could be probed (t)",
-        id="unprobed-new-hash",
     ),
     pytest.param(
         refuse_unmatched_source, 1, "t matched no source", id="unmatched-source"
@@ -1675,6 +1864,68 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     result = rebase(runner, world, world.name, "--move-aliases")
     assert result.exit_code == 1
     assert "alias move failed" in result.stderr
+    assert "undoing it failed too (OSError: rollback failed)" in result.stderr
+    assert "the local catalog now holds entry" in result.stderr
+
+
+def test_a_rollback_that_removed_part_of_the_entry_still_names_it(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The archive went, the rest did not: the entry is still named."""
+    replace_t(world, GROWN)
+    fail_nth_alias_move(monkeypatch, 2)
+
+    def partial_remove(self: Catalog, name: str, sync: bool = True) -> None:
+        Path(self.get_catalog_entry(name).catalog_path).unlink()
+        raise OSError("rollback failed")
+
+    monkeypatch.setattr(Catalog, "remove", partial_remove)
+    result = rebase(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert "the local catalog now holds entry" in result.stderr
+
+
+def test_json_reports_a_failed_rollback_as_its_own_state(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not `failed`: the local catalog may hold part of the write."""
+    replace_t(world, GROWN)
+    fail_nth_alias_move(monkeypatch, 2)
+
+    def failing_remove(self: Catalog, name: str, sync: bool = True) -> None:
+        raise OSError("rollback failed")
+
+    monkeypatch.setattr(Catalog, "remove", failing_remove)
+    result, document = rebase_json(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert (document["state"], result.exit_code) == ("rollback-failed", 1)
+    assert document["error"].startswith("RollbackError: ")
+    assert "the local catalog now holds entry" in document["error"]
+
+
+def test_a_failed_rollback_names_the_alias_it_could_not_restore(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entry's removal took `live` along; putting it back failed. What is
+    left is read from the catalog, not from what the write attempted."""
+    replace_t(world, GROWN)
+    add = CatalogAlias.add
+    calls = []
+
+    def failing_add(self: CatalogAlias) -> None:
+        calls.append(self.alias)
+        # The second move, then the restore of `live`, fail.
+        if len(calls) >= 2:
+            raise RuntimeError("alias move failed")
+        return add(self)
+
+    monkeypatch.setattr(CatalogAlias, "add", failing_add)
+    result = rebase(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert f"alias 'live' on no entry, was on {world.name}" in result.stderr
+    assert "holds entry" not in result.stderr
 
 
 @pytest.mark.parametrize("backend_type", ("pointer",))
@@ -1716,6 +1967,8 @@ ROOT_KEYS = {
     "new_entry",
     "new_hash",
     "build_path",
+    "created",
+    "output_changes",
     "failing_op",
     "drift",
     "aliases",
@@ -1741,13 +1994,17 @@ SWEPT_REFUSALS = frozenset(
     (
         "elsewhere-alias-no-drift",
         "taken-alias",
-        "unprobed-new-hash",
         "unprobed-db",
         "unmatched-source",
         "unreachable-outranks-changed",
         "unreadable-profile",
         "unreadable-bundle",
         "deleted-db",
+        # The Python minor is checked just before loading, after the sweep.
+        "python-minor",
+        "no-python-minor",
+        "corrupt-metadata",
+        "unreadable-metadata",
     )
 )
 
@@ -1800,7 +2057,7 @@ def json_rebased(w: SimpleNamespace) -> tuple[str, ...]:
     "setup, state, drift_state, rebased",
     (
         pytest.param(json_noop, "noop", "equal", False, id="noop"),
-        pytest.param(json_unprobed, "attempted", None, False, id="attempted"),
+        pytest.param(json_unprobed, "unprobed", None, False, id="unprobed"),
         pytest.param(json_rebased, "rebased", "changed", True, id="rebased"),
     ),
 )
@@ -2246,7 +2503,7 @@ def test_every_rebase_state_names_its_exit_code() -> None:
     """Only a completed rebase exits 0; a new state must name its code."""
     assert {state: state.exit_code for state in (*RebaseStatus, *RebaseFailure)} == {
         RebaseStatus.NOOP: 0,
-        RebaseStatus.ATTEMPTED: 0,
+        RebaseStatus.UNPROBED: 0,
         RebaseStatus.REBASED: 0,
         RebaseStatus.CONFLICT: RebaseExit.CONFLICT,
         RebaseStatus.PUSH_FAILED: RebaseExit.PUSH_FAILED,
@@ -2254,6 +2511,7 @@ def test_every_rebase_state_names_its_exit_code() -> None:
         RebaseStatus.BUILT: RebaseExit.UNCATALOGED,
         RebaseFailure.REFUSED: RebaseExit.REFUSED,
         RebaseFailure.UNREACHABLE: RebaseExit.UNREACHABLE,
+        RebaseFailure.ROLLBACK_FAILED: RebaseExit.REFUSED,
         RebaseFailure.FAILED: RebaseExit.REFUSED,
     }
 

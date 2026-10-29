@@ -600,7 +600,7 @@ def _catalog_pin_command(
                 entry_alias=entry_alias,
             )
             with catalog.maybe_synchronizing(sync):
-                new_entry, aliases = add_with_aliases(plan, build, pulled=sync)
+                new_entry, aliases, _ = add_with_aliases(plan, build, pulled=sync)
         _report_aliases(aliases, catalog_entry.name, new_entry.name, "--move-aliases")
     click.echo(new_entry.name)
 
@@ -1277,7 +1277,8 @@ def rebase(
     building. It does not sync, and takes no --alias, --move-aliases or
     --only-alias, since there is no entry to name. An interrupted --no-add can
     leave a hidden BUILDS_DIR/.<hash>.* stage, safe to delete. With no drift,
-    neither writes anything and both print the entry's own name.
+    or no source that can be probed, neither writes anything and both print the
+    entry's own name.
 
     No alias moves unless asked. --move-aliases moves every alias the old
     entry has once the sync's pull is in, and names any the pull took off it;
@@ -1292,10 +1293,9 @@ def rebase(
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed. An entry
-    none of whose sources can be probed is re-derived anyway; if it comes back
-    with its own hash, stderr says that drift was not ruled out, and if it
-    comes back with a new hash, the rebase is refused, since nothing was
-    refreshed.
+    none of whose sources can be probed is left alone, since nothing can be
+    refreshed: its own name is printed, and stderr says drift was not ruled
+    out.
 
     \b
     Exit codes:
@@ -1303,16 +1303,18 @@ def rebase(
          the rebase succeeded
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, some but not all of its sources
-         cannot be probed, none could be but the entry re-derived to a new
-         hash, the entry was built on another Python minor, --only-alias
-         names an alias on neither the old entry nor the new one (an
+         cannot be probed, the entry was built on another Python minor or
+         records none (--ignore-venv-mismatch overrides it, with a
+         warning), --only-alias names an alias on neither the old entry
+         nor the new one (an
          unregistered one before the sweep), --alias names an alias on
          another entry than the old or new one (once there is a new entry),
          ENTRY is an alias the pull moved or removed, a probed source
          matched no source of the loaded expression, --no-add found its
          BUILDS_DIR/<hash> taken, or a write failed
-         (the new entry and its alias moves are rolled back locally, a
-         failed rollback is logged)
+         (the new entry and its alias moves are rolled back locally; if that
+         fails too, the error names what is left, and --json says
+         rollback-failed)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; the sync's pull
@@ -1380,9 +1382,16 @@ def rebase(
     # One scope from resolving the entry to printing the document: under --json
     # whatever warns goes in the document, and whatever raises is handled.
     with ExitStack() as stack:
-        caught = (
-            stack.enter_context(warnings.catch_warnings(record=True)) if as_json else []
-        )
+        caught = stack.enter_context(warnings.catch_warnings(record=True))
+        if not as_json:
+            # Without --json each one goes on stderr as the document words it,
+            # not as a source line, and whatever the rebase then raised.
+            stack.callback(
+                lambda: [
+                    click.echo(f"{w.category.__name__}: {w.message}", err=True)
+                    for w in caught
+                ]
+            )
         stack.enter_context(click_context_catalog(ctx))
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)
@@ -1450,17 +1459,16 @@ def rebase(
             for line in format_leaf_report(report):
                 click.echo(line, err=True)
     old, new = result.old_entry.name, result.new_entry.name
-    if result.unprobed:
-        click.echo(
-            f"No source could be probed ({', '.join(result.unprobed)}); "
-            "re-derived without refreshing any",
-            err=True,
-        )
-    if result.status in (RebaseStatus.NOOP, RebaseStatus.ATTEMPTED):
+    if result.output_changes is not None:
+        # The output's own columns: a source's new type can retype derived ones.
+        changes = ", ".join(map(str, result.output_changes)) or "unchanged"
+        click.echo(f"Output: {changes}", err=True)
+    if result.status in (RebaseStatus.NOOP, RebaseStatus.UNPROBED):
         click.echo(
             f"{old}: no drift"
             if result.status == RebaseStatus.NOOP
-            else f"{old}: re-derived to the same hash; drift not ruled out",
+            else f"{old}: no source can be probed ({', '.join(result.unprobed)}); "
+            "nothing done, drift not ruled out",
             err=True,
         )
         if alias:
@@ -1489,11 +1497,12 @@ def rebase(
         click.echo(result.build_path)
         ctx.exit(result.status.exit_code)
     else:
+        kept = "" if result.created else " (already cataloged; existing archive kept)"
         if result.push_error is None:
-            click.echo(f"Rebased {old} -> {new}", err=True)
+            click.echo(f"Rebased {old} -> {new}{kept}", err=True)
         else:
             click.echo(
-                f"Rebased {old} -> {new} locally; push failed: "
+                f"Rebased {old} -> {new}{kept} locally; push failed: "
                 f"{result.push_message}; {result.sync_hint}",
                 err=True,
             )

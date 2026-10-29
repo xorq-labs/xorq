@@ -122,8 +122,8 @@ class Verdict(StrEnum):
 class RebaseStatus(StrEnum):
     """How a ``rebase_entry`` that raised no ``RebaseError`` ended.
 
-    ``ATTEMPTED``: no source could be probed, so the entry was re-derived and
-    came back with its own hash; unlike ``NOOP``, that doesn't prove no drift.
+    ``UNPROBED``: no source can be probed, so nothing could be refreshed and
+    nothing was loaded or written; unlike ``NOOP``, that doesn't prove no drift.
     ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
     written. ``PUSH_FAILED``: rebased as ``REBASED`` is, but the sync's push
     failed, so the new entry and its alias moves are committed only locally.
@@ -133,7 +133,7 @@ class RebaseStatus(StrEnum):
     """
 
     NOOP = "noop"
-    ATTEMPTED = "attempted"
+    UNPROBED = "unprobed"
     REBASED = "rebased"
     CONFLICT = "conflict"
     PUSH_FAILED = "push-failed"
@@ -143,7 +143,7 @@ class RebaseStatus(StrEnum):
     @property
     def exit_code(self) -> int:
         match self:
-            case RebaseStatus.NOOP | RebaseStatus.ATTEMPTED | RebaseStatus.REBASED:
+            case RebaseStatus.NOOP | RebaseStatus.UNPROBED | RebaseStatus.REBASED:
                 return 0
             case RebaseStatus.PREVIEW | RebaseStatus.BUILT:
                 return RebaseExit.UNCATALOGED
@@ -163,7 +163,9 @@ class RebaseExit(IntEnum):
     # Nothing of the rebase's own written (a sync's pull may have merged). A
     # refusal is a property of the entry or the request, and retrying won't
     # help; a write that failed and was rolled back (`failed`) exits 1 too,
-    # and may be transient: its `error` says which.
+    # and may be transient: its `error` says which. So does one whose rollback
+    # failed too (`rollback-failed`), the one exit 1 that may leave the local
+    # catalog dirty: its `error` names what is left.
     REFUSED = 1
     # A source or the record could not be read; retryable.
     UNREACHABLE = 2
@@ -183,17 +185,24 @@ class RebaseFailure(StrEnum):
     """How a rebase that returned no ``RebaseResult`` ended.
 
     ``REFUSED`` and ``UNREACHABLE`` are what a ``RebaseError`` carries;
-    ``FAILED`` is any other error, such as a write that failed.
+    ``ROLLBACK_FAILED`` is a write that failed and could not be undone, so the
+    local catalog may hold part of it; ``FAILED`` is any other error, such as
+    a write that failed and was rolled back.
     """
 
     REFUSED = "refused"
     UNREACHABLE = "unreachable"
+    ROLLBACK_FAILED = "rollback-failed"
     FAILED = "failed"
 
     @property
     def exit_code(self) -> int:
         match self:
-            case RebaseFailure.REFUSED | RebaseFailure.FAILED:
+            case (
+                RebaseFailure.REFUSED
+                | RebaseFailure.ROLLBACK_FAILED
+                | RebaseFailure.FAILED
+            ):
                 return RebaseExit.REFUSED
             case RebaseFailure.UNREACHABLE:
                 return RebaseExit.UNREACHABLE

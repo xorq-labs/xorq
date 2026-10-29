@@ -20,6 +20,8 @@ way a rebase of a resolved entry can end, buffered and emitted once::
       "old_entry": "b0e5f7bd7d78",
       "new_entry": null,           # old_entry on a no-op; null unless cataloged
       "new_hash": null,            # the rebased build's hash, cataloged or not
+      "created": null,             # on a cataloged rebase: false if it already was
+      "output_changes": null,      # once derived: [{"name", "before", "after"}]
       "build_path": null,          # where `--no-add` wrote the build
       "failing_op": "Field",       # null unless an op could not be rebuilt
       "drift": {...},              # this entry's `check-sources --json` document
@@ -38,13 +40,18 @@ written (``rebased`` or ``push-failed``), or on ``preview``, where it is what
 the rebase would do (before the sync's pull, which a preview does not run).
 ``new_hash`` is the hash the rebase derived: ``new_entry`` once cataloged, the
 hash ``--dry-run`` (``preview``) or ``--no-add`` (``built``) did not catalog,
-and ``null`` on a conflict or a failure. ``build_path`` is set only on
-``built``. ``error`` is present only when there is one, always as ``Type:
-message``: what refused or failed the rebase, what a conflict's op or source
-raised, or what a failed push raised. ``warnings`` holds each warning the
-rebase raised, as ``Category: message``, so stderr stays empty. On
-``push-failed`` the new entry and its aliases are committed locally, and `xorq
-catalog sync` publishes them.
+and ``null`` on a conflict or a failure. ``created`` is set only once an entry
+is cataloged (``rebased``, ``push-failed``): ``false`` when it already was,
+from an earlier rebase, and its archive was kept. ``output_changes`` is set
+once a rebase is derived (``rebased``, ``push-failed``, ``preview``,
+``built``): each output column it retyped, added or removed, ``before`` or
+``after`` ``null`` where the column is absent, and empty when the output schema
+did not change. ``build_path`` is set only on ``built``. ``error`` is present
+only when there is one, always as ``Type: message``: what refused or failed the
+rebase, what a conflict's op or source raised, or what a failed push raised.
+``warnings`` holds each warning the rebase raised, as ``Category: message``, so
+stderr stays empty. On ``push-failed`` the new entry and its aliases are
+committed locally, and `xorq catalog sync` publishes them.
 """
 
 from __future__ import annotations
@@ -60,6 +67,7 @@ import zipfile
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from attr import Factory, asdict, converters, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
@@ -91,8 +99,10 @@ from xorq.catalog.exceptions import (
     CatalogPushError,
     ContentIntegrityError,
     ContentStoreError,
+    PythonMinorWarning,
     RebaseError,
     RebaseOptionsError,
+    RollbackError,
 )
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
@@ -104,6 +114,10 @@ from xorq.common.exceptions import (
 )
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr.schema import Schema
 
 
 def alias_names(only_aliases: Iterable[str]) -> tuple[str, ...]:
@@ -168,6 +182,48 @@ class RebaseOptions:
 
 
 @frozen
+class ColumnChange:
+    """One output column a rebase changed; ``None`` on the side it's absent."""
+
+    name = field(validator=instance_of(str))
+    before = field(validator=optional(instance_of(str)))
+    after = field(validator=optional(instance_of(str)))
+
+    def __attrs_post_init__(self) -> None:
+        # Absent on both sides, or the same type on both, is no change.
+        if self.before == self.after:
+            raise ValueError(
+                f"{self.name}: {self.before} -> {self.after} changes nothing"
+            )
+
+    def __str__(self) -> str:
+        if self.before is None:
+            return f"{self.name} {self.after} added"
+        if self.after is None:
+            return f"{self.name} removed"
+        return f"{self.name} {self.before} -> {self.after}"
+
+
+def column_changes(before: Schema, after: Schema) -> tuple[ColumnChange, ...]:
+    """The output columns ``after`` retyped, added or removed, in order.
+
+    A source column's new type can retype the columns derived from it too
+    (an int64 that becomes float64 makes ``a + 1`` float64), which the sweep,
+    comparing sources only, does not show.
+    """
+    old, new = dict(before.items()), dict(after.items())
+    return tuple(
+        ColumnChange(
+            name,
+            None if name not in old else str(old[name]),
+            None if name not in new else str(new[name]),
+        )
+        for name in dict.fromkeys((*old, *new))
+        if old.get(name) != new.get(name)
+    )
+
+
+@frozen
 class RebaseConflict:
     """What a conflicted rebase could not follow.
 
@@ -208,7 +264,7 @@ class RebaseResult:
     # Empty unless REBASED or PUSH_FAILED, or PREVIEW, where it is what the
     # rebase would do: nothing moves onto an entry that already was.
     aliases = field(factory=AliasOutcome, validator=instance_of(AliasOutcome))
-    # The sources no probe could compare, when none could; never on REBASED.
+    # The sources no probe can compare, on UNPROBED.
     unprobed = str_tuple()
 
     # Set exactly when ``status`` is ``CONFLICT``.
@@ -221,6 +277,18 @@ class RebaseResult:
     )
     # Set exactly when ``status`` is ``BUILT``: the build directory written.
     build_path = field(default=None, validator=optional(instance_of(Path)))
+    # Set exactly when an entry is cataloged (REBASED, PUSH_FAILED): false when
+    # it already was, from an earlier rebase, and its archive was kept.
+    created = field(default=None, validator=optional(instance_of(bool)))
+    # Set exactly when a rebase was derived (REBASED, PUSH_FAILED, PREVIEW,
+    # BUILT): how the entry's output schema changed, empty if it didn't.
+    output_changes = field(
+        default=None,
+        converter=converters.optional(tuple),
+        validator=optional(
+            deep_iterable(instance_of(ColumnChange), instance_of(tuple))
+        ),
+    )
 
     def __attrs_post_init__(self) -> None:
         conflicted = self.status == RebaseStatus.CONFLICT
@@ -230,6 +298,16 @@ class RebaseResult:
             raise ValueError(
                 f"a {self.status} rebase has push_error={self.push_error!r}"
             )
+        cataloged = self.status in (RebaseStatus.REBASED, RebaseStatus.PUSH_FAILED)
+        if cataloged != (self.created is not None):
+            raise ValueError(f"a {self.status} rebase has created={self.created!r}")
+        derived = cataloged or self.status in (RebaseStatus.PREVIEW, RebaseStatus.BUILT)
+        if derived != (self.output_changes is not None):
+            raise ValueError(
+                f"a {self.status} rebase has output_changes={self.output_changes!r}"
+            )
+        if (self.status == RebaseStatus.UNPROBED) != bool(self.unprobed):
+            raise ValueError(f"a {self.status} rebase has unprobed={self.unprobed!r}")
         if (self.status == RebaseStatus.BUILT) != (self.build_path is not None):
             raise ValueError(
                 f"a {self.status} rebase has build_path={self.build_path!r}"
@@ -293,6 +371,8 @@ class RebaseResult:
             else self.new_entry.name,
             new_hash=None if conflicted else self.new_hash,
             build_path=self.build_path,
+            created=self.created,
+            output_changes=self.output_changes,
             failing_op=conflict.op_name if conflicted else None,
             drift=drift,
             aliases=self.aliases,
@@ -310,6 +390,8 @@ def make_rebase_document(
     new_entry: str | None = None,
     new_hash: str | None = None,
     build_path: Path | None = None,
+    created: bool | None = None,
+    output_changes: Iterable[ColumnChange] | None = None,
     failing_op: str | None = None,
     drift: dict | None = None,
     aliases: AliasOutcome | None = None,
@@ -326,6 +408,10 @@ def make_rebase_document(
         "new_entry": new_entry,
         "new_hash": new_hash,
         "build_path": None if build_path is None else str(build_path),
+        "created": created,
+        "output_changes": None
+        if output_changes is None
+        else [asdict(change) for change in output_changes],
         "failing_op": failing_op,
         "drift": drift,
         "aliases": {
@@ -338,8 +424,15 @@ def make_rebase_document(
 
 
 def rebase_failure(e: Exception) -> RebaseFailure:
-    """The failure ``e`` ends a rebase with: a ``RebaseError``'s own."""
-    return e.failure if isinstance(e, RebaseError) else RebaseFailure.FAILED
+    """The failure ``e`` ends a rebase with: a ``RebaseError``'s own, or a
+    failed rollback's, which may have left part of the write."""
+    match e:
+        case RebaseError():
+            return e.failure
+        case RollbackError():
+            return RebaseFailure.ROLLBACK_FAILED
+        case _:
+            return RebaseFailure.FAILED
 
 
 def rebase_document(
@@ -453,9 +546,8 @@ def check_rebasable(
 ) -> tuple[str, ...]:
     """The unprobed sources, when no source can be probed; refuses otherwise.
 
-    An entry whose sources are all unprobed is re-derived, and the hash
-    decides: the same hash is ``ATTEMPTED``, a new one is refused, since no
-    schema was refreshed to follow it. One with only some unprobed is refused:
+    An entry whose sources are all unprobed is ``UNPROBED``: nothing can be
+    refreshed, so it isn't loaded. One with only some unprobed is refused:
     those would come back unchanged beside the refreshed ones.
     """
     name = catalog_entry.name
@@ -488,7 +580,9 @@ def recorded_python_minor(catalog_entry: CatalogEntry) -> tuple[int, int] | None
 
 
 def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> None:
-    """Refuse an entry built on another Python minor: its UDFs are cloudpickled."""
+    """Refuse an entry built on another Python minor, or on one it doesn't
+    record: its UDFs are cloudpickled. ``ignore_mismatch`` turns the refusal
+    into a ``PythonMinorWarning``."""
     name = catalog_entry.name
     try:
         recorded = recorded_python_minor(catalog_entry)
@@ -496,14 +590,25 @@ def check_python_minor(catalog_entry: CatalogEntry, ignore_mismatch: bool) -> No
         raise RebaseError(
             f"{name} is unreadable: {format_error(e)}", RebaseFailure.UNREACHABLE
         ) from e
-    running = tuple(sys.version_info[:2])
-    if recorded not in (None, running) and not ignore_mismatch:
+    if recorded == tuple(sys.version_info[:2]):
+        return
+    running = ".".join(map(str, sys.version_info[:2]))
+    problem = (
+        f"{name} records no Python minor"
+        if recorded is None
+        else f"{name} was built on Python {'.'.join(map(str, recorded))}"
+    )
+    if not ignore_mismatch:
         raise RebaseError(
-            f"{name} was built on Python {'.'.join(map(str, recorded))}, this is "
-            f"{'.'.join(map(str, running))}; pass --ignore-venv-mismatch to rebase "
+            f"{problem}, this is {running}; pass --ignore-venv-mismatch to rebase "
             "anyway",
             RebaseFailure.REFUSED,
         )
+    warnings.warn(
+        f"{problem}; rebasing under {running}, but its cloudpickled UDFs may not load",
+        PythonMinorWarning,
+        stacklevel=2,
+    )
 
 
 def check_bundle(catalog_entry: CatalogEntry) -> None:
@@ -734,7 +839,6 @@ def rebase_entry(
     check_bundle(catalog_entry)
     record = read_entry_record(catalog_entry)
     unprobed = check_rebasable(catalog_entry, record)
-    check_python_minor(catalog_entry, ignore_mismatch)
     # With no new name yet, only an unregistered alias is refused.
     plan = AliasPlan.read(
         catalog_entry,
@@ -753,6 +857,18 @@ def rebase_entry(
             plan.evolved(new=catalog_entry.name, alias=None)
             return RebaseResult(
                 RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
+            )
+        if unprobed:
+            # Nothing can be refreshed, so nothing is loaded or written, and the
+            # aliases are checked as on a no-op.
+            plan.evolved(new=catalog_entry.name, alias=None)
+            return RebaseResult(
+                RebaseStatus.UNPROBED,
+                catalog_entry,
+                catalog_entry,
+                reports,
+                record,
+                unprobed=unprobed,
             )
 
         def conflicted(conflict: RebaseConflict) -> RebaseResult:
@@ -774,6 +890,9 @@ def rebase_entry(
             tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td,
             keeping_read_posture(),
         ):
+            # Only before loading, which unpickles the UDFs: a no-op or an
+            # unprobed entry loads nothing, whatever minor it was built on.
+            check_python_minor(catalog_entry, ignore_mismatch)
             # Loaded inside the block: `load_expr` keeps the archive's extract dir,
             # which bundled reads point into, alive only as long as the expression.
             loaded = catalog_entry.load_expr(cache_dir=cache_dir)
@@ -796,25 +915,13 @@ def rebase_entry(
             )
             if dumper.expr_hash == catalog_entry.name:
                 plan.evolved(new=catalog_entry.name, alias=None)
-                status = RebaseStatus.ATTEMPTED if unprobed else RebaseStatus.NOOP
                 return RebaseResult(
-                    status,
-                    catalog_entry,
-                    catalog_entry,
-                    reports,
-                    record,
-                    unprobed=unprobed,
+                    RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
                 )
-            if unprobed:
-                # Nothing was refreshed, so the new hash follows no drift (the
-                # build hash reads a source's path, not its contents); a new entry
-                # would carry the old schemas under a rebased name.
-                raise RebaseError(
-                    f"{catalog_entry.name}: re-derived to a new hash, but no source "
-                    f"could be probed ({', '.join(unprobed)}), so nothing was "
-                    "refreshed",
-                    RebaseFailure.REFUSED,
-                )
+            # As a table: an entry can be a column or a scalar.
+            changes = column_changes(
+                loaded.as_table().schema(), expr.as_table().schema()
+            )
             # The new name is known now: an alias on another entry is refused
             # before the dump and the sync's pull, not after them.
             plan = plan.evolved(new=dumper.expr_hash)
@@ -831,6 +938,7 @@ def rebase_entry(
                     # What the rebase would do to them, before any pull.
                     aliases=AliasOutcome.of(plan, plan),
                     new_hash=dumper.expr_hash,
+                    output_changes=changes,
                 )
             build_path = dumper.dump_expr()
             stamp_rebased_from(build_path, catalog_entry.name)
@@ -843,6 +951,7 @@ def rebase_entry(
                     reports,
                     record,
                     new_hash=build_path.name,
+                    output_changes=changes,
                     build_path=publish_build(
                         catalog_entry, build_path, builds_dir
                     ).resolve(),
@@ -850,7 +959,9 @@ def rebase_entry(
             catalog = catalog_entry.catalog
             if sync:
                 pull_before(catalog)
-            new_entry, aliases = add_with_aliases(plan, build_path, pulled=sync)
+            new_entry, aliases, created = add_with_aliases(
+                plan, build_path, pulled=sync
+            )
         push_error = push_after(catalog) if sync else None
         return RebaseResult(
             RebaseStatus.REBASED if push_error is None else RebaseStatus.PUSH_FAILED,
@@ -860,4 +971,6 @@ def rebase_entry(
             record,
             aliases=aliases,
             push_error=push_error,
+            created=created,
+            output_changes=changes,
         )
