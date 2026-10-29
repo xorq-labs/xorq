@@ -247,6 +247,41 @@ def test_catalog_pin_failed_alias_move_rolls_back(
     assert alias_target_hash(reloaded, "latest") == src_name
 
 
+def test_catalog_pin_failed_rollback_says_what_it_left(
+    runner: CliRunner,
+    catalog: Catalog,
+    catalog_path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shared with rebase: a rollback that fails too names what is left."""
+    src_name = _add_cached_entry(catalog, "prod", "latest")
+    fail_nth_alias_move(monkeypatch, 2)
+
+    def failing_remove(self: Catalog, name: str, sync: bool = True) -> None:
+        raise OSError("rollback failed")
+
+    monkeypatch.setattr(Catalog, "remove", failing_remove)
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_path,
+            "pin",
+            src_name,
+            "-e",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--move-aliases",
+            "--no-sync",
+        ],
+    )
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert "undoing it failed too (OSError: rollback failed)" in result.output
+    assert "the local catalog now holds entry" in result.output
+
+
 def test_catalog_pin_refuses_an_alias_on_another_entry(
     runner: CliRunner, catalog: Catalog, catalog_path: str, tmp_path: Path
 ) -> None:

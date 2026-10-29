@@ -940,9 +940,9 @@ def rebase_entry(
             catalog = catalog_entry.catalog
             if sync:
                 pull_before(catalog)
-            # Read after the pull, which can bring in an earlier rebase's entry.
-            created = not catalog.contains(build_path.name)
-            new_entry, aliases = add_with_aliases(plan, build_path, pulled=sync)
+            new_entry, aliases, created = add_with_aliases(
+                plan, build_path, pulled=sync
+            )
         push_error = push_after(catalog) if sync else None
         return RebaseResult(
             RebaseStatus.REBASED if push_error is None else RebaseStatus.PUSH_FAILED,

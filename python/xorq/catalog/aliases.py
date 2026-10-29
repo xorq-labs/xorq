@@ -249,14 +249,37 @@ def roll_back(
             catalog.remove_alias(alias, sync=False)
 
 
+def left_behind(
+    catalog: Catalog, name: str, prior: Mapping[str, str | None], added: bool
+) -> str:
+    """What a failed rollback left, read from the catalog as it is now: the
+    entry, if this write added it, and each alias not back on its prior target.
+    """
+    try:
+        present = added and catalog.contains(name)
+        targets = alias_targets(catalog)
+    except Exception as e:
+        return f"what, unknown: the catalog could not be read ({type(e).__name__}: {e})"
+    left = [f"entry {name}"] if present else []
+    left += [
+        f"alias {alias!r} on {targets.get(alias) or 'no entry'}, was on "
+        f"{target or 'no entry'}"
+        for alias, target in prior.items()
+        if targets.get(alias) != target
+    ]
+    return ", ".join(left) or "nothing: the rollback undid the write before failing"
+
+
 def add_with_aliases(
     plan: AliasPlan, build_path: Path, pulled: bool
-) -> tuple[CatalogEntry, AliasOutcome]:
+) -> tuple[CatalogEntry, AliasOutcome, bool]:
     """Catalog ``build_path`` and point ``plan``'s aliases at it, all or nothing.
 
-    Returns the new entry and what became of the aliases, planned again here,
-    after the sync's pull (``pulled``), which can move one. The caller owns the
-    sync: it pulls before and pushes after, and decides what a failed push is.
+    Returns the new entry, what became of the aliases, planned again here,
+    after the sync's pull (``pulled``), which can move one, and whether this
+    call added the entry (false when it was cataloged already). The caller
+    owns the sync: it pulls before and pushes after, and decides what a failed
+    push is.
     """
     catalog = plan.old_entry.catalog
     name = build_path.name
@@ -278,16 +301,15 @@ def add_with_aliases(
             attempted.append(alias)
             catalog.add_alias(name, alias, sync=False)
     except Exception as e:
+        prior = {n: landed.target(n) for n in attempted}
         try:
-            roll_back(catalog, name, {n: landed.target(n) for n in attempted}, added)
+            roll_back(catalog, name, prior, added)
         except Exception as rollback_error:
             # Raised: the local catalog may now hold what the write left.
-            left = [f"entry {name}"] if added else []
-            left += [f"alias {alias!r}" for alias in attempted]
             raise RollbackError(
                 f"{type(e).__name__}: {e}; undoing it failed too "
-                f"({type(rollback_error).__name__}: {rollback_error}), so the "
-                f"local catalog may still hold {', '.join(left) or 'nothing'}"
+                f"({type(rollback_error).__name__}: {rollback_error}); the local "
+                f"catalog now holds {left_behind(catalog, name, prior, added)}"
             ) from e
         raise
-    return new_entry, AliasOutcome.of(plan, landed)
+    return new_entry, AliasOutcome.of(plan, landed), added

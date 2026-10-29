@@ -1782,7 +1782,31 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     assert result.exit_code == 1
     assert "alias move failed" in result.stderr
     assert "undoing it failed too (OSError: rollback failed)" in result.stderr
-    assert "may still hold entry" in result.stderr
+    assert "the local catalog now holds entry" in result.stderr
+
+
+def test_a_failed_rollback_names_the_alias_it_could_not_restore(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entry's removal took `live` along; putting it back failed. What is
+    left is read from the catalog, not from what the write attempted."""
+    replace_t(world, GROWN)
+    add = CatalogAlias.add
+    calls = []
+
+    def failing_add(self: CatalogAlias) -> None:
+        calls.append(self.alias)
+        # The second move, then the restore of `live`, fail.
+        if len(calls) >= 2:
+            raise RuntimeError("alias move failed")
+        return add(self)
+
+    monkeypatch.setattr(CatalogAlias, "add", failing_add)
+    result = rebase(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert f"alias 'live' on no entry, was on {world.name}" in result.stderr
+    assert "holds entry" not in result.stderr
 
 
 @pytest.mark.parametrize("backend_type", ("pointer",))

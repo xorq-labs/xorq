@@ -600,7 +600,7 @@ def _catalog_pin_command(
                 entry_alias=entry_alias,
             )
             with catalog.maybe_synchronizing(sync):
-                new_entry, aliases = add_with_aliases(plan, build, pulled=sync)
+                new_entry, aliases, _ = add_with_aliases(plan, build, pulled=sync)
         _report_aliases(aliases, catalog_entry.name, new_entry.name, "--move-aliases")
     click.echo(new_entry.name)
 
