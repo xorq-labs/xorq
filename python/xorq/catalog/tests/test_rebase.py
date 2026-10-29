@@ -86,6 +86,7 @@ def world_aliases() -> tuple[str, ...]:
 
 
 GROWN = RECORDED.append_column("c", pa.array([1.5, 2.5], pa.float64()))
+RETYPED = pa.table({"a": pa.array([1.0, 2.0], pa.float64()), "b": ["x", "y"]})
 
 
 def replace_t(world: SimpleNamespace, table: pa.Table) -> None:
@@ -165,6 +166,35 @@ def test_a_rebase_onto_an_entry_already_cataloged_keeps_it_and_says_so(
         in again.stderr
     )
     assert archive.stat().st_mtime_ns == mtime
+
+
+@pytest.mark.parametrize(
+    "live, output",
+    (
+        pytest.param(GROWN, "Output: c float64 added", id="added"),
+        pytest.param(RETYPED, "Output: a int64 -> float64", id="retyped"),
+    ),
+)
+def test_a_rebase_states_how_the_output_schema_changed(
+    runner: CliRunner, world: SimpleNamespace, live: pa.Table, output: str
+) -> None:
+    replace_t(world, live)
+    result = rebase(runner, world)
+    assert result.exit_code == 0, result.output
+    assert output in result.stderr.splitlines()
+
+
+def test_the_output_names_a_derived_column_its_source_retyped(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The sweep compares sources; only the output shows `a2` became float64."""
+    t = world.con.table("t")
+    name = world.catalog.add(t.select(a2=t.a + 1)).name
+    replace_t(world, RETYPED)
+    _, document = rebase_json(runner, world, name, "--no-sync")
+    assert document["output_changes"] == [
+        {"name": "a2", "before": "int64", "after": "float64"}
+    ]
 
 
 def test_move_aliases_moves_them_all(runner: CliRunner, world: SimpleNamespace) -> None:
@@ -1769,6 +1799,7 @@ ROOT_KEYS = {
     "new_hash",
     "build_path",
     "created",
+    "output_changes",
     "failing_op",
     "drift",
     "aliases",

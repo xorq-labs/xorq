@@ -21,6 +21,7 @@ way a rebase of a resolved entry can end, buffered and emitted once::
       "new_entry": null,           # old_entry on a no-op; null unless cataloged
       "new_hash": null,            # the rebased build's hash, cataloged or not
       "created": null,             # on a cataloged rebase: false if it already was
+      "output_changes": null,      # once derived: [{"name", "before", "after"}]
       "build_path": null,          # where `--no-add` wrote the build
       "failing_op": "Field",       # null unless an op could not be rebuilt
       "drift": {...},              # this entry's `check-sources --json` document
@@ -41,8 +42,11 @@ the rebase would do (before the sync's pull, which a preview does not run).
 hash ``--dry-run`` (``preview``) or ``--no-add`` (``built``) did not catalog,
 and ``null`` on a conflict or a failure. ``created`` is set only once an entry
 is cataloged (``rebased``, ``push-failed``): ``false`` when it already was, from
-an earlier rebase, and its archive was kept. ``build_path`` is set only on
-``built``. ``error`` is present only when there is one, always as ``Type:
+an earlier rebase, and its archive was kept. ``output_changes`` is set once a
+rebase is derived (``rebased``, ``push-failed``, ``preview``, ``built``): each
+output column it retyped, added or removed, ``before`` or ``after`` ``null``
+where the column is absent, and empty when the output schema did not change.
+``build_path`` is set only on ``built``. ``error`` is present only when there is one, always as ``Type:
 message``: what refused or failed the rebase, what a conflict's op or source
 raised, or what a failed push raised. ``warnings`` holds each warning the
 rebase raised, as ``Category: message``, so stderr stays empty. On
@@ -63,6 +67,7 @@ import zipfile
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from attr import Factory, asdict, converters, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
@@ -108,6 +113,10 @@ from xorq.common.exceptions import (
 )
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.ibis_yaml.packager import parse_python_minor
+
+
+if TYPE_CHECKING:
+    from xorq.vendor.ibis.expr.schema import Schema
 
 
 def alias_names(only_aliases: Iterable[str]) -> tuple[str, ...]:
@@ -172,6 +181,41 @@ class RebaseOptions:
 
 
 @frozen
+class ColumnChange:
+    """One output column a rebase changed; ``None`` on the side it's absent."""
+
+    name = field(validator=instance_of(str))
+    before = field(validator=optional(instance_of(str)))
+    after = field(validator=optional(instance_of(str)))
+
+    def __str__(self) -> str:
+        if self.before is None:
+            return f"{self.name} {self.after} added"
+        if self.after is None:
+            return f"{self.name} removed"
+        return f"{self.name} {self.before} -> {self.after}"
+
+
+def output_changes(before: Schema, after: Schema) -> tuple[ColumnChange, ...]:
+    """The output columns ``after`` retyped, added or removed, in order.
+
+    A source column's new type can retype the columns derived from it too
+    (an int64 that becomes float64 makes ``a + 1`` float64), which the sweep,
+    comparing sources only, does not show.
+    """
+    old, new = dict(before.items()), dict(after.items())
+    return tuple(
+        ColumnChange(
+            name,
+            None if name not in old else str(old[name]),
+            None if name not in new else str(new[name]),
+        )
+        for name in dict.fromkeys((*old, *new))
+        if old.get(name) != new.get(name)
+    )
+
+
+@frozen
 class RebaseConflict:
     """What a conflicted rebase could not follow.
 
@@ -228,6 +272,15 @@ class RebaseResult:
     # Set exactly when an entry is cataloged (REBASED, PUSH_FAILED): false when
     # it already was, from an earlier rebase, and its archive was kept.
     created = field(default=None, validator=optional(instance_of(bool)))
+    # Set exactly when a rebase was derived (REBASED, PUSH_FAILED, PREVIEW,
+    # BUILT): how the entry's output schema changed, empty if it didn't.
+    output_changes = field(
+        default=None,
+        converter=converters.optional(tuple),
+        validator=optional(
+            deep_iterable(instance_of(ColumnChange), instance_of(tuple))
+        ),
+    )
 
     def __attrs_post_init__(self) -> None:
         conflicted = self.status == RebaseStatus.CONFLICT
@@ -240,6 +293,11 @@ class RebaseResult:
         cataloged = self.status in (RebaseStatus.REBASED, RebaseStatus.PUSH_FAILED)
         if cataloged != (self.created is not None):
             raise ValueError(f"a {self.status} rebase has created={self.created!r}")
+        derived = cataloged or self.status in (RebaseStatus.PREVIEW, RebaseStatus.BUILT)
+        if derived != (self.output_changes is not None):
+            raise ValueError(
+                f"a {self.status} rebase has output_changes={self.output_changes!r}"
+            )
         if (self.status == RebaseStatus.BUILT) != (self.build_path is not None):
             raise ValueError(
                 f"a {self.status} rebase has build_path={self.build_path!r}"
@@ -304,6 +362,7 @@ class RebaseResult:
             new_hash=None if conflicted else self.new_hash,
             build_path=self.build_path,
             created=self.created,
+            output_changes=self.output_changes,
             failing_op=conflict.op_name if conflicted else None,
             drift=drift,
             aliases=self.aliases,
@@ -322,6 +381,7 @@ def make_rebase_document(
     new_hash: str | None = None,
     build_path: Path | None = None,
     created: bool | None = None,
+    output_changes: Iterable[ColumnChange] | None = None,
     failing_op: str | None = None,
     drift: dict | None = None,
     aliases: AliasOutcome | None = None,
@@ -339,6 +399,9 @@ def make_rebase_document(
         "new_hash": new_hash,
         "build_path": None if build_path is None else str(build_path),
         "created": created,
+        "output_changes": None
+        if output_changes is None
+        else [asdict(change) for change in output_changes],
         "failing_op": failing_op,
         "drift": drift,
         "aliases": {
@@ -836,6 +899,7 @@ def rebase_entry(
                 return RebaseResult(
                     RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
                 )
+            changes = output_changes(loaded.schema(), expr.schema())
             # The new name is known now: an alias on another entry is refused
             # before the dump and the sync's pull, not after them.
             plan = plan.evolved(new=dumper.expr_hash)
@@ -852,6 +916,7 @@ def rebase_entry(
                     # What the rebase would do to them, before any pull.
                     aliases=AliasOutcome.of(plan, plan),
                     new_hash=dumper.expr_hash,
+                    output_changes=changes,
                 )
             build_path = dumper.dump_expr()
             stamp_rebased_from(build_path, catalog_entry.name)
@@ -864,6 +929,7 @@ def rebase_entry(
                     reports,
                     record,
                     new_hash=build_path.name,
+                    output_changes=changes,
                     build_path=publish_build(
                         catalog_entry, build_path, builds_dir
                     ).resolve(),
@@ -884,4 +950,5 @@ def rebase_entry(
             aliases=aliases,
             push_error=push_error,
             created=created,
+            output_changes=changes,
         )

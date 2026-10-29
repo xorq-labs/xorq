@@ -1449,6 +1449,10 @@ def rebase(
             for line in format_leaf_report(report):
                 click.echo(line, err=True)
     old, new = result.old_entry.name, result.new_entry.name
+    if result.output_changes is not None:
+        # The output's own columns: a source's new type can retype derived ones.
+        changes = ", ".join(map(str, result.output_changes)) or "unchanged"
+        click.echo(f"Output: {changes}", err=True)
     if result.status in (RebaseStatus.NOOP, RebaseStatus.UNPROBED):
         click.echo(
             f"{old}: no drift"
