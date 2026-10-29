@@ -145,6 +145,28 @@ def test_a_grown_source_rebases_to_a_new_entry(
     )
 
 
+def test_a_rebase_onto_an_entry_already_cataloged_keeps_it_and_says_so(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The old entry still drifts, so a second rebase derives the same hash."""
+    replace_t(world, GROWN)
+    _, first = rebase_json(runner, world, world.name, "--no-sync")
+    new = first["new_entry"]
+    archive = Path(reopen(world).get_catalog_entry(new).catalog_path)
+    mtime = archive.stat().st_mtime_ns
+
+    again = rebase(runner, world, world.name, "--no-sync")
+    _, again_document = rebase_json(runner, world, world.name, "--no-sync")
+    assert (first["created"], again_document["created"]) == (True, False)
+    assert again.exit_code == 0, again.output
+    assert again.stdout == f"{new}\n"
+    assert (
+        f"Rebased {world.name} -> {new} (already cataloged; existing archive kept)"
+        in again.stderr
+    )
+    assert archive.stat().st_mtime_ns == mtime
+
+
 def test_move_aliases_moves_them_all(runner: CliRunner, world: SimpleNamespace) -> None:
     replace_t(world, GROWN)
 
@@ -1716,6 +1738,7 @@ ROOT_KEYS = {
     "new_entry",
     "new_hash",
     "build_path",
+    "created",
     "failing_op",
     "drift",
     "aliases",

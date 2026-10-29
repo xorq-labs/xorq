@@ -20,6 +20,7 @@ way a rebase of a resolved entry can end, buffered and emitted once::
       "old_entry": "b0e5f7bd7d78",
       "new_entry": null,           # old_entry on a no-op; null unless cataloged
       "new_hash": null,            # the rebased build's hash, cataloged or not
+      "created": null,             # on a cataloged rebase: false if it already was
       "build_path": null,          # where `--no-add` wrote the build
       "failing_op": "Field",       # null unless an op could not be rebuilt
       "drift": {...},              # this entry's `check-sources --json` document
@@ -38,7 +39,9 @@ written (``rebased`` or ``push-failed``), or on ``preview``, where it is what
 the rebase would do (before the sync's pull, which a preview does not run).
 ``new_hash`` is the hash the rebase derived: ``new_entry`` once cataloged, the
 hash ``--dry-run`` (``preview``) or ``--no-add`` (``built``) did not catalog,
-and ``null`` on a conflict or a failure. ``build_path`` is set only on
+and ``null`` on a conflict or a failure. ``created`` is set only once an entry
+is cataloged (``rebased``, ``push-failed``): ``false`` when it already was, from
+an earlier rebase, and its archive was kept. ``build_path`` is set only on
 ``built``. ``error`` is present only when there is one, always as ``Type:
 message``: what refused or failed the rebase, what a conflict's op or source
 raised, or what a failed push raised. ``warnings`` holds each warning the
@@ -221,6 +224,9 @@ class RebaseResult:
     )
     # Set exactly when ``status`` is ``BUILT``: the build directory written.
     build_path = field(default=None, validator=optional(instance_of(Path)))
+    # Set exactly when an entry is cataloged (REBASED, PUSH_FAILED): false when
+    # it already was, from an earlier rebase, and its archive was kept.
+    created = field(default=None, validator=optional(instance_of(bool)))
 
     def __attrs_post_init__(self) -> None:
         conflicted = self.status == RebaseStatus.CONFLICT
@@ -230,6 +236,9 @@ class RebaseResult:
             raise ValueError(
                 f"a {self.status} rebase has push_error={self.push_error!r}"
             )
+        cataloged = self.status in (RebaseStatus.REBASED, RebaseStatus.PUSH_FAILED)
+        if cataloged != (self.created is not None):
+            raise ValueError(f"a {self.status} rebase has created={self.created!r}")
         if (self.status == RebaseStatus.BUILT) != (self.build_path is not None):
             raise ValueError(
                 f"a {self.status} rebase has build_path={self.build_path!r}"
@@ -293,6 +302,7 @@ class RebaseResult:
             else self.new_entry.name,
             new_hash=None if conflicted else self.new_hash,
             build_path=self.build_path,
+            created=self.created,
             failing_op=conflict.op_name if conflicted else None,
             drift=drift,
             aliases=self.aliases,
@@ -310,6 +320,7 @@ def make_rebase_document(
     new_entry: str | None = None,
     new_hash: str | None = None,
     build_path: Path | None = None,
+    created: bool | None = None,
     failing_op: str | None = None,
     drift: dict | None = None,
     aliases: AliasOutcome | None = None,
@@ -326,6 +337,7 @@ def make_rebase_document(
         "new_entry": new_entry,
         "new_hash": new_hash,
         "build_path": None if build_path is None else str(build_path),
+        "created": created,
         "failing_op": failing_op,
         "drift": drift,
         "aliases": {
@@ -845,6 +857,8 @@ def rebase_entry(
             catalog = catalog_entry.catalog
             if sync:
                 pull_before(catalog)
+            # Read after the pull, which can bring in an earlier rebase's entry.
+            created = not catalog.contains(build_path.name)
             new_entry, aliases = add_with_aliases(plan, build_path, pulled=sync)
         push_error = push_after(catalog) if sync else None
         return RebaseResult(
@@ -855,4 +869,5 @@ def rebase_entry(
             record,
             aliases=aliases,
             push_error=push_error,
+            created=created,
         )

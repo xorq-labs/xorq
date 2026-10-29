@@ -1482,11 +1482,12 @@ def rebase(
         click.echo(result.build_path)
         ctx.exit(result.status.exit_code)
     else:
+        kept = "" if result.created else " (already cataloged; existing archive kept)"
         if result.push_error is None:
-            click.echo(f"Rebased {old} -> {new}", err=True)
+            click.echo(f"Rebased {old} -> {new}{kept}", err=True)
         else:
             click.echo(
-                f"Rebased {old} -> {new} locally; push failed: "
+                f"Rebased {old} -> {new}{kept} locally; push failed: "
                 f"{result.push_message}; {result.sync_hint}",
                 err=True,
             )
