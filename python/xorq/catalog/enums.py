@@ -127,6 +127,9 @@ class RebaseStatus(StrEnum):
     ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
     written. ``PUSH_FAILED``: rebased as ``REBASED`` is, but the sync's push
     failed, so the new entry and its alias moves are committed only locally.
+    ``PREVIEW``: a rebase would happen, and ``dry_run`` wrote nothing.
+    ``BUILT``: the rebased build was written, and ``add=False`` left the
+    catalog alone.
     """
 
     NOOP = "noop"
@@ -134,12 +137,16 @@ class RebaseStatus(StrEnum):
     REBASED = "rebased"
     CONFLICT = "conflict"
     PUSH_FAILED = "push-failed"
+    PREVIEW = "preview"
+    BUILT = "built"
 
     @property
     def exit_code(self) -> int:
         match self:
             case RebaseStatus.NOOP | RebaseStatus.ATTEMPTED | RebaseStatus.REBASED:
                 return 0
+            case RebaseStatus.PREVIEW | RebaseStatus.BUILT:
+                return RebaseExit.UNCATALOGED
             case RebaseStatus.CONFLICT:
                 return RebaseExit.CONFLICT
             case RebaseStatus.PUSH_FAILED:
@@ -151,7 +158,7 @@ class RebaseStatus(StrEnum):
 
 
 class RebaseExit(IntEnum):
-    """The exit codes ``xorq catalog rebase`` refuses or conflicts with."""
+    """The exit codes ``xorq catalog rebase`` refuses, previews or conflicts with."""
 
     # Nothing of the rebase's own written (a sync's pull may have merged). A
     # refusal is a property of the entry or the request, and retrying won't
@@ -160,6 +167,10 @@ class RebaseExit(IntEnum):
     REFUSED = 1
     # A source or the record could not be read; retryable.
     UNREACHABLE = 2
+    # `--dry-run` or `--no-add`: a rebase was derived, and nothing cataloged.
+    # Unlike 0, which on a no-op also prints a name, it says the name on
+    # stdout is no entry (a hash, or a build directory).
+    UNCATALOGED = 3
     # The re-derivation can't follow the drift; retrying won't help.
     CONFLICT = 4
     # Rebased locally, but the push failed; `xorq catalog sync` finishes it
