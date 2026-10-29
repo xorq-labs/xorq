@@ -28,7 +28,12 @@ from xorq.catalog import cli as catalog_cli
 from xorq.catalog import drift
 from xorq.catalog import rebase as rebase_module
 from xorq.catalog.aliases import AliasPlan
-from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogPullError
+from xorq.catalog.catalog import (
+    Catalog,
+    CatalogAlias,
+    CatalogEntry,
+    CatalogPullError,
+)
 from xorq.catalog.cli import cli
 from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus
@@ -218,24 +223,32 @@ def test_an_alias_named_twice_moves_once(
     assert targets(world, "live") == (new,)
 
 
-def test_an_entry_with_only_unprobed_sources_is_attempted(
+def test_an_entry_with_only_unprobed_sources_is_left_alone(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Re-derived and settled by the hash, but not declared drift-free."""
+    """Nothing can be refreshed, so it is not loaded, nor declared drift-free."""
     monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
     commits = commit_count(world.catalog)
+    loads = []
+    real_load = CatalogEntry.load_expr
+    monkeypatch.setattr(
+        CatalogEntry,
+        "load_expr",
+        lambda self, **kw: loads.append(self.name) or real_load(self, **kw),
+    )
 
     result = rebase(runner, world, world.name, "--move-aliases")
     assert result.exit_code == 0, result.output
     assert result.stdout == f"{world.name}\n"
-    assert "No source could be probed (t)" in result.stderr
+    assert "no source can be probed (t); nothing done" in result.stderr
     assert "drift not ruled out" in result.stderr
     assert "no drift" not in result.stderr
     assert "Aliases not moved: nothing to rebase" in result.stderr
     assert targets(world, "live", "staging") == (world.name, world.name)
     assert commit_count(reopen(world)) == commits
-    attempted = rebase_old(world)
-    assert (attempted.status, attempted.unprobed) == (RebaseStatus.ATTEMPTED, ("t",))
+    assert loads == []
+    unprobed = rebase_old(world)
+    assert (unprobed.status, unprobed.unprobed) == (RebaseStatus.UNPROBED, ("t",))
 
 
 @ALL_BACKENDS
@@ -1003,13 +1016,6 @@ def refuse_some_unprobed(w: SimpleNamespace) -> Setup:
     return w.catalog.add(w.con.table("t").union(u)).name, (), ()
 
 
-def refuse_unprobed_new_hash(w: SimpleNamespace) -> Setup:
-    """No source probed, yet the re-derivation hashes anew: nothing to follow."""
-    w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
-    w.monkeypatch.setattr(ExprDumper, "expr_hash", property(lambda _: "0" * 12))
-    return w.name, (), ()
-
-
 def refuse_unreadable(target: str) -> Callable:
     def setup(w: SimpleNamespace) -> Setup:
         replace_t(w, GROWN)
@@ -1225,12 +1231,6 @@ REFUSALS = (
     pytest.param(refuse_deleted_db, 2, "unreachable", id="deleted-db"),
     pytest.param(
         refuse_unprobed_db, 2, "database {gone[0]} does not exist", id="unprobed-db"
-    ),
-    pytest.param(
-        refuse_unprobed_new_hash,
-        1,
-        "no source could be probed (t)",
-        id="unprobed-new-hash",
     ),
     pytest.param(
         refuse_unmatched_source, 1, "t matched no source", id="unmatched-source"
@@ -1741,7 +1741,6 @@ SWEPT_REFUSALS = frozenset(
     (
         "elsewhere-alias-no-drift",
         "taken-alias",
-        "unprobed-new-hash",
         "unprobed-db",
         "unmatched-source",
         "unreachable-outranks-changed",
@@ -1800,7 +1799,7 @@ def json_rebased(w: SimpleNamespace) -> tuple[str, ...]:
     "setup, state, drift_state, rebased",
     (
         pytest.param(json_noop, "noop", "equal", False, id="noop"),
-        pytest.param(json_unprobed, "attempted", None, False, id="attempted"),
+        pytest.param(json_unprobed, "unprobed", None, False, id="unprobed"),
         pytest.param(json_rebased, "rebased", "changed", True, id="rebased"),
     ),
 )
@@ -2246,7 +2245,7 @@ def test_every_rebase_state_names_its_exit_code() -> None:
     """Only a completed rebase exits 0; a new state must name its code."""
     assert {state: state.exit_code for state in (*RebaseStatus, *RebaseFailure)} == {
         RebaseStatus.NOOP: 0,
-        RebaseStatus.ATTEMPTED: 0,
+        RebaseStatus.UNPROBED: 0,
         RebaseStatus.REBASED: 0,
         RebaseStatus.CONFLICT: RebaseExit.CONFLICT,
         RebaseStatus.PUSH_FAILED: RebaseExit.PUSH_FAILED,

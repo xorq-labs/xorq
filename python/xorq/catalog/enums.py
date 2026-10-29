@@ -122,8 +122,8 @@ class Verdict(StrEnum):
 class RebaseStatus(StrEnum):
     """How a ``rebase_entry`` that raised no ``RebaseError`` ended.
 
-    ``ATTEMPTED``: no source could be probed, so the entry was re-derived and
-    came back with its own hash; unlike ``NOOP``, that doesn't prove no drift.
+    ``UNPROBED``: no source can be probed, so nothing could be refreshed and
+    nothing was loaded or written; unlike ``NOOP``, that doesn't prove no drift.
     ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
     written. ``PUSH_FAILED``: rebased as ``REBASED`` is, but the sync's push
     failed, so the new entry and its alias moves are committed only locally.
@@ -133,7 +133,7 @@ class RebaseStatus(StrEnum):
     """
 
     NOOP = "noop"
-    ATTEMPTED = "attempted"
+    UNPROBED = "unprobed"
     REBASED = "rebased"
     CONFLICT = "conflict"
     PUSH_FAILED = "push-failed"
@@ -143,7 +143,7 @@ class RebaseStatus(StrEnum):
     @property
     def exit_code(self) -> int:
         match self:
-            case RebaseStatus.NOOP | RebaseStatus.ATTEMPTED | RebaseStatus.REBASED:
+            case RebaseStatus.NOOP | RebaseStatus.UNPROBED | RebaseStatus.REBASED:
                 return 0
             case RebaseStatus.PREVIEW | RebaseStatus.BUILT:
                 return RebaseExit.UNCATALOGED

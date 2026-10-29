@@ -1292,10 +1292,9 @@ def rebase(
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed. An entry
-    none of whose sources can be probed is re-derived anyway; if it comes back
-    with its own hash, stderr says that drift was not ruled out, and if it
-    comes back with a new hash, the rebase is refused, since nothing was
-    refreshed.
+    none of whose sources can be probed is left alone, since nothing can be
+    refreshed: its own name is printed, and stderr says drift was not ruled
+    out.
 
     \b
     Exit codes:
@@ -1303,8 +1302,7 @@ def rebase(
          the rebase succeeded
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, some but not all of its sources
-         cannot be probed, none could be but the entry re-derived to a new
-         hash, the entry was built on another Python minor, --only-alias
+         cannot be probed, the entry was built on another Python minor, --only-alias
          names an alias on neither the old entry nor the new one (an
          unregistered one before the sweep), --alias names an alias on
          another entry than the old or new one (once there is a new entry),
@@ -1450,17 +1448,12 @@ def rebase(
             for line in format_leaf_report(report):
                 click.echo(line, err=True)
     old, new = result.old_entry.name, result.new_entry.name
-    if result.unprobed:
-        click.echo(
-            f"No source could be probed ({', '.join(result.unprobed)}); "
-            "re-derived without refreshing any",
-            err=True,
-        )
-    if result.status in (RebaseStatus.NOOP, RebaseStatus.ATTEMPTED):
+    if result.status in (RebaseStatus.NOOP, RebaseStatus.UNPROBED):
         click.echo(
             f"{old}: no drift"
             if result.status == RebaseStatus.NOOP
-            else f"{old}: re-derived to the same hash; drift not ruled out",
+            else f"{old}: no source can be probed ({', '.join(result.unprobed)}); "
+            "nothing done, drift not ruled out",
             err=True,
         )
         if alias:

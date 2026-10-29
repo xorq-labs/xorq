@@ -208,7 +208,7 @@ class RebaseResult:
     # Empty unless REBASED or PUSH_FAILED, or PREVIEW, where it is what the
     # rebase would do: nothing moves onto an entry that already was.
     aliases = field(factory=AliasOutcome, validator=instance_of(AliasOutcome))
-    # The sources no probe could compare, when none could; never on REBASED.
+    # The sources no probe can compare, on UNPROBED.
     unprobed = str_tuple()
 
     # Set exactly when ``status`` is ``CONFLICT``.
@@ -453,9 +453,8 @@ def check_rebasable(
 ) -> tuple[str, ...]:
     """The unprobed sources, when no source can be probed; refuses otherwise.
 
-    An entry whose sources are all unprobed is re-derived, and the hash
-    decides: the same hash is ``ATTEMPTED``, a new one is refused, since no
-    schema was refreshed to follow it. One with only some unprobed is refused:
+    An entry whose sources are all unprobed is ``UNPROBED``: nothing can be
+    refreshed, so it isn't loaded. One with only some unprobed is refused:
     those would come back unchanged beside the refreshed ones.
     """
     name = catalog_entry.name
@@ -754,6 +753,18 @@ def rebase_entry(
             return RebaseResult(
                 RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
             )
+        if unprobed:
+            # Nothing can be refreshed, so nothing is loaded or written, and the
+            # aliases are checked as on a no-op.
+            plan.evolved(new=catalog_entry.name, alias=None)
+            return RebaseResult(
+                RebaseStatus.UNPROBED,
+                catalog_entry,
+                catalog_entry,
+                reports,
+                record,
+                unprobed=unprobed,
+            )
 
         def conflicted(conflict: RebaseConflict) -> RebaseResult:
             return RebaseResult(
@@ -796,24 +807,8 @@ def rebase_entry(
             )
             if dumper.expr_hash == catalog_entry.name:
                 plan.evolved(new=catalog_entry.name, alias=None)
-                status = RebaseStatus.ATTEMPTED if unprobed else RebaseStatus.NOOP
                 return RebaseResult(
-                    status,
-                    catalog_entry,
-                    catalog_entry,
-                    reports,
-                    record,
-                    unprobed=unprobed,
-                )
-            if unprobed:
-                # Nothing was refreshed, so the new hash follows no drift (the
-                # build hash reads a source's path, not its contents); a new entry
-                # would carry the old schemas under a rebased name.
-                raise RebaseError(
-                    f"{catalog_entry.name}: re-derived to a new hash, but no source "
-                    f"could be probed ({', '.join(unprobed)}), so nothing was "
-                    "refreshed",
-                    RebaseFailure.REFUSED,
+                    RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
                 )
             # The new name is known now: an alias on another entry is refused
             # before the dump and the sync's pull, not after them.
