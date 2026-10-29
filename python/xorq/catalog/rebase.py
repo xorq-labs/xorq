@@ -204,7 +204,7 @@ class ColumnChange:
         return f"{self.name} {self.before} -> {self.after}"
 
 
-def output_changes(before: Schema, after: Schema) -> tuple[ColumnChange, ...]:
+def column_changes(before: Schema, after: Schema) -> tuple[ColumnChange, ...]:
     """The output columns ``after`` retyped, added or removed, in order.
 
     A source column's new type can retype the columns derived from it too
@@ -919,7 +919,7 @@ def rebase_entry(
                     RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
                 )
             # As a table: an entry can be a column or a scalar.
-            changes = output_changes(
+            changes = column_changes(
                 loaded.as_table().schema(), expr.as_table().schema()
             )
             # The new name is known now: an alias on another entry is refused
