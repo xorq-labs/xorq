@@ -189,6 +189,13 @@ class ColumnChange:
     before = field(validator=optional(instance_of(str)))
     after = field(validator=optional(instance_of(str)))
 
+    def __attrs_post_init__(self) -> None:
+        # Absent on both sides, or the same type on both, is no change.
+        if self.before == self.after:
+            raise ValueError(
+                f"{self.name}: {self.before} -> {self.after} changes nothing"
+            )
+
     def __str__(self) -> str:
         if self.before is None:
             return f"{self.name} {self.after} added"

@@ -38,7 +38,7 @@ from xorq.catalog.cli import cli
 from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus
 from xorq.catalog.exceptions import RebaseError
-from xorq.catalog.rebase import rebase_entry, recorded_python_minor
+from xorq.catalog.rebase import ColumnChange, rebase_entry, recorded_python_minor
 from xorq.catalog.tests.conftest import (
     RECORDED,
     TEST_WHEEL_NAME,
@@ -221,6 +221,13 @@ def test_a_column_or_scalar_entry_states_its_output_change(
     _, document = rebase_json(runner, world, name, "--no-sync")
     assert document["state"] == "rebased"
     assert document["output_changes"] == [change]
+
+
+@pytest.mark.parametrize("side", (None, "int64"))
+def test_a_column_change_changes_something(side: str | None) -> None:
+    """Neither side, or the same type on both, would print as a change."""
+    with pytest.raises(ValueError, match="changes nothing"):
+        ColumnChange("a", side, side)
 
 
 def test_an_unprobed_result_names_its_sources(
