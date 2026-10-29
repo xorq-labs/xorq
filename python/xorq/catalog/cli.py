@@ -1379,9 +1379,16 @@ def rebase(
     # One scope from resolving the entry to printing the document: under --json
     # whatever warns goes in the document, and whatever raises is handled.
     with ExitStack() as stack:
-        caught = (
-            stack.enter_context(warnings.catch_warnings(record=True)) if as_json else []
-        )
+        caught = stack.enter_context(warnings.catch_warnings(record=True))
+        if not as_json:
+            # Without --json each one goes on stderr as the document words it,
+            # not as a source line, and whatever the rebase then raised.
+            stack.callback(
+                lambda: [
+                    click.echo(f"{w.category.__name__}: {w.message}", err=True)
+                    for w in caught
+                ]
+            )
         stack.enter_context(click_context_catalog(ctx))
         catalog = ctx.obj.make_catalog(init=False)
         catalog_entry = _get_catalog_entry(catalog, entry)

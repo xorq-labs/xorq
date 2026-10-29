@@ -822,7 +822,6 @@ def rebase_entry(
     check_bundle(catalog_entry)
     record = read_entry_record(catalog_entry)
     unprobed = check_rebasable(catalog_entry, record)
-    check_python_minor(catalog_entry, ignore_mismatch)
     # With no new name yet, only an unregistered alias is refused.
     plan = AliasPlan.read(
         catalog_entry,
@@ -874,6 +873,9 @@ def rebase_entry(
             tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td,
             keeping_read_posture(),
         ):
+            # Only before loading, which unpickles the UDFs: a no-op or an
+            # unprobed entry loads nothing, whatever minor it was built on.
+            check_python_minor(catalog_entry, ignore_mismatch)
             # Loaded inside the block: `load_expr` keeps the archive's extract dir,
             # which bundled reads point into, alive only as long as the expression.
             loaded = catalog_entry.load_expr(cache_dir=cache_dir)

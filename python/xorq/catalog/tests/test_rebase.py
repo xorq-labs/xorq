@@ -37,7 +37,7 @@ from xorq.catalog.catalog import (
 from xorq.catalog.cli import cli
 from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus
-from xorq.catalog.exceptions import PythonMinorWarning, RebaseError
+from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.rebase import rebase_entry, recorded_python_minor
 from xorq.catalog.tests.conftest import (
     RECORDED,
@@ -375,9 +375,9 @@ def test_a_python_minor_mismatch_is_overridable_and_warned(
     replace_t(world, GROWN)
     monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: recorded)
 
-    with pytest.warns(PythonMinorWarning, match=problem):
-        result = rebase(runner, world, world.name, "--ignore-venv-mismatch")
+    result = rebase(runner, world, world.name, "--ignore-venv-mismatch")
     assert result.exit_code == 0, result.output
+    assert f"PythonMinorWarning: {world.name} {problem}" in result.stderr
     assert result.stdout.strip() != world.name
     _, document = rebase_json(
         runner, world, world.name, "--ignore-venv-mismatch", "--no-sync"
@@ -1096,6 +1096,16 @@ def refuse_pinned(w: SimpleNamespace) -> Setup:
     cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=w.tmp_path)
     expr = pin_cache(t.filter(t.a > 1).cache(cache=cache), ensure_materialized=True)
     return w.catalog.add(expr).name, (), ()
+
+
+def test_an_entry_recording_no_python_minor_needs_no_override_without_drift(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing is loaded, so no UDF is unpickled under the wrong minor."""
+    monkeypatch.setattr(rebase_module, "recorded_python_minor", lambda _: None)
+    result = rebase(runner, world)
+    assert result.exit_code == 0, result.output
+    assert "no drift" in result.stderr
 
 
 def refuse_no_python_minor(w: SimpleNamespace) -> Setup:
@@ -1881,6 +1891,11 @@ SWEPT_REFUSALS = frozenset(
         "unreadable-profile",
         "unreadable-bundle",
         "deleted-db",
+        # The Python minor is checked just before loading, after the sweep.
+        "python-minor",
+        "no-python-minor",
+        "corrupt-metadata",
+        "unreadable-metadata",
     )
 )
 
