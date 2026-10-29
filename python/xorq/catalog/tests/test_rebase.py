@@ -1879,6 +1879,24 @@ def test_a_rollback_that_removed_part_of_the_entry_still_names_it(
     assert "the local catalog now holds entry" in result.stderr
 
 
+def test_json_reports_a_failed_rollback_as_its_own_state(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not `failed`: the local catalog may hold part of the write."""
+    replace_t(world, GROWN)
+    fail_nth_alias_move(monkeypatch, 2)
+
+    def failing_remove(self: Catalog, name: str, sync: bool = True) -> None:
+        raise OSError("rollback failed")
+
+    monkeypatch.setattr(Catalog, "remove", failing_remove)
+    result, document = rebase_json(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert (document["state"], result.exit_code) == ("rollback-failed", 1)
+    assert document["error"].startswith("RollbackError: ")
+    assert "the local catalog now holds entry" in document["error"]
+
+
 def test_a_failed_rollback_names_the_alias_it_could_not_restore(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2486,6 +2504,7 @@ def test_every_rebase_state_names_its_exit_code() -> None:
         RebaseStatus.BUILT: RebaseExit.UNCATALOGED,
         RebaseFailure.REFUSED: RebaseExit.REFUSED,
         RebaseFailure.UNREACHABLE: RebaseExit.UNREACHABLE,
+        RebaseFailure.ROLLBACK_FAILED: RebaseExit.REFUSED,
         RebaseFailure.FAILED: RebaseExit.REFUSED,
     }
 

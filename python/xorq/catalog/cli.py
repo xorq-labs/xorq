@@ -1313,7 +1313,8 @@ def rebase(
          matched no source of the loaded expression, --no-add found its
          BUILDS_DIR/<hash> taken, or a write failed
          (the new entry and its alias moves are rolled back locally; if that
-         fails too, the error names what may be left)
+         fails too, the error names what is left, and --json says
+         rollback-failed)
       2  a source was unreachable or unreadable, its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; the sync's pull

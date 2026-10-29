@@ -102,6 +102,7 @@ from xorq.catalog.exceptions import (
     PythonMinorWarning,
     RebaseError,
     RebaseOptionsError,
+    RollbackError,
 )
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
@@ -416,8 +417,15 @@ def make_rebase_document(
 
 
 def rebase_failure(e: Exception) -> RebaseFailure:
-    """The failure ``e`` ends a rebase with: a ``RebaseError``'s own."""
-    return e.failure if isinstance(e, RebaseError) else RebaseFailure.FAILED
+    """The failure ``e`` ends a rebase with: a ``RebaseError``'s own, or a
+    failed rollback's, which may have left part of the write."""
+    match e:
+        case RebaseError():
+            return e.failure
+        case RollbackError():
+            return RebaseFailure.ROLLBACK_FAILED
+        case _:
+            return RebaseFailure.FAILED
 
 
 def rebase_document(
