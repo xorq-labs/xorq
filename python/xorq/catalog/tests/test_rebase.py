@@ -223,6 +223,72 @@ def test_a_column_or_scalar_entry_states_its_output_change(
     assert document["output_changes"] == [change]
 
 
+def test_an_unprobed_result_names_its_sources(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An UNPROBED result with no names would print an empty list."""
+    monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
+    unprobed = rebase_old(world)
+    with pytest.raises(ValueError, match="unprobed"):
+        evolve(unprobed, unprobed=())
+
+
+@pytest.mark.parametrize("args", (("--dry-run",), ("--no-add",)))
+def test_an_unprobed_entry_writes_nothing_under_dry_run_or_no_add(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    args: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: False)
+    result = rebase(runner, world, world.name, *args)
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{world.name}\n"
+    assert not any(cwd.iterdir())
+
+
+@pytest.mark.parametrize(
+    "make, live, output, change",
+    (
+        pytest.param(
+            lambda t: t.select("a"),
+            GROWN,
+            "Output: unchanged",
+            None,
+            id="unchanged",
+        ),
+        pytest.param(
+            None,
+            pa.table({"a": pa.array([1, 2], pa.int64())}),
+            "Output: b removed",
+            {"name": "b", "before": "string", "after": None},
+            id="removed",
+        ),
+    ),
+)
+def test_the_output_line_says_unchanged_or_removed(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    make: Callable,
+    live: pa.Table,
+    output: str,
+    change: dict | None,
+) -> None:
+    # The world's own entry keeps every column; `None` rebases that one.
+    name = (
+        world.name
+        if make is None
+        else world.catalog.add(make(world.con.table("t"))).name
+    )
+    replace_t(world, live)
+    result = rebase(runner, world, name, "--no-sync")
+    assert result.exit_code == 0, result.output
+    assert output in result.stderr.splitlines()
+    _, document = rebase_json(runner, world, name, "--no-sync")
+    assert document["output_changes"] == ([] if change is None else [change])
+
+
 def test_move_aliases_moves_them_all(runner: CliRunner, world: SimpleNamespace) -> None:
     replace_t(world, GROWN)
 

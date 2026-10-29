@@ -41,17 +41,17 @@ the rebase would do (before the sync's pull, which a preview does not run).
 ``new_hash`` is the hash the rebase derived: ``new_entry`` once cataloged, the
 hash ``--dry-run`` (``preview``) or ``--no-add`` (``built``) did not catalog,
 and ``null`` on a conflict or a failure. ``created`` is set only once an entry
-is cataloged (``rebased``, ``push-failed``): ``false`` when it already was, from
-an earlier rebase, and its archive was kept. ``output_changes`` is set once a
-rebase is derived (``rebased``, ``push-failed``, ``preview``, ``built``): each
-output column it retyped, added or removed, ``before`` or ``after`` ``null``
-where the column is absent, and empty when the output schema did not change.
-``build_path`` is set only on ``built``. ``error`` is present only when there is one, always as ``Type:
-message``: what refused or failed the rebase, what a conflict's op or source
-raised, or what a failed push raised. ``warnings`` holds each warning the
-rebase raised, as ``Category: message``, so stderr stays empty. On
-``push-failed`` the new entry and its aliases are committed locally, and `xorq
-catalog sync` publishes them.
+is cataloged (``rebased``, ``push-failed``): ``false`` when it already was,
+from an earlier rebase, and its archive was kept. ``output_changes`` is set
+once a rebase is derived (``rebased``, ``push-failed``, ``preview``,
+``built``): each output column it retyped, added or removed, ``before`` or
+``after`` ``null`` where the column is absent, and empty when the output schema
+did not change. ``build_path`` is set only on ``built``. ``error`` is present
+only when there is one, always as ``Type: message``: what refused or failed the
+rebase, what a conflict's op or source raised, or what a failed push raised.
+``warnings`` holds each warning the rebase raised, as ``Category: message``, so
+stderr stays empty. On ``push-failed`` the new entry and its aliases are
+committed locally, and `xorq catalog sync` publishes them.
 """
 
 from __future__ import annotations
@@ -298,6 +298,8 @@ class RebaseResult:
             raise ValueError(
                 f"a {self.status} rebase has output_changes={self.output_changes!r}"
             )
+        if (self.status == RebaseStatus.UNPROBED) != bool(self.unprobed):
+            raise ValueError(f"a {self.status} rebase has unprobed={self.unprobed!r}")
         if (self.status == RebaseStatus.BUILT) != (self.build_path is not None):
             raise ValueError(
                 f"a {self.status} rebase has build_path={self.build_path!r}"

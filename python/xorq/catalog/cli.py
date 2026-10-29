@@ -1277,7 +1277,8 @@ def rebase(
     building. It does not sync, and takes no --alias, --move-aliases or
     --only-alias, since there is no entry to name. An interrupted --no-add can
     leave a hidden BUILDS_DIR/.<hash>.* stage, safe to delete. With no drift,
-    neither writes anything and both print the entry's own name.
+    or no source that can be probed, neither writes anything and both print the
+    entry's own name.
 
     No alias moves unless asked. --move-aliases moves every alias the old
     entry has once the sync's pull is in, and names any the pull took off it;
@@ -1303,8 +1304,9 @@ def rebase(
       1  refused, or failed: the name does not resolve, the catalog does
          not open, the entry is pinned, some but not all of its sources
          cannot be probed, the entry was built on another Python minor or
-         records none (--ignore-venv-mismatch overrides it, with a warning), --only-alias
-         names an alias on neither the old entry nor the new one (an
+         records none (--ignore-venv-mismatch overrides it, with a
+         warning), --only-alias names an alias on neither the old entry
+         nor the new one (an
          unregistered one before the sweep), --alias names an alias on
          another entry than the old or new one (once there is a new entry),
          ENTRY is an alias the pull moved or removed, a probed source
