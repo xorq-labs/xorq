@@ -899,7 +899,10 @@ def rebase_entry(
                 return RebaseResult(
                     RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
                 )
-            changes = output_changes(loaded.schema(), expr.schema())
+            # As a table: an entry can be a column or a scalar.
+            changes = output_changes(
+                loaded.as_table().schema(), expr.as_table().schema()
+            )
             # The new name is known now: an alias on another entry is refused
             # before the dump and the sync's pull, not after them.
             plan = plan.evolved(new=dumper.expr_hash)

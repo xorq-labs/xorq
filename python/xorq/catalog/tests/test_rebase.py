@@ -197,6 +197,32 @@ def test_the_output_names_a_derived_column_its_source_retyped(
     ]
 
 
+@pytest.mark.parametrize(
+    "make, change",
+    (
+        pytest.param(
+            lambda t: (t.a + 1).name("a2"),
+            {"name": "a2", "before": "int64", "after": "float64"},
+            id="column",
+        ),
+        pytest.param(
+            lambda t: t.a.max().name("top"),
+            {"name": "top", "before": "int64", "after": "float64"},
+            id="scalar",
+        ),
+    ),
+)
+def test_a_column_or_scalar_entry_states_its_output_change(
+    runner: CliRunner, world: SimpleNamespace, make: Callable, change: dict
+) -> None:
+    """Compared as a table, as an entry's metadata is."""
+    name = world.catalog.add(make(world.con.table("t"))).name
+    replace_t(world, RETYPED)
+    _, document = rebase_json(runner, world, name, "--no-sync")
+    assert document["state"] == "rebased"
+    assert document["output_changes"] == [change]
+
+
 def test_move_aliases_moves_them_all(runner: CliRunner, world: SimpleNamespace) -> None:
     replace_t(world, GROWN)
 
