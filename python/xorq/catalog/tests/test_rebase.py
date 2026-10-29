@@ -1861,6 +1861,24 @@ def test_a_failed_rollback_surfaces_the_error_that_caused_it(
     assert "the local catalog now holds entry" in result.stderr
 
 
+def test_a_rollback_that_removed_part_of_the_entry_still_names_it(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The archive went, the rest did not: the entry is still named."""
+    replace_t(world, GROWN)
+    fail_nth_alias_move(monkeypatch, 2)
+
+    def partial_remove(self: Catalog, name: str, sync: bool = True) -> None:
+        Path(self.get_catalog_entry(name).catalog_path).unlink()
+        raise OSError("rollback failed")
+
+    monkeypatch.setattr(Catalog, "remove", partial_remove)
+    result = rebase(runner, world, world.name, "--move-aliases")
+    monkeypatch.undo()
+    assert result.exit_code == 1, result.output
+    assert "the local catalog now holds entry" in result.stderr
+
+
 def test_a_failed_rollback_names_the_alias_it_could_not_restore(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

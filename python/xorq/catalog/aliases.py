@@ -254,19 +254,33 @@ def left_behind(
 ) -> str:
     """What a failed rollback left, read from the catalog as it is now: the
     entry, if this write added it, and each alias not back on its prior target.
+
+    Each is read on its own, so a half-removed entry that the alias read trips
+    over is still named.
     """
+    left = []
     try:
-        present = added and catalog.contains(name)
+        # Any of its pieces, as `roll_back` reads them: a removal that failed
+        # part-way leaves an entry `contains` no longer sees.
+        pieces = CatalogEntry(name, catalog, require_exists=False)._exists_components  # noqa: SLF001  # xorq-style: disable=protected-access
+        if added and any(pieces.values()):
+            left.append(f"entry {name}")
+    except Exception as e:
+        left.append(f"entry {name}, perhaps (unreadable: {type(e).__name__}: {e})")
+    try:
         targets = alias_targets(catalog)
     except Exception as e:
-        return f"what, unknown: the catalog could not be read ({type(e).__name__}: {e})"
-    left = [f"entry {name}"] if present else []
-    left += [
-        f"alias {alias!r} on {targets.get(alias) or 'no entry'}, was on "
-        f"{target or 'no entry'}"
-        for alias, target in prior.items()
-        if targets.get(alias) != target
-    ]
+        left.append(
+            f"aliases {', '.join(map(repr, prior))} somewhere (unreadable: "
+            f"{type(e).__name__}: {e})"
+        )
+    else:
+        left += [
+            f"alias {alias!r} on {targets.get(alias) or 'no entry'}, was on "
+            f"{target or 'no entry'}"
+            for alias, target in prior.items()
+            if targets.get(alias) != target
+        ]
     return ", ".join(left) or "nothing: the rollback undid the write before failing"
 
 
