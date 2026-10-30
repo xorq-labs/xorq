@@ -9,7 +9,7 @@ import shutil
 import sys
 import warnings
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -36,7 +36,7 @@ from xorq.catalog.catalog import (
 )
 from xorq.catalog.cli import cli
 from xorq.catalog.constants import MAIN_BRANCH
-from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus
+from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus, Verdict
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.rebase import (
     ColumnChange,
@@ -1216,6 +1216,14 @@ def refuse_rename_unprobed(w: SimpleNamespace) -> Setup:
     return w.name, ("--rename", "t", "a", "x"), ()
 
 
+def refuse_rename_beside_a_lost_column(w: SimpleNamespace) -> Setup:
+    """`a` renamed to `x` and `b` dropped: the hint names `b` only."""
+    t = w.con.table("t")
+    name = w.catalog.add(t.filter(t.a > 1).select("b")).name
+    replace_t(w, pa.table({"x": pa.array([1, 2], pa.int64())}))
+    return name, ("--rename", "t", "a", "x"), ()
+
+
 def refuse_rename_ambiguous(w: SimpleNamespace) -> Setup:
     """One table name `t` on two connections."""
     other = SqliteBackend().connect(str(w.tmp_path / "other.sqlite"))
@@ -1550,6 +1558,13 @@ REFUSALS = (
         2,
         "--rename t a a renames 'a' to itself",
         id="rename-to-itself",
+    ),
+    pytest.param(
+        refuse_rename_beside_a_lost_column,
+        4,
+        "t: recorded columns gone: b; live columns new: -\n"
+        "if a gone column was renamed to a new one",
+        id="rename-hint-less-renames",
     ),
     pytest.param(refuse_dropped_column, 4, "cannot be rebuilt", id="column"),
     pytest.param(refuse_dropped_table, 4, "table-missing", id="table"),
@@ -2692,7 +2707,7 @@ def test_a_renamed_column_is_followed_under_its_recorded_name(
     assert rebase_old(world, renames=renames, sync=False).output_changes == ()
 
 
-def test_a_source_bound_more_than_once_is_refused_for_now(
+def test_a_source_recorded_at_two_schemas_is_renamed_under_both(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     """`t` bound before and after it grew: one source, two records."""
@@ -2703,11 +2718,139 @@ def test_a_source_bound_more_than_once_is_refused_for_now(
     replace_t(world, RENAMED)
 
     result = rebase(runner, world, name, "--rename", "t", "a", "x")
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 0, result.output
+    assert "Renamed t: a <- x\nOutput: unchanged\n" in result.stderr
+
+
+def test_a_chain_renames_every_binding_of_a_source_recorded_at_two_schemas(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`t` bound with `a` only, then with `a` and `b`: the chain moves the
+    live `a` away from the first binding too, which never recorded `b`."""
+    replace_t(world, pa.table({"a": pa.array([1, 2], pa.int64())}))
+    before = world.con.table("t")
+    replace_t(world, RECORDED)
+    after = world.con.table("t")
+    name = world.catalog.add(before.select("a").union(after.select("a"))).name
+    replace_t(world, pa.table({"x": pa.array([1, 2], pa.int64()), "a": ["x", "y"]}))
+
+    result = rebase(
+        runner, world, name, "--rename", "t", "a", "x", "--rename", "t", "b", "a"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Output: unchanged\n" in result.stderr
+
+
+def test_an_unchanged_binding_of_a_renamed_source_is_left_alone(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`t` bound with `a` only, then with `a` and `b`; then `a` was dropped
+    and `b` renamed to `a`. The first binding looks unchanged, so only the
+    second is renamed."""
+    replace_t(world, pa.table({"a": pa.array([1, 2], pa.int64())}))
+    before = world.con.table("t")
+    replace_t(world, RECORDED)
+    after = world.con.table("t")
+    name = world.catalog.add(
+        before.select(n=before.a).union(after.select(n=after.b.cast("int64")))
+    ).name
+    replace_t(world, pa.table({"a": pa.array([1, 2], pa.int64())}))
+
+    result = rebase(runner, world, name, "--rename", "t", "b", "a")
+    assert result.exit_code == 0, result.output
+    assert "Renamed t: b <- a\n" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "pinned_columns",
+    (
+        pytest.param(RECORDED.select(["a"]), id="without-old"),
+        pytest.param(RECORDED, id="with-old"),
+    ),
+)
+def test_an_unchanged_binding_is_no_concern_of_a_rename(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, pinned_columns: pa.Table
+) -> None:
+    """A pinned snapshot keeps its schema while the current table moves on:
+    `b <- x` renames the current binding only, whether or not the pinned one
+    recorded `b`. sqlite has no snapshots, so `t` is bound before it grew `c`,
+    and the sweep reports that binding as a pin's would."""
+    replace_t(world, pinned_columns)
+    before = world.con.table("t")
+    replace_t(world, GROWN)
+    after = world.con.table("t")
+    entry = world.catalog.add(before.select("a").union(after.select("a")))
+    replace_t(world, GROWN.rename_columns(["a", "x", "c"]))
+    sweep = rebase_module.iter_leaf_reports
+    pinned = tuple(pinned_columns.column_names)
+
+    def pinned_first(record: object) -> Iterator:
+        for report in sweep(record):
+            yield (
+                evolve(report, verdict=Verdict.EQUAL, live=report.leaf.recorded)
+                if tuple(report.leaf.recorded) == pinned
+                else report
+            )
+
+    monkeypatch.setattr(rebase_module, "iter_leaf_reports", pinned_first)
+    result = rebase_entry(entry, renames=[("t", "b", "x")], sync=False)
+    assert result.status == RebaseStatus.REBASED
+
+
+def test_a_rename_of_a_column_only_an_unchanged_binding_records_is_refused(
+    world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pinned binding recorded `b`; the current one never did, so `b <- x`
+    would rename the current `x` it already reads as `x`. sqlite has no
+    snapshots: the sweep reports the earlier binding as a pin's would."""
+    replace_t(world, RECORDED)
+    before = world.con.table("t")
+    current = pa.table({"a": pa.array([1, 2], pa.int64()), "x": ["x", "y"]})
+    replace_t(world, current)
+    after = world.con.table("t")
+    entry = world.catalog.add(before.select("a").union(after.select("a")))
+    replace_t(world, current.append_column("c", pa.array([1.5, 2.5])))
+    sweep = rebase_module.iter_leaf_reports
+
+    def pinned_first(record: object) -> Iterator:
+        for report in sweep(record):
+            yield (
+                evolve(report, verdict=Verdict.EQUAL, live=report.leaf.recorded)
+                if tuple(report.leaf.recorded) == ("a", "b")
+                else report
+            )
+
+    monkeypatch.setattr(rebase_module, "iter_leaf_reports", pinned_first)
+    with pytest.raises(RebaseError, match="'b' is still a live column"):
+        rebase_entry(entry, renames=[("t", "b", "x")], sync=False)
+
+
+def test_a_renamed_column_dropped_upstream_is_dropped_like_a_bare_one(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The rename's column gone: an entry that never used it loses it."""
+    name = world.catalog.add(world.con.table("t")).name
+    replace_t(world, RENAMED)
+    first = rebase(runner, world, name, "--rename", "t", "a", "x")
+    assert first.exit_code == 0, first.output
+
+    replace_t(world, pa.table({"b": ["x", "y"]}))
+    dropped = rebase(runner, world, first.stdout.strip())
+    assert dropped.exit_code == 0, dropped.output
+    assert "Output: a removed\n" in dropped.stderr
+
+
+def test_a_conflict_over_a_lost_column_lists_what_changed(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    replace_t(world, RENAMED)
+
+    result = rebase(runner, world)
+    assert result.exit_code == 4, result.output
     assert (
-        f"{name}: --rename 't' is bound 2 times in {name} (at different schemas "
-        "or snapshots); --rename of a source bound more than once is not "
-        "supported yet\n"
+        "t: recorded columns gone: a; live columns new: x\n"
+        "if a gone column was renamed to a new one, --rename <source> <old> <new> "
+        "maps it\n"
     ) in result.stderr
 
 

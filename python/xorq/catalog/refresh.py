@@ -294,18 +294,75 @@ def marked_renames(node: Node) -> dict[str, str] | None:
 
 
 def compose_renames(
-    held: Mapping[str, str], declared: Mapping[str, str]
+    held: Mapping[str, str],
+    declared: Mapping[str, str],
+    live: Iterable[str],
+    exposed: Iterable[str] = (),
 ) -> dict[str, str]:
     """``held`` (expression name -> recorded column), then ``declared``
     (recorded column -> live column): expression name -> live column.
 
     ``declared`` names only source columns, as ``check-sources`` prints them;
-    one ``held`` doesn't cover keeps its name in the expression.
+    one ``held`` doesn't cover keeps its name in the expression. A held name
+    whose column is gone, or now feeds a declared rename, is retired, as a
+    bare source's column would be: an op over it is what conflicts. Refused
+    when a live column of the same name, renamed nowhere, would take its
+    place: every op over the name would silently read that column instead.
+
+    ``exposed`` are the names the binding's ops see. A declared rename this
+    binding skips, because it holds that name, is refused when the binding
+    still exposes the declared live column under its own name: the user said
+    that column is another binding's ``old`` now, so the ops reading it here
+    would silently read that.
     """
-    composed = {name: declared.get(column, column) for name, column in held.items()}
+    live = set(live)
+    consumed = set(declared.values())
+    kept = {
+        name: column
+        for name, column in held.items()
+        # Moved onward by `declared`, or still live and fed to no other name.
+        if column in declared or (column in live and column not in consumed)
+    }
+    composed = {name: declared.get(column, column) for name, column in kept.items()}
     covered = set(held.values())
-    # A name kept as itself stays: `with_renames` counts it.
-    return composed | {old: new for old, new in declared.items() if old not in covered}
+    composed |= {
+        old: new
+        for old, new in declared.items()
+        # A held name is this binding's own: another binding's column of the
+        # same name, renamed, doesn't rebind it.
+        if old not in covered and old not in held
+    }
+    # A name kept as itself stays in what is returned: `with_renames` counts it.
+    renamed = {name: column for name, column in composed.items() if name != column}
+    if ambiguous := [
+        (old, new)
+        for old, new in declared.items()
+        if old in held
+        and old not in covered
+        and new in set(exposed)
+        and new not in renamed
+    ]:
+        refuse(
+            (
+                HashingTag.__name__,
+                f"{new!r} is declared as {old!r}'s live column, but this binding "
+                f"holds {old!r} from {held[old]!r} and reads {new!r} as its own",
+            )
+            for old, new in ambiguous
+        )
+    taken = set(renamed) | set(renamed.values())
+    if clashes := [
+        name for name in held if name not in kept and name in live and name not in taken
+    ]:
+        refuse(
+            (
+                HashingTag.__name__,
+                f"{name!r} was renamed from {held[name]!r}, which is gone or "
+                f"renamed; the live column {name!r} would take its place",
+            )
+            for name in clashes
+        )
+    return composed
 
 
 def marked_projects(expr: Any) -> frozenset[Node]:
@@ -368,7 +425,9 @@ def refresh_schemas(
             (source, held) = (node, {})
         if (key := refreshed_key(source)) is not None:
             matched.add(key)
-            composed = compose_renames(held, renames.get(key, {}))
+            composed = compose_renames(
+                held, renames.get(key, {}), live[key], exposed=node.schema.names
+            )
             return rebuild(
                 node,
                 lambda: with_renames(with_live_schema(source, live[key]), composed),
