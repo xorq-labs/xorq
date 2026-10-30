@@ -926,11 +926,16 @@ def plan_renames(
         return {}, [
             f"needs a live schema, and no source can be probed ({quoted(unprobed)})"
         ]
+    # Each source resolved once, however many of its columns are renamed.
+    resolved = {
+        source: renamed_source(catalog_entry, record, source)
+        for source in dict.fromkeys(rename.source for rename in renames)
+    }
     planned: dict[LeafKey, dict[str, str]] = {}
     details = []
     for rename in renames:
         (source, old, new) = (rename.source, rename.old, rename.new)
-        if isinstance(by_key := renamed_source(catalog_entry, record, source), str):
+        if isinstance(by_key := resolved[source], str):
             details.append(by_key)
             continue
         if not any(old in leaf.recorded for leaf in by_key.values()):
@@ -965,7 +970,8 @@ def check_live_renames(
     unreadable.
     """
     details = [*failed]
-    for report in reports:
+    # With nothing planned there is nothing to key: `leaf_key` hashes a profile.
+    for report in reports if planned else ():
         if report.verdict not in (Verdict.EQUAL, Verdict.CHANGED):
             continue
         if not (by_old := planned.get(leaf_key(report.leaf, record))):
@@ -1054,10 +1060,12 @@ def rebase_entry(
         only_aliases=only_aliases,
         entry_alias=entry_alias,
     )
-    planned, failed = plan_renames(catalog_entry, record, options.renames, unprobed)
     reports = tuple(iter_leaf_reports(record))
     # A refusal from here on reports the sweep, as a conflict does.
     with refusing_with_sweep(record, reports):
+        # Inside: a source whose profile is unreadable is refused with the
+        # sweep, as it is without --rename.
+        planned, failed = plan_renames(catalog_entry, record, options.renames, unprobed)
         # Before the no-op: a rename of an unchanged source is refused, not
         # ignored.
         check_live_renames(catalog_entry, record, reports, planned, failed)

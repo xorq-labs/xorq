@@ -2137,6 +2137,7 @@ SWEPT_REFUSALS = frozenset(
         "corrupt-metadata",
         "unreadable-metadata",
         "dangling-profile",
+        "rename-dangling-profile",
         "rename-not-live",
         "rename-no-drift",
         "rename-swap-no-drift",

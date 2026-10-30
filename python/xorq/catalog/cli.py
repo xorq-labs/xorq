@@ -1386,14 +1386,13 @@ def rebase(
     )
     from xorq.catalog.rebase import (  # noqa: PLC0415
         RebaseOptions,
-        Rename,
         rebase_document,
         rebase_entry,
     )
 
     # Checked before the entry resolves, so a bad combination is a usage error.
     try:
-        RebaseOptions(
+        options = RebaseOptions(
             alias=alias,
             move_aliases=move_aliases,
             only_aliases=only_aliases,
@@ -1489,8 +1488,8 @@ def rebase(
     old, new = result.old_entry.name, result.new_entry.name
     if result.output_changes is not None:
         # Derived: every --rename was applied, or the rebase would have refused.
-        for rename in renames:
-            click.echo(f"Renamed {Rename(*rename)}", err=True)
+        for rename in options.renames:
+            click.echo(f"Renamed {rename}", err=True)
         # The output's own columns: a source's new type can retype derived ones.
         changes = ", ".join(map(str, result.output_changes)) or "unchanged"
         click.echo(f"Output: {changes}", err=True)
