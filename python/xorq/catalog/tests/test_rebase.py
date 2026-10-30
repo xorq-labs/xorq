@@ -2737,8 +2737,8 @@ def test_a_renamed_entry_keeps_following_its_source(
 
 CONSUMED = (
     "RenameWarning: t: b was already a recorded column; a now reads b's data, "
-    "and the expression no longer has a column b unless another --rename maps "
-    "it. Check that a was really renamed to b"
+    "and the expression no longer has a column b. Check that a was really "
+    "renamed to b"
 )
 
 
@@ -2823,19 +2823,40 @@ def test_a_chained_rename_moves_a_live_column_away(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     """`a` renamed to `x`, then `b` renamed to `a`: `a` is live only because
-    the second rename claims it, and that one is warned about."""
+    the second rename claims it, and the first maps the recorded `a` on, so
+    the expression still has an `a`: nothing is warned about."""
     replace_t(world, pa.table({"x": pa.array([1, 2], pa.int64()), "a": ["x", "y"]}))
 
     result = rebase(
         runner, world, world.name, "--rename", "t", "a", "x", "--rename", "t", "b", "a"
     )
     assert result.exit_code == 0, result.output
-    assert "RenameWarning: t: a was already a recorded column" in result.stderr
+    assert "RenameWarning" not in result.stderr
     assert "Renamed t: a <- x\nRenamed t: b <- a\nOutput: unchanged\n" in (
         result.stderr
     )
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert new.load_expr().execute().to_dict("records") == [{"a": 2, "b": "y"}]
+
+
+def test_a_swap_of_two_recorded_columns_is_not_warned_about(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`a` and `b` swapped: each `new` is a recorded column the other rename
+    maps on, so the expression keeps both names."""
+    replace_t(world, pa.table({"a": ["x", "y"], "b": pa.array([1, 2], pa.int64())}))
+    swap = ("--rename", "t", "a", "b", "--rename", "t", "b", "a")
+
+    result = rebase(runner, world, world.name, *swap, "--no-sync")
+    assert result.exit_code == 0, result.output
+    assert "RenameWarning" not in result.stderr
+    assert "Renamed t: a <- b\nRenamed t: b <- a\nOutput: unchanged\n" in (
+        result.stderr
+    )
+    _, document = rebase_json(runner, world, world.name, *swap, "--no-sync")
+    assert document["exit_code"] == 0, document
+    assert not [w for w in document["warnings"] if w.startswith("RenameWarning")]
+    assert document["output_changes"] == []
 
 
 @pytest.mark.parametrize(

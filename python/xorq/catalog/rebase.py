@@ -154,10 +154,10 @@ class Rename:
     source = field(validator=instance_of(str))
     old = field(validator=instance_of(str))
     new = field(validator=instance_of(str))
-    # ``new`` was itself a recorded column: it now feeds ``old``, and the
-    # expression no longer sees it under its own name unless another rename
-    # (a chain, ``a <- x, b <- a``) maps it. Set by ``rebase_entry``, and
-    # derived, so not part of a rename's identity.
+    # ``new`` was itself a recorded column, and no other rename of the source
+    # (a chain, ``a <- x, b <- a``, or a swap) maps it onward: it now feeds
+    # ``old``, and the expression no longer sees it under its own name. Set
+    # by ``rebase_entry``, and derived, so not part of a rename's identity.
     consumes = field(default=False, eq=False, validator=instance_of(bool))
 
     def __str__(self) -> str:
@@ -170,7 +170,7 @@ class Rename:
         return (
             f"{self.source}: {self.new} was already a recorded column; "
             f"{self.old} now reads {self.new}'s data, and the expression no "
-            f"longer has a column {self.new} unless another --rename maps it. "
+            f"longer has a column {self.new}. "
             f"Check that {self.old} was really renamed to {self.new}"
         )
 
@@ -974,6 +974,10 @@ def plan_renames(
         source: renamed_source(catalog_entry, record, source)
         for source in dict.fromkeys(rename.source for rename in renames)
     }
+    moved_on = {
+        source: {rename.old for rename in renames if rename.source == source}
+        for source in resolved
+    }
     planned: dict[LeafKey, dict[str, str]] = {}
     checked = []
     details = []
@@ -993,7 +997,11 @@ def plan_renames(
             continue
         for key in by_key:
             planned.setdefault(key, {})[old] = new
-        consumes = any(new in leaf.recorded for leaf in by_key.values())
+        # A `new` another rename of this source maps onward (a chain or a
+        # swap) is still a column of the expression.
+        consumes = any(new in leaf.recorded for leaf in by_key.values()) and (
+            new not in moved_on[source]
+        )
         checked.append(evolve(rename, consumes=consumes))
     return planned, tuple(checked), details
 
