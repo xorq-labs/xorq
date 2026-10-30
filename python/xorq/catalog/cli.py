@@ -1317,7 +1317,9 @@ def rebase(
     more than once in the entry (not supported yet); when OLD is not
     recorded, or is still live (so also with no drift); when NEW is not live;
     or when no source can be probed. One that renames a column of its source
-    twice, maps two to one, or renames one to itself is an invalid option.
+    twice, maps two to one, or renames one to itself is an invalid option. A
+    NEW the source had recorded too is allowed, with a warning: rebase can't
+    tell a mistyped NEW from a column dropped and replaced by the renamed one.
 
     \b
     Exit codes:
@@ -1392,7 +1394,7 @@ def rebase(
 
     # Checked before the entry resolves, so a bad combination is a usage error.
     try:
-        options = RebaseOptions(
+        RebaseOptions(
             alias=alias,
             move_aliases=move_aliases,
             only_aliases=only_aliases,
@@ -1486,10 +1488,9 @@ def rebase(
             for line in format_leaf_report(report):
                 click.echo(line, err=True)
     old, new = result.old_entry.name, result.new_entry.name
+    for rename in result.renames or ():
+        click.echo(f"Renamed {rename}", err=True)
     if result.output_changes is not None:
-        # Derived: every --rename was applied, or the rebase would have refused.
-        for rename in options.renames:
-            click.echo(f"Renamed {rename}", err=True)
         # The output's own columns: a source's new type can retype derived ones.
         changes = ", ".join(map(str, result.output_changes)) or "unchanged"
         click.echo(f"Output: {changes}", err=True)
