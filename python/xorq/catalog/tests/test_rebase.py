@@ -2140,6 +2140,11 @@ SWEPT_REFUSALS = frozenset(
         "rename-not-live",
         "rename-no-drift",
         "rename-swap-no-drift",
+        # Every --rename refusal comes after the sweep, record checks included.
+        "rename-no-source",
+        "rename-ambiguous",
+        "rename-not-recorded",
+        "rename-unprobed",
     )
 )
 
@@ -2752,6 +2757,28 @@ def test_every_rename_refusal_is_reported_at_once(
         "  t: 'zz' is not a recorded column (recorded: 'a', 'b')\n"
         "  names no source 'nope'; its sources: 't'\n"
     ) in before.stderr
+
+    # One that fails against the record and one against the live schema, in
+    # the same run.
+    mixed = rebase(
+        runner,
+        world,
+        world.name,
+        "--rename",
+        "nope",
+        "a",
+        "x",
+        "--rename",
+        "t",
+        "a",
+        "q",
+    )
+    assert mixed.exit_code == 1, mixed.output
+    assert (
+        f"{world.name}: --rename refused:\n"
+        "  names no source 'nope'; its sources: 't'\n"
+        "  t: 'q' is not a live column (live: 'x', 'b')\n"
+    ) in mixed.stderr
 
     after = rebase(
         runner, world, world.name, "--rename", "t", "a", "q", "--rename", "t", "b", "r"

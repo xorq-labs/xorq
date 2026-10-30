@@ -913,19 +913,19 @@ def plan_renames(
     record: BuildRecord,
     renames: tuple[Rename, ...],
     unprobed: tuple[str, ...],
-) -> dict[LeafKey, dict[str, str]]:
-    """``leaf_key`` -> recorded name -> live name, checked against the record.
-    Every failure is refused at once.
+) -> tuple[dict[LeafKey, dict[str, str]], list[str]]:
+    """``leaf_key`` -> recorded name -> live name for each rename the record
+    allows, and why each other one fails against the record.
 
-    ``RebaseOptions`` has refused a repeated column already. The live side is
-    checked after the sweep, by ``check_live_renames``.
+    Not refused here: ``check_live_renames`` refuses these together with what
+    fails against the live schema, after the sweep, so one run names every bad
+    ``--rename`` and the refusal carries the sweep. ``RebaseOptions`` has
+    refused a repeated column already.
     """
     if renames and unprobed:
-        raise RebaseError(
-            f"{catalog_entry.name}: --rename needs a live schema, and no source "
-            f"can be probed ({quoted(unprobed)})",
-            RebaseFailure.REFUSED,
-        )
+        return {}, [
+            f"needs a live schema, and no source can be probed ({quoted(unprobed)})"
+        ]
     planned: dict[LeafKey, dict[str, str]] = {}
     details = []
     for rename in renames:
@@ -944,8 +944,7 @@ def plan_renames(
             continue
         for key in by_key:
             planned.setdefault(key, {})[old] = new
-    refuse_renames(catalog_entry, details)
-    return planned
+    return planned, details
 
 
 def check_live_renames(
@@ -953,19 +952,19 @@ def check_live_renames(
     record: BuildRecord,
     reports: tuple[LeafReport, ...],
     planned: dict[LeafKey, dict[str, str]],
+    failed: Iterable[str] = (),
 ) -> None:
-    """Refuse, all at once, each rename whose new column isn't live, or whose
-    old one still is and no other rename of that source moves it away (a
-    chain, ``a <- x, b <- a``, or a swap).
+    """Refuse, all at once and with ``failed`` (what failed against the
+    record), each rename whose new column isn't live, or whose old one still is
+    and no other rename of that source moves it away (a chain,
+    ``a <- x, b <- a``, or a swap).
 
     On an unchanged source every old column is still live, so even a swap
     renamed nothing. An unreachable or unreadable source is left to the
     sweep's own refusal, and never keyed: its profile may be what made it
     unreadable.
     """
-    if not planned:
-        return
-    details = []
+    details = [*failed]
     for report in reports:
         if report.verdict not in (Verdict.EQUAL, Verdict.CHANGED):
             continue
@@ -1055,13 +1054,13 @@ def rebase_entry(
         only_aliases=only_aliases,
         entry_alias=entry_alias,
     )
-    planned = plan_renames(catalog_entry, record, options.renames, unprobed)
+    planned, failed = plan_renames(catalog_entry, record, options.renames, unprobed)
     reports = tuple(iter_leaf_reports(record))
     # A refusal from here on reports the sweep, as a conflict does.
     with refusing_with_sweep(record, reports):
         # Before the no-op: a rename of an unchanged source is refused, not
         # ignored.
-        check_live_renames(catalog_entry, record, reports, planned)
+        check_live_renames(catalog_entry, record, reports, planned, failed)
         # Only a sweep that probed every source can prove a no-op on its own.
         if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
             # The new entry is this one, so each of `only_aliases` must be on it;
