@@ -365,6 +365,7 @@ def replace_nodes(
     *,
     recreate: Callable[[Node, dict], Node] = recreate_opaque,
     stop: Callable[[Node], bool] = lambda op: False,
+    filter: Callable[[Node], bool] | None = None,
 ) -> Node:
     """Apply *replacer* across the expression graph, descending into opaque
     sub-expressions (``RemoteTable.remote_expr``, ``CachedNode.parent``,
@@ -373,6 +374,8 @@ def replace_nodes(
     An opaque op the replacer returns is rebuilt by ``recreate(op, kwargs)``,
     *kwargs* holding its rewritten edges and, where its spec forwards them,
     its rewritten children. ``stop(op)`` true keeps *op* undescended.
+    ``filter(op)`` false keeps *op* unvisited, and every node reached only
+    through it, as ``Node.replace``'s ``filter`` does.
 
     Only safe for **pure structural rewrites** — replacers with side effects
     (materializing batches, registering tables on a backend, deferred writes)
@@ -388,7 +391,9 @@ def replace_nodes(
 
     def _replace_sub(sub_op):
         if sub_op not in sub_expr_memo:
-            sub_expr_memo[sub_op] = sub_op.replace(process_node).to_expr()
+            sub_expr_memo[sub_op] = sub_op.replace(
+                process_node, filter=filter
+            ).to_expr()
         return sub_expr_memo[sub_op]
 
     def process_node(op, _kwargs):
@@ -420,7 +425,7 @@ def replace_nodes(
         )
 
     # hasattr(x, "op") is unreliable: some Nodes have an `op` field (e.g. IntervalAdd)
-    return to_node(expr).replace(process_node)
+    return to_node(expr).replace(process_node, filter=filter)
 
 
 # Exact source classes whose data lives in their backend, so it is copied over.

@@ -29,8 +29,10 @@ from xorq.catalog.enums import LeafKind, Verdict
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.refresh import (
     check_refreshable,
+    compose_renames,
     leaf_key,
     live_schemas,
+    marked_renames,
     op_key,
     refresh_build,
     refresh_schemas,
@@ -55,6 +57,7 @@ from xorq.expr.relations import (
     CachedNode,
     FlightExpr,
     FlightUDXF,
+    HashingTag,
     Read,
     RemoteTable,
     Tag,
@@ -1013,3 +1016,183 @@ def test_a_flight_source_keys_without_a_profile() -> None:
         table = server.con.create_table("t", RECORDED)
         (kind, profile_key, name, _, _) = op_key(table.op())
     assert (kind, profile_key, name) == (LeafKind.DATABASE_TABLE, None, "t")
+
+
+# A rename above a refreshed source, under the mark that holds its mapping.
+RENAMED = pa.schema({"x": pa.int64(), "b": pa.string()})
+
+
+def test_a_rename_keeps_the_recorded_name_over_a_renamed_column(
+    con: SqliteBackend,
+) -> None:
+    t = con.table("t")
+    expr = t.filter(t.a > 1).mutate(a2=t.a * 2)
+    live = drift_the_table(expr, RENAMED)
+
+    refreshed = refresh_schemas(expr, live, {key: {"a": "x"} for key in live})
+    assert refreshed.schema() == expr.schema()
+    (table,) = (
+        node
+        for node in walk_nodes(ops.DatabaseTable, refreshed)
+        if type(node) is ops.DatabaseTable
+    )
+    assert list(table.schema) == ["x", "b"]
+    replace_table(con, pa.table({"x": [1, 2], "b": ["x", "y"]}))
+    assert refreshed.execute().to_dict("records") == [{"a": 2, "b": "y", "a2": 4}]
+
+
+def test_without_a_rename_a_renamed_column_names_the_field(
+    con: SqliteBackend,
+) -> None:
+    t = con.table("t")
+    expr = t.filter(t.a > 1)
+
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refresh_schemas(expr, drift_the_table(expr, RENAMED))
+    assert excinfo.value.op_name == "Field"
+
+
+def test_a_rename_of_a_source_not_refreshed_is_refused(con: SqliteBackend) -> None:
+    expr = con.table("t")
+    (key,) = drift_the_table(expr)
+
+    with pytest.raises(UnmatchedSourceError, match="renamed but not refreshed"):
+        refresh_schemas(expr, {}, {key: {"a": "x"}})
+
+
+def test_an_empty_rename_adds_no_op(con: SqliteBackend) -> None:
+    """`Table.rename({})` would still project every column."""
+    expr = con.table("t")
+    live = drift_the_table(expr)
+
+    refreshed = refresh_schemas(expr, live, {key: {} for key in live})
+    assert type(refreshed.op()) is ops.DatabaseTable
+    assert refreshed.op() == refresh_schemas(expr, live).op()
+
+
+def renamed_once(con: SqliteBackend) -> xo.Expr:
+    """`t.filter(t.a > 1)`, refreshed over `t` whose `a` is now `x`."""
+    t = con.table("t")
+    expr = t.filter(t.a > 1)
+    live = drift_the_table(expr, RENAMED)
+    return refresh_schemas(expr, live, {key: {"a": "x"} for key in live})
+
+
+def the_mark(expr: xo.Expr) -> dict[str, str]:
+    (mark,) = (
+        held
+        for node in walk_nodes(HashingTag, expr)
+        if (held := marked_renames(node)) is not None
+    )
+    return mark
+
+
+FOLLOWED = (
+    pytest.param(
+        pa.schema({"x": pa.int64(), "b": pa.string(), "c": pa.float64()}),
+        ["a", "b", "c"],
+        id="added",
+    ),
+    pytest.param(pa.schema({"x": pa.int64()}), ["a"], id="dropped"),
+)
+
+
+@pytest.mark.parametrize("live, columns", FOLLOWED)
+def test_a_marked_rename_follows_its_source(
+    con: SqliteBackend, live: pa.Schema, columns: list[str]
+) -> None:
+    """Rebuilt from its mark, not recreated with the columns it had."""
+    once = renamed_once(con)
+    assert the_mark(once) == {"a": "x"}
+
+    refreshed = refresh_schemas(once, drift_the_table(once, live))
+    assert list(refreshed.schema()) == columns
+    assert the_mark(refreshed) == {"a": "x"}
+
+
+@pytest.mark.parametrize("live, columns", FOLLOWED)
+def test_a_marked_rename_inside_an_opaque_op_follows_its_source(
+    con: SqliteBackend, live: pa.Schema, columns: list[str]
+) -> None:
+    """Found under a `RemoteTable`'s `remote_expr` too, which `__children__`
+    does not reach."""
+    once = renamed_once(con).into_backend(xo.connect())
+
+    refreshed = refresh_schemas(once, drift_the_table(once, live))
+    assert list(refreshed.schema()) == columns
+    assert the_mark(refreshed) == {"a": "x"}
+
+
+def test_a_rename_of_a_renamed_column_composes_with_the_mark(
+    con: SqliteBackend,
+) -> None:
+    """The user names source columns only: `x` -> `y`, never `a`."""
+    once = renamed_once(con)
+    live = drift_the_table(once, pa.schema({"y": pa.int64(), "b": pa.string()}))
+
+    twice = refresh_schemas(once, live, {key: {"x": "y"} for key in live})
+    assert list(twice.schema()) == ["a", "b"]
+    assert the_mark(twice) == {"a": "y"}
+
+
+def test_a_mark_over_an_unchanged_source_stands(con: SqliteBackend) -> None:
+    once = renamed_once(con)
+    u = con.create_table("u", RECORDED.to_pandas())
+    expr = once.union(u.select("a", "b"))
+    # Only `u` drifts; `t`, under the mark, is left as recorded.
+    (key,) = drift_the_table(u, GROWN.schema)
+
+    refreshed = refresh_schemas(expr, {key: xo.schema(GROWN.schema)})
+    assert the_mark(refreshed) == {"a": "x"}
+    assert list(refreshed.schema()) == ["a", "b"]
+
+
+@pytest.mark.parametrize(
+    "held, declared, composed",
+    (
+        pytest.param({"a": "x"}, {"x": "y"}, {"a": "y"}, id="chain"),
+        pytest.param({"a": "x"}, {"b": "z"}, {"a": "x", "b": "z"}, id="another"),
+        pytest.param({"a": "x"}, {"x": "a"}, {"a": "a"}, id="back-to-its-name"),
+        pytest.param({}, {"a": "x"}, {"a": "x"}, id="first"),
+    ),
+)
+def test_compose_renames(
+    held: dict[str, str], declared: dict[str, str], composed: dict[str, str]
+) -> None:
+    assert compose_renames(held, declared) == composed
+
+
+def test_a_rename_onto_a_live_column_nothing_moves_is_refused(
+    con: SqliteBackend,
+) -> None:
+    """`Table.rename` would keep the live `a` and silently drop `x`."""
+    t = con.table("t")
+    expr = t.filter(t.a > 1)
+    live = drift_the_table(
+        expr, pa.schema({"x": pa.int64(), "a": pa.int64(), "b": pa.string()})
+    )
+
+    with pytest.raises(SchemaRefreshError, match="'a' is still a live column"):
+        refresh_schemas(expr, live, {key: {"a": "x"} for key in live})
+
+
+def test_a_rename_of_two_columns_onto_one_live_column_is_refused(
+    con: SqliteBackend,
+) -> None:
+    """`Table.rename` would raise a bare `ValueError`, not a refresh error."""
+    expr = con.table("t")
+    live = drift_the_table(expr, pa.schema({"x": pa.int64()}))
+
+    with pytest.raises(SchemaRefreshError, match="'x' is renamed to more than one"):
+        refresh_schemas(expr, live, {key: {"a": "x", "b": "x"} for key in live})
+
+
+def test_a_column_kept_and_renamed_onto_one_live_column_is_refused(
+    con: SqliteBackend,
+) -> None:
+    """`a` kept as itself and `b` renamed onto it name one live column twice."""
+    expr = con.table("t")
+    live = drift_the_table(expr, pa.schema({"a": pa.int64()}))
+
+    with pytest.raises(SchemaRefreshError, match="'a' is renamed to more than one"):
+        refresh_schemas(expr, live, {key: {"a": "a", "b": "a"} for key in live})
