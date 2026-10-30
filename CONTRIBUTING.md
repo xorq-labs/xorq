@@ -97,7 +97,10 @@ python -m pytest # or pytest
 
 ## Style checks
 
-Ruff and `xorq-check-style` run on every pull request. `xorq-check-style`
+Ruff and `xorq-check-style` run on every pull request. Ruff runs twice: the
+linter, `ruff check`, and the formatter, `ruff format --check`; a file can pass
+one and fail the other. `uv run ruff format python examples docs scripts` fixes
+what the second reports. `xorq-check-style`
 enforces the conventions below — import placement, `__all__`, `pytest` idioms —
 that Ruff has no rule for. `pre-commit install` runs it over what you staged, on
 any commit that stages Python; the command below reproduces what CI will say
