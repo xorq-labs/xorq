@@ -289,6 +289,35 @@ The one pass that still rewrites a payload before it is keyed is `bind_params`. 
 accepted; the `_PASSES` header in `python/xorq/expr/api.py` records why it cannot stop at
 the boundary and what it costs.
 
+## Amendment: cache location is not build identity
+
+A `CachedNode` folds into the build hash as its schema, the cache class name and its
+parent (the `CachedNode` case of `_xorq_opaque_to_placeholder` in
+`python/xorq/common/utils/dasher/_opaque.py`). Its storage is not folded, so two builds
+that differ only in a `ParquetStorage` `base_path` or `relative_path` share one build
+hash and one catalog entry. `ParquetStorage.__dasher_tokenize__` includes both paths, but
+the build hash never reaches it.
+
+This is the intended exception to "different DAGs give different build hashes": where a
+cache lives is a runtime choice, not part of what was built. `replace_base_path` in
+`python/xorq/ibis_yaml/compiler.py` relocates a loaded build's caches to `--cache-dir` or
+`XORQ_CACHE_DIR`, and that relocation is only sound because the build hash and the cache
+key are independent of `base_path`.
+
+`relative_path` is left out too, though relocation does not need that: `replace_base_path`
+rewrites only `base_path`. Two builds that differ only in `relative_path` are one catalog
+entry carrying the storage of whichever was added first. Adding the second is refused as a
+duplicate, or with `exist_ok` returns the first, so a load writes its caches under the
+first build's `relative_path`.
+
+Alternatives rejected:
+
+- *Fold `relative_path` only.* Builds caching to different subdirectories would get
+  different hashes and relocation would still work, but every build hash containing a
+  `.cache()` would move and existing catalog entries would stop matching.
+- *Fold the whole storage token.* Relocating a build would change its identity, which is
+  what `replace_base_path` exists to avoid, and every cached build hash would move.
+
 ## Errata
 
 Corrections to the descriptive text above, found by a cold read and each checked by
