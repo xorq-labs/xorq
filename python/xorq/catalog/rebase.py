@@ -104,8 +104,14 @@ from xorq.catalog.exceptions import (
     RebaseOptionsError,
     RollbackError,
 )
-from xorq.catalog.inspection import BuildRecord
-from xorq.catalog.refresh import check_refreshable, live_schemas, refresh_schemas
+from xorq.catalog.inspection import BuildRecord, SourceLeaf
+from xorq.catalog.refresh import (
+    LeafKey,
+    check_refreshable,
+    leaf_key,
+    live_schemas,
+    refresh_schemas,
+)
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
 from xorq.common.exceptions import (
     LocalReadPathWarning,
@@ -135,6 +141,67 @@ def check_move_aliases(instance: object, attribute: object, value: object) -> No
         raise TypeError("move_aliases is a bool; pass alias names as only_aliases")
 
 
+@frozen
+class Rename:
+    """``--rename SOURCE OLD NEW``: the expression keeps seeing ``old``, now read
+    from the live column ``new``."""
+
+    source = field(validator=instance_of(str))
+    old = field(validator=instance_of(str))
+    new = field(validator=instance_of(str))
+
+    def __str__(self) -> str:
+        return f"{self.source}: {self.old} <- {self.new}"
+
+
+def rename_tuple(renames: Iterable[Rename | tuple[str, str, str]]) -> tuple:
+    # A bare string would be read as one rename per character.
+    if isinstance(renames, str):
+        raise TypeError("renames is an iterable of (source, old, new), not a string")
+    return tuple(
+        rename if isinstance(rename, Rename) else Rename(*rename) for rename in renames
+    )
+
+
+def repeated_renames(renames: tuple[Rename, ...]) -> Iterator[str]:
+    """Why each of ``renames`` that repeats a column, or renames one to itself,
+    is refused.
+
+    Refused, not collapsed, even when identical: as with `git mv a a d/`
+    ("multiple sources for the same target"), a repeat is most likely a copied
+    `--rename` left unedited, and collapsing it would silently drop the
+    mapping that was meant.
+    """
+    # Per source: old -> new, and new -> old, as declared so far.
+    by_old: dict[tuple[str, str], str] = {}
+    by_new: dict[tuple[str, str], str] = {}
+    for rename in renames:
+        (source, old, new) = (rename.source, rename.old, rename.new)
+        if old == new:
+            yield f"{source} {old} {new} renames {old!r} to itself"
+        elif (earlier := by_old.get((source, old))) is not None:
+            yield (
+                f"{source} {old} {new} is given twice"
+                if earlier == new
+                else f"{source}: {old!r} is mapped to both {earlier!r} and {new!r}"
+            )
+        elif (earlier := by_new.get((source, new))) is not None:
+            yield f"{source}: {earlier!r} and {old!r} are both mapped to {new!r}"
+        else:
+            (by_old[source, old], by_new[source, new]) = (new, old)
+
+
+def rename_refusal(details: Iterable[str]) -> str | None:
+    """One message for every refused ``--rename``, so one run shows them all."""
+    match tuple(dict.fromkeys(details)):
+        case ():
+            return None
+        case (detail,):
+            return f"--rename {detail}"
+        case many:
+            return "--rename refused:\n" + "\n".join(f"  {d}" for d in many)
+
+
 def builds_path(builds_dir: str | Path) -> Path:
     # `Path("")` is `.`, which would write the build beside the caller's files.
     if not str(builds_dir):
@@ -158,6 +225,11 @@ class RebaseOptions:
     add = field(default=True, validator=instance_of(bool))
     # Only with `add=False`, which writes there, `builds` by default.
     builds_dir = field(default=None, converter=converters.optional(builds_path))
+    renames = field(
+        default=(),
+        converter=rename_tuple,
+        validator=deep_iterable(instance_of(Rename), instance_of(tuple)),
+    )
 
     def __attrs_post_init__(self) -> None:
         if self.move_aliases and self.only_aliases:
@@ -175,6 +247,8 @@ class RebaseOptions:
             raise RebaseOptionsError(
                 "--builds-dir applies only with --no-add, which writes the build there"
             )
+        if message := rename_refusal(repeated_renames(self.renames)):
+            raise RebaseOptionsError(message)
 
     @property
     def build_target_dir(self) -> Path:
@@ -785,6 +859,132 @@ def publish_build(
     return target
 
 
+def refuse_renames(catalog_entry: CatalogEntry, details: Iterable[str]) -> None:
+    """Refuse every failed ``--rename`` at once, so one run shows them all."""
+    if message := rename_refusal(details):
+        raise RebaseError(f"{catalog_entry.name}: {message}", RebaseFailure.REFUSED)
+
+
+def quoted(names: Iterable[str]) -> str:
+    """Each name quoted: a multi-path read's own name holds ``", "``."""
+    return ", ".join(map(repr, names)) or "-"
+
+
+def renamed_source(
+    catalog_entry: CatalogEntry, record: BuildRecord, name: str
+) -> dict[LeafKey, SourceLeaf] | str:
+    """``leaf_key`` -> leaf for the one external source ``name`` is, or why
+    there is none.
+
+    One source can hold several keys: a table bound before and after it grew
+    is recorded at two schemas. One name on two connections is two sources,
+    and refused, as is no source at all. A source bound more than once is
+    refused too, for now.
+    """
+    try:
+        by_key = {
+            leaf_key(leaf, record): leaf
+            for leaf in record.external_leaves
+            if leaf.name == name
+        }
+    except Exception as e:
+        # The profile the sweep would rank `unreadable`: the same exit.
+        raise RebaseError(
+            f"{catalog_entry.name}: {name} is unreadable: {format_error(e)}",
+            RebaseFailure.UNREACHABLE,
+        ) from e
+    if not by_key:
+        sources = dict.fromkeys(leaf.name for leaf in record.external_leaves)
+        return f"names no source {name!r}; its sources: {quoted(sorted(sources))}"
+    # `leaf_key` less its snapshot pin and recorded schema: kind, profile, name.
+    if (count := len({key[:3] for key in by_key})) > 1:
+        return f"{name!r} names {count} sources (one name on different connections)"
+    if (count := len(by_key)) > 1:
+        return (
+            f"{name!r} is bound {count} times in {catalog_entry.name} (at different "
+            "schemas or snapshots); --rename of a source bound more than once is "
+            "not supported yet"
+        )
+    return by_key
+
+
+def plan_renames(
+    catalog_entry: CatalogEntry,
+    record: BuildRecord,
+    renames: tuple[Rename, ...],
+    unprobed: tuple[str, ...],
+) -> dict[LeafKey, dict[str, str]]:
+    """``leaf_key`` -> recorded name -> live name, checked against the record.
+    Every failure is refused at once.
+
+    ``RebaseOptions`` has refused a repeated column already. The live side is
+    checked after the sweep, by ``check_live_renames``.
+    """
+    if renames and unprobed:
+        raise RebaseError(
+            f"{catalog_entry.name}: --rename needs a live schema, and no source "
+            f"can be probed ({quoted(unprobed)})",
+            RebaseFailure.REFUSED,
+        )
+    planned: dict[LeafKey, dict[str, str]] = {}
+    details = []
+    for rename in renames:
+        (source, old, new) = (rename.source, rename.old, rename.new)
+        if isinstance(by_key := renamed_source(catalog_entry, record, source), str):
+            details.append(by_key)
+            continue
+        if not any(old in leaf.recorded for leaf in by_key.values()):
+            recorded = dict.fromkeys(
+                name for leaf in by_key.values() for name in leaf.recorded
+            )
+            details.append(
+                f"{source}: {old!r} is not a recorded column "
+                f"(recorded: {quoted(recorded)})"
+            )
+            continue
+        for key in by_key:
+            planned.setdefault(key, {})[old] = new
+    refuse_renames(catalog_entry, details)
+    return planned
+
+
+def check_live_renames(
+    catalog_entry: CatalogEntry,
+    record: BuildRecord,
+    reports: tuple[LeafReport, ...],
+    planned: dict[LeafKey, dict[str, str]],
+) -> None:
+    """Refuse, all at once, each rename whose new column isn't live, or whose
+    old one still is and no other rename of that source moves it away (a
+    chain, ``a <- x, b <- a``, or a swap).
+
+    On an unchanged source every old column is still live, so even a swap
+    renamed nothing. An unreachable or unreadable source is left to the
+    sweep's own refusal, and never keyed: its profile may be what made it
+    unreadable.
+    """
+    if not planned:
+        return
+    details = []
+    for report in reports:
+        if report.verdict not in (Verdict.EQUAL, Verdict.CHANGED):
+            continue
+        if not (by_old := planned.get(leaf_key(report.leaf, record))):
+            continue
+        (name, live) = (report.leaf.name, report.live)
+        claimed = set(by_old.values()) if report.verdict == Verdict.CHANGED else set()
+        for old, new in by_old.items():
+            if new not in live:
+                details.append(
+                    f"{name}: {new!r} is not a live column (live: {quoted(live)})"
+                )
+            if old in live and old not in claimed:
+                details.append(
+                    f"{name}: {old!r} is still a live column, so nothing was renamed"
+                )
+    refuse_renames(catalog_entry, details)
+
+
 def rebase_entry(
     catalog_entry: CatalogEntry,
     *,
@@ -798,6 +998,7 @@ def rebase_entry(
     dry_run: bool = False,
     add: bool = True,
     builds_dir: str | Path | None = None,
+    renames: Iterable[Rename | tuple[str, str, str]] = (),
 ) -> RebaseResult:
     """``catalog_entry`` re-derived over its live sources, as a new entry.
 
@@ -817,6 +1018,12 @@ def rebase_entry(
     rebase can still refuse an alias the pull moved. ``RebaseOptions`` states
     which arguments combine. Either way the new build records ``catalog_entry``
     as its ancestor.
+
+    ``renames`` (``Rename``s, or ``(source, old, new)``) reads each recorded
+    column ``old`` from the live column ``new``, keeping the recorded name, so
+    every op over the source rebuilds unchanged. A rename the record or the
+    sweep refutes is refused, so a rename with no drift, or of an entry none
+    of whose sources can be probed, is refused rather than ignored.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -827,6 +1034,7 @@ def rebase_entry(
         dry_run=dry_run,
         add=add,
         builds_dir=builds_dir,
+        renames=renames,
     )
     only_aliases, builds_dir = options.only_aliases, options.build_target_dir
     # `ExprDumper` validates `cache_dir` as a `Path`.
@@ -847,9 +1055,13 @@ def rebase_entry(
         only_aliases=only_aliases,
         entry_alias=entry_alias,
     )
+    planned = plan_renames(catalog_entry, record, options.renames, unprobed)
     reports = tuple(iter_leaf_reports(record))
     # A refusal from here on reports the sweep, as a conflict does.
     with refusing_with_sweep(record, reports):
+        # Before the no-op: a rename of an unchanged source is refused, not
+        # ignored.
+        check_live_renames(catalog_entry, record, reports, planned)
         # Only a sweep that probed every source can prove a no-op on its own.
         if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
             # The new entry is this one, so each of `only_aliases` must be on it;
@@ -897,7 +1109,7 @@ def rebase_entry(
             # which bundled reads point into, alive only as long as the expression.
             loaded = catalog_entry.load_expr(cache_dir=cache_dir)
             try:
-                expr = refresh_schemas(loaded, live)
+                expr = refresh_schemas(loaded, live, planned)
             except UnmatchedSourceError as e:
                 raise RebaseError(
                     f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED
