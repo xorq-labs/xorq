@@ -1,4 +1,5 @@
 import importlib
+import itertools
 from enum import Enum
 
 import toolz
@@ -72,20 +73,26 @@ def get_typs(maybe_typs):
     return typs
 
 
+def only_match(matches, description):
+    # Two matches already prove ambiguity: stop before hashing the rest.
+    match tuple(itertools.islice(matches, 2)):
+        case (node,):
+            return node
+        case ():
+            raise ValueError(f"found no node with {description}")
+        case _:
+            raise ValueError(f"found multiple nodes with {description}")
+
+
 def find_by_expr_hash(expr, to_replace_hash, typs=None, strategy=None):
     def matches_hash(node):
         return compute_expr_hash(node, strategy) == to_replace_hash
 
     typs = get_typs(typs)
-    match tuple(filter(matches_hash, walk_nodes(typs, expr))):
-        case (to_replace,):
-            return to_replace
-        case ():
-            raise ValueError(
-                f"found no node with hash {to_replace_hash!r} among {[typ.__name__ for typ in typs]}"
-            )
-        case _:
-            raise ValueError(f"found multiple nodes with hash {to_replace_hash!r}")
+    return only_match(
+        filter(matches_hash, walk_nodes(typs, expr)),
+        f"hash {to_replace_hash!r} among {[typ.__name__ for typ in typs]}",
+    )
 
 
 def find_by_expr_tag(expr, tag):
@@ -97,17 +104,12 @@ def find_node(expr, hash, tag, typs=None, strategy=None):
         case [None, None]:
             raise ValueError("at least one of hash or tag must be provided")
         case [_, None]:
-            if isinstance(typs, tuple) and rel.Tag in typs:
+            typs = get_typs(typs)
+            if rel.Tag in typs:
                 raise ValueError("typs must not include Tag when searching by hash")
             return find_by_expr_hash(expr, hash, typs=typs, strategy=strategy)
         case [None, _]:
-            match tuple(find_by_expr_tag(expr, tag)):
-                case (node,):
-                    return node
-                case ():
-                    raise ValueError(f"found no node with tag {tag!r}")
-                case _:
-                    raise ValueError(f"found multiple nodes with tag {tag!r}")
+            return only_match(find_by_expr_tag(expr, tag), f"tag {tag!r}")
         case _:
             raise ValueError("cannot specify both hash and tag")
 
@@ -175,7 +177,6 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
 
     found = find_node(expr, hash=hash, tag=tag, typs=typs, strategy=strategy)
     found_expr = found.to_expr()
-    to_unbind_hash = hash or compute_expr_hash(found_expr, strategy)
     found_con = None
     # execution_only: don't let a pin's discarded ``uncached`` upstream drive
     # connection selection -- only its frozen parent actually executes.
@@ -207,11 +208,12 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
             assert found_con
     unbound_table = UnboundTable("unbound", found.schema)
     replace_with = unbound_table.to_expr().into_backend(found_con).op()
-    replaced = replace_by_expr_hash(
-        expr, to_unbind_hash, replace_with, typs=(type(found),), strategy=strategy
+    # Replace the node already found, not whatever shares its hash: a Tag
+    # hashes like its parent, so stacked tags would all match.
+    replaced = replace_nodes(do_replace_dct(replace_dct={found: replace_with}), expr)
+    elided = replace_nodes(
+        elide_downstream_cached_node(replaced, unbound_table), replaced
     )
-    (found,) = walk_nodes(UnboundTable, replaced)
-    elided = replace_nodes(elide_downstream_cached_node(replaced, found), replaced)
     return elided
 
 
