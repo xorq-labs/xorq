@@ -107,6 +107,7 @@ from xorq.catalog.exceptions import (
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
 from xorq.catalog.refresh import (
     LeafKey,
+    ambiguous_renames,
     check_refreshable,
     leaf_key,
     live_schemas,
@@ -1183,6 +1184,10 @@ def rebase_entry(
             # Loaded inside the block: `load_expr` keeps the archive's extract dir,
             # which bundled reads point into, alive only as long as the expression.
             loaded = catalog_entry.load_expr(cache_dir=cache_dir)
+            # Only the loaded expression holds each binding's marked rename: a
+            # --rename one would skip, onto a column it reads as its own, is
+            # the user's to fix, so refused as a bad --rename, not a conflict.
+            refuse_renames(catalog_entry, ambiguous_renames(loaded, live, planned))
             try:
                 expr = refresh_schemas(loaded, live, planned)
             except UnmatchedSourceError as e:

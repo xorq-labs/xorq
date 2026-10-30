@@ -44,6 +44,7 @@ from xorq.catalog.rebase import (
     rebase_entry,
     recorded_python_minor,
 )
+from xorq.catalog.refresh import op_key, refresh_schemas
 from xorq.catalog.tests.conftest import (
     RECORDED,
     TEST_WHEEL_NAME,
@@ -1235,6 +1236,22 @@ def refuse_rename_ambiguous(w: SimpleNamespace) -> Setup:
     return name, ("--rename", "t", "a", "x"), ()
 
 
+def refuse_rename_onto_a_held_binding(w: SimpleNamespace) -> Setup:
+    """One binding of `t` holds `a <- x` and reads its own `y`; another
+    recorded a real `a`. `--rename t a y` would make the first binding's `y`
+    read that `a`."""
+    replace_t(w, pa.table({"a": [1, 2], "b": ["x", "y"], "y": [5, 6]}))
+    t = w.con.table("t")
+    replace_t(w, pa.table({"x": [1, 2], "b": ["x", "y"], "y": [5, 6]}))
+    moved = {op_key(t.op()): w.con.table("t").schema()}
+    marked = refresh_schemas(t, moved, dict.fromkeys(moved, {"a": "x"}))
+    replace_t(w, pa.table({"x": [1, 2], "b": ["x", "y"], "y": [5, 6], "a": [3, 4]}))
+    other = w.con.table("t").select("a", "b", "y")
+    name = w.catalog.add(marked.union(other)).name
+    replace_t(w, pa.table({"x": [1, 2], "b": ["x", "y"], "y": [5, 6], "z": [3, 4]}))
+    return name, ("--rename", "t", "a", "y"), ()
+
+
 def refuse_some_unprobed(w: SimpleNamespace) -> Setup:
     u = w.con.create_table("u", RECORDED.to_pandas())
     w.monkeypatch.setattr(drift, "is_checkable", lambda leaf, record: leaf.name != "u")
@@ -1502,6 +1519,12 @@ REFUSALS = (
         1,
         "--rename 't' names 2 sources",
         id="rename-ambiguous",
+    ),
+    pytest.param(
+        refuse_rename_onto_a_held_binding,
+        1,
+        "--rename t: 'y' is declared as 'a''s live column",
+        id="rename-onto-a-held-binding",
     ),
     pytest.param(
         refuse_rename(RENAMED, "t", "zz", "x"),
@@ -2159,6 +2182,7 @@ SWEPT_REFUSALS = frozenset(
         # Every --rename refusal comes after the sweep, record checks included.
         "rename-no-source",
         "rename-ambiguous",
+        "rename-onto-a-held-binding",
         "rename-not-recorded",
         "rename-unprobed",
     )
@@ -2870,6 +2894,22 @@ def test_a_conflict_lists_a_source_bound_twice_once(
     assert result.exit_code == 4, result.output
     assert result.stderr.count("recorded columns gone") == 1, result.stderr
     assert "t: recorded columns gone: a; live columns new: x\n" in result.stderr
+
+
+def test_a_rename_a_marked_binding_reads_as_its_own_column_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """Refused as the user's --rename, not reported as a conflict over the
+    mark."""
+    name, args, _ = refuse_rename_onto_a_held_binding(world)
+
+    result = rebase(runner, world, name, *args)
+    assert result.exit_code == 1, result.output
+    assert (
+        f"{name}: --rename t: 'y' is declared as 'a''s live column, but this "
+        "binding holds 'a' from 'x' and reads 'y' as its own\n"
+    ) in result.stderr
+    assert "HashingTag" not in result.stderr
 
 
 def test_a_renamed_entry_keeps_following_its_source(

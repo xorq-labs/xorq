@@ -293,6 +293,55 @@ def marked_renames(node: Node) -> dict[str, str] | None:
     return None
 
 
+def kept_and_composed(
+    held: Mapping[str, str], declared: Mapping[str, str], live: set[str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """The held names ``compose_renames`` keeps, and the composition,
+    identities included, before it checks either."""
+    # A declared rename this binding already holds (another binding's `old`
+    # recorded under the name this mark gives it) consumes nothing here.
+    consumed = {new for old, new in declared.items() if held.get(old) != new}
+    kept = {
+        name: column
+        for name, column in held.items()
+        # Moved onward by `declared`, or still live and fed to no other name.
+        if column in declared or (column in live and column not in consumed)
+    }
+    composed = {name: declared.get(column, column) for name, column in kept.items()}
+    covered = set(held.values())
+    composed |= {
+        old: new
+        for old, new in declared.items()
+        # A held name is this binding's own: another binding's column of the
+        # same name, renamed, doesn't rebind it.
+        if old not in covered and old not in held
+    }
+    return kept, composed
+
+
+def skipped_onto_exposed(
+    held: Mapping[str, str],
+    declared: Mapping[str, str],
+    exposed: Iterable[str],
+    renamed: Mapping[str, str],
+) -> list[tuple[str, str]]:
+    """Each declared ``(old, new)`` this binding skips, because it holds
+    ``old``, while it still reads ``new`` as its own column."""
+    (covered, exposed) = (set(held.values()), set(exposed))
+    return [
+        (old, new)
+        for old, new in declared.items()
+        if old in held and old not in covered and new in exposed and new not in renamed
+    ]
+
+
+def ambiguity(old: str, new: str, column: str) -> str:
+    return (
+        f"{new!r} is declared as {old!r}'s live column, but this binding "
+        f"holds {old!r} from {column!r} and reads {new!r} as its own"
+    )
+
+
 def compose_renames(
     held: Mapping[str, str],
     declared: Mapping[str, str],
@@ -315,38 +364,13 @@ def compose_renames(
     that column is another binding's ``old`` now, so the ops reading it here
     would silently read that.
     """
-    (live, exposed) = (set(live), set(exposed))
-    # A declared rename this binding already holds (another binding's `old`
-    # recorded under the name this mark gives it) consumes nothing here.
-    consumed = {new for old, new in declared.items() if held.get(old) != new}
-    kept = {
-        name: column
-        for name, column in held.items()
-        # Moved onward by `declared`, or still live and fed to no other name.
-        if column in declared or (column in live and column not in consumed)
-    }
-    composed = {name: declared.get(column, column) for name, column in kept.items()}
-    covered = set(held.values())
-    composed |= {
-        old: new
-        for old, new in declared.items()
-        # A held name is this binding's own: another binding's column of the
-        # same name, renamed, doesn't rebind it.
-        if old not in covered and old not in held
-    }
+    live = set(live)
+    (kept, composed) = kept_and_composed(held, declared, live)
     # A name kept as itself stays in what is returned: `with_renames` counts it.
     renamed = {name: column for name, column in composed.items() if name != column}
-    if ambiguous := [
-        (old, new)
-        for old, new in declared.items()
-        if old in held and old not in covered and new in exposed and new not in renamed
-    ]:
+    if ambiguous := skipped_onto_exposed(held, declared, exposed, renamed):
         refuse(
-            (
-                HashingTag.__name__,
-                f"{new!r} is declared as {old!r}'s live column, but this binding "
-                f"holds {old!r} from {held[old]!r} and reads {new!r} as its own",
-            )
+            (HashingTag.__name__, ambiguity(old, new, held[old]))
             for old, new in ambiguous
         )
     taken = set(renamed) | set(renamed.values())
@@ -374,6 +398,43 @@ def marked_projects(expr: Any) -> frozenset[Node]:
         and isinstance(mark.parent, ops.Project)
         and source_identity(mark.parent.parent) is not None
     )
+
+
+def ambiguous_renames(
+    expr: Any,
+    live: Mapping[LeafKey, Schema],
+    renames: Mapping[LeafKey, Mapping[str, str]],
+) -> tuple[str, ...]:
+    """Why each declared rename a marked binding of ``expr`` would skip, while
+    it reads the declared live column as its own, is ambiguous: what
+    ``compose_renames`` refuses, for a caller to refuse as a bad rename before
+    ``refresh_schemas``."""
+    # Screen before `op_key`: resolving a profile connects a lazy backend.
+    candidates = {
+        (kind, name, snapshot_id, schema)
+        for (kind, _, name, snapshot_id, schema) in renames
+    }
+    details = []
+    for mark in walk_nodes(HashingTag, expr):
+        if (held := marked_renames(mark)) is None or not isinstance(
+            mark.parent, ops.Project
+        ):
+            continue
+        source = mark.parent.parent
+        if source_identity(source) not in candidates:
+            continue
+        if (key := op_key(source)) not in renames or key not in live:
+            continue
+        declared = renames[key]
+        (_, composed) = kept_and_composed(held, declared, set(live[key]))
+        renamed = {name: column for name, column in composed.items() if name != column}
+        details += [
+            f"{key[2]}: {ambiguity(old, new, held[old])}"
+            for old, new in skipped_onto_exposed(
+                held, declared, mark.schema.names, renamed
+            )
+        ]
+    return tuple(dict.fromkeys(details))
 
 
 def refresh_schemas(
