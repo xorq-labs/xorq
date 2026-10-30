@@ -87,6 +87,12 @@ class PythonMinorWarning(UserWarning):
     its cloudpickled UDFs may not load."""
 
 
+class RenameWarning(UserWarning):
+    """A ``rebase --rename`` reads from a live column its source had recorded
+    too: from the schemas alone, a mistyped NEW can't be told apart from a
+    column dropped and replaced by the renamed one."""
+
+
 class RebaseOptionsError(ValueError):
     """Rebase options that contradict each other, or one that would do nothing.
 

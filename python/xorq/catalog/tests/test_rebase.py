@@ -2096,6 +2096,7 @@ ROOT_KEYS = {
     "build_path",
     "created",
     "output_changes",
+    "renames",
     "failing_op",
     "drift",
     "aliases",
@@ -2687,9 +2688,9 @@ def test_a_renamed_column_is_followed_under_its_recorded_name(
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert new.columns == ("a", "b")
     assert list(new.load_expr().execute()["a"]) == [2]
-    # The API takes `Rename`s too.
+    # The API takes the `Rename`s a result hands back.
     renames = (Rename("t", "a", "x"),)
-    assert rebase_old(world, renames=renames, sync=False).output_changes == ()
+    assert rebase_old(world, renames=renames, sync=False).renames == renames
 
 
 def test_a_source_bound_more_than_once_is_refused_for_now(
@@ -2732,6 +2733,31 @@ def test_a_renamed_entry_keeps_following_its_source(
     new = reopen(world).get_catalog_entry(twice.stdout.strip())
     assert new.columns == ("a", "c")
     assert list(new.load_expr().execute()["a"]) == [2]
+
+
+CONSUMED = (
+    "RenameWarning: t: b was already a recorded column; a now reads b's data, "
+    "and the expression no longer has a column b unless another --rename maps "
+    "it. Check that a was really renamed to b"
+)
+
+
+def test_a_rename_onto_a_recorded_column_is_allowed_with_a_warning(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`b` looks unchanged, so rebase can't tell a typo from `b` dropped and
+    `a` renamed to `b`: it does what it was told, and says so."""
+    name = world.catalog.add(world.con.table("t").select("a")).name
+    replace_t(world, pa.table({"b": pa.array([1, 2], pa.int64())}))
+
+    result = rebase(runner, world, name, "--rename", "t", "a", "b")
+    assert result.exit_code == 0, result.output
+    assert f"{CONSUMED}\n" in result.stderr
+    assert "Renamed t: a <- b\nOutput: unchanged\n" in result.stderr
+    _, document = rebase_json(
+        runner, world, name, "--rename", "t", "a", "b", "--no-sync"
+    )
+    assert CONSUMED in document["warnings"]
 
 
 def test_every_rename_refusal_is_reported_at_once(
@@ -2797,18 +2823,83 @@ def test_a_chained_rename_moves_a_live_column_away(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     """`a` renamed to `x`, then `b` renamed to `a`: `a` is live only because
-    the second rename claims it."""
+    the second rename claims it, and that one is warned about."""
     replace_t(world, pa.table({"x": pa.array([1, 2], pa.int64()), "a": ["x", "y"]}))
 
     result = rebase(
         runner, world, world.name, "--rename", "t", "a", "x", "--rename", "t", "b", "a"
     )
     assert result.exit_code == 0, result.output
+    assert "RenameWarning: t: a was already a recorded column" in result.stderr
     assert "Renamed t: a <- x\nRenamed t: b <- a\nOutput: unchanged\n" in (
         result.stderr
     )
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert new.load_expr().execute().to_dict("records") == [{"a": 2, "b": "y"}]
+
+
+@pytest.mark.parametrize(
+    "args, state",
+    (
+        pytest.param(("--no-sync",), "rebased", id="rebased"),
+        pytest.param(("--dry-run",), "preview", id="preview"),
+        pytest.param(("--no-add",), "built", id="built"),
+    ),
+)
+def test_json_reports_the_renames_a_derived_rebase_applied(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    args: tuple[str, ...],
+    state: str,
+) -> None:
+    replace_t(world, RENAMED)
+    result, document = rebase_json(
+        runner, world, world.name, "--rename", "t", "a", "x", *args
+    )
+    assert document["state"] == state, document
+    assert document["renames"] == [{"source": "t", "old": "a", "new": "x"}]
+    assert document["output_changes"] == []
+
+    text = rebase(runner, world, world.name, "--rename", "t", "a", "x", "--dry-run")
+    assert "Renamed t: a <- x\nOutput: unchanged\n" in text.stderr
+
+
+@pytest.mark.parametrize(
+    "drift_t, renames",
+    (
+        pytest.param(lambda w: replace_t(w, GROWN), [], id="derived"),
+        pytest.param(lambda w: None, None, id="noop"),
+        pytest.param(lambda w: replace_t(w, RENAMED), None, id="conflict"),
+    ),
+)
+def test_json_renames_are_null_unless_a_rebase_was_derived(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    drift_t: Callable,
+    renames: list | None,
+) -> None:
+    drift_t(world)
+    _, document = rebase_json(runner, world, world.name, "--no-sync")
+    assert document["renames"] == renames
+
+
+def test_a_result_states_its_renames_exactly_when_it_was_derived(
+    world: SimpleNamespace,
+) -> None:
+    """As with `output_changes`: `null` in the document means not derived."""
+    replace_t(world, GROWN)
+    rebased = rebase_old(world, sync=False)
+    assert rebased.renames == ()
+    with pytest.raises(ValueError, match="renames=None"):
+        evolve(rebased, renames=None)
+    with pytest.raises(ValueError, match=r"renames=\(\)"):
+        evolve(
+            rebased,
+            status=RebaseStatus.NOOP,
+            created=None,
+            output_changes=None,
+        )
 
 
 def test_rebase_entry_refuses_a_bare_string_of_renames(

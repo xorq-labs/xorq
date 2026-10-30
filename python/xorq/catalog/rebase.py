@@ -22,6 +22,7 @@ way a rebase of a resolved entry can end, buffered and emitted once::
       "new_hash": null,            # the rebased build's hash, cataloged or not
       "created": null,             # on a cataloged rebase: false if it already was
       "output_changes": null,      # once derived: [{"name", "before", "after"}]
+      "renames": null,             # once derived: [{"source", "old", "new"}]
       "build_path": null,          # where `--no-add` wrote the build
       "failing_op": "Field",       # null unless an op could not be rebuilt
       "drift": {...},              # this entry's `check-sources --json` document
@@ -46,11 +47,14 @@ from an earlier rebase, and its archive was kept. ``output_changes`` is set
 once a rebase is derived (``rebased``, ``push-failed``, ``preview``,
 ``built``): each output column it retyped, added or removed, ``before`` or
 ``after`` ``null`` where the column is absent, and empty when the output schema
-did not change. ``build_path`` is set only on ``built``. ``error`` is present
-only when there is one, always as ``Type: message``: what refused or failed the
-rebase, what a conflict's op or source raised, or what a failed push raised.
-``warnings`` holds each warning the rebase raised, as ``Category: message``, so
-stderr stays empty. On ``push-failed`` the new entry and its aliases are
+did not change. ``renames`` is set when ``output_changes`` is: each
+``--rename`` the rebase put above its source, empty when none was given.
+``build_path`` is set only on ``built``. ``error`` is present only when there
+is one, always as ``Type: message``: what refused or failed the rebase, what a
+conflict's op or source raised, or what a failed push raised. ``warnings``
+holds each warning the rebase raised, as ``Category: message``, so stderr stays
+empty; a ``--rename`` that reads from a column its source recorded too raises a
+``RenameWarning``. On ``push-failed`` the new entry and its aliases are
 committed locally, and `xorq catalog sync` publishes them.
 """
 
@@ -69,7 +73,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from attr import Factory, asdict, converters, field, frozen
+from attr import Factory, asdict, converters, evolve, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 from git.exc import GitCommandError
 
@@ -102,6 +106,7 @@ from xorq.catalog.exceptions import (
     PythonMinorWarning,
     RebaseError,
     RebaseOptionsError,
+    RenameWarning,
     RollbackError,
 )
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
@@ -149,9 +154,27 @@ class Rename:
     source = field(validator=instance_of(str))
     old = field(validator=instance_of(str))
     new = field(validator=instance_of(str))
+    # ``new`` was itself a recorded column: it now feeds ``old``, and the
+    # expression no longer sees it under its own name unless another rename
+    # (a chain, ``a <- x, b <- a``) maps it. Set by ``rebase_entry``.
+    consumes = field(default=False, validator=instance_of(bool))
 
     def __str__(self) -> str:
         return f"{self.source}: {self.old} <- {self.new}"
+
+    @property
+    def warning(self) -> str | None:
+        if not self.consumes:
+            return None
+        return (
+            f"{self.source}: {self.new} was already a recorded column; "
+            f"{self.old} now reads {self.new}'s data, and the expression no "
+            f"longer has a column {self.new} unless another --rename maps it. "
+            f"Check that {self.old} was really renamed to {self.new}"
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        return {"source": self.source, "old": self.old, "new": self.new}
 
 
 def rename_tuple(renames: Iterable[Rename | tuple[str, str, str]]) -> tuple:
@@ -363,6 +386,13 @@ class RebaseResult:
             deep_iterable(instance_of(ColumnChange), instance_of(tuple))
         ),
     )
+    # Set exactly when ``output_changes`` is: the renames put above their
+    # refreshed sources, empty if none was asked for.
+    renames = field(
+        default=None,
+        converter=converters.optional(tuple),
+        validator=optional(deep_iterable(instance_of(Rename), instance_of(tuple))),
+    )
 
     def __attrs_post_init__(self) -> None:
         conflicted = self.status == RebaseStatus.CONFLICT
@@ -380,6 +410,8 @@ class RebaseResult:
             raise ValueError(
                 f"a {self.status} rebase has output_changes={self.output_changes!r}"
             )
+        if derived != (self.renames is not None):
+            raise ValueError(f"a {self.status} rebase has renames={self.renames!r}")
         if (self.status == RebaseStatus.UNPROBED) != bool(self.unprobed):
             raise ValueError(f"a {self.status} rebase has unprobed={self.unprobed!r}")
         if (self.status == RebaseStatus.BUILT) != (self.build_path is not None):
@@ -447,6 +479,7 @@ class RebaseResult:
             build_path=self.build_path,
             created=self.created,
             output_changes=self.output_changes,
+            renames=self.renames,
             failing_op=conflict.op_name if conflicted else None,
             drift=drift,
             aliases=self.aliases,
@@ -466,6 +499,7 @@ def make_rebase_document(
     build_path: Path | None = None,
     created: bool | None = None,
     output_changes: Iterable[ColumnChange] | None = None,
+    renames: Iterable[Rename] | None = None,
     failing_op: str | None = None,
     drift: dict | None = None,
     aliases: AliasOutcome | None = None,
@@ -486,6 +520,9 @@ def make_rebase_document(
         "output_changes": None
         if output_changes is None
         else [asdict(change) for change in output_changes],
+        "renames": None
+        if renames is None
+        else [rename.to_dict() for rename in renames],
         "failing_op": failing_op,
         "drift": drift,
         "aliases": {
@@ -913,9 +950,12 @@ def plan_renames(
     record: BuildRecord,
     renames: tuple[Rename, ...],
     unprobed: tuple[str, ...],
-) -> tuple[dict[LeafKey, dict[str, str]], list[str]]:
+) -> tuple[dict[LeafKey, dict[str, str]], tuple[Rename, ...], list[str]]:
     """``leaf_key`` -> recorded name -> live name for each rename the record
-    allows, and why each other one fails against the record.
+    allows, ``renames`` with ``consumes`` set, and why each other one fails
+    against the record. A ``new`` the source also recorded is allowed and
+    warned about: from the schemas alone, a column that looks unchanged can't
+    be told apart from one that was dropped and replaced by the renamed one.
 
     Not refused here: ``check_live_renames`` refuses these together with what
     fails against the live schema, after the sweep, so one run names every bad
@@ -923,15 +963,18 @@ def plan_renames(
     refused a repeated column already.
     """
     if renames and unprobed:
-        return {}, [
-            f"needs a live schema, and no source can be probed ({quoted(unprobed)})"
-        ]
+        return (
+            {},
+            (),
+            [f"needs a live schema, and no source can be probed ({quoted(unprobed)})"],
+        )
     # Each source resolved once, however many of its columns are renamed.
     resolved = {
         source: renamed_source(catalog_entry, record, source)
         for source in dict.fromkeys(rename.source for rename in renames)
     }
     planned: dict[LeafKey, dict[str, str]] = {}
+    checked = []
     details = []
     for rename in renames:
         (source, old, new) = (rename.source, rename.old, rename.new)
@@ -949,7 +992,9 @@ def plan_renames(
             continue
         for key in by_key:
             planned.setdefault(key, {})[old] = new
-    return planned, details
+        consumes = any(new in leaf.recorded for leaf in by_key.values())
+        checked.append(evolve(rename, consumes=consumes))
+    return planned, tuple(checked), details
 
 
 def check_live_renames(
@@ -988,6 +1033,12 @@ def check_live_renames(
                     f"{name}: {old!r} is still a live column, so nothing was renamed"
                 )
     refuse_renames(catalog_entry, details)
+
+
+def warn_consumed(renames: Iterable[Rename]) -> None:
+    for rename in renames:
+        if (message := rename.warning) is not None:
+            warnings.warn(message, RenameWarning, stacklevel=3)
 
 
 def rebase_entry(
@@ -1065,7 +1116,9 @@ def rebase_entry(
     with refusing_with_sweep(record, reports):
         # Inside: a source whose profile is unreadable is refused with the
         # sweep, as it is without --rename.
-        planned, failed = plan_renames(catalog_entry, record, options.renames, unprobed)
+        planned, renames, failed = plan_renames(
+            catalog_entry, record, options.renames, unprobed
+        )
         # Before the no-op: a rename of an unchanged source is refused, not
         # ignored.
         check_live_renames(catalog_entry, record, reports, planned, failed)
@@ -1127,6 +1180,7 @@ def rebase_entry(
                 return conflicted(
                     RebaseConflict(format_error(e.cause), changed, e.op_name)
                 )
+            warn_consumed(renames)
             # `relocate_reads=False` keeps each read's recorded posture: a bundled
             # read stays bundled, an external one external.
             dumper = ExprDumper(
@@ -1158,6 +1212,7 @@ def rebase_entry(
                     aliases=AliasOutcome.of(plan, plan),
                     new_hash=dumper.expr_hash,
                     output_changes=changes,
+                    renames=renames,
                 )
             build_path = dumper.dump_expr()
             stamp_rebased_from(build_path, catalog_entry.name)
@@ -1171,6 +1226,7 @@ def rebase_entry(
                     record,
                     new_hash=build_path.name,
                     output_changes=changes,
+                    renames=renames,
                     build_path=publish_build(
                         catalog_entry, build_path, builds_dir
                     ).resolve(),
@@ -1192,4 +1248,5 @@ def rebase_entry(
             push_error=push_error,
             created=created,
             output_changes=changes,
+            renames=renames,
         )
