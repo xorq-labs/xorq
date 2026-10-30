@@ -1241,6 +1241,15 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     help="Where --no-add writes the build directory (default: builds); only "
     "with --no-add.",
 )
+@click.option(
+    "--rename",
+    "renames",
+    nargs=3,
+    multiple=True,
+    metavar="SOURCE OLD NEW",
+    help="Read SOURCE's recorded column OLD from its live column NEW, keeping "
+    "the name OLD (repeatable).",
+)
 @json_option
 @click.pass_context
 def rebase(
@@ -1255,6 +1264,7 @@ def rebase(
     dry_run: bool,
     add: bool,
     builds_dir: str | None,
+    renames: tuple[tuple[str, str, str], ...],
     as_json: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
@@ -1297,6 +1307,18 @@ def rebase(
     refreshed: its own name is printed, and stderr says drift was not ruled
     out.
 
+    A renamed column is a removed one to rebase, unless --rename says which
+    live column it is now: `--rename t a b` reads t's recorded column a from
+    its live column b, and every op over t still sees a. SOURCE is a source's
+    name as `check-sources` prints it; OLD is a column it recorded, and a later
+    rebase of the result keeps following the rename. Rebase never guesses a
+    rename. A --rename is refused, every one in a single run, when SOURCE
+    names no source, or sources on several connections, or a source bound
+    more than once in the entry (not supported yet); when OLD is not
+    recorded, or is still live (so also with no drift); when NEW is not live;
+    or when no source can be probed. One that renames a column of its source
+    twice, maps two to one, or renames one to itself is an invalid option.
+
     \b
     Exit codes:
       0  no drift, drift not ruled out (no source could be probed), or
@@ -1309,9 +1331,10 @@ def rebase(
          nor the new one (an
          unregistered one before the sweep), --alias names an alias on
          another entry than the old or new one (once there is a new entry),
-         ENTRY is an alias the pull moved or removed, a probed source
-         matched no source of the loaded expression, --no-add found its
-         BUILDS_DIR/<hash> taken, or a write failed
+         ENTRY is an alias the pull moved or removed, a --rename is refused
+         (see above), a probed source matched no source of the loaded
+         expression, --no-add found its BUILDS_DIR/<hash> taken, or a
+         write failed
          (the new entry and its alias moves are rolled back locally; if that
          fails too, the error names what is left, and --json says
          rollback-failed)
@@ -1320,7 +1343,8 @@ def rebase(
          unreadable or lacks its wheel or requirements; the sync's pull
          failed; or the options were invalid (--move-aliases with
          --only-alias, --no-add with --dry-run or an alias option,
-         --builds-dir without --no-add); nothing written
+         --builds-dir without --no-add, a --rename that repeats a column of
+         its source or renames one to itself); nothing written
       3  a rebase was derived but not cataloged: --dry-run printed its
          hash, or --no-add its build directory
       4  conflict: an op no longer fits its new inputs, or a source's
@@ -1352,6 +1376,7 @@ def rebase(
       xorq catalog rebase prod-matches --json
       xorq catalog rebase prod-matches --dry-run
       xorq catalog rebase prod-matches --no-add --builds-dir builds
+      xorq catalog rebase prod-matches --rename matches team_id team
     """
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
@@ -1367,13 +1392,14 @@ def rebase(
 
     # Checked before the entry resolves, so a bad combination is a usage error.
     try:
-        RebaseOptions(
+        options = RebaseOptions(
             alias=alias,
             move_aliases=move_aliases,
             only_aliases=only_aliases,
             dry_run=dry_run,
             add=add,
             builds_dir=builds_dir,
+            renames=renames,
         )
     except RebaseOptionsError as e:
         raise click.UsageError(str(e)) from e
@@ -1409,6 +1435,7 @@ def rebase(
                 dry_run=dry_run,
                 add=add,
                 builds_dir=builds_dir,
+                renames=renames,
             )
         except Exception as e:
             # The handler prints an error and no document; with --json, a
@@ -1460,6 +1487,9 @@ def rebase(
                 click.echo(line, err=True)
     old, new = result.old_entry.name, result.new_entry.name
     if result.output_changes is not None:
+        # Derived: every --rename was applied, or the rebase would have refused.
+        for rename in options.renames:
+            click.echo(f"Renamed {rename}", err=True)
         # The output's own columns: a source's new type can retype derived ones.
         changes = ", ".join(map(str, result.output_changes)) or "unchanged"
         click.echo(f"Output: {changes}", err=True)
