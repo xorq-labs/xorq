@@ -252,12 +252,11 @@ def with_renames(node: Node, renames: Mapping[str, str]) -> Node:
     expression name; ``node`` itself when there is none.
 
     ``renames`` maps expression name -> live name, as ``Table.rename`` takes
-    it. The rename is a Project listing every column of ``node``, so the
+    it; a name kept as itself still counts toward a live column's names. The
+    rename is a Project listing every column of ``node``, so the
     ``RebaseTag.RENAME`` mark above it holds the mapping: a later refresh
     rebuilds the rename from it instead of recreating a stale column list.
     """
-    if not renames:
-        return node
     # `Table.rename` over a live column no rename moves away would keep that
     # column and silently drop the renamed one: refuse it. A chain or swap
     # (`a <- x, b <- a`) moves it, and is fine. One live column under two
@@ -276,7 +275,11 @@ def with_renames(node: Node, renames: Mapping[str, str]) -> Node:
         if count > 1
     ]:
         refuse(offenders)
-    renamed = node.to_expr().rename(dict(renames))
+    if not (
+        renames := {name: column for name, column in renames.items() if name != column}
+    ):
+        return node
+    renamed = node.to_expr().rename(renames)
     marked = renamed.hashing_tag(
         RebaseTag.RENAME, renames=tuple(sorted(renames.items()))
     )
@@ -301,8 +304,8 @@ def compose_renames(
     """
     composed = {name: declared.get(column, column) for name, column in held.items()}
     covered = set(held.values())
-    composed |= {old: new for old, new in declared.items() if old not in covered}
-    return {name: column for name, column in composed.items() if name != column}
+    # A name kept as itself stays: `with_renames` counts it.
+    return composed | {old: new for old, new in declared.items() if old not in covered}
 
 
 def marked_projects(expr: Any) -> frozenset[Node]:

@@ -1152,7 +1152,7 @@ def test_a_mark_over_an_unchanged_source_stands(con: SqliteBackend) -> None:
     (
         pytest.param({"a": "x"}, {"x": "y"}, {"a": "y"}, id="chain"),
         pytest.param({"a": "x"}, {"b": "z"}, {"a": "x", "b": "z"}, id="another"),
-        pytest.param({"a": "x"}, {"x": "a"}, {}, id="back-to-its-name"),
+        pytest.param({"a": "x"}, {"x": "a"}, {"a": "a"}, id="back-to-its-name"),
         pytest.param({}, {"a": "x"}, {"a": "x"}, id="first"),
     ),
 )
@@ -1185,3 +1185,14 @@ def test_a_rename_of_two_columns_onto_one_live_column_is_refused(
 
     with pytest.raises(SchemaRefreshError, match="'x' is renamed to more than one"):
         refresh_schemas(expr, live, {key: {"a": "x", "b": "x"} for key in live})
+
+
+def test_a_column_kept_and_renamed_onto_one_live_column_is_refused(
+    con: SqliteBackend,
+) -> None:
+    """`a` kept as itself and `b` renamed onto it name one live column twice."""
+    expr = con.table("t")
+    live = drift_the_table(expr, pa.schema({"a": pa.int64()}))
+
+    with pytest.raises(SchemaRefreshError, match="'a' is renamed to more than one"):
+        refresh_schemas(expr, live, {key: {"a": "a", "b": "a"} for key in live})
