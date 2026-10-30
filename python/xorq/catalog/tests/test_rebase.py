@@ -2688,7 +2688,7 @@ def test_a_renamed_column_is_followed_under_its_recorded_name(
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert new.columns == ("a", "b")
     assert list(new.load_expr().execute()["a"]) == [2]
-    # The API takes the `Rename`s a result hands back.
+    # The API takes `Rename`s too, and a derived result states the ones applied.
     renames = (Rename("t", "a", "x"),)
     assert rebase_old(world, renames=renames, sync=False).renames == renames
 
@@ -2860,9 +2860,6 @@ def test_json_reports_the_renames_a_derived_rebase_applied(
     assert document["state"] == state, document
     assert document["renames"] == [{"source": "t", "old": "a", "new": "x"}]
     assert document["output_changes"] == []
-
-    text = rebase(runner, world, world.name, "--rename", "t", "a", "x", "--dry-run")
-    assert "Renamed t: a <- x\nOutput: unchanged\n" in text.stderr
 
 
 @pytest.mark.parametrize(

@@ -156,8 +156,9 @@ class Rename:
     new = field(validator=instance_of(str))
     # ``new`` was itself a recorded column: it now feeds ``old``, and the
     # expression no longer sees it under its own name unless another rename
-    # (a chain, ``a <- x, b <- a``) maps it. Set by ``rebase_entry``.
-    consumes = field(default=False, validator=instance_of(bool))
+    # (a chain, ``a <- x, b <- a``) maps it. Set by ``rebase_entry``, and
+    # derived, so not part of a rename's identity.
+    consumes = field(default=False, eq=False, validator=instance_of(bool))
 
     def __str__(self) -> str:
         return f"{self.source}: {self.old} <- {self.new}"
@@ -1079,7 +1080,9 @@ def rebase_entry(
     column ``old`` from the live column ``new``, keeping the recorded name, so
     every op over the source rebuilds unchanged. A rename the record or the
     sweep refutes is refused, so a rename with no drift, or of an entry none
-    of whose sources can be probed, is refused rather than ignored.
+    of whose sources can be probed, is refused rather than ignored. One whose
+    ``new`` the source recorded too raises a ``RenameWarning``; a derived
+    result's ``renames`` are the ones applied.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -1116,7 +1119,7 @@ def rebase_entry(
     with refusing_with_sweep(record, reports):
         # Inside: a source whose profile is unreadable is refused with the
         # sweep, as it is without --rename.
-        planned, renames, failed = plan_renames(
+        planned, checked_renames, failed = plan_renames(
             catalog_entry, record, options.renames, unprobed
         )
         # Before the no-op: a rename of an unchanged source is refused, not
@@ -1180,7 +1183,7 @@ def rebase_entry(
                 return conflicted(
                     RebaseConflict(format_error(e.cause), changed, e.op_name)
                 )
-            warn_consumed(renames)
+            warn_consumed(checked_renames)
             # `relocate_reads=False` keeps each read's recorded posture: a bundled
             # read stays bundled, an external one external.
             dumper = ExprDumper(
@@ -1212,7 +1215,7 @@ def rebase_entry(
                     aliases=AliasOutcome.of(plan, plan),
                     new_hash=dumper.expr_hash,
                     output_changes=changes,
-                    renames=renames,
+                    renames=checked_renames,
                 )
             build_path = dumper.dump_expr()
             stamp_rebased_from(build_path, catalog_entry.name)
@@ -1226,7 +1229,7 @@ def rebase_entry(
                     record,
                     new_hash=build_path.name,
                     output_changes=changes,
-                    renames=renames,
+                    renames=checked_renames,
                     build_path=publish_build(
                         catalog_entry, build_path, builds_dir
                     ).resolve(),
@@ -1248,5 +1251,5 @@ def rebase_entry(
             push_error=push_error,
             created=created,
             output_changes=changes,
-            renames=renames,
+            renames=checked_renames,
         )
