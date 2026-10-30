@@ -1148,18 +1148,106 @@ def test_a_mark_over_an_unchanged_source_stands(con: SqliteBackend) -> None:
 
 
 @pytest.mark.parametrize(
-    "held, declared, composed",
+    "held, declared, live, composed",
     (
-        pytest.param({"a": "x"}, {"x": "y"}, {"a": "y"}, id="chain"),
-        pytest.param({"a": "x"}, {"b": "z"}, {"a": "x", "b": "z"}, id="another"),
-        pytest.param({"a": "x"}, {"x": "a"}, {"a": "a"}, id="back-to-its-name"),
-        pytest.param({}, {"a": "x"}, {"a": "x"}, id="first"),
+        pytest.param({"a": "x"}, {"x": "y"}, "yb", {"a": "y"}, id="chain"),
+        pytest.param({"a": "x"}, {"b": "z"}, "xz", {"a": "x", "b": "z"}, id="another"),
+        pytest.param({"a": "x"}, {"x": "a"}, "a", {"a": "a"}, id="back-to-its-name"),
+        pytest.param({}, {"a": "x"}, "x", {"a": "x"}, id="first"),
+        pytest.param({"a": "x"}, {}, "b", {}, id="gone"),
+        pytest.param({"a": "x"}, {"b": "x"}, "x", {"b": "x"}, id="consumed"),
+        pytest.param(
+            {"a": "x"},
+            {"x": "y", "b": "x"},
+            "xy",
+            {"a": "y", "b": "x"},
+            id="moved-onward",
+        ),
+        pytest.param({"a": "x"}, {"a": "y"}, "xy", {"a": "x"}, id="held-name"),
+        pytest.param({"a": "x"}, {"a": "x"}, "xb", {"a": "x"}, id="held-as-declared"),
     ),
 )
 def test_compose_renames(
-    held: dict[str, str], declared: dict[str, str], composed: dict[str, str]
+    held: dict[str, str], declared: dict[str, str], live: str, composed: dict
 ) -> None:
-    assert compose_renames(held, declared) == composed
+    assert compose_renames(held, declared, live) == composed
+
+
+@pytest.mark.parametrize(
+    "live, declared",
+    (
+        pytest.param({"b": pa.string()}, {}, id="gone"),
+        pytest.param({"x": pa.int64()}, {"b": "x"}, id="consumed"),
+    ),
+)
+def test_a_retired_rename_drops_its_name_like_a_bare_column(
+    con: SqliteBackend, live: dict, declared: dict
+) -> None:
+    """Its column gone, or now fed to another name: an expression that never
+    used `a` just loses it, and an op over `a` conflicts."""
+    t = con.table("t")
+    moved = drift_the_table(t, RENAMED)
+    bare = refresh_schemas(t, moved, {key: {"a": "x"} for key in moved})
+
+    def refreshed(expr: xo.Expr) -> xo.Expr:
+        moved = drift_the_table(expr, pa.schema(live))
+        renames = dict.fromkeys(moved, declared) if declared else {}
+        return refresh_schemas(expr, moved, renames)
+
+    assert "a" not in refreshed(bare).schema()
+    with pytest.raises(SchemaRefreshError) as excinfo:
+        refreshed(bare.filter(bare.a > 1))
+    assert excinfo.value.op_name == "Field"
+
+
+def test_a_held_name_is_not_rebound_by_another_bindings_column(
+    con: SqliteBackend,
+) -> None:
+    """Another binding of `t` recorded a real `a`, now `y`: this binding's `a`
+    still reads `x`."""
+    once = renamed_once(con)
+    live = pa.schema({"x": pa.int64(), "b": pa.string(), "y": pa.int64()})
+    moved = drift_the_table(once, live)
+
+    refreshed = refresh_schemas(once, moved, {key: {"a": "y"} for key in moved})
+    assert the_mark(refreshed) == {"a": "x"}
+    replace_table(con, pa.table({"x": [1, 2], "b": ["x", "y"], "y": [5, 6]}))
+    assert refreshed.execute().to_dict("records") == [{"a": 2, "b": "y", "y": 6}]
+
+
+def test_a_skipped_rename_onto_a_column_this_binding_reads_is_refused(
+    con: SqliteBackend,
+) -> None:
+    """This binding holds `a <- x` and reads its own `y`; another binding's real
+    `a` is declared to be `y` now, so this binding's `y` would read it."""
+    replace_table(con, pa.table({"a": [1, 2], "b": ["x", "y"], "y": [5, 6]}))
+    t = con.table("t")
+    expr = t.filter(t.a > 1)
+    first = drift_the_table(
+        expr, pa.schema({"x": pa.int64(), "b": pa.string(), "y": pa.int64()})
+    )
+    once = refresh_schemas(expr, first, {key: {"a": "x"} for key in first})
+    moved = drift_the_table(
+        once,
+        pa.schema(
+            {"x": pa.int64(), "b": pa.string(), "y": pa.int64(), "z": pa.int64()}
+        ),
+    )
+
+    with pytest.raises(SchemaRefreshError, match="'y' is declared as 'a''s live"):
+        refresh_schemas(once, moved, {key: {"a": "y"} for key in moved})
+
+
+def test_a_retired_name_a_live_column_would_take_is_refused(
+    con: SqliteBackend,
+) -> None:
+    """`a <- x` retired by `b <- x`, while a new live `a` appears: an op over
+    `a` would silently read it."""
+    once = renamed_once(con)
+    moved = drift_the_table(once, pa.schema({"a": pa.string(), "x": pa.int64()}))
+
+    with pytest.raises(SchemaRefreshError, match="the live column 'a' would take"):
+        refresh_schemas(once, moved, {key: {"b": "x"} for key in moved})
 
 
 def test_a_rename_onto_a_live_column_nothing_moves_is_refused(

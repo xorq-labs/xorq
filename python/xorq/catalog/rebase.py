@@ -112,6 +112,7 @@ from xorq.catalog.exceptions import (
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
 from xorq.catalog.refresh import (
     LeafKey,
+    ambiguous_renames,
     check_refreshable,
     leaf_key,
     live_schemas,
@@ -339,6 +340,9 @@ class RebaseConflict:
         validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
     )
     op_name = field(default=None, validator=optional(instance_of(str)))
+    # Lines that may help: on an op failure, what each changed source lost and
+    # gained, less what a `--rename` already maps.
+    hints = str_tuple()
 
 
 @frozen
@@ -916,8 +920,7 @@ def renamed_source(
 
     One source can hold several keys: a table bound before and after it grew
     is recorded at two schemas. One name on two connections is two sources,
-    and refused, as is no source at all. A source bound more than once is
-    refused too, for now.
+    and refused, as is no source at all.
     """
     try:
         by_key = {
@@ -937,12 +940,6 @@ def renamed_source(
     # `leaf_key` less its snapshot pin and recorded schema: kind, profile, name.
     if (count := len({key[:3] for key in by_key})) > 1:
         return f"{name!r} names {count} sources (one name on different connections)"
-    if (count := len(by_key)) > 1:
-        return (
-            f"{name!r} is bound {count} times in {catalog_entry.name} (at different "
-            "schemas or snapshots); --rename of a source bound more than once is "
-            "not supported yet"
-        )
     return by_key
 
 
@@ -962,6 +959,9 @@ def plan_renames(
     fails against the live schema, after the sweep, so one run names every bad
     ``--rename`` and the refusal carries the sweep. ``RebaseOptions`` has
     refused a repeated column already.
+
+    A source recorded at several schemas is renamed under each, whichever
+    records ``old``.
     """
     if renames and unprobed:
         return (
@@ -995,6 +995,9 @@ def plan_renames(
                 f"(recorded: {quoted(recorded)})"
             )
             continue
+        # Under every key, not only those that record `old`: the mapping is
+        # the live source's, and a chain (`a <- x, b <- a`) moves `a` away
+        # from a binding that never recorded `b` too.
         for key in by_key:
             planned.setdefault(key, {})[old] = new
         # A `new` another rename of this source maps onward (a chain or a
@@ -1012,26 +1015,40 @@ def check_live_renames(
     reports: tuple[LeafReport, ...],
     planned: dict[LeafKey, dict[str, str]],
     failed: Iterable[str] = (),
-) -> None:
-    """Refuse, all at once and with ``failed`` (what failed against the
-    record), each rename whose new column isn't live, or whose old one still is
-    and no other rename of that source moves it away (a chain,
+) -> dict[LeafKey, dict[str, str]]:
+    """``planned`` for the changed bindings, the ones ``refresh_schemas``
+    rebuilds. Refuses, all at once and with ``failed`` (what failed against
+    the record), each rename whose new column isn't live, or whose old one
+    still is and no other rename of that source moves it away (a chain,
     ``a <- x, b <- a``, or a swap).
 
-    On an unchanged source every old column is still live, so even a swap
-    renamed nothing. An unreachable or unreadable source is left to the
-    sweep's own refusal, and never keyed: its profile may be what made it
-    unreadable.
+    An unchanged binding is never renamed or checked: a pinned snapshot keeps
+    its schema while the current table moves on. A column only unchanged
+    bindings record is refused, as still live: even a swap renamed nothing.
+    An unreachable or unreadable source is left to the sweep's own refusal,
+    and never keyed: its profile may be what made it unreadable.
     """
     details = [*failed]
+    changed = {}
+    # (source, old) that some changed binding renames, or only unchanged ones record.
+    renamed = set()
+    unchanged = []
     # With nothing planned there is nothing to key: `leaf_key` hashes a profile.
     for report in reports if planned else ():
         if report.verdict not in (Verdict.EQUAL, Verdict.CHANGED):
             continue
-        if not (by_old := planned.get(leaf_key(report.leaf, record))):
+        key = leaf_key(report.leaf, record)
+        if not (by_old := planned.get(key)):
             continue
         (name, live) = (report.leaf.name, report.live)
-        claimed = set(by_old.values()) if report.verdict == Verdict.CHANGED else set()
+        if report.verdict == Verdict.EQUAL:
+            unchanged += [(name, old) for old in by_old if old in report.leaf.recorded]
+            continue
+        changed[key] = by_old
+        # Only what this binding records: every binding gets the source's whole
+        # mapping, for chains, so the rest is no rename of its own.
+        renamed |= {(name, old) for old in by_old if old in report.leaf.recorded}
+        claimed = set(by_old.values())
         for old, new in by_old.items():
             if new not in live:
                 details.append(
@@ -1041,7 +1058,59 @@ def check_live_renames(
                 details.append(
                     f"{name}: {old!r} is still a live column, so nothing was renamed"
                 )
+    details += [
+        f"{name}: {old!r} is still a live column, so nothing was renamed"
+        for (name, old) in dict.fromkeys(unchanged)
+        if (name, old) not in renamed
+    ]
     refuse_renames(catalog_entry, details)
+    return changed
+
+
+def rename_hints(
+    record: BuildRecord,
+    reports: Iterable[LeafReport],
+    planned: dict[LeafKey, dict[str, str]],
+) -> tuple[str, ...]:
+    """The columns each changed source lost and gained, less those a
+    ``--rename`` already maps; a mapping is not guessed, nor a fix promised.
+
+    A source bound more than once is one line, over every binding's record:
+    a column another binding recorded is not new.
+    """
+    # `leaf_key` less its snapshot pin and recorded schema: kind, profile, name.
+    sources: dict[tuple, tuple[str, dict, dict, dict]] = {}
+    for report in reports:
+        if report.verdict != Verdict.CHANGED:
+            continue
+        key = leaf_key(report.leaf, record)
+        (_, recorded, live, by_old) = sources.setdefault(
+            key[:3], (report.leaf.name, {}, {}, {})
+        )
+        recorded |= dict.fromkeys(report.leaf.recorded)
+        live |= dict.fromkeys(report.live)
+        by_old |= planned.get(key, {})
+    lines = []
+    for name, recorded, live, by_old in sources.values():
+        if gone := [
+            column for column in recorded if column not in live and column not in by_old
+        ]:
+            new = [
+                column
+                for column in live
+                if column not in recorded and column not in by_old.values()
+            ]
+            lines.append(
+                f"{name}: recorded columns gone: {', '.join(gone)}; "
+                f"live columns new: {', '.join(new) or '-'}"
+            )
+    if not lines:
+        return ()
+    return (
+        *lines,
+        "if a gone column was renamed to a new one, "
+        "--rename <source> <old> <new> maps it",
+    )
 
 
 def warn_consumed(renames: Iterable[Rename]) -> None:
@@ -1132,7 +1201,7 @@ def rebase_entry(
         )
         # Before the no-op: a rename of an unchanged source is refused, not
         # ignored.
-        check_live_renames(catalog_entry, record, reports, planned, failed)
+        planned = check_live_renames(catalog_entry, record, reports, planned, failed)
         # Only a sweep that probed every source can prove a no-op on its own.
         if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
             # The new entry is this one, so each of `only_aliases` must be on it;
@@ -1179,6 +1248,10 @@ def rebase_entry(
             # Loaded inside the block: `load_expr` keeps the archive's extract dir,
             # which bundled reads point into, alive only as long as the expression.
             loaded = catalog_entry.load_expr(cache_dir=cache_dir)
+            # Only the loaded expression holds each binding's marked rename: a
+            # --rename one would skip, onto a column it reads as its own, is
+            # the user's to fix, so refused as a bad --rename, not a conflict.
+            refuse_renames(catalog_entry, ambiguous_renames(loaded, live, planned))
             try:
                 expr = refresh_schemas(loaded, live, planned)
             except UnmatchedSourceError as e:
@@ -1189,7 +1262,12 @@ def rebase_entry(
                 changed = [r for r in reports if r.verdict == Verdict.CHANGED]
                 # The cause alone: the CLI's headline already names the op.
                 return conflicted(
-                    RebaseConflict(format_error(e.cause), changed, e.op_name)
+                    RebaseConflict(
+                        format_error(e.cause),
+                        changed,
+                        e.op_name,
+                        hints=rename_hints(record, changed, planned),
+                    )
                 )
             warn_consumed(checked_renames)
             # `relocate_reads=False` keeps each read's recorded posture: a bundled

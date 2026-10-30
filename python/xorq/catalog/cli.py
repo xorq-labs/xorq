@@ -1312,9 +1312,9 @@ def rebase(
     its live column b, and every op over t still sees a. SOURCE is a source's
     name as `check-sources` prints it; OLD is a column it recorded, and a later
     rebase of the result keeps following the rename. Rebase never guesses a
-    rename. A --rename is refused, every one in a single run, when SOURCE
-    names no source, or sources on several connections, or a source bound
-    more than once in the entry (not supported yet); when OLD is not
+    rename; a conflict over a lost column lists what each changed source lost
+    and gained. A --rename is refused, every one in a single run, when SOURCE
+    names no source, or sources on several connections; when OLD is not
     recorded, or is still live (so also with no drift); when NEW is not live;
     or when no source can be probed. One that renames a column of its source
     twice, maps two to one, or renames one to itself is an invalid option. A
@@ -1351,8 +1351,8 @@ def rebase(
          hash, or --no-add its build directory
       4  conflict: an op no longer fits its new inputs, or a source's
          table is gone; stderr names the op (if one failed) and the
-         sources involved, with their recorded and live schemas;
-         nothing written
+         sources involved, with their recorded and live schemas, and
+         any columns each changed source lost and gained; nothing written
       5  rebased locally, but the sync's push failed: the new entry is
          printed and its alias moves are kept; `xorq catalog sync`
          (pull, then push) finishes it
@@ -1478,6 +1478,8 @@ def rebase(
         if conflict.op_name is not None:
             # The op's own error; a gone table's blocks already say it all.
             click.echo(conflict.detail, err=True)
+        for hint in conflict.hints:
+            click.echo(hint, err=True)
         if alias:
             click.echo(f"Alias {alias!r} not added: the rebase conflicted", err=True)
         if move_aliases or only_aliases:
