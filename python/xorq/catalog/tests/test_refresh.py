@@ -1164,6 +1164,7 @@ def test_a_mark_over_an_unchanged_source_stands(con: SqliteBackend) -> None:
             id="moved-onward",
         ),
         pytest.param({"a": "x"}, {"a": "y"}, "xy", {"a": "x"}, id="held-name"),
+        pytest.param({"a": "x"}, {"a": "x"}, "xb", {"a": "x"}, id="held-as-declared"),
     ),
 )
 def test_compose_renames(

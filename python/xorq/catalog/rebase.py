@@ -1018,23 +1018,35 @@ def rename_hints(
     planned: dict[LeafKey, dict[str, str]],
 ) -> tuple[str, ...]:
     """The columns each changed source lost and gained, less those a
-    ``--rename`` already maps; a mapping is not guessed, nor a fix promised."""
-    lines = []
+    ``--rename`` already maps; a mapping is not guessed, nor a fix promised.
+
+    A source bound more than once is one line, over every binding's record:
+    a column another binding recorded is not new.
+    """
+    # `leaf_key` less its snapshot pin and recorded schema: kind, profile, name.
+    sources: dict[tuple, tuple[str, dict, dict, dict]] = {}
     for report in reports:
         if report.verdict != Verdict.CHANGED:
             continue
-        by_old = planned.get(leaf_key(report.leaf, record), {})
-        (recorded, live) = (report.leaf.recorded, report.live)
+        key = leaf_key(report.leaf, record)
+        (_, recorded, live, by_old) = sources.setdefault(
+            key[:3], (report.leaf.name, {}, {}, {})
+        )
+        recorded |= dict.fromkeys(report.leaf.recorded)
+        live |= dict.fromkeys(report.live)
+        by_old |= planned.get(key, {})
+    lines = []
+    for name, recorded, live, by_old in sources.values():
         if gone := [
-            name for name in recorded if name not in live and name not in by_old
+            column for column in recorded if column not in live and column not in by_old
         ]:
             new = [
-                name
-                for name in live
-                if name not in recorded and name not in by_old.values()
+                column
+                for column in live
+                if column not in recorded and column not in by_old.values()
             ]
             lines.append(
-                f"{report.leaf.name}: recorded columns gone: {', '.join(gone)}; "
+                f"{name}: recorded columns gone: {', '.join(gone)}; "
                 f"live columns new: {', '.join(new) or '-'}"
             )
     if not lines:

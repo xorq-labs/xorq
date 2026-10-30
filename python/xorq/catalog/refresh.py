@@ -315,8 +315,10 @@ def compose_renames(
     that column is another binding's ``old`` now, so the ops reading it here
     would silently read that.
     """
-    live = set(live)
-    consumed = set(declared.values())
+    (live, exposed) = (set(live), set(exposed))
+    # A declared rename this binding already holds (another binding's `old`
+    # recorded under the name this mark gives it) consumes nothing here.
+    consumed = {new for old, new in declared.items() if held.get(old) != new}
     kept = {
         name: column
         for name, column in held.items()
@@ -337,10 +339,7 @@ def compose_renames(
     if ambiguous := [
         (old, new)
         for old, new in declared.items()
-        if old in held
-        and old not in covered
-        and new in set(exposed)
-        and new not in renamed
+        if old in held and old not in covered and new in exposed and new not in renamed
     ]:
         refuse(
             (

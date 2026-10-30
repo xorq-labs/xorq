@@ -2854,6 +2854,24 @@ def test_a_conflict_over_a_lost_column_lists_what_changed(
     ) in result.stderr
 
 
+def test_a_conflict_lists_a_source_bound_twice_once(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`t` bound with `a` only, then with `a` and `b`: one line for `t`, and
+    `b`, which the later binding recorded, is not new."""
+    replace_t(world, pa.table({"a": pa.array([1, 2], pa.int64())}))
+    before = world.con.table("t")
+    replace_t(world, RECORDED)
+    after = world.con.table("t")
+    name = world.catalog.add(before.select("a").union(after.select("a"))).name
+    replace_t(world, RENAMED)
+
+    result = rebase(runner, world, name)
+    assert result.exit_code == 4, result.output
+    assert result.stderr.count("recorded columns gone") == 1, result.stderr
+    assert "t: recorded columns gone: a; live columns new: x\n" in result.stderr
+
+
 def test_a_renamed_entry_keeps_following_its_source(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
