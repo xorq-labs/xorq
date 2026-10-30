@@ -7,6 +7,7 @@ is kept as recorded.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -259,18 +260,22 @@ def with_renames(node: Node, renames: Mapping[str, str]) -> Node:
         return node
     # `Table.rename` over a live column no rename moves away would keep that
     # column and silently drop the renamed one: refuse it. A chain or swap
-    # (`a <- x, b <- a`) moves it, and is fine.
-    moved = set(renames.values())
-    if clashes := [
-        name for name in renames if name in node.schema and name not in moved
-    ]:
-        refuse(
-            (
-                type(node).__name__,
-                f"{name!r} is still a live column, and no rename moves it away",
-            )
-            for name in clashes
+    # (`a <- x, b <- a`) moves it, and is fine. One live column under two
+    # names is refused too, where `Table.rename` raises a bare `ValueError`.
+    moved = Counter(renames.values())
+    if offenders := [
+        (
+            type(node).__name__,
+            f"{name!r} is still a live column, and no rename moves it away",
         )
+        for name in renames
+        if name in node.schema and name not in moved
+    ] + [
+        (type(node).__name__, f"{column!r} is renamed to more than one name")
+        for column, count in moved.items()
+        if count > 1
+    ]:
+        refuse(offenders)
     renamed = node.to_expr().rename(dict(renames))
     marked = renamed.hashing_tag(
         RebaseTag.RENAME, renames=tuple(sorted(renames.items()))
@@ -353,26 +358,21 @@ def refresh_schemas(
         return None
 
     def replacer(node: Node, kwargs: dict | None) -> Node:
+        # A mark over a source stands for it, with the rename it holds.
         if (held := marked_renames(node)) is not None and node.parent in projects:
             source = node.parent.parent
-            if (key := refreshed_key(source)) is None:
-                # Its source is unchanged: the rename stands as recorded.
-                return node
+        else:
+            (source, held) = (node, {})
+        if (key := refreshed_key(source)) is not None:
             matched.add(key)
             composed = compose_renames(held, renames.get(key, {}))
             return rebuild(
                 node,
                 lambda: with_renames(with_live_schema(source, live[key]), composed),
             )
-        if (key := refreshed_key(node)) is not None:
-            matched.add(key)
-            return rebuild(
-                node,
-                lambda: with_renames(
-                    with_live_schema(node, live[key]), renames.get(key, {})
-                ),
-            )
-        # An opaque op is rebuilt by `recreate_changed`, over its rewritten edges.
+        # A mark over an unchanged source has no rewritten edge, so it stands as
+        # recorded. An opaque op is rebuilt by `recreate_changed`, over its
+        # rewritten edges.
         if kwargs is None or isinstance(node, opaque_ops):
             return node
         return rebuild(node, lambda: recreate_over(node, kwargs))
@@ -382,7 +382,7 @@ def refresh_schemas(
         expr,
         recreate=recreate_changed,
         stop=lambda node: isinstance(node, CacheTag),
-        filter=lambda node: node not in projects,
+        filter=(lambda node: node not in projects) if projects else None,
     ).to_expr()
     if unmatched := [key for key in live if key not in matched]:
         refuse(

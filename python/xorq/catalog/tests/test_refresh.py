@@ -1174,3 +1174,14 @@ def test_a_rename_onto_a_live_column_nothing_moves_is_refused(
 
     with pytest.raises(SchemaRefreshError, match="'a' is still a live column"):
         refresh_schemas(expr, live, {key: {"a": "x"} for key in live})
+
+
+def test_a_rename_of_two_columns_onto_one_live_column_is_refused(
+    con: SqliteBackend,
+) -> None:
+    """`Table.rename` would raise a bare `ValueError`, not a refresh error."""
+    expr = con.table("t")
+    live = drift_the_table(expr, pa.schema({"x": pa.int64()}))
+
+    with pytest.raises(SchemaRefreshError, match="'x' is renamed to more than one"):
+        refresh_schemas(expr, live, {key: {"a": "x", "b": "x"} for key in live})
