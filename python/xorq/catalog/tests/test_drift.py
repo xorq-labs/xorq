@@ -7,6 +7,7 @@ drift against.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ from xorq.catalog.cli import cli
 from xorq.catalog.drift import (
     EntryReport,
     checkable_leaves,
+    close_cons,
     format_unchecked,
     get_schema_reader,
     iter_leaf_reports,
@@ -181,6 +183,110 @@ def test_entry_report_is_reusable(world: SimpleNamespace) -> None:
     assert report.name == world.name
     assert report.exit_code == 0
     assert tuple(r.verdict for r in report.leaf_reports) == (Verdict.EQUAL,)
+
+
+def corrupt_archive(world: SimpleNamespace, name: str) -> None:
+    """Overwrite ``name``'s archive with bytes that are not a zip.
+
+    Unlinked first: under the annex backend the path is a symlink to a
+    read-only object, so writing through it is denied.
+    """
+    archive = world.catalog.get_catalog_entry(name).catalog_path
+    archive.unlink()
+    archive.write_bytes(b"not a zip")
+
+
+def test_entry_report_on_an_unreadable_archive_is_unreadable(
+    world: SimpleNamespace,
+) -> None:
+    """A corrupt archive is a report with exit code 2, not a `BadZipFile`."""
+    corrupt_archive(world, world.name)
+
+    report = EntryReport.from_catalog_entry(world.catalog.get_catalog_entry(world.name))
+    assert report.name == world.name
+    assert report.record is None
+    assert report.leaf_reports == ()
+    assert report.error.startswith("BadZipFile")
+    assert report.verdict is Verdict.UNREADABLE
+    assert report.exit_code == 2
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    (pytest.param(False, id="readable"), pytest.param(True, id="corrupt")),
+)
+def test_entry_report_agrees_with_both_outputs(
+    runner: CliRunner, world: SimpleNamespace, corrupt: bool
+) -> None:
+    """`EntryReport`, the human output and the document give one entry the same
+    verdict and exit code, whether or not its record can be read."""
+    if corrupt:
+        corrupt_archive(world, world.name)
+
+    report = EntryReport.from_catalog_entry(world.catalog.get_catalog_entry(world.name))
+    human = check_sources(runner, world)
+    as_json = runner.invoke(
+        cli, ["--path", world.catalog_path, "check-sources", world.name, "--json"]
+    )
+    entry = json.loads(as_json.stdout)["entries"][world.name]
+
+    assert report.exit_code == human.exit_code == as_json.exit_code
+    assert report.exit_code == entry["exit_code"]
+    assert entry["state"] == report.verdict
+    assert entry.get("error") == report.error
+    if corrupt:
+        assert f"  unreadable: {report.error}" in human.output
+    else:
+        assert f"DatabaseTable t: {report.verdict}" in human.output
+
+
+def test_entry_report_shares_a_caller_owned_con_cache(
+    world: SimpleNamespace,
+    add_entry: Callable[..., Any],
+    count_cons: Callable[[], tuple[list, list]],
+) -> None:
+    """Two entries over one profile cost one connection when the caller passes
+    its own cache, and that connection stays open until the caller closes it."""
+    other = add_entry()
+    cons, disconnected = count_cons()
+    con_cache = {}
+
+    reports = tuple(
+        EntryReport.from_catalog_entry(world.catalog.get_catalog_entry(name), con_cache)
+        for name in (world.name, other.name)
+    )
+    assert tuple(report.exit_code for report in reports) == (0, 0)
+    assert len(cons) == 1
+    assert disconnected == []
+
+    close_cons(con_cache)
+    assert len(disconnected) == 1
+
+
+def test_entry_report_without_a_cache_closes_what_it_opened(
+    world: SimpleNamespace, count_cons: Callable[[], tuple[list, list]]
+) -> None:
+    """With no caller-owned cache the entry owns, and closes, its connections."""
+    cons, disconnected = count_cons()
+
+    report = EntryReport.from_catalog_entry(world.catalog.get_catalog_entry(world.name))
+    assert report.exit_code == 0
+    assert len(cons) == 1
+    assert len(disconnected) == 1
+
+
+def test_entry_report_takes_a_record_or_an_error(record: BuildRecord) -> None:
+    """A readable record keeps its validators; a report is a record or an error,
+    never both and never neither."""
+    with pytest.raises(TypeError):
+        EntryReport("e", "not a record", ())
+    with pytest.raises(ValueError, match="exactly one"):
+        EntryReport("e", None, ())
+    with pytest.raises(ValueError, match="exactly one"):
+        EntryReport("e", record, (), error="BadZipFile: boom")
+    leaf_reports = tuple(iter_leaf_reports(record))
+    with pytest.raises(ValueError, match="no leaf reports"):
+        EntryReport("e", None, leaf_reports, error="BadZipFile: boom")
 
 
 def test_unhandled_leaf_kind_raises() -> None:
