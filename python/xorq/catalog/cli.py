@@ -1107,12 +1107,14 @@ def schema(ctx, name, as_json):
 def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
     """Print one entry's leaf reports as they arrive; return its exit code."""
     from xorq.catalog.drift import (  # noqa: PLC0415
+        entry_verdict,
         format_error,
         format_leaf_report,
         format_no_external,
         format_unchecked,
         iter_leaf_reports,
         read_record,
+        state_and_code,
     )
     from xorq.catalog.enums import Verdict  # noqa: PLC0415
 
@@ -1127,16 +1129,17 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
         # The same verdict a leaf-level defect ranks, so the entry-level and
         # leaf-level codes cannot drift apart.
         return Verdict.UNREADABLE.exit_code
-    codes = []
+    reports = []
     for report in iter_leaf_reports(record, con_cache):
         for line in format_leaf_report(report):
             click.echo(line)
-        codes.append(report.exit_code)
+        reports.append(report)
     if (unchecked := format_unchecked(record)) is not None:
         click.echo(unchecked)
-    elif not codes:
+    elif not reports:
         click.echo(format_no_external(record))
-    return max(codes, default=0)
+    # The same rule `--json` and `EntryReport` read the entry's code off.
+    return state_and_code(entry_verdict(record, tuple(reports)))["exit_code"]
 
 
 @cli.command("check-sources")
