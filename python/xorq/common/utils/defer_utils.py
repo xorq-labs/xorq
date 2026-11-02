@@ -98,7 +98,9 @@ def csv_inference_kwarg(key, value):
     The delimiter is ``delim`` or ``sep`` on duckdb, ``delimiter`` on datafusion
     and ``sep`` on pandas; the header is a boolean on duckdb (``header``) and
     datafusion (``has_header``) where pandas takes the row index or ``None``;
-    ``names`` is spelt the same everywhere.
+    ``names`` and ``encoding`` are spelt the same everywhere; the leading lines
+    to drop are ``skip`` on duckdb and ``skiprows`` on pandas, and the decimal
+    mark ``decimal_separator`` on duckdb and ``decimal`` on pandas.
     Every other kwarg says where the rows land (``table_name``, ``mode``,
     ``temporary``, ``ingest_kwargs``) or how the backend parses past the
     columns, and stays with the backend.
@@ -110,8 +112,12 @@ def csv_inference_kwarg(key, value):
             return {"header": 0 if value else None}
         case (("header" | "has_header"), _):
             return {"header": value}
-        case ("names", _):
-            return {"names": value}
+        case (("skip" | "skiprows"), _):
+            return {"skiprows": value}
+        case (("decimal_separator" | "decimal"), _):
+            return {"decimal": value}
+        case (("names" | "encoding"), _):
+            return {key: value}
         case _:
             return {}
 

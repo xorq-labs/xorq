@@ -358,3 +358,27 @@ def test_deferred_read_csv_names(tmp_path):
         path, xo.pandas.connect(), header=None, names=("a", "b")
     )
     assert_frame_equal(expr.execute(), pd.DataFrame({"a": [1, 2], "b": ["x", "y"]}))
+
+
+@pytest.mark.parametrize(
+    "get_con,read_kwargs",
+    [
+        pytest.param(
+            lambda: xo.duckdb.connect(),
+            {"skip": 1, "encoding": "latin-1", "sep": ";", "decimal_separator": ","},
+            id="duckdb",
+        ),
+        pytest.param(
+            lambda: xo.pandas.connect(),
+            {"skiprows": 1, "encoding": "latin-1", "sep": ";", "decimal": ","},
+            id="pandas",
+        ),
+    ],
+)
+def test_deferred_read_csv_parse_kwargs(get_con, read_kwargs, tmp_path) -> None:
+    """Leading lines, encoding and decimal mark reach the inference too."""
+    path = tmp_path / "latin.csv"
+    path.write_bytes("junk\na;b\n1,5;\xe9t\xe9\n".encode("latin-1"))
+    expr = xo.deferred_read_csv(path, get_con(), **read_kwargs)
+    assert expr.schema() == xo.schema({"a": "float64", "b": "string"})
+    assert_frame_equal(expr.execute(), pd.DataFrame({"a": [1.5], "b": ["\xe9t\xe9"]}))
