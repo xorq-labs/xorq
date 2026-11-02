@@ -178,7 +178,7 @@ def test_reports_stream_per_leaf(
 
 
 def test_entry_report_is_reusable(world: SimpleNamespace) -> None:
-    """The public per-entry API the `rebase` work (XOR-453) consumes."""
+    """The public per-entry API `check-sources --json` builds its entries on."""
     report = EntryReport.from_catalog_entry(world.catalog.get_catalog_entry(world.name))
     assert report.name == world.name
     assert report.exit_code == 0
@@ -287,6 +287,16 @@ def test_entry_report_takes_a_record_or_an_error(record: BuildRecord) -> None:
     leaf_reports = tuple(iter_leaf_reports(record))
     with pytest.raises(ValueError, match="no leaf reports"):
         EntryReport("e", None, leaf_reports, error="BadZipFile: boom")
+
+
+def test_entry_report_refuses_leaves_it_was_not_given(record: BuildRecord) -> None:
+    """A readable record's report covers every leaf the probe would cover: one
+    built over fewer would roll up to `equal` for a source nobody probed."""
+    with pytest.raises(ValueError, match="one report per checkable leaf"):
+        EntryReport("e", record, ())
+    (report,) = iter_leaf_reports(record)
+    with pytest.raises(ValueError, match="one report per checkable leaf"):
+        EntryReport("e", record, (report, report))
 
 
 def test_unhandled_leaf_kind_raises() -> None:

@@ -105,6 +105,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -161,8 +162,10 @@ class LeafReport:
 class EntryReport:
     """Every leaf report for one entry, plus the record they came from.
 
-    Eager, so a caller that wants the whole answer (the `rebase` work, XOR-453)
-    gets it in one call. The CLI streams ``iter_leaf_reports`` instead.
+    Eager, so a caller that wants the whole answer gets it in one call:
+    ``entry_document`` builds `check-sources --json` on it. The human output
+    streams ``iter_leaf_reports`` instead, and `rebase` reads the record
+    itself, since it refuses an entry before probing any of its sources.
 
     A record that cannot be read is reported, not raised: ``record`` is
     ``None``, ``error`` carries what `read_record` returned, and there are no
@@ -188,29 +191,31 @@ class EntryReport:
             )
         if self.error is not None and self.leaf_reports:
             raise ValueError("an unreadable record has no leaf reports")
+        # A report over fewer leaves than the probe covers would roll up to
+        # `equal` for a source nobody probed.
+        if self.record is not None and tuple(
+            report.leaf for report in self.leaf_reports
+        ) != checkable_leaves(self.record):
+            raise ValueError(
+                "an EntryReport takes one report per checkable leaf of its "
+                "record, in probe order"
+            )
 
-    @property
+    @cached_property
     def verdict(self) -> Verdict | None:
-        """The entry's verdict, as `entry_document` publishes it.
-
-        ``None`` where nothing was probed and a source was left unprobed, same
-        as the document: rolling that up to `equal` would claim a comparison
-        this entry never had.
-        """
-        if self.error is not None:
+        """The entry's verdict, as `entry_document` publishes it."""
+        if self.record is None:
             return Verdict.UNREADABLE
-        if unchecked_leaves(self.record) and not self.leaf_reports:
-            return None
-        return roll_up(report.verdict for report in self.leaf_reports)
+        return entry_verdict(self.record, self.leaf_reports)
 
     @property
     def exit_code(self) -> int:
         """The worst verdict wins: a drifted leaf outranks an unreachable one.
 
-        Read off ``verdict`` rather than reduced a second way over the leaves,
-        so it is the code `state_and_code` publishes for the same entry.
+        Read off ``verdict`` rather than reduced a second way over the leaves;
+        no verdict exits 0, as `state_and_code` publishes it.
         """
-        return state_and_code(self.verdict)["exit_code"]
+        return 0 if self.verdict is None else self.verdict.exit_code
 
     @classmethod
     def from_catalog_entry(
@@ -967,6 +972,24 @@ def record_document(
     return reports_document(record, tuple(iter_leaf_reports(record, con_cache)))
 
 
+def entry_verdict(
+    record: BuildRecord, reports: tuple[LeafReport, ...]
+) -> Verdict | None:
+    """``record``'s verdict over ``reports`` already probed from it.
+
+    No verdict at all where nothing was probed and a source was left
+    unprobed: rolling those up to `equal` would state the strongest positive
+    claim the document can make on the weakest evidence it has, and a
+    consumer gating on `state == "equal"` would go green over an entry this
+    command never compared. An entry with no external sources keeps `equal`:
+    nothing outside the archive is a reason it cannot drift, not a reason the
+    question went unanswered.
+    """
+    if unchecked_leaves(record) and not reports:
+        return None
+    return roll_up(report.verdict for report in reports)
+
+
 def reports_document(
     record: BuildRecord, reports: Iterable[LeafReport]
 ) -> tuple[Verdict | None, dict]:
@@ -978,14 +1001,7 @@ def reports_document(
     """
     reports = tuple(reports)
     unchecked = unchecked_leaves(record)
-    # No verdict at all where nothing was probed and a source was left
-    # unprobed: rolling those up to `equal` would state the strongest positive
-    # claim the document can make on the weakest evidence it has, and a
-    # consumer gating on `state == "equal"` would go green over an entry this
-    # command never compared. An entry with no external sources keeps `equal`:
-    # nothing outside the archive is a reason it cannot drift, not a reason the
-    # question went unanswered.
-    verdict = None if unchecked and not reports else roll_up(r.verdict for r in reports)
+    verdict = entry_verdict(record, reports)
     return verdict, make_entry_document(
         verdict,
         leaves=(leaf_document(report) for report in reports),
@@ -1009,12 +1025,10 @@ def entry_document(
     from ``Verdict``. The verdict is returned beside the document, same as
     ``record_document``.
     """
-    record = read_record(catalog_entry)
-    if isinstance(record, Exception):
-        return Verdict.UNREADABLE, make_entry_document(
-            Verdict.UNREADABLE, error=format_error(record)
-        )
-    return record_document(record, con_cache)
+    report = EntryReport.from_catalog_entry(catalog_entry, con_cache)
+    if report.record is None:
+        return report.verdict, make_entry_document(report.verdict, error=report.error)
+    return reports_document(report.record, report.leaf_reports)
 
 
 def drift_document(
