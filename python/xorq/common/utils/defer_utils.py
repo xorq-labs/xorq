@@ -92,6 +92,34 @@ def relocatable_read_path_str(path: str | Path) -> str:
     return "/".join(relocatable_read_path(path))
 
 
+_CSV_SHAPE_KWARGS = ("usecols", "names", "header")
+
+
+def csv_shape_kwargs(kwargs):
+    """The reader kwargs that decide which columns a csv read produces and what
+    they are called: ``usecols``, ``names``, and ``header``, since ``names``
+    means the file's own header row is data unless it says otherwise. As
+    given, for handing on to a reader."""
+    return {key: kwargs[key] for key in _CSV_SHAPE_KWARGS if key in kwargs}
+
+
+def csv_parse_kwargs(kwargs):
+    """`csv_shape_kwargs` as pandas' inference reads with them: duckdb's bool
+    ``header`` becomes pandas' row number. Nothing else is forwarded: the
+    readers spell their other options differently, and inference reads one
+    chunk, which some pandas options refuse."""
+    parse_kwargs = csv_shape_kwargs(kwargs)
+    if isinstance(header := parse_kwargs.get("header"), bool):
+        parse_kwargs["header"] = 0 if header else None
+    return parse_kwargs
+
+
+def read_inference_kwargs(method_name, kwargs):
+    """The recorded read kwargs that ``method_name``'s default inference reads
+    with, for whoever re-runs that inference against the file."""
+    return csv_parse_kwargs(kwargs) if method_name == "read_csv" else {}
+
+
 @toolz.curry
 def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
     import pandas as pd  # noqa: PLC0415
@@ -274,8 +302,19 @@ def deferred_read_csv(
 
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
+    if "dtype" in kwargs:
+        # every reader takes the schema this records in place of a dtype
+        raise TypeError("pass column types as `schema=`, not `dtype=`")
     if schema is None:
-        schema = infer_schema(path)
+        parse_kwargs = (
+            csv_parse_kwargs(kwargs) if infer_schema is infer_csv_schema_pandas else {}
+        )
+        schema = infer_schema(path, **parse_kwargs)
+    elif isinstance(usecols := kwargs.get("usecols"), tuple) and all(
+        isinstance(column, str) for column in usecols
+    ):
+        # a declared schema may type the whole file; the read keeps a subset
+        schema = Schema({name: typ for name, typ in schema.items() if name in usecols})
     if con.name in _ADBC_BACKENDS:
         kwargs.setdefault("mode", "replace")
     read_kwargs = make_read_kwargs(

@@ -205,6 +205,31 @@ def test_read_csv_schema_on_pandas_default_backend(
     assert con.table("padded").schema() == schema
 
 
+def test_read_csv_usecols_on_pandas_default_backend(tmp_path):
+    # column selection belongs to the reader, not to the ingest
+    path = tmp_path / "wide.csv"
+    path.write_text("a,b,c\n1,x,7\n")
+    schema = xo.schema({"a": "int64", "b": "string"})
+    with options({"default_backend": xo.pandas.connect()}):
+        con = xo.sqlite.connect()
+        direct = con.read_csv(path, "direct", schema=schema, usecols=("a", "b"))
+        deferred = xo.deferred_read_csv(
+            path, con=con, table_name="deferred", usecols=("a", "b")
+        )
+        assert direct.execute().columns.tolist() == ["a", "b"]
+        assert deferred.schema() == schema
+        assert deferred.execute().columns.tolist() == ["a", "b"]
+
+
+def test_read_csv_header_on_duckdb_default_backend(tmp_path):
+    # duckdb's header is a bool and must reach it as one
+    path = tmp_path / "numbers.csv"
+    path.write_text("n\n2\n10\n")
+    with options({"default_backend": xo.duckdb.connect()}):
+        t = xo.sqlite.connect().read_csv(path, "numbers", header=True)
+    assert t.execute()["n"].tolist() == [2, 10]
+
+
 def test_read_csv_missing_ints_on_pandas_default_backend(tmp_path, monkeypatch):
     # pandas reads a nullable int schema with its Int64 dtype, which comes
     # back through the arrow metadata as pd.NA; sqlite3 binds only None

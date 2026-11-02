@@ -13,6 +13,7 @@ from attr.validators import (
     in_,
     optional,
 )
+from pytest import param
 
 import xorq.api as xo
 from xorq.caching import (
@@ -433,3 +434,101 @@ def test_read_csv_schema_kwargs(backend_name, keyword):
     schema = xo.schema({"id": "string"})
     assert read_csv_schema_kwargs(con, schema) == {keyword: schema}
     assert read_csv_schema_kwargs(con, None) == {}
+
+
+@pytest.fixture
+def zero_padded_csv(tmp_path):
+    path = tmp_path / "zero_padded.csv"
+    path.write_text(
+        "id,region,seen_at\n001,north,2024-01-01 00:00:00\n002,south,2024-01-02 00:00:00\n"
+    )
+    return path
+
+
+def test_deferred_read_csv_usecols(zero_padded_csv):
+    # the recorded schema describes the columns the read keeps
+    expr = xo.deferred_read_csv(
+        zero_padded_csv, con=xo.pandas.connect(), usecols=("id", "seen_at")
+    )
+    assert expr.schema().names == ("id", "seen_at")
+    assert expr.execute().columns.tolist() == ["id", "seen_at"]
+
+
+def test_deferred_read_csv_names(zero_padded_csv):
+    expr = xo.deferred_read_csv(
+        zero_padded_csv, con=xo.pandas.connect(), names=("a", "b", "c")
+    )
+    assert expr.schema().names == ("a", "b", "c")
+    assert expr.execute().columns.tolist() == ["a", "b", "c"]
+
+
+def test_deferred_read_csv_rejects_dtype(zero_padded_csv):
+    # the recorded schema is what every reader takes in place of a dtype
+    with pytest.raises(TypeError, match="schema="):
+        xo.deferred_read_csv(
+            zero_padded_csv, con=xo.pandas.connect(), dtype={"id": str}
+        )
+
+
+def test_deferred_read_csv_parse_dates_is_rejected_by_the_reader(zero_padded_csv):
+    # not forwarded to inference, and the pandas reader refuses it next to the
+    # schema the read always records
+    expr = xo.deferred_read_csv(
+        zero_padded_csv, con=xo.pandas.connect(), parse_dates=("seen_at",)
+    )
+    assert expr.schema()["seen_at"].is_string()
+    with pytest.raises(TypeError, match="parse_dates"):
+        expr.execute()
+
+
+def test_deferred_read_csv_custom_inference_takes_only_path(zero_padded_csv):
+    # a caller's inference callable is not handed the reader kwargs
+    schema = xo.schema({"id": "string", "region": "string", "seen_at": "string"})
+    expr = xo.deferred_read_csv(
+        zero_padded_csv,
+        con=xo.pandas.connect(),
+        infer_schema=lambda path: schema,
+        usecols=("id", "region", "seen_at"),
+    )
+    assert expr.schema() == schema
+
+
+def test_deferred_read_csv_adbc_replaces_on_rerun(zero_padded_csv):
+    # an ADBC backend still reads in replace mode, so executing twice works
+    expr = xo.deferred_read_csv(zero_padded_csv, con=xo.sqlite.connect())
+    first = expr.execute()
+    assert_frame_equal(expr.execute(), first)
+
+
+@pytest.mark.parametrize(
+    ("connect", "header"),
+    [
+        param(lambda: xo.pandas.connect(), 0, id="pandas"),
+        param(lambda: xo.duckdb.connect(), True, id="duckdb"),
+    ],
+)
+def test_deferred_read_csv_names_with_header(tmp_path, connect, header):
+    # names renames the columns of a file that has a header row; inference
+    # must skip that row too, whichever way the backend spells header, or
+    # the column is inferred as a string
+    path = tmp_path / "numbers.csv"
+    path.write_text("n\n2\n10\n")
+    expr = xo.deferred_read_csv(path, con=connect(), names=("m",), header=header)
+    assert expr.schema() == xo.schema({"m": "int64"})
+
+
+def test_deferred_read_csv_names_with_header_executes(tmp_path):
+    # with the header row inferred as data, 'm' was a string and max() "2"
+    path = tmp_path / "numbers.csv"
+    path.write_text("n\n2\n10\n")
+    expr = xo.deferred_read_csv(path, con=xo.pandas.connect(), names=("m",), header=0)
+    assert expr.m.max().execute() == 10
+
+
+def test_deferred_read_csv_usecols_projects_a_declared_schema(zero_padded_csv):
+    schema = xo.schema({"id": "string", "region": "string", "seen_at": "string"})
+    expr = xo.deferred_read_csv(
+        zero_padded_csv, con=xo.pandas.connect(), schema=schema, usecols=("id",)
+    )
+    assert expr.schema() == xo.schema({"id": "string"})
+    assert expr.execute()["id"].tolist() == ["001", "002"]

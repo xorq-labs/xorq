@@ -516,7 +516,9 @@ def get_read_schema(
         # The path parameter unsplit, glob and all: the deferred read hands its
         # own to the inference the same way, and the two answers are only
         # comparable if the input was.
-        return infer(args[0])
+        from xorq.common.utils.defer_utils import read_inference_kwargs  # noqa: PLC0415
+
+        return infer(args[0], **read_inference_kwargs(leaf.method_name, kwargs))
     # The recorded name is a *destination*. Replaying it registers the probe's
     # own table over whatever already carries that name on the sweep-wide
     # `con_cache` connection -- and `list_tables`, which `get_table_schema`
