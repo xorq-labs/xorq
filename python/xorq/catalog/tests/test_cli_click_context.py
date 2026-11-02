@@ -9,6 +9,8 @@ from click.testing import CliRunner, Result
 from git import NoSuchPathError
 
 from xorq.catalog.cli import click_context_catalog, click_context_default
+from xorq.catalog.enums import RebaseFailure
+from xorq.catalog.exceptions import RebaseError
 from xorq.cli import PdbGroup
 
 
@@ -94,3 +96,11 @@ def test_click_context_catalog_no_such_path_hints_init() -> None:
     )
     assert result.exit_code == 1
     assert "Run `xorq catalog --path /nope init` to create it." in result.output
+
+
+def test_click_context_catalog_keeps_a_rebase_refusals_code() -> None:
+    """A refused rebase exits with its failure's code, not the handler's 1."""
+    error = RebaseError("e is unreachable", RebaseFailure.UNREACHABLE)
+    result = invoke(click_context_catalog, raising(error))
+    assert result.exit_code == int(RebaseFailure.UNREACHABLE.exit_code) == 2
+    assert "e is unreachable" in result.output
