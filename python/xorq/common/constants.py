@@ -14,8 +14,17 @@ REMOTE_SCHEMES = HTTP_SCHEMES + CLOUD_SCHEMES
 # for its reload. Every other kwarg is folded into the build hash and the cache
 # key: most reach the backend's read method and can change the rows it returns,
 # and the rest (``relocatable``, ``mode``, ``temporary``) were identity already.
-READ_NON_IDENTITY_KEYS = frozenset(
-    {"hash_path", "read_path", "table_name", "memtables"}
+# The exception is the transport set below.
+#
+# Read kwargs that change how bytes arrive, never which rows result: postgres'
+# ``chunksize`` is the insert batch size. Adding a name here is the one edit
+# in this scheme that fails toward a stale cache hit rather than a spurious
+# miss, so each member needs that argument.
+READ_TRANSPORT_KEYS = frozenset({"chunksize"})
+
+READ_NON_IDENTITY_KEYS = (
+    frozenset({"hash_path", "read_path", "table_name", "memtables"})
+    | READ_TRANSPORT_KEYS
 )
 
 READ_EXCLUDE_KEYS = frozenset({"hash_path", "read_path", "relocatable"})

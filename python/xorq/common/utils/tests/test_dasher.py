@@ -350,6 +350,25 @@ def test_read_kwargs_path_value_tokenizes_as_its_string(
 
 
 @pytest.mark.parametrize("cache_cls", (ParquetCache, ParquetSnapshotCache))
+def test_read_kwargs_transport_does_not_bear_identity(
+    tmp_path: pathlib.Path, cache_cls: type
+) -> None:
+    """A transport kwarg changes how bytes arrive, not which rows result: reads
+    differing only in postgres' ``chunksize`` share a key, a parse kwarg splits
+    them."""
+    con, whole, _ = _csv_reads(tmp_path)
+    op = whole.op()
+    cache = cache_cls.from_kwargs(base_path=tmp_path / "cache", source=con)
+
+    def key(*extra: tuple[str, object]) -> str:
+        read = op.copy(read_kwargs=(*op.read_kwargs, *extra))
+        return read.to_expr().cache(cache).ls.get_key()
+
+    assert key(("chunksize", 10)) == key(("chunksize", 10_000)) == key()
+    assert key(("skip", 2)) != key()
+
+
+@pytest.mark.parametrize("cache_cls", (ParquetCache, ParquetSnapshotCache))
 def test_read_kwargs_cache_serves_each_parse(tmp_path, cache_cls):
     con, whole, skipped = _csv_reads(tmp_path)
     cache = cache_cls.from_kwargs(base_path=tmp_path / "cache", source=con)
