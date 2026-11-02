@@ -237,6 +237,12 @@ def _make_cache_replacer(expr: ir.Expr) -> Replacer:
         is_root = root_is_cached and node is op
         if kwargs:
             node = node.__recreate__(kwargs)
+        # a same-cache stack is materialized once, as its innermost node
+        while isinstance(node, CachedNode) and (
+            isinstance(inner := node.parent.op(), CachedNode)
+            and inner.cache == node.cache
+        ):
+            node = inner
         if isinstance(node, CachedNode):
             uncached, cache = node.parent, node.cache
             parquet_metadata = None
@@ -255,10 +261,8 @@ def _make_cache_replacer(expr: ir.Expr) -> Replacer:
                 parquet_metadata = build_provenance_metadata(
                     expr, cache.strategy, cache.storage
                 )
-            # key on the node, not the parent: ``calc_key`` performs the one
-            # same-cache unwrap itself (see ``cached_node_key``, GH #2382).
             node = cache.set_default(
-                node.to_expr(), uncached.op(), parquet_metadata=parquet_metadata
+                uncached, uncached.op(), parquet_metadata=parquet_metadata
             )
         return node
 
