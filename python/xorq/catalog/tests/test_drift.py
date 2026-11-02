@@ -31,6 +31,7 @@ from xorq.catalog.drift import (
     iter_leaf_reports,
     make_profile,
     probe_leaf,
+    reports_document,
 )
 from xorq.catalog.enums import Verdict
 from xorq.catalog.inspection import BuildRecord
@@ -178,7 +179,7 @@ def test_reports_stream_per_leaf(
 
 
 def test_entry_report_is_reusable(world: SimpleNamespace) -> None:
-    """The public per-entry API the `rebase` work (XOR-453) consumes."""
+    """The public per-entry API `check-sources --json` builds its entries on."""
     report = EntryReport.from_catalog_entry(world.catalog.get_catalog_entry(world.name))
     assert report.name == world.name
     assert report.exit_code == 0
@@ -287,6 +288,39 @@ def test_entry_report_takes_a_record_or_an_error(record: BuildRecord) -> None:
     leaf_reports = tuple(iter_leaf_reports(record))
     with pytest.raises(ValueError, match="no leaf reports"):
         EntryReport("e", None, leaf_reports, error="BadZipFile: boom")
+
+
+def test_entry_report_refuses_leaves_it_was_not_given(record: BuildRecord) -> None:
+    """A readable record's report covers every leaf the probe would cover: one
+    built over fewer would roll up to `equal` for a source nobody probed."""
+    with pytest.raises(ValueError, match="one report per checkable leaf"):
+        EntryReport("e", record, ())
+    (report,) = iter_leaf_reports(record)
+    with pytest.raises(ValueError, match="one report per checkable leaf"):
+        EntryReport("e", record, (report, report))
+
+
+def test_a_document_refuses_leaves_it_was_not_given(record: BuildRecord) -> None:
+    """The coverage rule holds for the document too: `rebase` publishes one from
+    a sweep it ran itself, and a short sweep must not read as `equal`."""
+    with pytest.raises(ValueError, match="one report per checkable leaf"):
+        reports_document(record, ())
+
+
+def test_entry_report_takes_its_reports_in_any_order(
+    world: SimpleNamespace, add_entry: Callable[..., Any]
+) -> None:
+    """Coverage is about which leaves were probed, not the order the probes
+    finished in: the roll-up does not depend on it."""
+    add_entry()
+    t, u = world.con.table("t"), world.con.table("u")
+    entry = world.catalog.add(t.join(u, "a"))
+    report = EntryReport.from_catalog_entry(world.catalog.get_catalog_entry(entry.name))
+    assert len(report.leaf_reports) == 2
+    reordered = EntryReport(
+        report.name, report.record, tuple(reversed(report.leaf_reports))
+    )
+    assert reordered.verdict == report.verdict == Verdict.EQUAL
 
 
 def test_unhandled_leaf_kind_raises() -> None:

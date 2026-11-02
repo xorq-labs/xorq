@@ -105,6 +105,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -161,8 +162,10 @@ class LeafReport:
 class EntryReport:
     """Every leaf report for one entry, plus the record they came from.
 
-    Eager, so a caller that wants the whole answer (the `rebase` work, XOR-453)
-    gets it in one call. The CLI streams ``iter_leaf_reports`` instead.
+    Eager, so a caller that wants the whole answer gets it in one call:
+    ``entry_document`` builds `check-sources --json` on it. The human output
+    streams ``iter_leaf_reports`` instead, and `rebase` reads the record
+    itself, since it refuses an entry before probing any of its sources.
 
     A record that cannot be read is reported, not raised: ``record`` is
     ``None``, ``error`` carries what `read_record` returned, and there are no
@@ -188,20 +191,16 @@ class EntryReport:
             )
         if self.error is not None and self.leaf_reports:
             raise ValueError("an unreadable record has no leaf reports")
+        # Forced here so `entry_verdict`'s coverage check refuses a report
+        # over the wrong leaves at construction, not at first read.
+        self.verdict
 
-    @property
+    @cached_property
     def verdict(self) -> Verdict | None:
-        """The entry's verdict, as `entry_document` publishes it.
-
-        ``None`` where nothing was probed and a source was left unprobed, same
-        as the document: rolling that up to `equal` would claim a comparison
-        this entry never had.
-        """
-        if self.error is not None:
+        """The entry's verdict, as `entry_document` publishes it."""
+        if self.record is None:
             return Verdict.UNREADABLE
-        if unchecked_leaves(self.record) and not self.leaf_reports:
-            return None
-        return roll_up(report.verdict for report in self.leaf_reports)
+        return entry_verdict(self.record, self.leaf_reports)
 
     @property
     def exit_code(self) -> int:
@@ -950,21 +949,28 @@ def make_entry_document(
     }
 
 
-def record_document(
-    record: BuildRecord, con_cache: dict | None = None
-) -> tuple[Verdict | None, dict]:
-    """One readable record's whole probe, as the JSON document carries it.
+def entry_verdict(
+    record: BuildRecord, reports: tuple[LeafReport, ...]
+) -> Verdict | None:
+    """``record``'s verdict over ``reports`` already probed from it.
 
-    Buffered by construction: `iter_leaf_reports` is drained before anything is
-    returned, so a consumer gets a complete entry or none at all.
+    ``reports`` must hold one report per checkable leaf, in any order: a
+    sweep over fewer leaves would roll up to `equal` for a source nobody
+    probed, so it is refused rather than rolled up.
 
-    The verdict comes back beside the document rather than only inside it, so
-    the sweep rolls up enum values and the string is written once, where the
-    document is built. Parsing ``state`` back out would make every future
-    writer of that key a source of ``ValueError`` -- raised after the whole
-    sweep has been probed, discarding a complete document.
+    No verdict at all where nothing was probed and a source was left
+    unprobed: rolling those up to `equal` would state the strongest positive
+    claim the document can make on the weakest evidence it has, and a
+    consumer gating on `state == "equal"` would go green over an entry this
+    command never compared. An entry with no external sources keeps `equal`:
+    nothing outside the archive is a reason it cannot drift, not a reason the
+    question went unanswered.
     """
-    return reports_document(record, tuple(iter_leaf_reports(record, con_cache)))
+    if Counter(report.leaf for report in reports) != Counter(checkable_leaves(record)):
+        raise ValueError("a verdict takes one report per checkable leaf of its record")
+    if unchecked_leaves(record) and not reports:
+        return None
+    return roll_up(report.verdict for report in reports)
 
 
 def reports_document(
@@ -972,20 +978,18 @@ def reports_document(
 ) -> tuple[Verdict | None, dict]:
     """``record``'s document over ``reports`` already probed from it.
 
-    What ``record_document`` builds once it has swept, split out so a caller
-    that swept already (`rebase`) publishes the same document without probing
-    a second time.
+    Takes the sweep rather than running it, so a caller that swept already
+    (`rebase`) publishes the same document without probing a second time.
+
+    The verdict comes back beside the document rather than only inside it, so
+    the sweep rolls up enum values and the string is written once, where the
+    document is built. Parsing ``state`` back out would make every future
+    writer of that key a source of ``ValueError`` -- raised after the whole
+    sweep has been probed, discarding a complete document.
     """
     reports = tuple(reports)
     unchecked = unchecked_leaves(record)
-    # No verdict at all where nothing was probed and a source was left
-    # unprobed: rolling those up to `equal` would state the strongest positive
-    # claim the document can make on the weakest evidence it has, and a
-    # consumer gating on `state == "equal"` would go green over an entry this
-    # command never compared. An entry with no external sources keeps `equal`:
-    # nothing outside the archive is a reason it cannot drift, not a reason the
-    # question went unanswered.
-    verdict = None if unchecked and not reports else roll_up(r.verdict for r in reports)
+    verdict = entry_verdict(record, reports)
     return verdict, make_entry_document(
         verdict,
         leaves=(leaf_document(report) for report in reports),
@@ -1007,14 +1011,15 @@ def entry_document(
     the ``error`` key beside them is what says which. Its state and exit code
     are the ones the human output prints for the same entry, since both come
     from ``Verdict``. The verdict is returned beside the document, same as
-    ``record_document``.
+    ``reports_document``.
+
+    Buffered by construction: the probe is drained before anything is
+    returned, so a consumer gets a complete entry or none at all.
     """
-    record = read_record(catalog_entry)
-    if isinstance(record, Exception):
-        return Verdict.UNREADABLE, make_entry_document(
-            Verdict.UNREADABLE, error=format_error(record)
-        )
-    return record_document(record, con_cache)
+    report = EntryReport.from_catalog_entry(catalog_entry, con_cache)
+    if report.record is None:
+        return report.verdict, make_entry_document(report.verdict, error=report.error)
+    return reports_document(report.record, report.leaf_reports)
 
 
 def drift_document(
