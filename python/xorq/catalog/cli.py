@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from xorq.ibis_yaml.packager import JointBundle
 
 from xorq.cli import (
+    CLICK_PASSTHROUGH,
     _get_cache_dir,
     _lazy_span,
     apply_pin_transform,
@@ -94,7 +95,7 @@ def _pdb_active(ctx):
 def click_context(ctx: click.Context, *typs: type[Exception]) -> Iterator[None]:
     try:
         yield
-    except click.ClickException:
+    except CLICK_PASSTHROUGH:
         raise
     except typs as e:
         if _pdb_active(ctx):
@@ -108,7 +109,7 @@ def click_context_catalog(ctx: click.Context) -> Iterator[None]:
 
     try:
         yield
-    except click.ClickException:
+    except CLICK_PASSTHROUGH:
         raise
     except NoSuchPathError as e:
         hint = _init_hint(ctx)
@@ -1194,8 +1195,9 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     from xorq.catalog.drift import close_cons, drift_document  # noqa: PLC0415
     from xorq.catalog.enums import Verdict  # noqa: PLC0415
 
-    # Probing runs outside the handler above, which funnels every exception into
-    # a ClickException and would collapse every exit code to 1.
+    # Probing runs outside the handler above, which would turn an exception
+    # raised mid-sweep into a ClickException exiting 1 instead of the verdict's
+    # code; the sweep reports per-leaf failures itself.
     con_cache = {}
     try:
         if as_json:
@@ -1456,8 +1458,8 @@ def rebase(
             document = rebase_document(catalog_entry, result, caught)
             click.echo(json.dumps(document, indent=2))
     if document is not None:
-        # Outside the handler, which would read the exit as an error. The
-        # process exits with the document's own code, as `check-sources` does.
+        # The process exits with the document's own code, as `check-sources`
+        # does.
         ctx.exit(document["exit_code"])
     if (conflict := result.conflict) is not None:
         if conflict.op_name is None:
