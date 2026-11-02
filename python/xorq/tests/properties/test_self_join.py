@@ -37,12 +37,12 @@ derived_copies = st.tuples(st.sampled_from(COMPARISONS), st.integers(-3, 3))
 # backend under test -> how to connect, resolved inside the test so collection
 # never touches a backend whose extra is not installed; each carries its
 # backend marker, so it runs in the CI job that has that backend
-# pandas is left out: its join matches a null key with a null key, which no
-# SQL backend does, so the merge oracle disagrees before any self-join binds
 CONNECTS = {
     "duckdb": lambda: xo.duckdb.connect(),
     "datafusion": lambda: xo.datafusion.connect(),
+    "pandas": lambda: xo.pandas.connect(),
     "postgres": lambda: xo.postgres.connect_env(),
+    "sqlite": lambda: xo.sqlite.connect(),
 }
 BACKENDS = pytest.mark.parametrize(
     "backend",
