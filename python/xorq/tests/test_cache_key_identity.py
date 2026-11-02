@@ -8,11 +8,15 @@ this module pins their agreement per node and the distinctness of keys across
 nodes. It asserts agreement, never key literals: key stability is the fix's
 close evidence, not this harness's.
 
-GH #2382: stacking one cache on itself (``t.cache(c).cache(c)``) keys the outer
-node as the inner one at the sites that pass ``node.parent`` to ``calc_key``,
-which unwraps a same-cache ``CachedNode`` once more. Those cases are
-``xfail(strict=True)`` while the probe below sees the bug, and run as ordinary
-tests once it is gone, so this file is byte-identical on the fix branch.
+GH #2382: a stack of one cache on an equal one (``t.cache(c).cache(c)``) holds
+the same rows at every level, so every site keys it as its innermost node and
+it writes one artifact, in memory and after a build round trip, where the two
+levels hold equal but distinct cache objects. On main the sites disagree
+(``Cache.exists`` and ``Cache.get`` key the outer node one level shallower than
+execution and the ``ls`` accessors) and a stacked ``SourceCache`` writes its
+table twice. Those cases are ``xfail(strict=True)`` while the probe below sees
+the bug, and run as ordinary tests once it is gone, so this file is
+byte-identical on the fix branch.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import (
     ParquetDummySnapshotCache,
     ParquetSnapshotCache,
+    SourceCache,
 )
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import (
@@ -37,20 +42,19 @@ from xorq.expr.relations import (
     _cached_node_materialized,
     pin_cache,
 )
-from xorq.ibis_yaml.compiler import build_expr
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.vendor.ibis.backends import BaseBackend
 
 
 ORIGINAL_ROWS = pd.DataFrame({"x": [1, 2, 3], "label": ["a", "b", "c"]})
-MUTATED_ROWS = pd.DataFrame({"x": [10, 20], "label": ["y", "z"]})
 
 CaseBuilder = Callable[[ir.Table, BaseBackend, Path, pytest.FixtureRequest], ir.Table]
 
 
 def _same_cache_stacking_is_broken() -> bool:
     # Probe for GH #2382; remove it (and the conditional xfail) once the fix
-    # (kata 95ke) lands. No storage path is needed: the dummy cache never
+    # lands. No storage path is needed: the dummy cache never
     # touches disk, and the two sites compared here are pure key derivation.
     con = xo.connect()
     t = con.create_table("probe", ORIGINAL_ROWS)
@@ -63,7 +67,7 @@ SAME_CACHE_STACKING_BROKEN = _same_cache_stacking_is_broken()
 
 xfail_same_cache_stacking = pytest.mark.xfail(
     condition=SAME_CACHE_STACKING_BROKEN,
-    reason="GH #2382: same-cache stacking keys outer as inner",
+    reason="GH #2382: keying sites disagree on a same-cache stack",
     strict=True,
 )
 
@@ -160,29 +164,34 @@ def _keys_by_site(node: CachedNode) -> dict[str, str]:
 def _parametrize_cases(
     same_cache_marks: tuple[pytest.MarkDecorator, ...] = (),
 ) -> pytest.MarkDecorator:
+    # each case with the number of distinct keys its nodes hold: a same-cache
+    # stack is one key, different caches one each
     return pytest.mark.parametrize(
-        "expr",
+        "expr,key_count",
         (
-            pytest.param(_single, id="single"),
+            pytest.param(_single, 1, id="single"),
             pytest.param(
                 _stacked_same_cache,
+                1,
                 id="stacked_same_cache",
                 marks=same_cache_marks,
             ),
-            pytest.param(_stacked_different_caches, id="stacked_different_caches"),
+            pytest.param(_stacked_different_caches, 2, id="stacked_different_caches"),
             pytest.param(
                 _cross_source_parent,
+                1,
                 id="cross_source_parent",
                 marks=pytest.mark.postgres,
             ),
         ),
-        indirect=True,
+        indirect=["expr"],
     )
 
 
 @_parametrize_cases(same_cache_marks=(xfail_same_cache_stacking,))
 def test_keying_sites_agree_per_node(
     expr: ir.Table,
+    key_count: int,
     observed_set_default_keys: list[tuple[ParquetSnapshotCache, str]],
 ) -> None:
     nodes = expr.ls.cached_nodes
@@ -202,8 +211,8 @@ def test_keying_sites_agree_per_node(
         assert node.cache.exists(node_expr) is True
         assert _cached_node_materialized(node) is True
 
-    # keys are distinct across nodes: stacking must never alias two nodes
-    assert len(set(expected_keys)) == len(nodes)
+    # nodes share a key only within a same-cache stack
+    assert len(set(expected_keys)) == key_count
 
     # execution wrote exactly the artifacts the nodes key to, per cache, and
     # computed no other key on the way
@@ -211,13 +220,13 @@ def test_keying_sites_agree_per_node(
         keys_for_cache = {
             expected
             for node, expected in zip(nodes, expected_keys)
-            if node.cache is cache
+            if node.cache == cache
         }
         assert _artifact_keys(cache) == keys_for_cache
         observed_for_cache = {
             key
             for observed_cache, key in observed_set_default_keys
-            if observed_cache is cache
+            if observed_cache == cache
         }
         assert observed_for_cache == keys_for_cache
 
@@ -227,11 +236,12 @@ def test_keying_sites_agree_per_node(
     assert pin_cache(expr).execute().equals(expr.execute())
 
 
-# Not xfailed for the same-cache stack: the build projection keys the node
-# itself and is the convention the fix moves the other sites to. It must stay
-# where it is, so an XPASS here would be the wrong signal.
+# Not xfailed for the same-cache stack: the projection and ``calc_key`` are one
+# function, so they agree on main too, and an XPASS would be the wrong signal.
 @_parametrize_cases()
-def test_build_projection_agrees_with_root_node(expr: ir.Table, tmp_path: Path) -> None:
+def test_build_projection_agrees_with_root_node(
+    expr: ir.Table, key_count: int, tmp_path: Path
+) -> None:
     (root, *_) = expr.ls.cached_nodes
     expected = root.cache.calc_key(root.to_expr())
 
@@ -245,21 +255,24 @@ def test_build_projection_agrees_with_root_node(expr: ir.Table, tmp_path: Path) 
 
 
 @xfail_same_cache_stacking
-def test_stacked_same_cache_outer_is_a_snapshot(tmp_path: Path) -> None:
+def test_stacked_same_cache_writes_one_artifact_after_a_build(tmp_path: Path) -> None:
+    """A build round trip gives each level its own, equal, cache object; the
+    stack still writes one artifact, the one the build recorded."""
     con = xo.connect()
     t = con.create_table("t", ORIGINAL_ROWS)
     cache = _make_cache(con, tmp_path, "parquet")
-    inner = t.cache(cache)
-    outer = inner.cache(cache)
+    build_path = build_expr(t.cache(cache).cache(cache), builds_dir=tmp_path / "builds")
+    loaded = load_expr(build_path, cache_dir=cache.storage.base_path)
 
-    original = outer.execute()
-    assert len(_artifact_keys(cache)) == 2
+    assert loaded.execute().equals(ORIGINAL_ROWS)
+    recorded = json.loads((build_path / DumpFiles.expr_metadata).read_text())
+    assert _artifact_keys(cache) == {recorded["cache_keys"]["key"]}
 
-    # drop the inner artifact, change the source, and re-materialize inner;
-    # the outer artifact is its own snapshot and must survive untouched
-    cache.drop(inner)
-    con.create_table("t", MUTATED_ROWS, overwrite=True)
-    refreshed = inner.execute()
 
-    assert refreshed.equals(MUTATED_ROWS)
-    assert outer.execute().equals(original)
+@xfail_same_cache_stacking
+def test_source_cache_stacked_on_itself_executes() -> None:
+    con = xo.connect()
+    t = con.create_table("t", ORIGINAL_ROWS)
+    cache = SourceCache.from_kwargs(source=xo.duckdb.connect())
+    result = t.cache(cache).cache(cache).execute()
+    assert result.sort_values("x").reset_index(drop=True).equals(ORIGINAL_ROWS)
