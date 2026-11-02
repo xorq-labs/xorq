@@ -3,10 +3,12 @@ import functools
 import logging
 import secrets
 import threading
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import pyarrow as pa
 import pyarrow.flight
+from attrs import Factory, field, frozen
 from cloudpickle import loads
 
 import xorq.flight.action as A
@@ -203,6 +205,69 @@ def put_table(
             con.insert(table, data, **kwargs)
         case UploadMode.REPLACE:
             con.create_table(table, data, overwrite=True, **kwargs)
+
+
+@frozen
+class CallScopedReader:
+    """An exchange's input that stops reading once the RPC has returned.
+
+    The gRPC stream under ``reader`` is freed when the handler returns, and
+    reading it afterwards is a use-after-free that segfaults. A backend can
+    still be pulling the input then: duckdb's scan thread keeps reading after
+    a ``limit`` is satisfied and the handler has written its result. Once
+    ``close`` has run, iteration ends instead of reading; ``close`` waits for
+    a read already in progress.
+
+    Parameters
+    ----------
+    reader
+        The exchange's input, an ``InstrumentedReader`` over the gRPC stream.
+
+    Raises
+    ------
+    Exception
+        Whatever reading ``reader`` raises before ``close``, e.g. a client
+        that disconnects mid-stream (external, not caught).
+
+    Contract
+    --------
+    Preconditions
+        - Whoever owns the RPC calls ``close`` before the handler returns
+          (``do_exchange`` does, in a ``finally``); without it the guard does
+          nothing.
+
+    Silences
+        - A read after ``close`` ends iteration as if the input were
+          exhausted: the reader sees fewer chunks and no error. Only a
+          consumer whose result is already discarded (a backend's prefetch
+          after the handler returned) should hit this.
+        - ``close`` blocks until a read in progress finishes; if the client
+          stalls without closing its side, ``close`` waits with it.
+    """
+
+    reader: InstrumentedReader = field()
+    lock: threading.Lock = field(factory=threading.Lock)
+    closed: threading.Event = field(default=Factory(threading.Event))
+
+    @property
+    def schema(self) -> pa.Schema:
+        return self.reader.schema
+
+    def __iter__(self) -> Iterator[pa.flight.FlightStreamChunk]:
+        chunks = iter(self.reader)
+        while True:
+            with self.lock:
+                chunk = None if self.closed.is_set() else next(chunks, None)
+            if chunk is None:
+                return
+            yield chunk
+
+    def close(self) -> None:
+        # set first, so the reading thread cannot start another read while
+        # this waits; then take the lock to wait out a read in progress
+        self.closed.set()
+        with self.lock:
+            pass
 
 
 class BasicAuthServerMiddlewareFactory(pa.flight.ServerMiddlewareFactory):
@@ -423,14 +488,57 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
     @instrument_rpc("do_exchange")
     @bounded_status
     @maybe_log_excepts
-    def do_exchange(self, context, rec, descriptor, reader, writer):
+    def do_exchange(
+        self,
+        context: pa.flight.ServerCallContext,
+        rec: "_Recorder",
+        descriptor: pa.flight.FlightDescriptor,
+        reader: pa.flight.MetadataRecordBatchReader,
+        writer: pa.flight.MetadataRecordBatchWriter,
+    ) -> None:
+        """Run the exchanger ``descriptor`` names over the client's stream.
+
+        Parameters
+        ----------
+        context
+            The Flight server call context, passed to the exchanger.
+        rec
+            Metrics recorder, injected by ``instrument_rpc``.
+        descriptor
+            Its ``command`` is the UTF-8 name of a registered exchanger.
+        reader
+            The client's input stream; wrapped in ``CallScopedReader`` so
+            nothing reads it after this call returns.
+        writer
+            The result stream back to the client.
+
+        Raises
+        ------
+        pyarrow.flight.FlightServerError
+            For any failure, via ``bounded_status``: an unknown exchange
+            name (explicit ``ArrowInvalid``), a non-UTF-8 command (implicit
+            ``UnicodeDecodeError``), or whatever the exchanger raises. The
+            client sees ``Type: message`` with messages over
+            ``STATUS_MESSAGE_BUDGET`` bytes cut in the middle; the original
+            exception type and traceback stay on the server.
+
+        Contract
+        --------
+        Preconditions
+            - The whole call runs under ``self.lock``, so every other RPC on
+              this server waits until the exchange ends, including one the
+              exchanger itself would need.
+        """
         with self.lock:
             cmd = descriptor.command.decode()
             handler = self.exchangers.get(cmd)
             if handler is None:
                 raise pa.ArrowInvalid(f"Unknown exchange: {cmd}")
 
-            reader = InstrumentedReader(reader, rec, direction="in")
+            reader = CallScopedReader(InstrumentedReader(reader, rec, direction="in"))
             iw = InstrumentedWriter(writer, rec, direction="out")
 
-            return handler.exchange_f(context, reader, iw)
+            try:
+                return handler.exchange_f(context, reader, iw)
+            finally:
+                reader.close()
