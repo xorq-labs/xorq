@@ -289,26 +289,26 @@ The one pass that still rewrites a payload before it is keyed is `bind_params`. 
 accepted; the `_PASSES` header in `python/xorq/expr/api.py` records why it cannot stop at
 the boundary and what it costs.
 
-## Amendment: cache location is not build identity
+## Amendment: cache storage is not build identity
 
-A `CachedNode` folds into the build hash as its schema, the cache class name and its
+A `CachedNode` folds into the build hash as its schema, its `Cache` subclass name and its
 parent (the `CachedNode` case of `_xorq_opaque_to_placeholder` in
-`python/xorq/common/utils/dasher/_opaque.py`). Its storage is not folded, so two builds
-that differ only in a `ParquetStorage` `base_path` or `relative_path` share one build
-hash and one catalog entry. `ParquetStorage.__dasher_tokenize__` includes both paths, but
-the build hash never reaches it.
+`python/xorq/common/utils/dasher/_opaque.py`). Its storage is not folded: not the
+`ParquetStorage` paths, its `source` backend, or a TTL. `ParquetStorage.__dasher_tokenize__`
+includes them, but neither the build hash nor the cache key reaches it, so two builds that
+differ only in storage share one build hash, one cache key and one catalog entry. This is
+the identity-neutral field rule above applied to `cache.storage`: storage decides where and
+how long a result is kept, not which rows it holds.
 
-This is the intended exception to "different DAGs give different build hashes": where a
-cache lives is a runtime choice, not part of what was built. `replace_base_path` in
-`python/xorq/ibis_yaml/compiler.py` relocates a loaded build's caches to `--cache-dir` or
-`XORQ_CACHE_DIR`, and that relocation is only sound because the build hash and the cache
-key are independent of `base_path`.
+`base_path` is not written into the build at all. A loaded build has `base_path=None`,
+which resolves to `XORQ_CACHE_DIR` when the cache is used; `--cache-dir`, or
+`load_expr(cache_dir=...)`, sets it through `replace_base_path` in
+`python/xorq/ibis_yaml/compiler.py`. Neither changes the build hash or the cache key.
 
-`relative_path` is left out too, though relocation does not need that: `replace_base_path`
-rewrites only `base_path`. Two builds that differ only in `relative_path` are one catalog
-entry carrying the storage of whichever was added first. Adding the second is refused as a
-duplicate, or with `exist_ok` returns the first, so a load writes its caches under the
-first build's `relative_path`.
+`relative_path`, `source` and TTL are written into the build, so leaving them out is an
+accepted cost, kept to hold existing hashes stable. The catalog keeps the first of two
+builds that differ only there: adding the second is refused as a duplicate, or with
+`exist_ok` returns the first, and loading the entry uses the first build's storage.
 
 Alternatives rejected:
 
