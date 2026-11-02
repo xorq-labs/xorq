@@ -163,24 +163,71 @@ class EntryReport:
 
     Eager, so a caller that wants the whole answer (the `rebase` work, XOR-453)
     gets it in one call. The CLI streams ``iter_leaf_reports`` instead.
+
+    A record that cannot be read is reported, not raised: ``record`` is
+    ``None``, ``error`` carries what `read_record` returned, and there are no
+    leaves. That is the `unreadable` verdict both `check-sources` outputs give
+    the same entry, so a caller gets it without growing its own handler.
     """
 
     name = field(validator=instance_of(str))
-    record = field(validator=instance_of(BuildRecord))
+    record = field(validator=optional(instance_of(BuildRecord)))
     leaf_reports = field(
         converter=tuple,
         validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
     )
+    error = field(default=None, validator=optional(instance_of(str)))
+
+    def __attrs_post_init__(self) -> None:
+        # Exactly one of the two: a report with neither would read as an entry
+        # with nothing to check, and one with both would rank `unreadable` over
+        # leaves that were probed.
+        if (self.record is None) == (self.error is None):
+            raise ValueError(
+                "an EntryReport takes exactly one of a record and an error"
+            )
+        if self.error is not None and self.leaf_reports:
+            raise ValueError("an unreadable record has no leaf reports")
+
+    @property
+    def verdict(self) -> Verdict | None:
+        """The entry's verdict, as `entry_document` publishes it.
+
+        ``None`` where nothing was probed and a source was left unprobed, same
+        as the document: rolling that up to `equal` would claim a comparison
+        this entry never had.
+        """
+        if self.error is not None:
+            return Verdict.UNREADABLE
+        if unchecked_leaves(self.record) and not self.leaf_reports:
+            return None
+        return roll_up(report.verdict for report in self.leaf_reports)
 
     @property
     def exit_code(self) -> int:
-        """The worst verdict wins: a drifted leaf outranks an unreachable one."""
-        return max((report.exit_code for report in self.leaf_reports), default=0)
+        """The worst verdict wins: a drifted leaf outranks an unreachable one.
+
+        Read off ``verdict`` rather than reduced a second way over the leaves,
+        so it is the code `state_and_code` publishes for the same entry.
+        """
+        return state_and_code(self.verdict)["exit_code"]
 
     @classmethod
-    def from_catalog_entry(cls, catalog_entry: CatalogEntry) -> EntryReport:
-        record = BuildRecord.from_catalog_entry(catalog_entry)
-        return cls(catalog_entry.name, record, tuple(iter_leaf_reports(record)))
+    def from_catalog_entry(
+        cls, catalog_entry: CatalogEntry, con_cache: dict | None = None
+    ) -> EntryReport:
+        """Probe ``catalog_entry``, or report why its record cannot be read.
+
+        A caller sweeping several entries passes its own ``con_cache`` so each
+        profile is dialled once for the sweep, and owns closing it; without one
+        the connections this entry opened are closed before it returns.
+        """
+        record = read_record(catalog_entry)
+        if isinstance(record, Exception):
+            return cls(catalog_entry.name, None, (), error=format_error(record))
+        return cls(
+            catalog_entry.name, record, tuple(iter_leaf_reports(record, con_cache))
+        )
 
 
 def make_profile(profile_dict: dict) -> Profile:
