@@ -120,8 +120,9 @@ def _normalize_single_path(path, read_kwargs, read):
 
 
 def _declarative(value):
-    """A kwarg value as the build dumps it: a Schema becomes ``{name: str(dtype)}``,
-    so a Read and its yaml round trip, which loads a plain mapping, tokenize alike.
+    """A kwarg value as the build dumps it: a Schema becomes ``{name: str(dtype)}``
+    and a path its string, so a Read and its yaml round trip, which loads a plain
+    mapping and a plain string, tokenize alike.
 
     Spelling shared with ``_to_yaml_safe`` in ``xorq.ibis_yaml.compiler``; a
     shared helper is out, since that one falls back to ``str()`` for anything
@@ -129,6 +130,8 @@ def _declarative(value):
     match value:
         case Schema():
             return {name: str(dtype) for name, dtype in value.items()}
+        case pathlib.PurePath():
+            return str(value)
         case _:
             return value
 

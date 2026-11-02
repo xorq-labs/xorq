@@ -27,6 +27,7 @@ import decimal
 import functools
 import numbers
 import operator
+import pathlib
 import pickle
 import tempfile
 import threading
@@ -335,6 +336,17 @@ def test_read_kwargs_order_does_not_bear_identity(tmp_path):
     op = skipped.op()
     swapped = op.copy(read_kwargs=tuple(reversed(op.read_kwargs)))
     assert tokenize(swapped) == tokenize(op)
+
+
+def test_read_kwargs_path_value_tokenizes_as_its_string(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A path-valued kwarg dumps as its string, so it keys as one."""
+    _, _, skipped = _csv_reads(tmp_path)
+    op = skipped.op()
+    as_path = op.copy(read_kwargs=(*op.read_kwargs, ("extra", pathlib.Path("f"))))
+    as_str = op.copy(read_kwargs=(*op.read_kwargs, ("extra", "f")))
+    assert tokenize(as_path) == tokenize(as_str)
 
 
 @pytest.mark.parametrize("cache_cls", (ParquetCache, ParquetSnapshotCache))

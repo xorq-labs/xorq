@@ -11,9 +11,9 @@ REMOTE_SCHEMES = HTTP_SCHEMES + CLOUD_SCHEMES
 # metadata through the Read's normalize_method, read_path is location rather
 # than identity (ADR-0006), table_name is gen_name'd per construction and
 # memtables (``BundledSourceTypes.inmemory``) only marks a bundled memtable
-# for its reload. Every other kwarg reaches the backend's read method and can
-# change the rows it returns, so it is folded into the build hash and the
-# cache key.
+# for its reload. Every other kwarg is folded into the build hash and the cache
+# key: most reach the backend's read method and can change the rows it returns,
+# and the rest (``relocatable``, ``mode``, ``temporary``) were identity already.
 READ_NON_IDENTITY_KEYS = frozenset(
     {"hash_path", "read_path", "table_name", "memtables"}
 )
