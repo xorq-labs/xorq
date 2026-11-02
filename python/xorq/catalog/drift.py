@@ -191,15 +191,9 @@ class EntryReport:
             )
         if self.error is not None and self.leaf_reports:
             raise ValueError("an unreadable record has no leaf reports")
-        # A report over fewer leaves than the probe covers would roll up to
-        # `equal` for a source nobody probed.
-        if self.record is not None and tuple(
-            report.leaf for report in self.leaf_reports
-        ) != checkable_leaves(self.record):
-            raise ValueError(
-                "an EntryReport takes one report per checkable leaf of its "
-                "record, in probe order"
-            )
+        # Forced here so `entry_verdict`'s coverage check refuses a report
+        # over the wrong leaves at construction, not at first read.
+        self.verdict
 
     @cached_property
     def verdict(self) -> Verdict | None:
@@ -212,10 +206,10 @@ class EntryReport:
     def exit_code(self) -> int:
         """The worst verdict wins: a drifted leaf outranks an unreachable one.
 
-        Read off ``verdict`` rather than reduced a second way over the leaves;
-        no verdict exits 0, as `state_and_code` publishes it.
+        Read off ``verdict`` rather than reduced a second way over the leaves,
+        so it is the code `state_and_code` publishes for the same entry.
         """
-        return 0 if self.verdict is None else self.verdict.exit_code
+        return state_and_code(self.verdict)["exit_code"]
 
     @classmethod
     def from_catalog_entry(
@@ -955,27 +949,14 @@ def make_entry_document(
     }
 
 
-def record_document(
-    record: BuildRecord, con_cache: dict | None = None
-) -> tuple[Verdict | None, dict]:
-    """One readable record's whole probe, as the JSON document carries it.
-
-    Buffered by construction: `iter_leaf_reports` is drained before anything is
-    returned, so a consumer gets a complete entry or none at all.
-
-    The verdict comes back beside the document rather than only inside it, so
-    the sweep rolls up enum values and the string is written once, where the
-    document is built. Parsing ``state`` back out would make every future
-    writer of that key a source of ``ValueError`` -- raised after the whole
-    sweep has been probed, discarding a complete document.
-    """
-    return reports_document(record, tuple(iter_leaf_reports(record, con_cache)))
-
-
 def entry_verdict(
     record: BuildRecord, reports: tuple[LeafReport, ...]
 ) -> Verdict | None:
     """``record``'s verdict over ``reports`` already probed from it.
+
+    ``reports`` must hold one report per checkable leaf, in any order: a
+    sweep over fewer leaves would roll up to `equal` for a source nobody
+    probed, so it is refused rather than rolled up.
 
     No verdict at all where nothing was probed and a source was left
     unprobed: rolling those up to `equal` would state the strongest positive
@@ -985,6 +966,8 @@ def entry_verdict(
     nothing outside the archive is a reason it cannot drift, not a reason the
     question went unanswered.
     """
+    if Counter(report.leaf for report in reports) != Counter(checkable_leaves(record)):
+        raise ValueError("a verdict takes one report per checkable leaf of its record")
     if unchecked_leaves(record) and not reports:
         return None
     return roll_up(report.verdict for report in reports)
@@ -995,9 +978,14 @@ def reports_document(
 ) -> tuple[Verdict | None, dict]:
     """``record``'s document over ``reports`` already probed from it.
 
-    What ``record_document`` builds once it has swept, split out so a caller
-    that swept already (`rebase`) publishes the same document without probing
-    a second time.
+    Takes the sweep rather than running it, so a caller that swept already
+    (`rebase`) publishes the same document without probing a second time.
+
+    The verdict comes back beside the document rather than only inside it, so
+    the sweep rolls up enum values and the string is written once, where the
+    document is built. Parsing ``state`` back out would make every future
+    writer of that key a source of ``ValueError`` -- raised after the whole
+    sweep has been probed, discarding a complete document.
     """
     reports = tuple(reports)
     unchecked = unchecked_leaves(record)
@@ -1023,7 +1011,10 @@ def entry_document(
     the ``error`` key beside them is what says which. Its state and exit code
     are the ones the human output prints for the same entry, since both come
     from ``Verdict``. The verdict is returned beside the document, same as
-    ``record_document``.
+    ``reports_document``.
+
+    Buffered by construction: the probe is drained before anything is
+    returned, so a consumer gets a complete entry or none at all.
     """
     report = EntryReport.from_catalog_entry(catalog_entry, con_cache)
     if report.record is None:
