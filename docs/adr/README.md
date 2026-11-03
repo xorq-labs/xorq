@@ -131,7 +131,7 @@ Most of these ADRs are one argument about content-addressed identity — what a 
 
 **What a hash may depend on.** [0017](0017-canonical-hash-forms-not-serializer-bytes.md) draws the outer line: identity comes from xorq-owned canonical forms, never from bytes a dependency's serializer happened to emit. [0016](0016-table-driven-opaque-descent-with-registration-tripwires.md) is how descent into unknown objects stays honest without a hand-maintained list.
 
-**Sources with no path.** ADR-api-relations-are-pathless-read-ops: an API-backed relation has no file path to hash, so its identity is a registered normalizer. ADR-build-artifacts-are-credential-free is the constraint that shapes it — artifacts carry env-var *references*, never credential values, so identity must be built from things that are safe to write down.
+**Sources with no path.** ADR-api-relations-are-pathless-read-ops: an API-backed relation has no file path to hash, so its identity is a registered normalizer. ADR-2213 is the constraint that shapes it — artifacts carry env-var *references*, never credential values, so identity must be built from things that are safe to write down.
 
 **REST as the worked example.** ADR-rest-config-contract-identity-folded-residence-either turns an API into a declarative config behind one backend, with identity folded from the config itself; ADR-rest-resource-reads-are-lazy-datafusion-tables replaces the eager pandas substrate under it with lazy DataFusion tables, and leans on [0013](0013-batchcorder-stream-cache-for-remote-table-fan-out.md)'s StreamCache to make a one-shot reader survive a multi-scan plan.
 
