@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+from xorq.common.utils.adbc_utils import staged_ingest
 from xorq.common.utils.defer_utils import read_csv_schema_kwargs
 from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.config import default_backend
@@ -25,8 +27,55 @@ __all__ = [
     "Backend",
 ]
 
+# ``sqlite3.connect``'s default ``timeout``, which the backend connects with
+SQLITE3_BUSY_TIMEOUT_MS = 5_000
+
 
 class Backend(IbisSQLiteBackend):
+    def upload_ingest(self, table_name):
+        """A staged ADBC ingest over a connection of its own; see
+        ``BaseBackend``.
+
+        ``None`` when another connection cannot reach what ``table_name``
+        names here: an in-memory database, a connection handed to
+        ``from_connection`` (no path to reopen), or a name that resolves to a
+        ``temp`` or attached table (``is_session_local``). The connection
+        waits on a locked database as long as ``sqlite3``'s default does,
+        instead of failing the commit at once.
+        """
+        from xorq.common.utils.sqlite_utils import SQLiteADBC  # noqa: PLC0415
+
+        if (
+            self.is_in_memory()
+            or not self._can_reconnect
+            or self.is_session_local(table_name)
+        ):
+            return None
+        conn = SQLiteADBC(self).get_conn()
+        with conn.cursor() as cur:
+            cur.execute(f"PRAGMA busy_timeout = {SQLITE3_BUSY_TIMEOUT_MS}")
+        return functools.partial(staged_ingest, conn, self.dialect)
+
+    def is_session_local(self, table_name):
+        """Whether an unqualified ``table_name`` resolves, on this
+        connection, to a table outside ``main``.
+
+        SQLite looks a name up in ``temp``, then ``main``, then the attached
+        databases, and a fresh connection has only ``main``. So the name is
+        session-local if ``temp`` has it, or if only an attached database
+        does.
+        """
+        with closing(self.con.cursor()) as cur:
+            schemas = {
+                schema
+                for (schema,) in cur.execute(
+                    "SELECT schema FROM pragma_table_list "
+                    "WHERE name = ? COLLATE NOCASE",
+                    (table_name,),
+                )
+            }
+        return "temp" in schemas or (bool(schemas) and "main" not in schemas)
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,

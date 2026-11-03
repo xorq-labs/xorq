@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ import toolz
 from adbc_driver_manager import ProgrammingError as ADBCProgrammingError
 
 from xorq.backends.postgres.compiler import compiler
+from xorq.common.utils.adbc_utils import staged_ingest
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
@@ -74,6 +76,38 @@ class Backend(IbisPostgresBackend):
             "database": "letsql",
         }
         return cls().connect(**(examples_kwargs | kwargs))
+
+    def upload_ingest(self, table_name):
+        """A staged ADBC ingest over a connection of its own; see
+        ``BaseBackend``.
+
+        The connection is opened here, under the server lock, so building it
+        reads this backend's connection only there, and an unavailable one
+        (no password passed to ``connect``, an address the URI cannot carry)
+        returns ``None`` and keeps the buffered write. So does a
+        ``table_name`` that resolves to a temporary table, which only this
+        connection's session can see.
+        """
+        if self.is_session_local(table_name):
+            return None
+        conn = self._open_adbc_conn_or_none()
+        return (
+            None
+            if conn is None
+            else functools.partial(staged_ingest, conn, self.dialect)
+        )
+
+    def is_session_local(self, table_name):
+        """Whether an unqualified ``table_name`` resolves, through this
+        session's ``search_path``, to a temporary table."""
+        with self.begin() as cur:
+            cur.execute(
+                "SELECT relpersistence = 't' FROM pg_class "
+                "WHERE oid = to_regclass(quote_ident(%s))",
+                (table_name,),
+            )
+            row = cur.fetchone()
+        return bool(row and row[0])
 
     def _open_adbc_conn_or_none(self):
         """Open an ADBC connection for the Arrow paths, or ``None`` if there is
