@@ -67,16 +67,22 @@ class DatabricksADBC:
         table_name: str,
         record_batch_reader,
         mode: str = "create",
+        catalog_name: str | None = None,
+        db_schema_name: str | None = None,
         **kwargs,
     ) -> None:
+        # the connection's current catalog and schema unless given; resolving
+        # them queries ``self.con``
+        catalog_name = catalog_name or self.con.current_catalog
+        db_schema_name = db_schema_name or self.con.current_database
         with self.get_conn() as conn:
             with conn.cursor() as cur:
                 cur.adbc_ingest(
                     table_name,
                     record_batch_reader,
                     mode=mode,
-                    db_schema_name=self.con.current_database,
-                    catalog_name=self.con.current_catalog,
+                    db_schema_name=db_schema_name,
+                    catalog_name=catalog_name,
                     **kwargs,
                 )
             conn.commit()

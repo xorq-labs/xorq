@@ -1,4 +1,5 @@
 import datetime
+import sqlite3
 import threading
 import time
 
@@ -6,6 +7,7 @@ import pyarrow as pa
 import pytest
 
 import xorq.api as xo
+from xorq.backends.sqlite import Backend as SQLiteBackend
 from xorq.flight import FlightServer
 from xorq.flight.client import make_put_descriptor
 from xorq.vendor.ibis.util import gen_name
@@ -192,7 +194,30 @@ def test_streamed_upload_leaves_target_readable_while_it_arrives(con, table):
 def test_postgres_without_adbc_connection_keeps_buffered_upload(con, table):
     # authenticated another way (.pgpass, PGPASSWORD): no URI to build
     con._con_kwargs.pop("password")
-    assert con.upload_ingest() is None
+    assert con.upload_ingest(table) is None
+    with FlightServer(make_connection=lambda: con) as server:
+        server.client.upload_table(table, FIRST)
+    assert count(con, table) == 2
+
+
+@pytest.mark.parametrize("con", INGESTING, indirect=True)
+def test_upload_into_temporary_table_appends_to_it(con, table):
+    # only the server's own session sees the temporary table
+    with FlightServer(make_connection=lambda: con) as server:
+        server.client.upload_table(table, FIRST, temp=True)
+        server.client.upload_table(table, SECOND)
+    assert count(con, table) == 3
+    con.drop_table(table)
+    assert table not in con.list_tables()
+
+
+def test_sqlite_from_connection_keeps_buffered_upload(tmp_path):
+    # no path to reopen: the backend was handed a connection
+    con = SQLiteBackend.from_connection(
+        sqlite3.connect(tmp_path / "x.db", check_same_thread=False)
+    )
+    table = gen_name("upload_ingest")
+    assert con.upload_ingest(table) is None
     with FlightServer(make_connection=lambda: con) as server:
         server.client.upload_table(table, FIRST)
     assert count(con, table) == 2

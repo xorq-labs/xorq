@@ -460,7 +460,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         table, kwargs, mode = parse_put_command(loads(descriptor.command))
         mode = None if mode is None else UploadMode(mode)
         with self.lock:
-            ingest = None if kwargs else self._conn.upload_ingest()
+            ingest = None if kwargs else self._conn.upload_ingest(table)
         match ingest:
             case None:
                 data = uncancelled_batches(reader, context).read_all()

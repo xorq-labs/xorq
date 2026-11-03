@@ -876,8 +876,9 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
         Returns None if the backend is not a SQL backend.
         """
 
-    def upload_ingest(self) -> Callable[..., None] | None:
-        """A bulk ingest that writes a Flight upload as it streams in, or None.
+    def upload_ingest(self, table_name: str) -> Callable[..., None] | None:
+        """A bulk ingest that writes a Flight upload into ``table_name`` as it
+        streams in, or None.
 
         A backend that returns a callable here lets the Flight server's
         ``do_put`` consume the upload stream directly instead of reading it
@@ -885,6 +886,8 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
         ``ingest(table_name, reader, mode=ingest_mode)`` with an ``IngestMode``
         and must:
 
+        - write the table ``table_name`` names on this backend's connection:
+          a name only this session can see (a temporary table) gets ``None``;
         - not use this backend's connection: it runs outside the server lock,
           concurrently with other RPCs, so anything that needs the connection
           is resolved when this method is called (under the lock);
