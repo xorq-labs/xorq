@@ -15,6 +15,14 @@ class CatalogTag(StrEnum):
     CODE = "catalog-code"
 
 
+class RebaseTag(StrEnum):
+    """``HashingTag`` names ``xorq catalog rebase`` writes. Apart from
+    ``CatalogTag``, which bind, replay and the composer strip."""
+
+    # Over a `--rename`: holds the mapping, so a later refresh can rebuild it.
+    RENAME = "rebase-rename"
+
+
 class ContentStoreType(StrEnum):
     DIRECTORY = "directory"
     PRESIGNED = "presigned"
@@ -122,24 +130,89 @@ class Verdict(StrEnum):
 class RebaseStatus(StrEnum):
     """How a ``rebase_entry`` that raised no ``RebaseError`` ended.
 
-    ``ATTEMPTED``: no source could be probed, so the entry was re-derived and
-    came back with its own hash; unlike ``NOOP``, that doesn't prove no drift.
+    ``UNPROBED``: no source can be probed, so nothing could be refreshed and
+    nothing was loaded or written; unlike ``NOOP``, that doesn't prove no drift.
     ``CONFLICT``: the re-derivation can't follow the drift, and nothing was
-    written.
+    written. ``PUSH_FAILED``: rebased as ``REBASED`` is, but the sync's push
+    failed, so the new entry and its alias moves are committed only locally.
+    ``PREVIEW``: a rebase would happen, and ``dry_run`` wrote nothing.
+    ``BUILT``: the rebased build was written, and ``add=False`` left the
+    catalog alone.
     """
 
     NOOP = "noop"
-    ATTEMPTED = "attempted"
+    UNPROBED = "unprobed"
     REBASED = "rebased"
     CONFLICT = "conflict"
+    PUSH_FAILED = "push-failed"
+    PREVIEW = "preview"
+    BUILT = "built"
+
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case RebaseStatus.NOOP | RebaseStatus.UNPROBED | RebaseStatus.REBASED:
+                return 0
+            case RebaseStatus.PREVIEW | RebaseStatus.BUILT:
+                return RebaseExit.UNCATALOGED
+            case RebaseStatus.CONFLICT:
+                return RebaseExit.CONFLICT
+            case RebaseStatus.PUSH_FAILED:
+                return RebaseExit.PUSH_FAILED
+            # As with `Verdict`: a new member fails here rather than exiting 0,
+            # which a script would read as success.
+            case _:
+                raise ValueError(f"no exit code for rebase status {self}")
 
 
 class RebaseExit(IntEnum):
-    """The exit codes ``xorq catalog rebase`` refuses or conflicts with."""
+    """The exit codes ``xorq catalog rebase`` refuses, previews or conflicts with."""
 
-    # Never started: a property of the entry or the request; retrying won't help.
+    # Nothing of the rebase's own written (a sync's pull may have merged). A
+    # refusal is a property of the entry or the request, and retrying won't
+    # help; a write that failed and was rolled back (`failed`) exits 1 too,
+    # and may be transient: its `error` says which. So does one whose rollback
+    # failed too (`rollback-failed`), the one exit 1 that may leave the local
+    # catalog dirty: its `error` names what is left.
     REFUSED = 1
     # A source or the record could not be read; retryable.
     UNREACHABLE = 2
+    # `--dry-run` or `--no-add`: a rebase was derived, and nothing cataloged.
+    # Unlike 0, which on a no-op also prints a name, it says the name on
+    # stdout is no entry (a hash, or a build directory).
+    UNCATALOGED = 3
     # The re-derivation can't follow the drift; retrying won't help.
     CONFLICT = 4
+    # Rebased locally, but the push failed; `xorq catalog sync` finishes it
+    # once the push can succeed: a push the remote rejected needs the pull
+    # first, one that failed a check needs that fixed.
+    PUSH_FAILED = 5
+
+
+class RebaseFailure(StrEnum):
+    """How a rebase that returned no ``RebaseResult`` ended.
+
+    ``REFUSED`` and ``UNREACHABLE`` are what a ``RebaseError`` carries;
+    ``ROLLBACK_FAILED`` is a write that failed and could not be undone, so the
+    local catalog may hold part of it; ``FAILED`` is any other error, such as
+    a write that failed and was rolled back.
+    """
+
+    REFUSED = "refused"
+    UNREACHABLE = "unreachable"
+    ROLLBACK_FAILED = "rollback-failed"
+    FAILED = "failed"
+
+    @property
+    def exit_code(self) -> int:
+        match self:
+            case (
+                RebaseFailure.REFUSED
+                | RebaseFailure.ROLLBACK_FAILED
+                | RebaseFailure.FAILED
+            ):
+                return RebaseExit.REFUSED
+            case RebaseFailure.UNREACHABLE:
+                return RebaseExit.UNREACHABLE
+            case _:
+                raise ValueError(f"no exit code for failure {self}")

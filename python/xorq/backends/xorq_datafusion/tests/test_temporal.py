@@ -881,3 +881,52 @@ def test_strftime_multiple_patterns(con, pattern):
 
     result = con.execute(expr)
     assert_series_equal(result, expected)
+
+
+def _interval_days(values):
+    return [None if value in (None, pd.NaT) else value.days for value in values]
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("duckdb") is None, reason="requires duckdb"
+)
+def test_date_diff(con):
+    df = pd.DataFrame(
+        {
+            "start": [
+                datetime.date(2024, 1, 1),
+                datetime.date(2024, 3, 15),
+                datetime.date(2020, 2, 29),
+                None,
+            ],
+            "end": [
+                datetime.date(2024, 1, 10),
+                datetime.date(2024, 3, 1),
+                datetime.date(2024, 2, 29),
+                datetime.date(2024, 1, 1),
+            ],
+        }
+    )
+    t = xo.memtable(df)
+    expr = t.select(delta=t.end - t.start)
+    expected = [
+        None if start is None else (end - start).days
+        for start, end in zip(df.start, df.end, strict=True)
+    ]
+    assert expr.delta.type() == dt.Interval("D")
+
+    arrow = con.to_pyarrow(expr).column("delta")
+    assert arrow.type == pa.month_day_nano_interval()
+    assert arrow.to_pylist() == [
+        None if days is None else (0, days, 0) for days in expected
+    ]
+    assert _interval_days(con.execute(expr).delta) == expected
+    assert _interval_days(xo.duckdb.connect().execute(expr).delta) == expected
+
+    shifted = t.select(delta=t.end - (t.start + xo.interval(days=1)))
+    assert _interval_days(con.execute(shifted).delta) == [
+        None if days is None else days - 1 for days in expected
+    ]
+    truncated = t.select(delta=t.end.cast("timestamp").date() - t.start)
+    assert _interval_days(con.execute(truncated).delta) == expected
+    assert con.execute(xo.date("2024-01-10") - xo.date("2024-01-01")).days == 9

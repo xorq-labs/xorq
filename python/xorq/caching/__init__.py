@@ -53,7 +53,9 @@ class Cache:
 
     def calc_key(self, expr):
         # the order here matters: must check is_cached before calling maybe_prevent_cross_source_caching
-        if expr.ls.is_cached and expr.ls.cache is self:
+        # every level of a same-cache stack keys as its innermost node: they
+        # hold the same rows, so they share one artifact
+        while expr.ls.is_cached and expr.ls.cache == self:
             expr = expr.ls.uncached_one
         expr = maybe_prevent_cross_source_caching(expr, self)
         return self.strategy.calc_key(expr)

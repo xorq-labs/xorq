@@ -385,6 +385,21 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self._log(query)
         return self.con.sql(query)
 
+    def insert(self, table_name, obj, schema=None, database=None, overwrite=False):
+        # datafusion's own error for a view is "Insert into not implemented for
+        # this table"; an unqualified name resolves in the default namespace,
+        # so check that one and name the view instead
+        unqualified = schema is None and database is None
+        if unqualified and self._table_kind(table_name) == "view":
+            raise ValueError(f"cannot insert into {table_name!r}: it is a view")
+        super().insert(
+            table_name, obj, schema=schema, database=database, overwrite=overwrite
+        )
+
+    def _table_kind(self, table_name):
+        with contextlib.suppress(Exception):
+            return self.con.catalog().database().table(table_name).kind
+
     @property
     def current_catalog(self) -> str:
         raise NotImplementedError("DataFusion backend does not support current_catalog")

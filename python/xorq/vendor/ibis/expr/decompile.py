@@ -5,11 +5,13 @@ import functools
 import io
 import itertools
 
+import toolz
+
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.vendor import ibis
-from xorq.vendor.ibis.common.graph import Graph
+from xorq.vendor.ibis.common.graph import _recursive_lookup
 from xorq.vendor.ibis.expr.rewrites import simplify
 from xorq.vendor.ibis.util import experimental
 
@@ -34,6 +36,7 @@ _method_overrides = {
     ops.Intersection: "intersect",
     ops.IsNull: "isnull",
     ops.Lowercase: "lower",
+    ops.MinRank: "rank",
     ops.RegexSearch: "re_search",
     ops.StartsWith: "startswith",
     ops.StringContains: "contains",
@@ -92,8 +95,10 @@ def value(op, *args, **kwargs):
 
     if args:
         this, *args = args
-    else:
+    elif kwargs:
         (_, this), *kwargs = kwargs
+    else:
+        return f"ibis.{method}()"
 
     # if there is a single keyword argument prefer to pass that as positional
     if not args and len(kwargs) == 1:
@@ -105,6 +110,12 @@ def value(op, *args, **kwargs):
     parameters = ", ".join(filter(None, [args, kwargs]))
 
     return f"{this}.{method}({parameters})"
+
+
+@functools.singledispatch
+def define(op):
+    """Source a node's code needs defined before it, or None."""
+    return None
 
 
 @translate.register(ops.ScalarParameter)
@@ -346,6 +357,21 @@ def binary(op, left, right):
     return _maybe_add_parens(op, f"{left} {operator} {right}")
 
 
+@translate.register(ops.WindowBoundary)
+def window_boundary(op, value, preceding):
+    return f"-{value}" if preceding else value
+
+
+@translate.register(ops.WindowFunction)
+def window_function(op, func, how, start, end, group_by, order_by):
+    kwargs = {
+        how: (start or end) and f"({start}, {end})",
+        "group_by": group_by and f"[{_inline(group_by)}]",
+        "order_by": order_by and f"[{_inline(order_by)}]",
+    }
+    return f"{func}.over({', '.join(f'{k}={v}' for k, v in kwargs.items() if v)})"
+
+
 @translate.register(ops.InValues)
 def isin(op, value, options):
     return f"{value}.isin(({', '.join([str(option) for option in options])}))"
@@ -382,7 +408,7 @@ class CodeContext:
 
     def variable_for(self, node):
         klass = type(node)
-        if isinstance(node, ops.Relation) and hasattr(node, "name"):
+        if isinstance(node, ops.Relation) and getattr(node, "name", "").isidentifier():
             name = node.name
         elif klass in self.shorthands:
             name = self.shorthands[klass]
@@ -446,27 +472,40 @@ def decompile(
     if not isinstance(expr, ir.Expr):
         raise TypeError(f"Expected ibis expression, got {type(expr).__name__}")
 
+    from xorq.common.utils.graph_utils import bfs  # noqa: PLC0415
+
     node = expr.op()
     node = simplify(node)
     out = io.StringIO()
     ctx = CodeContext(assign_result_to=assign_result_to)
-    dependents = Graph(node).invert()
+    # descends the Expr-valued fields of xorq's relations, which __children__ skips
+    graph = bfs(node)
+    dependents = graph.invert()
+    nodes, _ = graph.toposort()
+    results = {}
 
-    def fn(node, _, *args, **kwargs):
-        code = translate(node, *args, **kwargs)
-        n_dependents = len(dependents[node])
+    def lookup(value):
+        match value:
+            case ir.Expr():
+                # None for fields the walk does not descend (FlightExpr.unbound_expr)
+                return results.get(value.op())
+            case _:
+                return _recursive_lookup(value, results)
 
-        code, result = ctx.render(node, code, n_dependents)
+    out.writelines(
+        f"{source}\n\n" for source in toolz.unique(filter(None, map(define, nodes)))
+    )
+    for node in nodes:
+        kwargs = {k: lookup(v) for k, v in zip(node.__argnames__, node.__args__)}
+        code, results[node] = ctx.render(
+            node, translate(node, **kwargs), len(dependents[node])
+        )
         if code:
             out.write(code)
 
-        return result
-
-    node.map(fn)
-
     result = out.getvalue()
     if render_import:
-        result = f"import ibis\n\n\n{result}"
+        result = f"import xorq.api as xo\nfrom xorq.vendor import ibis\n\n\n{result}"
 
     if format:
         try:

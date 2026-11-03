@@ -62,7 +62,7 @@ class DerefMap(Concrete, Traversable):
     ambigs: FrozenDict[ops.Value, VarTuple[ops.Value]]
 
     @classmethod
-    def from_targets(cls, rels, extra=None):
+    def from_targets(cls, rels):
         """Create a dereference map from a list of target relations.
 
         Usually a single relation is passed except for joins where multiple
@@ -72,19 +72,23 @@ class DerefMap(Concrete, Traversable):
         ----------
         rels : list of ops.Relation
             The target relations to dereference to.
-        extra : dict, optional
-            Extra substitutions to be added to the dereference map.
 
         Returns
         -------
         DerefMap
         """
         rels = promote_list(rels)
+        targets = frozenset(rels)
         mapping = defaultdict(dict)
         for rel in rels:
             for field in rel.fields.values():
                 for value, distance in cls.backtrack(field):
-                    mapping[value][field] = distance
+                    # a value already over the targets is a fixed point: a
+                    # target derived from the others, e.g. a join chain
+                    # joined to its own filter, backtracks to the chain's
+                    # values and must not take them over
+                    if not value.relations <= targets:
+                        mapping[value][field] = distance
 
         subs, ambigs = {}, {}
         for from_, to in mapping.items():
@@ -96,9 +100,6 @@ class DerefMap(Concrete, Traversable):
                 subs[from_] = minkeys[0]
             else:
                 ambigs[from_] = minkeys
-
-        if extra is not None:
-            subs.update(extra)
 
         return cls(rels, subs, ambigs)
 
@@ -195,6 +196,52 @@ def flatten_predicates(node):
 @replace(p.Field(p.JoinChain))
 def peel_join_field(_):
     return _.rel.values[_.name]
+
+
+def bind_earlier_chain_fields(value, chain, kept=()):
+    """Bind fields of the chain `chain` extends to `chain`'s own fields.
+
+    `chain` extends an earlier chain when it starts from the same table,
+    repeats the earlier chain's links and adds more, and holds exactly the
+    earlier chain's values over the earlier tables, as `j.left_join(m, ...)`
+    extends `j`; a projection over the same links, `j.select(...)`, is not
+    extended. A field of the earlier chain backtracks to no field of `chain`,
+    so it would dereference to a table derived from that chain and joined in,
+    e.g. `j.filter(...)`. A chain joined in as a table keeps its fields, as do
+    the chains in `kept`.
+
+    Parameters
+    ----------
+    value : ops.Value
+        The value to bind.
+    chain : ops.JoinChain
+        The join chain the value is bound to.
+    kept : iterable of ops.Relation, optional
+        Chains whose fields are left as they are.
+
+    Returns
+    -------
+    ops.Value
+        The value with those fields replaced by fields of `chain`.
+    """
+    kept = {*kept, *(link.table.parent for link in chain.rest)}
+
+    def extended(rel):
+        tables = frozenset(rel.tables)
+        return (
+            rel not in kept
+            and rel.first == chain.first
+            and rel.rest == chain.rest[: len(rel.rest)] != chain.rest
+            and dict(rel.values)
+            == {k: v for k, v in chain.values.items() if v.relations <= tables}
+        )
+
+    subs = {
+        field: ops.Field(chain, field.name)
+        for field in value.find(ops.Field, filter=ops.Value)
+        if isinstance(field.rel, ops.JoinChain) and extended(field.rel)
+    }
+    return value.replace(subs, filter=ops.Value)
 
 
 @replace(p.ScalarParameter)

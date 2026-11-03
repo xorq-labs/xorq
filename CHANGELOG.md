@@ -8,6 +8,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.11] - 2026-11-03
+### Details
+#### Added
+- Add xorq catalog rebase --json by @mesejo in [#2356](https://github.com/xorq-labs/xorq/pull/2356)
+
+#### Changed
+- Drop the Ibis mentions by @mesejo in [#2549](https://github.com/xorq-labs/xorq/pull/2549)
+- Describe Xorq as an IR, a ledger and a CLI by @mesejo in [#2552](https://github.com/xorq-labs/xorq/pull/2552)
+- Rebase --dry-run, --no-add, and rebased_from provenance by @mesejo in [#2354](https://github.com/xorq-labs/xorq/pull/2354)
+- Rebase reports every outcome explicitly by @mesejo in [#2358](https://github.com/xorq-labs/xorq/pull/2358)
+- Refresh_schemas follows a renamed column under a mark by @mesejo in [#2554](https://github.com/xorq-labs/xorq/pull/2554)
+- Rebase --rename for a source bound once by @mesejo in [#2359](https://github.com/xorq-labs/xorq/pull/2359)
+- Report rebase renames in --json by @mesejo in [#2555](https://github.com/xorq-labs/xorq/pull/2555)
+- Rebase --rename across a source's bindings by @mesejo in [#2556](https://github.com/xorq-labs/xorq/pull/2556)
+- Gate formatting on the merge path by @mesejo in [#2280](https://github.com/xorq-labs/xorq/pull/2280)
+- Record that cache storage is not build identity by @mesejo in [#2511](https://github.com/xorq-labs/xorq/pull/2511)
+
+#### Fixed
+- Never match a null join key with a null key by @mesejo in [#2544](https://github.com/xorq-labs/xorq/pull/2544)
+- Rebase reports a failed push as its own outcome, exit 5 by @mesejo in [#2551](https://github.com/xorq-labs/xorq/pull/2551)
+- Name the hash or tag when no node matches by @mesejo in [#2524](https://github.com/xorq-labs/xorq/pull/2524)
+- Run the self-join properties on pandas and sqlite by @mesejo in [#2565](https://github.com/xorq-labs/xorq/pull/2565)
+- EntryReport reports an unreadable record instead of raising by @theluckystrike in [#2553](https://github.com/xorq-labs/xorq/pull/2553)
+- EntryReport covers every probed leaf, one verdict rule by @mesejo in [#2566](https://github.com/xorq-labs/xorq/pull/2566)
+- Deferred_read_csv infers the schema with the reader kwargs by @mesejo in [#2478](https://github.com/xorq-labs/xorq/pull/2478)
+- Fold every read kwarg but path, location and name into Read identity by @mesejo in [#2480](https://github.com/xorq-labs/xorq/pull/2480)
+- Let ctx.exit and Abort through the CLI error handlers by @mesejo in [#2526](https://github.com/xorq-labs/xorq/pull/2526)
+- Key and write a same-cache stack once, as its innermost node by @mesejo in [#2386](https://github.com/xorq-labs/xorq/pull/2386)
+- Pin key agreement across every CachedNode keying site by @mesejo in [#2385](https://github.com/xorq-labs/xorq/pull/2385)
+
+## New Contributors
+* @theluckystrike made their first contribution in [#2553](https://github.com/xorq-labs/xorq/pull/2553)
+## [0.4.10] - 2026-10-27
+### Details
+#### Added
+- Add ShutdownAction so a served process can be stopped remotely by @mesejo in [#2506](https://github.com/xorq-labs/xorq/pull/2506)
+- Add reads accessor listing Read nodes by @mesejo in [#2508](https://github.com/xorq-labs/xorq/pull/2508)
+- Add read_record_batches to the datafusion backend by @mesejo in [#2514](https://github.com/xorq-labs/xorq/pull/2514)
+- Add Hypothesis and a pandas-vs-duckdb numeric property by @mesejo in [#2520](https://github.com/xorq-labs/xorq/pull/2520)
+
+#### Changed
+- Explicit write mode for uploads by @mesejo in [#2515](https://github.com/xorq-labs/xorq/pull/2515)
+- Open with the IR, ledger and CLI, and refresh the walkthrough by @hussainsultan in [#2502](https://github.com/xorq-labs/xorq/pull/2502)
+- Rebase moves no alias unless asked; pin/unpin refuse -a on another entry by @mesejo in [#2348](https://github.com/xorq-labs/xorq/pull/2348)
+- Merge the duplicate table translate arms by @mesejo in [#2522](https://github.com/xorq-labs/xorq/pull/2522)
+- Document the review gate, draft publish and PyPI check
+
+#### Fixed
+- Accept non-identifier column names in pandas UDF schemas by @mesejo in [#2494](https://github.com/xorq-labs/xorq/pull/2494)
+- Keep column order in schema and struct registry refs by @mesejo in [#2495](https://github.com/xorq-labs/xorq/pull/2495)
+- Render zero-arg window functions and xorq relations by @mesejo in [#2503](https://github.com/xorq-labs/xorq/pull/2503)
+- Round-trip window functions and stop crashing on FlightExpr by @mesejo in [#2504](https://github.com/xorq-labs/xorq/pull/2504)
+- Compile exact Quantile on the datafusion backend by @mesejo in [#2505](https://github.com/xorq-labs/xorq/pull/2505)
+- Order make_udxf output by the declared schema out by @mesejo in [#2509](https://github.com/xorq-labs/xorq/pull/2509)
+- Name the view when inserting into one by @mesejo in [#2510](https://github.com/xorq-labs/xorq/pull/2510)
+- Pin serve and build-stability hashes in per-file snapshots by @mesejo in [#2513](https://github.com/xorq-labs/xorq/pull/2513)
+- Re-bind a closed server's port with SO_REUSEADDR by @mesejo in [#2516](https://github.com/xorq-labs/xorq/pull/2516)
+- Log generator handler errors and name a rejected input schema by @mesejo in [#2518](https://github.com/xorq-labs/xorq/pull/2518)
+- Connect_env reads the environment when it connects by @mesejo in [#2530](https://github.com/xorq-labs/xorq/pull/2530)
+- Convert time columns to datetime.time values by @mesejo in [#2393](https://github.com/xorq-labs/xorq/pull/2393)
+- Write less to disk during a test run by @mesejo in [#2529](https://github.com/xorq-labs/xorq/pull/2529)
+- Compare test_date_now against the UTC date by @mesejo in [#2523](https://github.com/xorq-labs/xorq/pull/2523)
+- Execute table() against its own database and catalog by @mesejo in [#2535](https://github.com/xorq-labs/xorq/pull/2535)
+- Ignore line endings when compose compares requirements.txt by @mesejo in [#2525](https://github.com/xorq-labs/xorq/pull/2525)
+- Keep the snapshot pin through build and load by @mesejo in [#2536](https://github.com/xorq-labs/xorq/pull/2536)
+- Bind a join chain's computed key left when joined to itself by @mesejo in [#2540](https://github.com/xorq-labs/xorq/pull/2540)
+- Bind fields of an earlier join chain to the extended chain by @mesejo in [#2545](https://github.com/xorq-labs/xorq/pull/2545)
+- Bind nullable memtable columns as Python scalars by @mesejo in [#2543](https://github.com/xorq-labs/xorq/pull/2543)
+- Harden release.sh breaking-change check and argument handling
+
+## [0.4.9] - 2026-10-20
+### Details
+#### Changed
+- Judge pull requests against a same-runner baseline by @mesejo in [#2435](https://github.com/xorq-labs/xorq/pull/2435)
+- Drop dead expected_tables from the xorq_datafusion conftest by @mesejo in [#2456](https://github.com/xorq-labs/xorq/pull/2456)
+- Replace the common/utils conftest symlink with the three fixtures it uses by @mesejo in [#2468](https://github.com/xorq-labs/xorq/pull/2468)
+- One psycopg batch loop for the vendored reader and the ADBC fallback by @mesejo in [#2469](https://github.com/xorq-labs/xorq/pull/2469)
+- One default-binding rule for params when recording SQL by @mesejo in [#2475](https://github.com/xorq-labs/xorq/pull/2475)
+- Compile date minus date to a day interval by @mesejo in [#2486](https://github.com/xorq-labs/xorq/pull/2486)
+- Run refresh_schemas through replace_nodes by @mesejo in [#2490](https://github.com/xorq-labs/xorq/pull/2490)
+- Start the gated pre-release publish from a release-* push by @mesejo in [#2379](https://github.com/xorq-labs/xorq/pull/2379)
+- Describe the push-triggered release flow and recovery
+
+#### Fixed
+- Sort over a subquery when an output alias shadows a sort column by @mesejo in [#2444](https://github.com/xorq-labs/xorq/pull/2444)
+- Order the outer select by the sort keys of its subquery by @mesejo in [#2452](https://github.com/xorq-labs/xorq/pull/2452)
+- Join on a column selected over a join chain by @mesejo in [#2446](https://github.com/xorq-labs/xorq/pull/2446)
+- Load unordered window functions nested in other ops by @mesejo in [#2445](https://github.com/xorq-labs/xorq/pull/2445)
+- Weight CTE scans by reference count when sizing the stream cache by @mesejo in [#2454](https://github.com/xorq-labs/xorq/pull/2454)
+- Spell out the columns of a star selection over a physical table by @mesejo in [#2455](https://github.com/xorq-labs/xorq/pull/2455)
+- Refuse DISTINCT ordered by a column the projection drops by @mesejo in [#2451](https://github.com/xorq-labs/xorq/pull/2451)
+- Skip output metrics when the output path is not a regular file by @mesejo in [#2453](https://github.com/xorq-labs/xorq/pull/2453)
+- Round() keeps nulls and rounds ties away from zero by @mesejo in [#2459](https://github.com/xorq-labs/xorq/pull/2459)
+- Make between yield null for a null operand by @mesejo in [#2460](https://github.com/xorq-labs/xorq/pull/2460)
+- Postgres execute imports the vendored pandas converter by @mesejo in [#2461](https://github.com/xorq-labs/xorq/pull/2461)
+- Round() keeps NA on nullable floats and rounds digit ties away from zero by @mesejo in [#2463](https://github.com/xorq-labs/xorq/pull/2463)
+- Filter drops the rows of a null-bearing string predicate by @mesejo in [#2464](https://github.com/xorq-labs/xorq/pull/2464)
+- Round(digits) converts integers once and survives digit counts outside the float range by @mesejo in [#2465](https://github.com/xorq-labs/xorq/pull/2465)
+- A null string stays null through a negated predicate and the regex kernels by @mesejo in [#2467](https://github.com/xorq-labs/xorq/pull/2467)
+- One ingest_kwargs route for ADBC options on read_csv and read_parquet by @mesejo in [#2462](https://github.com/xorq-labs/xorq/pull/2462)
+- Leave the cache unbounded for a PARTITION BY-only window on duckdb by @mesejo in [#2471](https://github.com/xorq-labs/xorq/pull/2471)
+- Key HTTP modification-time reads on ETag as well by @mesejo in [#2473](https://github.com/xorq-labs/xorq/pull/2473)
+- Discover defaulted params behind into_backend when recording SQL by @Jah-yee in [#2375](https://github.com/xorq-labs/xorq/pull/2375)
+- Bound the exchange error message so it fits gRPC's status metadata by @mesejo in [#2479](https://github.com/xorq-labs/xorq/pull/2479)
+- Parse largestring, binaryview, unknown and geospatial from their own str() by @mesejo in [#2472](https://github.com/xorq-labs/xorq/pull/2472)
+- Pin three fixes already on main for the issues they close by @mesejo in [#2482](https://github.com/xorq-labs/xorq/pull/2482)
+- Pin fixes already on main for the issues they close by @mesejo in [#2483](https://github.com/xorq-labs/xorq/pull/2483)
+- Resolve deferred reads when scanning a registered cross-backend table by @mesejo in [#2484](https://github.com/xorq-labs/xorq/pull/2484)
+- Restore the UDF namespace when a scalar UDF is loaded from yaml by @mesejo in [#2477](https://github.com/xorq-labs/xorq/pull/2477)
+- Pin that an empty UDF namespace writes no yaml key by @mesejo in [#2487](https://github.com/xorq-labs/xorq/pull/2487)
+- Keep the named view so Table.sql resolves over into_backend and alias by @mesejo in [#2485](https://github.com/xorq-labs/xorq/pull/2485)
+- Record attached databases in the profile so a build loads by @mesejo in [#2488](https://github.com/xorq-labs/xorq/pull/2488)
+- Recognize truncated RemoteTable names in get_uid_prefix by @mesejo in [#2491](https://github.com/xorq-labs/xorq/pull/2491)
+- Name pandas_df aggregate nodes from the stable UDF name by @mesejo in [#2489](https://github.com/xorq-labs/xorq/pull/2489)
+
+#### Removed
+- Delete small dead symbols by @mesejo in [#2439](https://github.com/xorq-labs/xorq/pull/2439)
+
+## New Contributors
+* @Jah-yee made their first contribution in [#2375](https://github.com/xorq-labs/xorq/pull/2375)
 ## [0.4.8] - 2026-10-15
 ### Details
 #### Added

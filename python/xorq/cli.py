@@ -885,6 +885,11 @@ def init_command(
     return path
 
 
+# Click's own outcomes: errors it already formats, plus `ctx.exit` and `Abort`,
+# which subclass `RuntimeError` and would otherwise be caught as failures.
+CLICK_PASSTHROUGH = (click.ClickException, click.exceptions.Exit, click.Abort)
+
+
 class PdbGroup(click.Group):
     def get_command(self, ctx, cmd_name):
         if cmd_name == "catalog" and "catalog" not in self.commands:
@@ -901,7 +906,7 @@ class PdbGroup(click.Group):
             if ctx.params.get("pdb_runcall"):
                 return pdb.runcall(super().invoke, ctx)
             return super().invoke(ctx)
-        except (click.ClickException, click.exceptions.Exit, SystemExit):
+        except (*CLICK_PASSTHROUGH, SystemExit):
             raise
         except Exception as e:
             if ctx.params.get("use_pdb"):

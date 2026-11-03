@@ -1,7 +1,9 @@
 import base64
+import functools
 import logging
 import secrets
 import threading
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import pyarrow as pa
 import pyarrow.flight
@@ -9,21 +11,229 @@ from cloudpickle import loads
 
 import xorq.flight.action as A
 import xorq.flight.exchanger as E
+from xorq.common.utils.enums import IngestMode
 from xorq.common.utils.func_utils import (
     maybe_log_excepts,
 )
-from xorq.common.utils.rbr_utils import (
-    copy_rbr_batches,
-)
+from xorq.flight.enums import UploadMode
 from xorq.flight.metrics import (
     InstrumentedReader,
     InstrumentedWriter,
     instrument_reader,
     instrument_rpc,
 )
+from xorq.vendor.ibis.backends import BaseBackend
 
+
+if TYPE_CHECKING:
+    from xorq.flight.metrics import _Recorder
 
 logger = logging.getLogger(__name__)
+
+# gRPC caps the status trailers at 8 KB, and the message travels in them twice
+# (percent-encoded `grpc-message` plus the binary status detail): 4 000 ASCII
+# characters already overflow, 1 000 two-byte ones do, and the traceback that
+# pyarrow appends to a plain Python exception overflows on its own. Measured
+# in UTF-8 bytes; the worst case lands at 4 KB on the wire.
+STATUS_MESSAGE_BUDGET = 1024
+
+
+def bounded_message(exc: BaseException) -> str:
+    """``Type: message`` with the middle elided so the status fits the budget."""
+    text = f"{type(exc).__name__}: {exc}".encode()
+    if len(text) <= STATUS_MESSAGE_BUDGET:
+        return text.decode()
+    (head, tail) = (
+        text[: STATUS_MESSAGE_BUDGET * 3 // 4].decode(errors="ignore"),
+        text[-STATUS_MESSAGE_BUDGET // 4 :].decode(errors="ignore"),
+    )
+    return f"{head} [... {len(text) - STATUS_MESSAGE_BUDGET} bytes elided ...] {tail}"
+
+
+def bounded_status(f):
+    """Re-raise any failure as a ``FlightServerError`` that fits the status.
+
+    A plain Python exception reaches the client only if its message plus
+    traceback fit gRPC's metadata cap; past that, the client sees ``received
+    initial metadata size exceeds limit`` and nothing else. A ``FlightError``
+    travels without the traceback, which stays in the server log.
+    """
+
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except BaseException as exc:
+            raise pa.flight.FlightServerError(bounded_message(exc)) from exc
+
+    return wrapper
+
+
+class _PutCommandRequired(TypedDict):
+    table_name: str
+
+
+class PutCommand(_PutCommandRequired, total=False):
+    """The pickled ``do_put`` command ``FlightClient`` sends.
+
+    ``table_name`` is required. ``kwargs`` (default ``{}``) is forwarded to the
+    backend write, and ``mode`` (default ``None``) is a ``UploadMode`` string
+    value. A command from a client older than ``mode`` has no ``mode`` key.
+    """
+
+    kwargs: dict[str, Any]
+    mode: str | None
+
+
+def parse_put_command(
+    cmd: bytes | PutCommand,
+) -> tuple[str, dict[str, Any], str | None]:
+    """The ``(table, kwargs, mode)`` a ``do_put`` command asks for.
+
+    A bare bytes command is a table name with no kwargs and no mode.
+
+    Parameters
+    ----------
+    cmd
+        The unpickled ``descriptor.command``: UTF-8 bytes naming the table, or
+        a ``PutCommand`` mapping.
+
+    Returns
+    -------
+    tuple[str, dict[str, Any], str | None]
+        The table name, the backend kwargs and the mode, which is not
+        validated here (``put_table`` does that).
+
+    Raises
+    ------
+    UnicodeDecodeError
+        If a bytes command is not valid UTF-8 (implicit, ``cmd.decode``).
+    KeyError
+        If a mapping command has no ``table_name`` (implicit).
+    TypeError
+        If ``cmd`` is neither bytes nor a mapping, e.g. a ``str`` (implicit,
+        from indexing it with ``"table_name"``).
+
+    Contract
+    --------
+    Silences
+        - A missing ``kwargs`` or ``mode`` key yields ``{}`` / ``None``, so a
+          command from an older client keeps the append-or-create behaviour.
+          Unknown keys are ignored without error.
+    """
+    match cmd:
+        case bytes():
+            return cmd.decode("utf-8"), {}, None
+        case _:
+            return cmd["table_name"], cmd.get("kwargs", {}), cmd.get("mode")
+
+
+def put_table(
+    con: BaseBackend,
+    table: str,
+    data: pa.Table,
+    mode: UploadMode | str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Write an uploaded table to ``con`` as the upload's write mode asks.
+
+    Parameters
+    ----------
+    con
+        The server's backend connection.
+    table
+        Name of the target table.
+    data
+        The uploaded rows, a ``pa.Table``.
+    mode
+        A ``UploadMode`` or its string value, or ``None``. ``None`` appends
+        when ``table`` exists and creates it otherwise; ``create`` creates,
+        ``append`` inserts, ``replace`` creates or overwrites.
+    **kwargs
+        Passed to the backend's ``create_table`` or ``insert``.
+
+    Raises
+    ------
+    ValueError
+        If ``mode`` is not a ``UploadMode`` value (``'bogus' is not a valid
+        UploadMode``), or ``mode`` is given together with an ``overwrite``
+        kwarg. Both are explicit checks, before ``con`` is touched.
+    Exception
+        Whatever the backend raises, not caught. ``create`` on an existing
+        table fails in ``create_table`` (duckdb ``CatalogException``, xorq
+        ``ValueError``, pandas ``XorqError``); ``append`` on an absent table
+        fails in ``insert`` (duckdb ``XorqError``, xorq ``ValueError``).
+    AttributeError
+        If the backend has no ``insert`` (pandas) and the write appends:
+        ``mode="append"``, or ``mode=None`` on an existing table (implicit).
+    TypeError
+        If ``kwargs`` holds a keyword the chosen backend method does not
+        accept (implicit).
+
+    Contract
+    --------
+    Preconditions
+        - The caller holds the server lock: ``mode=None`` checks
+          ``table in con.tables`` and then writes, so a concurrent writer can
+          change the answer in between. ``do_put`` enforces this; the function
+          does not.
+        - ``data`` is a fully materialised ``pa.Table``; the function does no
+          streaming (``do_put`` explains why).
+
+    Silences
+        - With ``mode=None``, an existing name that is not insertable (a view)
+          is routed to ``insert`` and fails there with the backend's error,
+          not a mode error.
+        - With ``mode=None``, an ``overwrite`` kwarg is passed through to
+          ``insert`` / ``create_table`` unchanged; only an explicit mode
+          rejects it.
+    """
+    mode = None if mode is None else UploadMode(mode)
+    if mode is not None and "overwrite" in kwargs:
+        raise ValueError("pass mode='replace' instead of overwrite= with a mode")
+    match mode:
+        case None:
+            write = con.insert if table in con.tables else con.create_table
+            write(table, data, **kwargs)
+        case UploadMode.CREATE:
+            con.create_table(table, data, **kwargs)
+        case UploadMode.APPEND:
+            con.insert(table, data, **kwargs)
+        case UploadMode.REPLACE:
+            con.create_table(table, data, overwrite=True, **kwargs)
+
+
+def uncancelled_batches(
+    reader: pa.RecordBatchReader, context: pa.flight.ServerCallContext
+) -> pa.RecordBatchReader:
+    """``reader``'s batches, copied, failing at the end if the client left.
+
+    Flight ends an upload's stream the same way whether the client finished
+    it or went away (killed, disconnected, past its deadline), so draining
+    the reader is no proof the upload is whole. The call context tells the
+    two apart; raising instead of ending keeps a cut-off upload from being
+    written or committed.
+    """
+    manager = pa.default_cpu_memory_manager()
+
+    def batches():
+        for batch in reader:
+            yield batch.copy_to(manager)
+        if context.is_cancelled():
+            raise pa.flight.FlightCancelledError("the client cancelled the upload")
+
+    return pa.RecordBatchReader.from_batches(reader.schema, batches())
+
+
+# The ADBC ingest mode each upload mode streams as. With no mode, the ingest
+# creates the table only if it is absent, in its own transaction, so no
+# existence check runs under the server lock.
+INGEST_MODES = {
+    None: IngestMode.CREATE_APPEND,
+    UploadMode.CREATE: IngestMode.CREATE,
+    UploadMode.APPEND: IngestMode.APPEND,
+    UploadMode.REPLACE: IngestMode.REPLACE,
+}
 
 
 class BasicAuthServerMiddlewareFactory(pa.flight.ServerMiddlewareFactory):
@@ -132,6 +342,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         self.exchangers = dict(E.exchangers)
         self.actions = A.actions
         self.lock = threading.Lock()
+        self.shutdown_requested = threading.Event()
 
     def _make_flight_info(self, query):
         """
@@ -168,23 +379,97 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
 
     @instrument_rpc("do_put")
     @maybe_log_excepts
-    def do_put(self, context, rec, descriptor, reader, writer):
+    def do_put(
+        self,
+        context: pa.flight.ServerCallContext,
+        rec: "_Recorder",
+        descriptor: pa.flight.FlightDescriptor,
+        reader: pa.flight.MetadataRecordBatchReader,
+        writer: pa.flight.FlightMetadataWriter,
+    ) -> None:
+        """Store an upload as the command's table.
+
+        A backend whose ``upload_ingest`` returns an ingest (file-backed
+        sqlite, postgres with an ADBC connection) writes the upload as it
+        arrives, over a connection of its own and outside ``self.lock``, into
+        a staging table, and writes the target from it in the transaction
+        that commits after the last batch; the mode maps through
+        ``INGEST_MODES``. Only an upload without backend kwargs takes
+        this path, since those kwargs are ``create_table``/``insert`` keywords.
+
+        Every other upload is read whole and then written with ``put_table``
+        under ``self.lock``. The upload stream is only readable while this
+        call runs (reading it after the call returns is a use-after-free in
+        Arrow Flight), so a backend that registers rather than ingests has to
+        buffer it. The stream is read outside the lock, so other RPCs are not
+        blocked while an upload arrives. To process batches as they arrive
+        instead of storing them, use ``do_exchange`` with an
+        ``UnboundExprExchanger``.
+
+        Parameters
+        ----------
+        context
+            The Flight server call context, asked whether the client
+            cancelled the upload.
+        rec
+            Metrics recorder, injected by ``instrument_rpc``.
+        descriptor
+            Carries the pickled command: UTF-8 bytes naming the table, or a
+            ``PutCommand``.
+        reader
+            The client's upload stream.
+        writer
+            Metadata writer back to the client (unused; nothing is sent).
+
+        Raises
+        ------
+        Exception
+            Anything ``parse_put_command`` or ``put_table`` raises (bad command,
+            unknown mode, ``mode`` with ``overwrite=``, backend write failure),
+            not caught. The client receives it as ``FlightServerError``, or
+            ``ArrowInvalid`` for a ``ValueError``, at ``writer.close()``.
+        ValueError
+            If ``mode`` is not a ``UploadMode`` value, before the stream is
+            read.
+        pyarrow.flight.FlightCancelledError
+            If the client went away before finishing the upload, raised at the
+            end of the stream (``uncancelled_batches``).
+        pyarrow.ArrowException
+            If the upload stream fails while it is read (external). In both
+            cases nothing is written: a buffered write happens only after the
+            whole stream has been read, and a streamed ingest is not
+            committed.
+        adbc_driver_manager.Error
+            On the streamed path, whatever the ingest raises (``create`` on an
+            existing table, ``append`` to an absent one or with columns it
+            lacks or cannot cast); the ingest is not committed.
+        MemoryError
+            If a buffered upload does not fit in server memory (external,
+            from ``read_all``).
+
+        Contract
+        --------
+        Preconditions
+            - Only trusted clients may call this. ``descriptor.command`` is
+              unpickled with ``cloudpickle.loads`` before anything is checked,
+              so a client that can reach ``do_put`` can run arbitrary code on
+              the server. Restrict access with the server's auth middleware.
+        """
         reader = instrument_reader(reader, rec, direction="in")
 
-        cmd = loads(descriptor.command)
-        if isinstance(cmd, bytes):
-            table = cmd.decode("utf-8")
-            kwargs = {}
-        else:
-            table = cmd["table_name"]
-            kwargs = cmd.get("kwargs", {})
-
-        data = copy_rbr_batches(reader).read_all()
+        table, kwargs, mode = parse_put_command(loads(descriptor.command))
+        mode = None if mode is None else UploadMode(mode)
         with self.lock:
-            if table in self._conn.tables:
-                self._conn.insert(table, data, **kwargs)
-            else:
-                self._conn.create_table(table, data, **kwargs)
+            ingest = None if kwargs else self._conn.upload_ingest(table)
+        match ingest:
+            case None:
+                data = uncancelled_batches(reader, context).read_all()
+                with self.lock:
+                    put_table(self._conn, table, data, mode, **kwargs)
+            case _:
+                ingest(
+                    table, uncancelled_batches(reader, context), mode=INGEST_MODES[mode]
+                )
 
     @maybe_log_excepts
     def do_action(self, context, action):
@@ -197,6 +482,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
                 raise KeyError("Unknown action {!r}".format(action.type))
 
     @instrument_rpc("do_exchange")
+    @bounded_status
     @maybe_log_excepts
     def do_exchange(self, context, rec, descriptor, reader, writer):
         with self.lock:

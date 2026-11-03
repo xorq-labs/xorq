@@ -154,3 +154,64 @@ def test_deferred_read_csv_reader_kwarg(pg, tmp_path):
     )
     assert xo.execute(t).equals(df)
     assert table_name in pg.tables
+
+
+# the dotted name checks the schema travels as one identifier
+@pytest.fixture(params=["testing_ingest", "testing.ingest"])
+def ingest_schema(pg, request):
+    name = request.param
+    pg.create_database(name, force=True)
+    yield name
+    pg.drop_database(name, force=True, cascade=True)
+
+
+def write_frame(df, path, method):
+    if method == "read_csv":
+        df.to_csv(path, index=False)
+    else:
+        df.to_parquet(path)
+    return path
+
+
+# the same ADBC ingest option must reach the ingest from either reader; before,
+# read_parquet took it through **kwargs and read_csv sent it to the csv reader
+@pytest.mark.parametrize("method", ["read_csv", "read_parquet"])
+def test_ingest_kwargs_reach_the_ingest(pg, ingest_schema, tmp_path, method):
+    df = pd.DataFrame({"A": [1, 2, 3], "B": ["a", "b", "c"]})
+    path = write_frame(df, tmp_path / "ingest", method)
+    table_name = "testing-ingest"
+    t = getattr(pg, method)(
+        path, table_name, ingest_kwargs={"db_schema_name": ingest_schema}
+    )
+    assert table_name in pg.list_tables(database=(ingest_schema,))
+    assert table_name not in pg.tables
+    assert xo.execute(t).equals(df)
+
+
+# the temporary copy goes through the search path: with the ingest in another
+# schema it would rename and drop a same-named table of the current one
+def test_temporary_with_ingest_schema_is_refused(pg, ingest_schema, tmp_path):
+    df = pd.DataFrame({"A": [1, 2, 3], "B": ["a", "b", "c"]})
+    path = write_frame(df, tmp_path / "ingest", "read_csv")
+    table_name = "testing-temporary-schema"
+    with pytest.raises(ValueError, match="temporary"):
+        pg.read_csv(
+            path,
+            table_name,
+            temporary=True,
+            ingest_kwargs={"db_schema_name": ingest_schema},
+        )
+    assert table_name not in pg.list_tables(database=(ingest_schema,))
+    assert table_name not in pg.tables
+
+
+# the readers once accepted a password and ran the ingest as the backend's own
+# role regardless; the argument is now refused instead of ignored
+@pytest.mark.parametrize("method", ["read_csv", "read_parquet"])
+def test_readers_reject_password(pg, tmp_path, method):
+    df = pd.DataFrame({"A": [1, 2, 3], "B": ["a", "b", "c"]})
+    path = write_frame(df, tmp_path / "ingest", method)
+    table_name = "testing-password"
+    with pytest.raises(TypeError, match="password"):
+        getattr(pg, method)(path, table_name, password="other")
+    assert table_name not in pg.tables

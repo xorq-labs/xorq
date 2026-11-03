@@ -54,6 +54,21 @@ def test_to_pyarrow_batches_falls_back_when_adbc_unavailable(
 
 
 @pytest.mark.postgres
+def test_psycopg_fallback_honours_chunk_size(
+    pg: PostgresBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the fallback and the vendored reader share one batch loop, so the
+    # caller's chunk_size shapes the batches on both
+    def boom(self, **kwargs):
+        raise RuntimeError("no adbc uri")
+
+    monkeypatch.setattr(PgADBC, "get_conn", boom)
+    expr = pg.table("batting").limit(10)
+    batches = list(pg.to_pyarrow_batches(expr, chunk_size=4))
+    assert [batch.num_rows for batch in batches] == [4, 4, 2]
+
+
+@pytest.mark.postgres
 def test_to_pyarrow_batches_falls_through_on_adbc_programming_error(
     pg: PostgresBackend, monkeypatch: pytest.MonkeyPatch
 ) -> None:

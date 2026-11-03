@@ -414,7 +414,7 @@ class WheelPackager:
                     f"or re-export manually with `uv export --locked --no-dev "
                     f"--no-emit-project --no-header --no-annotate > {existing.name}`."
                 )
-            (self.tmpdir / DumpFiles.requirements).write_text(exported)
+            (self.tmpdir / DumpFiles.requirements).write_text(exported, newline="\n")
         else:
             shutil.copy2(existing, self.tmpdir / DumpFiles.requirements)
 

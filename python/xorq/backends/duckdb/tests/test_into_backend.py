@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-import duckdb
 import pandas as pd
 import pytest
 
@@ -49,21 +48,32 @@ def test_into_backend_asof_tolerance_single_scan(
     assert not expr.execute().empty
 
 
-def test_into_backend_partition_window_undercounts_and_raises(
+def test_into_backend_partition_window_unbounded(
     df: pd.DataFrame, target: xo.Backend
 ) -> None:
-    # Current-behavior test (not a fix): a PARTITION BY-only aggregate window
-    # with no ORDER BY undercounts. The sqlglot AST sees one Table node, but
     # duckdb lowers ``sum(v) OVER (PARTITION BY k)`` to a GROUP BY self-join
-    # that scans its input twice, so max_readers=1 is one short and the second
-    # reader trips the hard cap. ``max_readers`` is a best-effort lower bound,
-    # not an exact scan count -- see ADR-0013 ("Counting accuracy").
-    #
-    # This pins the failure exactly: the day the AST count learns this shape
-    # (or duckdb stops re-scanning), this test fails loudly and should be
-    # converted to assert a correct, non-empty result.
+    # that scans its input twice while the sqlglot AST shows one Table node,
+    # so no count is derived and the cache is unbounded (no eviction, never a
+    # cap); before, max_readers=1 and the second reader raised duckdb.Error:
+    # Maximum number of readers reached. GH #2108.
     rt = xo.memtable(df).into_backend(target, "t")
     expr = rt.mutate(s=rt.v.sum().over(xo.window(group_by="k")))
+    assert reader_counts(expr) == []
+    assert expr.execute().sort_values("id").s.tolist() == [30, 30, 70, 70]
+    # the same window with an ORDER BY is scanned once and counted: [] above
+    # comes from the window rule, not from a compile that failed
+    ordered = rt.mutate(s=rt.v.sum().over(xo.window(group_by="k", order_by="id")))
+    assert reader_counts(ordered) == [1]
+
+
+def test_into_backend_partition_window_unbounds_only_its_table(
+    df: pd.DataFrame, target: xo.Backend
+) -> None:
+    # the window reads the left table through a CTE; the right table is
+    # scanned once, as the AST says, and keeps its count (and its eviction)
+    left = xo.memtable(df).into_backend(target, "l")
+    right = xo.memtable(df[["id", "k"]]).into_backend(target, "r")
+    windowed = left.mutate(s=left.v.sum().over(xo.window(group_by="k")))
+    expr = windowed.join(right, "id").select("id", "s")
     assert reader_counts(expr) == [1]
-    with pytest.raises(duckdb.Error, match="Maximum number of readers"):
-        expr.execute()
+    assert expr.execute().sort_values("id").s.tolist() == [30, 30, 70, 70]

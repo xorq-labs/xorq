@@ -231,6 +231,57 @@ def test_expr_typed_fields_are_registered() -> None:
             )
 
 
+def remote_over(data: dict) -> tuple[ops.Node, Expr]:
+    """A memtable of ``data`` and a ``RemoteTable`` over it."""
+    inner = xo.memtable(data)
+    return inner.op(), inner.into_backend(xo.connect(), "moved")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    (
+        pytest.param({}, [3], id="default-descends"),
+        pytest.param(
+            {"stop": lambda op: isinstance(op, rel.RemoteTable)}, [1], id="stop"
+        ),
+    ),
+)
+def test_replace_nodes_stop_skips_opaque_descent(kwargs: dict, expected: list) -> None:
+    inner, expr = remote_over({"a": [1]})
+    other = xo.memtable({"a": [3]}).op()
+
+    replaced = replace_nodes(lambda op, _: other if op == inner else op, expr, **kwargs)
+    assert list(replaced.to_expr().execute()["a"]) == expected
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    (
+        # the default recreates over the rewritten edge, schema as stored
+        pytest.param({}, ["a"], id="default-keeps-stored-schema"),
+        pytest.param(
+            {
+                "recreate": lambda op, kwargs: op.__recreate__(
+                    dict(zip(op.__argnames__, op.__args__))
+                    | kwargs
+                    | {"schema": kwargs["remote_expr"].schema()}
+                )
+            },
+            ["a", "b"],
+            id="recreate",
+        ),
+    ),
+)
+def test_replace_nodes_recreate_sees_rewritten_edges(
+    kwargs: dict, expected: list
+) -> None:
+    inner, expr = remote_over({"a": [1]})
+    other = xo.memtable({"a": [3], "b": [4]}).op()
+
+    replaced = replace_nodes(lambda op, _: other if op == inner else op, expr, **kwargs)
+    assert list(replaced.schema) == expected
+
+
 def test_traversal_raises_on_unregistered_expr_bearing_op() -> None:
     """Runtime tripwire: a spec-less op holding an ``Expr`` arg must raise on
     both the read path (``gen_children_of``) and the write path

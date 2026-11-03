@@ -1,5 +1,6 @@
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import xorq.api as xo
@@ -8,9 +9,12 @@ import xorq.expr.udf as udf
 import xorq.ibis_yaml
 import xorq.ibis_yaml.utils
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.common.utils.provenance_utils import get_expr_hash
 from xorq.expr.udf import pyarrow_udwf
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor import ibis
 
 
@@ -185,3 +189,126 @@ def test_aggudf_func_token_survives_roundtrip(compiler):
     profiles = {con._profile.hash_name: con}
     roundtrip = compiler.from_yaml(compiler.to_yaml(expr), profiles=profiles)
     assert aggudf_func_tokens(roundtrip) == live_tokens
+
+
+@xo.udf.scalar.pyarrow
+def plus_one(arr: dt.float64) -> dt.float64:
+    return pc.add(arr, 1.0)
+
+
+def test_pyarrow_scalar_udf_survives_build_load(tmp_path):
+    # GH #2347: a loaded pyarrow UDF could not be hashed or compiled to SQL
+    t = (
+        SqliteBackend()
+        .connect(str(tmp_path / "db.sqlite"))
+        .create_table("t", {"x": [1.5, 2.5]})
+    )
+    expr = t.mutate(y=plus_one(t.x))
+
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path / "builds"))
+
+    assert get_expr_hash(loaded) == get_expr_hash(expr)
+    assert xo.to_sql(loaded) == xo.to_sql(expr)
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    (
+        pytest.param({}, id="empty"),
+        pytest.param({"database": "myschema"}, id="database"),
+        pytest.param({"catalog": "mycat", "database": "myschema"}, id="catalog"),
+    ),
+)
+def test_builtin_scalar_udf_namespace_roundtrip(compiler, namespace):
+    @xo.udf.scalar.builtin(**namespace)
+    def my_fn(x: int) -> int: ...
+
+    t = xo.table({"a": "int64"}, name="t")
+    expr = t.mutate(y=my_fn(t.a))
+
+    yaml_dict = compiler.to_yaml(expr)
+    (udf_yaml,) = (
+        node["values"]["y"]
+        for node in yaml_dict["definitions"]["nodes"].values()
+        if node.get("op") == "Project"
+    )
+    loaded = compiler.from_yaml(yaml_dict)
+
+    # an empty namespace writes no key, so expr.yaml and build hashes of UDFs
+    # without database/catalog stay unchanged
+    assert ("namespace" in udf_yaml) == bool(namespace)
+    # the xorq backend drops the namespace from the sql; duckdb emits it
+    con = xo.duckdb.connect()
+    assert con.compile(loaded) == con.compile(expr)
+
+
+DEATHS = "No. of deaths"
+
+
+def _pandas_udf(t):
+    return udf.make_pandas_udf(
+        lambda df: df[DEATHS] + df["class"],
+        schema=t.schema(),
+        return_type=dt.float64,
+        name="add_deaths",
+    )
+
+
+def _pandas_expr_udf(t):
+    return udf.make_pandas_expr_udf(
+        computed_kwargs_expr=udf.agg.pandas_df(
+            lambda df: udf.wrap_model(df[DEATHS].sum()),
+            schema=t.schema(),
+            return_type=dt.binary,
+            name="sum_deaths_model",
+        ).on_expr(t),
+        fn=lambda model, df: df[DEATHS] * model["model"] + df["class"],
+        schema=t.schema(),
+        return_type=dt.float64,
+        name="scale_deaths",
+    )
+
+
+def _agg_pandas_df(t):
+    return udf.agg.pandas_df(
+        lambda df: float(df[DEATHS].sum() + df["class"].sum()),
+        # a plain dict is accepted as well as a Schema
+        schema=dict(t.schema()),
+        return_type=dt.float64,
+        name="sum_deaths",
+    )
+
+
+def _pyarrow_udwf(t):
+    return pyarrow_udwf(
+        lambda self, values, num_rows: pc.add(values[0], values[1]),
+        schema=t.schema(),
+        return_type=dt.float64,
+        name="add_deaths_window",
+    )
+
+
+@pytest.mark.parametrize(
+    "make_udf",
+    (
+        pytest.param(_pandas_udf, id="make_pandas_udf"),
+        pytest.param(_pandas_expr_udf, id="make_pandas_expr_udf"),
+        pytest.param(_agg_pandas_df, id="agg.pandas_df"),
+        pytest.param(_pyarrow_udwf, id="pyarrow_udwf"),
+    ),
+)
+def test_pandas_udf_non_identifier_columns_roundtrip(tmp_path, make_udf):
+    # GH #1605: column names that are not python identifiers (or are keywords),
+    # next to one that looks like a positional name, in unsorted order
+    t = xo.memtable(
+        {"class": [10.0, 20.0, 30.0], DEATHS: [1.0, 2.0, 3.0], "arg0": [0.5] * 3},
+        name="t",
+    )
+    # the udf schema reverses the table's column order
+    expr = t.mutate(val=make_udf(t.select(*reversed(t.columns))).on_expr(t)).order_by(
+        DEATHS
+    )
+
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path / "builds"))
+
+    pd.testing.assert_frame_equal(loaded.execute(), expr.execute())

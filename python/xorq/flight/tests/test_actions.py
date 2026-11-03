@@ -1,5 +1,10 @@
+import os
+import signal
+import threading
+
 import pandas as pd
 import pyarrow as pa
+import pytest
 
 import xorq.api as xo
 import xorq.flight.exchanger as E
@@ -9,6 +14,7 @@ from xorq.flight.action import (
     GetExchangeAction,
     GetSchemaQueryAction,
     ListTablesAction,
+    ShutdownAction,
 )
 
 
@@ -90,3 +96,41 @@ def test_get_exchange():
             GetExchangeAction.name, action_body=dummy_udxf.command
         )
         assert exchange is not None
+
+
+def test_shutdown_action_stops_wait():
+    server = FlightServer(make_connection=xo.duckdb.connect)
+    server.serve()
+    waiter = threading.Thread(target=server.wait)
+    waiter.start()
+
+    server.client.do_action_one(ShutdownAction.name)
+    waiter.join(timeout=10)
+
+    assert not waiter.is_alive()
+    assert server.server is None
+    with pytest.raises(pa.flight.FlightUnavailableError):
+        server.client.do_action_one(ListTablesAction.name)
+
+
+def test_shutdown_action_ends_wait_after_a_poll():
+    # gRPC runs handlers on native threads, so drive this one from a Python thread
+    server = FlightServer(make_connection=xo.duckdb.connect)
+    server.serve()
+    threading.Timer(
+        1.5, lambda: list(ShutdownAction.do_action(server.server, None, None))
+    ).start()
+
+    server.wait()
+
+    assert server.server is None
+
+
+def test_wait_closes_server_on_keyboard_interrupt():
+    server = FlightServer(make_connection=xo.duckdb.connect)
+    server.serve()
+    threading.Timer(0.2, os.kill, (os.getpid(), signal.SIGINT)).start()
+
+    server.wait()
+
+    assert server.server is None

@@ -3,8 +3,11 @@ from __future__ import annotations
 import pytest
 
 import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.ibis_yaml.enums import ExprKind
+from xorq.vendor import ibis
 from xorq.vendor.ibis.common.temporal import IntervalUnit
 from xorq.vendor.ibis.expr.datatypes.parse import parse
+from xorq.vendor.ibis.expr.types.core import ExprMetadata
 
 
 @pytest.mark.parametrize(
@@ -86,3 +89,56 @@ from xorq.vendor.ibis.expr.datatypes.parse import parse
 )
 def test_parse(text, expected):
     assert parse(text) == expected
+
+
+def concrete_subclasses(cls):
+    return tuple(
+        sub
+        for direct in cls.__subclasses__()
+        for sub in (direct, *concrete_subclasses(direct))
+    )
+
+
+def bare_instances(cls):
+    for sub in sorted(set(concrete_subclasses(cls)), key=lambda c: c.__name__):
+        try:
+            yield sub()
+        except Exception:
+            continue
+
+
+@pytest.mark.parametrize(
+    "typ",
+    [
+        *bare_instances(dt.DataType),
+        dt.GeoSpatial(geotype="geography"),
+        dt.LargeString(nullable=False),
+        dt.BinaryView(nullable=False),
+        dt.Unknown(nullable=False),
+    ],
+    ids=str,
+)
+def test_parse_roundtrip(typ):
+    assert parse(str(typ)) == typ
+
+
+@pytest.mark.parametrize(
+    "typ",
+    [
+        dt.Array(dt.LargeString()),
+        dt.Struct({"a": dt.BinaryView()}),
+        dt.Map(dt.string, dt.Unknown()),
+        dt.Array(dt.GeoSpatial()),
+    ],
+    ids=str,
+)
+def test_parse_roundtrip_nested(typ):
+    assert parse(str(typ)) == typ
+
+
+def test_expr_metadata_roundtrip_unknown_column():
+    meta = ExprMetadata(
+        kind=ExprKind.Expr,
+        schema_out=ibis.schema({"a": dt.int64, "b": dt.unknown}),
+    )
+    assert ExprMetadata.from_dict(meta.to_dict()) == meta

@@ -22,6 +22,10 @@
       "automerge": false
     },
     {
+      "matchPackageNames": ["ruff", "astral-sh/ruff-pre-commit"],
+      "groupName": "ruff"
+    },
+    {
       "matchManagers": ["pep621"],
       "matchPackageNames": "dask",
       "enabled": false

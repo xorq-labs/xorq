@@ -41,6 +41,18 @@ def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
 
 
 @pytest.fixture
+def attached_world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
+    """A table in a database attached to the connection the entry is built on."""
+    db_path = tmp_path / "other.sqlite"
+    SqliteBackend().connect(str(db_path)).create_table("t", TABLE.to_pandas())
+    con = SqliteBackend().connect(str(tmp_path / "main.sqlite"))
+    con.attach("other", db_path)
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    entry = catalog.add(con.table("t", database="other"))
+    return SimpleNamespace(db_path=db_path, catalog_path=catalog_path, name=entry.name)
+
+
+@pytest.fixture
 def connects(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Every `Profile.get_con` call the command makes."""
     calls = []
@@ -299,3 +311,22 @@ def test_a_recorded_uri_still_reaches_its_tables(tmp_path: Path) -> None:
     )
 
     assert open_con(profile, {}).list_tables() == ["t"]
+
+
+def test_an_attached_table_is_equal(
+    runner: CliRunner, attached_world: SimpleNamespace
+) -> None:
+    result = check_sources(runner, attached_world)
+    assert result.exit_code == 0
+    assert "equal" in result.output
+
+
+def test_a_deleted_attached_database_is_not_recreated(
+    runner: CliRunner, attached_world: SimpleNamespace
+) -> None:
+    attached_world.db_path.unlink()
+
+    result = check_sources(runner, attached_world)
+    assert result.exit_code == 2
+    assert "unreachable" in result.output
+    assert not attached_world.db_path.exists()

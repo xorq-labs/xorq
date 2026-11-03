@@ -441,3 +441,25 @@ def test_a_float16_parquet_column_is_not_drift(
     result = check_sources(runner, catalog_path, name)
     assert result.exit_code == 0
     assert "equal" in result.output
+
+
+def test_a_reader_kwarg_reaches_the_probe(
+    runner: CliRunner, tmp_path: Path, catalog_path: str
+) -> None:
+    """`recorded` was inferred with the read's own kwargs, so `live` is too.
+
+    A semicolon-delimited file records three columns. Probed with the default
+    comma reader it would read as one, and report `changed` for a file nobody
+    touched.
+    """
+    csv_path = tmp_path / "src.csv"
+    csv_path.write_text("a;b;c\n1;x;9\n2;y;8\n")
+    read = xo.deferred_read_csv(
+        csv_path, xo.duckdb.connect(), table_name="src", sep=";"
+    )
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    name = catalog.add(read.filter(read.b == "x"), relocate_reads=False).name
+
+    result = check_sources(runner, catalog_path, name)
+    assert result.exit_code == 0
+    assert "equal" in result.output

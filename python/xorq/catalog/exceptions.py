@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
+
+from xorq.catalog.enums import RebaseFailure
 from xorq.common.exceptions import XorqError
+
+
+if TYPE_CHECKING:
+    from xorq.catalog.drift import LeafReport
+    from xorq.catalog.inspection import BuildRecord
 
 
 class ContentIntegrityError(XorqError):
@@ -67,16 +76,69 @@ class WheelCollisionError(ValueError):
     """Raised when two entries carry same-named wheels that differ."""
 
 
-class RebaseError(XorqError):
-    """A rebase refused before writing anything; ``exit_code`` is the CLI's,
-    a ``RebaseExit``."""
+class RollbackError(XorqError):
+    """A write failed, and undoing it failed too: the message names what may be
+    left in the local catalog. Raised from the write's own error."""
 
-    def __init__(self, message: str, exit_code: int) -> None:
-        super().__init__(message, exit_code)
+
+class PythonMinorWarning(UserWarning):
+    """A rebase ran under another Python minor than its entry was built on, or
+    one the entry does not record, because ``--ignore-venv-mismatch`` said to:
+    its cloudpickled UDFs may not load."""
+
+
+class RenameWarning(UserWarning):
+    """A ``rebase --rename`` reads from a live column its source had recorded
+    too: from the schemas alone, a mistyped NEW can't be told apart from a
+    column dropped and replaced by the renamed one."""
+
+
+class RebaseOptionsError(ValueError):
+    """Rebase options that contradict each other, or one that would do nothing.
+
+    The CLI reports it as a usage error, before resolving the entry.
+    """
+
+
+class RebaseError(XorqError):
+    """A rebase refused before its own first write; ``failure`` says how, and
+    its exit code is the CLI's. One raised after the sweep carries the sweep's
+    ``record`` and ``reports``, so it reports the drift a conflict would. One
+    raised after a sync's pull leaves what the pull merged in place, unpushed."""
+
+    def __init__(
+        self,
+        message: str,
+        failure: RebaseFailure,
+        record: BuildRecord | None = None,
+        reports: Iterable[LeafReport] = (),
+    ) -> None:
+        # `FAILED` is any error that is not a refusal; a refusal names which.
+        if failure not in (RebaseFailure.REFUSED, RebaseFailure.UNREACHABLE):
+            raise ValueError(f"a rebase refuses or is unreachable, not {failure}")
+        super().__init__(message, RebaseFailure(failure), record, tuple(reports))
 
     def __str__(self) -> str:
         return self.args[0]
 
     @property
-    def exit_code(self) -> int:
+    def failure(self) -> RebaseFailure:
         return self.args[1]
+
+    @property
+    def record(self) -> BuildRecord | None:
+        return self.args[2]
+
+    @property
+    def reports(self) -> tuple[LeafReport, ...]:
+        return self.args[3]
+
+    @property
+    def exit_code(self) -> int:
+        return self.failure.exit_code
+
+    def after_sweep(
+        self, record: BuildRecord, reports: Iterable[LeafReport]
+    ) -> RebaseError:
+        """This refusal, carrying the sweep it came after."""
+        return type(self)(str(self), self.failure, record, reports)

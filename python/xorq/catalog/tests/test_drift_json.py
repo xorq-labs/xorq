@@ -28,7 +28,13 @@ from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog import drift
 from xorq.catalog.cli import cli
-from xorq.catalog.drift import drift_document, record_document, roll_up
+from xorq.catalog.drift import (
+    EntryReport,
+    drift_document,
+    iter_leaf_reports,
+    reports_document,
+    roll_up,
+)
 from xorq.catalog.enums import Verdict
 from xorq.catalog.inspection import BuildRecord
 from xorq.catalog.tests.conftest import RECORDED
@@ -275,7 +281,7 @@ def test_a_record_whose_leaves_will_not_extract_is_still_one_entry(
     `BuildRecord.from_catalog_entry`. This one leaves both members readable and
     breaks leaf extraction, which is a `cached_property`: unforced it would
     first run in `iter_leaf_reports`'s `for` header, outside the per-leaf
-    handler, and escape `record_document` and `drift_document` alike -- so the
+    handler, and escape `entry_document` and `drift_document` alike -- so the
     sweep would print no document at all, for this entry or any other. That
     forcing is the line `read_record` exists to own.
     """
@@ -574,7 +580,7 @@ def unchecked_record() -> BuildRecord:
 
 def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
     """An entry that exits 0 while a source went unprobed has to say which one."""
-    _, entry = record_document(unchecked_record())
+    _, entry = reports_document(unchecked_record(), ())
     assert entry["exit_code"] == 0
     assert entry["leaves"] == []
     assert entry["unchecked"] == [{"kind": "Read", "name": "/data/src.json"}]
@@ -583,9 +589,19 @@ def test_an_unchecked_leaf_is_named_rather_than_dropped() -> None:
 def test_an_entry_that_compared_nothing_reaches_no_verdict() -> None:
     """`equal` over zero comparisons is the strongest claim on the weakest
     evidence, and a consumer gating on it would go green having checked nothing."""
-    verdict, entry = record_document(unchecked_record())
+    verdict, entry = reports_document(unchecked_record(), ())
     assert verdict is None
     assert entry["state"] is None
+
+
+def test_an_entry_report_that_compared_nothing_reaches_no_verdict() -> None:
+    """`EntryReport` takes no reports for a record whose every source went
+    unprobed, reaches no verdict, and exits 0, as the document does."""
+    record = unchecked_record()
+    report = EntryReport("e", record, tuple(iter_leaf_reports(record)))
+    assert report.leaf_reports == ()
+    assert report.verdict is None
+    assert report.exit_code == reports_document(record, ())[1]["exit_code"] == 0
 
 
 @pytest.mark.parametrize(

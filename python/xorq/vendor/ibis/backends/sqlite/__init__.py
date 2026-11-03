@@ -40,6 +40,42 @@ def _init_sqlite3():
     sqlite3.register_adapter(pd.Timestamp, pd.Timestamp.isoformat)
 
 
+def _arrow_frame(table: pa.Table) -> pd.DataFrame:
+    """``table`` as a frame whose int columns with nulls hold Python ints.
+
+    A plain ``to_pandas()`` turns such a column into float64, which rounds every
+    value above 2**53.
+    """
+    return table.to_pandas(integer_object_nulls=True)
+
+
+# numpy dtype kinds whose columns already iterate as Python scalars sqlite3
+# binds, NaN included (stored as NULL)
+NATIVE_KINDS = frozenset("iufb")
+
+
+def _bindable_rows(df: pd.DataFrame) -> Iterator[tuple]:
+    """Rows of ``df`` as values sqlite3 binds: Python scalars, nulls as None.
+
+    numpy int, uint, float and bool columns pass through untouched. Every other
+    column is converted: extension dtypes (``Int64``, ``boolean``,
+    ``ArrowDtype``, ...) iterate as numpy scalars or ``pd.NA``, datetimes as
+    ``NaT``, and object columns can hold either; sqlite3 stores the first as a
+    blob and refuses the rest. ``pd.Timedelta`` and ``Decimal`` values have no
+    sqlite3 adapter and still fail to bind.
+    """
+    import numpy as np
+
+    return zip(
+        *(
+            column
+            if isinstance(column.dtype, np.dtype) and column.dtype.kind in NATIVE_KINDS
+            else column.astype(object).where(column.notna(), None)
+            for _, column in df.items()
+        )
+    )
+
+
 def _quote(name: str) -> str:
     return sg.to_identifier(name, quoted=True).sql("sqlite")
 
@@ -61,6 +97,7 @@ class Backend(SQLBackend, UrlFromPath):
         self,
         database: str | Path | None = None,
         type_map: dict[str, str | dt.DataType] | None = None,
+        attached: tuple[tuple[str, str], ...] = (),
         **kwargs: Any,
     ) -> None:
         """Create an Ibis client connected to a SQLite database.
@@ -77,6 +114,9 @@ class Backend(SQLBackend, UrlFromPath):
             An optional mapping from a string name of a SQLite "type" to the
             corresponding Ibis DataType that it represents. This can be used
             to override schema inference for a given SQLite database.
+        attached
+            `(name, path)` pairs to attach after connecting. `attach` records
+            each one here, so a connection rebuilt from the profile has them.
 
         Examples
         --------
@@ -95,6 +135,8 @@ class Backend(SQLBackend, UrlFromPath):
 
         self.uri = ":memory:" if database is None else database
         self.con = sqlite3.connect(self.uri, **kwargs)
+        for name, path in attached:
+            self._attach(name, path)
 
         self._post_connect(type_map)
 
@@ -363,9 +405,14 @@ class Backend(SQLBackend, UrlFromPath):
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         table = sg.table(op.name, quoted=self.compiler.quoted, catalog="temp")
         create_stmt = self._generate_create_table(table, op.schema).sql(self.name)
-        df = op.data.to_frame()
+        from xorq.vendor.ibis.formats.pyarrow import PyArrowTableProxy
 
-        data = df.itertuples(index=False)
+        match op.data:
+            case PyArrowTableProxy(obj=table):
+                frame = _arrow_frame(table)
+            case data:
+                frame = data.to_frame()
+        data = _bindable_rows(frame)
         insert_stmt = self._build_insert_template(
             op.name, schema=op.schema, catalog="temp", columns=True
         )
@@ -432,6 +479,14 @@ class Backend(SQLBackend, UrlFromPath):
         >>> con1.list_tables(database="new")
         []
         """
+        self._attach(name, path)
+        attached = tuple(
+            (dict(self._con_kwargs.get("attached", ())) | {name: str(path)}).items()
+        )
+        self._con_kwargs = self._con_kwargs | {"attached": attached}
+        self._profile = self._profile.clone(attached=attached)
+
+    def _attach(self, name: str, path: str | Path) -> None:
         with self.begin() as cur:
             cur.execute(f"ATTACH DATABASE {str(path)!r} AS {_quote(name)}")
 

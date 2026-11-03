@@ -4,7 +4,7 @@ import itertools
 from functools import cache, partial
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, TypeGuard
 
 import toolz
 
@@ -46,16 +46,48 @@ _ADBC_BACKENDS = frozenset(("sqlite", "postgres", "databricks", "redshift"))
 _PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
 
 
+def is_multi_read_path(path: object) -> TypeGuard[list | tuple]:
+    return isinstance(path, (list, tuple))
+
+
+def freeze_read_path(path: Any) -> Any:
+    # Read hashes its args, so a multi-path read must be a tuple, not a list;
+    # a one-element sequence is the single path it holds
+    if not is_multi_read_path(path):
+        return path
+    return path[0] if len(path) == 1 else tuple(path)
+
+
+def validate_relocatable_path(path: Any) -> None:
+    if is_multi_read_path(path) and len(path) > 1:
+        raise ValueError(f"relocatable=True needs a single path, got {len(path)} paths")
+
+
+def validate_backend_path(con: Backend, path: Any) -> None:
+    if is_multi_read_path(path) and not path:
+        raise ValueError("At least one path is required")
+    # a backend whose reader takes one path sets `reads_single_path = True`;
+    # unflagged backends get the sequence and fail at execution if they can't
+    if (
+        getattr(con, "reads_single_path", False)
+        and is_multi_read_path(path)
+        and len(path) > 1
+    ):
+        raise ValueError(
+            f"the {con.name} backend reads a single path, got {len(path)} paths"
+        )
+
+
 def make_read_kwargs(f, *args, **kwargs):
     # FIXME: if any kwarg is a dictionary, we'll fail Concrete's hashable requirement, so just pickle
     read_kwargs = get_arguments(f, *args, **kwargs)
     kwargs = read_kwargs.pop("kwargs", {})
     # Normalize backend-specific path parameter names to "hash_path" so that
     # Read nodes are portable across backends.
-    read_kwargs = {
-        ("hash_path" if k in _PATH_PARAM_NAMES else k): v
+    read_kwargs = dict(
+        ("hash_path", freeze_read_path(v)) if k in _PATH_PARAM_NAMES else (k, v)
         for k, v in read_kwargs.items()
-    }
+    )
     tpl = tuple(read_kwargs.items()) + tuple(kwargs.items())
     return tpl
 
@@ -92,6 +124,36 @@ def relocatable_read_path_str(path: str | Path) -> str:
     return "/".join(relocatable_read_path(path))
 
 
+def csv_inference_kwarg(key, value):
+    """``pd.read_csv``'s spelling of one backend ``read_csv`` kwarg, or nothing.
+
+    The delimiter is ``delim`` or ``sep`` on duckdb, ``delimiter`` on datafusion
+    and ``sep`` on pandas; the header is a boolean on duckdb (``header``) and
+    datafusion (``has_header``) where pandas takes the row index or ``None``;
+    ``names`` and ``encoding`` are spelt the same everywhere; the leading lines
+    to drop are ``skip`` on duckdb and ``skiprows`` on pandas, and the decimal
+    mark ``decimal_separator`` on duckdb and ``decimal`` on pandas.
+    Every other kwarg says where the rows land (``table_name``, ``mode``,
+    ``temporary``, ``ingest_kwargs``) or how the backend parses past the
+    columns, and stays with the backend.
+    """
+    match key, value:
+        case (("sep" | "delim" | "delimiter"), _):
+            return {"sep": value}
+        case (("header" | "has_header"), bool()):
+            return {"header": 0 if value else None}
+        case (("header" | "has_header"), _):
+            return {"header": value}
+        case (("skip" | "skiprows"), _):
+            return {"skiprows": value}
+        case (("decimal_separator" | "decimal"), _):
+            return {"decimal": value}
+        case (("names" | "encoding"), _):
+            return {key: value}
+        case _:
+            return {}
+
+
 @toolz.curry
 def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
     import pandas as pd  # noqa: PLC0415
@@ -103,6 +165,18 @@ def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
     batch = pa.RecordBatch.from_pandas(df, preserve_index=False)
     schema = ibis.Schema.from_pyarrow(batch.schema)
     return schema
+
+
+def infer_csv_schema(path, **read_kwargs):
+    """The inference ``deferred_read_csv`` records for a csv file.
+
+    pandas', reading the file with the reader options among the bound backend's
+    ``read_csv`` kwargs, in pandas' spelling (`csv_inference_kwarg`), so the
+    inferred columns are the ones the backend will read.
+    """
+    return infer_csv_schema_pandas(
+        path, **toolz.merge(itertools.starmap(csv_inference_kwarg, read_kwargs.items()))
+    )
 
 
 @cache
@@ -118,13 +192,15 @@ def parquet_inference_con():
     return connect()
 
 
-def infer_parquet_schema_datafusion(path):
+def infer_parquet_schema_datafusion(path, **read_kwargs):
     """The inference ``deferred_read_parquet`` records for a parquet file.
 
     Always datafusion's, whatever backend the read is bound to: a parquet file
     carries its own schema, but the arrow type each engine maps a given logical
     type onto is not the same everywhere, so the recorded schema is pinned to
-    one engine and re-read with that same one.
+    one engine and re-read with that same one. The file's own schema is also
+    why ``read_kwargs`` is accepted and unread: no reader option changes it,
+    and the drift probe hands every inference the read's kwargs the same way.
 
     The session is shared, so the registration is not: a generated name keeps
     two concurrent inferences from reading each other's file, and dropping it
@@ -149,7 +225,7 @@ def infer_parquet_schema_datafusion(path):
 # make impossible.
 DEFAULT_READ_INFERENCE = MappingProxyType(
     {
-        "read_csv": infer_csv_schema_pandas,
+        "read_csv": infer_csv_schema,
         "read_parquet": infer_parquet_schema_datafusion,
     }
 )
@@ -213,7 +289,7 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
 
 
 def deferred_read_csv(
-    path: str | Path,
+    path: str | Path | list[str | Path] | tuple[str | Path, ...],
     con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
@@ -234,7 +310,7 @@ def deferred_read_csv(
 
     Parameters
     ----------
-    path : str or Path
+    path : str, Path, or list or tuple of str or Path
         The path to the CSV file to be read. This can be a local file path or a URL.
 
     con : Backend, optional
@@ -256,7 +332,8 @@ def deferred_read_csv(
 
     kwargs : Any
         Additional keyword arguments that will be passed to the backend's read_csv
-        method.
+        method. The schema inference reads the file with the delimiter and
+        header among them, in the backend's own spelling.
 
     Returns
     -------
@@ -265,10 +342,17 @@ def deferred_read_csv(
     """
 
     method_name = "read_csv"
-    infer_schema = kwargs.pop("infer_schema", DEFAULT_READ_INFERENCE[method_name])
+    # a custom inference reads the file its own way and is handed the path alone;
+    # the default reads it with the reader kwargs the backend will
+    infer_schema = kwargs.pop("infer_schema", None) or partial(
+        DEFAULT_READ_INFERENCE[method_name], **kwargs
+    )
 
     if con is None:
         con = default_backend()
+    validate_backend_path(con, path)
+    if relocatable:
+        validate_relocatable_path(path)
 
     method = getattr(con, method_name)
 
@@ -304,7 +388,7 @@ def deferred_read_csv(
 
 
 def deferred_read_parquet(
-    path: str | Path,
+    path: str | Path | list[str | Path] | tuple[str | Path, ...],
     con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
@@ -321,7 +405,7 @@ def deferred_read_parquet(
 
     Parameters
     ----------
-    path : str or Path
+    path : str, Path, or list or tuple of str or Path
         The path to the Parquet file or directory to be read.
 
     con : Backend, optional
@@ -350,6 +434,9 @@ def deferred_read_parquet(
     method_name = "read_parquet"
     if con is None:
         con = default_backend()
+    validate_backend_path(con, path)
+    if relocatable:
+        validate_relocatable_path(path)
     method = getattr(con, method_name)
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")

@@ -54,6 +54,10 @@ def wrapped_do_connect(self, create_object_udfs: bool = None, **kwargs: Any) -> 
 
 
 class Backend(IbisSnowflakeBackend):
+    # deferred_read_* rejects a list/tuple of paths up front: the readers
+    # take a single path
+    reads_single_path = True
+
     _top_level_methods = (
         "connect_env",
         "connect_env_mfa",

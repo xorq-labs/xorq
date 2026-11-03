@@ -2,14 +2,16 @@
 # Release Flow steps 1-6 (CONTRIBUTING.md): from a clean, up-to-date `main` to a
 # release commit on `release-$version_number`. Run by hand; it never pushes.
 #
-# Usage: scripts/release.sh <major|minor|patch>
+# Usage: scripts/release.sh [--no-pause] <major|minor|patch>
+#
+# --no-pause commits without waiting for hand-written CHANGELOG.md notes; add them later with git commit --amend.
 #
 # git-cliff asks the GitHub API for PR links and contributor attribution; unauthenticated calls are rate-limited (60/hour):
 #   export GITHUB_TOKEN=$(gh auth token)
 set -euo pipefail
 
 usage() {
-    echo "usage: scripts/release.sh <major|minor|patch>" >&2
+    echo "usage: scripts/release.sh [--no-pause] <major|minor|patch>" >&2
 }
 
 die() {
@@ -27,7 +29,20 @@ step() {
 
 # ---------------------------------------------------------------- preflight --
 
-bump_type="${1-}"
+pause=true
+bump_type=
+for arg in "$@"; do
+    case "$arg" in
+        --no-pause) pause=false ;;
+        *)
+            [ -z "$bump_type" ] || {
+                usage
+                die "too many arguments"
+            }
+            bump_type=$arg
+            ;;
+    esac
+done
 case "$bump_type" in
     major | minor | patch) ;;
     "")
@@ -103,6 +118,24 @@ if [ -z "${GITHUB_TOKEN-}" ]; then
     warn "Ctrl-C now and 'export GITHUB_TOKEN=\$(gh auth token)', or continue without."
 fi
 
+# A "!" title is how a PR declares a breaking change, and the squash commit keeps it; the pattern is release-drafter's breaking rule (.github/release-drafter.yml).
+# Release tags are exactly vX.Y.Z; skip local-only ones such as v0.1.2.post or archive and backup tags.
+last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude 'v*[!0-9.]*' --exclude 'v*.*.*.*' HEAD) \
+    || die "no v* tag reachable from main; cannot list the commits this release ships"
+breaking=$(git log --format='%h %s' "$last_tag..HEAD" | grep -E '^[0-9a-f]+ [[:alnum:]_]+(\([^)]*\))?!:' || true)
+if [ -n "$breaking" ] && [ "$bump_type" = patch ]; then
+    warn "commits since $last_tag declare a breaking change; step 2 of the Release Flow (CONTRIBUTING.md) asks for a minor bump:
+$breaking"
+    [ "$pause" = true ] \
+        || die "nothing changed; rerun with minor, or without --no-pause to confirm patch"
+    printf 'Release a patch anyway? [y/N] '
+    read -r answer || die "stdin closed before an answer; nothing changed"
+    case "$answer" in
+        y | Y | yes) ;;
+        *) die "nothing changed; rerun with minor" ;;
+    esac
+fi
+
 next_version=$(uv --color never version --bump "$bump_type" --dry-run --short)
 [ -n "$next_version" ] || die "uv version --bump $bump_type --dry-run printed no version"
 branch="release-$next_version"
@@ -135,8 +168,10 @@ grep -q "^## \[$version_number\]" CHANGELOG.md \
 
 echo
 echo "CHANGELOG.md now has the [$version_number] section under the Unreleased placeholder."
-printf 'Add any judgement-only notes (blog links, etc.) to CHANGELOG.md, then press Enter to commit: '
-read -r _ || die "stdin closed before Enter; nothing committed. Branch $branch holds the bump and changelog."
+if [ "$pause" = true ]; then
+    printf 'Add any judgement-only notes (blog links, etc.) to CHANGELOG.md, then press Enter to commit: '
+    read -r _ || die "stdin closed before Enter; nothing committed. Branch $branch holds the bump and changelog; commit by hand (step 6), or 'git switch --discard-changes main && git branch -D $branch' and rerun with --no-pause."
+fi
 
 step "git add --update && git commit -m \"release: $version_number\""
 git add --update
@@ -150,11 +185,16 @@ Inspect it (git show --stat), then push:
 
     git push --set-upstream origin $branch
 
-Remaining manual steps (CONTRIBUTING.md, Release Flow):
+Remaining manual steps (CONTRIBUTING.md, Release Flow, steps 8-14):
   - open a PR for $branch
-  - run ci-pre-release from $branch (Actions tab: Run workflow -> Branch $branch) and wait for it to pass
-  - "Squash and merge" the PR
-  - tag main and push that tag alone:
+  - the push starts ci-pre-release; once its precheck passes, approve the pre-release deployment
+  - if main moved since the branch was cut, rebase and redo the CHANGELOG (step 11)
+  - "Squash and merge" the PR: a maintainer on main's bypass list runs gh pr merge --squash --admin; anyone else needs an approving review
+  - check that origin/main is the release commit, then tag it and push that tag alone (step 12):
         git fetch origin && git tag v$version_number origin/main && git push origin v$version_number
-  - publish the GitHub release at v$version_number to trigger the publishing workflow
+  - review the release-drafter draft's notes at https://github.com/xorq-labs/xorq/releases, dropping any PR merged after the release PR, then publish it (this uploads to PyPI):
+        draft=\$(gh api 'repos/xorq-labs/xorq/releases?per_page=100' --jq '[.[] | select(.draft and .name == "xorq unreleased") | .tag_name] | if length == 1 then .[0] else error("expected one draft named xorq unreleased, found \\(length)") end') \\
+          && gh release edit "\$draft" -R xorq-labs/xorq --tag "v$version_number" --title "v$version_number" --verify-tag --draft=false --latest
+  - once ci-release passes, install it from PyPI:
+        uv run --no-project --refresh-package xorq --with xorq==$version_number python -c 'import xorq; print(xorq.__version__)'
 MSG

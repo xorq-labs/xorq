@@ -342,13 +342,12 @@ class MetricComputation:
 
     @property
     def __name__(self) -> str:
-        """Name the metric function, for naming the generated UDF node type.
+        """Name the metric function after the wrapped metric callable.
 
-        Required, not cosmetic: ``agg.pandas_df`` reads ``fn.__name__``
-        unconditionally to name the node class it builds
-        (``xorq/expr/udf.py``, ``_make_udf_name(fn.__name__)``). Deleting this
-        property raises ``AttributeError`` there -- the ``name=`` argument
-        ``on_expr`` passes covers only the UDF name, not the class name.
+        ``agg.pandas_df`` names its node class from ``name=`` and falls back to
+        ``fn.__name__`` only when ``name`` is omitted. ``on_expr`` always
+        passes the stable ``self.name``, so the node class, and with it the
+        default output column name, never carries a per-process counter.
 
         Deliberately no matching ``__module__`` property: ``type.__module__``
         reads ``cls.__dict__["__module__"]`` raw, so a property there leaks out

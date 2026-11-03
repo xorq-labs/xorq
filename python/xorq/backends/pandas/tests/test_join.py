@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import Counter
+from types import MappingProxyType
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -692,3 +695,73 @@ def test_self_join_through_view(left, df1):
         }
     )
     assert_frame_equal(result, expected)
+
+
+def test_join_does_not_match_null_keys():
+    # verbatim from the issue report
+    a = xo.memtable(pd.DataFrame({"a_pub": pd.Series([None, 1], dtype="Int64")}))
+    b = xo.memtable(pd.DataFrame({"e_pub": pd.Series([None, 1], dtype="Int64")}))
+    expr = a.join(b, a.a_pub == b.e_pub)
+    assert len(xo.pandas.connect().execute(expr)) == 1
+
+
+KEY_DTYPES = MappingProxyType(
+    {
+        "Int64": lambda values: pd.Series(values, dtype="Int64"),
+        "float64": lambda values: pd.Series(values, dtype="float64"),
+        "object": lambda values: pd.Series(
+            [None if v is None else str(v) for v in values], dtype=object
+        ),
+    }
+)
+
+
+def null_keys_tables(dtype):
+    key = KEY_DTYPES[dtype]
+    left = xo.memtable(
+        pd.DataFrame(
+            {
+                "a_k1": key([None, 1, 1, 2, None, 2]),
+                "a_k2": key([1, None, 1, 2, None, 1]),
+                "a_v": [10, 11, 12, 13, 14, 15],
+            }
+        )
+    )
+    right = xo.memtable(
+        pd.DataFrame(
+            {
+                "b_k1": key([None, 1, 1, 3, None, 2]),
+                "b_k2": key([1, None, 1, 3, None, 0]),
+                "b_v": [20, 21, 22, 23, 24, 25],
+            }
+        )
+    )
+    return left, right
+
+
+@pytest.mark.parametrize("dtype", KEY_DTYPES)
+@pytest.mark.parametrize("how", ["inner", "left", "right", "outer", "semi", "anti"])
+@pytest.mark.parametrize(
+    "predicates",
+    [
+        pytest.param(lambda a, b: [a.a_k1 == b.b_k1], id="single"),
+        pytest.param(lambda a, b: [a.a_k1 == b.b_k1, a.a_k2 == b.b_k2], id="multi"),
+        pytest.param(
+            lambda a, b: [a.a_k1.coalesce(a.a_k2) == b.b_k1.coalesce(b.b_k2)],
+            id="expression",
+        ),
+    ],
+)
+def test_join_null_keys_match_datafusion(dtype, how, predicates):
+    a, b = null_keys_tables(dtype)
+    expr = a.join(b, predicates(a, b), how=how)
+
+    def rows(con):
+        df = con.execute(expr)
+        # a multiset of rows: 1 == 1.0 across backends, None sorts nowhere
+        return Counter(
+            tuple(None if pd.isna(v) else v for v in row)
+            for row in df.itertuples(index=False)
+        )
+
+    assert rows(xo.pandas.connect()) == rows(xo.connect())

@@ -1,3 +1,4 @@
+import functools
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
@@ -10,7 +11,7 @@ from pyiceberg.table import Table as IcebergTable
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.postgres.compiler import compiler as postgres_compiler
 from xorq.backends.pyiceberg.compiler import PyIceberg, translate
-from xorq.backends.pyiceberg.relations import PyIcebergTable
+from xorq.expr.relations import PyIcebergTable
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
@@ -65,6 +66,7 @@ class Backend(SQLBackend):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.catalog = None
+        self._load_catalog = None
         self.namespace = "default"
         self.warehouse_path = None
         self.catalog_params = None
@@ -99,7 +101,11 @@ class Backend(SQLBackend):
             "warehouse": f"file://{self.warehouse_path}",
         }
 
-        self.catalog = load_catalog(catalog_name, **self.catalog_params)
+        # one catalog per name for the life of the connection
+        self._load_catalog = functools.cache(
+            functools.partial(load_catalog, **self.catalog_params)
+        )
+        self.catalog = self._load_catalog(catalog_name)
 
         if self.namespace not in [n[0] for n in self.catalog.list_namespaces()]:
             self.catalog.create_namespace(self.namespace)
@@ -109,9 +115,11 @@ class Backend(SQLBackend):
         name: str,
         schema: str | None = None,
         database: tuple[str, str] | str | None = None,
-        snapshot_id: str | None = None,
+        snapshot_id: int | None = None,
     ) -> ir.Table:
-        table_schema = self.get_schema(name, catalog=schema, database=database)
+        table_schema = self.get_schema(
+            name, catalog=schema, database=database, snapshot_id=snapshot_id
+        )
 
         return PyIcebergTable(
             name=name,
@@ -243,7 +251,7 @@ class Backend(SQLBackend):
         chunk_size: int = 10_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
-        query = translate(expr.op(), namespace=self.namespace, catalog=self.catalog)
+        query = translate(expr.op())
         return query.to_arrow_batch_reader()
 
     def list_tables(
@@ -273,22 +281,29 @@ class Backend(SQLBackend):
         if self.catalog.table_exists(full_table_name):
             self.catalog.drop_table(full_table_name)
 
+    def load_iceberg_table(
+        self,
+        name: str,
+        *,
+        catalog: Optional[str] = None,
+        database: Optional[str] = None,
+    ) -> IcebergTable:
+        ice_catalog = self.catalog if catalog is None else self._load_catalog(catalog)
+        return ice_catalog.load_table(f"{database or self.namespace}.{name}")
+
     def get_schema(
         self,
         table_name: str,
         *,
         catalog: Optional[str] = None,
         database: Optional[str] = None,
+        snapshot_id: Optional[int] = None,
     ) -> sch.Schema:
-        database = database or self.namespace
-        catalog = (
-            self.catalog
-            if catalog is None
-            else load_catalog(catalog, **self.catalog_params)
-        )
-
-        table = catalog.load_table(f"{database}.{table_name}")
-        return sch.Schema.from_pyarrow(table.schema().as_arrow())
+        table = self.load_iceberg_table(table_name, catalog=catalog, database=database)
+        # A scan's projection is the schema its snapshot was written with, which
+        # is what a pinned scan returns; unpinned, it is the current schema.
+        projection = table.scan(snapshot_id=snapshot_id).projection()
+        return sch.Schema.from_pyarrow(projection.as_arrow())
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         raise NotImplementedError("_get_schema_using_query")
@@ -422,6 +437,16 @@ class Backend(SQLBackend):
         if data_files:
             self.catalog.load_table(full_final).add_files(data_files)
         self.drop_table(staging)
+
+    def has_snapshot(
+        self, name: str, snapshot_id: int, database: Optional[str] = None
+    ) -> bool:
+        """Whether table ``name`` still lists ``snapshot_id``; an expired one is gone.
+
+        Loads only ``name``, resolving ``database`` as ``table`` does.
+        """
+        table = self.load_iceberg_table(name, database=database)
+        return table.snapshot_by_id(snapshot_id) is not None
 
     def list_snapshots(self, database: Optional[str] = None) -> dict[str, int]:
         database = database or self.namespace

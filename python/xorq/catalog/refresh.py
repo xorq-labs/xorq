@@ -7,8 +7,10 @@ is kept as recorded.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import xorq.vendor.ibis.expr.operations as ops
@@ -19,7 +21,7 @@ from xorq.catalog.drift import (
     make_profile,
     unchecked_leaves,
 )
-from xorq.catalog.enums import LeafKind, Verdict
+from xorq.catalog.enums import LeafKind, RebaseTag, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf, join_read_path
 from xorq.common.exceptions import (
     InternalError,
@@ -28,11 +30,12 @@ from xorq.common.exceptions import (
     XorqError,
 )
 from xorq.common.utils.graph_utils import (
-    OPAQUE_SPECS,
     _opaque_lookup,
-    _require_expr_args_recorded,
-    _require_registered_if_expr_bearing,
+    opaque_ops,
+    recreate_opaque,
+    replace_nodes,
     to_node,
+    walk_nodes,
 )
 from xorq.common.utils.node_utils import recreate, update_read_kwargs
 from xorq.expr.relations import (
@@ -40,16 +43,20 @@ from xorq.expr.relations import (
     CacheTag,
     FlightExpr,
     FlightUDXF,
+    HashingTag,
+    PyIcebergTable,
     Read,
     RemoteTable,
     Tag,
     TeeNode,
+    snapshot_pin,
 )
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.graph import Node
 from xorq.vendor.ibis.expr.schema import Schema
+from xorq.vendor.ibis.expr.types import Expr
 
 
 # Ops storing a schema their parent determines -> the parent field.
@@ -60,6 +67,18 @@ SCHEMA_FOLLOWS_PARENT = {
     Tag: "parent",
 }
 
+# (kind, name, snapshot_id, schema): a source's identity without its profile.
+SourceIdentity = tuple[str, str, int | None, Schema]
+# (kind, profile content hash, name, snapshot_id, schema).
+LeafKey = tuple[str, str | None, str, int | None, Schema]
+
+# Exact source op class -> the `op` name it serializes as in expr.yaml.
+SOURCE_LEAF_KINDS: dict[type[Node], LeafKind] = {
+    ops.DatabaseTable: LeafKind.DATABASE_TABLE,
+    PyIcebergTable: LeafKind.DATABASE_TABLE,
+    Read: LeafKind.READ,
+}
+
 
 def leaf_profile_key(leaf: SourceLeaf, record: BuildRecord) -> str | None:
     """The content hash of the profile ``leaf`` records, or ``None`` if none."""
@@ -67,26 +86,28 @@ def leaf_profile_key(leaf: SourceLeaf, record: BuildRecord) -> str | None:
     return None if profile_dict is None else make_profile(profile_dict).content_hash
 
 
-def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> tuple:
+def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> LeafKey:
     """``leaf``'s identity, matched against ``op_key``.
 
     Profile content hash, not backend name, so one table name on two
-    connections is two sources.
+    connections is two sources; the snapshot pin, so a pinned and a current
+    read of one table are two sources whose live schemas may differ.
     """
     return (
         str(leaf.kind),
         leaf_profile_key(leaf, record),
         leaf.name,
+        leaf.snapshot_id,
         leaf.recorded,
     )
 
 
-def source_identity(node: Node) -> tuple | None:
+def source_identity(node: Node) -> SourceIdentity | None:
     """``op_key`` minus the profile; never touches ``node.source``.
 
-    Exact type name: ``CachedNode``/``RemoteTable`` subclass ``DatabaseTable``.
+    Exact class: ``CachedNode``/``RemoteTable`` subclass ``DatabaseTable``.
     """
-    match type(node).__name__:
+    match kind := SOURCE_LEAF_KINDS.get(type(node)):
         case LeafKind.DATABASE_TABLE:
             name = node.to_expr().get_name()
         case LeafKind.READ:
@@ -95,20 +116,20 @@ def source_identity(node: Node) -> tuple | None:
             name = join_read_path(path)
         case _:
             return None
-    return (type(node).__name__, name, node.schema)
+    return (kind, name, snapshot_pin(node), node.schema)
 
 
-def op_key(node: Node) -> tuple | None:
+def op_key(node: Node) -> LeafKey | None:
     """``node``'s ``leaf_key``, or ``None`` when it is not a source.
 
     Profile name carries a session-local index; content hash does not.
     """
     if (identity := source_identity(node)) is None:
         return None
-    (kind, name, schema) = identity
+    (kind, name, snapshot_id, schema) = identity
     profile = Profile.from_con(node.source)
     profile_key = None if profile is None else profile.content_hash
-    return (kind, profile_key, name, schema)
+    return (kind, profile_key, name, snapshot_id, schema)
 
 
 def with_live_schema(node: Node, schema: Schema) -> Node:
@@ -200,7 +221,17 @@ def recreate_over(node: Node, overrides: dict) -> Node:
     if (attr := _opaque_lookup(node, SCHEMA_FOLLOWS_PARENT)) is not None:
         parent = overrides.get(attr, getattr(node, attr))
         overrides = overrides | {"schema": to_node(parent).schema}
-    return recreate(node, **revalidate_flight(node, overrides))
+    return recreate_opaque(node, revalidate_flight(node, overrides))
+
+
+def recreate_changed(node: Node, kwargs: dict) -> Node:
+    """``node`` over the inputs ``replace_nodes`` rewrote; ``node`` if none moved."""
+    changed = {
+        name: value
+        for name, value in kwargs.items()
+        if not (isinstance(value, Expr) and value.op() is to_node(getattr(node, name)))
+    }
+    return rebuild(node, lambda: recreate_over(node, changed)) if changed else node
 
 
 def refuse(
@@ -216,69 +247,285 @@ def refuse(
     raise error_type(op_name, LookupError(separator.join(details)))
 
 
-def refresh_schemas(expr: Any, live: Mapping[tuple, Schema]) -> Any:
+def with_renames(node: Node, renames: Mapping[str, str]) -> Node:
+    """``node`` under a marked rename that gives each live column its
+    expression name; ``node`` itself when there is none.
+
+    ``renames`` maps expression name -> live name, as ``Table.rename`` takes
+    it; a name kept as itself still counts toward a live column's names. The
+    rename is a Project listing every column of ``node``, so the
+    ``RebaseTag.RENAME`` mark above it holds the mapping: a later refresh
+    rebuilds the rename from it instead of recreating a stale column list.
+    """
+    # `Table.rename` over a live column no rename moves away would keep that
+    # column and silently drop the renamed one: refuse it. A chain or swap
+    # (`a <- x, b <- a`) moves it, and is fine. One live column under two
+    # names is refused too, where `Table.rename` raises a bare `ValueError`.
+    moved = Counter(renames.values())
+    if offenders := [
+        (
+            type(node).__name__,
+            f"{name!r} is still a live column, and no rename moves it away",
+        )
+        for name in renames
+        if name in node.schema and name not in moved
+    ] + [
+        (type(node).__name__, f"{column!r} is renamed to more than one name")
+        for column, count in moved.items()
+        if count > 1
+    ]:
+        refuse(offenders)
+    if not (
+        renames := {name: column for name, column in renames.items() if name != column}
+    ):
+        return node
+    renamed = node.to_expr().rename(renames)
+    marked = renamed.hashing_tag(
+        RebaseTag.RENAME, renames=tuple(sorted(renames.items()))
+    )
+    return to_node(marked)
+
+
+def marked_renames(node: Node) -> dict[str, str] | None:
+    """The mapping a ``with_renames`` mark holds, or ``None`` if ``node`` isn't one."""
+    if isinstance(node, HashingTag) and node.tag == RebaseTag.RENAME:
+        return dict(node.metadata["renames"])
+    return None
+
+
+def kept_and_composed(
+    held: Mapping[str, str], declared: Mapping[str, str], live: set[str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """The held names ``compose_renames`` keeps, and the composition,
+    identities included, before it checks either."""
+    # A declared rename this binding already holds (another binding's `old`
+    # recorded under the name this mark gives it) consumes nothing here.
+    consumed = {new for old, new in declared.items() if held.get(old) != new}
+    kept = {
+        name: column
+        for name, column in held.items()
+        # Moved onward by `declared`, or still live and fed to no other name.
+        if column in declared or (column in live and column not in consumed)
+    }
+    composed = {name: declared.get(column, column) for name, column in kept.items()}
+    covered = set(held.values())
+    composed |= {
+        old: new
+        for old, new in declared.items()
+        # A held name is this binding's own: another binding's column of the
+        # same name, renamed, doesn't rebind it.
+        if old not in covered and old not in held
+    }
+    return kept, composed
+
+
+def skipped_onto_exposed(
+    held: Mapping[str, str],
+    declared: Mapping[str, str],
+    exposed: Iterable[str],
+    renamed: Mapping[str, str],
+) -> list[tuple[str, str]]:
+    """Each declared ``(old, new)`` this binding skips, because it holds
+    ``old``, while it still reads ``new`` as its own column."""
+    (covered, exposed) = (set(held.values()), set(exposed))
+    return [
+        (old, new)
+        for old, new in declared.items()
+        if old in held and old not in covered and new in exposed and new not in renamed
+    ]
+
+
+def ambiguity(old: str, new: str, column: str) -> str:
+    return (
+        f"{new!r} is declared as {old!r}'s live column, but this binding "
+        f"holds {old!r} from {column!r} and reads {new!r} as its own"
+    )
+
+
+def compose_renames(
+    held: Mapping[str, str],
+    declared: Mapping[str, str],
+    live: Iterable[str],
+    exposed: Iterable[str] = (),
+) -> dict[str, str]:
+    """``held`` (expression name -> recorded column), then ``declared``
+    (recorded column -> live column): expression name -> live column.
+
+    ``declared`` names only source columns, as ``check-sources`` prints them;
+    one ``held`` doesn't cover keeps its name in the expression. A held name
+    whose column is gone, or now feeds a declared rename, is retired, as a
+    bare source's column would be: an op over it is what conflicts. Refused
+    when a live column of the same name, renamed nowhere, would take its
+    place: every op over the name would silently read that column instead.
+
+    ``exposed`` are the names the binding's ops see. A declared rename this
+    binding skips, because it holds that name, is refused when the binding
+    still exposes the declared live column under its own name: the user said
+    that column is another binding's ``old`` now, so the ops reading it here
+    would silently read that.
+    """
+    live = set(live)
+    (kept, composed) = kept_and_composed(held, declared, live)
+    # A name kept as itself stays in what is returned: `with_renames` counts it.
+    renamed = {name: column for name, column in composed.items() if name != column}
+    if ambiguous := skipped_onto_exposed(held, declared, exposed, renamed):
+        refuse(
+            (HashingTag.__name__, ambiguity(old, new, held[old]))
+            for old, new in ambiguous
+        )
+    taken = set(renamed) | set(renamed.values())
+    if clashes := [
+        name for name in held if name not in kept and name in live and name not in taken
+    ]:
+        refuse(
+            (
+                HashingTag.__name__,
+                f"{name!r} was renamed from {held[name]!r}, which is gone or "
+                f"renamed; the live column {name!r} would take its place",
+            )
+            for name in clashes
+        )
+    return composed
+
+
+def marked_projects(expr: Any) -> frozenset[Node]:
+    """The rename under each ``with_renames`` mark over a source, opaque
+    sub-expressions included."""
+    return frozenset(
+        mark.parent
+        for mark in walk_nodes(HashingTag, expr)
+        if marked_renames(mark) is not None
+        and isinstance(mark.parent, ops.Project)
+        and source_identity(mark.parent.parent) is not None
+    )
+
+
+def ambiguous_renames(
+    expr: Any,
+    live: Mapping[LeafKey, Schema],
+    renames: Mapping[LeafKey, Mapping[str, str]],
+) -> tuple[str, ...]:
+    """Why each declared rename a marked binding of ``expr`` would skip, while
+    it reads the declared live column as its own, is ambiguous: what
+    ``compose_renames`` refuses, for a caller to refuse as a bad rename before
+    ``refresh_schemas``."""
+    # Screen before `op_key`: resolving a profile connects a lazy backend.
+    candidates = {
+        (kind, name, snapshot_id, schema)
+        for (kind, _, name, snapshot_id, schema) in renames
+    }
+    details = []
+    for mark in walk_nodes(HashingTag, expr):
+        if (held := marked_renames(mark)) is None or not isinstance(
+            mark.parent, ops.Project
+        ):
+            continue
+        source = mark.parent.parent
+        if source_identity(source) not in candidates:
+            continue
+        if (key := op_key(source)) not in renames or key not in live:
+            continue
+        declared = renames[key]
+        (_, composed) = kept_and_composed(held, declared, set(live[key]))
+        renamed = {name: column for name, column in composed.items() if name != column}
+        details += [
+            f"{key[2]}: {ambiguity(old, new, held[old])}"
+            for old, new in skipped_onto_exposed(
+                held, declared, mark.schema.names, renamed
+            )
+        ]
+    return tuple(dict.fromkeys(details))
+
+
+def refresh_schemas(
+    expr: Any,
+    live: Mapping[LeafKey, Schema],
+    renames: Mapping[LeafKey, Mapping[str, str]] = MappingProxyType({}),
+) -> Any:
     """``expr`` rebuilt over ``live`` (``leaf_key`` -> live schema).
 
-    Raises if a key matches no source: that source would stay stale silently.
+    ``renames`` (``leaf_key`` -> recorded name -> live name) puts a marked
+    rename above a refreshed source, so every op over it still sees its
+    recorded names. A source already under a mark gets that rename rebuilt
+    over its live columns, composed with any new ``renames``. Raises if a key
+    matches no source, or is renamed but not refreshed: that source would
+    stay stale silently.
     """
+    if stray := [key for key in renames if key not in live]:
+        refuse(
+            (
+                (kind, f"{name} is renamed but not refreshed")
+                for (kind, _, name, _, _) in stray
+            ),
+            error_type=UnmatchedSourceError,
+        )
     if not live:
         return expr
-    memo: dict[Node, Node] = {}
-    matched: set[tuple] = set()
+    matched: set[LeafKey] = set()
     # Screen before `op_key`: resolving a profile connects a lazy backend.
-    candidates = {(kind, name, schema) for (kind, _, name, schema) in live}
+    candidates = {
+        (kind, name, snapshot_id, schema)
+        for (kind, _, name, snapshot_id, schema) in live
+    }
+    # Recreated bottom-up, the rename under a mark would keep its stale column
+    # list over the refreshed source: the walk stops there, and the mark
+    # rebuilds it from the mapping it holds.
+    projects = marked_projects(expr)
 
-    def rewrite(node: Node) -> Node:
-        if node not in memo:
-            memo[node] = node.replace(replacer)
-        return memo[node]
+    def refreshed_key(node: Node) -> LeafKey | None:
+        if source_identity(node) in candidates and (key := op_key(node)) in live:
+            return key
+        return None
 
     def replacer(node: Node, kwargs: dict | None) -> Node:
-        if isinstance(node, CacheTag):
-            return node
-        if source_identity(node) in candidates and (key := op_key(node)) in live:
-            matched.add(key)
-            return rebuild(node, lambda: with_live_schema(node, live[key]))
-        overrides = dict(kwargs or {})
-        rebound = node
-        # `replace_nodes`'s tripwires: an unregistered Expr field would be
-        # skipped here and keep its stale schema silently.
-        if (spec := _opaque_lookup(node, OPAQUE_SPECS)) is None:
-            _require_registered_if_expr_bearing(node)
+        # A mark over a source stands for it, with the rename it holds.
+        if (held := marked_renames(node)) is not None and node.parent in projects:
+            source = node.parent.parent
         else:
-            _require_expr_args_recorded(node)
-            for edge in spec.descend_edges:
-                sub = to_node(getattr(node, edge))
-                if (new := rewrite(sub)) is sub:
-                    continue
-                if spec.rebind is not None:
-                    rebound = rebuild(node, lambda: spec.rebind(node, new.to_expr()))
-                else:
-                    as_node = isinstance(getattr(node, edge), Node)
-                    overrides[edge] = new if as_node else new.to_expr()
-        if not overrides and rebound is node:
+            (source, held) = (node, {})
+        if (key := refreshed_key(source)) is not None:
+            matched.add(key)
+            composed = compose_renames(
+                held, renames.get(key, {}), live[key], exposed=node.schema.names
+            )
+            return rebuild(
+                node,
+                lambda: with_renames(with_live_schema(source, live[key]), composed),
+            )
+        # A mark over an unchanged source has no rewritten edge, so it stands as
+        # recorded. An opaque op is rebuilt by `recreate_changed`, over its
+        # rewritten edges.
+        if kwargs is None or isinstance(node, opaque_ops):
             return node
-        return rebuild(node, lambda: recreate_over(rebound, overrides))
+        return rebuild(node, lambda: recreate_over(node, kwargs))
 
-    refreshed = rewrite(to_node(expr)).to_expr()
+    refreshed = replace_nodes(
+        replacer,
+        expr,
+        recreate=recreate_changed,
+        stop=lambda node: isinstance(node, CacheTag),
+        filter=(lambda node: node not in projects) if projects else None,
+    ).to_expr()
     if unmatched := [key for key in live if key not in matched]:
         refuse(
             (
                 (kind, f"{name} matched no source of the loaded expression")
-                for (kind, _, name, _) in unmatched
+                for (kind, _, name, _, _) in unmatched
             ),
             error_type=UnmatchedSourceError,
         )
     return refreshed
 
 
-def live_schemas(record: BuildRecord, reports: Iterable[LeafReport]) -> dict:
+def live_schemas(
+    record: BuildRecord, reports: Iterable[LeafReport]
+) -> dict[LeafKey, Schema]:
     """The ``refresh_schemas`` mapping for the changed leaves in ``reports``.
 
     Raises, naming every offender, on an uncomparable source or on a key seen
     at two schemas (two reads of one path with different options).
     """
-    found: dict[tuple, dict[Schema, LeafReport]] = {}
+    found: dict[LeafKey, dict[Schema, LeafReport]] = {}
     uncomparable = []
     for report in reports:
         match report.verdict:

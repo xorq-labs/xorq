@@ -27,7 +27,7 @@ from xorq.vendor.ibis.backends.profiles import Profile
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping, MutableMapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping
     from urllib.parse import ParseResult
 
     import pandas as pd
@@ -875,6 +875,36 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
 
         Returns None if the backend is not a SQL backend.
         """
+
+    def upload_ingest(self, table_name: str) -> Callable[..., None] | None:
+        """A bulk ingest that writes a Flight upload into ``table_name`` as it
+        streams in, or None.
+
+        A backend that returns a callable here lets the Flight server's
+        ``do_put`` consume the upload stream directly instead of reading it
+        all into memory first. The callable is invoked as
+        ``ingest(table_name, reader, mode=ingest_mode)`` with an ``IngestMode``
+        and must:
+
+        - write the table ``table_name`` names on this backend's connection:
+          a name only this session can see (a temporary table) gets ``None``;
+        - not use this backend's connection: it runs outside the server lock,
+          concurrently with other RPCs, so anything that needs the connection
+          is resolved when this method is called (under the lock);
+        - write all of ``reader`` or nothing: a failure partway, e.g. the
+          client going away, must leave the table as it was;
+        - write what the buffered path would: the same declared types, and
+          rows matched to an existing table's columns by name, with casts;
+        - hold no lock another RPC may wait on while the stream arrives,
+          since that RPC waits holding the server lock.
+
+        sqlite and postgres meet these with ``staged_ingest``: the stream goes
+        into a temporary table on a connection of their own, and the target
+        is written from it in the one transaction that commits. A database
+        whose DDL commits on its own (Snowflake, Databricks, BigQuery) cannot,
+        so it keeps the default, ``None``: the buffered write.
+        """
+        return None
 
     def __getstate__(self):
         return {"_con_args": self._con_args, "_con_kwargs": self._con_kwargs}

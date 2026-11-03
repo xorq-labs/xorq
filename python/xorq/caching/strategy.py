@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 from attr import field, frozen
 from attr.validators import instance_of
 
-from xorq.common.constants import NAME_ONLY_BACKEND_NAMES, READ_IDENTITY_KEYS
+from xorq.common.constants import NAME_ONLY_BACKEND_NAMES
+from xorq.common.utils.dasher._relations import read_identity_kwargs
 
 
 if TYPE_CHECKING:
@@ -64,7 +65,7 @@ def snapshot_normalize_read(read: Read) -> tuple:
             tpls = (("path", str(path)),)
         case _:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
-    tpls += tuple((k, v) for k, v in read.read_kwargs if k in READ_IDENTITY_KEYS)
+    tpls += read_identity_kwargs(read)
     return ("snapshot_normalize_read", read.schema, tpls)
 
 
@@ -203,6 +204,7 @@ class SnapshotStrategy(CacheStrategy):
         from xorq.common.utils.redshift_utils import (  # noqa: PLC0415
             resolve_redshift_schema,
         )
+        from xorq.expr.relations import snapshot_pin  # noqa: PLC0415
 
         memo = _snapshot_dt_normalize_memo.get()
         if memo is not None and dt in memo:
@@ -213,6 +215,10 @@ class SnapshotStrategy(CacheStrategy):
         else:
             keys = ("name", "schema", "source", "namespace")
             result = tuple((k, getattr(dt, k)) for k in keys)
+            if (snapshot_id := snapshot_pin(dt)) is not None:
+                # A pinned scan reads one fixed snapshot; an unpinned
+                # table keeps the four-key form, so its key is unchanged.
+                result = (*result, ("snapshot_id", snapshot_id))
             if dt.source.name == BackendName.REDSHIFT:
                 # An unqualified Redshift table's namespace is empty, and the
                 # connection identity carries no schema, so the fallback alone

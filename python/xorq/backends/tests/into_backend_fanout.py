@@ -27,6 +27,19 @@ def reader_counts(expr) -> list[int]:
     return sorted(count_remote_table_readers(expr).values())
 
 
+# the count a PARTITION BY-only window yields per backend: none on duckdb,
+# whose optimiser re-scans the window's input, and none on pandas, which
+# compiles no SQL; one scan everywhere else
+PARTITION_WINDOW_COUNTS = {"duckdb": [], "pandas": []}
+
+
+def test_into_backend_partition_window_count(df: pd.DataFrame, target) -> None:
+    rt = xo.memtable(df).into_backend(target, "t")
+    expr = rt.mutate(s=rt.v.sum().over(xo.window(group_by="k")))
+    assert reader_counts(expr) == PARTITION_WINDOW_COUNTS.get(target.name, [1])
+    assert expr.execute().sort_values("id").s.tolist() == [30, 30, 70, 70]
+
+
 def _same_rows(got: pd.DataFrame, df: pd.DataFrame) -> bool:
     assert_frame_equal(
         got.sort_values("id").reset_index(drop=True), df, check_like=True

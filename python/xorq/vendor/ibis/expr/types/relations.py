@@ -22,7 +22,7 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.common.deferred import Deferred, Resolver
 from xorq.vendor.ibis.common.selectors import Expandable, Selector
-from xorq.vendor.ibis.expr.rewrites import DerefMap
+from xorq.vendor.ibis.expr.rewrites import DerefMap, bind_earlier_chain_fields
 from xorq.vendor.ibis.expr.types.core import Expr, _FixedTextJupyterMixin
 from xorq.vendor.ibis.expr.types.generic import Value, literal
 from xorq.vendor.ibis.expr.types.temporal import TimestampColumn
@@ -284,10 +284,14 @@ class Table(Expr, _FixedTextJupyterMixin):
         """
         values = self._fast_bind(*args, **kwargs)
         # dereference the values to `self`
-        dm = DerefMap.from_targets(self.op())
+        node = self.op()
+        dm = DerefMap.from_targets(node)
         result = []
         for original in values:
-            value = dm.dereference(original.op()).to_expr()
+            value = original.op()
+            if isinstance(node, ops.JoinChain):
+                value = bind_earlier_chain_fields(value, node)
+            value = dm.dereference(value).to_expr()
             value = value.name(original.get_name())
             result.append(value)
         return tuple(result)
@@ -3295,28 +3299,34 @@ class Table(Expr, _FixedTextJupyterMixin):
             # only transpile if dialect was passed
             query = backend._transpile_sql(query, dialect=dialect)
 
-        if isinstance(op, ops.View):
-            name = op.name
-            expr = op.child.to_expr()
-        else:
-            name = util.gen_name("sql_query")
-            expr = self
-
         from xorq.expr.api import _remove_tee_nodes, remote_table_scope
+        from xorq.expr.relations import RemoteTable
+
+        # The query names a table that only exists as a CTE over the child:
+        # an alias, or a backend hop, whose payload lands under a placeholder
+        # name at execution. Keep that view as the child so the CTE compiles.
+        match op:
+            case ops.View():
+                view = op
+            case RemoteTable():
+                view = ops.View(child=op, name=op.name)
+            case _:
+                view = None
+        name = view.name if view else util.gen_name("sql_query")
+        expr = view.child.to_expr() if view else self
 
         # Strip tee nodes first: defining a SQL view is a non-executing path, so
         # it must not register a pass-through table or fire the side-effect
         # write. Tee is schema-preserving, so the view schema is unaffected.
         # full close (placeholder drops included) on exit: only the schema
-        # probe runs while the scope is open.  The returned SQLStringView
-        # embeds the transformed child, but executing it over RemoteTables
-        # already fails at alias-name resolution before the released
-        # resources could matter; closing here at least stops the leak.
+        # probe runs while the scope is open.
         with remote_table_scope(_remove_tee_nodes(expr)) as expr:
             schema = backend._get_sql_string_view_schema(
                 name=name, table=expr, query=query
             )
-            node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)
+            node = ops.SQLStringView(
+                child=view or expr.op(), query=query, schema=schema
+            )
             return node.to_expr()
 
     def to_pandas(self, **kwargs) -> pd.DataFrame:

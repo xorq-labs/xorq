@@ -264,6 +264,21 @@ class GetSchemaQueryAction(AbstractAction):
         yield make_flight_result(schema)
 
 
+class ShutdownAction(AbstractAction):
+    @classproperty
+    def name(cls):
+        return "shutdown"
+
+    @classproperty
+    def description(cls):
+        return "Ask the serving process to stop: FlightServer.wait returns"
+
+    @classmethod
+    def do_action(cls, server, context, action):
+        server.shutdown_requested.set()
+        yield make_flight_result(None)
+
+
 actions = {
     action.name: action
     for action in (
@@ -281,5 +296,6 @@ actions = {
         VersionAction,
         GetSchemaQueryAction,
         GetExchangeAction,
+        ShutdownAction,
     )
 }

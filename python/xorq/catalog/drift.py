@@ -105,6 +105,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -112,7 +113,7 @@ from urllib.parse import quote
 from attr import field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
 
-from xorq.catalog.enums import LeafKind, Verdict
+from xorq.catalog.enums import LeafKind, RebaseFailure, RebaseStatus, Verdict
 from xorq.catalog.inspection import BuildRecord, SourceLeaf
 from xorq.common.constants import READ_EXCLUDE_KEYS
 from xorq.ibis_yaml.enums import BundledSourceTypes, ReadKwarg
@@ -161,26 +162,71 @@ class LeafReport:
 class EntryReport:
     """Every leaf report for one entry, plus the record they came from.
 
-    Eager, so a caller that wants the whole answer (the `rebase` work, XOR-453)
-    gets it in one call. The CLI streams ``iter_leaf_reports`` instead.
+    Eager, so a caller that wants the whole answer gets it in one call:
+    ``entry_document`` builds `check-sources --json` on it. The human output
+    streams ``iter_leaf_reports`` instead, and `rebase` reads the record
+    itself, since it refuses an entry before probing any of its sources.
+
+    A record that cannot be read is reported, not raised: ``record`` is
+    ``None``, ``error`` carries what `read_record` returned, and there are no
+    leaves. That is the `unreadable` verdict both `check-sources` outputs give
+    the same entry, so a caller gets it without growing its own handler.
     """
 
     name = field(validator=instance_of(str))
-    record = field(validator=instance_of(BuildRecord))
+    record = field(validator=optional(instance_of(BuildRecord)))
     leaf_reports = field(
         converter=tuple,
         validator=deep_iterable(instance_of(LeafReport), instance_of(tuple)),
     )
+    error = field(default=None, validator=optional(instance_of(str)))
+
+    def __attrs_post_init__(self) -> None:
+        # Exactly one of the two: a report with neither would read as an entry
+        # with nothing to check, and one with both would rank `unreadable` over
+        # leaves that were probed.
+        if (self.record is None) == (self.error is None):
+            raise ValueError(
+                "an EntryReport takes exactly one of a record and an error"
+            )
+        if self.error is not None and self.leaf_reports:
+            raise ValueError("an unreadable record has no leaf reports")
+        # Forced here so `entry_verdict`'s coverage check refuses a report
+        # over the wrong leaves at construction, not at first read.
+        self.verdict
+
+    @cached_property
+    def verdict(self) -> Verdict | None:
+        """The entry's verdict, as `entry_document` publishes it."""
+        if self.record is None:
+            return Verdict.UNREADABLE
+        return entry_verdict(self.record, self.leaf_reports)
 
     @property
     def exit_code(self) -> int:
-        """The worst verdict wins: a drifted leaf outranks an unreachable one."""
-        return max((report.exit_code for report in self.leaf_reports), default=0)
+        """The worst verdict wins: a drifted leaf outranks an unreachable one.
+
+        Read off ``verdict`` rather than reduced a second way over the leaves,
+        so it is the code `state_and_code` publishes for the same entry.
+        """
+        return state_and_code(self.verdict)["exit_code"]
 
     @classmethod
-    def from_catalog_entry(cls, catalog_entry: CatalogEntry) -> EntryReport:
-        record = BuildRecord.from_catalog_entry(catalog_entry)
-        return cls(catalog_entry.name, record, tuple(iter_leaf_reports(record)))
+    def from_catalog_entry(
+        cls, catalog_entry: CatalogEntry, con_cache: dict | None = None
+    ) -> EntryReport:
+        """Probe ``catalog_entry``, or report why its record cannot be read.
+
+        A caller sweeping several entries passes its own ``con_cache`` so each
+        profile is dialled once for the sweep, and owns closing it; without one
+        the connections this entry opened are closed before it returns.
+        """
+        record = read_record(catalog_entry)
+        if isinstance(record, Exception):
+            return cls(catalog_entry.name, None, (), error=format_error(record))
+        return cls(
+            catalog_entry.name, record, tuple(iter_leaf_reports(record, con_cache))
+        )
 
 
 def make_profile(profile_dict: dict) -> Profile:
@@ -247,7 +293,8 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
     loses the mode, and `rwc` creates a database there. It is also the only
     checkable case, since a recorded URI would have to be resolved back through
     the encoding and the optional `//localhost` authority. In-memory is ``None``
-    or `:memory:`.
+    or `:memory:`. Attached databases get the same treatment, unchecked: a
+    missing one fails the connect instead.
     """
 
     def opens_without_creating(uri: str) -> bool:
@@ -276,22 +323,35 @@ def sqlite_no_create(profile: Profile) -> tuple[str | None, dict]:
         ]
         return f"{path}?{'&'.join([*params, 'mode=rw'])}"
 
+    def is_plain_path(target: str) -> bool:
+        # Without `uri=True` the whole string is a filename, and `rwc` creates it.
+        return not profile.kwargs_dict.get("uri") or not target.startswith("file:")
+
+    def never_creating(target: str) -> str:
+        """``target`` as a URI that refuses to create its database."""
+        if is_plain_path(target):
+            # An absolute path takes the empty authority: without the `//`,
+            # sqlite reads the first segment of a `//`-prefixed path as one and
+            # refuses.
+            authority = "//" if target.startswith("/") else ""
+            return f"file:{authority}{quote(target)}?mode=rw"
+        return target if opens_without_creating(target) else with_mode_rw(target)
+
+    attached = tuple(
+        (name, never_creating(str(path)))
+        for name, path in profile.kwargs_dict.get("attached", ())
+    )
+    # ATTACH creates a missing file as well, and reads a URI under `uri=True`.
+    extra = {"attached": attached, "uri": True} if attached else {}
     target = profile.kwargs_dict.get("database")
     if target in (None, "", ":memory:"):
-        return None, {}
+        return None, extra
     target = str(target)
-    # Without `uri=True` the whole string is a filename, and `rwc` creates it.
-    if not profile.kwargs_dict.get("uri") or not target.startswith("file:"):
-        # An absolute path takes the empty authority: without the `//`, sqlite
-        # reads the first segment of a `//`-prefixed path as one and refuses.
-        authority = "//" if target.startswith("/") else ""
-        return target, {
-            "database": f"file:{authority}{quote(target)}?mode=rw",
-            "uri": True,
-        }
+    if is_plain_path(target):
+        return target, {"database": never_creating(target), "uri": True} | extra
     if opens_without_creating(target):
-        return None, {}
-    return None, {"database": with_mode_rw(target), "uri": True}
+        return None, extra
+    return None, {"database": with_mode_rw(target), "uri": True} | extra
 
 
 def duckdb_no_create(profile: Profile) -> tuple[str | None, dict]:
@@ -380,7 +440,8 @@ def close_cons(con_cache: dict) -> None:
 def get_table_schema(
     con: Any, leaf: SourceLeaf, location: tuple[str, str] | str | None
 ) -> Schema | None:
-    """``leaf``'s live schema, or ``None`` when the backend does not list the table.
+    """``leaf``'s live schema, or ``None`` when the backend does not list the table
+    or, for a pinned leaf, its snapshot.
 
     The listing is the only positive evidence of absence. Vendored ibis raises a
     typed ``TableNotFound`` in some backends and a bare error carrying the same
@@ -390,7 +451,16 @@ def get_table_schema(
     """
     if leaf.table not in con.list_tables(database=location):
         return None
-    return con.table(leaf.table, database=location).schema()
+    if leaf.snapshot_id is None:
+        return con.table(leaf.table, database=location).schema()
+    # Only pyiceberg pins a read. A pinned snapshot can be expired, and the
+    # table's snapshot listing is the positive evidence of that, as
+    # `list_tables` is of a dropped table.
+    if not con.has_snapshot(leaf.table, leaf.snapshot_id, database=location):
+        return None
+    return con.table(
+        leaf.table, database=location, snapshot_id=leaf.snapshot_id
+    ).schema()
 
 
 def read_call(leaf: SourceLeaf) -> tuple[tuple, dict]:
@@ -426,7 +496,7 @@ def path_resolves(path: Any) -> bool:
         return False
 
 
-def get_read_inference(method_name: str | None) -> Callable[[Any], Schema] | None:
+def get_read_inference(method_name: str | None) -> Callable[..., Schema] | None:
     """The inference ``method_name``'s deferred read ran at build time, if any.
 
     A deferred read records the schema *its own* inference produced, not the
@@ -489,10 +559,10 @@ def get_read_schema(
     if not all(map(path_resolves, paths)):
         return None
     if (infer := get_read_inference(leaf.method_name)) is not None:
-        # The path parameter unsplit, glob and all: the deferred read hands its
-        # own to the inference the same way, and the two answers are only
-        # comparable if the input was.
-        return infer(args[0])
+        # The path parameter unsplit, glob and all, and the read's kwargs with
+        # it: the deferred read hands its own to the inference the same way, and
+        # the two answers are only comparable if the input was.
+        return infer(args[0], **kwargs)
     # The recorded name is a *destination*. Replaying it registers the probe's
     # own table over whatever already carries that name on the sweep-wide
     # `con_cache` connection -- and `list_tables`, which `get_table_schema`
@@ -839,16 +909,16 @@ def leaf_document(report: LeafReport) -> dict:
     return document
 
 
-def state_and_code(verdict: Verdict | None) -> dict:
-    """The two keys a verdict decides, or the pair that says none was reached.
+def state_and_code(state: Verdict | RebaseStatus | RebaseFailure | None) -> dict:
+    """The two keys a state decides, or the pair that says none was reached.
 
     ``None`` is not a verdict spelled differently: it says this sweep compared
     nothing here, so there is no state to report. It still exits 0, since
     finding nothing to compare is not a finding about a source.
     """
-    if verdict is None:
+    if state is None:
         return {"state": None, "exit_code": 0}
-    return {"state": str(verdict), "exit_code": verdict.exit_code}
+    return {"state": str(state), "exit_code": int(state.exit_code)}
 
 
 def make_entry_document(
@@ -879,13 +949,37 @@ def make_entry_document(
     }
 
 
-def record_document(
-    record: BuildRecord, con_cache: dict | None = None
-) -> tuple[Verdict | None, dict]:
-    """One readable record's whole probe, as the JSON document carries it.
+def entry_verdict(
+    record: BuildRecord, reports: tuple[LeafReport, ...]
+) -> Verdict | None:
+    """``record``'s verdict over ``reports`` already probed from it.
 
-    Buffered by construction: `iter_leaf_reports` is drained before anything is
-    returned, so a consumer gets a complete entry or none at all.
+    ``reports`` must hold one report per checkable leaf, in any order: a
+    sweep over fewer leaves would roll up to `equal` for a source nobody
+    probed, so it is refused rather than rolled up.
+
+    No verdict at all where nothing was probed and a source was left
+    unprobed: rolling those up to `equal` would state the strongest positive
+    claim the document can make on the weakest evidence it has, and a
+    consumer gating on `state == "equal"` would go green over an entry this
+    command never compared. An entry with no external sources keeps `equal`:
+    nothing outside the archive is a reason it cannot drift, not a reason the
+    question went unanswered.
+    """
+    if Counter(report.leaf for report in reports) != Counter(checkable_leaves(record)):
+        raise ValueError("a verdict takes one report per checkable leaf of its record")
+    if unchecked_leaves(record) and not reports:
+        return None
+    return roll_up(report.verdict for report in reports)
+
+
+def reports_document(
+    record: BuildRecord, reports: Iterable[LeafReport]
+) -> tuple[Verdict | None, dict]:
+    """``record``'s document over ``reports`` already probed from it.
+
+    Takes the sweep rather than running it, so a caller that swept already
+    (`rebase`) publishes the same document without probing a second time.
 
     The verdict comes back beside the document rather than only inside it, so
     the sweep rolls up enum values and the string is written once, where the
@@ -893,16 +987,9 @@ def record_document(
     writer of that key a source of ``ValueError`` -- raised after the whole
     sweep has been probed, discarding a complete document.
     """
-    reports = tuple(iter_leaf_reports(record, con_cache))
+    reports = tuple(reports)
     unchecked = unchecked_leaves(record)
-    # No verdict at all where nothing was probed and a source was left
-    # unprobed: rolling those up to `equal` would state the strongest positive
-    # claim the document can make on the weakest evidence it has, and a
-    # consumer gating on `state == "equal"` would go green over an entry this
-    # command never compared. An entry with no external sources keeps `equal`:
-    # nothing outside the archive is a reason it cannot drift, not a reason the
-    # question went unanswered.
-    verdict = None if unchecked and not reports else roll_up(r.verdict for r in reports)
+    verdict = entry_verdict(record, reports)
     return verdict, make_entry_document(
         verdict,
         leaves=(leaf_document(report) for report in reports),
@@ -924,14 +1011,15 @@ def entry_document(
     the ``error`` key beside them is what says which. Its state and exit code
     are the ones the human output prints for the same entry, since both come
     from ``Verdict``. The verdict is returned beside the document, same as
-    ``record_document``.
+    ``reports_document``.
+
+    Buffered by construction: the probe is drained before anything is
+    returned, so a consumer gets a complete entry or none at all.
     """
-    record = read_record(catalog_entry)
-    if isinstance(record, Exception):
-        return Verdict.UNREADABLE, make_entry_document(
-            Verdict.UNREADABLE, error=format_error(record)
-        )
-    return record_document(record, con_cache)
+    report = EntryReport.from_catalog_entry(catalog_entry, con_cache)
+    if report.record is None:
+        return report.verdict, make_entry_document(report.verdict, error=report.error)
+    return reports_document(report.record, report.leaf_reports)
 
 
 def drift_document(

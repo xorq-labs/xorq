@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
     import pyarrow as pa
-    from typing_extensions import Self
 
 
 class NatDumper(psycopg.adapt.Dumper):
@@ -750,26 +749,32 @@ ORDER BY a.attnum ASC"""
     ) -> pa.ipc.RecordBatchReader:
         import pyarrow as pa
 
-        def _batches(self: Self, *, struct_type: pa.StructType, query: str):
-            con = self.con
-            # server-side cursors need to be uniquely named
-            with (
-                con.cursor(name=util.gen_name("postgres_cursor")) as cursor,
-                con.transaction(),
-            ):
-                cur = cursor.execute(query)
-                while batch := cur.fetchmany(chunk_size):
-                    yield pa.RecordBatch.from_struct_array(
-                        pa.array(batch, type=struct_type)
-                    )
-
         self._run_pre_execute_hooks(expr)
 
         raw_schema = expr.as_table().schema()
         query = self.compile(expr, limit=limit, params=params)
         return pa.RecordBatchReader.from_batches(
             raw_schema.to_pyarrow(),
-            _batches(
-                self, struct_type=raw_schema.as_struct().to_pyarrow(), query=query
+            self._psycopg_batches(
+                struct_type=raw_schema.as_struct().to_pyarrow(),
+                query=query,
+                chunk_size=chunk_size,
             ),
         )
+
+    def _psycopg_batches(self, *, struct_type, query: str, chunk_size: int):
+        """Yield ``query``'s rows as record batches of ``chunk_size`` rows
+        over a server-side psycopg cursor, inside one transaction."""
+        import pyarrow as pa
+
+        con = self.con
+        # server-side cursors need to be uniquely named
+        with (
+            con.cursor(name=util.gen_name("postgres_cursor")) as cursor,
+            con.transaction(),
+        ):
+            cur = cursor.execute(query)
+            while batch := cur.fetchmany(chunk_size):
+                yield pa.RecordBatch.from_struct_array(
+                    pa.array(batch, type=struct_type)
+                )

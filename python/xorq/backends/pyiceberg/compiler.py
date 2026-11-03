@@ -4,7 +4,7 @@ import pyiceberg.expressions as ice
 
 import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.backends.pyiceberg.relations import PyIcebergTable
+from xorq.expr.relations import snapshot_pin
 from xorq.vendor.ibis.backends.sql.dialects import Postgres
 
 
@@ -35,31 +35,16 @@ def column(op, **_):
     return op.name
 
 
-@translate.register(PyIcebergTable)
-def iceberg_table(op, catalog=None, namespace=None, **kwargs):
-    if catalog is None:
-        raise ValueError("catalog cannot be None")
-    if namespace is None:
-        raise ValueError("namespace cannot be None")
-
-    ice_table = catalog.load_table(f"{namespace}.{op.name}")
-
-    if op.snapshot_id is not None:
-        return ice_table.scan(snapshot_id=op.snapshot_id)
-
-    return ice_table.scan()
+def load_op_table(op):
+    """The Iceberg table ``op`` names, loaded through ``op.source``."""
+    return op.source.load_iceberg_table(
+        op.name, catalog=op.namespace.catalog, database=op.namespace.database
+    )
 
 
 @translate.register(ops.DatabaseTable)
-def table(op, catalog=None, namespace=None, **kwargs):
-    if catalog is None:
-        raise ValueError("catalog cannot be None")
-    if namespace is None:
-        raise ValueError("namespace cannot be None")
-
-    ice_table = catalog.load_table(f"{namespace}.{op.name}")
-
-    return ice_table.scan()
+def table(op, **_):
+    return load_op_table(op).scan(snapshot_id=snapshot_pin(op))
 
 
 @translate.register(ops.Filter)

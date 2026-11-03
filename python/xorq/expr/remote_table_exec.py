@@ -51,6 +51,9 @@ def project_and_cast_reader(
 # dialects whose planner inlines a CTE at every reference, scanning its body
 # once per reference; the others (duckdb) materialise it and scan it once
 CTE_INLINING_DIALECTS = frozenset({"DataFusion"})
+# dialects whose optimiser re-scans a PARTITION BY-only window's input below
+# the SQL layer (a GROUP BY self-join), where counting Table nodes undercounts
+RESCANNING_DIALECTS = frozenset({"DuckDB"})
 
 
 def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
@@ -73,9 +76,11 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
 
     This is a *lower bound*, not the exact physical scan count: it sees only the
     scans the compiled SQL spells out, and cannot see re-scans the backend's
-    optimiser introduces below the SQL layer. The known gap is a
-    ``PARTITION BY``-only aggregate window on DuckDB, lowered to a ``GROUP BY``
-    self-join that scans its input twice while the AST shows one ``Table`` node.
+    optimiser introduces below the SQL layer. The known such shape, a
+    ``PARTITION BY``-only window on DuckDB (lowered to a ``GROUP BY`` self-join
+    that scans its input twice while the AST shows one ``Table`` node), yields
+    no count for the tables that window reads, so their caches are built
+    unbounded (see ``tables_under_rescans`` and ``RESCANNING_DIALECTS``).
 
     The counts become each ``StreamCache``'s ``max_readers``, which both bounds
     memory (batches are evicted once all readers advance past them) and is a
@@ -118,11 +123,59 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
 
     # xorq's datafusion compiler and the vendored one each carry their own
     # `DataFusion` dialect class, so the dialect is matched by name
-    inlines_ctes = compiler.dialect.__name__ in CTE_INLINING_DIALECTS
+    dialect = compiler.dialect.__name__
+    inlines_ctes = dialect in CTE_INLINING_DIALECTS
+    queries = out if isinstance(out, list) else [out]
+    rescanned = (
+        set().union(*map(tables_under_rescans, queries))
+        if dialect in RESCANNING_DIALECTS
+        else set()
+    )
     counts = Counter()
-    for query in out if isinstance(out, list) else [out]:
+    for query in queries:
         counts.update(_count_table_scans(query, inlines_ctes))
-    return {node: max(1, counts[name]) for node, name in sentinels.items()}
+    return {
+        node: max(1, counts[name])
+        for node, name in sentinels.items()
+        if name not in rescanned
+    }
+
+
+def tables_under_rescans(query) -> set[str]:
+    """The names of the tables read by a shape duckdb re-scans below the SQL
+    layer, so that counting their ``Table`` nodes undercounts: a window with
+    a ``PARTITION BY`` and no ``ORDER BY``, which duckdb lowers to a
+    ``GROUP BY`` self-join for an aggregate. A table is read by the window
+    when it sits under the window's enclosing ``SELECT``, directly or through
+    a CTE reference. The rule over-approximates: any such window, aggregate or
+    ranking, over any input, counts. Which of those duckdb re-scans is its
+    optimiser's rule, not the AST's; the cost of a false positive is eviction,
+    not correctness."""
+    import sqlglot as sg  # noqa: PLC0415
+
+    def read_by(node) -> set[str]:
+        # a CTE reference stands for the tables its body reads; each CTE is
+        # resolved once, in definition order, since a CTE can only reference
+        # the ones before it (a name not yet seen is a plain table)
+        return set().union(
+            *(
+                sources.get(table.name, {table.name})
+                for table in node.find_all(sg.exp.Table)
+            )
+        )
+
+    sources: dict[str, set[str]] = {}
+    for cte in query.find_all(sg.exp.CTE):
+        sources[cte.alias_or_name] = read_by(cte.this)
+
+    return set().union(
+        *(
+            read_by(select)
+            for window in query.find_all(sg.exp.Window)
+            if window.args.get("partition_by") and not window.args.get("order")
+            if (select := window.find_ancestor(sg.exp.Select)) is not None
+        )
+    )
 
 
 def _count_table_scans(query, inlines_ctes: bool) -> Counter:

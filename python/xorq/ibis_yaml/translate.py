@@ -18,7 +18,10 @@ import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.enums import BackendName
+from xorq.common.exceptions import LocalReadPathWarning
 from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.defer_utils import is_multi_read_path
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.operations import _MISSING, NamedScalarParameter
@@ -26,11 +29,13 @@ from xorq.expr.relations import (
     CachedNode,
     CacheTag,
     HashingTag,
+    PyIcebergTable,
     Read,
     RemoteTable,
     Tag,
     TeeNode,
     into_backend,
+    snapshot_pin,
 )
 from xorq.ibis_yaml.common import (
     TranslationContext,
@@ -484,8 +489,17 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
             NodeKey.namespace: namespace_dict,
         }
         | context.registry.register_schema(op.schema)
+        | _snapshot_pin_to_yaml(op)
     )
     return node_dict
+
+
+def _snapshot_pin_to_yaml(op: ops.DatabaseTable) -> dict[NodeKey, int]:
+    match snapshot_pin(op):
+        case None:
+            return {}
+        case snapshot_id:
+            return {NodeKey.snapshot_id: snapshot_id}
 
 
 @register_from_yaml_handler("DatabaseTable")
@@ -504,12 +518,27 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
         raise ValueError(
             f"Profile {profile_name!r} not found in context.profiles"
         ) from err
-    return ops.DatabaseTable(
-        schema=schema,
-        source=con,
-        name=table_name,
-        namespace=Namespace(catalog=catalog, database=database),
-    ).to_expr()
+    kwargs = {
+        "schema": schema,
+        "source": con,
+        "name": table_name,
+        "namespace": Namespace(catalog=catalog, database=database),
+    }
+    # The profile's backend picks the op class, so a pinned and an unpinned
+    # pyiceberg table load back as the same class `Backend.table` builds.
+    # Read off the class: a lazy profile must not connect here.
+    snapshot_id = yaml_dict.get(NodeKey.snapshot_id)
+    match con.__class__.name:
+        case BackendName.PYICEBERG:
+            return PyIcebergTable(**kwargs, snapshot_id=snapshot_id).to_expr()
+        case backend_name if snapshot_id is not None:
+            # Loading unpinned would silently read the latest data instead.
+            raise ValueError(
+                f"{table_name!r} records snapshot_id {snapshot_id}, but its "
+                f"profile is a {backend_name} backend, which cannot pin a read"
+            )
+        case _:
+            return ops.DatabaseTable(**kwargs).to_expr()
 
 
 @translate_to_yaml.register(CachedNode)
@@ -724,12 +753,23 @@ def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
     if path := next((v for k, v in kw.items() if k in path_keys), None):
         f = toolz.excepts((ValueError, AttributeError), is_local_path)
         paths = normalize_filenames(path)
-        if any(map(f, paths)):
+        if not any(map(f, paths)):
+            return
+        if is_multi_read_path(path):
+            warnings.warn(
+                "The Read op paths are local filesystem paths. Multi-path reads"
+                " cannot be relocated, so the build keeps them as machine-local"
+                " paths and may not work in other environments.",
+                LocalReadPathWarning,
+                stacklevel=2,
+            )
+        else:
             warnings.warn(
                 "The Read op path is using a local filesystem path, running"
                 " the build may not work in other environments. Consider"
                 " using relocatable=True in deferred_read_parquet/deferred_read_csv"
                 " or --relocate-reads when building.",
+                LocalReadPathWarning,
                 stacklevel=2,
             )
 

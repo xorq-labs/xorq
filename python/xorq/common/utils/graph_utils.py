@@ -5,12 +5,14 @@ from collections.abc import Callable, Iterator, Mapping
 from types import MappingProxyType
 from typing import Any, OrderedDict, Tuple
 
+import toolz
 from attrs import field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.enums import BackendName
 from xorq.expr.operations import NamedScalarParameter
 from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.common.graph import Graph
@@ -346,12 +348,34 @@ def walk_nodes(
     return result
 
 
+def recreate_opaque(op: Node, kwargs: dict) -> Node:
+    """*op* recreated with *kwargs*; a ``rebind`` edge goes through its spec."""
+    match _opaque_lookup(op, OPAQUE_SPECS):
+        case OpaqueSpec(rebind=rebind, descend_edges=(edge,)) if (
+            rebind is not None and edge in kwargs
+        ):
+            return recreate_opaque(rebind(op, kwargs[edge]), toolz.dissoc(kwargs, edge))
+        case _:
+            return op.__recreate__(dict(zip(op.__argnames__, op.__args__)) | kwargs)
+
+
 def replace_nodes(
-    replacer: Callable[[Node, dict | None], Node], expr: Expr | Node
+    replacer: Callable[[Node, dict | None], Node],
+    expr: Expr | Node,
+    *,
+    recreate: Callable[[Node, dict], Node] = recreate_opaque,
+    stop: Callable[[Node], bool] = lambda op: False,
+    filter: Callable[[Node], bool] | None = None,
 ) -> Node:
     """Apply *replacer* across the expression graph, descending into opaque
     sub-expressions (``RemoteTable.remote_expr``, ``CachedNode.parent``,
     ``FlightExpr.input_expr``, ``ExprScalarUDF.computed_kwargs_expr``).
+
+    An opaque op the replacer returns is rebuilt by ``recreate(op, kwargs)``,
+    *kwargs* holding its rewritten edges and, where its spec forwards them,
+    its rewritten children. ``stop(op)`` true keeps *op* undescended.
+    ``filter(op)`` false keeps *op* unvisited, and every node reached only
+    through it, as ``Node.replace``'s ``filter`` does.
 
     Only safe for **pure structural rewrites** — replacers with side effects
     (materializing batches, registering tables on a backend, deferred writes)
@@ -365,25 +389,17 @@ def replace_nodes(
     # re-traversed once per reference — O(n²) for a depth-n pipeline.
     sub_expr_memo = {}
 
-    def do_recreate(op, _kwargs, **kwargs):
-        # ``_kwargs`` is keyed for the node as seen *before* the replacer ran. A
-        # replacer may change the node's type (e.g. CacheTag -> CachedNode on
-        # unpin), so keep only keys that are valid slots for the post-replacer
-        # ``op``; forwarding foreign keys would crash ``__recreate__``. Explicit
-        # overrides in ``kwargs`` always win.
-        argnames = op.__argnames__
-        merged = dict(zip(argnames, op.__args__))
-        if _kwargs:
-            merged |= {k: v for k, v in _kwargs.items() if k in argnames}
-        return op.__recreate__(merged | kwargs)
-
     def _replace_sub(sub_op):
         if sub_op not in sub_expr_memo:
-            sub_expr_memo[sub_op] = sub_op.replace(process_node).to_expr()
+            sub_expr_memo[sub_op] = sub_op.replace(
+                process_node, filter=filter
+            ).to_expr()
         return sub_expr_memo[sub_op]
 
     def process_node(op, _kwargs):
         op = replacer(op, _kwargs)
+        if stop(op):
+            return op
         # No "unhandled opaque op" guard: opaque_ops is derived from
         # OPAQUE_SPECS and this lookup matches by isinstance over the same
         # keys, so "no spec" and "not opaque" are the same condition.
@@ -392,23 +408,28 @@ def replace_nodes(
             _require_registered_if_expr_bearing(op)
             return op
         _require_expr_args_recorded(op)
-        if spec.rebind is not None:
-            # Exactly one edge, enforced at spec construction time.
-            (name,) = spec.descend_edges
-            rebound = spec.rebind(op, _replace_sub(to_node(getattr(op, name))))
-            return do_recreate(rebound, _kwargs if spec.forward_kwargs else None)
         if not spec.descend_edges:
             return op
-        overrides = {
-            name: _replace_sub(to_node(getattr(op, name)))
-            for name in spec.descend_edges
-        }
-        return do_recreate(op, _kwargs if spec.forward_kwargs else None, **overrides)
+        # ``_kwargs`` is keyed for the node as seen *before* the replacer ran. A
+        # replacer may change the node's type (e.g. CacheTag -> CachedNode on
+        # unpin), so keep only keys that are valid slots for the post-replacer
+        # ``op``; forwarding foreign keys would crash ``__recreate__``.
+        forwarded = (_kwargs if spec.forward_kwargs else None) or {}
+        return recreate(
+            op,
+            {k: v for k, v in forwarded.items() if k in op.__argnames__}
+            | {
+                name: _replace_sub(to_node(getattr(op, name)))
+                for name in spec.descend_edges
+            },
+        )
 
     # hasattr(x, "op") is unreliable: some Nodes have an `op` field (e.g. IntervalAdd)
-    initial_op = to_node(expr)
-    op = initial_op.replace(process_node)
-    return op
+    return to_node(expr).replace(process_node, filter=filter)
+
+
+# Exact source classes whose data lives in their backend, so it is copied over.
+TRANSFERRED_TABLE_TYPES = (ops.DatabaseTable, rel.PyIcebergTable)
 
 
 def replace_sources(source_mapping, expr, *, transfer_tables=False):
@@ -463,6 +484,8 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
 
     # Track DatabaseTable nodes that need data transferred: (old_backend, new_backend, table_name)
     tables_to_transfer = []
+    # `_probe_key` -> snapshot id, for transfers a copy by name cannot honor.
+    pinned: dict[tuple[int, str, str | None, str | None], int] = {}
 
     def replacer(node, kwargs):
         overrides = {}
@@ -473,11 +496,26 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             overrides["source"] = new_source
 
             # DatabaseTable (but not its subclasses like CachedNode, RemoteTable,
-            # Read) needs its data transferred to the new backend.
-            if type(node) is ops.DatabaseTable:
+            # Read) needs its data transferred to the new backend. A
+            # PyIcebergTable is a backend table too.
+            if type(node) in TRANSFERRED_TABLE_TYPES:
+                snapshot_id = rel.snapshot_pin(node)
+                backend_name = new_source.__class__.name
+                if snapshot_id is not None and backend_name != BackendName.PYICEBERG:
+                    # Refused whether or not the table is already there: a
+                    # table of that name holds some other snapshot's rows.
+                    raise ValueError(
+                        f"cannot move {node.name!r} to a {backend_name} backend: "
+                        f"it is pinned to snapshot {snapshot_id}, which only a "
+                        "pyiceberg backend can read"
+                    )
                 tables_to_transfer.append(
                     (source, new_source, node.name, node.namespace)
                 )
+                if snapshot_id is not None:
+                    pinned[_probe_key(new_source, node.name, node.namespace)] = (
+                        snapshot_id
+                    )
 
         cache = getattr(node, "cache", None)
         if cache is not None:
@@ -495,6 +533,15 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
             if kwargs:
                 merged |= kwargs
             merged |= overrides
+            # Only a pyiceberg backend scans a PyIcebergTable; on any other
+            # backend the transferred copy is a plain table.
+            if (
+                type(node) is rel.PyIcebergTable
+                and overrides.get("source", node.source).__class__.name
+                != BackendName.PYICEBERG
+            ):
+                merged.pop("snapshot_id")
+                return ops.DatabaseTable(**merged)
             return node.__recreate__(merged)
         return node
 
@@ -505,6 +552,16 @@ def replace_sources(source_mapping, expr, *, transfer_tables=False):
         # (e.g. cloned backends that share the same underlying connection).
         probe_errors = {}
         missing = _find_missing_tables(tables_to_transfer, errors=probe_errors)
+        if copied_pins := sorted(
+            (table_name, pinned[key])
+            for (_, new_backend, table_name, namespace) in missing
+            if (key := _probe_key(new_backend, table_name, namespace)) in pinned
+        ):
+            raise ValueError(
+                f"cannot copy {copied_pins} (table, snapshot id) to another "
+                "backend: tables are copied by name, which reads the current "
+                "snapshot, not the pinned one"
+            )
         if missing:
             if not transfer_tables:
                 raise ValueError(_missing_tables_message(missing, probe_errors))

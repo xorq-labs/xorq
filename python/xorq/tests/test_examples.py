@@ -27,6 +27,12 @@ NON_TESTABLE = (
     "databricks_into_backend_example.py",
 )
 TESTED_IN_BUILD_AND_RUN = tuple(name for name, *_ in build_run_examples_expr_names)
+# examples whose catalog.add builds the wheel of the project above the cwd
+PROJECT_CWD_SCRIPTS = (
+    "custom_builder_example",
+    "fitted_pipeline_builder_example",
+    "s3_content_store_catalog",
+)
 
 file_path = pathlib.Path(__file__).absolute()
 root = file_path.parent
@@ -36,15 +42,6 @@ scripts = (
     for p in examples_dir.glob("*.py")
     if p.name not in (NON_TESTABLE + TESTED_IN_BUILD_AND_RUN)
 )
-
-
-def teardown_function():
-    """Remove any generated parquet cache files"""
-    for path in root.glob(f"{KEY_PREFIX}*"):
-        path.unlink(missing_ok=True)
-
-    for path in pathlib.Path.cwd().glob(f"{KEY_PREFIX}*"):
-        path.unlink(missing_ok=True)
 
 
 def maybe_library(name: str):
@@ -62,6 +59,30 @@ def maybe_s3(name: str) -> pytest.MarkDecorator | tuple[()]:
 def maybe_marks(name: str):
     fs = (maybe_library, maybe_gcs, maybe_s3)
     return tuple(filter(None, (f(name) for f in fs)))
+
+
+@pytest.fixture(scope="session")
+def examples_cwd(tmp_path_factory):
+    """One cwd for every example, outside the repo.
+
+    The examples write builds and caches relative to the cwd, and share them:
+    the Hacker News examples fetch the same ~1,000 items into
+    ``./hackernews-items``, so only the first one pays for the requests.
+    """
+    return tmp_path_factory.mktemp("examples-cwd")
+
+
+@pytest.fixture(autouse=True)
+def remove_cache_files(examples_cwd):
+    """Remove any generated parquet cache files.
+
+    A fixture, not ``teardown_function``: that runs after ``monkeypatch`` has
+    undone the test's chdir, so it would never see ``examples_cwd``.
+    """
+    yield
+    for directory in (root, examples_cwd, pathlib.Path.cwd()):
+        for path in directory.glob(f"{KEY_PREFIX}*"):
+            path.unlink(missing_ok=True)
 
 
 @pytest.fixture(autouse=True)
@@ -96,6 +117,8 @@ def gcs_cache_stays_in_memory(script, monkeypatch):
         for script in scripts
     ],
 )
-def test_script_execution(script):
+def test_script_execution(script, examples_cwd, monkeypatch):
+    if script.stem not in PROJECT_CWD_SCRIPTS:
+        monkeypatch.chdir(examples_cwd)
     dct = runpy.run_path(str(script), run_name="__pytest_main__")
     assert dct.get("pytest_examples_passed")

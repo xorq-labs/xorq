@@ -108,7 +108,7 @@ def test_date_now(compiler, con):
     roundtrip_expr = compiler.from_yaml(yaml_dict)
 
     result = con.execute(roundtrip_expr)
-    expected = datetime.date.today()
+    expected = datetime.datetime.now(datetime.timezone.utc).date()
 
     assert result == expected
     assert isinstance(result, datetime.date)

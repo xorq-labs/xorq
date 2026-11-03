@@ -18,11 +18,13 @@ class IbisTableProvider(AbstractTableProvider):
         table = self.table
         if filters:
             table = self.table.filter(filters)
-        backend = table._find_backend()
+        # table.to_pyarrow_batches resolves deferred reads, caches and remote
+        # tables before the source backend sees the expr, the way into_backend
+        # does; the backend's own method hands it the raw ops (xorq #1553).
         # schema() is rebuilt from the ibis schema and so never carries the
         # pandas blob, but to_pyarrow_batches can: the pandas backend builds its
         # result with pa.Table.from_pandas and PyArrowData.convert_table skips
         # the cast when the types already match, since pa.Schema equality
         # ignores metadata. Stripping keeps the declared and scanned schemas in
         # agreement (xorq #2266).
-        return drop_pandas_schema_metadata(backend.to_pyarrow_batches(table))
+        return drop_pandas_schema_metadata(table.to_pyarrow_batches())

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from structlog.testing import capture_logs
 
 from xorq.common.utils.func_utils import log_excepts, maybe_log_excepts
 
@@ -59,3 +60,34 @@ def test_maybe_log_excepts_propagates_whether_or_not_debug_is_on(
     """
     with pytest.raises(ValueError, match="boom"):
         maybe_log_excepts(boom, debug=debug)()
+
+
+def test_log_excepts_logs_an_exception_raised_while_a_generator_runs() -> None:
+    """A generator's body runs on iteration, after the call has returned.
+
+    Flight's ``do_action`` is a generator, so wrapping only the call logged
+    ``exiting`` before any work and never saw an error raised in the body.
+    """
+
+    def gen():
+        yield 1
+        raise ValueError("boom")
+
+    with capture_logs() as logs:
+        wrapped = log_excepts(gen)()
+        assert [event["event"] for event in logs] == []
+        with pytest.raises(ValueError, match="boom"):
+            list(wrapped)
+
+    assert [event["log_level"] for event in logs][-1] == "error"
+    assert not any("exiting" in event["event"] for event in logs)
+
+
+def test_log_excepts_logs_exiting_after_a_generator_is_exhausted() -> None:
+    def gen():
+        yield from (1, 2)
+
+    with capture_logs() as logs:
+        assert list(log_excepts(gen)()) == [1, 2]
+
+    assert "exiting" in logs[-1]["event"]

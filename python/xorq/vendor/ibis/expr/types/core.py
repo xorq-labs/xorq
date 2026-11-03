@@ -1234,6 +1234,20 @@ class LETSQLAccessor:
         )
 
     @property
+    def reads(self) -> tuple:
+        """All `Read` operations in the expression graph.
+
+        Returns
+        -------
+        tuple
+            Every `Read` in the graph, outermost first.
+        """
+        from xorq.common.utils.graph_utils import walk_nodes
+        from xorq.expr.relations import Read
+
+        return walk_nodes((Read,), self.expr)
+
+    @property
     def is_cached(self) -> bool:
         """Whether the root op is a `CachedNode`.
 

@@ -211,6 +211,32 @@ def test_lint_paths_agree() -> None:
     )
 
 
+def test_ruff_versions_agree() -> None:
+    """The ruff that formats on commit is the ruff CI checks the format with.
+
+    The pre-commit hooks run the ruff pinned by their `rev`; CI runs the one
+    pinned in the dev group. Ruff's formatter style moves between releases, so
+    two versions can each call the other's output unformatted: the hook rewrites
+    a file and CI's `ruff format --check` rejects the rewrite.
+    """
+    hook = re.search(
+        r"astral-sh/ruff-pre-commit\n(?:\s+#.*\n)*\s+rev: v(\S+)$",
+        PRE_COMMIT.read_text(),
+        re.MULTILINE,
+    )
+    assert hook, f"no ruff-pre-commit rev in {PRE_COMMIT.name}"
+    pin = re.search(
+        r'^\s+"ruff==([^"]+)",',
+        (REPO_ROOT / "pyproject.toml").read_text(),
+        re.MULTILINE,
+    )
+    assert pin, "no ruff== pin in pyproject.toml"
+    assert hook.group(1) == pin.group(1), (
+        f"{PRE_COMMIT.name} runs ruff {hook.group(1)}, "
+        f"the dev group pins ruff {pin.group(1)}"
+    )
+
+
 def test_ratchets_name_real_rules(
     known_rules: frozenset[str],
     whole_repo_ratchet: frozenset[str],

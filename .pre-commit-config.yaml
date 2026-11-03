@@ -1,9 +1,3 @@
-ci:
-  autofix_commit_msg: "style: auto fixes from pre-commit.ci hooks"
-  autofix_prs: false
-  autoupdate_commit_msg: "chore(deps): pre-commit.ci autoupdate"
-  skip:
-    - ruff
 default_install_hook_types:
   - pre-commit
   - post-checkout

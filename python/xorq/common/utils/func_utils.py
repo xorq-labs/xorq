@@ -1,4 +1,6 @@
+import contextlib
 import functools
+import inspect
 import itertools
 
 import toolz
@@ -24,14 +26,13 @@ def log_excepts(f, exception=Exception):
 
     logger = get_logger(__name__)
 
-    @functools.wraps(f)
-    def wrapper(*args, **kwargs):
+    @contextlib.contextmanager
+    def logged():
         i = next(count)
         try:
             logger.info(f"{f.__name__} :: entering :: {i}")
-            value = f(*args, **kwargs)
+            yield
             logger.info(f"{f.__name__} :: exiting  :: {i}")
-            return value
         except exception:
             # adds logging, not semantics: `maybe_log_excepts` leaves `f`
             # undecorated when debug is off, so swallowing here lost errors
@@ -39,7 +40,19 @@ def log_excepts(f, exception=Exception):
             logger.exception("exception!")
             raise
 
-    return wrapper
+    # a generator's body runs on iteration, after the call has returned
+    # (Flight's do_action), so the logging has to wrap the iteration
+    @functools.wraps(f)
+    def gen_wrapper(*args, **kwargs):
+        with logged():
+            yield from f(*args, **kwargs)
+
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        with logged():
+            return f(*args, **kwargs)
+
+    return gen_wrapper if inspect.isgeneratorfunction(f) else wrapper
 
 
 @toolz.curry

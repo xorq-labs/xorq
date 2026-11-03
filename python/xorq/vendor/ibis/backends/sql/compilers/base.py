@@ -1575,8 +1575,10 @@ class SQLGlotCompiler(abc.ABC):
         )
 
         # remove all ctes from the compiled expression, since they're now in
-        # our larger expression
-        compiled_ibis_expr.args.pop("with", None)
+        # our larger expression (through the With node: its arg key is "with"
+        # or "with_" depending on the sqlglot version)
+        if ctes := compiled_ibis_expr.ctes:
+            ctes[0].parent.pop()
 
         # add the new str query as a CTE
         parsed = parsed.with_(

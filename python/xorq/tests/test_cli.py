@@ -24,6 +24,8 @@ from click.testing import CliRunner
 
 import xorq
 import xorq.api as xo
+import xorq.expr.relations as rel
+import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.catalog.cli import cli as catalog_cli
 from xorq.cli import (
@@ -44,10 +46,13 @@ from xorq.cli_options import (
     unbind_options,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.io_utils import Peeker
 from xorq.common.utils.logging_utils import Run, Runs
 from xorq.common.utils.node_utils import (
+    compute_expr_hash,
     find_node,
+    replace_typs,
 )
 from xorq.common.utils.process_utils import (
     remove_ansi_escape,
@@ -853,7 +858,9 @@ def test_run_cached_command_cache_types(tmp_path, fixture_dir, cache_type, ttl):
 @pytest.mark.parametrize(
     "host,port,cache_dir", [(None, None, None), ("localhost", None, "cache")]
 )
-def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
+def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port, monkeypatch):
+    # serve writes xorq_serve.db into its cwd
+    monkeypatch.chdir(tmp_path)
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "udxf_pipeline.py"
 
@@ -1146,7 +1153,10 @@ def test_examples(
     expr_name,
     examples_dir,
     tmp_path,
+    monkeypatch,
 ):
+    # the examples write caches and warehouses into the subprocesses' cwd
+    monkeypatch.chdir(tmp_path)
     # build
     builds_dir = tmp_path / "builds"
     example_path = examples_dir / example
@@ -1238,6 +1248,19 @@ def test_init_command_path_exists(template, tmpdir):
     assert returncode != 0
 
 
+def uv_build_args(script_path, root, *options):
+    """``xorq uv build`` args that build under ``root``, not ``./builds``."""
+    return (
+        "xorq",
+        "uv",
+        "build",
+        "--builds-dir",
+        str(Path(root) / "builds"),
+        str(script_path),
+        *options,
+    )
+
+
 @pytest.mark.slow(level=2)
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
@@ -1264,12 +1287,7 @@ def test_init_uv_build_uv_run(template, tmpdir):
     # exported with a different uv version than CI, causing a sync-check failure.
     path.joinpath("requirements.txt").unlink()
 
-    build_args = (
-        "xorq",
-        "uv",
-        "build",
-        str(path.joinpath("expr.py")),
-    )
+    build_args = uv_build_args(path.joinpath("expr.py"), tmpdir)
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
@@ -1310,14 +1328,7 @@ def test_uv_build_with_project_path(tmpdir):
     script_path = tmpdir / "expr.py"
     shutil.copy2(path / "expr.py", script_path)
 
-    build_args = (
-        "xorq",
-        "uv",
-        "build",
-        str(script_path),
-        "--project-path",
-        str(path),
-    )
+    build_args = uv_build_args(script_path, tmpdir, "--project-path", str(path))
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
@@ -1334,13 +1345,7 @@ def test_uv_build_no_all_extras(tmpdir):
     (returncode, _, stderr) = subprocess_run(("xorq", "init", "--path", str(path)))
     assert returncode == 0, stderr
     (path / "requirements.txt").unlink(missing_ok=True)
-    build_args = (
-        "xorq",
-        "uv",
-        "build",
-        str(path / "expr.py"),
-        "--no-all-extras",
-    )
+    build_args = uv_build_args(path / "expr.py", tmpdir, "--no-all-extras")
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
@@ -1365,14 +1370,8 @@ def test_uv_build_with_extra(tmpdir):
     pyproject.write_text(tomlkit.dumps(data))
     subprocess_run(("uv", "lock", "--directory", str(path)))
     (path / "requirements.txt").unlink(missing_ok=True)
-    build_args = (
-        "xorq",
-        "uv",
-        "build",
-        str(path / "expr.py"),
-        "--no-all-extras",
-        "--extra",
-        "testgroup",
+    build_args = uv_build_args(
+        path / "expr.py", tmpdir, "--no-all-extras", "--extra", "testgroup"
     )
     (returncode, stdout, stderr) = subprocess_run(build_args, text=True)
     assert returncode == 0, stderr
@@ -1380,14 +1379,14 @@ def test_uv_build_with_extra(tmpdir):
     assert build_path.exists()
 
 
-# hand-maintained expr hashes from the pipeline_https build -- not
-# pytest-snapshot files, so --snapshot-update does not reach them
-serve_hashes = (
-    "74cb251c1f21ee5582635555511b89de",  # batting, rel.Read
-    "d906ac84789bfcc55348cc308123f7c6",  # awards_players, rel.Read
-    "87cf59fbf985ecbc80127ffdc47884b9",  # left, ops.Filter
-    "c0fb27e82cb99ea21d17642a7758674b",  # right, ops.DropColumns
-)
+# nodes of the pipeline_https build picked by type and role; their hashes are
+# snapshot files, so a normalization change is regenerated by --snapshot-update
+serve_roles = {
+    "batting": (rel.Read, lambda node: node.name == "batting"),
+    "awards_players": (rel.Read, lambda node: node.name == "awards_players"),
+    "left": (ops.Filter, lambda node: node.parent.tag == "read-batting"),
+    "right": (ops.DropColumns, lambda node: True),
+}
 
 
 @pytest.fixture(scope="session")
@@ -1452,17 +1451,15 @@ def hit_server(port, expr):
 
 @pytest.mark.slow(level=3)
 @pytest.mark.xdist_group(name="serve")
-@pytest.mark.parametrize("serve_hash", serve_hashes)
-def test_serve_unbound_hash(serve_hash, pipeline_https_build):
-    lookup = {
-        "c0fb27e82cb99ea21d17642a7758674b": "xorq.vendor.ibis.expr.operations.DropColumns",
-        "87cf59fbf985ecbc80127ffdc47884b9": "xorq.vendor.ibis.expr.operations.Filter",
-    }
+@pytest.mark.snapshot_check
+@pytest.mark.parametrize("role", tuple(serve_roles))
+def test_serve_unbound_hash(role, pipeline_https_build, snapshot):
+    (typ, matches) = serve_roles[role]
     expr = load_expr(pipeline_https_build)
-    typ = lookup.get(serve_hash)
-    subexpr = find_node(
-        expr, hash=serve_hash, tag=None, typs=typ, strategy=SnapshotStrategy()
-    ).to_expr()
+    (node,) = filter(matches, walk_nodes(typ, expr))
+    serve_hash = compute_expr_hash(node, strategy=SnapshotStrategy())
+    snapshot.assert_match(serve_hash, "serve_hash.txt")
+    subexpr = node.to_expr()
 
     serve_args = (
         "xorq",
@@ -1470,7 +1467,7 @@ def test_serve_unbound_hash(serve_hash, pipeline_https_build):
         str(pipeline_https_build),
         "--to-unbind-hash",
         serve_hash,
-    ) + (("--typ", typ) if typ else ())
+    ) + (() if typ in replace_typs else ("--typ", f"{typ.__module__}.{typ.__name__}"))
     with serve_process(serve_args) as (proc, peeker):
         port = peek_port(proc, peeker)
         actual = hit_server(port=port, expr=subexpr)
@@ -1614,7 +1611,8 @@ def test_serve_penguins_template(tmpdir, tmp_path):
     assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        # see serve_hashes above: a hand-maintained literal, not a snapshot
+        # a hand-maintained literal, not a snapshot: the two CachedNode splits
+        # differ only in their split predicate, so there is no role to pick by
         serve_hash = "f6bac73b04c52568518121e950435371"  # CachedNode (test split)
 
         serve_args = (
@@ -1750,7 +1748,7 @@ def test_uv_run_cached_roundtrip(tmpdir):
     path.joinpath("requirements.txt").unlink(missing_ok=True)
 
     (returncode, stdout, stderr) = subprocess_run(
-        ("xorq", "uv", "build", str(path / "expr.py")), text=True
+        uv_build_args(path / "expr.py", tmpdir), text=True
     )
     assert returncode == 0, stderr
     # build_command prints the build directory path as the last line of stdout
@@ -1850,7 +1848,7 @@ def uv_unbound_build(tmp_path_factory, fixture_dir):
     shutil.copy2(fixture_dir / "pipeline_unbound.py", path / "expr.py")
 
     (returncode, stdout, stderr) = subprocess_run(
-        ("xorq", "uv", "build", str(path / "expr.py")), text=True
+        uv_build_args(path / "expr.py", tmpdir), text=True
     )
     assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
@@ -2134,3 +2132,17 @@ def test_maybe_unzip_invalid_zip_raises(tmp_path: Path) -> None:
     with pytest.raises(zipfile.BadZipFile):
         with maybe_unzip(str(zip_path)) as _:
             pass
+
+
+def test_run_command_without_limit_has_no_otel_warning(tmp_path):
+    """GH #1940: xorq run without --limit does not print the OTel 'Invalid type NoneType' warning."""
+    build_dir = build_expr(
+        xo.memtable({"a": [1, 2, 3]}), builds_dir=tmp_path / "builds"
+    )
+    output_path = tmp_path / "out.parquet"
+    (returncode, _, stderr) = subprocess_run(
+        ["xorq", "run", str(build_dir), "-o", str(output_path)]
+    )
+    assert returncode == 0, stderr
+    assert "Invalid type NoneType" not in stderr.decode()
+    assert pq.read_table(output_path).num_rows == 3

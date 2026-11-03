@@ -1,6 +1,8 @@
+import datetime
 import threading
 from operator import methodcaller
 
+import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
@@ -237,3 +239,15 @@ def test_can_train_test_split(sqlite_con, astronauts_parquet_path):
     (train, test) = xo.train_test_splits(t, 0.2)
     assert train.execute() is not None
     assert test.execute() is not None
+
+
+def test_time_values_execute(sqlite_con):
+    # sqlite hands time back as text; it used to be cast to a duration, which
+    # arrow cannot turn into time64, and a time literal came back as Timedelta
+    t = sqlite_con.create_table(
+        "clocks", pd.DataFrame({"ts": pd.to_datetime(["2024-01-01 12:30:00"])})
+    )
+    assert t.ts.time().execute().tolist() == [datetime.time(12, 30)]
+    assert sqlite_con.execute(xo.literal(datetime.time(12, 30))) == datetime.time(
+        12, 30
+    )
