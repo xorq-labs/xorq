@@ -27,7 +27,7 @@ from xorq.vendor.ibis.backends.profiles import Profile
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping, MutableMapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping
     from urllib.parse import ParseResult
 
     import pandas as pd
@@ -875,6 +875,27 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
 
         Returns None if the backend is not a SQL backend.
         """
+
+    def upload_ingest(self) -> Callable[..., None] | None:
+        """A bulk ingest that writes a Flight upload as it streams in, or None.
+
+        A backend that returns a callable here lets the Flight server's
+        ``do_put`` consume the upload stream directly instead of reading it
+        all into memory first. The callable is invoked as
+        ``ingest(table_name, reader, mode=ingest_mode)`` with an ``IngestMode``
+        and must:
+
+        - not use this backend's connection: it runs outside the server lock,
+          concurrently with other RPCs, so anything that needs the connection
+          is resolved when this method is called (under the lock);
+        - write all of ``reader`` or nothing: a failure partway, e.g. the
+          client going away, must leave no rows behind.
+
+        The ADBC backends meet both by ingesting over a connection of their
+        own and committing once, after the last batch. The default, ``None``,
+        keeps the buffered write.
+        """
+        return None
 
     def __getstate__(self):
         return {"_con_args": self._con_args, "_con_kwargs": self._con_kwargs}

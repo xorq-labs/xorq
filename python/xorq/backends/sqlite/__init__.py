@@ -27,6 +27,16 @@ __all__ = [
 
 
 class Backend(IbisSQLiteBackend):
+    def upload_ingest(self):
+        """ADBC bulk ingest over its own connection; see ``BaseBackend``.
+
+        ``None`` for an in-memory database, which no other connection can
+        reach.
+        """
+        from xorq.common.utils.sqlite_utils import SQLiteADBC  # noqa: PLC0415
+
+        return None if self.is_in_memory() else SQLiteADBC(self).adbc_ingest
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,

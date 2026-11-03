@@ -75,6 +75,19 @@ class Backend(IbisPostgresBackend):
         }
         return cls().connect(**(examples_kwargs | kwargs))
 
+    def upload_ingest(self):
+        """ADBC bulk ingest over its own connection; see ``BaseBackend``.
+
+        ``None`` when no password was passed to ``connect``: the ADBC URI
+        carries it, so a psycopg connection authenticated another way
+        (``.pgpass``, ``PGPASSWORD``) keeps the buffered write.
+        """
+        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
+
+        if self._con_kwargs.get("password") is None:
+            return None
+        return PgADBC(self).adbc_ingest
+
     def _open_adbc_conn_or_none(self):
         """Open an ADBC connection for the Arrow paths, or ``None`` if there is
         not one to be had.

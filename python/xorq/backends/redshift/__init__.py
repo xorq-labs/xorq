@@ -911,6 +911,12 @@ ORDER BY ordinal_position ASC"""
 
         return PgADBC(self).get_conn()
 
+    def upload_ingest(self):
+        """``None``: neither ADBC driver can ingest into Redshift (see
+        ``read_record_batches``), so a Flight upload keeps the buffered write.
+        """
+        return None
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,

@@ -506,6 +506,20 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
                 cur.execute(put_into)
                 cur.execute(sql)
 
+    def upload_ingest(self):
+        """ADBC bulk ingest over its own connection; see ``BaseBackend``.
+
+        The target catalog and schema are queried here, on this connection,
+        so the ingest itself does not touch it.
+        """
+        from xorq.common.utils.databricks_utils import DatabricksADBC  # noqa: PLC0415
+
+        return functools.partial(
+            DatabricksADBC(self).adbc_ingest,
+            catalog_name=self.current_catalog,
+            db_schema_name=self.current_database,
+        )
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,

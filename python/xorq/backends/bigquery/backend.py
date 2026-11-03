@@ -65,6 +65,12 @@ class Backend(IbisBigQueryBackend):
             self._hash_cache = cached
         return cached[1]
 
+    def upload_ingest(self):
+        """ADBC bulk ingest over its own connection; see ``BaseBackend``."""
+        from xorq.common.utils.bigquery_utils import BigQueryADBC  # noqa: PLC0415
+
+        return BigQueryADBC(self).adbc_ingest
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader | pa.Table,

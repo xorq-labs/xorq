@@ -11,6 +11,7 @@ from cloudpickle import loads
 
 import xorq.flight.action as A
 import xorq.flight.exchanger as E
+from xorq.common.utils.enums import IngestMode
 from xorq.common.utils.func_utils import (
     maybe_log_excepts,
 )
@@ -205,6 +206,38 @@ def put_table(
             con.create_table(table, data, overwrite=True, **kwargs)
 
 
+def uncancelled_batches(
+    reader: pa.RecordBatchReader, context: pa.flight.ServerCallContext
+) -> pa.RecordBatchReader:
+    """``reader``'s batches, copied, failing at the end if the client left.
+
+    Flight ends an upload's stream the same way whether the client finished
+    it or went away (killed, disconnected, past its deadline), so draining
+    the reader is no proof the upload is whole. The call context tells the
+    two apart; raising instead of ending keeps a cut-off upload from being
+    written or committed.
+    """
+    copied = copy_rbr_batches(reader)
+
+    def batches():
+        yield from copied
+        if context.is_cancelled():
+            raise pa.flight.FlightCancelledError("the client cancelled the upload")
+
+    return pa.RecordBatchReader.from_batches(copied.schema, batches())
+
+
+# The ADBC ingest mode each upload mode streams as. With no mode, the database
+# decides append-or-create in the ingest itself, so no existence check runs
+# under the server lock.
+INGEST_MODES = {
+    None: IngestMode.CREATE_APPEND,
+    UploadMode.CREATE: IngestMode.CREATE,
+    UploadMode.APPEND: IngestMode.APPEND,
+    UploadMode.REPLACE: IngestMode.REPLACE,
+}
+
+
 class BasicAuthServerMiddlewareFactory(pa.flight.ServerMiddlewareFactory):
     """
     Middleware that implements username-password authentication.
@@ -356,20 +389,28 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         reader: pa.flight.MetadataRecordBatchReader,
         writer: pa.flight.FlightMetadataWriter,
     ) -> None:
-        """Store an upload as the command's table, with ``put_table``.
+        """Store an upload as the command's table.
 
-        The upload stream is only readable while this call runs: reading it
-        after the call returns is a use-after-free in Arrow Flight. So the
-        whole upload is read here before it is written. To process batches as
-        they arrive instead of storing them, use ``do_exchange`` with an
-        ``UnboundExprExchanger``. The stream is read outside ``self.lock``, so
-        other RPCs are not blocked while an upload arrives; the write, with
-        ``put_table``'s existence check, runs under it.
+        A backend whose ``upload_ingest`` returns an ingest (the ADBC ones)
+        writes the upload as it arrives, over a connection of its own and
+        outside ``self.lock``, committing after the last batch; the mode maps
+        through ``INGEST_MODES``. Only an upload without backend kwargs takes
+        this path, since those kwargs are ``create_table``/``insert`` keywords.
+
+        Every other upload is read whole and then written with ``put_table``
+        under ``self.lock``. The upload stream is only readable while this
+        call runs (reading it after the call returns is a use-after-free in
+        Arrow Flight), so a backend that registers rather than ingests has to
+        buffer it. The stream is read outside the lock, so other RPCs are not
+        blocked while an upload arrives. To process batches as they arrive
+        instead of storing them, use ``do_exchange`` with an
+        ``UnboundExprExchanger``.
 
         Parameters
         ----------
         context
-            The Flight server call context (unused).
+            The Flight server call context, asked whether the client
+            cancelled the upload.
         rec
             Metrics recorder, injected by ``instrument_rpc``.
         descriptor
@@ -387,13 +428,24 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             unknown mode, ``mode`` with ``overwrite=``, backend write failure),
             not caught. The client receives it as ``FlightServerError``, or
             ``ArrowInvalid`` for a ``ValueError``, at ``writer.close()``.
+        ValueError
+            If ``mode`` is not a ``UploadMode`` value, before the stream is
+            read.
+        pyarrow.flight.FlightCancelledError
+            If the client went away before finishing the upload, raised at the
+            end of the stream (``uncancelled_batches``).
         pyarrow.ArrowException
-            If the upload stream fails while it is read, e.g. the client goes
-            away (external, from ``read_all``). Nothing is written: the write
-            happens only after the whole stream has been read.
+            If the upload stream fails while it is read (external). In both
+            cases nothing is written: a buffered write happens only after the
+            whole stream has been read, and a streamed ingest is not
+            committed.
+        adbc_driver_manager.Error
+            On the streamed path, whatever the ingest raises (``create`` on an
+            existing table, ``append`` to an absent one or with another
+            schema); the ingest is not committed.
         MemoryError
-            If the upload does not fit in server memory (external, from
-            ``read_all``).
+            If a buffered upload does not fit in server memory (external,
+            from ``read_all``).
 
         Contract
         --------
@@ -406,9 +458,18 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         reader = instrument_reader(reader, rec, direction="in")
 
         table, kwargs, mode = parse_put_command(loads(descriptor.command))
-        data = copy_rbr_batches(reader).read_all()
+        mode = None if mode is None else UploadMode(mode)
         with self.lock:
-            put_table(self._conn, table, data, mode, **kwargs)
+            ingest = None if kwargs else self._conn.upload_ingest()
+        match ingest:
+            case None:
+                data = uncancelled_batches(reader, context).read_all()
+                with self.lock:
+                    put_table(self._conn, table, data, mode, **kwargs)
+            case _:
+                ingest(
+                    table, uncancelled_batches(reader, context), mode=INGEST_MODES[mode]
+                )
 
     @maybe_log_excepts
     def do_action(self, context, action):
