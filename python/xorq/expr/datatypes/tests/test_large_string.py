@@ -92,3 +92,16 @@ def test_cast(utf8_data):
         [("name", String), ("age", Int64), ("a", LargeString)]
     )
     assert isinstance(actual, pd.DataFrame)
+
+
+def test_deferred_read_parquet_keeps_large_string(tmp_path):
+    path = tmp_path / "test_largestring.parquet"
+    expr = xo.memtable({"id": [1, 2, 3], "text_col": ["A", "B", "C"]}).mutate(
+        text_col=xo._.text_col.cast(LargeString)
+    )
+    expr.to_parquet(path)
+
+    read_back = xo.deferred_read_parquet(path=path, con=xo.connect())
+
+    assert read_back.schema() == expr.schema()
+    assert read_back.to_pyarrow().schema == expr.to_pyarrow().schema
