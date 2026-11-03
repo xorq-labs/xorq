@@ -21,6 +21,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.common.enums import BackendName
 from xorq.common.exceptions import LocalReadPathWarning
 from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.defer_utils import is_multi_read_path
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.operations import _MISSING, NamedScalarParameter
@@ -752,7 +753,17 @@ def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
     if path := next((v for k, v in kw.items() if k in path_keys), None):
         f = toolz.excepts((ValueError, AttributeError), is_local_path)
         paths = normalize_filenames(path)
-        if any(map(f, paths)):
+        if not any(map(f, paths)):
+            return
+        if is_multi_read_path(path):
+            warnings.warn(
+                "The Read op paths are local filesystem paths. Multi-path reads"
+                " cannot be relocated, so the build keeps them as machine-local"
+                " paths and may not work in other environments.",
+                LocalReadPathWarning,
+                stacklevel=2,
+            )
+        else:
             warnings.warn(
                 "The Read op path is using a local filesystem path, running"
                 " the build may not work in other environments. Consider"

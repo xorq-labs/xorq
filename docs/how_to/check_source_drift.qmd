@@ -190,7 +190,7 @@ bundled
 1 entries, 0 drifted
 ```
 
-That is what bundling looks like. The `memtable` rows were serialized into the build, so they travel with the entry and can't drift. The same holds for tables in a memory backend and, by default, for local file reads: `xorq build` relocates them, copying the bytes into the archive so the build runs anywhere.
+That is what bundling looks like. The `memtable` rows were serialized into the build, so they travel with the entry and can't drift. The same holds for tables in a memory backend and, by default, for local file reads: `xorq build` relocates them, copying the bytes into the archive so the build runs anywhere. A read of several files (a list or tuple of paths) is the exception: it is never relocated, so it stays a machine-local path and `check-sources` keeps watching it.
 
 Watch both halves of that. Save this as `$DEMO/feed.py`:
 
