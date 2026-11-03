@@ -1,3 +1,5 @@
+import datetime
+import threading
 import time
 
 import pyarrow as pa
@@ -118,3 +120,79 @@ def test_cancelled_upload_writes_nothing(con, table):
             writer.done_writing()
             writer.close()
     assert table not in con.list_tables()
+
+
+@pytest.mark.parametrize("con", INGESTING, indirect=True)
+def test_streamed_upload_declares_buffered_types(con, table):
+    data = pa.table(
+        {
+            "flag": [True],
+            "ts": [datetime.datetime(2020, 1, 1)],
+            "n": pa.array([1], pa.int32()),
+        }
+    )
+    expected = gen_name("buffered")
+    con.create_table(expected, data)
+    try:
+        with FlightServer(make_connection=lambda: con) as server:
+            server.client.upload_table(table, data)
+        assert con.table(table).schema() == con.table(expected).schema()
+        assert con.table(table).to_pyarrow().equals(con.table(expected).to_pyarrow())
+    finally:
+        con.drop_table(expected, force=True)
+
+
+@pytest.mark.parametrize("con", INGESTING, indirect=True)
+@pytest.mark.parametrize("mode", (None, "append"))
+def test_streamed_append_matches_columns_by_name_and_casts(con, table, mode):
+    con.create_table(table, schema=xo.schema({"a": "int32", "b": "string"}))
+    upload = pa.table({"b": ["x"], "a": pa.array([1], pa.int64())})
+    with FlightServer(make_connection=lambda: con) as server:
+        server.client.upload_table(table, upload, mode=mode)
+    assert con.table(table).to_pyarrow().to_pylist() == [{"a": 1, "b": "x"}]
+
+
+@pytest.mark.parametrize("con", INGESTING, indirect=True)
+def test_streamed_upload_leaves_target_readable_while_it_arrives(con, table):
+    stall = threading.Event()
+
+    def stalling():
+        yield from FIRST.to_batches()
+        stall.wait(timeout=10)
+        yield from SECOND.to_batches()
+
+    with FlightServer(make_connection=lambda: con) as server:
+        server.client.upload_table(table, FIRST)
+        uploading = threading.Thread(
+            target=server.client.upload_batches,
+            args=(table, pa.RecordBatchReader.from_batches(FIRST.schema, stalling())),
+            kwargs={"mode": "replace"},
+        )
+        uploading.start()
+        try:
+            # the first batch has reached the server's ingest
+            time.sleep(0.5)
+            started = time.monotonic()
+            # served under the server lock, as do_get would be
+            result = server.client.execute(con.table(table).count())
+            assert result.column(0).to_pylist() == [2]
+            assert time.monotonic() - started < 2
+        finally:
+            stall.set()
+            uploading.join()
+    assert count(con, table) == 3
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    "con",
+    (pytest.param(lambda _: xo.postgres.connect_env(), id="postgres"),),
+    indirect=True,
+)
+def test_postgres_without_adbc_connection_keeps_buffered_upload(con, table):
+    # authenticated another way (.pgpass, PGPASSWORD): no URI to build
+    con._con_kwargs.pop("password")
+    assert con.upload_ingest() is None
+    with FlightServer(make_connection=lambda: con) as server:
+        server.client.upload_table(table, FIRST)
+    assert count(con, table) == 2

@@ -15,9 +15,6 @@ from xorq.common.utils.enums import IngestMode
 from xorq.common.utils.func_utils import (
     maybe_log_excepts,
 )
-from xorq.common.utils.rbr_utils import (
-    copy_rbr_batches,
-)
 from xorq.flight.enums import UploadMode
 from xorq.flight.metrics import (
     InstrumentedReader,
@@ -217,19 +214,20 @@ def uncancelled_batches(
     two apart; raising instead of ending keeps a cut-off upload from being
     written or committed.
     """
-    copied = copy_rbr_batches(reader)
+    manager = pa.default_cpu_memory_manager()
 
     def batches():
-        yield from copied
+        for batch in reader:
+            yield batch.copy_to(manager)
         if context.is_cancelled():
             raise pa.flight.FlightCancelledError("the client cancelled the upload")
 
-    return pa.RecordBatchReader.from_batches(copied.schema, batches())
+    return pa.RecordBatchReader.from_batches(reader.schema, batches())
 
 
-# The ADBC ingest mode each upload mode streams as. With no mode, the database
-# decides append-or-create in the ingest itself, so no existence check runs
-# under the server lock.
+# The ADBC ingest mode each upload mode streams as. With no mode, the ingest
+# creates the table only if it is absent, in its own transaction, so no
+# existence check runs under the server lock.
 INGEST_MODES = {
     None: IngestMode.CREATE_APPEND,
     UploadMode.CREATE: IngestMode.CREATE,
@@ -391,10 +389,12 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
     ) -> None:
         """Store an upload as the command's table.
 
-        A backend whose ``upload_ingest`` returns an ingest (the ADBC ones)
-        writes the upload as it arrives, over a connection of its own and
-        outside ``self.lock``, committing after the last batch; the mode maps
-        through ``INGEST_MODES``. Only an upload without backend kwargs takes
+        A backend whose ``upload_ingest`` returns an ingest (file-backed
+        sqlite, postgres with an ADBC connection) writes the upload as it
+        arrives, over a connection of its own and outside ``self.lock``, into
+        a staging table, and writes the target from it in the transaction
+        that commits after the last batch; the mode maps through
+        ``INGEST_MODES``. Only an upload without backend kwargs takes
         this path, since those kwargs are ``create_table``/``insert`` keywords.
 
         Every other upload is read whole and then written with ``put_table``
@@ -441,8 +441,8 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             committed.
         adbc_driver_manager.Error
             On the streamed path, whatever the ingest raises (``create`` on an
-            existing table, ``append`` to an absent one or with another
-            schema); the ingest is not committed.
+            existing table, ``append`` to an absent one or with columns it
+            lacks or cannot cast); the ingest is not committed.
         MemoryError
             If a buffered upload does not fit in server memory (external,
             from ``read_all``).

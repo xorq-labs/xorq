@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+from xorq.common.utils.adbc_utils import staged_ingest
 from xorq.common.utils.defer_utils import read_csv_schema_kwargs
 from xorq.common.utils.rbr_utils import coerce_to_arrow_table
 from xorq.config import default_backend
@@ -25,17 +27,27 @@ __all__ = [
     "Backend",
 ]
 
+# ``sqlite3.connect``'s default ``timeout``, which the backend connects with
+SQLITE3_BUSY_TIMEOUT_MS = 5_000
+
 
 class Backend(IbisSQLiteBackend):
     def upload_ingest(self):
-        """ADBC bulk ingest over its own connection; see ``BaseBackend``.
+        """A staged ADBC ingest over a connection of its own; see
+        ``BaseBackend``.
 
         ``None`` for an in-memory database, which no other connection can
-        reach.
+        reach. The connection waits on a locked database as long as
+        ``sqlite3``'s default does, instead of failing the commit at once.
         """
         from xorq.common.utils.sqlite_utils import SQLiteADBC  # noqa: PLC0415
 
-        return None if self.is_in_memory() else SQLiteADBC(self).adbc_ingest
+        if self.is_in_memory():
+            return None
+        conn = SQLiteADBC(self).get_conn()
+        with conn.cursor() as cur:
+            cur.execute(f"PRAGMA busy_timeout = {SQLITE3_BUSY_TIMEOUT_MS}")
+        return functools.partial(staged_ingest, conn, self.dialect)
 
     def read_record_batches(
         self,

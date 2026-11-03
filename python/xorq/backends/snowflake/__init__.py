@@ -292,10 +292,6 @@ class Backend(IbisSnowflakeBackend):
         adbc = SnowflakeADBC(self)
         return adbc
 
-    def upload_ingest(self):
-        """ADBC bulk ingest over its own connection; see ``BaseBackend``."""
-        return self.adbc.adbc_ingest
-
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,

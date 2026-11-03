@@ -889,11 +889,17 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
           concurrently with other RPCs, so anything that needs the connection
           is resolved when this method is called (under the lock);
         - write all of ``reader`` or nothing: a failure partway, e.g. the
-          client going away, must leave no rows behind.
+          client going away, must leave the table as it was;
+        - write what the buffered path would: the same declared types, and
+          rows matched to an existing table's columns by name, with casts;
+        - hold no lock another RPC may wait on while the stream arrives,
+          since that RPC waits holding the server lock.
 
-        The ADBC backends meet both by ingesting over a connection of their
-        own and committing once, after the last batch. The default, ``None``,
-        keeps the buffered write.
+        sqlite and postgres meet these with ``staged_ingest``: the stream goes
+        into a temporary table on a connection of their own, and the target
+        is written from it in the one transaction that commits. A database
+        whose DDL commits on its own (Snowflake, Databricks, BigQuery) cannot,
+        so it keeps the default, ``None``: the buffered write.
         """
         return None
 

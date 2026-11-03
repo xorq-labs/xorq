@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ import toolz
 from adbc_driver_manager import ProgrammingError as ADBCProgrammingError
 
 from xorq.backends.postgres.compiler import compiler
+from xorq.common.utils.adbc_utils import staged_ingest
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
@@ -76,17 +78,20 @@ class Backend(IbisPostgresBackend):
         return cls().connect(**(examples_kwargs | kwargs))
 
     def upload_ingest(self):
-        """ADBC bulk ingest over its own connection; see ``BaseBackend``.
+        """A staged ADBC ingest over a connection of its own; see
+        ``BaseBackend``.
 
-        ``None`` when no password was passed to ``connect``: the ADBC URI
-        carries it, so a psycopg connection authenticated another way
-        (``.pgpass``, ``PGPASSWORD``) keeps the buffered write.
+        The connection is opened here, under the server lock, so building it
+        reads this backend's connection only there, and an unavailable one
+        (no password passed to ``connect``, an address the URI cannot carry)
+        returns ``None`` and keeps the buffered write.
         """
-        from xorq.common.utils.postgres_utils import PgADBC  # noqa: PLC0415
-
-        if self._con_kwargs.get("password") is None:
-            return None
-        return PgADBC(self).adbc_ingest
+        conn = self._open_adbc_conn_or_none()
+        return (
+            None
+            if conn is None
+            else functools.partial(staged_ingest, conn, self.dialect)
+        )
 
     def _open_adbc_conn_or_none(self):
         """Open an ADBC connection for the Arrow paths, or ``None`` if there is
