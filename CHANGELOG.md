@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.11] - 2026-11-03
+### Details
+#### Added
+- Add xorq catalog rebase --json by @mesejo in [#2356](https://github.com/xorq-labs/xorq/pull/2356)
+
+#### Changed
+- Drop the Ibis mentions by @mesejo in [#2549](https://github.com/xorq-labs/xorq/pull/2549)
+- Describe Xorq as an IR, a ledger and a CLI by @mesejo in [#2552](https://github.com/xorq-labs/xorq/pull/2552)
+- Rebase --dry-run, --no-add, and rebased_from provenance by @mesejo in [#2354](https://github.com/xorq-labs/xorq/pull/2354)
+- Rebase reports every outcome explicitly by @mesejo in [#2358](https://github.com/xorq-labs/xorq/pull/2358)
+- Refresh_schemas follows a renamed column under a mark by @mesejo in [#2554](https://github.com/xorq-labs/xorq/pull/2554)
+- Rebase --rename for a source bound once by @mesejo in [#2359](https://github.com/xorq-labs/xorq/pull/2359)
+- Report rebase renames in --json by @mesejo in [#2555](https://github.com/xorq-labs/xorq/pull/2555)
+- Rebase --rename across a source's bindings by @mesejo in [#2556](https://github.com/xorq-labs/xorq/pull/2556)
+- Gate formatting on the merge path by @mesejo in [#2280](https://github.com/xorq-labs/xorq/pull/2280)
+- Record that cache storage is not build identity by @mesejo in [#2511](https://github.com/xorq-labs/xorq/pull/2511)
+
+#### Fixed
+- Never match a null join key with a null key by @mesejo in [#2544](https://github.com/xorq-labs/xorq/pull/2544)
+- Rebase reports a failed push as its own outcome, exit 5 by @mesejo in [#2551](https://github.com/xorq-labs/xorq/pull/2551)
+- Name the hash or tag when no node matches by @mesejo in [#2524](https://github.com/xorq-labs/xorq/pull/2524)
+- Run the self-join properties on pandas and sqlite by @mesejo in [#2565](https://github.com/xorq-labs/xorq/pull/2565)
+- EntryReport reports an unreadable record instead of raising by @theluckystrike in [#2553](https://github.com/xorq-labs/xorq/pull/2553)
+- EntryReport covers every probed leaf, one verdict rule by @mesejo in [#2566](https://github.com/xorq-labs/xorq/pull/2566)
+- Deferred_read_csv infers the schema with the reader kwargs by @mesejo in [#2478](https://github.com/xorq-labs/xorq/pull/2478)
+- Fold every read kwarg but path, location and name into Read identity by @mesejo in [#2480](https://github.com/xorq-labs/xorq/pull/2480)
+- Let ctx.exit and Abort through the CLI error handlers by @mesejo in [#2526](https://github.com/xorq-labs/xorq/pull/2526)
+- Key and write a same-cache stack once, as its innermost node by @mesejo in [#2386](https://github.com/xorq-labs/xorq/pull/2386)
+- Pin key agreement across every CachedNode keying site by @mesejo in [#2385](https://github.com/xorq-labs/xorq/pull/2385)
+
+## New Contributors
+* @theluckystrike made their first contribution in [#2553](https://github.com/xorq-labs/xorq/pull/2553)
 ## [0.4.10] - 2026-10-27
 ### Details
 #### Added
