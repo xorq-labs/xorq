@@ -226,13 +226,18 @@ def test_refresh_keeps_a_pinned_read_apart_from_the_current_one(
     }
 
 
+@pytest.mark.parametrize(
+    "connect",
+    [lambda: xo.connect(), lambda: xo.duckdb.connect()],
+    ids=["xorq", "duckdb"],
+)
 def test_replace_sources_transfers_a_loaded_iceberg_table(
-    iceberg_con, quotes_df, tmp_path
+    iceberg_con, quotes_df, tmp_path, connect
 ):
     exprs = pinned_and_latest(iceberg_con, "snapshot_replace", quotes_df)
     loaded = load_expr(build_expr(exprs["latest"], builds_dir=tmp_path))
     (source,) = loaded.ls.backends
-    con = xo.connect()
+    con = connect()
 
     moved = replace_sources({id(source): con}, loaded, transfer_tables=True)
 
