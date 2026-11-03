@@ -22,6 +22,7 @@ from xorq.expr.relations import (
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Schema
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.util import (
     gen_name,
     normalize_filenames,
@@ -46,8 +47,31 @@ _ADBC_BACKENDS = frozenset(("sqlite", "postgres", "databricks", "redshift"))
 _PATH_PARAM_NAMES = frozenset(("path", "paths", "source", "source_list"))
 
 
+def freeze(value):
+    """The hashable twin of a reader kwarg value, recursively.
+
+    A ``Read`` is a ``Concrete`` and hashes its kwargs, so a dict becomes a
+    ``FrozenOrderedDict`` (still a dict to the reader, and the type the yaml
+    round trip hands back) and a list or tuple a tuple, values included. An
+    ibis ``Schema`` is a ``Mapping`` too and must stay a ``Schema``, hence
+    the match on ``dict`` and not on ``Mapping``.
+
+    Contract
+    --------
+    Preconditions
+        - A tuple is handed to the reader where the caller wrote a list;
+          every reader here accepts both.
+    """
+    match value:
+        case dict():
+            return FrozenOrderedDict({k: freeze(v) for k, v in value.items()})
+        case list() | tuple():
+            return tuple(freeze(v) for v in value)
+        case _:
+            return value
+
+
 def make_read_kwargs(f, *args, **kwargs):
-    # FIXME: if any kwarg is a dictionary, we'll fail Concrete's hashable requirement, so just pickle
     read_kwargs = get_arguments(f, *args, **kwargs)
     kwargs = read_kwargs.pop("kwargs", {})
     # Normalize backend-specific path parameter names to "hash_path" so that
@@ -56,8 +80,7 @@ def make_read_kwargs(f, *args, **kwargs):
         ("hash_path" if k in _PATH_PARAM_NAMES else k): v
         for k, v in read_kwargs.items()
     }
-    tpl = tuple(read_kwargs.items()) + tuple(kwargs.items())
-    return tpl
+    return tuple((k, freeze(v)) for k, v in (*read_kwargs.items(), *kwargs.items()))
 
 
 def relocatable_read_path(path: str | Path) -> tuple[str, str]:
