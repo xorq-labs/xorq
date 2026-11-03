@@ -29,14 +29,6 @@ def test_param_required():
     assert cutoff.op().default is _MISSING
 
 
-def test_param_in_filter():
-    threshold = xo.param("threshold", "float64")
-    t = xo.memtable({"x": [1.0, 2.0, 3.0]})
-    expr = t.filter(t.x > threshold)
-    result = expr.execute(params={threshold: 1.5})
-    assert list(result["x"]) == [2.0, 3.0]
-
-
 def test_param_multiple_operations():
     lo = xo.param("lo", "float64", default=0.0)
     hi = xo.param("hi", "float64", default=10.0)

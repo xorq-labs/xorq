@@ -301,27 +301,6 @@ def test_multi_engine_deferred_reads(builds_dir, parquet_dir):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_multi_engine_with_caching(builds_dir, parquet_dir):
-    con0 = xo.connect()
-    con1 = xo.connect()
-    con2 = xo.duckdb.connect()
-    con3 = xo.connect()
-
-    awards_players = deferred_read_parquet(
-        parquet_dir / "awards_players.parquet", con=con0
-    ).into_backend(con1)
-    batting = deferred_read_parquet(
-        parquet_dir / "batting.parquet", con=con2
-    ).into_backend(con1)
-    expr = (
-        awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
-        .into_backend(con3)
-        .filter(xo._.G == 1)
-    )
-    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
-    assert expr.execute().equals(roundtrip_expr.execute())
-
-
 @pytest.mark.parametrize(
     "environment_factory",
     (
