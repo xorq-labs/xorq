@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import pyarrow as pa
 import toolz
+from batchcorder import StreamCache
 
 
 if TYPE_CHECKING:
@@ -36,7 +37,9 @@ from xorq.common.utils.rbr_utils import (
     excepts_print_exc,
     make_filtered_reader,
 )
+from xorq.expr.remote_table_exec import count_unbound_scans, drop_placeholder
 from xorq.vendor import ibis
+from xorq.vendor.ibis.util import gen_name
 
 
 def schemas_equal(s0, s1):
@@ -119,6 +122,19 @@ def find_unbound_next_con(unbound_expr):
             raise ValueError("unexpected match case in find_unbound_next_con")
 
 
+def input_cache(unbound_expr, con, reader):
+    """Wrap an exchange's input so every scan of ``unbound_expr`` reads all of it.
+
+    The input is a one-shot stream; a plan that scans it twice (a scalar
+    subquery, a self-join, a self-union) would otherwise see an empty second
+    scan. ``max_readers`` is the plan's scan count, so batches are evicted once
+    every scan has passed them; it is unbounded when the count is unknown, so
+    the caller closes it once the exchange is done.
+    """
+    max_readers = count_unbound_scans(unbound_expr, getattr(con, "compiler", None))
+    return StreamCache(reader, max_readers=max_readers)
+
+
 @excepts_print_exc(exc=BaseException)
 def streaming_expr_exchange(
     unbound_expr: ibis.Table,
@@ -131,16 +147,23 @@ def streaming_expr_exchange(
 ) -> None:
     filtered_reader = copy_rbr_batches(make_filtered_reader(reader))
     con = find_unbound_next_con(unbound_expr) or make_connection()
-    bound_expr = replace_one_unbound(
-        unbound_expr,
-        con.read_record_batches(filtered_reader),
-    )
+    cache = input_cache(unbound_expr, con, filtered_reader)
+    name = gen_name("exchange_input")
     started = False
-    for batch in bound_expr.to_pyarrow_batches():
-        if not started:
-            writer.begin(batch.schema, options=options)
-            started = True
-        writer.write_batch(batch)
+    try:
+        bound_expr = replace_one_unbound(
+            unbound_expr, con.read_record_batches(cache, table_name=name)
+        )
+        for batch in bound_expr.to_pyarrow_batches():
+            if not started:
+                writer.begin(batch.schema, options=options)
+                started = True
+            writer.write_batch(batch)
+    finally:
+        # a reused connection outlives the exchange: drop the registration,
+        # then release the input
+        drop_placeholder(con, name)
+        cache.close()
 
 
 class AbstractExchanger(ABC):

@@ -95,32 +95,75 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     without eviction. Omitting the count is safe; deriving one too low is not.
     See ADR-0013 ("Counting accuracy").
     """
-    op = expr.op()
-    sentinels = {}
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
 
-    def replacer(node, kwargs):
-        if isinstance(node, RemoteTable):
-            name = gen_name()
-            sentinels[node] = name
-            return ops.DatabaseTable(name=name, schema=node.schema, source=node.source)
-        if kwargs:
-            node = node.__recreate__(kwargs)
-        return node
-
-    placeholder = op.replace(replacer).to_expr()
-    if not sentinels:
+    if not walk_nodes(RemoteTable, expr):
         return {}
     try:
-        provider = placeholder._find_backend(  # xorq-style: disable=protected-access
+        provider = expr._find_backend(  # xorq-style: disable=protected-access
             use_default=True
         )
         compiler = getattr(provider, "compiler", None)
         if compiler is None:
             return {}
-        out = compiler.to_sqlglot(placeholder.unbind())
+        return count_scans(compiler, expr, RemoteTable)
     except Exception:
         return {}
 
+
+def count_unbound_scans(expr: Expr, compiler) -> int | None:
+    """Best-effort count of how many times ``expr``'s one ``UnboundTable`` is
+    scanned when ``compiler`` compiles it.
+
+    The same lower-bound rules as ``count_remote_table_readers`` apply: the
+    count comes from the compiled SQL, floored at 1. Returns ``None`` when it
+    is not known: ``expr`` does not compile, or the table sits under a shape
+    the dialect re-scans below the SQL (see ``tables_under_rescans``). A
+    ``StreamCache`` sized by a ``None`` count is unbounded, which is always
+    safe.
+    """
+    from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
+
+    (unbound,) = walk_nodes(ops.UnboundTable, expr)
+    try:
+        return count_scans(compiler, expr, ops.UnboundTable).get(unbound)
+    except Exception:
+        return None
+
+
+def count_scans(compiler, expr: Expr, kind: type) -> dict:
+    """Scans of each ``kind`` node in ``expr`` compiled by ``compiler``.
+
+    Every ``kind`` node is replaced by an unbound table under a freshly
+    generated name before compiling, so a table sharing a user-supplied name
+    (another ``kind`` node, or a bound table) cannot inflate its count. Each
+    count is floored at 1, and a node read by a shape the dialect re-scans
+    below the SQL is left out (its count is unknown). Raises whatever
+    compiling raises; callers turn that into "no count".
+    """
+    sentinels = {}
+
+    def replacer(node, kwargs):
+        if isinstance(node, kind):
+            sentinels[node] = name = gen_name()
+            return ops.UnboundTable(name=name, schema=node.schema)
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        return node
+
+    placeholder = expr.op().replace(replacer).to_expr().unbind()
+    counts, rescanned = scan_counts(compiler, placeholder)
+    return {
+        node: max(1, counts[name])
+        for node, name in sentinels.items()
+        if name not in rescanned
+    }
+
+
+def scan_counts(compiler, expr: Expr) -> tuple[Counter, set[str]]:
+    """``Table`` scans per name in ``expr`` compiled by ``compiler``, and the
+    names read by a shape the dialect re-scans below the SQL."""
+    out = compiler.to_sqlglot(expr)
     # xorq's datafusion compiler and the vendored one each carry their own
     # `DataFusion` dialect class, so the dialect is matched by name
     dialect = compiler.dialect.__name__
@@ -134,11 +177,7 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     counts = Counter()
     for query in queries:
         counts.update(_count_table_scans(query, inlines_ctes))
-    return {
-        node: max(1, counts[name])
-        for node, name in sentinels.items()
-        if name not in rescanned
-    }
+    return counts, rescanned
 
 
 def tables_under_rescans(query) -> set[str]:
