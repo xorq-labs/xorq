@@ -760,6 +760,7 @@ def warn_on_local_path(items: Iterable[tuple[str, Any]]) -> None:
                 "The Read op paths are local filesystem paths. Multi-path reads"
                 " cannot be relocated, so the build keeps them as machine-local"
                 " paths and may not work in other environments.",
+                LocalReadPathWarning,
                 stacklevel=2,
             )
         else:

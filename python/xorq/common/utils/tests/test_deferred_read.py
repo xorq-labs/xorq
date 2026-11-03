@@ -18,6 +18,7 @@ import xorq.api as xo
 from xorq.caching import (
     ParquetCache,
 )
+from xorq.common.exceptions import LocalReadPathWarning
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
@@ -461,7 +462,9 @@ def test_deferred_read_sequence_of_paths_build_warning(
 ):
     path = data_dir / suffix / f"astronauts.{suffix}"
     expr = deferred_read([path, path], xo.connect(), table_name="t")
-    with pytest.warns(UserWarning, match="Multi-path reads cannot be relocated") as rec:
+    with pytest.warns(
+        LocalReadPathWarning, match="Multi-path reads cannot be relocated"
+    ) as rec:
         build_expr(expr, builds_dir=tmp_path / "builds")
     (message,) = (str(w.message) for w in rec if "Multi-path reads" in str(w.message))
     assert "machine-local paths" in message
