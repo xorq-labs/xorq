@@ -1,5 +1,7 @@
 import datetime
 import decimal
+import subprocess
+import sys
 
 import pytest
 
@@ -205,3 +207,28 @@ def test_table_perserves_namespace(compiler):
     yaml_dict = compiler.to_yaml(expr)
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.op().namespace == expr.op().namespace
+
+
+def test_translation_context_translates_in_a_fresh_interpreter():
+    # #1546: the rules are built into the dispatchers a context is made with,
+    # so translating does not depend on what was imported before, and a context
+    # without translators cannot be constructed
+    code = """
+import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.ibis_yaml.common import TranslationContext
+from xorq.ibis_yaml.translate import make_context
+
+context = make_context()
+print(context.translate_from_yaml(context.translate_to_yaml(dt.Boolean())))
+try:
+    TranslationContext()
+except TypeError:
+    print("no translators")
+"""
+    result = subprocess.run(
+        (sys.executable, "-c", code), capture_output=True, text=True, check=False
+    )
+    assert (result.returncode, result.stdout.split()) == (
+        0,
+        ["boolean", "no", "translators"],
+    ), result.stderr
