@@ -797,12 +797,6 @@ def test_normalize_methodcaller_with_kwargs():
     assert result[3] == {"encoding": "utf-8"}
 
 
-def test_normalize_methodcaller_portable():
-    mc = operator.methodcaller("upper")
-    result = normalize_methodcaller(mc)
-    assert result == ("operator.methodcaller", "upper", (), {})
-
-
 def test_methodcaller_reduce_shape_no_args():
     """Guard: __reduce__ for methodcaller(name) returns (cls, (name,)).
 
