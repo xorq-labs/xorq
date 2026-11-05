@@ -65,7 +65,7 @@ jobs:
           uv run --isolated --no-project -p ${{ matrix.python-version }} --with dist/*.tar.gz --with pytest --with pytest-cov --with "hypothesis>=6.112" -- pytest --import-mode=importlib --cov --cov-report=xml -m "library or xorq"
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5.5.4
+        uses: codecov/codecov-action@v5.5.5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: library
