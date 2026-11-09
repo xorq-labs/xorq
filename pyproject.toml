@@ -116,7 +116,7 @@ duckdb = [
     "duckdb>=1.5",  # 1.5 required for stable Arrow stream registration used by StreamCache
 ]
 datafusion = [
-    "datafusion>=47.0.0,<49; python_version >= '3.10' and python_version < '4.0'"
+    "datafusion>=55.0.0,<56; python_version >= '3.10' and python_version < '4.0'"
 ]
 snowflake = [
     "adbc-driver-snowflake>=1.5.0",
