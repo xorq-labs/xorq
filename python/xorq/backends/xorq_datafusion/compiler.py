@@ -19,7 +19,6 @@ from xorq.expr.datatypes import LargeString
 from xorq.vendor.ibis.backends.sql.compilers.base import (
     FALSE,
     NULL,
-    STAR,
     AggGen,
     SQLGlotCompiler,
 )
@@ -522,53 +521,6 @@ class DataFusionCompiler(SQLGlotCompiler):
             cond = arg.is_(sg.not_(NULL, copy=False))
             where = cond if where is None else sge.And(this=cond, expression=where)
         return self.agg.last_value(arg, where=where, order_by=order_by)
-
-    def visit_Aggregate(self, op, *, parent, groups, metrics):
-        """Support `GROUP BY` expressions in `SELECT` since DataFusion does not."""
-        quoted = self.quoted
-        metrics = tuple(self._cleanup_names(metrics))
-
-        if groups:
-            # datafusion doesn't support count distinct aggregations alongside
-            # computed grouping keys so create a projection of the key and all
-            # existing columns first, followed by the usual group by
-            #
-            # analogous to a user calling mutate -> group_by
-            cols = list(
-                map(
-                    partial(
-                        sg.column,
-                        table=sg.to_identifier(parent.alias, quoted=quoted),
-                        quoted=quoted,
-                    ),
-                    # can't use set subtraction here since the schema keys'
-                    # order matters and set subtraction doesn't preserve order
-                    (k for k in op.parent.schema.keys() if k not in groups),
-                )
-            )
-            table = (
-                sg.select(*cols, *self._cleanup_names(groups))
-                .from_(parent)
-                .subquery(parent.alias)
-            )
-
-            # datafusion lower cases all column names internally unless quoted so
-            # quoted=True is required here for correctness
-            by_names_quoted = tuple(
-                sg.column(key, table=getattr(value, "table", None), quoted=quoted)
-                for key, value in groups.items()
-            )
-            selections = by_names_quoted + metrics
-        else:
-            selections = metrics or (STAR,)
-            table = parent
-
-        sel = sg.select(*selections).from_(table)
-
-        if groups:
-            sel = sel.group_by(*by_names_quoted)
-
-        return sel
 
     def visit_ArraySlice(self, op, *, arg, start, stop):
         array_length = self.f.array_length(arg)
