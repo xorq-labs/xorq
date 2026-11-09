@@ -494,20 +494,27 @@ class BuildRecord:
     def bundled_counts(self) -> tuple[tuple[BundledSourceTypes | None, int], ...]:
         """``(bundle_kind, count)`` pairs over the bundled leaves, sorted.
 
-        An unknown kind sorts last, so a leaf written by another version cannot
-        crash the summary alongside the kinds this version recognizes.
+        A pinned leaf is left to ``pinned_count`` even when its frozen read was
+        bundled. An unknown kind sorts last, so a leaf written by another
+        version cannot crash the summary alongside the kinds this version
+        recognizes.
         """
-        kinds = Counter(leaf.bundle_kind for leaf in self.source_leaves if leaf.bundled)
+        kinds = Counter(
+            leaf.bundle_kind
+            for leaf in self.source_leaves
+            if leaf.bundled and not leaf.pinned
+        )
         return tuple(sorted(kinds.items(), key=lambda kv: (kv[0] is None, kv[0] or "")))
 
     @property
     def pinned_count(self) -> int:
-        """Pinned leaves the bundle counts did not already claim.
+        """Pinned leaves, bundled or not.
 
-        A pin whose frozen read was also bundled is one leaf, and counting it in
-        both columns would report more sources than the entry has.
+        A pin whose frozen read was also bundled is one leaf, counted here and
+        not in ``bundled_counts``: the pin is what ``rebase`` refuses the entry
+        for, so it is the column that must show it.
         """
-        return sum(leaf.pinned and not leaf.bundled for leaf in self.source_leaves)
+        return sum(leaf.pinned for leaf in self.source_leaves)
 
     def get_profile_dict(self, leaf: SourceLeaf) -> dict[str, Any] | None:
         """The serialized profile ``leaf`` needs to be reached, if it names one.
