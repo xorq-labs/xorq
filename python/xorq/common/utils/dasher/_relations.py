@@ -204,6 +204,24 @@ def _normalize_duckdb_databasetable_xorq(dt):
     raise NotImplementedError(scan_line)
 
 
+def _datafusion_initial_scan_plan(dt):
+    """The scan plan as EXPLAIN VERBOSE prints it before optimization.
+
+    The optimized plan splits a file into byte ranges (``f.parquet:0..111005``),
+    and its default display stops after five file groups; the verbose initial
+    plan lists every file, whole.
+    """
+
+    import sqlglot as sg  # noqa: PLC0415
+
+    name = sg.table(dt.name, quoted=True).sql(dialect=dt.source.compiler.dialect)
+    rows = dt.source.con.sql(f"EXPLAIN VERBOSE SELECT * FROM {name}").to_pylist()
+    (plan,) = (
+        row["plan"] for row in rows if row["plan_type"] == "initial_physical_plan"
+    )
+    return plan
+
+
 def _normalize_datafusion_databasetable_xorq(dt):
     """Datafusion DT normalizer that stats Parquet/CSV files for content sensitivity.
 
@@ -220,7 +238,7 @@ def _normalize_datafusion_databasetable_xorq(dt):
         r"DataSourceExec:.+file_type=(csv|parquet)", ep_str
     )
     if is_file:
-        paths = _extract_datafusion_plan_paths(ep_str)
+        paths = _extract_datafusion_plan_paths(_datafusion_initial_scan_plan(dt))
         if paths:
             file_metadata = tuple((p, _stat_or_canonical(p)) for p in sorted(paths))
             return (
@@ -233,7 +251,8 @@ def _normalize_datafusion_databasetable_xorq(dt):
         )
     if ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
         return normalize_memory_databasetable_canonical(dt)
-    if "PyRecordBatchProviderExec" in ep_str:
+    # DataFusion 55 plans a registered record batch reader as StreamingTableExec
+    if ep_str.startswith("StreamingTableExec") or "PyRecordBatchProviderExec" in ep_str:
         return (
             "ibis.DatabaseTable.datafusion.recordbatch",
             normalize_ibis_schema(dt.schema),

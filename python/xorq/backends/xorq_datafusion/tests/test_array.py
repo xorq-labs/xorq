@@ -441,3 +441,20 @@ def test_array_concat_with_null_non_constant(con):
     expr = t.a + t.a
     result = con.execute(expr)
     assert all(pd.isna(result))
+
+
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [
+        pytest.param("sums", [6, 4, None, None], id="sum"),
+        pytest.param("means", [2.0, 4.0, None, None], id="mean"),
+        pytest.param("mins", [1, 4, None, None], id="min"),
+        pytest.param("maxs", [3, 4, None, None], id="max"),
+    ],
+)
+def test_array_reduction(con, method, expected):
+    t = xo.memtable(
+        {"a": [[1, 2, 3], [4, None], [], None]}, schema={"a": "array<int64>"}
+    )
+    result = con.execute(getattr(t.a, method)())
+    assert [None if pd.isna(v) else v for v in result] == expected

@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.parquet
 import pytest
 import toolz
 
@@ -269,6 +270,30 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     with pytest.raises(ValueError, match=pattern):
         # if the file doesn't exist, we get a failure, even for cached
         cached.execute()
+
+
+def test_parquet_cache_sees_a_change_past_the_fifth_file(tmp_path):
+    # the default plan display lists five file groups and elides the rest
+    paths = [tmp_path.joinpath(f"part{i}.parquet") for i in range(7)]
+    for i, path in enumerate(paths):
+        pa.parquet.write_table(pa.table({"a": [i]}), path)
+    expr = xo.connect().read_parquet(tmp_path, "t")
+    cache = ParquetCache.from_kwargs(
+        source=expr._find_backend(), relative_path=tmp_path / "cache"
+    )
+    expr.cache(cache=cache).execute()
+    assert cache.exists(expr)
+
+    pa.parquet.write_table(pa.table({"a": [6, 7]}), paths[-1])
+    assert not cache.exists(expr), "a change to the last file should invalidate the key"
+
+
+def test_cache_key_over_record_batches():
+    batches = pa.RecordBatchReader.from_batches(
+        pa.schema({"a": pa.int64()}), [pa.record_batch({"a": [1, 2]})]
+    )
+    t = (con := xo.connect()).register(batches, table_name="batches")
+    assert SourceCache.from_kwargs(source=con).calc_key(t) is not None
 
 
 def test_parquet_remote_to_local(con, alltypes, tmp_path):

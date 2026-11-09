@@ -1,6 +1,7 @@
 import datetime
 import functools
 import operator
+import shutil
 import sys
 import threading
 import time
@@ -250,10 +251,12 @@ def test_read_parquet(connection, port, parquet_dir):
         assert xo.execute(batting) is not None
 
 
-def test_deferred_read_parquet_sequence_of_paths(parquet_dir):
+def test_deferred_read_parquet_sequence_of_paths(parquet_dir, tmp_path):
     path = parquet_dir / "astronauts.parquet"
+    # a distinct second file: DataFusion reads a repeated path once
+    copy = shutil.copy(path, tmp_path / path.name)
     with FlightServer(flight_url=make_flight_url(None), verify_client=False) as main:
-        expr = deferred_read_parquet((path, path), main.con, table_name="t")
+        expr = deferred_read_parquet((path, copy), main.con, table_name="t")
         single = deferred_read_parquet(path, main.con, table_name="u")
         assert len(expr.execute()) == 2 * len(single.execute())
 

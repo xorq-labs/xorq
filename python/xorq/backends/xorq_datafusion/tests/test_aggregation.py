@@ -484,3 +484,14 @@ def test_first_last_ordered_in_mutate(alltypes, con, method, expected):
     expr = t.mutate(new=method(t.val)).limit(10)
     actual = con.to_pyarrow(expr.new).to_pylist()
     assert actual == [expected] * 10
+
+
+def test_count_distinct_star(con):
+    t = xo.memtable({"a": [1, 1, 2, 2], "b": ["x", "x", "x", "y"]})
+    assert con.execute(t.nunique()) == 3
+    assert con.execute(t.nunique(where=t.a > 1)) == 2
+
+
+def test_count_distinct_star_counts_a_null_row(con):
+    t = xo.memtable({"a": [1, None, None]}, schema={"a": "int64"})
+    assert con.execute(t.nunique()) == con.execute(t.distinct().count()) == 2
