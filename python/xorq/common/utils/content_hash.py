@@ -26,7 +26,6 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
-import toolz
 from attrs import field, frozen
 from attrs.validators import instance_of
 
@@ -96,24 +95,43 @@ class _PlaceholderSnapshotStrategy(SnapshotStrategy):
         )
 
 
-def _own_backends(node: Node) -> tuple:
-    if isinstance(node, BACKEND_LEAF_NODE_TYPES):
-        return get_ordered_unique_sources((node,))
-    return ()
+def _first_backend(node: Node, children: tuple, backend: Mapping) -> Any:
+    """The first backend of *node*'s subtree (its own, else its first child's), or None."""
+    own = (
+        get_ordered_unique_sources((node,))
+        if isinstance(node, BACKEND_LEAF_NODE_TYPES)
+        else ()
+    )
+    inherited = (backend[child] for child in children)
+    return next((con for con in (*own, *inherited) if con is not None), None)
 
 
-def _placeholder(child: Node, hashes: Mapping, backends: Mapping) -> Node:
+def _ref_hash(rel: Node, hashes: Mapping) -> str:
+    """The hash a relation referring to *rel* folds in for it.
+
+    A pinned read (``CacheTag``) is a hash leaf keyed on its cache key, as in
+    ``CacheTag.__dasher_tokenize__``: its own content hash folds in the
+    absolute, base_path-dependent cache path, which must not leak into the
+    hashes of the relations above the pin.
+    """
+    rel = through_tags(rel)
+    if isinstance(rel, CacheTag):
+        return tokenize(rel.__dasher_tokenize__())
+    return hashes[rel]
+
+
+def _placeholder(child: Node, hashes: Mapping, backend: Mapping) -> Node:
     """A stand-in for *child*: an identity ``Project`` over a leaf table named by
     the child's content hash.
 
-    The table carries one of the child's backends when it has any, so compiler
-    (dialect) selection and the snapshot hasher's per-backend rules see the
-    same backends they would on the full subtree. The ``Project`` gives the
-    stand-in ``values`` (a bare table has none), which subquery ops read.
+    The table carries the child's first backend when it has any, so compiler
+    (dialect) selection sees the backend it would on the full subtree. The
+    ``Project`` gives the stand-in ``values`` (a bare table has none), which
+    subquery ops read.
     """
-    name = f"{PLACEHOLDER_PREFIX}{hashes[through_tags(child)]}"
-    if cons := backends[child]:
-        table = ContentHashPlaceholder(name=name, schema=child.schema, source=cons[0])
+    name = f"{PLACEHOLDER_PREFIX}{_ref_hash(child, hashes)}"
+    if (con := backend[child]) is not None:
+        table = ContentHashPlaceholder(name=name, schema=child.schema, source=con)
     else:
         table = ops.UnboundTable(name=name, schema=child.schema)
     return ops.Project(
@@ -172,22 +190,25 @@ def _reference_target(rel: Node) -> Node:
     return rel
 
 
-def _hash_isolated(node: Node, hashes: Mapping, backends: Mapping) -> str:
-    """Hash *node* given the hashes (and backends) of every relation it refers to."""
+def _hash_isolated(
+    node: Node, children: tuple, hashes: Mapping, backend: Mapping
+) -> str:
+    """Hash *node* given its child relations and the hashes (and backends) of each."""
     match node:
         case ops.JoinReference():
-            return tokenize((hashes[through_tags(node.parent)], node.identifier))
+            return tokenize((_ref_hash(node.parent, hashes), node.identifier))
         case CacheTag():
             return tokenize(
-                ("CacheTag", hashes[node.parent], hashes[node.uncached.op()])
+                (
+                    "CacheTag",
+                    hashes[node.parent],
+                    hashes[through_tags(node.uncached.op())],
+                )
             )
         case Tag() if not isinstance(node, HashingTag):
-            return tokenize(("Tag", hashes[through_tags(node.parent)], node.metadata))
-    targets = dict.fromkeys(
-        _reference_target(child)
-        for child in child_relations(node, opaque_edges=HASH_EDGES)
-    )
-    placeholders = {rel: _placeholder(rel, hashes, backends) for rel in targets}
+            return tokenize(("Tag", _ref_hash(node.parent, hashes), node.metadata))
+    targets = dict.fromkeys(_reference_target(child) for child in children)
+    placeholders = {rel: _placeholder(rel, hashes, backend) for rel in targets}
     expr = isolate(node, placeholders).to_expr()
     match node:
         case Read():
@@ -200,12 +221,6 @@ def _hash_isolated(node: Node, hashes: Mapping, backends: Mapping) -> str:
         return tokenize(untagged_repr)
 
 
-def _dedupe_backends(cons: tuple) -> tuple:
-    # id()-based like get_ordered_unique_sources: backend __eq__/__hash__ are
-    # not identity-safe across same-class instances.
-    return tuple(toolz.unique(cons, key=id))
-
-
 @frozen
 class ContentHasher:
     """Memoizing ``node -> content hash`` for one expression (or many sharing nodes).
@@ -216,7 +231,7 @@ class ContentHasher:
     """
 
     hashes: dict = field(factory=dict, validator=instance_of(dict))
-    backends: dict = field(factory=dict, validator=instance_of(dict))
+    backend: dict = field(factory=dict, validator=instance_of(dict))
 
     def __call__(self, node: Any) -> str:
         # Schema is not a graph node and has no to_expr(); hash it directly.
@@ -243,11 +258,11 @@ class ContentHasher:
         )
         ordered, _ = pending.toposort()
         for node in ordered:
-            inherited = tuple(
-                con for child in children_of[node] for con in self.backends[child]
+            children = children_of[node]
+            self.backend[node] = _first_backend(node, children, self.backend)
+            self.hashes[node] = _hash_isolated(
+                node, children, self.hashes, self.backend
             )
-            self.backends[node] = _dedupe_backends(_own_backends(node) + inherited)
-            self.hashes[node] = _hash_isolated(node, self.hashes, self.backends)
 
 
 def content_hash(node: Any) -> str:

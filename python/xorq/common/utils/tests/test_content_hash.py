@@ -10,6 +10,7 @@ import pytest
 import xorq.api as xo
 import xorq.expr.api as api
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.caching import ParquetCache
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.content_hash import (
     PLACEHOLDER_PREFIX,
@@ -267,3 +268,20 @@ def test_content_hash_depth_does_not_grow_with_chain_length() -> None:
     finally:
         sys.setrecursionlimit(limit)
     assert hashed == content_hash(expr.op())
+
+
+def test_relation_above_a_pin_hashes_the_same_wherever_the_cache_lives(
+    tmp_path: Path,
+) -> None:
+    """A pinned read is a hash leaf keyed on its cache key, so relocating the
+    cache dir must not change the hash of the relations above it."""
+
+    def filter_over_pin(cache_dir: Path) -> str:
+        con = xo.connect()
+        t = con.register(pd.DataFrame({"a": [1, 2, 3]}), "tbl")
+        cached = t.cache(ParquetCache.from_kwargs(relative_path=cache_dir, source=con))
+        cached.execute()
+        pinned = cached.ls.pin()
+        return content_hash(pinned.filter(pinned.a > 1).op())
+
+    assert filter_over_pin(tmp_path / "one") == filter_over_pin(tmp_path / "two")
