@@ -495,3 +495,17 @@ def test_count_distinct_star(con):
 def test_count_distinct_star_counts_a_null_row(con):
     t = xo.memtable({"a": [1, None, None]}, schema={"a": "int64"})
     assert con.execute(t.nunique()) == con.execute(t.distinct().count()) == 2
+
+
+def test_group_key_shadowing_a_column_aggregates_the_column(con):
+    t = xo.memtable({"a": [1, 3, 2], "b": ["x", "x", "y"]})
+    expr = (
+        t.group_by(a=t.a % 2)
+        .agg(s=t.a.sum(), n=t.a.nunique(), m=t.nunique())
+        .order_by("a")
+    )
+    result = con.execute(expr).to_dict("records")
+    assert result == [
+        {"a": 0, "s": 2, "n": 1, "m": 1},
+        {"a": 1, "s": 4, "n": 2, "m": 2},
+    ]
