@@ -14,7 +14,7 @@ Two questions follow, and they have different risk profiles:
 1. **Has a source drifted?** (`xorq catalog check-sources`, epic #2293.) Users run this on production catalogs, in CI, and on a schedule. It must be safe to run anywhere, at any time.
 2. **Can the entry follow the drift?** (`xorq catalog rebase`, epic #2319.) This has to re-derive an expression without the author's build script, which the catalog never had.
 
-Reasonable people could disagree on most of the choices below: whether detection may repair, whether a missing source is "drift", which engine a recorded schema is compared with, whether rebase edits the entry in place or creates a new one, and where re-derivation hooks into loading. This ADR records what was chosen, as built.
+Reasonable people could disagree on most of the choices below: whether detection may repair, whether a missing source is "drift", which engine a recorded schema is compared with, whether rebase edits the entry in place or creates a new one, and where re-derivation hooks into loading. This ADR records what was chosen, as built. It is also the ADR that Linear XOR-451 asked for: XOR-451 was deferred so that it could be written from what the implementation established, and XOR-452 (`check-sources`) shipped without waiting on it. Where XOR-452 as first written chose differently, the choice is recorded under *Alternatives considered*.
 
 ## Decision drivers
 
@@ -42,7 +42,20 @@ Each probed source (a *leaf*) gets one `Verdict` (`python/xorq/catalog/enums.py`
 | `changed` | live and recorded schemas differ | 3 |
 | `table-missing` | the backend answered and lists no such table, or the file path no longer resolves | 3 |
 
-`Verdict.exit_code` is a `match` that names every member, and its fallback arm raises, so a new member fails at its first use instead of inheriting a code. An entry's state is the worst of its leaves by `Verdict.severity`, a total order that refines the exit code: within code 2, `unreadable` beats `unreachable` (retrying will not fix a record that does not parse); within code 3, `table-missing` beats `changed` (the source is gone, not different). The order is declared once, as the member order, so the same catalog rolls up to the same state whatever order the names were typed in. Exit 2 means the question could not be answered (infrastructure, or a record that does not parse); exit 3 means the world moved.
+`Verdict.exit_code` is a `match` that names every member, and its fallback arm raises, so a new member fails at its first use instead of inheriting a code. An entry's state is the worst of its leaves by `Verdict.severity`, a total order that refines the exit code: within code 2, `unreadable` beats `unreachable` (retrying will not fix a record that does not parse); within code 3, `table-missing` beats `changed` (the source is gone, not different). The order is declared once, as the member order, so the same catalog rolls up to the same state whatever order the names were typed in. Exit 2 means the question could not be answered (infrastructure, or a record that does not parse); exit 3 means the world moved. A name that does not resolve, or a catalog that cannot be opened, exits 1 before any probe, a usage error exits click's own 2, and neither prints a report.
+
+The drift taxonomy, one test per row:
+
+| Mutation | Verdict | Test |
+|---|---|---|
+| add a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas[added]` |
+| drop a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas[dropped]` |
+| rename a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas[renamed]` |
+| retype a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas[retyped]` |
+| rename the table | `table-missing` | `test_drift.py::test_renamed_table_is_missing` |
+| move the read's file | `table-missing` | `test_drift_reads.py::test_a_moved_file_is_missing` |
+
+The fixture is a sqlite table plus a read built with `relocate_reads=False`, because those are the leaves a default build leaves outside the archive (next section).
 
 The human footer and `--json` read the same per-entry state: the footer counts `N entries, D drifted, M missing` by that state, and the exit code is the roll-up of the same states (#2597).
 
@@ -57,7 +70,7 @@ The human footer and `--json` read the same per-entry state: the footer counts `
 - A `Read` on an ingesting backend (sqlite, postgres, databricks) is never replayed: its `read_*` is a write with `mode="replace"`. `is_checkable` keeps such reads unprobed unless they can be answered without the backend (next section).
 - A relocated read whose bytes were bundled into the archive is exempt: it cannot drift.
 
-Leaves that cannot be probed are named in the output as `unchecked`, never silently treated as `equal`. An entry whose only sources are unchecked has no verdict (`state: null` in `--json`), rather than claiming `equal` on no evidence.
+An entry with no external sources says why: `no external sources (1 memtables, 1 reads)`, a count per bundle kind, plus `N pinned` for pinned leaves, which are exempt too. Under the default build rules most entries land here. Leaves that cannot be probed are named in the output as `unchecked`, never silently treated as `equal`. An entry whose only sources are unchecked has no verdict (`state: null` in `--json`), rather than claiming `equal` on no evidence.
 
 ### A read is compared using the tool that recorded it
 
@@ -98,6 +111,28 @@ An entry with only some sources unprobeable is refused rather than rebased, beca
 Rebase never guesses a rename. A renamed column is a removed one unless `--rename SOURCE OLD NEW` says which live column it is now; ops above the source keep seeing `OLD`, and a later rebase of the result keeps following the rename.
 
 ## Alternatives considered
+
+The first five are what Linear XOR-452 specified before it was built; each was replaced while building it.
+
+### Exit 2 whenever any source is unreachable
+
+Rejected because an entry that drifted would then report "could not answer" whenever an unrelated leaf was down, hiding the one finding that needs action. Replaced by the worst verdict by severity, under which `changed` (3) outranks `unreachable` (2).
+
+### A duckdb file database and a parquet read as the fixture
+
+Rejected because it has nothing to check. duckdb is a memory backend, so its tables are materialized into the archive (`database_tables/`) at build time, and a default build relocates the read into `reads/`. Both leaves come out bundled. Replaced by a sqlite table and a read built with `relocate_reads=False`.
+
+### Probe bundled reads while the archive is extracted
+
+Rejected because a bundled file is content-addressed: its name is its hash, so comparing it can only return `equal` unless the archive is corrupt, and a corrupt archive is `xorq catalog check`'s job. Dropping it also removed any need to extract the archive: leaves are read from the build record by plain traversal.
+
+### `no external sources` as a bare string
+
+Rejected because the default build rules send most entries there, and a bare string does not say why. Replaced by the count per bundle kind.
+
+### Write this ADR before building (XOR-452 blocked by XOR-451)
+
+Rejected because the taxonomy and decision table were settled by building and measuring, not in advance. XOR-452 shipped first, and this ADR adopts its six-row taxonomy and decision table as built rather than re-deriving them, adding the two things that came later: the `unreadable` verdict and the severity order within an exit code.
 
 ### Let `check-sources` repair what it finds
 
@@ -150,6 +185,7 @@ Rejected because a rename is indistinguishable from a drop plus an add given two
 
 ## References
 
+- Linear XOR-452 (`check-sources`), XOR-451 (this ADR), XOR-453 (`rebase`)
 - Epic #2293 (`check-sources`): #2294, #2295, #2296, #2297, #2298, #2299, #2300; follow-ups #2310, #2311, #2313, #2314
 - Epic #2319 (`rebase`): #2320, #2321, #2322, #2323, #2324, #2325, #2326
 - Footer by entry state: #2466, #2597
