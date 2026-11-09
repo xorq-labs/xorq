@@ -14,7 +14,7 @@ Two questions follow, and they have different risk profiles:
 1. **Has a source drifted?** (`xorq catalog check-sources`, epic #2293.) Users run this on production catalogs, in CI, and on a schedule. It must be safe to run anywhere, at any time.
 2. **Can the entry follow the drift?** (`xorq catalog rebase`, epic #2319.) This has to re-derive an expression without the author's build script, which the catalog never had.
 
-Reasonable people could disagree on most of the choices below: whether detection may repair, whether a missing source is "drift", which engine a recorded schema is compared with, whether rebase edits the entry in place or creates a new one, and where re-derivation hooks into loading. This ADR records what was chosen, as built. It is also the ADR that Linear XOR-451 asked for: XOR-451 was deferred so that it could be written from what the implementation established, and XOR-452 (`check-sources`) shipped without waiting on it. Where XOR-452 as first written chose differently, the choice is recorded under *Alternatives considered*.
+Reasonable people could disagree on most of the choices below: whether detection may repair, whether a missing source is "drift", which engine a recorded schema is compared with, whether rebase edits the entry in place or creates a new one, and where re-derivation hooks into loading. This ADR records what was chosen, as built. It was deliberately written after `check-sources` shipped, from what the implementation established (#2300). Where the design as first specified chose differently, the choice is recorded under *Alternatives considered*.
 
 ## Decision drivers
 
@@ -112,7 +112,7 @@ Rebase never guesses a rename. A renamed column is a removed one unless `--renam
 
 ## Alternatives considered
 
-The first five are what Linear XOR-452 specified before it was built; each was replaced while building it.
+The first five are what `check-sources` was first specified to do; each was replaced while building it.
 
 ### Exit 2 whenever any source is unreachable
 
@@ -130,9 +130,9 @@ Rejected because a bundled file is content-addressed: its name is its hash, so c
 
 Rejected because the default build rules send most entries there, and a bare string does not say why. Replaced by the count per bundle kind.
 
-### Write this ADR before building (XOR-452 blocked by XOR-451)
+### Write this ADR before building
 
-Rejected because the taxonomy and decision table were settled by building and measuring, not in advance. XOR-452 shipped first, and this ADR adopts its six-row taxonomy and decision table as built rather than re-deriving them, adding the two things that came later: the `unreadable` verdict and the severity order within an exit code.
+Rejected because the taxonomy and decision table were settled by building and measuring, not in advance. `check-sources` shipped first, and this ADR adopts its six-row taxonomy and decision table as built rather than re-deriving them, adding the two things that came later: the `unreadable` verdict and the severity order within an exit code.
 
 ### Let `check-sources` repair what it finds
 
@@ -185,7 +185,6 @@ Rejected because a rename is indistinguishable from a drop plus an add given two
 
 ## References
 
-- Linear XOR-452 (`check-sources`), XOR-451 (this ADR), XOR-453 (`rebase`)
 - Epic #2293 (`check-sources`): #2294, #2295, #2296, #2297, #2298, #2299, #2300; follow-ups #2310, #2311, #2313, #2314
 - Epic #2319 (`rebase`): #2320, #2321, #2322, #2323, #2324, #2325, #2326
 - Footer by entry state: #2466, #2597
