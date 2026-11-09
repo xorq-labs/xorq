@@ -1,6 +1,7 @@
 import functools
 import itertools
 import pathlib
+import shutil
 from types import SimpleNamespace
 
 import pandas as pd
@@ -392,7 +393,9 @@ def test_deferred_read_sequence_of_paths(
     data_dir, tmp_path, deferred_read, suffix, to_paths
 ):
     path = data_dir / suffix / f"astronauts.{suffix}"
-    paths = (path, str(path))
+    # a distinct second file: DataFusion reads a repeated path once
+    copy = shutil.copy(path, tmp_path / path.name)
+    paths = (path, str(copy))
     expr = deferred_read(to_paths(paths), xo.connect(), table_name="t")
     single = deferred_read(path, xo.connect()).execute()
     expected = pd.concat((single, single), ignore_index=True)

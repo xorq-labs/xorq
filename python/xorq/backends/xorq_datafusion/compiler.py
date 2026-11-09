@@ -103,7 +103,6 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.ArrayFilter,
         ops.ArrayMap,
         ops.ArrayZip,
-        ops.CountDistinctStar,
         ops.RowID,
     )
 
@@ -124,6 +123,10 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.ArrayIntersect: "array_intersect",
         ops.ArrayUnion: "array_union",
         ops.ArrayFlatten: "flatten",
+        ops.ArraySum: "array_sum",
+        ops.ArrayMean: "array_avg",
+        ops.ArrayMin: "array_min",
+        ops.ArrayMax: "array_max",
         ops.IntegerRange: "range",
         ops.ArrayDistinct: "array_distinct",
         ops.Unnest: "unnest",
@@ -309,6 +312,12 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_ExtractDayOfYear(self, op, *, arg):
         return self.f.date_part("doy", arg)
 
+    def visit_ExtractIsoYear(self, op, *, arg):
+        return self.f.date_part("isoyear", arg)
+
+    def visit_TimeFromHMS(self, op, *, hours, minutes, seconds):
+        return self.f.make_time(hours, minutes, seconds)
+
     def visit_DayOfWeekIndex(self, op, *, arg):
         return (self.f.date_part("dow", arg) + 6) % 7
 
@@ -393,6 +402,14 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_ArrayPosition(self, op, *, arg, other):
         return self.f.coalesce(self.f.array_position(arg, other), 0)
+
+    def visit_CountDistinctStar(self, op, *, arg, where):
+        # COUNT(DISTINCT a, b) is rejected; a struct is never null, so a row
+        # of nulls still counts, even for a single column
+        row = self.f.struct(
+            *(sg.column(name, quoted=self.quoted) for name in op.arg.schema)
+        )
+        return self.agg.count(sge.Distinct(expressions=[row]), where=where)
 
     def visit_ArrayCollect(self, op, *, arg, where, order_by, include_null):
         if not include_null:

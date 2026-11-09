@@ -930,3 +930,15 @@ def test_date_diff(con):
     truncated = t.select(delta=t.end.cast("timestamp").date() - t.start)
     assert _interval_days(con.execute(truncated).delta) == expected
     assert con.execute(xo.date("2024-01-10") - xo.date("2024-01-01")).days == 9
+
+
+def test_iso_year(con):
+    t = xo.memtable({"d": [datetime.date(2021, 1, 1), datetime.date(2024, 6, 1), None]})
+    result = con.execute(t.d.iso_year()).tolist()
+    assert result[:2] == [2020, 2024] and pd.isna(result[2])
+
+
+def test_time_from_hms(con):
+    t = xo.memtable({"h": [1, 23], "m": [2, 59], "s": [3, 0]})
+    result = con.execute(xo.time(t.h, t.m, t.s))
+    assert result.tolist() == [datetime.time(1, 2, 3), datetime.time(23, 59)]

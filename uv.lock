@@ -6696,7 +6696,7 @@ requires-dist = [
     { name = "uv", specifier = ">=0.7.20" },
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=1.6.1" },
     { name = "xorq-dasher", specifier = ">=0.1.1" },
-    { name = "xorq-datafusion", specifier = "==0.2.10" },
+    { name = "xorq-datafusion", specifier = "==0.3.0" },
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
     { name = "xxhash", marker = "python_full_version < '3.11'", specifier = ">=3.0" },
@@ -6768,20 +6768,18 @@ wheels = [
 
 [[package]]
 name = "xorq-datafusion"
-version = "0.2.10"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyarrow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4c/73/591a9c22f2f9b7299827e04960985f940a3040d273633447352440ee0377/xorq_datafusion-0.2.10.tar.gz", hash = "sha256:4db745babcc717440cfb4dedf8f8b973a3f5ebfe54696dd9057bc88224eef2d7", size = 20669735, upload-time = "2026-07-02T13:39:59.494Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a3/bf/e12a4ab85b1cca35d90938e5979e894598f7f8e665d8731af2f0824856d9/xorq_datafusion-0.3.0.tar.gz", hash = "sha256:cfb18ff30f0a4f71e0389cefd57d3219730b1e2119611b698faba1cdd9d020fd", size = 20697335, upload-time = "2026-11-06T22:08:22.598Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/1d/91641e120e268e9cb9c1fb44c76be6f097813a1bab5a86287a4db9839e8e/xorq_datafusion-0.2.10-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2b03b647c31cb6fc75f610a045dea07687c66ca552006ee60e16ecc7dc216156", size = 33036424, upload-time = "2026-07-02T13:39:38.401Z" },
-    { url = "https://files.pythonhosted.org/packages/40/ca/bd255659b4911d006181a8c58ef1b8c3914bb70c480750f2a654773e51e6/xorq_datafusion-0.2.10-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:1e5ea54330ece56a4a33b7f4bbad0049dca6557e41e511e264b1dd1de53e70ac", size = 30683829, upload-time = "2026-07-02T13:39:41.608Z" },
-    { url = "https://files.pythonhosted.org/packages/40/cc/9b095094a9d3ff76e6371ca12deb7077ad1754d3fb6a0a2258b85bf0d543/xorq_datafusion-0.2.10-cp38-abi3-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:695b1f38b8aa7be0c663562e48dd86c45f7a05204472ad5acc5107fe00bc7e4e", size = 37093852, upload-time = "2026-07-02T13:39:44.397Z" },
-    { url = "https://files.pythonhosted.org/packages/ec/51/639565fc23acec1e5a1ee44642147a6216d7ce9251ae07c8d2f33a873fd7/xorq_datafusion-0.2.10-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5d0ce82388e5dac57476552846a1e56d7186ba8bc72844e1c010764e05a471fd", size = 34508834, upload-time = "2026-07-02T13:39:47.608Z" },
-    { url = "https://files.pythonhosted.org/packages/29/ca/1feb656c9b19ae25b5ed0b2511971f3334b910821dbd249a457efb6f5d5b/xorq_datafusion-0.2.10-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:ac8c33b9b94023e3762338a8a4c230d6d9d2d5589fb4430e9425562b0eeb18a8", size = 31882824, upload-time = "2026-07-02T13:39:50.446Z" },
-    { url = "https://files.pythonhosted.org/packages/57/8d/46911b88b041098aa1d9a636875c506d283abea293c0c2b5e0028f916d49/xorq_datafusion-0.2.10-cp38-abi3-win32.whl", hash = "sha256:85b5e1c712c6ff6d191dee2d55d5299b00cf148a27effc7775ea18d63073116a", size = 32803502, upload-time = "2026-07-02T13:39:53.671Z" },
-    { url = "https://files.pythonhosted.org/packages/ef/64/2649ea219ce7a4e983ce685c43857825f2b5299e9d8cfd751a400a944705/xorq_datafusion-0.2.10-cp38-abi3-win_amd64.whl", hash = "sha256:a2a54517f00b3df13481c4faea9aad58e156542b7632192318cdabfdbbb740c4", size = 36489223, upload-time = "2026-07-02T13:39:56.681Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/68/d363278c3010249e0a22ba260b1b1f3d0a64968c4bd3202df6d933fb2393/xorq_datafusion-0.3.0-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b0a4add3c7cd59dfd936406cd131f26b4f328016d41850d13a46fb2f4a20c6f9", size = 37683683, upload-time = "2026-11-06T22:08:08.649Z" },
+    { url = "https://files.pythonhosted.org/packages/74/c1/a4322a604415fd8a3ecdb9709254b71c42c29a9a4355113072a7d0637fc5/xorq_datafusion-0.3.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:e9515f10429263d1012bd3c77e81a0b1340ea41ff8d9faff594a1b5e523d3721", size = 35408556, upload-time = "2026-11-06T22:08:11.733Z" },
+    { url = "https://files.pythonhosted.org/packages/25/0a/d86381c1b7858bb86c76c94946f1c1b7755023c37935fe1934006bebc9e0/xorq_datafusion-0.3.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:e1f6efc9c180fbbee949ba89c362f9e2c201ff2e7e02b1a1e64b067b9408483a", size = 39007896, upload-time = "2026-11-06T22:08:14.458Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/11/4e58b56c338ce29e53d67c950b1c0ef38addb1bccc902221a11cb0104082/xorq_datafusion-0.3.0-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:526e94cab39c5fff714dc242dc7b0580cf7b0dacad4f97aaf136fee61e922cab", size = 36924142, upload-time = "2026-11-06T22:08:17.234Z" },
+    { url = "https://files.pythonhosted.org/packages/46/86/7bc6e251b3e07e5170b93ce82ce92038f7082bf0c601797fa5f35629aa83/xorq_datafusion-0.3.0-cp38-abi3-win_amd64.whl", hash = "sha256:fa81bea47b6b43cd731adda62db7154a50a3eaf8e8014ebe232b3be54455b704", size = 41720406, upload-time = "2026-11-06T22:08:20.12Z" },
 ]
 
 [[package]]
