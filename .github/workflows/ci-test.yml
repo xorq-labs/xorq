@@ -92,9 +92,7 @@ jobs:
           git config --global user.name "CI"
           git config --global user.email "ci@xorq.dev"
 
-      - uses: extractions/setup-just@v4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-just
 
       - name: update and install system dependencies
         if: matrix.backend.sys-deps != null
@@ -119,6 +117,20 @@ jobs:
       - name: Install the project
         run: uv sync --locked ${{ join(matrix.backend.extras, ' ') }} --group dev --group test
         working-directory: ${{ github.workspace }}
+
+      # The gizmosql package downloads its server binary from GitHub releases
+      # at test time, into a directory named after the package version.
+      - name: Read the gizmosql server version
+        id: gizmosql
+        if: matrix.backend.name == 'gizmosql'
+        run: echo "version=$(uv run --no-sync python -c 'import gizmosql; print(gizmosql.__version__)')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the gizmosql server binary
+        if: matrix.backend.name == 'gizmosql'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/gizmosql/v${{ steps.gizmosql.outputs.version }}
+          key: gizmosql-${{ steps.gizmosql.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Set up Docker Buildx
         if: ${{ matrix.backend.services }}

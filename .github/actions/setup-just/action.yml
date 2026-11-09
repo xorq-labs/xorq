@@ -1,0 +1,37 @@
+name: Setup just
+description: >
+  Install just from the actions cache, falling back to a GitHub release
+  download only on a cache miss. Not for pull_request_target workflows:
+  they check out the PR head, so the PR would supply this action and could
+  save its own binary into a cache the base branch restores.
+
+inputs:
+  just-version:
+    description: >
+      Exact just version. It names the tool-cache directory that
+      setup-just looks in before it calls the GitHub API, so it cannot be
+      a range.
+    default: "1.59.0"
+
+runs:
+  using: composite
+  steps:
+    - name: Restore just
+      id: restore
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ runner.tool_cache }}/just/${{ inputs.just-version }}
+        key: just-${{ inputs.just-version }}-${{ runner.os }}-${{ runner.arch }}
+
+    # On a hit, setup-just finds the restored binary in the tool cache and
+    # neither queries the GitHub API nor downloads.
+    - uses: extractions/setup-just@v4
+      with:
+        just-version: ${{ inputs.just-version }}
+
+    - name: Save just
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ runner.tool_cache }}/just/${{ inputs.just-version }}
+        key: ${{ steps.restore.outputs.cache-primary-key }}
