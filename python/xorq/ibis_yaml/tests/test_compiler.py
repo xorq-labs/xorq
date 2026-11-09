@@ -2338,10 +2338,26 @@ def _shared_read_subquery(tmp_path: Path) -> ibis.Expr:
     return read.filter(read.a.isin(read.into_backend(xo.connect()).a))
 
 
+def _expr_scalar_udf(tmp_path: Path) -> ibis.Expr:
+    # the handler registers the UDF dtype (string) before it translates
+    # computed_kwargs_expr (int64), so that subtree must not be warmed first
+    t = ibis.table({"x": "float64"}, name="t")
+    predict_udf = udf.make_pandas_expr_udf(
+        computed_kwargs_expr=t.aggregate(n=t.x.count()),
+        fn=lambda value, frame, **kw: frame["x"].astype(str),
+        schema=ibis.schema({"x": dt.float64}),
+        name="to_str",
+        return_type=dt.string,
+        post_process_fn=identity,
+    )
+    return t.mutate(out=predict_udf.on_expr(t))
+
+
 @pytest.mark.parametrize(
     "build",
     [
-        lambda p: _shared_read_subquery(p),
+        _shared_read_subquery,
+        _expr_scalar_udf,
         lambda p: (
             ibis.table({"a": "int64"}, name="t").tag("x").filter(lambda s: s.a > 1)
         ),

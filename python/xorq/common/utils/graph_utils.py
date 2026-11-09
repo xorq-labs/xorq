@@ -312,7 +312,7 @@ def bfs(
 def postorder(
     node: Expr | Node, *, children: Callable[[Node], Iterable[Node]] = gen_children_of
 ) -> tuple[Node, ...]:
-    """Return the depth-first post-order of the graph :func:`bfs` builds under *node*.
+    """Return the depth-first post-order of the graph under *node*.
 
     Every child before its parent, children left to right, each node once;
     iterative, so graph depth never reaches the Python stack. Unlike
@@ -325,7 +325,8 @@ def postorder(
     node
         Root; an ``Expr`` is unwrapped with :func:`to_node`.
     children
-        Child enumeration, called once per node.
+        Child enumeration (default the one :func:`bfs` uses), called once
+        per node.
 
     Returns
     -------
@@ -335,19 +336,18 @@ def postorder(
     Contract
     --------
     Raises ``ValueError`` from :func:`to_node` for a root that is neither a
-    ``Node`` nor an ``Expr`` (via :func:`bfs`). A cycle does not loop (each
+    ``Node`` nor an ``Expr``. A cycle does not loop (each
     node is visited once) but its order is not a post-order.
     """
-    graph = bfs(node, children=children)
     root = to_node(node)
     visited, order = {root}, []
-    stack = [(root, iter(graph[root]))]
+    stack = [(root, iter(children(root)))]
     while stack:
         current, kids = stack[-1]
         for child in kids:
             if child not in visited:
                 visited.add(child)
-                stack.append((child, iter(graph[child])))
+                stack.append((child, iter(children(child))))
                 break
         else:
             stack.pop()

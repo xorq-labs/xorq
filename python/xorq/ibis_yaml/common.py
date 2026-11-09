@@ -17,7 +17,6 @@ from attr import (
 from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
-import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
@@ -305,9 +304,10 @@ def _translated_values(node: Node) -> Iterator[Any]:
 
     Contract
     --------
-    Raises AttributeError if *node* is not a ``Node`` (reads ``__args__``) and
-    KeyError if an ``ExprScalarUDF`` has no ``computed_kwargs_expr`` in its
-    ``__config__`` (``make_pandas_expr_udf`` always sets it).
+    Raises AttributeError if *node* is not a ``Node`` (reads ``__args__``).
+    An ``ExprScalarUDF``'s ``computed_kwargs_expr`` is not yielded: its
+    handler registers the UDF dtype and ``__config__`` values before it, so
+    warming it first would reorder the dtype and schema definitions.
     """
     match node:
         case RemoteTable():
@@ -317,10 +317,6 @@ def _translated_values(node: Node) -> Iterator[Any]:
                 for name, arg in zip(node.__argnames__, node.__args__)
                 if name != "remote_expr"
             )
-        case udf.ExprScalarUDF():
-            # the handler also serializes __config__, home of computed_kwargs_expr
-            yield from node.__args__
-            yield node.computed_kwargs_expr
         case ops.InSubquery():
             # the handler translates needle before rel
             yield node.needle
