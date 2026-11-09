@@ -364,8 +364,10 @@ xorq catalog -p $DEMO/cat check-sources orders --json
       "exit_code": 3,
       "leaves": [
         {
+          "node_ref": "@databasetable_6c1d0e2a9b47",
           "kind": "DatabaseTable",
           "name": "orders",
+          "profile": "a3f91c0e7d52b8e4c1f06d9a27e5b380_0",
           "state": "changed",
           "recorded": {
             "id": "int64",
@@ -386,6 +388,8 @@ xorq catalog -p $DEMO/cat check-sources orders --json
 ```
 
 The exit code is the same either way. Schemas come back as column-to-dtype objects, so comparing them is set arithmetic on your side rather than string parsing.
+
+Key leaves on `node_ref`, not `name`. Two tables called `orders` read through two profiles share a name but not a `node_ref`, and `profile` names the connection profile each one was read through. A read leaf also carries `paths`, its recorded paths as a list, since a multi-path read's `name` joins them with commas.
 
 Gate on two keys, not one:
 

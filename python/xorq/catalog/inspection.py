@@ -285,9 +285,18 @@ def get_read_kwargs(node_ref: str, node_def: dict) -> tuple[tuple, ...]:
     return tuple(map(tuple, entries))
 
 
+def read_paths(path: Any) -> tuple[str, ...]:
+    """A read's recorded path as a tuple, one member per path it reads."""
+    return tuple(map(str, path)) if isinstance(path, (list, tuple)) else (str(path),)
+
+
 def join_read_path(path: Any) -> str:
-    """A read's recorded path as one string: a multi-path read joined by commas."""
-    return ", ".join(map(str, path)) if isinstance(path, (list, tuple)) else str(path)
+    """A read's recorded path as one string: a multi-path read joined by commas.
+
+    For display only: a path may itself contain a comma, so the joined string
+    cannot be split back. ``read_paths`` is the form to read paths from.
+    """
+    return ", ".join(read_paths(path))
 
 
 @frozen
@@ -305,6 +314,9 @@ class SourceLeaf:
     rather than a user source, so equally nothing to check. Both are
     ``drift_exempt``. ``snapshot_id`` is the snapshot an iceberg table read is
     pinned to; its schema, not the table's current one, is what to compare.
+    ``paths`` is a read's recorded paths, one member each, empty for a read
+    that records none, and ``None`` for a table; ``name`` joins them for display
+    and cannot be split back.
     """
 
     node_ref = field(validator=instance_of(str))
@@ -329,6 +341,10 @@ class SourceLeaf:
         converter=lambda kwargs: tuple((k, freeze(v)) for k, v in kwargs),
     )
     snapshot_id = field(default=None, validator=optional(instance_of(int)))
+    paths = field(
+        default=None,
+        validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
+    )
 
     @property
     def drift_exempt(self) -> bool:
@@ -357,6 +373,7 @@ class SourceLeaf:
                 table = get_node_key(node_ref, node_def, NodeKey.table)
                 # Spelled as `Table.get_name` spells the loaded table.
                 name = ".".join(filter(None, (catalog, database, table)))
+                paths = None
             case LeafKind.READ:
                 # `read_kwargs["table_name"]` is not the reliable spelling:
                 # `make_read_kwargs` fills it by binding the backend method's
@@ -374,11 +391,15 @@ class SourceLeaf:
                 # deferred-read constructors normalize their path parameter into
                 # `hash_path`, so the fallback is defensive only, and must stay
                 # lazy or a node def missing `name` would fail the normal path
-                # too.
-                path = kw.get(ReadKwarg.hash_path) or get_node_key(
-                    node_ref, node_def, NodeKey.name
+                # too. `paths` takes no fallback: a node name is not a recorded
+                # path, so a read that records none has none.
+                path = kw.get(ReadKwarg.hash_path)
+                paths = read_paths(path) if path else ()
+                name = (
+                    ", ".join(paths)
+                    if paths
+                    else get_node_key(node_ref, node_def, NodeKey.name)
                 )
-                name = join_read_path(path)
             # Unreachable while `LeafKind` has exactly the two members matched
             # above: `LeafKind(...)` on `op` already rejected anything else. It
             # fires only once `LeafKind` grows a member this match forgot, which
@@ -401,6 +422,7 @@ class SourceLeaf:
             method_name=node_def.get(NodeKey.method_name),
             read_kwargs=read_kwargs,
             snapshot_id=get_snapshot_id(node_ref, node_def),
+            paths=paths,
         )
 
 

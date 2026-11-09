@@ -21,22 +21,29 @@ gets a complete document or none at all::
           "exit_code": 3,
           "leaves": [
             {
+              "node_ref": "@databasetable_6c1d0e2a9b47",  # unique within the entry
               "kind": "DatabaseTable", # LeafKind
               "name": "public.matches",
+              "profile": "4f1c...",    # the profile it is read through
               "state": "changed",      # Verdict
               "recorded": {"home_score": "int64", "city": "string"},
               "live": {"home_team_score": "int64", "city": "string"}
             },
             {
+              "node_ref": "@read_0b8e4d71f2a3",
               "kind": "Read",
               "name": "/data/teams.parquet",
+              "profile": "9a2e...",
+              "paths": ["/data/teams.parquet"],  # Read leaves only
               "state": "table-missing",
               "recorded": {"team": "string"},
               "live": null
             },
             {
+              "node_ref": "@databasetable_9f30c5be14d8",
               "kind": "DatabaseTable",
               "name": "public.teams",
+              "profile": "4f1c...",
               "state": "unreachable",
               "recorded": {"team": "string"},
               "live": null,
@@ -51,7 +58,16 @@ gets a complete document or none at all::
     }
 
 ``state`` and ``exit_code`` sit at the root, beside ``entries`` rather than among
-the entry names, so an entry named `state` cannot shadow the roll-up. Schemas are
+the entry names, so an entry named `state` cannot shadow the roll-up. A leaf is
+identified by ``node_ref``, unique within its entry: ``name`` is a display label,
+and two tables called `t` read through two profiles share it, so a consumer
+keys leaves on ``node_ref``. ``profile`` is the connection profile's name as
+the build recorded it, a content hash plus a per-connection index, so two
+connections to one database still carry two values.
+``profile`` is ``null`` on a leaf that names none, which is `unreadable`.
+``paths`` is a read's recorded paths as a list, empty when it records none, and
+absent on a table; a multi-path read's ``name`` joins them with commas and
+cannot be split back, since a path may contain one. Schemas are
 column-name-to-dtype objects; there is deliberately no delta field, because the
 delta is one line of set arithmetic on the consumer's side and publishing it
 would be permanent API surface. Column *order* is part of what the probe
@@ -898,12 +914,16 @@ def leaf_document(report: LeafReport) -> dict:
     probe looked for an error and found none.
     """
     document = {
+        "node_ref": report.leaf.node_ref,
         "kind": str(report.leaf.kind),
         "name": report.leaf.name,
+        "profile": report.leaf.profile,
         "state": str(report.verdict),
         "recorded": schema_document(report.leaf.recorded),
         "live": schema_document(report.live),
     }
+    if report.leaf.paths is not None:
+        document["paths"] = list(report.leaf.paths)
     if report.error is not None:
         document["error"] = report.error
     return document
