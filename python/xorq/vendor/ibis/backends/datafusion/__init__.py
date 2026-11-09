@@ -186,7 +186,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         return PyArrowSchema.to_ibis(df.schema())
 
     def _register_builtin_udfs(self):
-        from xorq.vendor.ibis.backends.datafusion import udfs
+        from xorq.backends.xorq_datafusion import udfs  # noqa: PLC0415
 
         for name, func in inspect.getmembers(
             udfs,
@@ -203,13 +203,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 for arg_name in argnames
             ]
             return_type = PyArrowType.from_ibis(dt.dtype(annotations["return"]))
-            udf = df.user_defined.udf(
-                func,
-                input_types=input_types,
-                return_type=return_type,
-                volatility="immutable",
-                name=name,
-            )
+            # positional: datafusion 52 renamed these keywords, and the ibis
+            # compatibility job still runs datafusion < 52
+            udf = df.user_defined.udf(func, input_types, return_type, "immutable", name)
             self.con.register_udf(udf)
 
     def _register_udfs(self, expr: ir.Expr) -> None:
@@ -225,21 +221,19 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     def _compile_pyarrow_udf(self, udf_node):
         return df.user_defined.udf(
             udf_node.__func__,
-            input_types=[PyArrowType.from_ibis(arg.dtype) for arg in udf_node.args],
-            return_type=PyArrowType.from_ibis(udf_node.dtype),
-            volatility=getattr(udf_node, "__config__", {}).get(
-                "volatility", "volatile"
-            ),
-            name=udf_node.__func_name__,
+            [PyArrowType.from_ibis(arg.dtype) for arg in udf_node.args],
+            PyArrowType.from_ibis(udf_node.dtype),
+            getattr(udf_node, "__config__", {}).get("volatility", "volatile"),
+            udf_node.__func_name__,
         )
 
     def _compile_elementwise_udf(self, udf_node):
         return df.user_defined.udf(
             udf_node.func,
-            input_types=list(map(PyArrowType.from_ibis, udf_node.input_type)),
-            return_type=PyArrowType.from_ibis(udf_node.return_type),
-            volatility="volatile",
-            name=udf_node.func.__name__,
+            list(map(PyArrowType.from_ibis, udf_node.input_type)),
+            PyArrowType.from_ibis(udf_node.return_type),
+            "volatile",
+            udf_node.func.__name__,
         )
 
     def raw_sql(self, query: str | sge.Expression) -> Any:

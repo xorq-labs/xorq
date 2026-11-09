@@ -12,7 +12,11 @@ def t():
         "t",
         {
             "d": [datetime.date(2024, 1, 1)],
+            "d2": [datetime.date(2024, 3, 15)],
             "ts": [datetime.datetime(2024, 1, 1, 10, 40)],
+            "ts2": [datetime.datetime(2024, 1, 2, 13, 0)],
+            "tm": [datetime.time(10, 0)],
+            "tm2": [datetime.time(11, 30)],
             "s": ["2024-03-05"],
             "i": [3],
         },
@@ -48,6 +52,9 @@ def t():
             datetime.datetime(2024, 1, 1, 10, 15),
             id="bucket_offset",
         ),
+        pytest.param(lambda t: t.d2.delta(t.d, "day"), 74, id="date_delta"),
+        pytest.param(lambda t: t.ts2.delta(t.ts, "hour"), 27, id="timestamp_delta"),
+        pytest.param(lambda t: t.tm2.delta(t.tm, "minute"), 90, id="time_delta"),
     ],
 )
 def test_temporal_op_executes(t, make_expr, expected):
