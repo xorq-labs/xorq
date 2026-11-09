@@ -45,9 +45,7 @@ jobs:
           git config --global user.name "CI"
           git config --global user.email "ci@xorq.dev"
 
-      - uses: extractions/setup-just@v4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-just
 
       - name: update and install system dependencies
         run: |
