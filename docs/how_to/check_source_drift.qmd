@@ -86,7 +86,7 @@ xorq catalog -p $DEMO/cat check-sources orders
 orders
   DatabaseTable orders: equal
 
-1 entries, 0 drifted
+1 entries, 0 drifted, 0 missing
 ```
 
 One line per external source: its kind, its name, and the verdict. Nothing has moved yet, so the verdict is `equal` and the command exits 0.
@@ -103,7 +103,7 @@ orders
 audit
   DatabaseTable audit: equal
 
-2 entries, 0 drifted
+2 entries, 0 drifted, 0 missing
 ```
 
 ### 3. Read a changed source
@@ -126,7 +126,7 @@ orders
     recorded: id int64, region string
     live:     id int64, region string, total float64
 
-1 entries, 1 drifted
+1 entries, 1 drifted, 0 missing
 ```
 
 The command exits 3. Both schemas print in full, in column order, with no delta line between them.
@@ -149,7 +149,7 @@ orders
     recorded: id int64, region string
     live:     id int64, area string
 
-1 entries, 1 drifted
+1 entries, 1 drifted, 0 missing
 ```
 
 And change one column's type:
@@ -170,7 +170,7 @@ orders
     recorded: id int64, region string
     live:     id string, region string
 
-1 entries, 1 drifted
+1 entries, 1 drifted, 0 missing
 ```
 
 Adding a column, dropping one, renaming one and retyping one all report as `changed`. That collapse is deliberate. A rename is a drop plus an add as far as two schemas go: nothing in the pair says the values moved from the old name to the new one, and a command that guessed would be confidently wrong exactly when it matters most. So it prints both schemas in full and leaves the reading to you, or to a column diff in your own script.
@@ -187,7 +187,7 @@ xorq catalog -p $DEMO/cat check-sources bundled
 bundled
   no external sources (1 memtables)
 
-1 entries, 0 drifted
+1 entries, 0 drifted, 0 missing
 ```
 
 That is what bundling looks like. The `memtable` rows were serialized into the build, so they travel with the entry and can't drift. The same holds for tables in a memory backend and, by default, for local file reads: `xorq build` relocates them, copying the bytes into the archive so the build runs anywhere. A read of several files (a list or tuple of paths) is the exception: it is never relocated, so it stays a machine-local path and `check-sources` keeps watching it.
@@ -228,7 +228,7 @@ feed-bundled
 feed-external
   Read /tmp/drift-demo/feed.csv: equal
 
-2 entries, 0 drifted
+2 entries, 0 drifted, 0 missing
 ```
 
 Only the second entry has anything to check. Add a column to the file and the difference shows:
@@ -246,7 +246,7 @@ feed-external
 feed-bundled
   no external sources (1 reads)
 
-2 entries, 1 drifted
+2 entries, 1 drifted, 0 missing
 ```
 
 So if you want a local file watched, build it with `--no-relocate-reads` and know what you traded away: the build is no longer self-contained. `xorq run` now needs that file, at that path, on whatever machine runs it. Relocation buys portability at the cost of drift detection over the bytes it copied, which is the right default for a build you ship and the wrong one for a file that keeps changing under you.
@@ -271,7 +271,7 @@ audit
     recorded: id int64, who string
     live:     -
 
-1 entries, 1 drifted
+1 entries, 0 drifted, 1 missing
 ```
 
 `table-missing` is positive evidence, not a shrug: the backend answered and listed no table under that name. A read whose path no longer resolves reports the same verdict, a missing file being the file analogue of a renamed table. It exits 3, like `changed`.
@@ -288,7 +288,7 @@ audit
   DatabaseTable audit: unreachable
     FileNotFoundError: sqlite database /tmp/drift-demo/audit.sqlite does not exist
 
-1 entries, 0 drifted
+1 entries, 0 drifted, 0 missing
 ```
 
 `unreachable` means the probe never got an answer, so the line under it is the error that was raised rather than a guess at a cause. It exits 2, and the summary doesn't count it as drift, because nothing was compared.
@@ -309,7 +309,7 @@ xorq catalog -p $DEMO/cat check-sources feed-bundled
 feed-bundled
   unreadable: BadZipFile: File is not a zip file
 
-1 entries, 0 drifted
+1 entries, 0 drifted, 0 missing
 ```
 
 `unreadable` is a defect in what was read, not evidence about any backend, which is what keeps it distinct from `unreachable` even though both exit 2.
@@ -331,7 +331,7 @@ audit
   DatabaseTable audit: unreachable
     FileNotFoundError: sqlite database /tmp/drift-demo/audit.sqlite does not exist
 
-2 entries, 1 drifted
+2 entries, 1 drifted, 0 missing
 ```
 
 One entry changed, one was unreachable, and the run exits 3. The ranking is a total order, so the same catalog gives the same exit code whatever order you list the names in.

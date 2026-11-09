@@ -111,7 +111,31 @@ def test_renamed_table_is_missing(runner: CliRunner, world: SimpleNamespace) -> 
     assert result.exit_code == 3
     assert "DatabaseTable t: table-missing" in result.output
     assert "live:     -" in result.output
-    assert "1 entries, 0 drifted" in result.output
+    assert "1 entries, 0 drifted, 1 missing" in result.output
+
+
+def test_a_changed_and_a_missing_leaf_count_as_missing(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The footer counts an entry by the state `--json` gives it.
+
+    `table-missing` outranks `changed`, so an entry with one of each is
+    missing, not drifted, in both renderings.
+    """
+    world.con.create_table("u", RECORDED.to_pandas())
+    name = world.catalog.add(world.con.table("t").union(world.con.table("u"))).name
+    recreate(world, "t", pa.table({"a": pa.array([1], pa.int64())}))
+    world.con.drop_table("u")
+
+    human = check_sources(runner, world, name)
+    as_json = runner.invoke(
+        cli, ["--path", world.catalog_path, "check-sources", name, "--json"]
+    )
+    assert "DatabaseTable t: changed" in human.output
+    assert "DatabaseTable u: table-missing" in human.output
+    assert "1 entries, 0 drifted, 1 missing" in human.output
+    assert json.loads(as_json.stdout)["entries"][name]["state"] == "table-missing"
+    assert human.exit_code == as_json.exit_code == 3
 
 
 def test_unreachable_leaf_exits_two_not_one(
