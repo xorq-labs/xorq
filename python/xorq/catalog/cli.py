@@ -1175,7 +1175,8 @@ def check_sources(
     """Compare each entry's recorded source schemas against the live ones.
 
     Reports; never repairs and never infers. Bundled and pinned sources are
-    exempt: their bytes are in the archive, so they cannot drift.
+    exempt: a bundled source's bytes are in the archive, and a pinned source
+    reads a frozen cache artifact, which is not checked.
 
     \b
     Exit codes (the worst leaf wins):
