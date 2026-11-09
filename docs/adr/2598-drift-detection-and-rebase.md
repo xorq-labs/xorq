@@ -124,7 +124,7 @@ Rejected because it has nothing to check. duckdb is a memory backend, so its tab
 
 ### Probe bundled reads while the archive is extracted
 
-Rejected because a bundled file is content-addressed: its name is its hash, so comparing it can only return `equal` unless the archive is corrupt, and a corrupt archive is `xorq catalog check`'s job. Dropping it also removed any need to extract the archive: leaves are read from the build record by plain traversal.
+Rejected because a bundled file is content-addressed: its name is its hash, so comparing it can only return `equal` unless the archive is corrupt. Archive integrity is a different question from source drift, and `check-sources` does not answer it. Dropping it also removed any need to extract the archive: leaves are read from the build record by plain traversal.
 
 ### `no external sources` as a bare string
 
