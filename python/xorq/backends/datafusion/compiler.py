@@ -4,13 +4,43 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 
 import xorq.vendor.ibis.expr.datatypes as dt
+import xorq.vendor.ibis.expr.operations as ops
+from xorq.backends.xorq_datafusion.compiler import (
+    DataFusionCompiler as XorqDataFusionCompiler,
+)
 from xorq.vendor.ibis.backends.sql.compilers.base import NULL
 from xorq.vendor.ibis.backends.sql.compilers.datafusion import (
     DataFusionCompiler as IbisDataFusionCompiler,
 )
 
 
+# xorq_datafusion's rules for these run on the datafusion engine too; the
+# delta ops are left out because they call xorq-datafusion builtins
+PORTED_OPS = frozenset(
+    (
+        ops.IntervalFromInteger,
+        ops.Strftime,
+        ops.StringToDate,
+        ops.StringToTimestamp,
+        ops.TimestampBucket,
+    )
+)
+
+
 class DataFusionCompiler(IbisDataFusionCompiler):
+    UNSUPPORTED_OPS = tuple(
+        op for op in IbisDataFusionCompiler.UNSUPPORTED_OPS if op not in PORTED_OPS
+    )
+
+    SIMPLE_OPS = IbisDataFusionCompiler.SIMPLE_OPS | {
+        op: XorqDataFusionCompiler.SIMPLE_OPS[op]
+        for op in (ops.StringToDate, ops.StringToTimestamp)
+    }
+
+    visit_IntervalFromInteger = XorqDataFusionCompiler.visit_IntervalFromInteger
+    visit_Strftime = XorqDataFusionCompiler.visit_Strftime
+    visit_TimestampBucket = XorqDataFusionCompiler.visit_TimestampBucket
+
     def visit_Quantile(self, op, *, arg, quantile, where):
         # datafusion < 49 has no percentile_cont: index into the sorted non-null values
         cond = arg.is_(sg.not_(NULL, copy=False))
