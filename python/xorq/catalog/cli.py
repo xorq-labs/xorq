@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import warnings
 import zipfile
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from functools import cache, partial, reduce
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
         ContentStoreConfig,
         PresignedContentStoreConfig,
     )
+    from xorq.catalog.enums import Verdict
     from xorq.common.utils.lineage_utils import LineageDAG
     from xorq.ibis_yaml.packager import JointBundle
 
@@ -1105,10 +1107,11 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
-def _echo_entry_sources(catalog_entry, con_cache: dict) -> tuple[int, tuple]:
-    """Print one entry's leaf reports as they arrive.
+def _echo_entry_sources(catalog_entry, con_cache: dict) -> Verdict | None:
+    """Print one entry's leaf reports as they arrive; return its verdict.
 
-    Return its exit code and its leaves' verdicts.
+    The verdict `--json` reports as the entry's ``state``, so the footer counts
+    and the exit code cannot classify an entry differently from the document.
     """
     from xorq.catalog.drift import (  # noqa: PLC0415
         entry_verdict,
@@ -1118,7 +1121,6 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> tuple[int, tuple]:
         format_unchecked,
         iter_leaf_reports,
         read_record,
-        state_and_code,
     )
     from xorq.catalog.enums import Verdict  # noqa: PLC0415
 
@@ -1132,7 +1134,7 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> tuple[int, tuple]:
         click.echo(f"  unreadable: {format_error(record)}")
         # The same verdict a leaf-level defect ranks, so the entry-level and
         # leaf-level codes cannot drift apart.
-        return Verdict.UNREADABLE.exit_code, (Verdict.UNREADABLE,)
+        return Verdict.UNREADABLE
     reports = []
     for report in iter_leaf_reports(record, con_cache):
         for line in format_leaf_report(report):
@@ -1142,9 +1144,8 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> tuple[int, tuple]:
         click.echo(unchecked)
     elif not reports:
         click.echo(format_no_external(record))
-    # The same rule `--json` and `EntryReport` read the entry's code off.
-    exit_code = state_and_code(entry_verdict(record, tuple(reports)))["exit_code"]
-    return exit_code, tuple(report.verdict for report in reports)
+    # The same rule `--json` and `EntryReport` read the entry's state off.
+    return entry_verdict(record, tuple(reports))
 
 
 def _announce_entries(
@@ -1215,7 +1216,11 @@ def check_sources(
         catalog = ctx.obj.make_catalog(init=False)
         entries = tuple(_get_catalog_entry(catalog, name) for name in names)
 
-    from xorq.catalog.drift import close_cons, drift_document  # noqa: PLC0415
+    from xorq.catalog.drift import (  # noqa: PLC0415
+        close_cons,
+        drift_document,
+        roll_up,
+    )
     from xorq.catalog.enums import Verdict  # noqa: PLC0415
 
     # Probing runs outside the handler above, which would turn an exception
@@ -1236,16 +1241,19 @@ def check_sources(
             click.echo(json.dumps(document, indent=2))
             exit_code = document["exit_code"]
         else:
-            swept = []
+            states = []
             for name, catalog_entry in zip(names, entries):
                 click.echo(name)
-                swept.append(_echo_entry_sources(catalog_entry, con_cache))
-            # `changed` and `table-missing` share exit code 3, so count drift by
-            # verdict: a missing table is gone, not drifted.
-            drifted = sum(Verdict.CHANGED in verdicts for _, verdicts in swept)
+                states.append(_echo_entry_sources(catalog_entry, con_cache))
+            # `changed` and `table-missing` share exit code 3, so they are
+            # counted by verdict: a missing source is gone, not drifted.
+            counts = Counter(states)
             click.echo()
-            click.echo(f"{len(swept)} entries, {drifted} drifted")
-            exit_code = max((code for code, _ in swept), default=0)
+            click.echo(
+                f"{len(states)} entries, {counts[Verdict.CHANGED]} drifted, "
+                f"{counts[Verdict.TABLE_MISSING]} missing"
+            )
+            exit_code = roll_up(filter(None, states)).exit_code
     finally:
         close_cons(con_cache)
     ctx.exit(exit_code)

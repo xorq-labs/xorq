@@ -108,6 +108,7 @@ def test_a_moved_file_is_missing(runner: CliRunner, world: SimpleNamespace) -> N
     assert result.exit_code == 3
     assert f"Read {world.src}: table-missing" in result.output
     assert "live:     -" in result.output
+    assert "1 entries, 0 drifted, 1 missing" in result.output
 
 
 def test_an_added_column_is_changed(runner: CliRunner, world: SimpleNamespace) -> None:
