@@ -155,7 +155,9 @@ def _child_node_refs(registry: Registry, yaml_obj) -> list[str]:
                 node_ref = value.get(RefEnum.node_ref)
                 if isinstance(node_ref, str) and node_ref in registry.nodes:
                     refs.append(node_ref)
-                data_key = DATA_KEYS.get(value.get(NodeKey.op))
+                # "op" can also name a column, whose value is a mapping
+                op = value.get(NodeKey.op)
+                data_key = DATA_KEYS.get(op) if isinstance(op, str) else None
                 pending.extend(child for key, child in value.items() if key != data_key)
             case tuple() | list():
                 pending.extend(value)

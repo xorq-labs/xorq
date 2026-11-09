@@ -2458,6 +2458,15 @@ def test_map_literal_with_node_ref_key_round_trips(compiler):
     assert restored.op().value == value
 
 
+def test_plain_dict_document_with_a_column_named_op_loads(compiler):
+    # a Project's values mapping keys "op" to a column node, not an op name
+    t = ibis.table({"a": "int64"}, name="t")
+    expr = t.select(op=t.a + 1)
+    plain = json.loads(json.dumps(compiler.to_yaml(expr), default=str))
+
+    assert compiler.from_yaml(plain).schema() == expr.schema()
+
+
 def test_map_literal_does_not_reach_unused_node_definition(compiler):
     value = {"node_ref": "@unused"}
     expr = ibis.literal(value, type="map<string, string>")
