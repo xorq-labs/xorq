@@ -75,6 +75,7 @@ from xorq.expr.relations import (
 from xorq.ibis_yaml.common import (
     Registry,
     TranslationContext,
+    reachable_node_refs,
     translate_from_yaml,
     translate_to_yaml,
     warm_translate_to_yaml,
@@ -340,6 +341,9 @@ class YamlExpressionTranslator:
             profiles=freeze(dict(profiles)),
         )
         expr_dict = freeze(yaml_dict[DocKey.expression])
+        # translating children before parents keeps recursion depth bounded
+        for node_ref in reachable_node_refs(context.registry, expr_dict):
+            context.get_node(node_ref)
         return translate_from_yaml(expr_dict, context)
 
 

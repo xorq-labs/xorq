@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import shutil
+import sys
 import tempfile
 import warnings
 from pathlib import Path
@@ -51,7 +52,9 @@ from xorq.expr.operations import _MISSING
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.common import (
+    Registry,
     TranslationContext,
+    reachable_node_refs,
     translate_to_yaml,
     warm_translate_to_yaml,
 )
@@ -72,7 +75,7 @@ from xorq.ibis_yaml.compiler import (
     make_read_op,
 )
 from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, WritePhase
+from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, RegistryEnum, WritePhase
 from xorq.ibis_yaml.sql import find_relations, sql_query_deps
 from xorq.ibis_yaml.translate import warn_on_local_path
 from xorq.tests.util import assert_frame_equal
@@ -2397,3 +2400,105 @@ def test_to_yaml_serializes_a_chain_past_the_old_recursion_limit(monkeypatch) ->
     for i in range(250):
         t = t.filter(t.a > i)
     assert len(YamlExpressionTranslator.to_yaml(t)["definitions"]["nodes"]) == 251
+
+
+def _stack_depth() -> int:
+    frame, depth = sys._getframe(1), 0
+    while frame is not None:
+        frame, depth = frame.f_back, depth + 1
+    return depth
+
+
+def test_load_expr_depth_does_not_grow_with_chain_length(tmp_path):
+    # translating node by node recursed about 8 frames per op, so a 30-op
+    # chain needed ~250 frames and failed under this limit
+    expr = xo.memtable({"a": [1, 2, 3]}, name="t")
+    for i in range(30):
+        expr = (
+            expr.mutate(**{f"m{i}": expr.a + i})
+            if i % 2 == 0
+            else expr.filter(expr.a > -i)
+        )
+    build_path = build_expr(expr, builds_dir=tmp_path)
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(_stack_depth() + 150)
+    try:
+        loaded = load_expr(build_path)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert loaded.schema() == expr.schema()
+
+
+def test_from_yaml_depth_does_not_depend_on_definition_order(compiler):
+    expr = ibis.table({"a": "int64"}, name="t")
+    for i in range(30):
+        expr = expr.filter(expr.a > -i)
+    yaml_dict = compiler.to_yaml(expr)
+    nodes = yaml_dict["definitions"][RegistryEnum.nodes]
+    yaml_dict = toolz.assoc_in(
+        yaml_dict,
+        ["definitions", RegistryEnum.nodes],
+        dict(reversed(tuple(nodes.items()))),
+    )
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(_stack_depth() + 150)
+    try:
+        restored = YamlExpressionTranslator.from_yaml(yaml_dict)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert restored.schema() == expr.schema()
+
+
+def test_map_literal_with_node_ref_key_round_trips(compiler):
+    value = {"node_ref": "value"}
+    expr = ibis.literal(value, type="map<string, string>")
+
+    restored = compiler.from_yaml(compiler.to_yaml(expr))
+
+    assert restored.op().value == value
+
+
+def test_plain_dict_document_with_a_column_named_op_loads(compiler):
+    # a Project's values mapping keys "op" to a column node, not an op name
+    t = ibis.table({"a": "int64"}, name="t")
+    expr = t.select(op=t.a + 1)
+    plain = json.loads(json.dumps(compiler.to_yaml(expr), default=str))
+
+    assert compiler.from_yaml(plain).schema() == expr.schema()
+
+
+def test_map_literal_does_not_reach_unused_node_definition(compiler):
+    value = {"node_ref": "@unused"}
+    expr = ibis.literal(value, type="map<string, string>")
+    yaml_dict = toolz.assoc_in(
+        compiler.to_yaml(expr),
+        ["definitions", RegistryEnum.nodes, "@unused"],
+        {"op": "DatabaseTable", "profile": "missing"},
+    )
+
+    restored = compiler.from_yaml(yaml_dict)
+
+    assert restored.op().value == value
+
+
+def test_parameter_default_does_not_reach_node_definition():
+    registry = Registry(
+        nodes={"@unused": {"op": "DatabaseTable", "profile": "missing"}}
+    )
+    param = {"op": "NamedScalarParameter", "default": {"node_ref": "@unused"}}
+
+    assert reachable_node_refs(registry, param) == ()
+
+
+def test_from_yaml_ignores_unreachable_node_definitions(compiler):
+    table = ibis.table({"a": "int64"}, name="t")
+    expr = table.filter(table.a > 0)
+    yaml_dict = toolz.assoc_in(
+        compiler.to_yaml(expr),
+        ["definitions", RegistryEnum.nodes, "@unused"],
+        {"op": "DatabaseTable", "profile": "missing"},
+    )
+
+    restored = YamlExpressionTranslator.from_yaml(yaml_dict)
+
+    assert restored.schema() == expr.schema()
