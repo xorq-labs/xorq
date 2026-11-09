@@ -48,10 +48,10 @@ The drift taxonomy, one test per row:
 
 | Mutation | Verdict | Test |
 |---|---|---|
-| add a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas[added]` |
-| drop a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas[dropped]` |
-| rename a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas[renamed]` |
-| retype a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas[retyped]` |
+| add a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas -k added` |
+| drop a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas -k dropped` |
+| rename a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas -k renamed` |
+| retype a column | `changed` | `test_drift.py::test_column_change_reports_both_schemas -k retyped` |
 | rename the table | `table-missing` | `test_drift.py::test_renamed_table_is_missing` |
 | move the read's file | `table-missing` | `test_drift_reads.py::test_a_moved_file_is_missing` |
 
