@@ -7,14 +7,11 @@
 
 ## Context
 
-A catalog entry records the schema of every source it was built over: each database table and each file read. Upstream sources change after the build. A column is added, retyped or dropped, a table is renamed, a file moves. The entry still loads and still runs, against a world it was not built for, and the first sign is usually a wrong result or a failure deep inside an execution.
+A catalog entry records the schema of every source it was built over: each database table and each file read. Sources change after the build: a column is added, retyped or dropped, a table is renamed, a file moves. The entry still loads and runs over the changed sources, and the first sign is usually a wrong result or a failure deep inside an execution.
 
-Two questions follow, and they have different risk profiles:
+That raises two questions with different risks. The first is whether a source has drifted (`xorq catalog check-sources`, epic #2293). Users run this on production catalogs, in CI and on a schedule, so it has to be safe to run at any time. The second is whether the entry can follow the drift (`xorq catalog rebase`, epic #2319). That means re-deriving an expression without the author's build script, which the catalog never had.
 
-1. **Has a source drifted?** (`xorq catalog check-sources`, epic #2293.) Users run this on production catalogs, in CI, and on a schedule. It must be safe to run anywhere, at any time.
-2. **Can the entry follow the drift?** (`xorq catalog rebase`, epic #2319.) This has to re-derive an expression without the author's build script, which the catalog never had.
-
-Reasonable people could disagree on most of the choices below: whether detection may repair, whether a missing source is "drift", which engine a recorded schema is compared with, whether rebase edits the entry in place or creates a new one, and where re-derivation hooks into loading. This ADR records what was chosen, as built. It was deliberately written after `check-sources` shipped, from what the implementation established (#2300). Where the design as first specified chose differently, the choice is recorded under *Alternatives considered*.
+Most of the choices below could have gone another way: whether detection may repair, whether a missing source counts as drift, which engine a recorded schema is compared with, whether rebase edits the entry in place or creates a new one, and where re-derivation hooks into loading. This ADR records what was chosen, as built. It was deliberately written after `check-sources` shipped, from what the implementation established (#2300). Where the design as first specified chose differently, the choice is recorded under *Alternatives considered*.
 
 ## Decision drivers
 
@@ -22,7 +19,7 @@ Reasonable people could disagree on most of the choices below: whether detection
 - The exit code must never contradict the verdicts printed beside it. It is the coarse answer; `--json` is the full one.
 - A verdict of `changed` must mean the source changed, never that two tools disagree about an untouched source.
 - A rebase must never lose the entry it started from, and a refused or conflicted rebase must write no entry.
-- Nothing is guessed: a rename looks exactly like a drop plus an add, given two schemas.
+- Rebase does not guess. Given two schemas, a rename looks exactly like a drop plus an add.
 
 ## Decision
 
@@ -42,7 +39,7 @@ Each probed source (a *leaf*) gets one `Verdict` (`python/xorq/catalog/enums.py`
 | `changed` | live and recorded schemas differ | 3 |
 | `table-missing` | the backend answered and lists no such table, or a read's file path no longer resolves | 3 |
 
-`Verdict.exit_code` is a `match` that names every member, and its fallback arm raises, so a new member fails at its first use instead of inheriting a code. An entry's state is the worst of its leaves by `Verdict.severity`, a total order that refines the exit code: within code 2, `unreadable` beats `unreachable` (retrying will not fix a record that does not parse); within code 3, `table-missing` beats `changed` (the source is gone, not different). The order is declared once, as the member order, so the same catalog rolls up to the same state whatever order the names were typed in. Exit 2 means the question could not be answered (infrastructure, or a record that does not parse); exit 3 means the world moved. A name that does not resolve, or a catalog that cannot be opened, exits 1 before any probe, a usage error exits click's own 2, and neither prints a report.
+`Verdict.exit_code` is a `match` that names every member, and its fallback arm raises, so a new member fails at its first use instead of inheriting a code. An entry's state is the worst of its leaves by `Verdict.severity`, a total order that refines the exit code: within code 2, `unreadable` beats `unreachable` (retrying will not fix a record that does not parse); within code 3, `table-missing` beats `changed` (a gone source is worse than a different one). The order is declared once, as the member order, so the same catalog rolls up to the same state whatever order the names were typed in. Exit 2 means the question could not be answered (infrastructure, or a record that does not parse); exit 3 means the world moved. A name that does not resolve, or a catalog that cannot be opened, exits 1 before any probe, a usage error exits click's own 2, and neither prints a report.
 
 The drift taxonomy, one test per row:
 
@@ -74,7 +71,7 @@ An entry with no external sources says why: `no external sources (1 memtables, 1
 
 ### A read is compared using the tool that recorded it
 
-`deferred_read_parquet` records the schema datafusion infers and `deferred_read_csv` the one pandas infers, whatever backend the read is bound to. The probe re-runs that same inference (`get_read_inference` in `python/xorq/catalog/drift.py`, reading `DEFAULT_READ_INFERENCE` in `python/xorq/common/utils/defer_utils.py`). Both sides come from one producer, so a backend's own type mapping (sqlite reading `int32` as `int64`, `date32` as `string`) is never reported as drift (#2311, pinned by #2574). As a side effect, such reads need no connection at all and are probed on ingesting backends too.
+`deferred_read_parquet` records the schema datafusion infers and `deferred_read_csv` the one pandas infers, whatever backend the read is bound to. The probe re-runs that same inference (`get_read_inference` in `python/xorq/catalog/drift.py`, reading `DEFAULT_READ_INFERENCE` in `python/xorq/common/utils/defer_utils.py`). Both sides come from one producer, so a backend's own type mapping (sqlite reading `int32` as `int64`, `date32` as `string`) is never reported as drift (#2311, pinned by #2574). These reads also need no connection, so they are probed on ingesting backends too.
 
 ### Rebase derives a new entry and never mutates the old one
 
@@ -84,7 +81,7 @@ Rebase syncs by default (`--no-sync` opts out): it pulls the catalog's remotes b
 
 ### Re-derivation is a rewrite after loading, driven by the drift report
 
-The build loads exactly as recorded (`load_expr` is untouched). `rebase_entry` (`python/xorq/catalog/rebase.py`) turns its sweep into live schemas, or a conflict when a source is gone, and `refresh_schemas` in `python/xorq/catalog/refresh.py` rebuilds the loaded graph over them. The sweep is not repeated: the loaded graph is refreshed from the one report rebase already holds.
+The build loads exactly as recorded (`load_expr` is untouched). `rebase_entry` (`python/xorq/catalog/rebase.py`) turns its sweep into live schemas, or a conflict when a source is gone, and `refresh_schemas` in `python/xorq/catalog/refresh.py` rebuilds the loaded graph over them. Rebase sweeps once, and refreshes the loaded graph from that one report.
 
 - Only sources reported `changed` move. An `equal` source keeps its node, so undrifted subtrees and their cache keys stay put (cache keys follow the build hash split of ADR-0015).
 - Every op above a moved source is recreated through `__recreate__`, which re-runs its own signature validation. A dropped column fails at the `Field` that names it, and a column retyped to string fails at the `Mean` over it. The one exception is Flight ops, which validate their schema only when built through `from_expr`; `revalidate_flight` calls that check by hand. Recreation stops at a `CacheTag` pin, which is kept as recorded; rebase meets one only above a source a live branch also reaches, since it refuses a pinned leaf.
@@ -116,7 +113,7 @@ The first five come from the original `check-sources` specification: four behavi
 
 ### Exit 2 whenever any source is unreachable
 
-Rejected because an entry that drifted would then report "could not answer" whenever an unrelated leaf was down, hiding the one finding that needs action. Replaced by the worst verdict by severity, under which `changed` (3) outranks `unreachable` (2).
+Rejected because a drifted entry would then report "could not answer" whenever an unrelated leaf was down, which hides the finding that needs action. Replaced by the worst verdict by severity, under which `changed` (3) outranks `unreachable` (2).
 
 ### A duckdb file database and a parquet read as the fixture
 
@@ -160,7 +157,7 @@ The cost difference was milliseconds either way, next to the seconds `catalog.ad
 
 ### Rebase in place
 
-Rejected because the old entry is the only record of what ran before, and aliases already give users a stable name that can move.
+Rejected because the old entry is the only record of what ran before. Aliases already give users a stable name, and an alias can move.
 
 ### Infer renames
 
@@ -170,7 +167,7 @@ Rejected because a rename is indistinguishable from a drop plus an add given two
 
 ### Positive
 
-- `check-sources` is safe to run anywhere: it never writes to a source or the catalog, and a missing database stays missing. Its only local write is fetching archives that are not yet local.
+- `check-sources` is safe to run anywhere. It writes to no source and to no catalog, and a missing database stays missing. Its only local write is fetching archives that are not yet local.
 - A rebase can be previewed (`--dry-run`) or built without cataloging (`--no-add`), and since aliases move only when asked, adopting it is a separate, reversible step.
 - Undrifted subtrees keep their cache keys across a rebase.
 
