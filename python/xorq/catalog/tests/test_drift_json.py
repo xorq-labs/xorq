@@ -248,25 +248,17 @@ def test_a_bundled_only_entry_reports_no_leaves_and_its_counts(
     assert entry["pinned"] == 0
 
 
-@pytest.mark.parametrize(
-    "relocate_reads, bundled, pinned",
-    [(False, {}, 1), (True, {"reads": 1}, 0)],
-    ids=["pinned", "pinned-and-bundled"],
-)
-def test_a_pinned_leaf_is_counted_in_one_column_only(
+@pytest.mark.parametrize("relocate_reads", [False, True], ids=["kept", "relocated"])
+def test_a_pinned_leaf_is_counted_as_pinned_only(
     runner: CliRunner,
     world: SimpleNamespace,
     tmp_path: Path,
     relocate_reads: bool,
-    bundled: dict,
-    pinned: int,
 ) -> None:
-    """The pin's frozen read of its cache artifact, bundled and not.
+    """The pin's frozen read of its cache artifact, relocated into the archive and not.
 
-    One leaf either way, so the two columns must add to one: counting it in
-    both would report a source the entry does not have. Which column it lands
-    in is `relocate_reads`, the flag that decides whether the artifact's bytes
-    were copied into the archive.
+    One leaf either way, counted once and as a pin: that is what `rebase`
+    refuses the entry for, so a relocated pin read as bundled would hide it.
     """
     src = tmp_path / "src.parquet"
     pq.write_table(RECORDED, src)
@@ -277,17 +269,11 @@ def test_a_pinned_leaf_is_counted_in_one_column_only(
 
     entry = document(runner, world, name)["entries"][name]
     assert entry["state"] == Verdict.EQUAL
-    assert entry["bundled"] == bundled
-    assert entry["pinned"] == pinned
+    assert (entry["bundled"], entry["pinned"]) == ({}, 1)
 
     human = runner.invoke(cli, ["--path", world.catalog_path, "check-sources", name])
-    detail = ", ".join(
-        [
-            *(f"{count} {label}" for label, count in bundled.items()),
-            *([f"{pinned} pinned"] if pinned else []),
-        ]
-    )
-    assert f"no external sources ({detail})" in human.output
+    assert human.exit_code == 0
+    assert "no external sources (1 pinned)" in human.output
 
 
 def test_an_unreadable_entry_carries_its_error_and_no_leaves(
