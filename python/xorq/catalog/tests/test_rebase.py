@@ -2003,10 +2003,6 @@ def test_a_failed_pull_is_retryable_and_writes_nothing(
 ) -> None:
     replace_t(world, GROWN)
     before = commit_count(world.catalog)
-
-    def failing_pull(self: Catalog) -> None:
-        raise CatalogPullError("fetch failed")
-
     monkeypatch.setattr(Catalog, "pull", failing_pull)
     result = rebase(runner, world, world.name, "--move-aliases")
     assert result.exit_code == RebaseExit.UNREACHABLE, result.output
@@ -2190,6 +2186,11 @@ SWEPT_REFUSALS = frozenset(
 )
 
 
+# The refusals that come once the rebase derived its hash, so their document
+# carries it: an alias the new entry cannot take, and anything after the dump.
+HASHED_REFUSALS = frozenset(("taken-alias", "unreadable-bundle"))
+
+
 def aliases_document(**names: list[str]) -> dict[str, list[str]]:
     return {key: names.get(key, []) for key in ALIAS_KEYS}
 
@@ -2312,6 +2313,11 @@ def test_json_reports_a_rebase_that_wrote_nothing(
     failed = setup is refuse_alias_add_failing
     assert document["state"] == ("failed" if failed else FAILURE_STATES[exit_code])
     assert (document["old_entry"], document["new_entry"]) == (old_entry, None)
+    # Refused once the rebase derived its hash, the document names it.
+    if request.node.callspec.id in HASHED_REFUSALS:
+        assert document["new_hash"] not in (None, old_entry)
+    else:
+        assert document["new_hash"] is None
     assert document["aliases"] == aliases_document()
     assert re.fullmatch(r"\w+: .+", document["error"], re.DOTALL)
     if exit_code == 4:
@@ -2559,6 +2565,75 @@ def test_json_reports_a_rebase_it_did_not_catalog(
     assert reopen(world).list() == [world.name]
 
 
+def failing_pull(self: Catalog) -> None:
+    raise CatalogPullError("fetch failed")
+
+
+def json_target_taken(w: SimpleNamespace, new: str) -> tuple[str, ...]:
+    (w.cwd / "builds" / new).mkdir(parents=True)
+    return ("--no-add",)
+
+
+def json_target_taken_since_the_check(w: SimpleNamespace, new: str) -> tuple[str, ...]:
+    real_stage = rebase_module.stage_bundle
+
+    def stage(catalog_entry: CatalogEntry, build_path: Path) -> None:
+        (w.cwd / "builds" / build_path.name).mkdir(parents=True)
+        real_stage(catalog_entry, build_path)
+
+    w.monkeypatch.setattr(rebase_module, "stage_bundle", stage)
+    return ("--no-add",)
+
+
+def json_pull_failing(w: SimpleNamespace, new: str) -> tuple[str, ...]:
+    w.monkeypatch.setattr(Catalog, "pull", failing_pull)
+    return ("--move-aliases",)
+
+
+def json_pull_moving_the_alias(w: SimpleNamespace, new: str) -> tuple[str, ...]:
+    other = other_entry(w)
+    pull_then(w.monkeypatch, lambda c: c.add_alias(other, "live", sync=False))
+    return ("--only-alias", "live")
+
+
+@pytest.mark.parametrize(
+    "setup, state, exit_code",
+    (
+        pytest.param(json_target_taken, "refused", 1, id="target-taken"),
+        pytest.param(
+            json_target_taken_since_the_check,
+            "refused",
+            1,
+            id="target-taken-since-the-check",
+        ),
+        pytest.param(json_pull_failing, "unreachable", 2, id="pull-failing"),
+        pytest.param(
+            json_pull_moving_the_alias, "refused", 1, id="pull-moving-the-alias"
+        ),
+    ),
+)
+def test_json_refusal_after_the_hash_reports_it(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    setup: Callable,
+    state: str,
+    exit_code: int,
+) -> None:
+    """Refused once derived, before or after the dump, the hash is named."""
+    replace_t(world, GROWN)
+    new = rebase(runner, world, world.name, "--dry-run").stdout.strip()
+    world.monkeypatch, world.cwd = monkeypatch, cwd
+    args = setup(world, new)
+    result, document = rebase_json(runner, world, world.name, *args)
+    monkeypatch.undo()
+    assert (document["state"], result.exit_code) == (state, exit_code)
+    assert (document["new_entry"], document["new_hash"]) == (None, new)
+    assert document["build_path"] is None
+    assert new not in reopen(world).list()
+
+
 def test_json_preview_reports_what_the_rebase_would_do_to_aliases(
     runner: CliRunner, world: SimpleNamespace, cwd: Path
 ) -> None:
@@ -2668,8 +2743,10 @@ def test_a_rebase_error_keeps_its_sweep_across_processes(
         world.catalog.get_catalog_entry(world.name)
     )
     reports = tuple(drift.iter_leaf_reports(record))
-    error = RebaseError("refused", RebaseFailure.UNREACHABLE).after_sweep(
-        record, reports
+    error = (
+        RebaseError("refused", RebaseFailure.UNREACHABLE)
+        .carrying(new_hash="0123456789ab")
+        .carrying(record=record, reports=reports)
     )
     restored = pickle.loads(pickle.dumps(error))
     assert (str(restored), restored.failure, restored.exit_code) == (
@@ -2677,7 +2754,7 @@ def test_a_rebase_error_keeps_its_sweep_across_processes(
         RebaseFailure.UNREACHABLE,
         RebaseExit.UNREACHABLE,
     )
-    assert restored.reports == reports
+    assert (restored.reports, restored.new_hash) == (reports, "0123456789ab")
 
 
 def test_every_rebase_state_names_its_exit_code() -> None:

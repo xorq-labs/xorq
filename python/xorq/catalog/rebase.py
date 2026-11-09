@@ -41,11 +41,11 @@ written (``rebased`` or ``push-failed``), or on ``preview``, where it is what
 the rebase would do (before the sync's pull, which a preview does not run).
 ``new_hash`` is the hash the rebase derived: ``new_entry`` once cataloged, the
 hash ``--dry-run`` (``preview``) or ``--no-add`` (``built``) did not catalog,
-and ``null`` on a conflict or a failure. ``created`` is set only once an entry
-is cataloged (``rebased``, ``push-failed``): ``false`` when it already was,
-from an earlier rebase, and its archive was kept. ``output_changes`` is set
-once a rebase is derived (``rebased``, ``push-failed``, ``preview``,
-``built``): each output column it retyped, added or removed, ``before`` or
+or the one a refusal came after once the rebase derived it, and ``null``
+otherwise. ``created`` is set only once an entry is cataloged (``rebased``,
+``push-failed``): ``false`` when it already was, from an earlier rebase, and
+its archive was kept. ``output_changes`` is set once a rebase is derived
+(``rebased``, ``push-failed``, ``preview``, ``built``): each output column it retyped, added or removed, ``before`` or
 ``after`` ``null`` where the column is absent, and empty when the output schema
 did not change. ``renames`` is set when ``output_changes`` is: each
 ``--rename`` the rebase put above its source, empty when none was given.
@@ -562,12 +562,13 @@ def rebase_document(
     stderr.
     """
     if isinstance(outcome, Exception):
-        swept = isinstance(outcome, RebaseError) and outcome.record is not None
+        refusal = outcome if isinstance(outcome, RebaseError) else None
         document = make_rebase_document(
             rebase_failure(outcome),
             catalog_entry.name,
-            drift=reports_document(outcome.record, outcome.reports)[1]
-            if swept
+            new_hash=refusal and refusal.new_hash,
+            drift=reports_document(refusal.record, refusal.reports)[1]
+            if refusal is not None and refusal.record is not None
             else None,
         )
         document["error"] = format_error(outcome)
@@ -591,14 +592,12 @@ def keeping_read_posture() -> Iterator[None]:
 
 
 @contextmanager
-def refusing_with_sweep(
-    record: BuildRecord, reports: tuple[LeafReport, ...]
-) -> Iterator[None]:
-    """Attach the sweep to a ``RebaseError`` raised inside, for its document."""
+def refusing_with(**fields: object) -> Iterator[None]:
+    """Attach ``fields`` to a ``RebaseError`` raised inside, for its document."""
     try:
         yield
     except RebaseError as e:
-        raise e.after_sweep(record, reports) from e
+        raise e.carrying(**fields) from e
 
 
 def pull_before(catalog: Catalog) -> None:
@@ -1193,7 +1192,7 @@ def rebase_entry(
     )
     reports = tuple(iter_leaf_reports(record))
     # A refusal from here on reports the sweep, as a conflict does.
-    with refusing_with_sweep(record, reports):
+    with refusing_with(record=record, reports=reports):
         # Inside: a source whose profile is unreadable is refused with the
         # sweep, as it is without --rename.
         planned, checked_renames, failed = plan_renames(
@@ -1280,52 +1279,54 @@ def rebase_entry(
                 return RebaseResult(
                     RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
                 )
-            # As a table: an entry can be a column or a scalar.
-            changes = column_changes(
-                loaded.as_table().schema(), expr.as_table().schema()
-            )
-            # The new name is known now: an alias on another entry is refused
-            # before the dump and the sync's pull, not after them.
-            plan = plan.evolved(new=dumper.expr_hash)
-            if not add:
-                # Refused before the dump: nothing is built over a taken path.
-                free_build_target(catalog_entry, builds_dir, dumper.expr_hash)
-            if dry_run:
-                return RebaseResult(
-                    RebaseStatus.PREVIEW,
-                    catalog_entry,
-                    catalog_entry,
-                    reports,
-                    record,
-                    # What the rebase would do to them, before any pull.
-                    aliases=AliasOutcome.of(plan, plan),
-                    new_hash=dumper.expr_hash,
-                    output_changes=changes,
-                    renames=checked_renames,
+            # A refusal from here on reports the hash the rebase derived.
+            with refusing_with(new_hash=dumper.expr_hash):
+                # As a table: an entry can be a column or a scalar.
+                changes = column_changes(
+                    loaded.as_table().schema(), expr.as_table().schema()
                 )
-            build_path = dumper.dump_expr()
-            stamp_rebased_from(build_path, catalog_entry.name)
-            stage_bundle(catalog_entry, build_path)
-            if not add:
-                return RebaseResult(
-                    RebaseStatus.BUILT,
-                    catalog_entry,
-                    catalog_entry,
-                    reports,
-                    record,
-                    new_hash=build_path.name,
-                    output_changes=changes,
-                    renames=checked_renames,
-                    build_path=publish_build(
-                        catalog_entry, build_path, builds_dir
-                    ).resolve(),
+                # The new name is known now: an alias on another entry is refused
+                # before the dump and the sync's pull, not after them.
+                plan = plan.evolved(new=dumper.expr_hash)
+                if not add:
+                    # Refused before the dump: nothing is built over a taken path.
+                    free_build_target(catalog_entry, builds_dir, dumper.expr_hash)
+                if dry_run:
+                    return RebaseResult(
+                        RebaseStatus.PREVIEW,
+                        catalog_entry,
+                        catalog_entry,
+                        reports,
+                        record,
+                        # What the rebase would do to them, before any pull.
+                        aliases=AliasOutcome.of(plan, plan),
+                        new_hash=dumper.expr_hash,
+                        output_changes=changes,
+                        renames=checked_renames,
+                    )
+                build_path = dumper.dump_expr()
+                stamp_rebased_from(build_path, catalog_entry.name)
+                stage_bundle(catalog_entry, build_path)
+                if not add:
+                    return RebaseResult(
+                        RebaseStatus.BUILT,
+                        catalog_entry,
+                        catalog_entry,
+                        reports,
+                        record,
+                        new_hash=build_path.name,
+                        output_changes=changes,
+                        renames=checked_renames,
+                        build_path=publish_build(
+                            catalog_entry, build_path, builds_dir
+                        ).resolve(),
+                    )
+                catalog = catalog_entry.catalog
+                if sync:
+                    pull_before(catalog)
+                new_entry, aliases, created = add_with_aliases(
+                    plan, build_path, pulled=sync
                 )
-            catalog = catalog_entry.catalog
-            if sync:
-                pull_before(catalog)
-            new_entry, aliases, created = add_with_aliases(
-                plan, build_path, pulled=sync
-            )
         push_error = push_after(catalog) if sync else None
         return RebaseResult(
             RebaseStatus.REBASED if push_error is None else RebaseStatus.PUSH_FAILED,

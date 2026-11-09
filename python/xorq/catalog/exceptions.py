@@ -101,10 +101,13 @@ class RebaseOptionsError(ValueError):
 
 
 class RebaseError(XorqError):
-    """A rebase refused before its own first write; ``failure`` says how, and
-    its exit code is the CLI's. One raised after the sweep carries the sweep's
-    ``record`` and ``reports``, so it reports the drift a conflict would. One
-    raised after a sync's pull leaves what the pull merged in place, unpushed."""
+    """A rebase refused; ``failure`` says how, and its exit code is the CLI's.
+
+    One raised before the dump has written nothing. One raised after the sweep
+    carries the sweep's ``record`` and ``reports``, so it reports the drift a
+    conflict would; one raised once the new hash is derived carries it as
+    ``new_hash``. One raised after a sync's pull leaves what the pull merged in
+    place, unpushed."""
 
     def __init__(
         self,
@@ -112,11 +115,14 @@ class RebaseError(XorqError):
         failure: RebaseFailure,
         record: BuildRecord | None = None,
         reports: Iterable[LeafReport] = (),
+        new_hash: str | None = None,
     ) -> None:
         # `FAILED` is any error that is not a refusal; a refusal names which.
         if failure not in (RebaseFailure.REFUSED, RebaseFailure.UNREACHABLE):
             raise ValueError(f"a rebase refuses or is unreachable, not {failure}")
-        super().__init__(message, RebaseFailure(failure), record, tuple(reports))
+        super().__init__(
+            message, RebaseFailure(failure), record, tuple(reports), new_hash
+        )
 
     def __str__(self) -> str:
         return self.args[0]
@@ -134,11 +140,19 @@ class RebaseError(XorqError):
         return self.args[3]
 
     @property
+    def new_hash(self) -> str | None:
+        return self.args[4]
+
+    @property
     def exit_code(self) -> int:
         return self.failure.exit_code
 
-    def after_sweep(
-        self, record: BuildRecord, reports: Iterable[LeafReport]
-    ) -> RebaseError:
-        """This refusal, carrying the sweep it came after."""
-        return type(self)(str(self), self.failure, record, reports)
+    def carrying(self, **fields: object) -> RebaseError:
+        """This refusal, with ``fields`` (``record``, ``reports``, ``new_hash``)
+        replaced by what it came after."""
+        kept = {
+            "record": self.record,
+            "reports": self.reports,
+            "new_hash": self.new_hash,
+        }
+        return type(self)(str(self), self.failure, **(kept | fields))
