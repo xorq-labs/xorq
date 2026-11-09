@@ -25,7 +25,7 @@ Most of the choices below could have gone another way: whether detection may rep
 
 ### Detection and repair are separate commands
 
-`check-sources` reads sources and never writes to them or to the catalog. It does fetch an archive that is not local yet (a pointer or annex clone), which fills the local content cache. `rebase` is the only command that writes an entry. After the checks that need only the archive (its bundle, a pinned leaf, which sources can be probed, an `--only-alias` that names no alias) it sweeps the sources with the same `iter_leaf_reports` that `check-sources` uses (`python/xorq/catalog/drift.py`), so both commands judge a source the same way. `rebase --json` embeds that sweep as the entry's `check-sources --json` document under `drift`; its shape is in the `xorq.catalog.rebase` docstring.
+`check-sources` reads sources and never writes to them or to the catalog. It does fetch an archive that is not local yet (a pointer or annex clone), which fills the local content cache. Of the two, only `rebase` writes an entry. After the checks that need only the archive (its bundle, a pinned leaf, which sources can be probed, an `--only-alias` that names no alias) it sweeps the sources with the same `iter_leaf_reports` that `check-sources` uses (`python/xorq/catalog/drift.py`), so both commands judge a source the same way. `rebase --json` embeds that sweep as the entry's `check-sources --json` document under `drift`; its shape is in the `xorq.catalog.rebase` docstring.
 
 ### A closed set of verdicts; the exit code is a property of the verdict
 
@@ -37,7 +37,7 @@ Each probed source (a *leaf*) gets one `Verdict` (`python/xorq/catalog/enums.py`
 | `unreachable` | the backend could not be asked | 2 |
 | `unreadable` | the record, or one leaf's part of it (a missing or dangling profile, a malformed namespace), could not be read; the other leaves are still probed | 2 |
 | `changed` | live and recorded schemas differ | 3 |
-| `table-missing` | the backend answered and lists no such table, or a read's file path no longer resolves | 3 |
+| `table-missing` | the backend answered and lists no such table, or a read's local file path no longer resolves | 3 |
 
 `Verdict.exit_code` is a `match` that names every member, and its fallback arm raises, so a new member fails at its first use instead of inheriting a code. An entry's state is the worst of its leaves by `Verdict.severity`, a total order that refines the exit code: within code 2, `unreadable` beats `unreachable` (retrying will not fix a record that does not parse); within code 3, `table-missing` beats `changed` (a gone source is worse than a different one). The order is declared once, as the member order, so the same catalog rolls up to the same state whatever order the names were typed in. Exit 2 means the question could not be answered (infrastructure, or a record that does not parse); exit 3 means the world moved. A name that does not resolve, or a catalog that cannot be opened, exits 1 before any probe, a usage error exits click's own 2, and neither prints a report.
 
@@ -58,16 +58,16 @@ The human footer and `--json` read the same per-entry state: the footer counts `
 
 ### Missing needs positive evidence
 
-`table-missing` is reported only when the backend answered and its table list does not contain the name, or when a read's file path no longer resolves. Any other failure is `unreachable`, a deleted database file included. A probe never infers absence from an error message.
+`table-missing` is reported only when the backend answered and its table list does not contain the name, or when a read's local file path no longer resolves. Any other failure is `unreachable`, a deleted database file included, and so is a moved remote file: a `scheme://` path is not fetched to test that it exists. A probe never infers absence from an error message.
 
 ### Probing never writes
 
 - A sqlite database is opened with a no-create guard, so a deleted database file is reported `unreachable`, not recreated empty.
 - A profile that failed to connect is not dialled again in the same sweep; connections are shared per profile through one cache.
-- A `Read` on an ingesting backend is never replayed. Every backend that is not a memory backend counts as ingesting, an unknown one included, since being wrong the other way costs the user's data; sqlite, postgres and databricks are the common cases. Its `read_*` writes, with `mode="replace"`. `is_checkable` keeps such reads unprobed unless they can be answered without the backend (next section).
+- A `Read` on an ingesting backend is never replayed. Every backend not in `memory_backends` (`python/xorq/ibis_yaml/compiler.py`) counts as ingesting, an unknown one included, since being wrong the other way costs the user's data; sqlite, postgres and databricks are the common cases. Its `read_*` writes, with `mode="replace"`. `is_checkable` keeps such reads unprobed unless they can be answered without the backend (next section).
 - Two kinds of leaf are exempt. A *bundled* read was relocated into the archive, so it has nothing outside to drift against. A *pinned* leaf, reached only through a `CacheTag` pin (`.ls.pin`, `xorq catalog pin`), reads a frozen cache artifact instead of the live source; with `relocate_reads=False` that artifact stays outside the archive, and `check-sources` does not check that it still exists.
 
-An entry with no external sources says why: `no external sources (1 memtables, 1 reads)`, a count per bundle kind, plus `N pinned` for pinned leaves, which are exempt too. Under the default build rules most entries land here. Leaves that cannot be probed are named, never silently treated as `equal`: `N external sources not checkable (...)` in the human output, `unchecked` and `unchecked_count` in `--json`. An entry whose only sources are unchecked has no verdict (`state: null` in `--json`), rather than claiming `equal` on no evidence.
+An entry with no external sources says why: `no external sources (1 memtables, 1 reads)`, a count per bundle kind, plus `N pinned` for pinned leaves, which are exempt too. Under the default build rules most entries land here. Leaves that cannot be probed are named, never silently treated as `equal`: `N external sources not checkable (...)` in the human output, `unchecked` and `unchecked_count` in `--json`. An entry whose only sources are unchecked has no verdict (`state: null` in `--json`), rather than claiming `equal` on no evidence. It still exits 0, so a gate that needs a source to have been compared reads `unchecked_count`, not the exit code.
 
 ### A read is compared using the tool that recorded it
 
@@ -84,24 +84,24 @@ Rebase syncs by default (`--no-sync` opts out): it pulls the catalog's remotes b
 The build loads exactly as recorded (`load_expr` is untouched). `rebase_entry` (`python/xorq/catalog/rebase.py`) turns its sweep into live schemas, or a conflict when a source is gone, and `refresh_schemas` in `python/xorq/catalog/refresh.py` rebuilds the loaded graph over them. Rebase sweeps once, and refreshes the loaded graph from that one report.
 
 - Only sources reported `changed` move. An `equal` source keeps its node, so undrifted subtrees and their cache keys stay put (cache keys follow the build hash split of ADR-0015).
-- Every op above a moved source is recreated through `__recreate__`, which re-runs its own signature validation. A dropped column fails at the `Field` that names it, and a column retyped to string fails at the `Mean` over it. The one exception is Flight ops, which validate their schema only when built through `from_expr`; `revalidate_flight` calls that check by hand. Recreation stops at a `CacheTag` pin, which is kept as recorded; rebase meets one only above a source a live branch also reaches, since it refuses a pinned leaf.
+- Every op above a moved source is recreated through `__recreate__`, which re-runs its own signature validation. A dropped column fails at the `Field` that names it, and a column retyped to string fails at the `Mean` over it. The one exception is Flight ops, which validate their schema only when built through `from_expr`; `revalidate_flight` calls that check by hand. Recreation stops at a `CacheTag` pin, which is kept as recorded. Rebase refuses an entry with a pinned leaf (one reached only through a pin, as defined above), so any pin it meets sits above a source that a live branch also reaches.
 - A probed source is matched to its loaded node by the connection profile's content hash, table name, iceberg snapshot id and recorded schema, not by backend name, so one table name on two connections is two sources.
 - The loader opens its own connections. The sweep's connections carry the no-create guard's URI options, which would otherwise leak into the rebased build's recorded profile.
 
 ### Rebase outcomes and exit codes
 
-Rebase keeps `check-sources`' reading of 2 (could not be answered; nothing written). Its 0 means the command succeeded, which includes writing a new entry (`rebased`) and finding nothing it could probe (`unprobed`), so 0 alone does not mean nothing changed. It adds its own codes (`RebaseStatus`, `RebaseExit`, `RebaseFailure` in `python/xorq/catalog/enums.py`):
+Rebase keeps `check-sources`' reading of 2 (could not be answered; nothing written) but not its precedence: an unreachable source exits 2 even beside a `changed` one, since a rebase cannot rebuild from part of its sources, and only `table-missing` outranks it, as a conflict. Its 0 means the command succeeded, which includes writing a new entry (`rebased`) and finding nothing it could probe (`unprobed`), so 0 alone does not mean nothing changed. It adds its own codes (`RebaseStatus`, `RebaseExit`, `RebaseFailure` in `python/xorq/catalog/enums.py`):
 
 | Exit | Outcomes |
 |---|---|
-| 0 | `noop` (no drift, or drift that re-derives to the same hash), `unprobed` (no source could be probed; stderr says drift was not ruled out), `rebased` |
+| 0 | `noop` (no drift, or drift that re-derives to the same hash), `unprobed` (every external source is a read with no registered inference on an ingesting backend; stderr says drift was not ruled out), `rebased` |
 | 1 | refused, for a reason retrying will not fix (a pinned leaf, an alias on another entry, among others), or a failed write; `xorq catalog rebase --help` lists every cause |
 | 2 | a source unreachable or unreadable (unless another source is `table-missing`, which makes it a conflict), its database file missing, or its reads disagreeing on a live schema; the record unreadable or lacking its wheel or requirements; the sync's pull failed; invalid options; nothing written |
 | 3 | derived but not cataloged: `--dry-run` (`preview`) or `--no-add` (`built`) |
 | 4 | `conflict`: an op no longer fits its inputs (`failing_op` names it), or a source's table is gone (`failing_op` is null), whatever else the sweep found; names the sources involved and what each lost and gained |
 | 5 | `push-failed`: rebased locally, the sync's push failed |
 
-An entry with only some sources unprobeable is refused rather than rebased, because those sources would come back unchanged beside refreshed ones.
+An entry with only some sources of that kind is refused rather than rebased, because those sources would come back unchanged beside refreshed ones.
 
 ### Renames are explicit
 
@@ -113,7 +113,7 @@ The first five come from the original `check-sources` specification: four behavi
 
 ### Exit 2 whenever any source is unreachable
 
-Rejected because a drifted entry would then report "could not answer" whenever an unrelated leaf was down, which hides the finding that needs action. Replaced by the worst verdict by severity, under which `changed` (3) outranks `unreachable` (2).
+Rejected because a drifted entry would then report "could not answer" whenever an unrelated leaf was down, which hides the finding that needs action. Replaced by the worst verdict by severity, under which `changed` (3) outranks `unreachable` (2). This is `check-sources` only; rebase keeps exit 2 here (*Rebase outcomes and exit codes*).
 
 ### A duckdb file database and a parquet read as the fixture
 
@@ -129,7 +129,7 @@ Rejected because the default build rules send most entries there, and a bare str
 
 ### Write this ADR before building
 
-Rejected because the taxonomy and decision table were settled by building and measuring, not in advance. `check-sources` shipped first, and this ADR adopts its six-row taxonomy and decision table as built rather than re-deriving them, adding the two things that came later: the `unreadable` verdict and the severity order within an exit code.
+Rejected because the taxonomy and verdict table were settled by building and measuring, not in advance. `check-sources` shipped first, and this ADR adopts its six-row taxonomy and verdict table as built rather than re-deriving them, including the `unreadable` verdict and the severity order within an exit code that #2312 added.
 
 ### Let `check-sources` repair what it finds
 
@@ -182,7 +182,7 @@ Rejected because a rename is indistinguishable from a drop plus an add given two
 ## References
 
 - Epic #2293 (`check-sources`): #2294, #2295, #2296, #2297, #2298, #2299, #2300; follow-ups #2310, #2311, #2313, #2314
-- Epic #2319 (`rebase`): #2320, #2321, #2322, #2323, #2324, #2325, #2326
+- Epic #2319 (`rebase`): #2320, #2321, #2322, #2323, #2324, #2325, #2326 (#2320 and #2322 specified the rejected loader mode)
 - Footer by entry state: #2466, #2597
 - Leaf identity in `--json`: #2571; progress on stderr: #2572
 - Rejected loader mode: #2327; adopted rewrite: #2337
