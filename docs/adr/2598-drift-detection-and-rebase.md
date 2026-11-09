@@ -1,4 +1,4 @@
-# ADR-XXXX: Detect source drift read-only by verdict; repair it by deriving a new entry
+# ADR-2598: Detect source drift read-only by verdict; repair it by deriving a new entry
 
 - **Status:** Accepted
 - **Date:** 2026-11-09
