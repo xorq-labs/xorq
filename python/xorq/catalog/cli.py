@@ -1105,8 +1105,11 @@ def schema(ctx, name, as_json):
                     click.echo(f"  {col:<24} {dtype}")
 
 
-def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
-    """Print one entry's leaf reports as they arrive; return its exit code."""
+def _echo_entry_sources(catalog_entry, con_cache: dict) -> tuple[int, tuple]:
+    """Print one entry's leaf reports as they arrive.
+
+    Return its exit code and its leaves' verdicts.
+    """
     from xorq.catalog.drift import (  # noqa: PLC0415
         entry_verdict,
         format_error,
@@ -1129,7 +1132,7 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
         click.echo(f"  unreadable: {format_error(record)}")
         # The same verdict a leaf-level defect ranks, so the entry-level and
         # leaf-level codes cannot drift apart.
-        return Verdict.UNREADABLE.exit_code
+        return Verdict.UNREADABLE.exit_code, (Verdict.UNREADABLE,)
     reports = []
     for report in iter_leaf_reports(record, con_cache):
         for line in format_leaf_report(report):
@@ -1140,7 +1143,8 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
     elif not reports:
         click.echo(format_no_external(record))
     # The same rule `--json` and `EntryReport` read the entry's code off.
-    return state_and_code(entry_verdict(record, tuple(reports)))["exit_code"]
+    exit_code = state_and_code(entry_verdict(record, tuple(reports)))["exit_code"]
+    return exit_code, tuple(report.verdict for report in reports)
 
 
 def _announce_entries(
@@ -1232,14 +1236,16 @@ def check_sources(
             click.echo(json.dumps(document, indent=2))
             exit_code = document["exit_code"]
         else:
-            codes = []
+            swept = []
             for name, catalog_entry in zip(names, entries):
                 click.echo(name)
-                codes.append(_echo_entry_sources(catalog_entry, con_cache))
-            drifted = sum(code == Verdict.CHANGED.exit_code for code in codes)
+                swept.append(_echo_entry_sources(catalog_entry, con_cache))
+            # `changed` and `table-missing` share exit code 3, so count drift by
+            # verdict: a missing table is gone, not drifted.
+            drifted = sum(Verdict.CHANGED in verdicts for _, verdicts in swept)
             click.echo()
-            click.echo(f"{len(codes)} entries, {drifted} drifted")
-            exit_code = max(codes, default=0)
+            click.echo(f"{len(swept)} entries, {drifted} drifted")
+            exit_code = max((code for code, _ in swept), default=0)
     finally:
         close_cons(con_cache)
     ctx.exit(exit_code)
