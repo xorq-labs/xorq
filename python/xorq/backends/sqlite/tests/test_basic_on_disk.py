@@ -1,3 +1,5 @@
+import pytest
+
 import xorq.api as xo
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache, SourceCache
@@ -92,3 +94,73 @@ def test_cache_over_without_rowid_table_with_uppercase_id(tmp_path):
     expr = t.filter(t.a > 1).cache(cache=cache)
 
     assert expr.execute().to_dict("records") == [{"ID": 2, "a": 2}]
+
+
+@pytest.mark.parametrize("key", ["k", 'k"q'])
+def test_cache_over_without_rowid_table_keyed_on_text(tmp_path, key):
+    con = xo.sqlite.connect(str(tmp_path / "lite.db"))
+    quoted = '"{}"'.format(key.replace('"', '""'))
+    con.raw_sql(f"CREATE TABLE t ({quoted} TEXT PRIMARY KEY, a INTEGER) WITHOUT ROWID")
+    con.raw_sql("INSERT INTO t VALUES ('a', 1), ('b', 2)")
+    t = con.table("t")
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    expr = t.filter(t.a > 1).cache(cache=cache)
+
+    assert expr.execute().to_dict("records") == [{key: "b", "a": 2}]
+
+    con.raw_sql(f"DELETE FROM t WHERE {quoted} = 'a'")
+    con.raw_sql("INSERT INTO t VALUES ('c', 3)")
+
+    assert expr.execute().to_dict("records") == [
+        {key: "b", "a": 2},
+        {key: "c", "a": 3},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("alias", "database"),
+    [("other", "other"), ("other", "OTHER"), ("o'reilly", ("o'reilly",))],
+)
+def test_cache_over_attached_table_shadowed_in_main(tmp_path, alias, database):
+    xo.sqlite.connect(str(tmp_path / "other.sqlite")).create_table(
+        "t", xo.memtable({"a": [1, 2, 3]})
+    )
+    con = SqliteBackend().connect(str(tmp_path / "main.sqlite"))
+    con.create_table("t", xo.memtable({"a": [9]}))
+    con.attach(alias, tmp_path / "other.sqlite")
+    t = con.table("t", database=database)
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    expr = t.filter(t.a > 1).order_by("a").cache(cache=cache)
+
+    assert expr.execute()["a"].tolist() == [2, 3]
+
+
+def test_cache_over_view_without_id_column_sees_redefinition(tmp_path):
+    con = xo.sqlite.connect(str(tmp_path / "lite.db"))
+    con.create_table("t", xo.memtable({"a": [1, 2, 3]}))
+    con.raw_sql("CREATE VIEW v AS SELECT a FROM t WHERE a > 1")
+    v = con.table("v")
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    expr = v.order_by("a").cache(cache=cache)
+
+    assert expr.execute()["a"].tolist() == [2, 3]
+
+    con.raw_sql("DROP VIEW v")
+    con.raw_sql("CREATE VIEW v AS SELECT a FROM t WHERE a < 3")
+
+    assert expr.execute()["a"].tolist() == [1, 2]
+
+
+def test_cache_over_view_without_id_column_sees_base_table_insert(tmp_path):
+    con = xo.sqlite.connect(str(tmp_path / "lite.db"))
+    con.create_table("t", xo.memtable({"a": [1, 2, 3]}))
+    con.raw_sql("CREATE VIEW v AS SELECT a FROM t WHERE a > 1")
+    v = con.table("v")
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    expr = v.order_by("a").cache(cache=cache)
+
+    assert expr.execute()["a"].tolist() == [2, 3]
+
+    con.raw_sql("INSERT INTO t VALUES (4)")
+
+    assert expr.execute()["a"].tolist() == [2, 3, 4]
