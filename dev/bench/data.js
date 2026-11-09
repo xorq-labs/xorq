@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794229129725,
+  "lastUpdate": 1794229680826,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -73624,6 +73624,212 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.23526736279611107",
             "extra": "mean: 1.640912367400017 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e6987f4d1db4bc9ca2064c10d2dbd92838c7753",
+          "message": "fix(sqlite): cache key works on tables without an id column (#2601)\n\n## What\n\nThe cache key for a file-backed sqlite table stamps it with a row count\nand a max id. That stamp now uses `rowid` when the table has no `id`\ncolumn (matched case-insensitively, as sqlite resolves names), and it\nreads the query's row instead of unpacking the result frame.\n\n## Why\n\n`get_sqlite_stats` ran `SELECT COUNT(*), MAX(id)`, so\n`.cache().execute()` and `xorq catalog pin` failed with `no such column:\nid` on any sqlite table without an `id` column.\n\nIt also unpacked the pandas frame, which yields the column labels, so\nthe stamp was always `('COUNT(*)', 'MAX(id)')`. On main, a table that\nhas an `id` column keeps its cache key after an insert, and the cached\nresult goes stale.\n\n`rowid` alone would be enough for ordinary tables, but views have no\n`rowid`, so a view with an `id` column would start failing. Keeping `id`\nwhen it exists avoids that, and a `WITHOUT ROWID` table keyed on `ID`\nkeeps working as it does on main.\n\n## Verification\n\n`PYTHONPATH=$PWD/python uv run --active pytest\npython/xorq/backends/sqlite/tests/test_basic_on_disk.py`: 7 passed. With\n`sqlite_utils.py` reverted to main, the two no-id tests fail with\n`sqlite3.OperationalError: no such column: id`. With only the `rowid`\nfallback, the replaced-row test still returns the stale `[{a: 2}]`.\n\nAlso run: `backends/sqlite/tests/` plus\n`common/utils/tests/test_dasher.py` (215 passed, 1 xfailed, and 1\nfailure in `test_expr_metadata_structural_hash_stable_across_data` that\nalso fails on main), `tests/test_cache.py -k sqlite` (1 passed), and the\nseven catalog test files that use sqlite (631 passed).\n\n## Not addressed\n\n- Every file-backed SQLite table gets a new cache key, including tables\nwith an `id` column, because the stamp now holds real values. Existing\nsqlite cache entries will miss once and then be rebuilt.\n- Views and `WITHOUT ROWID` tables that have no `id` column still fail\nas before.\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-11-09T14:02:14+01:00",
+          "tree_id": "fe09ee3a915c3cbbdc5cffa1754792b53b5d554b",
+          "url": "https://github.com/xorq-labs/xorq/commit/8e6987f4d1db4bc9ca2064c10d2dbd92838c7753"
+        },
+        "date": 1794229677223,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 8.681970431722155,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02593058084634894",
+            "extra": "mean: 115.18122618181276 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.1713281550919343,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010127573675282235",
+            "extra": "mean: 315.32529939999563 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.9606457423176288,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09810682777478409",
+            "extra": "mean: 1.040966462399996 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 3.105865768465744,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05100690876257659",
+            "extra": "mean: 321.97141619999456 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 3.2957481924988192,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030468297930495474",
+            "extra": "mean: 303.42123899999933 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.5454030641394207,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0076898641457916195",
+            "extra": "mean: 282.05537759998833 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 185.98639971340017,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00442831837487373",
+            "extra": "mean: 5.3767372320824105 msec\nrounds: 293"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.516656807723022,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12741827850219486",
+            "extra": "mean: 181.26920612499475 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 23.05788102740057,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0052755710783013",
+            "extra": "mean: 43.36911960000407 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/ibis_yaml/tests/test_benchmark.py::test_to_yaml_long_chain",
+            "value": 1.9685697972929816,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07183265666906341",
+            "extra": "mean: 507.9830044000062 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/ibis_yaml/tests/test_benchmark.py::test_to_yaml_shared_remote_tables",
+            "value": 2.207883401176016,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0738466263910631",
+            "extra": "mean: 452.9224683999871 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 16.713444859681733,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0036588321575602646",
+            "extra": "mean: 59.832069833330735 msec\nrounds: 18"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 13.067889732284732,
+            "unit": "iter/sec",
+            "range": "stddev: 0.003105877226963132",
+            "extra": "mean: 76.52344949999546 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 9.077246333306263,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006750906256542873",
+            "extra": "mean: 110.16556819999437 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 6.078801897972431,
+            "unit": "iter/sec",
+            "range": "stddev: 0.007774756884366364",
+            "extra": "mean: 164.50610116667028 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.752319915511374,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00870101937158175",
+            "extra": "mean: 173.8429042000007 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.478828761065023,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05684455408797884",
+            "extra": "mean: 403.41632939999954 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.955182767239526,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01366835428420692",
+            "extra": "mean: 252.83281680000303 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.885835934072066,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09798718531853978",
+            "extra": "mean: 530.2688224000008 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.9728194461482143,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10119435355928881",
+            "extra": "mean: 506.8887585999959 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.6052735573637742,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07842483491085825",
+            "extra": "mean: 622.9467839999984 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.7682366650814267,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06279126432025374",
+            "extra": "mean: 565.5351570000107 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.5285568615555418,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10291600600223767",
+            "extra": "mean: 654.2118420000065 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.4478278353798315,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12602851837425968",
+            "extra": "mean: 690.6898566000109 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.32397405447131,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07790447244500613",
+            "extra": "mean: 755.3018101999896 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.7871675984697818,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15423855206920953",
+            "extra": "mean: 1.2703774925999938 sec\nrounds: 5"
           }
         ]
       }
