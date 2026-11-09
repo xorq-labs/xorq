@@ -219,6 +219,42 @@ def test_a_read_on_an_ingesting_backend_is_checked_without_writing(
     assert xo.sqlite.connect(str(db_path)).table("precious").to_pyarrow() == before
 
 
+def test_an_ingesting_backends_type_mapping_is_not_drift(
+    runner: CliRunner, tmp_path: Path, catalog_path: str
+) -> None:
+    """`recorded` is datafusion's inference, whatever `con` would map the file to.
+
+    sqlite has no 32-bit or date types, so it ingests a parquet `int32`,
+    `float32` and `date32` as wider or textual columns. Probing through the
+    bound backend would report `changed` for a file nobody touched.
+    """
+    src = tmp_path / "src.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "i": pa.array([1, 2], pa.int32()),
+                "f": pa.array([1.0, 2.0], pa.float32()),
+                "d": pa.array([0, 1], pa.date32()),
+            }
+        ),
+        src,
+    )
+    con = xo.sqlite.connect(str(tmp_path / "live.sqlite"))
+    read = xo.deferred_read_parquet(src, con, table_name="src")
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    name = catalog.add(read.filter(read.i > 1), relocate_reads=False).name
+    (leaf,) = BuildRecord.from_catalog_entry(
+        catalog.get_catalog_entry(name)
+    ).external_leaves
+    assert leaf.recorded == xo.schema({"i": "int32", "f": "float32", "d": "date"})
+    # The premise: sqlite really does read this file differently.
+    assert con.read_parquet(src).schema() != leaf.recorded
+
+    result = check_sources(runner, catalog_path, name)
+    assert result.exit_code == 0
+    assert f"Read {src}: equal" in result.output
+
+
 def test_a_read_with_no_inference_on_an_ingesting_backend_is_unchecked() -> None:
     """The replay arm is what the memory-backend test still guards.
 
