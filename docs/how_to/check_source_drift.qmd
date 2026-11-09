@@ -404,6 +404,8 @@ false
 
 `jq -e` exits 1 on a false result, so that one line is the whole gate. `unchecked_count` counts the sources this version of the command declined to probe, added up across every entry in the document. A sweep can report `equal` while a source went unlooked at, so green means both keys agree. The rest of the document's shape, including the `null` state a sweep that compared nothing reports, is specified in the `xorq.catalog.drift` module docstring.
 
+Nothing reaches stdout until the sweep ends, and a dead source can take tens of seconds to fail. When stderr is a terminal, the command names each entry there as its probe starts (`checking orders`). Pass `--progress` to get those lines on a redirected stderr, or `--no-progress` to drop them. stdout carries only the document either way, so `> report.json` still captures one parseable file.
+
 When you're done, `rm -rf $DEMO` removes everything this guide created.
 
 ## See also

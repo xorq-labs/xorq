@@ -75,7 +75,12 @@ def recreate(world: SimpleNamespace, new: str, table: pa.Table) -> None:
     world.con.create_table(new, table.to_pandas())
 
 
-def check_sources(runner: CliRunner, world: SimpleNamespace, *names: str):
+def check_sources(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    *names: str,
+    flags: tuple[str, ...] = (),
+):
     """One `--json` invocation over `names`, defaulting to the entry itself."""
     return runner.invoke(
         cli,
@@ -85,6 +90,7 @@ def check_sources(runner: CliRunner, world: SimpleNamespace, *names: str):
             "check-sources",
             *(names or (world.name,)),
             "--json",
+            *flags,
         ],
     )
 
@@ -789,3 +795,18 @@ def test_every_document_key_is_documented(
     assert {level: names - {"error"} for level, names in keys.items()} == {
         level: names - {"error"} for level, names in documented.items()
     }
+
+
+def test_progress_names_each_entry_on_stderr_and_leaves_stdout_one_document(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`--progress` adds a line per entry on stderr and nothing on stdout, and
+    is off by default when stderr is not a terminal, as under the runner."""
+    names = (world.name, "live")
+    quiet = check_sources(runner, world, *names)
+    loud = check_sources(runner, world, *names, flags=("--progress",))
+
+    assert quiet.stderr == ""
+    assert loud.stderr == "".join(f"checking {name}\n" for name in names)
+    assert parse(loud) == parse(quiet)
+    assert loud.exit_code == quiet.exit_code == 0
