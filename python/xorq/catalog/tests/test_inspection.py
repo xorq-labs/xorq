@@ -714,8 +714,11 @@ def test_read_without_hash_path_falls_back_to_the_node_name() -> None:
     """The fallback is lazy: a present hash_path must not need `name` at all."""
     (leaf,) = iter_source_leaves(read_doc(read_kwargs=None))
     assert leaf.name == "src"
+    # The name is a display fallback; a node name is not a recorded path.
+    assert leaf.paths == ()
     (named,) = iter_source_leaves(read_doc(name=None))
     assert named.name == "s3://bucket/src.parquet"
+    assert named.paths == ("s3://bucket/src.parquet",)
 
 
 def test_read_table_falls_back_to_the_node_name() -> None:

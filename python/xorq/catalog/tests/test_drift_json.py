@@ -106,6 +106,27 @@ def document(runner: CliRunner, world: SimpleNamespace, *names: str) -> dict:
     return parse(check_sources(runner, world, *names))
 
 
+@pytest.fixture
+def twins(world: SimpleNamespace, tmp_path: Path) -> SimpleNamespace:
+    """An entry over two tables both called `t`, on two sqlite databases, and a
+    read of two parquet files, the second with a comma in its name."""
+    other = SqliteBackend().connect(str(tmp_path / "other.sqlite"))
+    other.create_table("t", RECORDED.to_pandas())
+    paths = (tmp_path / "a.parquet", tmp_path / "b,c.parquet")
+    for path in paths:
+        pq.write_table(RECORDED, path)
+    con = xo.connect()
+    read = xo.deferred_read_parquet(list(paths), con, table_name="src")
+    expr = (
+        world.con.table("t")
+        .into_backend(con)
+        .union(other.table("t").into_backend(con))
+        .union(read)
+    )
+    name = world.catalog.add(expr, relocate_reads=False).name
+    return SimpleNamespace(name=name, paths=paths)
+
+
 def test_the_root_carries_the_roll_up_beside_the_entries(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
@@ -129,9 +150,14 @@ def test_an_equal_leaf_reports_both_schemas_and_no_error(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
     (leaf,) = document(runner, world)["entries"][world.name]["leaves"]
+    (source,) = BuildRecord.from_catalog_entry(
+        world.catalog.get_catalog_entry(world.name)
+    ).external_leaves
     assert leaf == {
+        "node_ref": source.node_ref,
         "kind": "DatabaseTable",
         "name": "t",
+        "profile": source.profile,
         "state": Verdict.EQUAL,
         "recorded": {"a": "int64", "b": "string"},
         "live": {"a": "int64", "b": "string"},
@@ -180,6 +206,23 @@ def test_an_unreachable_leaf_reports_a_null_live_and_its_error(
     assert leaf["state"] == Verdict.UNREACHABLE
     assert leaf["live"] is None
     assert leaf["error"]
+
+
+def test_a_leaf_is_told_apart_by_node_ref_and_lists_its_paths(
+    runner: CliRunner, world: SimpleNamespace, twins: SimpleNamespace
+) -> None:
+    """Two tables called `t` on two profiles are two leaves a consumer can key,
+    and a multi-path read's paths come back as written, comma and all."""
+    leaves = document(runner, world, twins.name)["entries"][twins.name]["leaves"]
+    tables = [leaf for leaf in leaves if leaf["kind"] == "DatabaseTable"]
+    (read,) = (leaf for leaf in leaves if leaf["kind"] == "Read")
+
+    assert [leaf["name"] for leaf in tables] == ["t", "t"]
+    assert len({leaf["node_ref"] for leaf in leaves}) == 3
+    assert len({leaf["profile"] for leaf in tables}) == 2
+    assert all("paths" not in leaf for leaf in tables)
+    assert read["paths"] == [str(path) for path in twins.paths]
+    assert {leaf["state"] for leaf in leaves} == {"equal"}
 
 
 def test_a_bundled_only_entry_reports_no_leaves_and_its_counts(
@@ -704,7 +747,7 @@ def documented_document() -> dict:
 
 @pytest.mark.skipif(drift.__doc__ is None, reason="docstrings stripped under -OO")
 def test_every_document_key_is_documented(
-    runner: CliRunner, world: SimpleNamespace
+    runner: CliRunner, world: SimpleNamespace, twins: SimpleNamespace
 ) -> None:
     """The module docstring is the published shape of the document.
 
@@ -714,7 +757,8 @@ def test_every_document_key_is_documented(
     never arrive. Read off documents the sweep really emits rather than a list
     kept beside them, which can only restate what someone already wrote down.
     Three runs, because `error` appears on a leaf and on an entry only when
-    each has one.
+    each has one, and the first sweeps `twins` too, because `paths` appears
+    only on a read leaf.
 
     Level by level, because a key that moved between levels -- off the entry
     and onto its leaves, say -- keeps a pooled union intact while breaking
@@ -728,7 +772,7 @@ def test_every_document_key_is_documented(
     leaving the leaf, or reaching the root -- while leaving room for an example
     unreadable entry to be added later.
     """
-    keys = document_keys(document(runner, world))
+    keys = document_keys(document(runner, world, world.name, twins.name))
     world.db_path.write_bytes(b"not a database")
     keys = merge_keys(keys, document_keys(document(runner, world)))
     archive = world.catalog.get_catalog_entry(world.name).catalog_path
