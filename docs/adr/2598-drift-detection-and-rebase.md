@@ -19,7 +19,7 @@ Reasonable people could disagree on most of the choices below: whether detection
 ## Decision drivers
 
 - Looking must never change the user's sources or the catalog: no writes to the user's database, no database file created by looking for one, no cataloged state changed.
-- A script must be able to branch on the exit code alone, and the code must never contradict the text printed beside it.
+- The exit code must never contradict the verdicts printed beside it. It is the coarse answer; `--json` is the full one.
 - A verdict of `changed` must mean the source changed, never that two tools disagree about an untouched source.
 - A rebase must never lose the entry it started from, and a refused or conflicted rebase must write no entry.
 - Nothing is guessed: a rename looks exactly like a drop plus an add, given two schemas.
@@ -28,7 +28,7 @@ Reasonable people could disagree on most of the choices below: whether detection
 
 ### Detection and repair are separate commands
 
-`check-sources` reads sources and never writes to them or to the catalog. It does fetch an archive that is not local yet (a pointer or annex clone), which fills the local content cache. `rebase` is the only command that writes an entry. After its archive-only refusals (missing bundle, pinned entry, some sources unprobeable, alias errors) it sweeps the sources with the same `iter_leaf_reports` that `check-sources` uses (`python/xorq/catalog/drift.py`), so both commands judge a source the same way. `rebase --json` embeds that sweep as the entry's `check-sources --json` document under `drift`, and leaves it `null` when a refusal came before the sweep.
+`check-sources` reads sources and never writes to them or to the catalog. It does fetch an archive that is not local yet (a pointer or annex clone), which fills the local content cache. `rebase` is the only command that writes an entry. After the checks that need only the archive (its bundle, a pinned leaf, which sources can be probed, an `--only-alias` that names no alias) it sweeps the sources with the same `iter_leaf_reports` that `check-sources` uses (`python/xorq/catalog/drift.py`), so both commands judge a source the same way. `rebase --json` embeds that sweep as the entry's `check-sources --json` document under `drift`; its shape is in the `xorq.catalog.rebase` docstring.
 
 ### A closed set of verdicts; the exit code is a property of the verdict
 
@@ -40,7 +40,7 @@ Each probed source (a *leaf*) gets one `Verdict` (`python/xorq/catalog/enums.py`
 | `unreachable` | the backend could not be asked | 2 |
 | `unreadable` | the record itself could not be read | 2 |
 | `changed` | live and recorded schemas differ | 3 |
-| `table-missing` | the backend answered and lists no such table, or the file path no longer resolves | 3 |
+| `table-missing` | the backend answered and lists no such table, or a read's file path no longer resolves | 3 |
 
 `Verdict.exit_code` is a `match` that names every member, and its fallback arm raises, so a new member fails at its first use instead of inheriting a code. An entry's state is the worst of its leaves by `Verdict.severity`, a total order that refines the exit code: within code 2, `unreadable` beats `unreachable` (retrying will not fix a record that does not parse); within code 3, `table-missing` beats `changed` (the source is gone, not different). The order is declared once, as the member order, so the same catalog rolls up to the same state whatever order the names were typed in. Exit 2 means the question could not be answered (infrastructure, or a record that does not parse); exit 3 means the world moved. A name that does not resolve, or a catalog that cannot be opened, exits 1 before any probe, a usage error exits click's own 2, and neither prints a report.
 
@@ -61,14 +61,14 @@ The human footer and `--json` read the same per-entry state: the footer counts `
 
 ### Missing needs positive evidence
 
-`table-missing` is reported only when the backend answered and its table list does not contain the name, or when a file path no longer resolves. Any other failure is `unreachable`. A probe never infers absence from an error message.
+`table-missing` is reported only when the backend answered and its table list does not contain the name, or when a read's file path no longer resolves. Any other failure is `unreachable`, a deleted database file included. A probe never infers absence from an error message.
 
 ### Probing never writes
 
-- A sqlite database is opened with a no-create guard, so a deleted database file is reported, not recreated empty.
+- A sqlite database is opened with a no-create guard, so a deleted database file is reported `unreachable`, not recreated empty.
 - A profile that failed to connect is not dialled again in the same sweep; connections are shared per profile through one cache.
 - A `Read` on an ingesting backend (sqlite, postgres, databricks) is never replayed: its `read_*` is a write with `mode="replace"`. `is_checkable` keeps such reads unprobed unless they can be answered without the backend (next section).
-- A relocated read whose bytes were bundled into the archive is exempt: it cannot drift.
+- Two kinds of leaf are exempt, having nothing outside the archive to drift against: a *bundled* read, relocated into the archive, and a *pinned* leaf, reached only through a `CacheTag` pin (`.ls.pin`, `xorq catalog pin`).
 
 An entry with no external sources says why: `no external sources (1 memtables, 1 reads)`, a count per bundle kind, plus `N pinned` for pinned leaves, which are exempt too. Under the default build rules most entries land here. Leaves that cannot be probed are named in the output as `unchecked`, never silently treated as `equal`. An entry whose only sources are unchecked has no verdict (`state: null` in `--json`), rather than claiming `equal` on no evidence.
 
@@ -80,15 +80,15 @@ An entry with no external sources says why: `no external sources (1 memtables, 1
 
 A rebase builds a new archive with a new hash and records its ancestor as `rebased_from` in the archive's build metadata (`python/xorq/catalog/constants.py`). The old entry is untouched. No alias moves unless asked: `--move-aliases` moves every alias of the old entry, `--only-alias` the ones it names, and `--alias` adds a new one. Ancestry lives in the archive, not only in the catalog sidecar, because a catalog copy re-derives sidecars from archives.
 
-A refusal or a conflict writes no entry. Two cases do leave something behind: with a sync, the alias checks run again after the pull, so a refusal there leaves what the pull merged in place; and a write that fails is rolled back, unless the rollback fails too (`rollback-failed`), which names what is left.
+Rebase syncs by default (`--no-sync` opts out): it pulls the catalog's remotes before writing and pushes after. A refusal or a conflict writes no entry. Two cases do leave something behind: with a sync, the alias checks run again after the pull, so a refusal there leaves what the pull merged in place; and a write that fails is rolled back, unless the rollback fails too (`rollback-failed`), which names what is left.
 
 ### Re-derivation is a rewrite after loading, driven by the drift report
 
 The build loads exactly as recorded (`load_expr` is untouched). `rebase_entry` (`python/xorq/catalog/rebase.py`) turns its sweep into live schemas, or a conflict when a source is gone, and `refresh_schemas` in `python/xorq/catalog/refresh.py` rebuilds the loaded graph over them. The sweep is not repeated: the loaded graph is refreshed from the one report rebase already holds.
 
 - Only sources reported `changed` move. An `equal` source keeps its node, so undrifted subtrees and their cache keys stay put.
-- Every op above a moved source is recreated through `__recreate__`, which re-runs its own signature validation. A dropped column fails at the `Field` that names it, and a column retyped to string fails at the `Mean` over it. The one exception is Flight ops, which validate their schema only when built through `from_expr`; `revalidate_flight` calls that check by hand. Recreation stops at a `CacheTag` pin, which is kept as recorded.
-- A probed source is matched to its loaded node by the connection profile's content hash, table name, snapshot pin and recorded schema, not by backend name, so one table name on two connections is two sources.
+- Every op above a moved source is recreated through `__recreate__`, which re-runs its own signature validation. A dropped column fails at the `Field` that names it, and a column retyped to string fails at the `Mean` over it. The one exception is Flight ops, which validate their schema only when built through `from_expr`; `revalidate_flight` calls that check by hand. Recreation stops at a `CacheTag` pin, which is kept as recorded; rebase meets one only above a source a live branch also reaches, since it refuses a pinned leaf.
+- A probed source is matched to its loaded node by the connection profile's content hash, table name, iceberg snapshot id and recorded schema, not by backend name, so one table name on two connections is two sources.
 - The loader opens its own connections. The sweep's connections carry the no-create guard's URI options, which would otherwise leak into the rebased build's recorded profile.
 
 ### Rebase outcomes and exit codes
@@ -98,7 +98,7 @@ Rebase keeps `check-sources`' reading of 0 (nothing to do) and 2 (could not be a
 | Exit | Outcomes |
 |---|---|
 | 0 | `noop` (no drift, or drift that re-derives to the same hash), `unprobed` (no source could be probed; stderr says drift was not ruled out), `rebased` |
-| 1 | refused (pinned entry, some but not all sources unprobeable, Python-minor mismatch, alias errors) or a failed write |
+| 1 | refused, for a reason retrying will not fix (a pinned leaf, an alias on another entry, among others), or a failed write; `xorq catalog rebase --help` lists every cause |
 | 2 | a source unreachable or unreadable, its database file missing, or its reads disagreeing on a live schema; the record unreadable or lacking its wheel or requirements; the sync's pull failed; invalid options; nothing written |
 | 3 | derived but not cataloged: `--dry-run` (`preview`) or `--no-add` (`built`) |
 | 4 | `conflict`: an op no longer fits its inputs (`failing_op` names it), or a source's table is gone (`failing_op` is null); names the sources involved and what each lost and gained |
@@ -171,7 +171,6 @@ Rejected because a rename is indistinguishable from a drop plus an add given two
 ### Positive
 
 - `check-sources` is safe to run anywhere: it never writes to a source or the catalog, and a missing database stays missing. Its only local write is fetching archives that are not yet local.
-- Scripts branch on exit codes that cannot contradict the printed verdicts or the `--json` state.
 - A rebase can be previewed (`--dry-run`) or built without cataloging (`--no-add`), and since aliases move only when asked, adopting it is a separate, reversible step.
 - Undrifted subtrees keep their cache keys across a rebase.
 
@@ -181,7 +180,7 @@ Rejected because a rename is indistinguishable from a drop plus an add given two
 - A read with no registered inference on an ingesting backend stays unprobed, so an entry built only from such reads can never be rebased past `unprobed`.
 - A column added to a source stops at any op that lists its outputs (`Project`, a join's `values`): the refreshed source gains it and the result does not.
 - Rebases accumulate superseded archives and cache files. Reclaiming the caches is #2321, blocked on recording every cache key an entry uses; today an entry records only its outermost one.
-- The footer does not count `unreachable` or `unreadable` entries; the leaf lines and the exit code report them.
+- The footer does not count `unreachable` or `unreadable` entries, and a drifted entry in the same sweep takes the exit code to 3; only the leaf lines and each entry's `--json` state report them.
 
 ## References
 
