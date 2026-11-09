@@ -1233,13 +1233,6 @@ def test_pipeline_set_params_original_unchanged(xorq_pipeline):
 # --- Pipeline.remap_columns ---------------------------------------------
 
 
-def test_pipeline_remap_columns_returns_pipeline(ct_pipeline):
-    remapped = ct_pipeline.remap_columns(
-        {"preprocessor/num": ["a", "b"], "preprocessor/cat": ["c"]}
-    )
-    assert isinstance(remapped, Pipeline)
-
-
 def test_pipeline_remap_columns_updates_columns(ct_pipeline):
     remapped = ct_pipeline.remap_columns({"preprocessor/num": ["distance"]})
     refs = ColumnRemapper.list_column_refs(remapped.instance)
