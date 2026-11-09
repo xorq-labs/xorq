@@ -7,6 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from attrs import evolve as attr_evolve
 
@@ -14,6 +15,7 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import ParquetCache, SourceCache
+from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.graph_utils import gen_children_of, opaque_ops, to_node
 from xorq.common.utils.lineage_utils import (
     COLUMN_KIND,
@@ -34,12 +36,17 @@ from xorq.common.utils.lineage_utils import (
     extract_lineage_dag,
     format_compact_lineage,
     format_mermaid_lineage,
+    make_node_hasher,
     node_columns,
     schema_diff,
 )
 from xorq.expr.udf import make_pandas_expr_udf
 from xorq.flight.exchanger import UnboundExprExchanger
-from xorq.ibis_yaml.compiler import build_expr, load_expr
+from xorq.ibis_yaml.compiler import (
+    YamlExpressionTranslator,
+    build_expr,
+    load_expr,
+)
 from xorq.vendor.ibis.expr.operations.core import Node
 from xorq.vendor.ibis.expr.operations.reductions import Sum
 from xorq.vendor.ibis.expr.types.core import Expr, ExprMetadata
@@ -1613,3 +1620,35 @@ def test_compact_of_unknown_scope_is_empty() -> None:
     )
     view = dag.compact(scope="@no_such_flight")
     assert view == {"nodes": (), "edges": (), "root": None, "scope": "@no_such_flight"}
+
+
+def test_lineage_survives_a_node_yaml_cannot_serialize() -> None:
+    # con.sql's result carries a backend with no yaml rule; the structural
+    # fallback keeps lineage extraction working, as it must never break a build
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1]}))
+    assert extract_lineage_dag(con.sql("select a from t")).nodes
+
+
+def test_lineage_hashes_a_chain_past_the_recursion_limit_as_expr_yaml_does() -> None:
+    # 250 ops: hashing the root before its inputs recursed past the limit
+    # and the uncached retry made it exponential
+    t = xo.memtable({"a": [1]}, name="t")
+    for i in range(250):
+        t = t.filter(t.a > -i)
+    yaml_dict = YamlExpressionTranslator.to_yaml(t)
+    root_ref = yaml_dict["expression"]["node_ref"]
+    expected = yaml_dict["definitions"]["nodes"][root_ref]["snapshot_hash"]
+    with SnapshotStrategy().normalization_context(t):
+        assert make_node_hasher()(t.op()) == expected
+
+
+def test_lineage_falls_back_on_a_chain_past_the_recursion_limit() -> None:
+    # con.sql's backend has no yaml rule, so every relation above it takes
+    # the structural fallback, which must not recurse once per op either
+    con = xo.connect()
+    con.create_table("t", pd.DataFrame({"a": [1]}))
+    expr = con.sql("select a from t")
+    for i in range(250):
+        expr = expr.filter(expr.a > -i)
+    assert extract_lineage_dag(expr).nodes

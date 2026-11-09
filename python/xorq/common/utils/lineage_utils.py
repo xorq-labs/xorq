@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from functools import singledispatch
@@ -12,6 +13,8 @@ from attrs.validators import instance_of
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.caching.strategy import SnapshotStrategy
+from xorq.common.exceptions import LocalReadPathWarning
 from xorq.common.utils.content_hash import content_hash
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import (
@@ -19,6 +22,7 @@ from xorq.common.utils.graph_utils import (
     find_all_sources,
     gen_children_flight_leaf,
     gen_children_of,
+    postorder,
     to_node,
 )
 from xorq.vendor.ibis.expr.operations.core import Node
@@ -1004,16 +1008,20 @@ def _structural_token(node: Node, node_hash: Callable[[Node], str]) -> str:
 def make_node_hasher() -> Callable[[Node], str]:
     """Return a memoized ``node -> hash`` function for one extraction pass.
 
-    Relations hash with :func:`content_hash` -- the identity ``ibis_yaml`` stores
-    as ``snapshot_hash``, so a relation cross-references between expr.yaml and the
-    sidecar by hash. Everything else (``Field``, ``Literal``, ``SortKey``,
-    ``JoinLink``, …) gets a structural token: ``content_hash`` snapshot-normalizes
-    and may compile to SQL, which is both wasted work and outright unsupported for
-    some value ops (a ``SortKey`` cannot be re-projected), and none of them appear
-    as expr.yaml nodes anyway. Both forms are deterministic, so dedup is stable
-    across runs.
+    Relations hash with :func:`content_hash`, the identity ``ibis_yaml`` stores
+    as ``snapshot_hash``. A relation yaml cannot serialize, and every value op
+    (``Field``, ``Literal``, ``SortKey``, ``JoinLink``, ...), gets a structural
+    token instead: value ops never appear as expr.yaml nodes, so translating
+    them would buy no cross-reference. Both forms are deterministic, so dedup is
+    stable across runs.
     """
+    from xorq.ibis_yaml.common import TranslationContext  # noqa: PLC0415
+
     memo: dict[Node, str] = {}
+    # one translation context and one warmed set: the graph is translated
+    # once, children first
+    context = TranslationContext()
+    warmed: set[Node] = set()
 
     def node_hash(node: Node) -> str:
         if (hashed := memo.get(node)) is not None:
@@ -1021,9 +1029,11 @@ def make_node_hasher() -> Callable[[Node], str]:
         hashed = None
         if isinstance(node, ops.Relation):
             try:
-                hashed = content_hash(node)
+                hashed = content_hash(node, context, warmed)
             except Exception:  # noqa: BLE001 - lineage must never break a build
-                hashed = None
+                # children first, so the fallback recurses one level deep
+                for child in postorder(node)[:-1]:
+                    node_hash(child)
         if hashed is None:
             hashed = _structural_token(node, node_hash)
         memo[node] = hashed
@@ -1109,7 +1119,16 @@ def extract_lineage_dag(expr: Any) -> LineageDAG:
             nodes[label]["nested_root"] = walk(to_node(input_expr), label)
         return labels[subroot]
 
-    root_label = walk(root, ROOT_SCOPE)
+    # one snapshot normalization context for the whole extraction, so
+    # content_hash does not open (and walk the subtree for) one per node; the
+    # build already warns about local read paths when it serializes, and
+    # hashing translates the same Reads again
+    with (
+        SnapshotStrategy().normalization_context(root),
+        warnings.catch_warnings(),
+    ):
+        warnings.simplefilter("ignore", LocalReadPathWarning)
+        root_label = walk(root, ROOT_SCOPE)
 
     return LineageDAG(
         nodes=tuple(nodes.values()),

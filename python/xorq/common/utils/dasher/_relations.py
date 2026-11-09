@@ -124,7 +124,7 @@ def _declarative(value):
     and a path its string, so a Read and its yaml round trip, which loads a plain
     mapping and a plain string, tokenize alike.
 
-    Spelling shared with ``_to_yaml_safe`` in ``xorq.ibis_yaml.compiler``; a
+    Spelling shared with ``_to_yaml_safe`` in ``xorq.ibis_yaml.common``; a
     shared helper is out, since that one falls back to ``str()`` for anything
     else and identity must raise instead."""
     match value:

@@ -21,6 +21,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.common.enums import BackendName
 from xorq.common.exceptions import LocalReadPathWarning
 from xorq.common.utils.dasher import tokenize
+from xorq.common.utils.dasher._canonical import normalize_inmemorytable_canonical
 from xorq.common.utils.defer_utils import is_multi_read_path
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.common.utils.node_utils import update_read_kwargs
@@ -468,6 +469,32 @@ def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
     schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     # TODO: use UnboundTable node to construct instead of builder API
     return ibis.table(schema, name=table_name, catalog=catalog, database=database)
+
+
+@translate_to_yaml.register(ops.InMemoryTable)
+@convert_to_node_ref
+def _in_memory_table_to_yaml(
+    op: ops.InMemoryTable, context: TranslationContext
+) -> dict:
+    # A build turns memtables into deferred reads before serializing, so this
+    # is reached only when hashing an unprepared expression (lineage). The
+    # data is folded in as its canonical token, so the yaml cannot be loaded.
+    return freeze(
+        {
+            NodeKey.op: "InMemoryTable",
+            NodeKey.name: op.name,
+            "data": tokenize(normalize_inmemorytable_canonical(op)),
+        }
+        | context.registry.register_schema(op.schema)
+    )
+
+
+@register_from_yaml_handler("InMemoryTable")
+def in_memory_table_from_yaml(yaml_dict: dict, context: TranslationContext):
+    raise NotImplementedError(
+        "an InMemoryTable node carries a token of its data, not the data;"
+        " build the expression (build_expr) to serialize a memtable"
+    )
 
 
 @translate_to_yaml.register(ops.DatabaseTable)

@@ -34,7 +34,6 @@ from xorq.caching import (
     ParquetTTLSnapshotCache,
     SnapshotStrategy,
 )
-from xorq.common.compat import StrEnum
 from xorq.common.constants import REMOTE_SCHEMES
 from xorq.common.exceptions import UnboundExpressionError, XorqError
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
@@ -75,6 +74,7 @@ from xorq.expr.relations import (
 from xorq.ibis_yaml.common import (
     Registry,
     TranslationContext,
+    _to_yaml_safe,
     reachable_node_refs,
     translate_from_yaml,
     translate_to_yaml,
@@ -88,13 +88,11 @@ from xorq.ibis_yaml.enums import (
     ExprKind,
     ReadKwarg,
     RefEnum,
-    RegistryEnum,
     WritePhase,
 )
 from xorq.ibis_yaml.sql import find_relations, generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends.profiles import Profile
-from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 from xorq.vendor.ibis.expr.types.core import ExprMetadata, SqlQueries
 
@@ -200,23 +198,6 @@ def _prepare_relocatable_reads(expr: ir.Expr, *, mark: bool) -> ir.Expr:
 
     op = replace_nodes(_relocate, expr.op())
     return op.to_expr()
-
-
-def _to_yaml_safe(data):
-    if isinstance(data, (RefEnum, RegistryEnum)):
-        return data.name
-    elif isinstance(data, FrozenOrderedDict):
-        return _to_yaml_safe(dict(data))
-    elif isinstance(data, ibis.Schema):
-        # same spelling as dasher._relations._declarative, which keys a Read on it
-        return {name: str(dtype) for name, dtype in zip(data.names, data.types)}
-    elif isinstance(data, (pathlib.PurePath, StrEnum)):
-        return str(data)
-    elif isinstance(data, dict):
-        return {k: _to_yaml_safe(v) for k, v in data.items()}
-    elif isinstance(data, (list, tuple)):
-        return [_to_yaml_safe(v) for v in data]
-    return data
 
 
 @frozen

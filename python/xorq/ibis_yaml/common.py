@@ -5,12 +5,13 @@ import functools
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from functools import wraps
-from pathlib import Path
+from pathlib import Path, PurePath
 from types import MappingProxyType
 from typing import Any
 
 import cloudpickle
 import toolz
+import yaml12
 from attr import (
     field,
     frozen,
@@ -19,7 +20,7 @@ from attr.validators import instance_of
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.content_hash import content_hash
+from xorq.common.compat import StrEnum
 from xorq.common.utils.dasher import tokenize
 from xorq.common.utils.graph_utils import postorder
 from xorq.expr.relations import Read, RemoteTable
@@ -44,6 +45,23 @@ def serialize_callable(fn: callable) -> str:
 def deserialize_callable(encoded_fn: str) -> callable:
     pickled = base64.b64decode(encoded_fn)
     return cloudpickle.loads(pickled)
+
+
+def _to_yaml_safe(data):
+    if isinstance(data, (RefEnum, RegistryEnum)):
+        return data.name
+    elif isinstance(data, FrozenOrderedDict):
+        return _to_yaml_safe(dict(data))
+    elif isinstance(data, Schema):
+        # same spelling as dasher._relations._declarative, which keys a Read on it
+        return {name: str(dtype) for name, dtype in zip(data.names, data.types)}
+    elif isinstance(data, (PurePath, StrEnum)):
+        return str(data)
+    elif isinstance(data, dict):
+        return {k: _to_yaml_safe(v) for k, v in data.items()}
+    elif isinstance(data, (list, tuple)):
+        return [_to_yaml_safe(v) for v in data]
+    return data
 
 
 def tuplify(obj):
@@ -84,10 +102,6 @@ class Registry:
         Returns a name like '@read_{hash}', '@filter_{hash}', etc.
         """
 
-        node_hash = content_hash(node)
-        op_name = node_dict.get(NodeKey.op, "unknown").lower()
-        node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
-        node_dict_with_hash = freeze(node_dict | {NodeKey.snapshot_hash: node_hash})
         if isinstance(node, Read) and ReadKwarg.read_path in dict(node.read_kwargs):
             # Reads whose parquet was materialized into the build bundle carry
             # a build-relative `read_path`. The absolute `hash_path` assigned
@@ -98,14 +112,21 @@ class Registry:
             # the stored value to the relative read_path is lossless.
             from xorq.common.utils.node_utils import update_read_kwargs  # noqa: PLC0415
 
-            old_read_kwargs = node_dict_with_hash[NodeKey.read_kwargs]
+            old_read_kwargs = node_dict[NodeKey.read_kwargs]
             new_path = Path(dict(old_read_kwargs)[ReadKwarg.read_path])
             modified_read_kwargs = update_read_kwargs(
                 old_read_kwargs, ((ReadKwarg.hash_path, new_path),)
             )
-            node_dict_with_hash = freeze(
-                node_dict_with_hash | {NodeKey.read_kwargs: modified_read_kwargs}
-            )
+            node_dict = freeze(node_dict | {NodeKey.read_kwargs: modified_read_kwargs})
+        # the serialized form is the identity: child relations are already
+        # refs named by their hashes, everything else what the writer puts in
+        # expr.yaml -- the scheme register_dtype and register_schema use. The
+        # yaml text, not the dict: dasher sorts mapping items, and column
+        # order is part of a projection's identity.
+        node_hash = tokenize(yaml12.format_yaml(_to_yaml_safe(node_dict)))
+        op_name = node_dict.get(NodeKey.op, "unknown").lower()
+        node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
+        node_dict_with_hash = freeze(node_dict | {NodeKey.snapshot_hash: node_hash})
         self.nodes.setdefault(node_ref, node_dict_with_hash)
         frozen = freeze({RefEnum.node_ref: node_ref})
         return frozen

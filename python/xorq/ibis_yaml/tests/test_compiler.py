@@ -24,7 +24,6 @@ from toolz import identity
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
-import xorq.ibis_yaml.common as common
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations.relations as rel
 from xorq import udf
@@ -2385,17 +2384,8 @@ def test_warmed_translation_matches_recursive_translation(build, tmp_path) -> No
     assert _translate(expr, warm=True) == _translate(expr, warm=False)
 
 
-def test_to_yaml_serializes_a_chain_past_the_old_recursion_limit(monkeypatch) -> None:
-    # 250 ops: the recursive handlers needed ~5 frames each and failed near
-    # 190; hashing is stubbed because it is quadratic until it is incremental
-    memo: dict = {}
-    monkeypatch.setattr(
-        common,
-        "content_hash",
-        lambda node: memo.setdefault(
-            node, hashlib.md5(str(len(memo)).encode()).hexdigest()
-        ),
-    )
+def test_to_yaml_serializes_a_chain_past_the_old_recursion_limit() -> None:
+    # 250 ops: the recursive handlers needed ~5 frames each and failed near 190
     t = ibis.table({"a": "int64"}, name="t")
     for i in range(250):
         t = t.filter(t.a > i)
