@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import warnings
 import zipfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from functools import cache, partial, reduce
 from pathlib import Path
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from xorq.api import Expr
     from xorq.catalog.aliases import AliasOutcome
-    from xorq.catalog.catalog import Catalog
+    from xorq.catalog.catalog import Catalog, CatalogEntry
     from xorq.catalog.content_store import (
         ContentStoreConfig,
         PresignedContentStoreConfig,
@@ -1143,13 +1143,30 @@ def _echo_entry_sources(catalog_entry, con_cache: dict) -> int:
     return state_and_code(entry_verdict(record, tuple(reports)))["exit_code"]
 
 
+def _announce_entries(
+    named_entries: Iterable[tuple[str, CatalogEntry]],
+) -> Iterator[tuple[str, CatalogEntry]]:
+    """Pass ``named_entries`` through, naming each on stderr before it is probed."""
+    for name, catalog_entry in named_entries:
+        click.echo(f"checking {name}", err=True)
+        yield name, catalog_entry
+
+
 @cli.command("check-sources")
 @click.argument(
     "names", nargs=-1, required=True, shell_complete=_complete_entry_or_alias_names
 )
 @json_option
+@click.option(
+    "--progress/--no-progress",
+    default=None,
+    help="With --json, name each entry on stderr as its probe starts. "
+    "Default: on when stderr is a terminal.",
+)
 @click.pass_context
-def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> None:
+def check_sources(
+    ctx: click.Context, names: tuple[str, ...], as_json: bool, progress: bool | None
+) -> None:
     """Compare each entry's recorded source schemas against the live ones.
 
     Reports; never repairs and never infers. Bundled and pinned sources are
@@ -1171,6 +1188,8 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
     With --json the whole sweep is buffered and printed once as a single
     document, so a consumer parses a complete report or none at all. Its shape
     is documented in `xorq.catalog.drift`; the exit code is the same either way.
+    A dead source can take tens of seconds to fail, so --progress names each
+    entry on stderr as its probe starts; stdout still carries only the document.
 
     \b
     Arguments:
@@ -1203,7 +1222,13 @@ def check_sources(ctx: click.Context, names: tuple[str, ...], as_json: bool) -> 
         if as_json:
             # Printed after the sweep, not during it: a document cut short by a
             # backend that never answers is worse than no document at all.
-            document = drift_document(tuple(zip(names, entries)), con_cache)
+            named_entries = tuple(zip(names, entries))
+            if progress is None:
+                progress = click.get_text_stream("stderr").isatty()
+            document = drift_document(
+                _announce_entries(named_entries) if progress else named_entries,
+                con_cache,
+            )
             click.echo(json.dumps(document, indent=2))
             exit_code = document["exit_code"]
         else:
