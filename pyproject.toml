@@ -196,7 +196,7 @@ annex = [
 
 [dependency-groups]
 dev = [
-    "black==26.3.1",
+    "black==26.10.1",
     "blackdoc==0.4.6",
     "codespell[hard-encoding-detection,toml]==2.4.2",
     "git-cliff<3.0.0,>=2.2.1",
