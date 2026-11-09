@@ -143,6 +143,13 @@ def entry_wheel_artifacts(entry_wheel: EntryWheel):
 
 
 @pytest.fixture(autouse=True)
+def _content_cache_dir(tmp_path, monkeypatch):
+    # ContentCache.default() is ~/.cache/xorq/content, shared across xdist
+    # workers and with the developer: each test gets an empty one of its own
+    monkeypatch.setenv("XORQ_CONTENT_CACHE_DIR", str(tmp_path / "content-cache"))
+
+
+@pytest.fixture(autouse=True)
 def _entry_wheel(request, monkeypatch):
     # autouse, so it is in place before the test's catalog fixtures add entries;
     # the wheel is requested here, not as a parameter, so _metadata_only_wheel

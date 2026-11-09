@@ -2116,7 +2116,6 @@ def test_an_archive_that_cannot_be_fetched_is_refused_as_retryable(
     entry = world.catalog.get_catalog_entry(world.name)
     Path(entry.catalog_path).unlink()
     shutil.rmtree(backend.content_store.directory)
-    shutil.rmtree(backend.cache.cache_dir)
 
     with pytest.raises(RebaseError, match="could not be fetched") as exc_info:
         rebase_old(world)
