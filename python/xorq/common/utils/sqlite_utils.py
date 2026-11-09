@@ -14,10 +14,11 @@ from xorq.common.utils.adbc_utils import ADBCBase
 
 
 def get_sqlite_stats(dt):
-    (con, name) = (dt.source, dt.name)
-    sql = f"SELECT COUNT(*), MAX(id) FROM '{name}'"
-    (count, max_id) = con.sql(sql).execute()
-    return (count, max_id)
+    # rowid stands in for a missing id column; views and WITHOUT ROWID
+    # tables have no rowid either
+    stamp = "id" if "id" in map(str.lower, dt.schema) else "rowid"
+    sql = f"SELECT COUNT(*), MAX({stamp}) FROM '{dt.name}'"
+    return dt.source.raw_sql(sql).fetchone()
 
 
 @frozen
