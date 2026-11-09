@@ -11,14 +11,37 @@ from xorq.backends.sqlite import (
     Backend as SQLiteBackend,
 )
 from xorq.common.utils.adbc_utils import ADBCBase
+from xorq.vendor.ibis.backends.sqlite import _quote
 
 
 def get_sqlite_stats(dt):
-    # rowid stands in for a missing id column; views and WITHOUT ROWID
-    # tables have no rowid either
-    stamp = "id" if "id" in map(str.lower, dt.schema) else "rowid"
-    sql = f"SELECT COUNT(*), MAX({stamp}) FROM '{dt.name}'"
-    return dt.source.raw_sql(sql).fetchone()
+    (query, name, schema) = (
+        dt.source.con.execute,
+        dt.name,
+        dt.namespace.database or "main",
+    )
+    ((kind, without_rowid),) = query(
+        "SELECT type, wr FROM pragma_table_list(?) WHERE schema = ? COLLATE NOCASE",
+        (name, schema),
+    ).fetchall()
+    match ("id" in map(str.lower, dt.schema), kind, without_rowid):
+        case (True, _, _):
+            stamp = "id"
+        case (_, "view", _):
+            # a view stores no rows of its own: key on its row count and
+            # its definition
+            return query(
+                f"SELECT COUNT(*), (SELECT sql FROM {_quote(schema)}.sqlite_master"
+                f" WHERE name = ?) FROM '{name}'",
+                (name,),
+            ).fetchone()
+        case (_, _, 0):
+            stamp = "rowid"
+        case _:
+            ((stamp,),) = query(
+                "SELECT name FROM pragma_table_info(?, ?) WHERE pk = 1", (name, schema)
+            ).fetchall()
+    return query(f"SELECT COUNT(*), MAX({_quote(stamp)}) FROM '{name}'").fetchone()
 
 
 @frozen
