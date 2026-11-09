@@ -2429,6 +2429,26 @@ def test_load_expr_depth_does_not_grow_with_chain_length(tmp_path):
     assert loaded.schema() == expr.schema()
 
 
+def test_from_yaml_depth_does_not_depend_on_definition_order(compiler):
+    expr = ibis.table({"a": "int64"}, name="t")
+    for i in range(30):
+        expr = expr.filter(expr.a > -i)
+    yaml_dict = compiler.to_yaml(expr)
+    nodes = yaml_dict["definitions"][RegistryEnum.nodes]
+    yaml_dict = toolz.assoc_in(
+        yaml_dict,
+        ["definitions", RegistryEnum.nodes],
+        dict(reversed(tuple(nodes.items()))),
+    )
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(_stack_depth() + 150)
+    try:
+        restored = YamlExpressionTranslator.from_yaml(yaml_dict)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert restored.schema() == expr.schema()
+
+
 def test_map_literal_with_node_ref_key_round_trips(compiler):
     value = {"node_ref": "value"}
     expr = ibis.literal(value, type="map<string, string>")
@@ -2458,7 +2478,7 @@ def test_parameter_default_does_not_reach_node_definition():
     )
     param = {"op": "NamedScalarParameter", "default": {"node_ref": "@unused"}}
 
-    assert reachable_node_refs(registry, param) == frozenset()
+    assert reachable_node_refs(registry, param) == ()
 
 
 def test_from_yaml_ignores_unreachable_node_definitions(compiler):

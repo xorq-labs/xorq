@@ -6,6 +6,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import cloudpickle
@@ -139,33 +140,51 @@ class Registry:
             ) from err
 
 
-def reachable_node_refs(registry: Registry, yaml_obj) -> frozenset[str]:
-    """Every registered node ref reachable from yaml_obj, found without recursion.
+# the key under each op whose value is data, not an edge, even when it holds a
+# mapping that looks like a node_ref
+DATA_KEYS = MappingProxyType({"Literal": "value", "NamedScalarParameter": "default"})
 
-    Literal values and parameter defaults are data, even when they contain a
-    node_ref that names a registered node.
-    """
-    reachable = set()
+
+def _child_node_refs(registry: Registry, yaml_obj) -> list[str]:
+    """The registered node refs directly under yaml_obj, without entering them."""
+    refs = []
     pending = [yaml_obj]
     while pending:
         match value := pending.pop():
             case Mapping():
                 node_ref = value.get(RefEnum.node_ref)
                 if isinstance(node_ref, str) and node_ref in registry.nodes:
-                    if node_ref not in reachable:
-                        reachable.add(node_ref)
-                        pending.append(registry.nodes[node_ref])
-                pending.extend(
-                    child
-                    for key, child in value.items()
-                    if not (value.get("op") == "Literal" and key == "value")
-                    and not (
-                        value.get("op") == "NamedScalarParameter" and key == "default"
-                    )
-                )
+                    refs.append(node_ref)
+                data_key = DATA_KEYS.get(value.get(NodeKey.op))
+                pending.extend(child for key, child in value.items() if key != data_key)
             case tuple() | list():
                 pending.extend(value)
-    return frozenset(reachable)
+    return refs
+
+
+def reachable_node_refs(registry: Registry, yaml_obj) -> tuple[str, ...]:
+    """Every registered node ref reachable from yaml_obj, children before parents.
+
+    The order comes from the walk, not from how the registry happens to be
+    stored, so translating the refs in this order never recurses into a node
+    that is not already translated. Literal values and parameter defaults are
+    data, even when they contain a node_ref that names a registered node.
+    """
+    ordered = []
+    seen = set()
+    pending = [(node_ref, False) for node_ref in _child_node_refs(registry, yaml_obj)]
+    while pending:
+        node_ref, expanded = pending.pop()
+        if expanded:
+            ordered.append(node_ref)
+        elif node_ref not in seen:
+            seen.add(node_ref)
+            pending.append((node_ref, True))
+            pending.extend(
+                (child, False)
+                for child in _child_node_refs(registry, registry.nodes[node_ref])
+            )
+    return tuple(ordered)
 
 
 def _is_absolute_path(instance, attribute, value):

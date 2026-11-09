@@ -341,12 +341,9 @@ class YamlExpressionTranslator:
             profiles=freeze(dict(profiles)),
         )
         expr_dict = freeze(yaml_dict[DocKey.expression])
-        # convert_to_ref stores children before parents, so translating the
-        # reachable nodes in stored order keeps recursion depth bounded
-        reachable = reachable_node_refs(context.registry, expr_dict)
-        for node_ref in context.registry.nodes:
-            if node_ref in reachable:
-                context.get_node(node_ref)
+        # translating children before parents keeps recursion depth bounded
+        for node_ref in reachable_node_refs(context.registry, expr_dict):
+            context.get_node(node_ref)
         return translate_from_yaml(expr_dict, context)
 
 
