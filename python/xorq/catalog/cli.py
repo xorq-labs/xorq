@@ -1409,11 +1409,12 @@ def rebase(
     source's name as `check-sources` prints it, found as --rename finds one;
     u is probed against what t recorded, and the rebase goes on as over
     drift, so a swap is a new entry even with no schema change, and one u
-    no longer fits conflicts. An external read swaps to one path NEW, read
-    by the same method and options; a multi-path read is OLD by its paths
-    joined with ", ". A --swap is refused when OLD names no source,
-    sources on several connections, a bundled read, a table pinned to a
-    snapshot, or OLD's own table. One that swaps a source to itself, twice or to an
+    no longer fits conflicts. A read swaps to one path NEW, read by the
+    same method and options; a multi-path read is OLD by its paths joined
+    with ", ". A bundled read is OLD by its archive path (reads/<hash>.parquet)
+    and stays bundled: the new entry carries NEW's bytes. A --swap is
+    refused when OLD names no source, sources on several connections, a
+    table pinned to a snapshot, or OLD's own table. One that swaps a source to itself, twice or to an
     empty name is an invalid option. A --rename beside it names the swapped
     source by OLD, as recorded, and its conflict hints do too. After the
     sweep, a swap is refused beside any source it leaves that changed, is

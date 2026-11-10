@@ -57,8 +57,12 @@ from xorq.catalog.tests.conftest import (
 )
 from xorq.cli import cli as top_cli
 from xorq.common.exceptions import LocalReadPathWarning, UnmatchedSourceError
-from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.expr.relations import pin_cache
+from xorq.common.utils.defer_utils import (
+    deferred_read_parquet,
+    make_read_kwargs,
+    normalize_read_path_stat,
+)
+from xorq.expr.relations import Read, pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
 from xorq.ibis_yaml.enums import DumpFiles
 
@@ -3504,18 +3508,144 @@ def test_a_swap_onto_a_file_its_reader_cannot_read_is_refused(
     assert set(reopen(world).list()) == {world.name, name}
 
 
-def test_a_swap_of_a_bundled_read_is_refused(
+def test_a_swap_carries_the_new_file_into_a_bundled_read(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    path = write_file(world.tmp_path / "t.parquet", RECORDED)
+    """A bundled read stays bundled: the new archive holds the new file's
+    bytes, not the old one's, and runs with the new file gone. A bundled read
+    the swap does not name is copied over unchanged."""
+    old = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    new = write_file(world.tmp_path / "m26.parquet", ELSEWHERE)
+    kept = write_file(
+        world.tmp_path / "k.parquet", pa.table({"a": [1, 2, 5, 6], "w": [1, 2, 3, 4]})
+    )
+    con = xo.connect()
+    read = deferred_read_parquet(old, con, table_name="r")
     name = world.catalog.add(
-        deferred_read_parquet(path, xo.connect(), table_name="t")
+        read.join(deferred_read_parquet(kept, con, table_name="k"), "a")
     ).name
-    (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).source_leaves
+    entry = reopen(world).get_catalog_entry(name)
+    (swapped,) = (
+        leaf for leaf in drift.read_record(entry).source_leaves if "b" in leaf.recorded
+    )
+    recorded = bundled_reads(entry)
+    new_bytes = new.read_bytes()
 
-    result = rebase(runner, world, name, "--swap", leaf.name, "u.parquet")
+    result = rebase(runner, world, name, "--swap", swapped.name, str(new), "--json")
+    assert result.exit_code == 0, result.output
+    new_name = json.loads(result.stdout)["new_entry"]
+    new.unlink()
+    reopen(world).remove(name)
+
+    rebased = reopen(world).get_catalog_entry(new_name)
+    after = bundled_reads(rebased)
+    # The swapped member is replaced by the new file; the other is kept as is.
+    unswapped = {
+        member: data
+        for member, data in recorded.items()
+        if member != Path(swapped.name).name
+    }
+    assert sorted(after.values()) == sorted((*unswapped.values(), new_bytes))
+    rows = rebased.load_expr().execute()
+    assert rows.sort_values("a").to_dict("records") == [
+        {"a": 5, "b": "p", "w": 3},
+        {"a": 6, "b": "q", "w": 4},
+    ]
+
+
+def test_a_bundled_swap_beside_only_unprobed_sources_is_refused(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bundled read is the only source the sweep can probe: what it can't
+    prove unchanged blocks the swap, not an UNPROBED that drops it."""
+    con = xo.connect()
+    read = deferred_read_parquet(
+        write_file(world.tmp_path / "m25.parquet", RECORDED), con, table_name="r"
+    )
+    name = world.catalog.add(
+        read.union(world.con.table("t").into_backend(con, "t_in"))
+    ).name
+    (bundled,) = bundled_reads(reopen(world).get_catalog_entry(name))
+    checkable = drift.is_checkable
+    monkeypatch.setattr(
+        drift,
+        "is_checkable",
+        lambda leaf, record: leaf.name != "t" and checkable(leaf, record),
+    )
+
+    new = write_file(world.tmp_path / "m26.parquet", ELSEWHERE)
+    result = rebase(runner, world, name, "--swap", f"reads/{bundled}", str(new))
     assert result.exit_code == 1, result.output
-    assert "is a bundled read; only an external read can be swapped" in (result.stderr)
+    assert result.stderr == (
+        f"{name}: 't' could not be checked; a swap needs every other source unchanged\n"
+    )
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_swapped_bundled_read_takes_a_rename(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`--rename` names a swapped bundled read by its archive path; an
+    unswapped one can't drift, so a rename of it names no source."""
+    old = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    new = write_file(
+        world.tmp_path / "m26.parquet", ELSEWHERE.rename_columns(["x", "b"])
+    )
+    read = deferred_read_parquet(old, xo.connect(), table_name="r")
+    name = world.catalog.add(read.filter(read.a > 0)).name
+    (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).source_leaves
+    rename = ("--rename", leaf.name, "a", "x")
+
+    result = rebase(runner, world, name, *rename)
+    assert result.exit_code == 1, result.output
+    assert f"--rename names no source '{leaf.name}'" in result.stderr
+
+    result = rebase(runner, world, name, "--swap", leaf.name, str(new), *rename)
+    assert result.exit_code == 0, result.output
+    rebased = reopen(world).get_catalog_entry(result.stdout.strip().splitlines()[-1])
+    assert list(rebased.load_expr().execute()["a"]) == [5, 6]
+
+
+def bundled_read_json(path: Path, name: str, **kwargs: int) -> xo.Expr:
+    """A bundled duckdb ``read_json`` recorded at ``a: int64``."""
+    con = xo.duckdb.connect()
+    return Read(
+        method_name="read_json",
+        name=name,
+        schema=xo.schema({"a": "int64"}),
+        source=con,
+        read_kwargs=make_read_kwargs(
+            con.read_json, str(path), table_name=name, relocatable=True, **kwargs
+        ),
+        normalize_method=normalize_read_path_stat,
+    ).to_expr()
+
+
+def test_a_swap_probes_every_binding_of_a_bundled_read(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """Two bindings of one bundled file, read with different options, can
+    disagree on the new file's schema: refused, not rebuilt at one of them."""
+    old = world.tmp_path / "t.json"
+    old.write_text('{"a": 1}\n')
+    new = world.tmp_path / "u.json"
+    new.write_text('{"a": {"x": 1}}\n')
+    name = world.catalog.add(
+        bundled_read_json(old, "nested").union(
+            bundled_read_json(old, "flat", maximum_depth=1)
+        )
+    ).name
+    (source,) = {
+        leaf.name
+        for leaf in drift.read_record(
+            reopen(world).get_catalog_entry(name)
+        ).source_leaves
+    }
+
+    result = rebase(runner, world, name, "--swap", source, str(new))
+    assert result.exit_code == 2, result.output
+    assert "disagree on its live schema" in result.stderr
+    assert set(reopen(world).list()) == {world.name, name}
 
 
 @pytest.mark.parametrize(
