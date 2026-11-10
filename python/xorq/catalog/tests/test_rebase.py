@@ -3332,3 +3332,16 @@ def test_a_swap_that_contradicts_itself_is_a_usage_error(
                 args[i + 1 : i + 4] for i, a in enumerate(args) if a == "--rename"
             ],
         )
+
+
+def test_a_swap_of_a_namespaced_source_to_its_own_table_is_refused(
+    world: SimpleNamespace,
+) -> None:
+    world.con.raw_sql(f"ATTACH DATABASE '{world.tmp_path / 'aux.sqlite'}' AS aux")
+    world.con.create_table("t", RECORDED.to_pandas(), database="aux")
+    aux_t = world.con.table("t", database="aux")
+    entry = world.catalog.add(aux_t.filter(aux_t.a > 1))
+
+    with pytest.raises(RebaseError, match=re.escape("--swap aux.t t swaps nothing")):
+        rebase_entry(entry, swaps=[("aux.t", "t")])
+    assert entry.name in reopen(world).list()

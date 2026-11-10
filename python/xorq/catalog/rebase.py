@@ -997,6 +997,9 @@ def swap_refusal(swap: Swap, by_key: dict[LeafKey, SourceLeaf] | str) -> str | N
                 f"--swap {swap.old!r} is a {kind}; only a "
                 f"{LeafKind.DATABASE_TABLE} can be swapped"
             )
+        # `old` spells the namespace too: `aux.t t` is `t` back onto itself.
+        case {**leaves} if any(leaf.table == swap.new for leaf in leaves.values()):
+            return f"--swap {swap} swaps nothing"
         case _:
             return None
 
