@@ -1037,19 +1037,21 @@ def swapped_leaves(
     swaps onto one table: they would share one ``--rename`` plan.
     """
     resolved = {swap: renamed_source(catalog_entry, record, swap.old) for swap in swaps}
+    refused = {
+        swap: detail
+        for swap, by_key in resolved.items()
+        if (detail := swap_refusal(swap, by_key)) is not None
+    }
     onto = {
         swap: {
             (leaf.kind, leaf.profile, leaf.name)
             for leaf in (swapped_leaf(leaf, swap.new) for leaf in by_key.values())
         }
         for swap, by_key in resolved.items()
+        if swap not in refused
     }
     details = [
-        *(
-            detail
-            for swap, by_key in resolved.items()
-            if (detail := swap_refusal(swap, by_key)) is not None
-        ),
+        *refused.values(),
         *(
             " and ".join(f"--swap {swap}" for swap, ids in onto.items() if to in ids)
             + f" both swap to {to[2]}"
