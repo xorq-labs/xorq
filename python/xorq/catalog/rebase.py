@@ -1608,6 +1608,15 @@ def rebase_entry(
                     catalog_entry, ambiguous_renames(repointed, live, planned, names)
                 )
                 expr = refresh_schemas(repointed, live, planned)
+                # A source moved beside one left on its old connection: no
+                # backend runs the result.
+                found, _ = expr._find_backends()  # xorq-style: disable=protected-access
+                if len(found) > 1:
+                    raise RebaseError(
+                        f"{catalog_entry.name}: --profile {profile} leaves a source"
+                        " on another connection; swap every source onto it",
+                        RebaseFailure.REFUSED,
+                    )
             except UnmatchedSourceError as e:
                 raise RebaseError(
                     f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED

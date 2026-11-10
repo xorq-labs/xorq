@@ -4079,6 +4079,21 @@ def test_a_profile_moves_a_source_onto_another_table_there(
     assert list(new.load_expr().execute()["a"]) == [5, 6]
 
 
+def test_a_profile_that_leaves_a_source_behind_is_refused(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    name = beside_v(world, world.con)
+    stored_profile(prod_con(world, "t"), "prod")
+
+    result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"{name}: --profile prod leaves a source on another connection;"
+        " swap every source onto it\n"
+    )
+    assert set(reopen(world).list()) == {world.name, name}
+
+
 @pytest.mark.parametrize(
     ("args", "message"),
     (
