@@ -59,6 +59,7 @@ from xorq.catalog.constants import (
     METADATA_APPEND,
     PREFERRED_SUFFIX,
     REBASED_FROM,
+    SWAPPED_SOURCES,
 )
 from xorq.catalog.content_store import ContentStoreConfig, atomic_write
 from xorq.catalog.enums import CatalogInfix
@@ -1370,6 +1371,49 @@ def read_rebased_from(text: str) -> str | None:
 
 
 @frozen
+class SourceAt:
+    """A source by name, on the connection profile it is read through."""
+
+    name = field(validator=instance_of(str))
+    profile = field(validator=optional(instance_of(str)))
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.profile})"
+
+
+@frozen
+class SwappedSource:
+    """A source a rebase's ``--swap`` re-pointed: ``old`` as the ancestor
+    recorded it, ``new`` as the rebased entry reads it."""
+
+    old = field(validator=instance_of(SourceAt))
+    new = field(validator=instance_of(SourceAt))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SwappedSource:
+        return cls(SourceAt(**data["old"]), SourceAt(**data["new"]))
+
+    def to_dict(self) -> dict:
+        return attr.asdict(self)
+
+    def __str__(self) -> str:
+        return f"{self.old} -> {self.new}"
+
+
+def read_swapped_sources(text: str) -> list[dict] | None:
+    """The sources ``build_metadata.json`` text records a rebase swapped.
+
+    ``None`` when it records none, or records them malformed, as
+    ``read_rebased_from``.
+    """
+    try:
+        swapped = json.loads(text)[SWAPPED_SOURCES]
+        return [SwappedSource.from_dict(item).to_dict() for item in swapped] or None
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+@frozen
 class CatalogAddition:
     """Encapsulates the operation of adding a build archive to a catalog.
 
@@ -1409,6 +1453,9 @@ class CatalogAddition:
         rebased_from = self.build_zip.read_dump_file(
             DumpFiles.build_metadata, read_rebased_from
         )
+        swapped_sources = self.build_zip.read_dump_file(
+            DumpFiles.build_metadata, read_swapped_sources
+        )
         return {
             k: v
             for k, v in {
@@ -1416,6 +1463,7 @@ class CatalogAddition:
                 "backends": backends,
                 "expr_metadata": expr_data,
                 REBASED_FROM: rebased_from,
+                SWAPPED_SOURCES: swapped_sources,
             }.items()
             if v is not None
         }
@@ -1607,6 +1655,14 @@ class CatalogEntry:
     def rebased_from(self) -> str | None:
         """The entry this one was rebased from, ``None`` if it wasn't."""
         return self.sidecar_metadata.get(REBASED_FROM)
+
+    @cached_property
+    def swapped_sources(self) -> tuple[SwappedSource, ...]:
+        """The sources the rebase that made this entry swapped, if any."""
+        return tuple(
+            SwappedSource.from_dict(item)
+            for item in self.sidecar_metadata.get(SWAPPED_SOURCES, ())
+        )
 
     @property
     def aliases(self):

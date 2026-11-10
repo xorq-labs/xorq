@@ -1352,8 +1352,8 @@ def rebase(
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. The new entry keeps the old one's
-    wheels and requirements, and records the old one as its ancestor, which
-    `xorq catalog show` prints.
+    wheels and requirements, and records the old one as its ancestor, and
+    each --swap, which `xorq catalog show` prints.
 
     --dry-run writes nothing to the catalog (it may fetch the entry's archive,
     as any rebase does): it prints the hash a rebase would produce, says what
@@ -1944,6 +1944,8 @@ def show(ctx: click.Context, name: str, as_json: bool, as_raw: bool) -> None:
         )
         if entry.rebased_from:
             click.echo(f"{'Rebased from:':<15} {entry.rebased_from}")
+        for swapped in entry.swapped_sources:
+            click.echo(f"{'Swapped:':<15} {swapped}")
         if meta.composed_from:
             click.echo(f"{'Composed from:':<15} {len(meta.composed_from)}")
         if meta.projected_cache_key and meta.projected_cache_key.key:

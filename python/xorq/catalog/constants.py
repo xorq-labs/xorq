@@ -11,6 +11,8 @@ CONTENT_STORE_YAML = "content_store.yaml"
 # The `build_metadata.json` key, and the sidecar key, naming a rebased entry's
 # ancestor.
 REBASED_FROM = "rebased_from"
+# The same two files' key listing the sources a rebase's `--swap` re-pointed.
+SWAPPED_SOURCES = "swapped_sources"
 
 MAIN_BRANCH = "main"
 ANNEX_BRANCH = "git-annex"
