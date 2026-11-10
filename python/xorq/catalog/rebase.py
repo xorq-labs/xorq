@@ -142,14 +142,18 @@ from xorq.common.exceptions import (
     SchemaRefreshError,
     UnmatchedSourceError,
 )
+from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.node_utils import update_read_kwargs
+from xorq.expr.relations import RemoteTable
 from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
 from xorq.ibis_yaml.packager import parse_python_minor
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
 
 
 if TYPE_CHECKING:
+    from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.schema import Schema
+    from xorq.vendor.ibis.expr.types import Expr
 
 
 def alias_names(only_aliases: Iterable[str]) -> tuple[str, ...]:
@@ -1180,6 +1184,32 @@ def swapped_sources(
     )
 
 
+def profile_con(expr: Expr, profile: Profile) -> BaseBackend:
+    """The connection ``expr`` already holds for ``profile``, else a new one,
+    so a source moved beside another on it shares that one's backend."""
+    return (
+        next(
+            (
+                con
+                for con in find_all_sources(expr)
+                if Profile.from_con(con).content_hash == profile.content_hash
+            ),
+            None,
+        )
+        or profile.get_con()
+    )
+
+
+def mixes_backends(expr: Expr) -> bool:
+    """Whether one backend would run sources on several: in ``expr``, or in
+    a payload an ``into_backend`` runs on its own."""
+    payloads = (expr, *(node.remote_expr for node in walk_nodes(RemoteTable, expr)))
+    return any(
+        len(payload._find_backends()[0]) > 1  # xorq-style: disable=protected-access
+        for payload in payloads
+    )
+
+
 def with_profile(record: BuildRecord, profile: Profile | None) -> BuildRecord:
     """``record`` also holding ``profile``, as a build records it, so a leaf
     swapped onto it is keyed and probed there."""
@@ -1597,7 +1627,7 @@ def rebase_entry(
                 repointed = repoint_tables(
                     loaded,
                     swapped,
-                    options.profile and options.profile.get_con(),
+                    options.profile and profile_con(loaded, options.profile),
                 )
                 # Only the loaded expression holds each binding's marked rename:
                 # a --rename one would skip, onto a column it reads as its own,
@@ -1610,8 +1640,7 @@ def rebase_entry(
                 expr = refresh_schemas(repointed, live, planned)
                 # A source moved beside one left on its old connection: no
                 # backend runs the result.
-                found, _ = expr._find_backends()  # xorq-style: disable=protected-access
-                if len(found) > 1:
+                if mixes_backends(expr):
                     raise RebaseError(
                         f"{catalog_entry.name}: --profile {profile} leaves a source"
                         " on another connection; swap every source onto it",

@@ -4079,10 +4079,15 @@ def test_a_profile_moves_a_source_onto_another_table_there(
     assert list(new.load_expr().execute()["a"]) == [5, 6]
 
 
+@pytest.mark.parametrize("hub", (False, True), ids=("direct", "into-backend"))
 def test_a_profile_that_leaves_a_source_behind_is_refused(
-    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, hub: bool
 ) -> None:
-    name = beside_v(world, world.con)
+    """Moved beside a source left behind, even under an `into_backend`: one
+    backend would run both, reading the other's table on its own database."""
+    world.con.create_table("v", RECORDED.to_pandas())
+    union = world.con.table("t").union(world.con.table("v"))
+    name = world.catalog.add(union.into_backend(xo.connect()) if hub else union).name
     stored_profile(prod_con(world, "t"), "prod")
 
     result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "prod")
@@ -4092,6 +4097,18 @@ def test_a_profile_that_leaves_a_source_behind_is_refused(
         " swap every source onto it\n"
     )
     assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_profile_naming_the_loaded_connection_keeps_its_sources_together(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    name = beside_v(world, world.con)
+    stored_profile(world.con, "live")
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--profile", "live")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert sorted(new.load_expr().execute()["a"]) == [1, 2, 5, 6]
 
 
 @pytest.mark.parametrize(
