@@ -1033,8 +1033,9 @@ def swapped_leaves(
 ) -> dict[LeafKey, SourceLeaf]:
     """``leaf_key`` -> the leaf as it reads once swapped, for each source
     ``swaps`` names, found as ``--rename`` finds one. Refuses, all at once, a
-    swap naming no source, sources on several connections, a read, or two
-    swaps onto one table: they would share one ``--rename`` plan.
+    swap naming no source, sources on several connections, a read, or a
+    swap onto a table another swap, or a source left as is, reads: they
+    would share one ``--rename`` plan.
     """
     resolved = {swap: renamed_source(catalog_entry, record, swap.old) for swap in swaps}
     refused = {
@@ -1059,6 +1060,14 @@ def swapped_leaves(
             for to, n in Counter(to for ids in onto.values() for to in ids).items()
             if n > 1
         ),
+    ]
+    moved = {key for swap in onto for key in resolved[swap]}
+    details += [
+        f"--swap {swap} swaps onto {to[2]}, which the entry already reads"
+        for swap, ids in onto.items()
+        for to in ids
+        if isinstance(found := renamed_source(catalog_entry, record, to[2]), dict)
+        and any(key[:3] == to for key in found.keys() - moved)
     ]
     if details:
         raise RebaseError(

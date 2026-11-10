@@ -3648,3 +3648,17 @@ def test_two_swaps_onto_one_name_on_two_connections_pass(
 
     result = rebase(runner, world, name, "--swap", "t", "u", "--swap", "v", "u")
     assert result.exit_code == 0, result.output
+
+
+def test_a_swap_onto_a_source_the_entry_reads_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    # `t`'s `--rename` plan would land on `u`'s binding too.
+    u = world.con.create_table("u", RECORDED.to_pandas())
+    name = world.catalog.add(world.con.table("t").union(u)).name
+
+    result = rebase(runner, world, name, "--swap", "t", "u")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"{name}: --swap t u swaps onto u, which the entry already reads\n"
+    )
