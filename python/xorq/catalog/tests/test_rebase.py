@@ -3559,6 +3559,23 @@ def test_a_swap_of_a_namespaced_source_to_its_own_table_is_refused(
     assert entry.name in reopen(world).list()
 
 
+def test_a_swap_of_a_namespaced_source_reads_the_table_beside_it(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`attach` records `aux` in the profile the rebase reconnects from; an
+    `ATTACH` run as raw SQL is not, and its tables are gone after it."""
+    world.con.attach("aux", world.tmp_path / "aux.sqlite")
+    world.con.create_table("v", RECORDED.to_pandas(), database="aux")
+    world.con.create_table("u", ELSEWHERE.to_pandas(), database="aux")
+    aux_v = world.con.table("v", database="aux")
+    name = world.catalog.add(aux_v.filter(aux_v.a > 0)).name
+
+    result = rebase(runner, world, name, "--swap", "aux.v", "u")
+    assert result.exit_code == 0, result.output
+    rows = reopen(world).get_catalog_entry(result.stdout.strip()).load_expr().execute()
+    assert list(rows["a"]) == [5, 6]
+
+
 def test_a_swap_onto_a_table_with_a_renamed_column_follows_it(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
