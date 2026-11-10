@@ -9,6 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner, Result
+from git import Repo
 
 import xorq.api as xo
 from xorq.api import Expr
@@ -17,9 +18,11 @@ from xorq.catalog.aliases import AliasPlan
 from xorq.catalog.bind import bind, fuse_catalog_source
 from xorq.catalog.catalog import Catalog
 from xorq.catalog.cli import cli
+from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.enums import RebaseExit, RebaseFailure
 from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.tests.conftest import (
+    add_expr_entry,
     alias_target_hash,
     fail_nth_alias_move,
     pull_then,
@@ -427,6 +430,45 @@ def test_catalog_pin_refuses_an_entry_alias_the_pull_moved(
     reloaded = Catalog.from_kwargs(path=catalog_path, init=False)
     assert set(reloaded.list()) == {src_name, other}
     assert alias_target_hash(reloaded, "prod") == other
+
+
+@pytest.mark.parametrize("backend_type", ("git",))
+@pytest.mark.parametrize("ahead", (True, False), ids=("merged", "fast-forward"))
+def test_catalog_pin_refused_after_the_pull_says_if_a_commit_is_left_to_push(
+    runner: CliRunner,
+    catalog: Catalog,
+    catalog_path: str,
+    tmp_path: Path,
+    ahead: bool,
+) -> None:
+    src_name = _add_cached_entry(catalog, "prod")
+    other = _other_entry(catalog)
+    origin = tmp_path / "origin.git"
+    Repo.init(origin, bare=True, initial_branch=MAIN_BRANCH)
+    catalog.repo.create_remote(name="origin", url=str(origin))
+    catalog.repo.git.push("-u", "origin", MAIN_BRANCH)
+    # Another clone moves `prod` and pushes; the pin's pull brings it in.
+    clone = Catalog.clone_from(
+        url=str(origin), repo_path=tmp_path / "clone", annex=False
+    )
+    clone.add_alias(other, "prod")
+    if ahead:
+        add_expr_entry(catalog, "mine", value=2)
+
+    result = _run(
+        runner,
+        catalog_path,
+        "pin",
+        "prod",
+        "-e",
+        "--cache-dir",
+        str(tmp_path / "cache"),
+    )
+    assert result.exit_code == 1, result.output
+    assert result.stderr.startswith(
+        f"alias 'prod' points at {other} after the pull, not {src_name}; "
+    )
+    assert ("`xorq catalog sync` pushes it" in result.stderr) is ahead
 
 
 def test_catalog_pin_names_only_a_missing_source_as_one(

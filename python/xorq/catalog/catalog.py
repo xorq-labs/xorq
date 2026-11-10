@@ -736,6 +736,21 @@ class Catalog:
                         f"{type(val).__name__}"
                     )
 
+    def unpushed(self) -> bool | None:
+        """Whether the checked-out branch has commits its remote branch lacks,
+        as last fetched; ``None`` with no remote, or with HEAD detached.
+
+        A branch the remote does not have yet is unpushed whole.
+        """
+        if self.repo.head.is_detached or not (remotes := self._validated_git_remotes()):
+            return None
+        (remote,) = remotes
+        branch = self.repo.active_branch.name
+        ref = next((r for r in remote.refs if r.remote_head == branch), None)
+        return ref is None or any(
+            self.repo.iter_commits(f"{ref.path}..HEAD", max_count=1)
+        )
+
     @contextmanager
     def synchronizing(self):
         self.pull()

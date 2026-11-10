@@ -72,8 +72,13 @@ from xorq.cli_options import (
 from xorq.ibis_yaml.enums import DumpFiles, ExprKind
 
 
+def error_text(e: Exception) -> str:
+    """``e``'s message, then each note added to it on the way out."""
+    return "\n".join((str(e), *getattr(e, "__notes__", ())))
+
+
 def click_handler(e: Exception) -> None:
-    raise click.ClickException(str(e)) from e
+    raise click.ClickException(error_text(e)) from e
 
 
 def _init_hint(ctx):
@@ -105,6 +110,23 @@ def click_context(ctx: click.Context, *typs: type[Exception]) -> Iterator[None]:
         click_handler(e)
 
 
+UNPUSHED_HINT = (
+    "the local catalog has a commit its remote lacks; `xorq catalog sync` pushes it"
+)
+
+
+@contextmanager
+def saying_unpushed(catalog: Catalog, sync: bool) -> Iterator[None]:
+    """Note, on whatever a synced command raises, a commit left to push: a
+    merge the sync's pull made, say, before a refusal stopped the push."""
+    try:
+        yield
+    except Exception as e:
+        if sync and catalog.unpushed():
+            e.add_note(UNPUSHED_HINT)
+        raise
+
+
 @contextmanager
 def click_context_catalog(ctx: click.Context) -> Iterator[None]:
     from git import NoSuchPathError  # noqa: PLC0415
@@ -124,7 +146,7 @@ def click_context_catalog(ctx: click.Context) -> Iterator[None]:
         if isinstance(e, RebaseError):
             # A refusal, not a failure: its message bare, and the exit code
             # of its `RebaseFailure`, which `click_handler` would collapse to 1.
-            click.echo(str(e), err=True)
+            click.echo(error_text(e), err=True)
             ctx.exit(e.exit_code)
         if _pdb_active(ctx):
             raise
@@ -602,7 +624,10 @@ def _catalog_pin_command(
                 move_aliases=move_aliases,
                 entry_alias=entry_alias,
             )
-            with catalog.maybe_synchronizing(sync):
+            with (
+                saying_unpushed(catalog, sync),
+                catalog.maybe_synchronizing(sync),
+            ):
                 new_entry, aliases, _ = add_with_aliases(plan, build, pulled=sync)
         _report_aliases(aliases, catalog_entry.name, new_entry.name, "--move-aliases")
     click.echo(new_entry.name)
@@ -1353,7 +1378,10 @@ def rebase(
     Aliases left on the old entry are named on stderr. Alias options apply
     only to a new entry: with no drift nothing is written and they are
     ignored, which stderr says, though --only-alias must still name the old
-    entry's aliases.
+    entry's aliases. A synced rebase stopped after its pull leaves what the
+    pull merged in place; when the local catalog then has a commit its remote
+    lacks, stderr says so (with --json, `unpushed` is true), and `xorq
+    catalog sync` pushes it.
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed. An entry
@@ -1494,21 +1522,22 @@ def rebase(
         catalog_entry = _get_catalog_entry(catalog, entry)
         entry_alias = _given_alias(catalog, entry)
         try:
-            result = rebase_entry(
-                catalog_entry,
-                alias=alias,
-                move_aliases=move_aliases,
-                only_aliases=only_aliases,
-                sync=sync,
-                ignore_mismatch=ignore_venv_mismatch,
-                cache_dir=_get_cache_dir(cache_dir),
-                entry_alias=entry_alias,
-                dry_run=dry_run,
-                add=add,
-                builds_dir=builds_dir,
-                renames=renames,
-                swaps=swaps,
-            )
+            with saying_unpushed(catalog, sync):
+                result = rebase_entry(
+                    catalog_entry,
+                    alias=alias,
+                    move_aliases=move_aliases,
+                    only_aliases=only_aliases,
+                    sync=sync,
+                    ignore_mismatch=ignore_venv_mismatch,
+                    cache_dir=_get_cache_dir(cache_dir),
+                    entry_alias=entry_alias,
+                    dry_run=dry_run,
+                    add=add,
+                    builds_dir=builds_dir,
+                    renames=renames,
+                    swaps=swaps,
+                )
         except Exception as e:
             # The handler prints an error and no document; with --json, a
             # failure after the entry resolved is an outcome the document

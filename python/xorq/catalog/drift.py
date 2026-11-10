@@ -728,7 +728,7 @@ def roll_up(verdicts: Iterable[Verdict]) -> Verdict:
 
 def format_error(e: Exception) -> str:
     """The one shape an error takes in this command's output."""
-    return f"{type(e).__name__}: {e}"
+    return "\n".join((f"{type(e).__name__}: {e}", *getattr(e, "__notes__", ())))
 
 
 def probe_leaf(
