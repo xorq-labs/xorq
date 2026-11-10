@@ -436,11 +436,12 @@ def ambiguous_renames(
     expr: Any,
     live: Mapping[LeafKey, Schema],
     renames: Mapping[LeafKey, Mapping[str, str]],
+    names: Mapping[LeafKey, str] = MappingProxyType({}),
 ) -> tuple[str, ...]:
     """Why each declared rename a marked binding of ``expr`` would skip, while
     it reads the declared live column as its own, is ambiguous: what
     ``compose_renames`` refuses, for a caller to refuse as a bad rename before
-    ``refresh_schemas``."""
+    ``refresh_schemas``. ``names`` names a swapped source as it was recorded."""
     # Screen before `op_key`: resolving a profile connects a lazy backend.
     candidates = {
         (kind, name, snapshot_id, schema)
@@ -461,7 +462,7 @@ def ambiguous_renames(
         (_, composed) = kept_and_composed(held, declared, set(live[key]))
         renamed = {name: column for name, column in composed.items() if name != column}
         details += [
-            f"{key[2]}: {ambiguity(old, new, held[old])}"
+            f"{names.get(key, key[2])}: {ambiguity(old, new, held[old])}"
             for old, new in skipped_onto_exposed(
                 held, declared, mark.schema.names, renamed
             )

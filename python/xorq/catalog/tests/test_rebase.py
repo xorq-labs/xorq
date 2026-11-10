@@ -3523,11 +3523,6 @@ def test_a_swap_of_a_bundled_read_is_refused(
             id="twice",
         ),
         pytest.param(("--swap", "t", ""), "--swap t names no table", id="empty"),
-        pytest.param(
-            ("--swap", "t", "u", "--rename", "t", "a", "x"),
-            "--rename does not combine with --swap yet",
-            id="with-rename",
-        ),
     ),
 )
 def test_a_swap_that_contradicts_itself_is_a_usage_error(
@@ -3559,14 +3554,64 @@ def test_a_swap_of_a_namespaced_source_to_its_own_table_is_refused(
     assert entry.name in reopen(world).list()
 
 
-def test_a_swapped_conflict_does_not_suggest_a_rename(
+def test_a_swap_onto_a_table_with_a_renamed_column_follows_it(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    name = over_u_without_a(world)
+    world.con.create_table("u", ELSEWHERE.rename_columns(["x", "b"]).to_pandas())
 
-    result = rebase(runner, world, name, "--swap", "t", "u")
+    # `--rename` names the swapped source as recorded: `t`, not `u`.
+    result = rebase(
+        runner, world, world.name, "--swap", "t", "u", "--rename", "t", "a", "x"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Renamed t: a <- x\nOutput: unchanged\n" in result.stderr
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert new.columns == ("a", "b")
+    assert list(new.load_expr().execute()["a"]) == [5, 6]
+
+
+def test_a_swapped_conflict_hints_a_rename_by_the_recorded_name(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    world.con.create_table("u", ELSEWHERE.rename_columns(["x", "b"]).to_pandas())
+
+    result = rebase(runner, world, world.name, "--swap", "t", "u")
     assert result.exit_code == 4, result.output
-    assert "--rename" not in result.stderr
+    assert (
+        "t: recorded columns gone: a; live columns new: x\n"
+        "if a gone column was renamed to a new one, --rename <source> <old> <new> "
+        "maps it\n"
+    ) in result.stderr
+    assert set(reopen(world).list()) == {world.name}
+
+
+@pytest.mark.parametrize(
+    "rename, message",
+    (
+        pytest.param(
+            ("u", "a", "x"),
+            "--rename names no source 'u'; its sources: 't'",
+            id="new-name",
+        ),
+        pytest.param(
+            ("t", "a", "y"),
+            "--rename t: 'y' is not a live column (live: 'x', 'b')",
+            id="not-live",
+        ),
+    ),
+)
+def test_a_rename_beside_a_swap_names_the_recorded_source(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    rename: tuple[str, str, str],
+    message: str,
+) -> None:
+    world.con.create_table("u", ELSEWHERE.rename_columns(["x", "b"]).to_pandas())
+
+    result = rebase(runner, world, world.name, "--swap", "t", "u", "--rename", *rename)
+    assert result.exit_code == 1, result.output
+    assert message in result.stderr
+    assert set(reopen(world).list()) == {world.name}
 
 
 def test_a_swap_under_a_sql_view_is_refused(
@@ -3663,6 +3708,64 @@ def test_a_swap_of_every_source_ignores_their_drift(
     assert result.exit_code == 0, result.output
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert sorted(new.load_expr().execute()["a"]) == [5, 5, 6, 6]
+
+
+def test_an_ambiguous_rename_beside_a_swap_names_the_recorded_source(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    # As `rename-onto-a-held-binding`, with `t` swapped onto `u`.
+    (name, _, _) = refuse_rename_onto_a_held_binding(world)
+    world.con.create_table("u", world.con.table("t").to_pyarrow().to_pandas())
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--rename", "t", "a", "y")
+    assert result.exit_code == 1, result.output
+    assert f"{name}: --rename t: 'y' is declared as 'a''s live column" in (
+        result.stderr
+    )
+
+
+@pytest.mark.parametrize("same_instance", (True, False))
+def test_two_swaps_onto_one_table_are_refused(
+    runner: CliRunner, world: SimpleNamespace, same_instance: bool
+) -> None:
+    # One `--rename` plan per table: `t`'s and `v`'s would overwrite each other,
+    # also where `v` is read through a second backend over the same file.
+    name = beside_v(
+        world,
+        world.con
+        if same_instance
+        else SqliteBackend().connect(str(world.tmp_path / "live.sqlite")),
+    )
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--swap", "v", "u")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == f"{name}: --swap t u and --swap v u both swap to u\n"
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_two_swaps_onto_one_name_on_two_connections_pass(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    other = SqliteBackend().connect(str(world.tmp_path / "other.sqlite"))
+    name = beside_v(world, other)
+    other.create_table("u", ELSEWHERE.to_pandas())
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--swap", "v", "u")
+    assert result.exit_code == 0, result.output
+
+
+def test_a_swap_onto_a_source_the_entry_reads_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    # `t`'s `--rename` plan would land on `u`'s binding too.
+    u = world.con.create_table("u", RECORDED.to_pandas())
+    name = world.catalog.add(world.con.table("t").union(u)).name
+
+    result = rebase(runner, world, name, "--swap", "t", "u")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"{name}: --swap t u swaps onto u, which the entry already reads\n"
+    )
 
 
 @pytest.mark.parametrize(

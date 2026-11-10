@@ -1414,7 +1414,8 @@ def rebase(
     joined with ", ". A --swap is refused when OLD names no source,
     sources on several connections, a bundled read, a table pinned to a
     snapshot, or OLD's own table. One that swaps a source to itself, twice or to an
-    empty name, or comes with a --rename, is an invalid option. After the
+    empty name is an invalid option. A --rename beside it names the swapped
+    source by OLD, as recorded, and its conflict hints do too. After the
     sweep, a swap is refused beside any source it leaves that changed, is
     gone or could not be probed: rebase without --swap first, so each new
     entry carries one kind of change; a swap of every source never is.
@@ -1448,7 +1449,7 @@ def rebase(
          --only-alias, --no-add with --dry-run or an alias option,
          --builds-dir without --no-add, a --rename that repeats a column of
          its source or renames one to itself, a --swap that swaps a source
-         to itself, twice or to an empty name, or comes with a --rename);
+         to itself, twice or to an empty name);
          nothing written
       3  a rebase was derived but not cataloged: --dry-run printed its
          hash, or --no-add its build directory
@@ -1484,6 +1485,8 @@ def rebase(
       xorq catalog rebase prod-matches --rename matches team_id team
       xorq catalog rebase prod-matches --swap matches matches_v2
       xorq catalog rebase prod-matches --swap data/m25.parquet data/m26.parquet
+      xorq catalog rebase prod-matches --swap matches matches_v2 \\
+          --rename matches team_id team
     """
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
