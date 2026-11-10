@@ -111,7 +111,7 @@ from xorq.catalog.exceptions import (
     RenameWarning,
     RollbackError,
 )
-from xorq.catalog.inspection import BuildRecord, SourceLeaf
+from xorq.catalog.inspection import BuildRecord, SourceLeaf, table_name
 from xorq.catalog.refresh import (
     LeafKey,
     ambiguous_renames,
@@ -250,7 +250,9 @@ def swap_tuple(swaps: Iterable[Swap | tuple[str, str]]) -> tuple:
 
 
 def repeated_swaps(swaps: tuple[Swap, ...]) -> Iterator[str]:
-    """Why each of ``swaps`` that swaps a source to itself, or twice, is refused."""
+    """Why each of ``swaps`` that swaps a source to itself, or twice, or to no
+    table, is refused."""
+    yield from (f"--swap {swap.old} names no table" for swap in swaps if not swap.new)
     yield from (
         f"--swap {swap} swaps nothing" for swap in swaps if swap.old == swap.new
     )
@@ -1000,8 +1002,21 @@ def swap_refusal(swap: Swap, by_key: dict[LeafKey, SourceLeaf] | str) -> str | N
         # `old` spells the namespace too: `aux.t t` is `t` back onto itself.
         case {**leaves} if any(leaf.table == swap.new for leaf in leaves.values()):
             return f"--swap {swap} swaps nothing"
+        # A snapshot id is one table's: `new` has none of `old`'s.
+        case {**leaves} if any(
+            leaf.snapshot_id is not None for leaf in leaves.values()
+        ):
+            return (
+                f"--swap {swap.old!r} is pinned to a snapshot, which "
+                f"{swap.new!r} does not have"
+            )
         case _:
             return None
+
+
+def swapped_leaf(leaf: SourceLeaf, table: str) -> SourceLeaf:
+    """``leaf`` reading ``table`` instead, in its namespace."""
+    return evolve(leaf, table=table, name=table_name(leaf.namespace, table))
 
 
 def swapped_leaves(
@@ -1023,11 +1038,7 @@ def swapped_leaves(
             RebaseFailure.REFUSED,
         )
     return {
-        key: evolve(
-            leaf,
-            table=swap.new,
-            name=".".join(filter(None, (*leaf.namespace, swap.new))),
-        )
+        key: swapped_leaf(leaf, swap.new)
         for swap, by_key in resolved.items()
         for key, leaf in by_key.items()
     }
@@ -1290,9 +1301,13 @@ def rebase_entry(
         entry_alias=entry_alias,
     )
     swapped = swapped_leaves(catalog_entry, record, options.swaps)
-    # A swapped source is probed where it now points, not where it was.
-    by_ref = {leaf.node_ref: leaf for leaf in swapped.values()}
-    leaves = tuple(by_ref.get(leaf.node_ref, leaf) for leaf in checkable_leaves(record))
+    # A swapped source is probed where it now points, not where it was: every
+    # binding of it, though bindings that share a key share one `swapped` entry.
+    tables = {swap.old: swap.new for swap in options.swaps}
+    leaves = tuple(
+        swapped_leaf(leaf, tables[leaf.name]) if leaf.name in tables else leaf
+        for leaf in checkable_leaves(record)
+    )
     reports = tuple(iter_leaf_reports(record, leaves=leaves))
     # A refusal from here on reports the sweep, as a conflict does.
     with refusing_with(record=record, reports=reports):
@@ -1374,7 +1389,8 @@ def rebase_entry(
                         format_error(e.cause),
                         changed,
                         e.op_name,
-                        hints=rename_hints(record, changed, planned),
+                        # A --rename does not combine with a --swap yet.
+                        hints=() if swapped else rename_hints(record, changed, planned),
                     )
                 )
             warn_consumed(checked_renames)

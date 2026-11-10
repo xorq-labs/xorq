@@ -3311,6 +3311,7 @@ def test_a_swap_of_a_read_is_refused(runner: CliRunner, world: SimpleNamespace) 
             "--swap t is given twice",
             id="twice",
         ),
+        pytest.param(("--swap", "t", ""), "--swap t names no table", id="empty"),
         pytest.param(
             ("--swap", "t", "u", "--rename", "t", "a", "x"),
             "--rename does not combine with --swap yet",
@@ -3345,3 +3346,13 @@ def test_a_swap_of_a_namespaced_source_to_its_own_table_is_refused(
     with pytest.raises(RebaseError, match=re.escape("--swap aux.t t swaps nothing")):
         rebase_entry(entry, swaps=[("aux.t", "t")])
     assert entry.name in reopen(world).list()
+
+
+def test_a_swapped_conflict_does_not_suggest_a_rename(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    world.con.create_table("u", pa.table({"b": ["x", "y"]}).to_pandas())
+
+    result = rebase(runner, world, world.name, "--swap", "t", "u")
+    assert result.exit_code == 4, result.output
+    assert "--rename" not in result.stderr

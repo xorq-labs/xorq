@@ -1381,8 +1381,9 @@ def rebase(
     u is probed against what t recorded, and the rebase goes on as over
     drift, so a swap is a new entry even with no schema change, and one u
     no longer fits conflicts. A --swap is refused when OLD names no source,
-    sources on several connections, or a read. One that swaps a source to
-    itself or twice, or comes with a --rename, is an invalid option.
+    sources on several connections, a read, a table pinned to a snapshot,
+    or OLD's own table. One that swaps a source to itself, twice or to an
+    empty name, or comes with a --rename, is an invalid option.
 
     \b
     Exit codes:
@@ -1411,7 +1412,8 @@ def rebase(
          --only-alias, --no-add with --dry-run or an alias option,
          --builds-dir without --no-add, a --rename that repeats a column of
          its source or renames one to itself, a --swap that swaps a source
-         to itself or twice, or comes with a --rename); nothing written
+         to itself, twice or to an empty name, or comes with a --rename);
+         nothing written
       3  a rebase was derived but not cataloged: --dry-run printed its
          hash, or --no-add its build directory
       4  conflict: an op no longer fits its new inputs, or a source's

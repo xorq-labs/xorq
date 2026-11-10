@@ -32,7 +32,7 @@ See xorq-labs/xorq#2293 for the epic this feeds.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -299,6 +299,12 @@ def join_read_path(path: Any) -> str:
     return ", ".join(read_paths(path))
 
 
+def table_name(namespace: Iterable[str | None], table: str) -> str:
+    """A table's name spelled as ``Table.get_name`` spells the loaded table:
+    its namespace and table joined by dots, an unset part left out."""
+    return ".".join(filter(None, (*namespace, table)))
+
+
 @frozen
 class SourceLeaf:
     """One source as the build record describes it.
@@ -371,8 +377,7 @@ class SourceLeaf:
         match kind:
             case LeafKind.DATABASE_TABLE:
                 table = get_node_key(node_ref, node_def, NodeKey.table)
-                # Spelled as `Table.get_name` spells the loaded table.
-                name = ".".join(filter(None, (catalog, database, table)))
+                name = table_name((catalog, database), table)
                 paths = None
             case LeafKind.READ:
                 # `read_kwargs["table_name"]` is not the reliable spelling:
