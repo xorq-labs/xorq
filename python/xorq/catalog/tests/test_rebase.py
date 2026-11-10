@@ -3559,3 +3559,69 @@ def test_a_swap_of_every_source_ignores_their_drift(
     assert result.exit_code == 0, result.output
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert sorted(new.load_expr().execute()["a"]) == [5, 5, 6, 6]
+
+
+def beside_unreachable_v(w: SimpleNamespace) -> str:
+    other_db = w.tmp_path / "other.sqlite"
+    other = SqliteBackend().connect(str(other_db))
+    name = beside_v(w, other)
+    other.disconnect()
+    other_db.unlink()
+    return name
+
+
+def beside_changed_v(w: SimpleNamespace) -> str:
+    name = beside_v(w, w.con)
+    grow_v(w)
+    return name
+
+
+def over_u_without_a(w: SimpleNamespace) -> str:
+    w.con.create_table("u", pa.table({"b": ["x", "y"]}).to_pandas())
+    return w.name
+
+
+@pytest.mark.parametrize(
+    ("make_entry", "args", "state", "leaves"),
+    (
+        pytest.param(
+            lambda w: beside_v(w, w.con),
+            ("--dry-run",),
+            "preview",
+            {("u", "equal"), ("v", "equal")},
+            id="preview",
+        ),
+        pytest.param(
+            over_u_without_a, (), "conflict", {("u", "changed")}, id="conflict"
+        ),
+        pytest.param(
+            beside_changed_v,
+            (),
+            "refused",
+            {("u", "equal"), ("v", "changed")},
+            id="changed",
+        ),
+        pytest.param(
+            beside_unreachable_v,
+            (),
+            "unreachable",
+            {("u", "equal"), ("v", "unreachable")},
+            id="unreachable",
+        ),
+    ),
+)
+def test_a_swap_prints_its_document_with_the_swapped_to_source(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    make_entry: Callable[[SimpleNamespace], str],
+    args: tuple[str, ...],
+    state: str,
+    leaves: set[tuple[str, str]],
+) -> None:
+    name = make_entry(world)
+
+    result, document = rebase_json(runner, world, name, "--swap", "t", "u", *args)
+    assert document["state"] == state, document
+    assert {
+        (leaf["name"], leaf["state"]) for leaf in document["drift"]["leaves"]
+    } == leaves
