@@ -4097,38 +4097,68 @@ def test_a_profile_stored_without_its_defaults_moves_a_changed_source(
     assert list(new.load_expr().execute()["a"]) == [5, 6]
 
 
+def t_and_v(w: SimpleNamespace) -> xo.Expr:
+    w.con.create_table("v", RECORDED.to_pandas())
+    return w.con.table("t").union(w.con.table("v"))
+
+
+def t_and_v_elsewhere(w: SimpleNamespace) -> xo.Expr:
+    """`t` beside `v` on another database, run on `t`'s connection."""
+    other = SqliteBackend().connect(str(w.tmp_path / "other.sqlite"))
+    other.create_table("v", RECORDED.to_pandas())
+    return w.con.table("t").union(other.table("v").into_backend(w.con))
+
+
 @pytest.mark.parametrize(
-    "wrap",
+    "entry",
     (
-        pytest.param(lambda expr, w: expr, id="direct"),
-        pytest.param(lambda expr, w: expr.into_backend(xo.connect()), id="into"),
+        pytest.param(t_and_v, id="direct"),
+        pytest.param(lambda w: t_and_v(w).into_backend(xo.connect()), id="into"),
         pytest.param(
-            lambda expr, w: expr.cache(
+            lambda w: t_and_v(w).cache(
                 cache=ParquetCache.from_kwargs(
                     source=xo.connect(), relative_path=w.tmp_path
                 )
             ),
             id="cache",
         ),
+        pytest.param(t_and_v_elsewhere, id="boundary"),
     ),
 )
 def test_a_profile_that_leaves_a_source_behind_is_refused(
-    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, wrap: Callable
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, entry: Callable
 ) -> None:
-    """Moved off a connection another source stays on, under whatever runs
-    them: one backend would read both, the other's table on its own database."""
-    world.con.create_table("v", RECORDED.to_pandas())
-    union = world.con.table("t").union(world.con.table("v"))
-    name = world.catalog.add(wrap(union, world)).name
+    """Moved off a connection the entry still runs something on, a source or
+    an `into_backend`'s target: one backend would run both, the other's table
+    read on its own database."""
+    name = world.catalog.add(entry(world)).name
     stored_profile(prod_con(world, "t"), "prod")
 
     result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "prod")
     assert result.exit_code == 1, result.output
     assert result.stderr == (
-        f"{name}: --profile prod leaves 'v' on its old connection;"
+        f"{name}: --profile prod moves 't' off a connection the entry still uses;"
         " swap every source onto it\n"
     )
     assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_profile_naming_a_missing_database_creates_none(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    missing = world.tmp_path / "prod.sqlite"
+    Profile(con_name="sqlite", kwargs_tuple=(("database", str(missing)),)).save(
+        alias="prod"
+    )
+
+    result = rebase(
+        runner, world, world.name, "--swap", "t", "t", "--profile", "prod", "--dry-run"
+    )
+    assert result.exit_code == 2, result.output
+    assert result.stderr == (
+        f"{world.name}: --profile prod: database {missing} does not exist\n"
+    )
+    assert not missing.exists()
 
 
 def test_a_profile_naming_the_loaded_connection_keeps_its_sources_together(

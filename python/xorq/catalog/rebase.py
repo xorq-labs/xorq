@@ -1197,20 +1197,27 @@ def loaded_con(expr: Expr, con: BaseBackend) -> BaseBackend:
     )
 
 
-def left_behind(
+def vacated(
     record: BuildRecord, swapped: Mapping[LeafKey, SourceLeaf]
-) -> tuple[str, ...]:
-    """Unswapped sources on a connection a swap moves a source off: whatever
-    ran them together would run them on two backends."""
-    moved_off = {
-        key[1] for key, leaf in swapped.items() if leaf_key(leaf, record)[1] != key[1]
+) -> dict[str, str]:
+    """Each swapped source moved off its connection -> that connection's
+    profile content hash."""
+    return {
+        key[2]: key[1]
+        for key, leaf in swapped.items()
+        if leaf_key(leaf, record)[1] != key[1]
     }
-    # Only keyed on a move: a leaf's profile may be what a plain rebase refuses.
-    return tuple(
-        leaf.name
-        for leaf in (record.source_leaves if moved_off else ())
-        if (key := leaf_key(leaf, record)) not in swapped and key[1] in moved_off
-    )
+
+
+def profile_connection(name: str, profile: Profile, alias: str) -> BaseBackend:
+    """``profile``'s connection, refused where opening it would create its
+    database."""
+    if (path := missing_database(profile)) is not None:
+        raise RebaseError(
+            f"{name}: --profile {alias}: database {path} does not exist",
+            RebaseFailure.UNREACHABLE,
+        )
+    return profile.get_con()
 
 
 def with_profile(record: BuildRecord, profile: Profile | None) -> BuildRecord:
@@ -1520,7 +1527,9 @@ def rebase_entry(
     check_bundle(catalog_entry)
     # Connected once: a build records its connection's profile, which fills in
     # the defaults a stored profile may leave out.
-    con = options.profile and options.profile.get_con()
+    con = options.profile and profile_connection(
+        catalog_entry.name, options.profile, profile
+    )
     target = con and Profile.from_con(con)
     record = with_profile(read_entry_record(catalog_entry), target)
     moved_to = target and target.hash_name
@@ -1534,12 +1543,7 @@ def rebase_entry(
         entry_alias=entry_alias,
     )
     swapped = swapped_leaves(catalog_entry, record, options.swaps, moved_to)
-    if left := left_behind(record, swapped):
-        raise RebaseError(
-            f"{catalog_entry.name}: --profile {profile} leaves {quoted(left)} on "
-            "its old connection; swap every source onto it",
-            RebaseFailure.REFUSED,
-        )
+    moved_off = vacated(record, swapped)
     swap_records = swapped_sources(record, swapped)
     # A swapped source is probed where it now points, not where it was: every
     # binding of it, though bindings that share a key share one `swapped` entry.
@@ -1642,6 +1646,18 @@ def rebase_entry(
                     swapped,
                     con and loaded_con(loaded, con),
                 )
+                # Whatever still runs on a connection a source moved off would
+                # run it beside that source's new one: two backends.
+                if any(
+                    Profile.from_con(source).content_hash in moved_off.values()
+                    for source in find_all_sources(repointed)
+                ):
+                    raise RebaseError(
+                        f"{catalog_entry.name}: --profile {profile} moves "
+                        f"{quoted(moved_off)} off a connection the entry still "
+                        "uses; swap every source onto it",
+                        RebaseFailure.REFUSED,
+                    )
                 # Only the loaded expression holds each binding's marked rename:
                 # a --rename one would skip, onto a column it reads as its own,
                 # is the user's to fix, so refused as a bad --rename, not a
