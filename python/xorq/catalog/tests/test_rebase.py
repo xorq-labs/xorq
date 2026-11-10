@@ -1764,11 +1764,14 @@ def test_move_aliases_moves_those_on_the_old_entry_after_the_pull(
         pytest.param(
             None,
             ("--only-alias", "live"),
-            "alias 'live' points at {other}, not {name}",
+            "alias 'live' points at {other} after the pull, not {name}",
             id="only-alias",
         ),
         pytest.param(
-            None, ("-a", "live"), "alias 'live' points at {other};", id="alias"
+            None,
+            ("-a", "live"),
+            "alias 'live' points at {other} after the pull;",
+            id="alias",
         ),
         # ENTRY `live` meant the old entry before the pull, not after it.
         pytest.param(
@@ -2128,6 +2131,7 @@ ROOT_KEYS = {
     "new_hash",
     "build_path",
     "created",
+    "unpushed",
     "output_changes",
     "renames",
     "failing_op",
@@ -2289,6 +2293,83 @@ def test_json_reports_the_aliases_the_pull_took_off_the_old_entry(
     monkeypatch.undo()
     assert document["state"] == "rebased"
     assert document["aliases"] == aliases_document(moved=["staging"], unmoved=["live"])
+
+
+def origin_moved_live(world: SimpleNamespace, ahead: bool) -> str:
+    """Another clone points `live` at another entry and pushes; returns it.
+
+    ``ahead``: the local catalog has a commit of its own too, so the sync's
+    pull merges rather than fast-forwards.
+    """
+    origin = push_to_origin(world)
+    other = other_entry(world)
+    world.catalog.push()
+    clone = Catalog.clone_from(
+        url=str(origin), repo_path=world.tmp_path / "clone", annex=False
+    )
+    clone.add_alias(other, "live")
+    if ahead:
+        add_expr_entry(world.catalog, "mine", value=2)
+    return other
+
+
+@pytest.mark.parametrize("as_json", (True, False), ids=("json", "stderr"))
+@pytest.mark.parametrize("ahead", (True, False), ids=("merged", "fast-forward"))
+@pytest.mark.parametrize(
+    "args, fail_move, state",
+    (
+        # The pull moved `live` off the old entry.
+        pytest.param(("--only-alias", "live"), False, "refused", id="refusal"),
+        # The write after the pull fails, and its rollback commits the undo.
+        pytest.param(("--only-alias", "staging"), True, "failed", id="failure"),
+    ),
+)
+def test_a_rebase_stopped_after_the_pull_says_if_a_commit_is_left_to_push(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    args: tuple[str, ...],
+    fail_move: bool,
+    state: str,
+    ahead: bool,
+    as_json: bool,
+) -> None:
+    other = origin_moved_live(world, ahead)
+    unpushed = ahead or fail_move
+    replace_t(world, GROWN)
+    if fail_move:
+        fail_nth_alias_move(monkeypatch, 1)
+
+    if as_json:
+        result, document = rebase_json(runner, world, world.name, *args)
+        assert (document["state"], document["unpushed"]) == (state, unpushed)
+        said = document["error"]
+    else:
+        result = rebase(runner, world, world.name, *args)
+        said = result.stderr
+    monkeypatch.undo()
+    assert result.exit_code != 0, result.output
+    assert ("`xorq catalog sync` pushes it" in said) is unpushed
+    # The pull is in either way.
+    assert alias_target_hash(reopen(world), "live") == other
+
+
+@pytest.mark.parametrize("remote", (True, False), ids=("remote", "no-remote"))
+def test_a_refusal_before_the_pull_has_nothing_to_push(
+    runner: CliRunner, world: SimpleNamespace, remote: bool
+) -> None:
+    if remote:
+        push_to_origin(world)
+    world.catalog.add_alias(other_entry(world), "taken")
+    replace_t(world, GROWN)
+
+    result, document = rebase_json(runner, world, world.name, "-a", "taken")
+    assert result.exit_code == 1, result.output
+    assert (document["state"], document["unpushed"]) == (
+        "refused",
+        False if remote else None,
+    )
+    assert "`xorq catalog sync`" not in document["error"]
 
 
 @pytest.mark.parametrize("setup, exit_code, message", JSON_REFUSALS)

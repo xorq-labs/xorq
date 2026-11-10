@@ -154,13 +154,14 @@ class AliasPlan:
         if self.new is None:
             return self
         here = self.here
+        after = " after the pull" if self.pulled else ""
         if elsewhere := tuple(
             n for n in self.only_aliases if self.target(n) not in here
         ):
             # Says where it went.
             raise RebaseError(
                 "; ".join(
-                    f"alias {n!r} points at {self.target(n)}, not {self.old}"
+                    f"alias {n!r} points at {self.target(n)}{after}, not {self.old}"
                     for n in elsewhere
                 ),
                 RebaseFailure.REFUSED,
@@ -169,7 +170,7 @@ class AliasPlan:
             # `add-alias` moves it in one commit; removing it first would leave
             # it resolving to nothing until the new entry lands.
             raise RebaseError(
-                f"alias {self.alias!r} points at {self.target(self.alias)}; pick "
+                f"alias {self.alias!r} points at {self.target(self.alias)}{after}; pick "
                 "another name, or leave it off and then run "
                 f"`xorq catalog add-alias {self.new} {self.alias}`",
                 RebaseFailure.REFUSED,

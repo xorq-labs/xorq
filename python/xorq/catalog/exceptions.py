@@ -107,7 +107,7 @@ class RebaseError(XorqError):
     carries the sweep's ``record`` and ``reports``, so it reports the drift a
     conflict would; one raised once the new hash is derived carries it as
     ``new_hash``. One raised after a sync's pull leaves what the pull merged in
-    place, unpushed."""
+    place."""
 
     def __init__(
         self,

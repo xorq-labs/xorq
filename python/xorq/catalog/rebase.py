@@ -4,7 +4,8 @@ The old entry is never edited or removed. Every refusal comes before the first
 write: the checks read only the archive, the sweep connects through ``drift``'s
 no-create guard, and nothing loads until the sweep has compared every source it
 can probe. With a sync, the alias checks run again after its pull, so a refusal
-there leaves what the pull merged in place, unpushed. A pull that fails is
+there leaves what the pull merged in place; whatever stops a rebase says if the
+local catalog then has commits its remote lacks. A pull that fails is
 retryable and leaves nothing written; a push that fails after the write is not
 an error but its own outcome, ``PUSH_FAILED``: the rebase is committed locally.
 
@@ -21,6 +22,7 @@ way a rebase of a resolved entry can end, buffered and emitted once::
       "new_entry": null,           # old_entry on a no-op; null unless cataloged
       "new_hash": null,            # the rebased build's hash, cataloged or not
       "created": null,             # on a cataloged rebase: false if it already was
+      "unpushed": null,            # on a failure: whether there is a commit to push
       "output_changes": null,      # once derived: [{"name", "before", "after"}]
       "renames": null,             # once derived: [{"source", "old", "new"}]
       "build_path": null,          # where `--no-add` wrote the build
@@ -44,13 +46,18 @@ hash ``--dry-run`` (``preview``) or ``--no-add`` (``built``) did not catalog,
 or the one a refusal came after once the rebase derived it, and ``null``
 otherwise. ``created`` is set only once an entry is cataloged (``rebased``,
 ``push-failed``): ``false`` when it already was, from an earlier rebase, and
-its archive was kept. ``output_changes`` is set once a rebase is derived
-(``rebased``, ``push-failed``, ``preview``, ``built``): each output column it retyped, added or removed, ``before`` or
+its archive was kept. ``unpushed`` is set only on a failure (any
+``RebaseFailure``) of a catalog with a remote: ``true`` when the local catalog
+has a commit the remote lacks, as last fetched, such as a merge the sync's pull
+left before a refusal; `xorq catalog sync` pushes it. ``output_changes`` is set
+once a rebase is derived (``rebased``, ``push-failed``, ``preview``,
+``built``): each output column it retyped, added or removed, ``before`` or
 ``after`` ``null`` where the column is absent, and empty when the output schema
 did not change. ``renames`` is set when ``output_changes`` is: each
 ``--rename`` the rebase put above its source, empty when none was given.
 ``build_path`` is set only on ``built``. ``error`` is present only when there
-is one, always as ``Type: message``: what refused or failed the rebase, what a
+is one, always as ``Type: message``, then the stderr hint, if any, on a line
+of its own: what refused or failed the rebase, what a
 conflict's op or source raised, or what a failed push raised. ``warnings``
 holds each warning the rebase raised, as ``Category: message``, so stderr stays
 empty; a ``--rename`` that reads from a column its source recorded too raises a
@@ -545,6 +552,7 @@ def make_rebase_document(
     new_hash: str | None = None,
     build_path: Path | None = None,
     created: bool | None = None,
+    unpushed: bool | None = None,
     output_changes: Iterable[ColumnChange] | None = None,
     renames: Iterable[Rename] | None = None,
     failing_op: str | None = None,
@@ -564,6 +572,7 @@ def make_rebase_document(
         "new_hash": new_hash,
         "build_path": None if build_path is None else str(build_path),
         "created": created,
+        "unpushed": unpushed,
         "output_changes": None
         if output_changes is None
         else [asdict(change) for change in output_changes],
@@ -612,6 +621,7 @@ def rebase_document(
             drift=reports_document(refusal.record, refusal.reports)[1]
             if refusal is not None and refusal.record is not None
             else None,
+            unpushed=catalog_entry.catalog.unpushed(),
         )
         document["error"] = format_error(outcome)
     else:
