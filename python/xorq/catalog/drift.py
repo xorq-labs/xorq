@@ -979,7 +979,9 @@ def entry_verdict(
 
     ``reports`` must hold one report per checkable leaf, in any order: a
     sweep over fewer leaves would roll up to `equal` for a source nobody
-    probed, so it is refused rather than rolled up.
+    probed, so it is refused rather than rolled up. A leaf is matched by its
+    node, not its location, so a `rebase --swap` sweep that probed the new
+    table in the old one's place still covers it.
 
     No verdict at all where nothing was probed and a source was left
     unprobed: rolling those up to `equal` would state the strongest positive
@@ -989,7 +991,9 @@ def entry_verdict(
     nothing outside the archive is a reason it cannot drift, not a reason the
     question went unanswered.
     """
-    if Counter(report.leaf for report in reports) != Counter(checkable_leaves(record)):
+    if Counter(report.leaf.node_ref for report in reports) != Counter(
+        leaf.node_ref for leaf in checkable_leaves(record)
+    ):
         raise ValueError("a verdict takes one report per checkable leaf of its record")
     if unchecked_leaves(record) and not reports:
         return None

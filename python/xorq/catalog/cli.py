@@ -1326,7 +1326,8 @@ def check_sources(
     nargs=2,
     multiple=True,
     metavar="OLD NEW",
-    help="Re-point the table source OLD to the table NEW beside it (repeatable).",
+    help="Re-point the source OLD to the table NEW beside it, or an external "
+    "read to the path NEW (repeatable).",
 )
 @json_option
 @click.pass_context
@@ -1408,9 +1409,11 @@ def rebase(
     source's name as `check-sources` prints it, found as --rename finds one;
     u is probed against what t recorded, and the rebase goes on as over
     drift, so a swap is a new entry even with no schema change, and one u
-    no longer fits conflicts. A --swap is refused when OLD names no source,
-    sources on several connections, a read, a table pinned to a snapshot,
-    or OLD's own table. One that swaps a source to itself, twice or to an
+    no longer fits conflicts. An external read swaps to one path NEW, read
+    by the same method and options; a multi-path read is OLD by its paths
+    joined with ", ". A --swap is refused when OLD names no source,
+    sources on several connections, a bundled read, a table pinned to a
+    snapshot, or OLD's own table. One that swaps a source to itself, twice or to an
     empty name is an invalid option. A --rename beside it names the swapped
     source by OLD, as recorded, and its conflict hints do too. After the
     sweep, a swap is refused beside any source it leaves that changed, is
@@ -1481,6 +1484,7 @@ def rebase(
       xorq catalog rebase prod-matches --no-add --builds-dir builds
       xorq catalog rebase prod-matches --rename matches team_id team
       xorq catalog rebase prod-matches --swap matches matches_v2
+      xorq catalog rebase prod-matches --swap data/m25.parquet data/m26.parquet
       xorq catalog rebase prod-matches --swap matches matches_v2 \\
           --rename matches team_id team
     """

@@ -38,6 +38,7 @@ from xorq.catalog.cli import cli
 from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.enums import RebaseExit, RebaseFailure, RebaseStatus, Verdict
 from xorq.catalog.exceptions import RebaseError
+from xorq.catalog.inspection import SourceLeaf
 from xorq.catalog.rebase import (
     ColumnChange,
     Rename,
@@ -3413,15 +3414,103 @@ def test_a_swap_of_one_name_on_two_connections_is_refused(
     assert "--swap 't' names 2 sources" in result.stderr
 
 
-def test_a_swap_of_a_read_is_refused(runner: CliRunner, world: SimpleNamespace) -> None:
-    path = world.tmp_path / "t.parquet"
-    RECORDED.to_pandas().to_parquet(path, index=False)
-    read = deferred_read_parquet(path, xo.connect(), table_name="t")
-    name = world.catalog.add(read, relocate_reads=False).name
+READERS = {".parquet": deferred_read_parquet, ".csv": xo.deferred_read_csv}
 
-    result = rebase(runner, world, name, "--swap", str(path), "u")
+
+def write_file(path: Path, table: pa.Table) -> Path:
+    """``table`` written to ``path`` in the format its suffix names."""
+    match path.suffix:
+        case ".csv":
+            table.to_pandas().to_csv(path, index=False)
+        case _:
+            table.to_pandas().to_parquet(path, index=False)
+    return path
+
+
+def external_read(world: SimpleNamespace, *paths: Path) -> str:
+    """An entry over an external read of ``paths``, by its first's reader."""
+    read = READERS[paths[0].suffix](
+        [str(path) for path in paths] if len(paths) > 1 else paths[0],
+        xo.connect(),
+        table_name="r",
+    )
+    return world.catalog.add(read.filter(read.a > 0), relocate_reads=False).name
+
+
+def only_leaf(world: SimpleNamespace, name: str) -> SourceLeaf:
+    (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).external_leaves
+    return leaf
+
+
+@pytest.mark.parametrize("suffix", (".parquet", ".csv"))
+def test_a_swap_reads_an_external_file_from_its_new_path(
+    runner: CliRunner, world: SimpleNamespace, suffix: str
+) -> None:
+    old = write_file(world.tmp_path / f"m25{suffix}", RECORDED)
+    new = write_file(world.tmp_path / f"m26{suffix}", ELSEWHERE)
+    name = external_read(world, old)
+    recorded = only_leaf(world, name)
+    # The old file need not be there: a swapped source is probed where it
+    # now points.
+    old.unlink()
+
+    result = rebase(runner, world, name, "--swap", str(old), str(new))
+    assert result.exit_code == 0, result.output
+    new_name = result.stdout.strip()
+    rows = reopen(world).get_catalog_entry(new_name).load_expr().execute()
+    assert list(rows["a"]) == [5, 6]
+    swapped = only_leaf(world, new_name)
+    assert swapped.name == str(new)
+    assert swapped.method_name == recorded.method_name
+    assert dict(swapped.read_kwargs) == {
+        **dict(recorded.read_kwargs),
+        "hash_path": str(new),
+    }
+
+
+def test_a_swap_addresses_a_multi_path_read_by_its_joined_name(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    halves = (
+        write_file(world.tmp_path / "m25a.parquet", RECORDED.slice(0, 1)),
+        write_file(world.tmp_path / "m25b.parquet", RECORDED.slice(1)),
+    )
+    new = write_file(world.tmp_path / "m26.parquet", ELSEWHERE)
+    name = external_read(world, *halves)
+    joined = ", ".join(map(str, halves))
+
+    result = rebase(runner, world, name, "--swap", joined, str(new))
+    assert result.exit_code == 0, result.output
+    rows = reopen(world).get_catalog_entry(result.stdout.strip()).load_expr().execute()
+    assert sorted(rows["a"]) == [5, 6]
+
+
+def test_a_swap_onto_a_file_its_reader_cannot_read_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    old = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    new = write_file(world.tmp_path / "m26.csv", ELSEWHERE)
+    name = external_read(world, old)
+
+    result = rebase(runner, world, name, "--swap", str(old), str(new))
+    assert result.exit_code == 2, result.output
+    # The reader's own error, from the probe, before anything is written.
+    assert f"{new} is unreachable: ValueError: " in result.stderr
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_swap_of_a_bundled_read_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    path = write_file(world.tmp_path / "t.parquet", RECORDED)
+    name = world.catalog.add(
+        deferred_read_parquet(path, xo.connect(), table_name="t")
+    ).name
+    (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).source_leaves
+
+    result = rebase(runner, world, name, "--swap", leaf.name, "u.parquet")
     assert result.exit_code == 1, result.output
-    assert "is a Read; only a DatabaseTable can be swapped" in result.stderr
+    assert "is a bundled read; only an external read can be swapped" in (result.stderr)
 
 
 @pytest.mark.parametrize(
@@ -3555,11 +3644,30 @@ def grow_v(w: SimpleNamespace) -> None:
     w.con.create_table("v", GROWN.to_pandas())
 
 
+def beside_unreachable_v(w: SimpleNamespace) -> str:
+    other_db = w.tmp_path / "other.sqlite"
+    other = SqliteBackend().connect(str(other_db))
+    name = beside_v(w, other)
+    other.disconnect()
+    other_db.unlink()
+    return name
+
+
+def beside_changed_v(w: SimpleNamespace) -> str:
+    name = beside_v(w, w.con)
+    grow_v(w)
+    return name
+
+
+def over_u_without_a(w: SimpleNamespace) -> str:
+    w.con.create_table("u", pa.table({"b": ["x", "y"]}).to_pandas())
+    return w.name
+
+
 def test_a_swap_beside_a_changed_source_is_refused(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    name = beside_v(world, world.con)
-    grow_v(world)
+    name = beside_changed_v(world)
 
     result = rebase(runner, world, name, "--swap", "t", "u")
     assert result.exit_code == 1, result.output
@@ -3579,17 +3687,13 @@ def test_a_swap_beside_a_changed_source_is_refused(
 def test_a_swap_beside_an_unreachable_source_is_refused(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    other_db = world.tmp_path / "other.sqlite"
-    other = SqliteBackend().connect(str(other_db))
-    name = beside_v(world, other)
-    other.disconnect()
-    other_db.unlink()
+    name = beside_unreachable_v(world)
 
     result = rebase(runner, world, name, "--swap", "t", "u")
     assert result.exit_code == 2, result.output
     assert result.stderr.startswith(f"{name}: v could not be checked (")
     assert result.stderr.endswith("); a swap needs every other source unchanged\n")
-    assert not other_db.exists()
+    assert not (world.tmp_path / "other.sqlite").exists()
     assert set(reopen(world).list()) == {world.name, name}
 
 
@@ -3662,3 +3766,49 @@ def test_a_swap_onto_a_source_the_entry_reads_is_refused(
     assert result.stderr == (
         f"{name}: --swap t u swaps onto u, which the entry already reads\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("make_entry", "args", "state", "leaves"),
+    (
+        pytest.param(
+            lambda w: beside_v(w, w.con),
+            ("--dry-run",),
+            "preview",
+            {("u", "equal"), ("v", "equal")},
+            id="preview",
+        ),
+        pytest.param(
+            over_u_without_a, (), "conflict", {("u", "changed")}, id="conflict"
+        ),
+        pytest.param(
+            beside_changed_v,
+            (),
+            "refused",
+            {("u", "equal"), ("v", "changed")},
+            id="changed",
+        ),
+        pytest.param(
+            beside_unreachable_v,
+            (),
+            "unreachable",
+            {("u", "equal"), ("v", "unreachable")},
+            id="unreachable",
+        ),
+    ),
+)
+def test_a_swap_prints_its_document_with_the_swapped_to_source(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    make_entry: Callable[[SimpleNamespace], str],
+    args: tuple[str, ...],
+    state: str,
+    leaves: set[tuple[str, str]],
+) -> None:
+    name = make_entry(world)
+
+    _, document = rebase_json(runner, world, name, "--swap", "t", "u", *args)
+    assert document["state"] == state, document
+    assert {
+        (leaf["name"], leaf["state"]) for leaf in document["drift"]["leaves"]
+    } == leaves

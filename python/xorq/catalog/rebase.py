@@ -135,7 +135,8 @@ from xorq.common.exceptions import (
     SchemaRefreshError,
     UnmatchedSourceError,
 )
-from xorq.ibis_yaml.enums import DumpFiles
+from xorq.common.utils.node_utils import update_read_kwargs
+from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
 from xorq.ibis_yaml.packager import parse_python_minor
 
 
@@ -240,8 +241,9 @@ def rename_refusal(details: Iterable[str]) -> str | None:
 
 @frozen
 class Swap:
-    """``--swap OLD NEW``: the table source recorded as ``old`` now reads the
-    table ``new``, in the same namespace on the same connection."""
+    """``--swap OLD NEW``: the source recorded as ``old`` now reads ``new``
+    on the same connection: a table beside it in its namespace, or, for an
+    external read, the one path ``new`` by the same method and kwargs."""
 
     old = field(validator=instance_of(str))
     new = field(validator=instance_of(str))
@@ -1001,15 +1003,11 @@ def swap_refusal(swap: Swap, by_key: dict[LeafKey, SourceLeaf] | str) -> str | N
     match by_key:
         case str():
             return f"--swap {by_key}"
-        case {**leaves} if (kind := next(iter(leaves.values())).kind) != (
-            LeafKind.DATABASE_TABLE
-        ):
-            return (
-                f"--swap {swap.old!r} is a {kind}; only a "
-                f"{LeafKind.DATABASE_TABLE} can be swapped"
-            )
         # `old` spells the namespace too: `aux.t t` is `t` back onto itself.
-        case {**leaves} if any(leaf.table == swap.new for leaf in leaves.values()):
+        case {**leaves} if any(
+            leaf.kind == LeafKind.DATABASE_TABLE and leaf.table == swap.new
+            for leaf in leaves.values()
+        ):
             return f"--swap {swap} swaps nothing"
         # A snapshot id is one table's: `new` has none of `old`'s.
         case {**leaves} if any(
@@ -1023,9 +1021,19 @@ def swap_refusal(swap: Swap, by_key: dict[LeafKey, SourceLeaf] | str) -> str | N
             return None
 
 
-def swapped_leaf(leaf: SourceLeaf, table: str) -> SourceLeaf:
-    """``leaf`` reading ``table`` instead, in its namespace."""
-    return evolve(leaf, table=table, name=table_name(leaf.namespace, table))
+def swapped_leaf(leaf: SourceLeaf, new: str) -> SourceLeaf:
+    """``leaf`` reading ``new`` instead: a read's one path, or a table in
+    ``leaf``'s namespace."""
+    if leaf.kind == LeafKind.READ:
+        return evolve(
+            leaf,
+            name=new,
+            paths=(new,),
+            read_kwargs=update_read_kwargs(
+                leaf.read_kwargs, ((ReadKwarg.hash_path, new),)
+            ),
+        )
+    return evolve(leaf, table=new, name=table_name(leaf.namespace, new))
 
 
 def swapped_leaves(
@@ -1033,11 +1041,21 @@ def swapped_leaves(
 ) -> dict[LeafKey, SourceLeaf]:
     """``leaf_key`` -> the leaf as it reads once swapped, for each source
     ``swaps`` names, found as ``--rename`` finds one. Refuses, all at once, a
-    swap naming no source, sources on several connections, a read, or a
-    swap onto a table another swap, or a source left as is, reads: they
-    would share one ``--rename`` plan.
+    swap naming no source, sources on several connections, a bundled read,
+    or a swap onto a table another swap, or a source left as is, reads:
+    they would share one ``--rename`` plan.
     """
-    resolved = {swap: renamed_source(catalog_entry, record, swap.old) for swap in swaps}
+    bundled = {
+        leaf.name
+        for leaf in record.source_leaves
+        if leaf.bundled and leaf.kind == LeafKind.READ
+    }
+    resolved = {
+        swap: f"{swap.old!r} is a bundled read; only an external read can be swapped"
+        if swap.old in bundled
+        else renamed_source(catalog_entry, record, swap.old)
+        for swap in swaps
+    }
     refused = {
         swap: detail
         for swap, by_key in resolved.items()
@@ -1341,13 +1359,15 @@ def rebase_entry(
     ``new`` the source recorded too raises a ``RenameWarning``; a derived
     result's ``renames`` are the ones applied.
 
-    ``swaps`` (``Swap``s, or ``(old, new)``) re-point each table source named
-    ``old`` to the table ``new`` beside it: the sweep probes ``new`` against
+    ``swaps`` (``Swap``s, or ``(old, new)``) re-point each source named
+    ``old`` to ``new``: a table beside it, or an external read's new path,
+    read by the same method and kwargs. The sweep probes ``new`` against
     what ``old`` recorded, and the rebase goes on as over drift, so a swap
     with no schema change is still a new entry. A swap is refused, before
-    the sweep, as a ``--rename`` would be, or if ``old`` is a read; after it,
-    if a source no swap names is not ``EQUAL``, so a new entry is never both
-    swapped and drifted. A rename names a swapped source by ``old``.
+    the sweep, as a ``--rename`` would be, or if ``old`` is a bundled read;
+    after it, if a source no swap names is not ``EQUAL``, so a new entry is
+    never both swapped and drifted. A rename names a swapped source by
+    ``old``.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -1462,9 +1482,7 @@ def rebase_entry(
             # which bundled reads point into, alive only as long as the expression.
             loaded = catalog_entry.load_expr(cache_dir=cache_dir)
             try:
-                repointed = repoint_tables(
-                    loaded, {key: leaf.table for key, leaf in swapped.items()}
-                )
+                repointed = repoint_tables(loaded, swapped)
                 # Only the loaded expression holds each binding's marked rename:
                 # a --rename one would skip, onto a column it reads as its own,
                 # is the user's to fix, so refused as a bad --rename, not a
