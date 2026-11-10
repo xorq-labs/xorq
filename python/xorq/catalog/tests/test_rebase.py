@@ -3553,6 +3553,35 @@ def test_a_swap_carries_the_new_file_into_a_bundled_read(
     ]
 
 
+def test_a_bundled_swap_beside_only_unprobed_sources_is_refused(
+    runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bundled read is the only source the sweep can probe: what it can't
+    prove unchanged blocks the swap, not an UNPROBED that drops it."""
+    con = xo.connect()
+    read = deferred_read_parquet(
+        write_file(world.tmp_path / "m25.parquet", RECORDED), con, table_name="r"
+    )
+    name = world.catalog.add(
+        read.union(world.con.table("t").into_backend(con, "t_in"))
+    ).name
+    (bundled,) = bundled_reads(reopen(world).get_catalog_entry(name))
+    checkable = drift.is_checkable
+    monkeypatch.setattr(
+        drift,
+        "is_checkable",
+        lambda leaf, record: leaf.name != "t" and checkable(leaf, record),
+    )
+
+    new = write_file(world.tmp_path / "m26.parquet", ELSEWHERE)
+    result = rebase(runner, world, name, "--swap", f"reads/{bundled}", str(new))
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"{name}: 't' could not be checked; a swap needs every other source unchanged\n"
+    )
+    assert set(reopen(world).list()) == {world.name, name}
+
+
 def test_a_swapped_bundled_read_takes_a_rename(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:

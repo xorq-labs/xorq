@@ -1506,6 +1506,12 @@ def rebase_entry(
             return RebaseResult(
                 RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
             )
+        if unprobed and swapped:
+            raise RebaseError(
+                f"{catalog_entry.name}: {quoted(unprobed)} could not be checked; "
+                "a swap needs every other source unchanged",
+                RebaseFailure.REFUSED,
+            )
         if unprobed:
             # Nothing can be refreshed, so nothing is loaded or written, and the
             # aliases are checked as on a no-op.
