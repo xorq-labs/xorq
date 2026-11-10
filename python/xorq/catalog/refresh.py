@@ -517,6 +517,46 @@ def refresh_schemas(
     return refreshed
 
 
+def repoint_tables(expr: Any, tables: Mapping[LeafKey, str]) -> Any:
+    """``expr`` with each table source ``tables`` keys (``leaf_key`` -> table
+    name) reading that table instead, in its namespace, at its recorded schema.
+
+    ``refresh_schemas`` then rebuilds it over the new table's live schema,
+    keyed under the new name. Raises if a key matches no source.
+    """
+    if not tables:
+        return expr
+    matched: set[LeafKey] = set()
+    candidates = {
+        (kind, name, snapshot_id, schema)
+        for (kind, _, name, snapshot_id, schema) in tables
+    }
+
+    def replacer(node: Node, kwargs: dict | None) -> Node:
+        if source_identity(node) in candidates and (key := op_key(node)) in tables:
+            matched.add(key)
+            return recreate(node, name=tables[key])
+        if kwargs is None or isinstance(node, opaque_ops):
+            return node
+        return recreate_over(node, kwargs)
+
+    repointed = replace_nodes(
+        replacer,
+        expr,
+        recreate=recreate_changed,
+        stop=lambda node: isinstance(node, CacheTag),
+    ).to_expr()
+    if unmatched := [key for key in tables if key not in matched]:
+        refuse(
+            (
+                (kind, f"{name} matched no source of the loaded expression")
+                for (kind, _, name, _, _) in unmatched
+            ),
+            error_type=UnmatchedSourceError,
+        )
+    return repointed
+
+
 def live_schemas(
     record: BuildRecord, reports: Iterable[LeafReport]
 ) -> dict[LeafKey, Schema]:

@@ -788,9 +788,12 @@ def checkable_leaves(record: BuildRecord) -> tuple[SourceLeaf, ...]:
 
 
 def iter_leaf_reports(
-    record: BuildRecord, con_cache: dict | None = None
+    record: BuildRecord,
+    con_cache: dict | None = None,
+    leaves: Iterable[SourceLeaf] | None = None,
 ) -> Iterator[LeafReport]:
-    """One report per checkable leaf, yielded as each probe finishes.
+    """One report per checkable leaf, or per one of ``leaves``, yielded as each
+    probe finishes.
 
     Streaming matters: a dead remote can take ~19 s to fail and cannot be
     interrupted from Python, so buffering would turn slow progress into a hang.
@@ -802,7 +805,7 @@ def iter_leaf_reports(
     owned = con_cache is None
     con_cache = {} if owned else con_cache
     try:
-        for leaf in checkable_leaves(record):
+        for leaf in checkable_leaves(record) if leaves is None else leaves:
             # A defect in one leaf -- a malformed namespace out of
             # `table_location`, an unhandled kind out of `get_schema_reader`, a
             # missing or dangling profile out of `get_leaf_profile` --

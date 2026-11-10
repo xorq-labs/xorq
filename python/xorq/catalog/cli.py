@@ -1295,6 +1295,14 @@ def check_sources(
     help="Read SOURCE's recorded column OLD from its live column NEW, keeping "
     "the name OLD (repeatable).",
 )
+@click.option(
+    "--swap",
+    "swaps",
+    nargs=2,
+    multiple=True,
+    metavar="OLD NEW",
+    help="Re-point the table source OLD to the table NEW beside it (repeatable).",
+)
 @json_option
 @click.pass_context
 def rebase(
@@ -1310,6 +1318,7 @@ def rebase(
     add: bool,
     builds_dir: str | None,
     renames: tuple[tuple[str, str, str], ...],
+    swaps: tuple[tuple[str, str], ...],
     as_json: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
@@ -1366,6 +1375,15 @@ def rebase(
     NEW the source had recorded too is allowed, with a warning: rebase can't
     tell a mistyped NEW from a column dropped and replaced by the renamed one.
 
+    --swap points a table source somewhere else: `--swap t u` reads table u,
+    in t's namespace on t's connection, wherever the entry read t. OLD is a
+    source's name as `check-sources` prints it, found as --rename finds one;
+    u is probed against what t recorded, and the rebase goes on as over
+    drift, so a swap is a new entry even with no schema change, and one u
+    no longer fits conflicts. A --swap is refused when OLD names no source,
+    sources on several connections, or a read. One that swaps a source to
+    itself or twice, or comes with a --rename, is an invalid option.
+
     \b
     Exit codes:
       0  no drift, drift not ruled out (no source could be probed), or
@@ -1380,7 +1398,8 @@ def rebase(
          another entry than the old or new one (once there is a new entry),
          ENTRY is an alias the pull moved or removed, a --rename is refused
          (see above), a probed source matched no source of the loaded
-         expression, --no-add found its BUILDS_DIR/<hash> taken, or a
+         expression, a --swap is refused (see above), --no-add found its
+         BUILDS_DIR/<hash> taken, or a
          write failed
          (the new entry and its alias moves are rolled back locally; if that
          fails too, the error names what is left, and --json says
@@ -1391,7 +1410,8 @@ def rebase(
          failed; or the options were invalid (--move-aliases with
          --only-alias, --no-add with --dry-run or an alias option,
          --builds-dir without --no-add, a --rename that repeats a column of
-         its source or renames one to itself); nothing written
+         its source or renames one to itself, a --swap that swaps a source
+         to itself or twice, or comes with a --rename); nothing written
       3  a rebase was derived but not cataloged: --dry-run printed its
          hash, or --no-add its build directory
       4  conflict: an op no longer fits its new inputs, or a source's
@@ -1424,6 +1444,7 @@ def rebase(
       xorq catalog rebase prod-matches --dry-run
       xorq catalog rebase prod-matches --no-add --builds-dir builds
       xorq catalog rebase prod-matches --rename matches team_id team
+      xorq catalog rebase prod-matches --swap matches matches_v2
     """
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
@@ -1447,6 +1468,7 @@ def rebase(
             add=add,
             builds_dir=builds_dir,
             renames=renames,
+            swaps=swaps,
         )
     except RebaseOptionsError as e:
         raise click.UsageError(str(e)) from e
@@ -1483,6 +1505,7 @@ def rebase(
                 add=add,
                 builds_dir=builds_dir,
                 renames=renames,
+                swaps=swaps,
             )
         except Exception as e:
             # The handler prints an error and no document; with --json, a
