@@ -3504,18 +3504,49 @@ def test_a_swap_onto_a_file_its_reader_cannot_read_is_refused(
     assert set(reopen(world).list()) == {world.name, name}
 
 
-def test_a_swap_of_a_bundled_read_is_refused(
+def test_a_swap_carries_the_new_file_into_a_bundled_read(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    path = write_file(world.tmp_path / "t.parquet", RECORDED)
+    """A bundled read stays bundled: the new archive holds the new file's
+    bytes, not the old one's, and runs with the new file gone. A bundled read
+    the swap does not name is copied over unchanged."""
+    old = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    new = write_file(world.tmp_path / "m26.parquet", ELSEWHERE)
+    kept = write_file(
+        world.tmp_path / "k.parquet", pa.table({"a": [1, 2, 5, 6], "w": [1, 2, 3, 4]})
+    )
+    con = xo.connect()
+    read = deferred_read_parquet(old, con, table_name="r")
     name = world.catalog.add(
-        deferred_read_parquet(path, xo.connect(), table_name="t")
+        read.join(deferred_read_parquet(kept, con, table_name="k"), "a")
     ).name
-    (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).source_leaves
+    entry = reopen(world).get_catalog_entry(name)
+    (swapped,) = (
+        leaf for leaf in drift.read_record(entry).source_leaves if "b" in leaf.recorded
+    )
+    recorded = bundled_reads(entry)
+    new_bytes = new.read_bytes()
 
-    result = rebase(runner, world, name, "--swap", leaf.name, "u.parquet")
-    assert result.exit_code == 1, result.output
-    assert "is a bundled read; only an external read can be swapped" in (result.stderr)
+    result = rebase(runner, world, name, "--swap", swapped.name, str(new), "--json")
+    assert result.exit_code == 0, result.output
+    new_name = json.loads(result.stdout)["new_entry"]
+    new.unlink()
+    reopen(world).remove(name)
+
+    rebased = reopen(world).get_catalog_entry(new_name)
+    after = bundled_reads(rebased)
+    # The swapped member is replaced by the new file; the other is kept as is.
+    unswapped = {
+        member: data
+        for member, data in recorded.items()
+        if member != Path(swapped.name).name
+    }
+    assert sorted(after.values()) == sorted((*unswapped.values(), new_bytes))
+    rows = rebased.load_expr().execute()
+    assert rows.sort_values("a").to_dict("records") == [
+        {"a": 5, "b": "p", "w": 3},
+        {"a": 6, "b": "q", "w": 4},
+    ]
 
 
 @pytest.mark.parametrize(

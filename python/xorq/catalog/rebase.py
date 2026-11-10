@@ -991,21 +991,20 @@ def quoted(names: Iterable[str]) -> str:
 
 
 def renamed_source(
-    catalog_entry: CatalogEntry, record: BuildRecord, name: str
+    catalog_entry: CatalogEntry,
+    record: BuildRecord,
+    name: str,
+    leaves: tuple[SourceLeaf, ...],
 ) -> dict[LeafKey, SourceLeaf] | str:
-    """``leaf_key`` -> leaf for the one external source ``name`` is, or why
-    there is none.
+    """``leaf_key`` -> leaf for the one source of ``leaves`` ``name`` is, or
+    why there is none.
 
     One source can hold several keys: a table bound before and after it grew
     is recorded at two schemas. One name on two connections is two sources,
     and refused, as is no source at all.
     """
     try:
-        by_key = {
-            leaf_key(leaf, record): leaf
-            for leaf in record.external_leaves
-            if leaf.name == name
-        }
+        by_key = {leaf_key(leaf, record): leaf for leaf in leaves if leaf.name == name}
     except Exception as e:
         # The profile the sweep would rank `unreadable`: the same exit.
         raise RebaseError(
@@ -1013,7 +1012,7 @@ def renamed_source(
             RebaseFailure.UNREACHABLE,
         ) from e
     if not by_key:
-        sources = dict.fromkeys(leaf.name for leaf in record.external_leaves)
+        sources = dict.fromkeys(leaf.name for leaf in leaves)
         return f"names no source {name!r}; its sources: {quoted(sorted(sources))}"
     # `leaf_key` less its snapshot pin and recorded schema: kind, profile, name.
     if (count := len({key[:3] for key in by_key})) > 1:
@@ -1049,7 +1048,8 @@ def swap_refusal(swap: Swap, by_key: dict[LeafKey, SourceLeaf] | str) -> str | N
 
 def swapped_leaf(leaf: SourceLeaf, new: str) -> SourceLeaf:
     """``leaf`` reading ``new`` instead: a read's one path, or a table in
-    ``leaf``'s namespace."""
+    ``leaf``'s namespace. A bundled read stays bundled: the rebuild copies
+    ``new`` into the archive."""
     if leaf.kind == LeafKind.READ:
         return evolve(
             leaf,
@@ -1067,19 +1067,18 @@ def swapped_leaves(
 ) -> dict[LeafKey, SourceLeaf]:
     """``leaf_key`` -> the leaf as it reads once swapped, for each source
     ``swaps`` names, found as ``--rename`` finds one. Refuses, all at once, a
-    swap naming no source, sources on several connections, a bundled read,
-    or a swap onto a table another swap, or a source left as is, reads:
-    they would share one ``--rename`` plan.
+    swap naming no source, sources on several connections, or a swap onto
+    a table another swap, or a source left as is, reads: they would share
+    one ``--rename`` plan. A bundled read is named by its archive path, as
+    its record holds no other.
     """
-    bundled = {
-        leaf.name
+    swappable = record.external_leaves + tuple(
+        leaf
         for leaf in record.source_leaves
         if leaf.bundled and leaf.kind == LeafKind.READ
-    }
+    )
     resolved = {
-        swap: f"{swap.old!r} is a bundled read; only an external read can be swapped"
-        if swap.old in bundled
-        else renamed_source(catalog_entry, record, swap.old)
+        swap: renamed_source(catalog_entry, record, swap.old, swappable)
         for swap in swaps
     }
     refused = {
@@ -1110,7 +1109,9 @@ def swapped_leaves(
         f"--swap {swap} swaps onto {to[2]}, which the entry already reads"
         for swap, ids in onto.items()
         for to in ids
-        if isinstance(found := renamed_source(catalog_entry, record, to[2]), dict)
+        if isinstance(
+            found := renamed_source(catalog_entry, record, to[2], swappable), dict
+        )
         and any(key[:3] == to for key in found.keys() - moved)
     ]
     if details:
@@ -1208,7 +1209,7 @@ def plan_renames(
         )
     # Each source resolved once, however many of its columns are renamed.
     resolved = {
-        source: renamed_source(catalog_entry, record, source)
+        source: renamed_source(catalog_entry, record, source, record.external_leaves)
         for source in dict.fromkeys(rename.source for rename in renames)
     }
     moved_on = {
@@ -1404,11 +1405,11 @@ def rebase_entry(
     result's ``renames`` are the ones applied.
 
     ``swaps`` (``Swap``s, or ``(old, new)``) re-point each source named
-    ``old`` to ``new``: a table beside it, or an external read's new path,
-    read by the same method and kwargs. The sweep probes ``new`` against
-    what ``old`` recorded, and the rebase goes on as over drift, so a swap
-    with no schema change is still a new entry. A swap is refused, before
-    the sweep, as a ``--rename`` would be, or if ``old`` is a bundled read;
+    ``old`` to ``new``: a table beside it, or a read's new path, read by the
+    same method and kwargs; a bundled read copies ``new`` into the archive.
+    The sweep probes ``new`` against what ``old`` recorded, and the rebase
+    goes on as over drift, so a swap with no schema change is still a new
+    entry. A swap is refused, before the sweep, as a ``--rename`` would be;
     after it, if a source no swap names is not ``EQUAL``, so a new entry is
     never both swapped and drifted. A rename names a swapped source by
     ``old``.
@@ -1449,10 +1450,11 @@ def rebase_entry(
     # A swapped source is probed where it now points, not where it was: every
     # binding of it, though bindings that share a key share one `swapped` entry.
     tables = {swap.old: swap.new for swap in options.swaps}
+    # A bundled read is no checkable leaf, but once swapped it reads a new file.
     leaves = tuple(
         swapped_leaf(leaf, tables[leaf.name]) if leaf.name in tables else leaf
         for leaf in checkable_leaves(record)
-    )
+    ) + tuple(leaf for leaf in swapped.values() if leaf.bundled)
     # With no swap, nothing is left unswapped for the swap guard to refuse.
     unswapped = tuple(
         leaf for leaf in checkable_leaves(record) if tables and leaf.name not in tables

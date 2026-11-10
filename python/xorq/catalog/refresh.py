@@ -111,8 +111,14 @@ def source_identity(node: Node) -> SourceIdentity | None:
         case LeafKind.DATABASE_TABLE:
             name = node.to_expr().get_name()
         case LeafKind.READ:
-            # Same fallback as `SourceLeaf`.
-            path = dict(node.read_kwargs).get(ReadKwarg.hash_path) or node.name
+            # Same fallback as `SourceLeaf`. A loaded bundled read points into
+            # the extract dir; its record names it by its archive path.
+            kwargs = dict(node.read_kwargs)
+            path = (
+                kwargs.get(ReadKwarg.read_path)
+                or kwargs.get(ReadKwarg.hash_path)
+                or node.name
+            )
             name = join_read_path(path)
         case _:
             return None
@@ -536,13 +542,20 @@ def refresh_schemas(
 
 def repointed_source(node: Node, leaf: SourceLeaf) -> Node:
     """``node`` reading where its swapped ``leaf`` does: a read keeps its
-    method and kwargs but its path, a table is renamed in its namespace."""
+    method and kwargs but its path, a table is renamed in its namespace.
+
+    A bundled read drops its archive path, so the dump bundles the new file's
+    bytes under a path derived from them.
+    """
     if isinstance(node, Read):
         path = dict(leaf.read_kwargs)[ReadKwarg.hash_path]
+        read_kwargs = update_read_kwargs(
+            node.read_kwargs, ((ReadKwarg.hash_path, path),)
+        )
         return recreate(
             node,
-            read_kwargs=update_read_kwargs(
-                node.read_kwargs, ((ReadKwarg.hash_path, path),)
+            read_kwargs=tuple(
+                (key, value) for key, value in read_kwargs if key != ReadKwarg.read_path
             ),
         )
     return recreate(node, name=leaf.table)
