@@ -3553,6 +3553,30 @@ def test_a_swap_carries_the_new_file_into_a_bundled_read(
     ]
 
 
+def test_a_swapped_bundled_read_takes_a_rename(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`--rename` names a swapped bundled read by its archive path; an
+    unswapped one can't drift, so a rename of it names no source."""
+    old = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    new = write_file(
+        world.tmp_path / "m26.parquet", ELSEWHERE.rename_columns(["x", "b"])
+    )
+    read = deferred_read_parquet(old, xo.connect(), table_name="r")
+    name = world.catalog.add(read.filter(read.a > 0)).name
+    (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).source_leaves
+    rename = ("--rename", leaf.name, "a", "x")
+
+    result = rebase(runner, world, name, *rename)
+    assert result.exit_code == 1, result.output
+    assert f"--rename names no source '{leaf.name}'" in result.stderr
+
+    result = rebase(runner, world, name, "--swap", leaf.name, str(new), *rename)
+    assert result.exit_code == 0, result.output
+    rebased = reopen(world).get_catalog_entry(result.stdout.strip().splitlines()[-1])
+    assert list(rebased.load_expr().execute()["a"]) == [5, 6]
+
+
 def bundled_read_json(path: Path, name: str, **kwargs: int) -> xo.Expr:
     """A bundled duckdb ``read_json`` recorded at ``a: int64``."""
     con = xo.duckdb.connect()

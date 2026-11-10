@@ -1192,12 +1192,14 @@ def plan_renames(
     record: BuildRecord,
     renames: tuple[Rename, ...],
     unprobed: tuple[str, ...],
+    leaves: tuple[SourceLeaf, ...],
 ) -> tuple[dict[LeafKey, dict[str, str]], tuple[Rename, ...], list[str]]:
     """``leaf_key`` -> recorded name -> live name for each rename the record
     allows, ``renames`` with ``consumes`` set, and why each other one fails
     against the record. A ``new`` the source also recorded is allowed and
     warned about: from the schemas alone, a column that looks unchanged can't
     be told apart from one that was dropped and replaced by the renamed one.
+    ``leaves`` are the sources a ``--rename`` can name.
 
     Not refused here: ``check_live_renames`` refuses these together with what
     fails against the live schema, after the sweep, so one run names every bad
@@ -1215,7 +1217,7 @@ def plan_renames(
         )
     # Each source resolved once, however many of its columns are renamed.
     resolved = {
-        source: renamed_source(catalog_entry, record, source, record.external_leaves)
+        source: renamed_source(catalog_entry, record, source, leaves)
         for source in dict.fromkeys(rename.source for rename in renames)
     }
     moved_on = {
@@ -1456,9 +1458,10 @@ def rebase_entry(
     # A swapped source is probed where it now points, not where it was: every
     # binding of it, though bindings that share a key share one `swapped` entry.
     tables = {swap.old: swap.new for swap in options.swaps}
-    probed = checkable_leaves(record) + tuple(
+    swapped_bundled = tuple(
         leaf for leaf in bundled_reads(record) if leaf.name in tables
     )
+    probed = checkable_leaves(record) + swapped_bundled
     leaves = tuple(
         swapped_leaf(leaf, tables[leaf.name]) if leaf.name in tables else leaf
         for leaf in probed
@@ -1474,8 +1477,13 @@ def rebase_entry(
             raise refusal
         # Inside: a source whose profile is unreadable is refused with the
         # sweep, as it is without --rename.
+        # A bundled read is renamed only where swapped: elsewhere it can't drift.
         planned, checked_renames, failed = plan_renames(
-            catalog_entry, record, options.renames, unprobed
+            catalog_entry,
+            record,
+            options.renames,
+            unprobed,
+            record.external_leaves + swapped_bundled,
         )
         # `--rename` names a swapped source as recorded; the sweep keys it, and
         # the rebuild finds it, where it now points. Reported by its old name.
