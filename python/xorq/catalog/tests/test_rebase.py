@@ -792,6 +792,48 @@ def test_build_only_keeps_an_external_read_external_through_add(
     assert rebased.stdout.strip() == build_path.name
 
 
+def bundled_reads(entry: CatalogEntry) -> dict[str, bytes]:
+    """The archive's bundled read files, by name."""
+    with zipfile.ZipFile(entry.catalog_path) as zf:
+        return {
+            Path(member).name: zf.read(member)
+            for member in zf.namelist()
+            if Path(member).parent.name == "reads"
+        }
+
+
+def test_a_rebase_copies_a_bundled_read_from_the_old_archive(
+    world: SimpleNamespace, tmp_path: Path
+) -> None:
+    """A bundled read beside a drifted table is re-dumped from the old
+    archive's extract dir: its source file can be gone, and the new entry runs
+    with the old one removed. The join's selection is recorded, so `t`'s new
+    column moves the hash but not the rows."""
+    path = tmp_path / "r.parquet"
+    pa.table({"a": [1, 2], "v": ["p", "q"]}).to_pandas().to_parquet(path, index=False)
+    con = xo.connect()
+    read = deferred_read_parquet(path, con, table_name="r")
+    t = world.con.table("t").into_backend(con, "t_in")
+    old = world.catalog.add(read.join(t, "a"))
+    recorded = bundled_reads(old)
+    assert len(recorded) == 1
+    path.unlink()
+    replace_t(world, GROWN)
+
+    result = rebase_entry(old)
+    assert result.status == RebaseStatus.REBASED
+    new = result.new_entry
+    assert bundled_reads(new) == recorded
+
+    reopen(world).remove(old.name)
+    assert not old.catalog_path.exists()
+    rows = reopen(world).get_catalog_entry(new.name).load_expr().execute()
+    assert rows.sort_values("a").to_dict("records") == [
+        {"a": 1, "v": "p", "b": "x"},
+        {"a": 2, "v": "q", "b": "y"},
+    ]
+
+
 def test_build_only_writes_into_builds_dir(
     runner: CliRunner, world: SimpleNamespace, tmp_path: Path, cwd: Path
 ) -> None:
