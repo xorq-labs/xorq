@@ -68,6 +68,7 @@ import sys
 import tempfile
 import warnings
 import zipfile
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -88,6 +89,7 @@ from xorq.catalog.catalog import (
 from xorq.catalog.constants import REBASED_FROM
 from xorq.catalog.drift import (
     LeafReport,
+    checkable_leaves,
     format_error,
     iter_leaf_reports,
     make_profile,
@@ -98,7 +100,7 @@ from xorq.catalog.drift import (
     state_and_code,
     unchecked_leaves,
 )
-from xorq.catalog.enums import RebaseFailure, RebaseStatus, Verdict
+from xorq.catalog.enums import LeafKind, RebaseFailure, RebaseStatus, Verdict
 from xorq.catalog.exceptions import (
     CatalogPushError,
     ContentIntegrityError,
@@ -109,7 +111,7 @@ from xorq.catalog.exceptions import (
     RenameWarning,
     RollbackError,
 )
-from xorq.catalog.inspection import BuildRecord, SourceLeaf
+from xorq.catalog.inspection import BuildRecord, SourceLeaf, table_name
 from xorq.catalog.refresh import (
     LeafKey,
     ambiguous_renames,
@@ -117,6 +119,7 @@ from xorq.catalog.refresh import (
     leaf_key,
     live_schemas,
     refresh_schemas,
+    repoint_tables,
 )
 from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_zip
 from xorq.common.exceptions import (
@@ -227,6 +230,36 @@ def rename_refusal(details: Iterable[str]) -> str | None:
             return "--rename refused:\n" + "\n".join(f"  {d}" for d in many)
 
 
+@frozen
+class Swap:
+    """``--swap OLD NEW``: the table source recorded as ``old`` now reads the
+    table ``new``, in the same namespace on the same connection."""
+
+    old = field(validator=instance_of(str))
+    new = field(validator=instance_of(str))
+
+    def __str__(self) -> str:
+        return f"{self.old} {self.new}"
+
+
+def swap_tuple(swaps: Iterable[Swap | tuple[str, str]]) -> tuple:
+    # A bare string would be read as one swap per character.
+    if isinstance(swaps, str):
+        raise TypeError("swaps is an iterable of (old, new), not a string")
+    return tuple(swap if isinstance(swap, Swap) else Swap(*swap) for swap in swaps)
+
+
+def repeated_swaps(swaps: tuple[Swap, ...]) -> Iterator[str]:
+    """Why each of ``swaps`` that swaps a source to itself, or twice, or to no
+    table, is refused."""
+    yield from (f"--swap {swap.old} names no table" for swap in swaps if not swap.new)
+    yield from (
+        f"--swap {swap} swaps nothing" for swap in swaps if swap.old == swap.new
+    )
+    counts = Counter(swap.old for swap in swaps)
+    yield from (f"--swap {old} is given twice" for old, n in counts.items() if n > 1)
+
+
 def builds_path(builds_dir: str | Path) -> Path:
     # `Path("")` is `.`, which would write the build beside the caller's files.
     if not str(builds_dir):
@@ -255,6 +288,11 @@ class RebaseOptions:
         converter=rename_tuple,
         validator=deep_iterable(instance_of(Rename), instance_of(tuple)),
     )
+    swaps = field(
+        default=(),
+        converter=swap_tuple,
+        validator=deep_iterable(instance_of(Swap), instance_of(tuple)),
+    )
 
     def __attrs_post_init__(self) -> None:
         if self.move_aliases and self.only_aliases:
@@ -273,6 +311,10 @@ class RebaseOptions:
                 "--builds-dir applies only with --no-add, which writes the build there"
             )
         if message := rename_refusal(repeated_renames(self.renames)):
+            raise RebaseOptionsError(message)
+        if self.swaps and self.renames:
+            raise RebaseOptionsError("--rename does not combine with --swap yet")
+        if message := "; ".join(repeated_swaps(self.swaps)):
             raise RebaseOptionsError(message)
 
     @property
@@ -942,6 +984,66 @@ def renamed_source(
     return by_key
 
 
+def swap_refusal(swap: Swap, by_key: dict[LeafKey, SourceLeaf] | str) -> str | None:
+    """Why ``swap`` is refused, given what ``renamed_source`` found, if it is.
+
+    One source is one kind: ``renamed_source`` refuses a name on two connections.
+    """
+    match by_key:
+        case str():
+            return f"--swap {by_key}"
+        case {**leaves} if (kind := next(iter(leaves.values())).kind) != (
+            LeafKind.DATABASE_TABLE
+        ):
+            return (
+                f"--swap {swap.old!r} is a {kind}; only a "
+                f"{LeafKind.DATABASE_TABLE} can be swapped"
+            )
+        # `old` spells the namespace too: `aux.t t` is `t` back onto itself.
+        case {**leaves} if any(leaf.table == swap.new for leaf in leaves.values()):
+            return f"--swap {swap} swaps nothing"
+        # A snapshot id is one table's: `new` has none of `old`'s.
+        case {**leaves} if any(
+            leaf.snapshot_id is not None for leaf in leaves.values()
+        ):
+            return (
+                f"--swap {swap.old!r} is pinned to a snapshot, which "
+                f"{swap.new!r} does not have"
+            )
+        case _:
+            return None
+
+
+def swapped_leaf(leaf: SourceLeaf, table: str) -> SourceLeaf:
+    """``leaf`` reading ``table`` instead, in its namespace."""
+    return evolve(leaf, table=table, name=table_name(leaf.namespace, table))
+
+
+def swapped_leaves(
+    catalog_entry: CatalogEntry, record: BuildRecord, swaps: tuple[Swap, ...]
+) -> dict[LeafKey, SourceLeaf]:
+    """``leaf_key`` -> the leaf as it reads once swapped, for each source
+    ``swaps`` names, found as ``--rename`` finds one. Refuses, all at once, a
+    swap naming no source, sources on several connections, or a read.
+    """
+    resolved = {swap: renamed_source(catalog_entry, record, swap.old) for swap in swaps}
+    details = [
+        detail
+        for swap, by_key in resolved.items()
+        if (detail := swap_refusal(swap, by_key)) is not None
+    ]
+    if details:
+        raise RebaseError(
+            f"{catalog_entry.name}: {'; '.join(details)}",
+            RebaseFailure.REFUSED,
+        )
+    return {
+        key: swapped_leaf(leaf, swap.new)
+        for swap, by_key in resolved.items()
+        for key, leaf in by_key.items()
+    }
+
+
 def plan_renames(
     catalog_entry: CatalogEntry,
     record: BuildRecord,
@@ -1132,6 +1234,7 @@ def rebase_entry(
     add: bool = True,
     builds_dir: str | Path | None = None,
     renames: Iterable[Rename | tuple[str, str, str]] = (),
+    swaps: Iterable[Swap | tuple[str, str]] = (),
 ) -> RebaseResult:
     """``catalog_entry`` re-derived over its live sources, as a new entry.
 
@@ -1159,6 +1262,12 @@ def rebase_entry(
     of whose sources can be probed, is refused rather than ignored. One whose
     ``new`` the source recorded too raises a ``RenameWarning``; a derived
     result's ``renames`` are the ones applied.
+
+    ``swaps`` (``Swap``s, or ``(old, new)``) re-point each table source named
+    ``old`` to the table ``new`` beside it: the sweep probes ``new`` against
+    what ``old`` recorded, and the rebase goes on as over drift, so a swap
+    with no schema change is still a new entry. A swap is refused, before
+    the sweep, as a ``--rename`` would be, or if ``old`` is a read.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -1170,6 +1279,7 @@ def rebase_entry(
         add=add,
         builds_dir=builds_dir,
         renames=renames,
+        swaps=swaps,
     )
     only_aliases, builds_dir = options.only_aliases, options.build_target_dir
     # `ExprDumper` validates `cache_dir` as a `Path`.
@@ -1190,7 +1300,15 @@ def rebase_entry(
         only_aliases=only_aliases,
         entry_alias=entry_alias,
     )
-    reports = tuple(iter_leaf_reports(record))
+    swapped = swapped_leaves(catalog_entry, record, options.swaps)
+    # A swapped source is probed where it now points, not where it was: every
+    # binding of it, though bindings that share a key share one `swapped` entry.
+    tables = {swap.old: swap.new for swap in options.swaps}
+    leaves = tuple(
+        swapped_leaf(leaf, tables[leaf.name]) if leaf.name in tables else leaf
+        for leaf in checkable_leaves(record)
+    )
+    reports = tuple(iter_leaf_reports(record, leaves=leaves))
     # A refusal from here on reports the sweep, as a conflict does.
     with refusing_with(record=record, reports=reports):
         # Inside: a source whose profile is unreadable is refused with the
@@ -1201,8 +1319,11 @@ def rebase_entry(
         # Before the no-op: a rename of an unchanged source is refused, not
         # ignored.
         planned = check_live_renames(catalog_entry, record, reports, planned, failed)
-        # Only a sweep that probed every source can prove a no-op on its own.
-        if not unprobed and all(report.verdict == Verdict.EQUAL for report in reports):
+        # Only a sweep that probed every source can prove a no-op on its own,
+        # and a swap re-points a source even where its schema is unchanged.
+        if not (unprobed or swapped) and all(
+            report.verdict == Verdict.EQUAL for report in reports
+        ):
             # The new entry is this one, so each of `only_aliases` must be on it;
             # `alias` is not added.
             plan.evolved(new=catalog_entry.name, alias=None)
@@ -1252,7 +1373,10 @@ def rebase_entry(
             # the user's to fix, so refused as a bad --rename, not a conflict.
             refuse_renames(catalog_entry, ambiguous_renames(loaded, live, planned))
             try:
-                expr = refresh_schemas(loaded, live, planned)
+                repointed = repoint_tables(
+                    loaded, {key: leaf.table for key, leaf in swapped.items()}
+                )
+                expr = refresh_schemas(repointed, live, planned)
             except UnmatchedSourceError as e:
                 raise RebaseError(
                     f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED
@@ -1265,7 +1389,8 @@ def rebase_entry(
                         format_error(e.cause),
                         changed,
                         e.op_name,
-                        hints=rename_hints(record, changed, planned),
+                        # A --rename does not combine with a --swap yet.
+                        hints=() if swapped else rename_hints(record, changed, planned),
                     )
                 )
             warn_consumed(checked_renames)

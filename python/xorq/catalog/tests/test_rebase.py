@@ -2886,8 +2886,8 @@ def test_an_unchanged_binding_is_no_concern_of_a_rename(
     sweep = rebase_module.iter_leaf_reports
     pinned = tuple(pinned_columns.column_names)
 
-    def pinned_first(record: object) -> Iterator:
-        for report in sweep(record):
+    def pinned_first(record: object, **kwargs: object) -> Iterator:
+        for report in sweep(record, **kwargs):
             yield (
                 evolve(report, verdict=Verdict.EQUAL, live=report.leaf.recorded)
                 if tuple(report.leaf.recorded) == pinned
@@ -2914,8 +2914,8 @@ def test_a_rename_of_a_column_only_an_unchanged_binding_records_is_refused(
     replace_t(world, current.append_column("c", pa.array([1.5, 2.5])))
     sweep = rebase_module.iter_leaf_reports
 
-    def pinned_first(record: object) -> Iterator:
-        for report in sweep(record):
+    def pinned_first(record: object, **kwargs: object) -> Iterator:
+        for report in sweep(record, **kwargs):
             yield (
                 evolve(report, verdict=Verdict.EQUAL, live=report.leaf.recorded)
                 if tuple(report.leaf.recorded) == ("a", "b")
@@ -3203,3 +3203,156 @@ def test_rebase_entry_refuses_a_bare_string_of_renames(
 ) -> None:
     with pytest.raises(TypeError, match="not a string"):
         rebase_old(world, renames="t a x")
+
+
+ELSEWHERE = pa.table({"a": pa.array([5, 6], pa.int64()), "b": ["p", "q"]})
+
+
+@pytest.mark.parametrize("via", ("cli", "api"))
+def test_a_swap_reads_another_table_as_a_new_entry(
+    runner: CliRunner, world: SimpleNamespace, via: str
+) -> None:
+    world.con.create_table("u", ELSEWHERE.to_pandas())
+    # The old table need not be there: a swapped source is probed where it
+    # now points.
+    world.con.drop_table("t")
+
+    if via == "cli":
+        result = rebase(runner, world, world.name, "--swap", "t", "u")
+        assert result.exit_code == 0, result.output
+        new_name = result.stdout.strip()
+    else:
+        rebased = rebase_old(world, swaps=[("t", "u")], sync=False)
+        assert rebased.status == RebaseStatus.REBASED
+        new_name = rebased.new_entry.name
+    catalog = reopen(world)
+    new = catalog.get_catalog_entry(new_name)
+    assert new_name != world.name
+    assert new.rebased_from == world.name
+    assert list(new.load_expr().execute()["a"]) == [5, 6]
+    assert set(catalog.list()) == {world.name, new_name}
+
+
+def test_a_swap_onto_a_wider_table_reports_the_output_change(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    world.con.create_table("u", GROWN.to_pandas())
+
+    result = rebase(runner, world, world.name, "--swap", "t", "u", "--dry-run")
+    assert result.exit_code == 3, result.output
+    assert "Output: c float64 added" in result.stderr
+    assert set(reopen(world).list()) == {world.name}
+
+
+@pytest.mark.parametrize(
+    "table, headline",
+    (
+        pytest.param(
+            pa.table({"b": ["x", "y"]}),
+            "Field cannot be rebuilt; changed sources in entry: DatabaseTable u",
+            id="op-fails",
+        ),
+        pytest.param(None, "DatabaseTable u is gone", id="missing"),
+    ),
+)
+def test_a_swap_onto_a_table_that_does_not_fit_conflicts(
+    runner: CliRunner, world: SimpleNamespace, table: pa.Table | None, headline: str
+) -> None:
+    if table is not None:
+        world.con.create_table("u", table.to_pandas())
+
+    result = rebase(runner, world, world.name, "--swap", "t", "u")
+    assert result.exit_code == 4, result.output
+    assert headline in result.stderr.splitlines()[0]
+    assert set(reopen(world).list()) == {world.name}
+
+
+def test_a_swap_naming_no_source_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    world.con.create_table("u", ELSEWHERE.to_pandas())
+
+    result = rebase(runner, world, world.name, "--swap", "nope", "u")
+    assert result.exit_code == 1, result.output
+    assert "--swap names no source 'nope'; its sources: 't'" in result.stderr
+
+
+def test_a_swap_of_one_name_on_two_connections_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    other = SqliteBackend().connect(str(world.tmp_path / "other.sqlite"))
+    other.create_table("t", RECORDED.to_pandas())
+    t, other_t = world.con.table("t"), other.table("t")
+    name = world.catalog.add(t.select("a").union(other_t.select("a"))).name
+    world.con.create_table("u", ELSEWHERE.to_pandas())
+
+    result = rebase(runner, world, name, "--swap", "t", "u")
+    assert result.exit_code == 1, result.output
+    assert "--swap 't' names 2 sources" in result.stderr
+
+
+def test_a_swap_of_a_read_is_refused(runner: CliRunner, world: SimpleNamespace) -> None:
+    path = world.tmp_path / "t.parquet"
+    RECORDED.to_pandas().to_parquet(path, index=False)
+    read = deferred_read_parquet(path, xo.connect(), table_name="t")
+    name = world.catalog.add(read, relocate_reads=False).name
+
+    result = rebase(runner, world, name, "--swap", str(path), "u")
+    assert result.exit_code == 1, result.output
+    assert "is a Read; only a DatabaseTable can be swapped" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "args, message",
+    (
+        pytest.param(("--swap", "t", "t"), "--swap t t swaps nothing", id="itself"),
+        pytest.param(
+            ("--swap", "t", "u", "--swap", "t", "v"),
+            "--swap t is given twice",
+            id="twice",
+        ),
+        pytest.param(("--swap", "t", ""), "--swap t names no table", id="empty"),
+        pytest.param(
+            ("--swap", "t", "u", "--rename", "t", "a", "x"),
+            "--rename does not combine with --swap yet",
+            id="with-rename",
+        ),
+    ),
+)
+def test_a_swap_that_contradicts_itself_is_a_usage_error(
+    runner: CliRunner, world: SimpleNamespace, args: tuple[str, ...], message: str
+) -> None:
+    result = rebase(runner, world, world.name, *args)
+    assert result.exit_code == 2, result.output
+    assert message in result.stderr
+    with pytest.raises(ValueError, match=re.escape(message)):
+        rebase_old(
+            world,
+            swaps=[args[i + 1 : i + 3] for i, a in enumerate(args) if a == "--swap"],
+            renames=[
+                args[i + 1 : i + 4] for i, a in enumerate(args) if a == "--rename"
+            ],
+        )
+
+
+def test_a_swap_of_a_namespaced_source_to_its_own_table_is_refused(
+    world: SimpleNamespace,
+) -> None:
+    world.con.raw_sql(f"ATTACH DATABASE '{world.tmp_path / 'aux.sqlite'}' AS aux")
+    world.con.create_table("t", RECORDED.to_pandas(), database="aux")
+    aux_t = world.con.table("t", database="aux")
+    entry = world.catalog.add(aux_t.filter(aux_t.a > 1))
+
+    with pytest.raises(RebaseError, match=re.escape("--swap aux.t t swaps nothing")):
+        rebase_entry(entry, swaps=[("aux.t", "t")])
+    assert entry.name in reopen(world).list()
+
+
+def test_a_swapped_conflict_does_not_suggest_a_rename(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    world.con.create_table("u", pa.table({"b": ["x", "y"]}).to_pandas())
+
+    result = rebase(runner, world, world.name, "--swap", "t", "u")
+    assert result.exit_code == 4, result.output
+    assert "--rename" not in result.stderr

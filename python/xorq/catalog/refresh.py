@@ -132,6 +132,38 @@ def op_key(node: Node) -> LeafKey | None:
     return (kind, profile_key, name, snapshot_id, schema)
 
 
+def keyed_source(keys: Iterable[LeafKey]) -> Callable[[Node], LeafKey | None]:
+    """``node`` -> its ``op_key`` when that is one of ``keys``, else ``None``.
+
+    Screened by ``source_identity`` first: resolving a profile connects a lazy
+    backend.
+    """
+    keys = frozenset(keys)
+    candidates = {
+        (kind, name, snapshot_id, schema)
+        for (kind, _, name, snapshot_id, schema) in keys
+    }
+
+    def key_of(node: Node) -> LeafKey | None:
+        if source_identity(node) in candidates and (key := op_key(node)) in keys:
+            return key
+        return None
+
+    return key_of
+
+
+def refuse_unmatched(keys: Iterable[LeafKey], matched: set[LeafKey]) -> None:
+    """Raise, naming each, if one of ``keys`` matched no source."""
+    if unmatched := [key for key in keys if key not in matched]:
+        refuse(
+            (
+                (kind, f"{name} matched no source of the loaded expression")
+                for (kind, _, name, _, _) in unmatched
+            ),
+            error_type=UnmatchedSourceError,
+        )
+
+
 def with_live_schema(node: Node, schema: Schema) -> Node:
     """``node`` carrying ``schema``, including a read's schema ``read_kwargs``.
 
@@ -462,20 +494,11 @@ def refresh_schemas(
     if not live:
         return expr
     matched: set[LeafKey] = set()
-    # Screen before `op_key`: resolving a profile connects a lazy backend.
-    candidates = {
-        (kind, name, snapshot_id, schema)
-        for (kind, _, name, snapshot_id, schema) in live
-    }
+    refreshed_key = keyed_source(live)
     # Recreated bottom-up, the rename under a mark would keep its stale column
     # list over the refreshed source: the walk stops there, and the mark
     # rebuilds it from the mapping it holds.
     projects = marked_projects(expr)
-
-    def refreshed_key(node: Node) -> LeafKey | None:
-        if source_identity(node) in candidates and (key := op_key(node)) in live:
-            return key
-        return None
 
     def replacer(node: Node, kwargs: dict | None) -> Node:
         # A mark over a source stands for it, with the rename it holds.
@@ -506,15 +529,38 @@ def refresh_schemas(
         stop=lambda node: isinstance(node, CacheTag),
         filter=(lambda node: node not in projects) if projects else None,
     ).to_expr()
-    if unmatched := [key for key in live if key not in matched]:
-        refuse(
-            (
-                (kind, f"{name} matched no source of the loaded expression")
-                for (kind, _, name, _, _) in unmatched
-            ),
-            error_type=UnmatchedSourceError,
-        )
+    refuse_unmatched(live, matched)
     return refreshed
+
+
+def repoint_tables(expr: Any, tables: Mapping[LeafKey, str]) -> Any:
+    """``expr`` with each table source ``tables`` keys (``leaf_key`` -> table
+    name) reading that table instead, in its namespace, at its recorded schema.
+
+    ``refresh_schemas`` then rebuilds it over the new table's live schema,
+    keyed under the new name. Raises if a key matches no source.
+    """
+    if not tables:
+        return expr
+    matched: set[LeafKey] = set()
+    repointed_key = keyed_source(tables)
+
+    def replacer(node: Node, kwargs: dict | None) -> Node:
+        if (key := repointed_key(node)) is not None:
+            matched.add(key)
+            return recreate(node, name=tables[key])
+        if kwargs is None or isinstance(node, opaque_ops):
+            return node
+        return recreate_over(node, kwargs)
+
+    repointed = replace_nodes(
+        replacer,
+        expr,
+        recreate=recreate_changed,
+        stop=lambda node: isinstance(node, CacheTag),
+    ).to_expr()
+    refuse_unmatched(tables, matched)
+    return repointed
 
 
 def live_schemas(
