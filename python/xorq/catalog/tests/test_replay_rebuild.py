@@ -481,7 +481,6 @@ def test_replay_fetches_cached_pointer_content_before_copying(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("XORQ_CONTENT_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("XORQ_CONTENT_CACHE_MAX_BYTES", str(10**9))
     source = Catalog.from_repo_path(
         tmp_path / "source",
