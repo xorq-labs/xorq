@@ -76,9 +76,10 @@ import tempfile
 import warnings
 import zipfile
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from attr import Factory, asdict, converters, evolve, field, frozen
@@ -319,8 +320,6 @@ class RebaseOptions:
             )
         if message := rename_refusal(repeated_renames(self.renames)):
             raise RebaseOptionsError(message)
-        if self.swaps and self.renames:
-            raise RebaseOptionsError("--rename does not combine with --swap yet")
         if message := "; ".join(repeated_swaps(self.swaps)):
             raise RebaseOptionsError(message)
 
@@ -1163,6 +1162,7 @@ def check_live_renames(
     reports: tuple[LeafReport, ...],
     planned: dict[LeafKey, dict[str, str]],
     failed: Iterable[str] = (),
+    names: Mapping[LeafKey, str] = MappingProxyType({}),
 ) -> dict[LeafKey, dict[str, str]]:
     """``planned`` for the changed bindings, the ones ``refresh_schemas``
     rebuilds. Refuses, all at once and with ``failed`` (what failed against
@@ -1174,7 +1174,8 @@ def check_live_renames(
     its schema while the current table moves on. A column only unchanged
     bindings record is refused, as still live: even a swap renamed nothing.
     An unreachable or unreadable source is left to the sweep's own refusal,
-    and never keyed: its profile may be what made it unreadable.
+    and never keyed: its profile may be what made it unreadable. ``names``
+    (``leaf_key`` -> name) names a swapped source as it was recorded.
     """
     details = [*failed]
     changed = {}
@@ -1188,7 +1189,7 @@ def check_live_renames(
         key = leaf_key(report.leaf, record)
         if not (by_old := planned.get(key)):
             continue
-        (name, live) = (report.leaf.name, report.live)
+        (name, live) = (names.get(key, report.leaf.name), report.live)
         if report.verdict == Verdict.EQUAL:
             unchanged += [(name, old) for old in by_old if old in report.leaf.recorded]
             continue
@@ -1219,12 +1220,14 @@ def rename_hints(
     record: BuildRecord,
     reports: Iterable[LeafReport],
     planned: dict[LeafKey, dict[str, str]],
+    names: Mapping[LeafKey, str] = MappingProxyType({}),
 ) -> tuple[str, ...]:
     """The columns each changed source lost and gained, less those a
     ``--rename`` already maps; a mapping is not guessed, nor a fix promised.
 
     A source bound more than once is one line, over every binding's record:
-    a column another binding recorded is not new.
+    a column another binding recorded is not new. ``names`` names a swapped
+    source as it was recorded, as ``--rename`` takes it.
     """
     # `leaf_key` less its snapshot pin and recorded schema: kind, profile, name.
     sources: dict[tuple, tuple[str, dict, dict, dict]] = {}
@@ -1233,7 +1236,7 @@ def rename_hints(
             continue
         key = leaf_key(report.leaf, record)
         (_, recorded, live, by_old) = sources.setdefault(
-            key[:3], (report.leaf.name, {}, {}, {})
+            key[:3], (names.get(key, report.leaf.name), {}, {}, {})
         )
         recorded |= dict.fromkeys(report.leaf.recorded)
         live |= dict.fromkeys(report.live)
@@ -1316,7 +1319,7 @@ def rebase_entry(
     with no schema change is still a new entry. A swap is refused, before
     the sweep, as a ``--rename`` would be, or if ``old`` is a read; after it,
     if a source no swap names is not ``EQUAL``, so a new entry is never both
-    swapped and drifted.
+    swapped and drifted. A rename names a swapped source by ``old``.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -1371,9 +1374,16 @@ def rebase_entry(
         planned, checked_renames, failed = plan_renames(
             catalog_entry, record, options.renames, unprobed
         )
+        # `--rename` names a swapped source as recorded; the sweep keys it, and
+        # the rebuild finds it, where it now points. Reported by its old name.
+        moved = {key: leaf_key(leaf, record) for key, leaf in swapped.items()}
+        planned = {moved.get(key, key): by_old for key, by_old in planned.items()}
+        names = {new: old[2] for old, new in moved.items()}
         # Before the no-op: a rename of an unchanged source is refused, not
         # ignored.
-        planned = check_live_renames(catalog_entry, record, reports, planned, failed)
+        planned = check_live_renames(
+            catalog_entry, record, reports, planned, failed, names
+        )
         # Only a sweep that probed every source can prove a no-op on its own,
         # and a swap re-points a source even where its schema is unchanged.
         if not (unprobed or swapped) and all(
@@ -1423,13 +1433,17 @@ def rebase_entry(
             # Loaded inside the block: `load_expr` keeps the archive's extract dir,
             # which bundled reads point into, alive only as long as the expression.
             loaded = catalog_entry.load_expr(cache_dir=cache_dir)
-            # Only the loaded expression holds each binding's marked rename: a
-            # --rename one would skip, onto a column it reads as its own, is
-            # the user's to fix, so refused as a bad --rename, not a conflict.
-            refuse_renames(catalog_entry, ambiguous_renames(loaded, live, planned))
             try:
                 repointed = repoint_tables(
                     loaded, {key: leaf.table for key, leaf in swapped.items()}
+                )
+                # Only the loaded expression holds each binding's marked rename:
+                # a --rename one would skip, onto a column it reads as its own,
+                # is the user's to fix, so refused as a bad --rename, not a
+                # conflict. Over `repointed`, which keys a swapped source as
+                # `planned` does.
+                refuse_renames(
+                    catalog_entry, ambiguous_renames(repointed, live, planned)
                 )
                 expr = refresh_schemas(repointed, live, planned)
             except UnmatchedSourceError as e:
@@ -1444,8 +1458,7 @@ def rebase_entry(
                         format_error(e.cause),
                         changed,
                         e.op_name,
-                        # A --rename does not combine with a --swap yet.
-                        hints=() if swapped else rename_hints(record, changed, planned),
+                        hints=rename_hints(record, changed, planned, names),
                     )
                 )
             warn_consumed(checked_renames)
