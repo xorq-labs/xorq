@@ -3473,9 +3473,9 @@ def test_a_swap_of_a_namespaced_source_to_its_own_table_is_refused(
 def test_a_swapped_conflict_does_not_suggest_a_rename(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    world.con.create_table("u", pa.table({"b": ["x", "y"]}).to_pandas())
+    name = over_u_without_a(world)
 
-    result = rebase(runner, world, world.name, "--swap", "t", "u")
+    result = rebase(runner, world, name, "--swap", "t", "u")
     assert result.exit_code == 4, result.output
     assert "--rename" not in result.stderr
 
@@ -3510,11 +3510,30 @@ def grow_v(w: SimpleNamespace) -> None:
     w.con.create_table("v", GROWN.to_pandas())
 
 
+def beside_unreachable_v(w: SimpleNamespace) -> str:
+    other_db = w.tmp_path / "other.sqlite"
+    other = SqliteBackend().connect(str(other_db))
+    name = beside_v(w, other)
+    other.disconnect()
+    other_db.unlink()
+    return name
+
+
+def beside_changed_v(w: SimpleNamespace) -> str:
+    name = beside_v(w, w.con)
+    grow_v(w)
+    return name
+
+
+def over_u_without_a(w: SimpleNamespace) -> str:
+    w.con.create_table("u", pa.table({"b": ["x", "y"]}).to_pandas())
+    return w.name
+
+
 def test_a_swap_beside_a_changed_source_is_refused(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    name = beside_v(world, world.con)
-    grow_v(world)
+    name = beside_changed_v(world)
 
     result = rebase(runner, world, name, "--swap", "t", "u")
     assert result.exit_code == 1, result.output
@@ -3534,17 +3553,13 @@ def test_a_swap_beside_a_changed_source_is_refused(
 def test_a_swap_beside_an_unreachable_source_is_refused(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
-    other_db = world.tmp_path / "other.sqlite"
-    other = SqliteBackend().connect(str(other_db))
-    name = beside_v(world, other)
-    other.disconnect()
-    other_db.unlink()
+    name = beside_unreachable_v(world)
 
     result = rebase(runner, world, name, "--swap", "t", "u")
     assert result.exit_code == 2, result.output
     assert result.stderr.startswith(f"{name}: v could not be checked (")
     assert result.stderr.endswith("); a swap needs every other source unchanged\n")
-    assert not other_db.exists()
+    assert not (world.tmp_path / "other.sqlite").exists()
     assert set(reopen(world).list()) == {world.name, name}
 
 
@@ -3559,26 +3574,6 @@ def test_a_swap_of_every_source_ignores_their_drift(
     assert result.exit_code == 0, result.output
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert sorted(new.load_expr().execute()["a"]) == [5, 5, 6, 6]
-
-
-def beside_unreachable_v(w: SimpleNamespace) -> str:
-    other_db = w.tmp_path / "other.sqlite"
-    other = SqliteBackend().connect(str(other_db))
-    name = beside_v(w, other)
-    other.disconnect()
-    other_db.unlink()
-    return name
-
-
-def beside_changed_v(w: SimpleNamespace) -> str:
-    name = beside_v(w, w.con)
-    grow_v(w)
-    return name
-
-
-def over_u_without_a(w: SimpleNamespace) -> str:
-    w.con.create_table("u", pa.table({"b": ["x", "y"]}).to_pandas())
-    return w.name
 
 
 @pytest.mark.parametrize(
@@ -3620,7 +3615,7 @@ def test_a_swap_prints_its_document_with_the_swapped_to_source(
 ) -> None:
     name = make_entry(world)
 
-    result, document = rebase_json(runner, world, name, "--swap", "t", "u", *args)
+    _, document = rebase_json(runner, world, name, "--swap", "t", "u", *args)
     assert document["state"] == state, document
     assert {
         (leaf["name"], leaf["state"]) for leaf in document["drift"]["leaves"]
