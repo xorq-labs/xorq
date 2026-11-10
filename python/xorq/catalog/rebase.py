@@ -1062,6 +1062,16 @@ def swapped_leaf(leaf: SourceLeaf, new: str) -> SourceLeaf:
     return evolve(leaf, table=new, name=table_name(leaf.namespace, new))
 
 
+def bundled_reads(record: BuildRecord) -> tuple[SourceLeaf, ...]:
+    """The reads whose bytes ``record``'s archive holds: no checkable leaf,
+    but a swap re-points one to a new file."""
+    return tuple(
+        leaf
+        for leaf in record.source_leaves
+        if leaf.bundled and leaf.kind == LeafKind.READ
+    )
+
+
 def swapped_leaves(
     catalog_entry: CatalogEntry, record: BuildRecord, swaps: tuple[Swap, ...]
 ) -> dict[LeafKey, SourceLeaf]:
@@ -1072,11 +1082,7 @@ def swapped_leaves(
     one ``--rename`` plan. A bundled read is named by its archive path, as
     its record holds no other.
     """
-    swappable = record.external_leaves + tuple(
-        leaf
-        for leaf in record.source_leaves
-        if leaf.bundled and leaf.kind == LeafKind.READ
-    )
+    swappable = record.external_leaves + bundled_reads(record)
     resolved = {
         swap: renamed_source(catalog_entry, record, swap.old, swappable)
         for swap in swaps
@@ -1450,11 +1456,13 @@ def rebase_entry(
     # A swapped source is probed where it now points, not where it was: every
     # binding of it, though bindings that share a key share one `swapped` entry.
     tables = {swap.old: swap.new for swap in options.swaps}
-    # A bundled read is no checkable leaf, but once swapped it reads a new file.
+    probed = checkable_leaves(record) + tuple(
+        leaf for leaf in bundled_reads(record) if leaf.name in tables
+    )
     leaves = tuple(
         swapped_leaf(leaf, tables[leaf.name]) if leaf.name in tables else leaf
-        for leaf in checkable_leaves(record)
-    ) + tuple(leaf for leaf in swapped.values() if leaf.bundled)
+        for leaf in probed
+    )
     # With no swap, nothing is left unswapped for the swap guard to refuse.
     unswapped = tuple(
         leaf for leaf in checkable_leaves(record) if tables and leaf.name not in tables

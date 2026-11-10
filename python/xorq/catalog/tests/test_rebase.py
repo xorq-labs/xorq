@@ -57,8 +57,12 @@ from xorq.catalog.tests.conftest import (
 )
 from xorq.cli import cli as top_cli
 from xorq.common.exceptions import LocalReadPathWarning, UnmatchedSourceError
-from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.expr.relations import pin_cache
+from xorq.common.utils.defer_utils import (
+    deferred_read_parquet,
+    make_read_kwargs,
+    normalize_read_path_stat,
+)
+from xorq.expr.relations import Read, pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
 from xorq.ibis_yaml.enums import DumpFiles
 
@@ -3547,6 +3551,48 @@ def test_a_swap_carries_the_new_file_into_a_bundled_read(
         {"a": 5, "b": "p", "w": 3},
         {"a": 6, "b": "q", "w": 4},
     ]
+
+
+def bundled_read_json(path: Path, name: str, **kwargs: int) -> xo.Expr:
+    """A bundled duckdb ``read_json`` recorded at ``a: int64``."""
+    con = xo.duckdb.connect()
+    return Read(
+        method_name="read_json",
+        name=name,
+        schema=xo.schema({"a": "int64"}),
+        source=con,
+        read_kwargs=make_read_kwargs(
+            con.read_json, str(path), table_name=name, relocatable=True, **kwargs
+        ),
+        normalize_method=normalize_read_path_stat,
+    ).to_expr()
+
+
+def test_a_swap_probes_every_binding_of_a_bundled_read(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """Two bindings of one bundled file, read with different options, can
+    disagree on the new file's schema: refused, not rebuilt at one of them."""
+    old = world.tmp_path / "t.json"
+    old.write_text('{"a": 1}\n')
+    new = world.tmp_path / "u.json"
+    new.write_text('{"a": {"x": 1}}\n')
+    name = world.catalog.add(
+        bundled_read_json(old, "nested").union(
+            bundled_read_json(old, "flat", maximum_depth=1)
+        )
+    ).name
+    (source,) = {
+        leaf.name
+        for leaf in drift.read_record(
+            reopen(world).get_catalog_entry(name)
+        ).source_leaves
+    }
+
+    result = rebase(runner, world, name, "--swap", source, str(new))
+    assert result.exit_code == 2, result.output
+    assert "disagree on its live schema" in result.stderr
+    assert set(reopen(world).list()) == {world.name, name}
 
 
 @pytest.mark.parametrize(
