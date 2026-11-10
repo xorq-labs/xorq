@@ -540,13 +540,15 @@ def refresh_schemas(
     return refreshed
 
 
-def repointed_source(node: Node, leaf: SourceLeaf) -> Node:
-    """``node`` reading where its swapped ``leaf`` does: a read keeps its
-    method and kwargs but its path, a table is renamed in its namespace.
+def repointed_source(node: Node, leaf: SourceLeaf, source: Any = None) -> Node:
+    """``node`` reading where its swapped ``leaf`` does, through ``source``
+    if given: a read keeps its method and kwargs but its path, a table is
+    renamed in its namespace.
 
     A bundled read drops its archive path, so the dump bundles the new file's
     bytes under a path derived from them.
     """
+    source = node.source if source is None else source
     if isinstance(node, Read):
         path = dict(leaf.read_kwargs)[ReadKwarg.hash_path]
         read_kwargs = update_read_kwargs(
@@ -554,16 +556,20 @@ def repointed_source(node: Node, leaf: SourceLeaf) -> Node:
         )
         return recreate(
             node,
+            source=source,
             read_kwargs=tuple(
                 (key, value) for key, value in read_kwargs if key != ReadKwarg.read_path
             ),
         )
-    return recreate(node, name=leaf.table)
+    return recreate(node, name=leaf.table, source=source)
 
 
-def repoint_tables(expr: Any, tables: Mapping[LeafKey, SourceLeaf]) -> Any:
+def repoint_tables(
+    expr: Any, tables: Mapping[LeafKey, SourceLeaf], source: Any = None
+) -> Any:
     """``expr`` with each source ``tables`` keys (``leaf_key`` -> the leaf as
-    swapped) reading where that leaf does, at its recorded schema.
+    swapped) reading where that leaf does, at its recorded schema, through
+    the connection ``source`` if given.
 
     ``refresh_schemas`` then rebuilds it over the new source's live schema,
     keyed under the new name. Raises if a key matches no source, or if a
@@ -577,7 +583,7 @@ def repoint_tables(expr: Any, tables: Mapping[LeafKey, SourceLeaf]) -> Any:
     def replacer(node: Node, kwargs: dict | None) -> Node:
         if (key := repointed_key(node)) is not None:
             matched.add(key)
-            return repointed_source(node, tables[key])
+            return repointed_source(node, tables[key], source)
         if kwargs is None or isinstance(node, opaque_ops):
             return node
         # Its query names the old table as text, which no rewrite reaches.

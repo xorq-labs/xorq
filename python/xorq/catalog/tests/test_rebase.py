@@ -65,6 +65,7 @@ from xorq.common.utils.defer_utils import (
 from xorq.expr.relations import Read, pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
 from xorq.ibis_yaml.enums import DumpFiles
+from xorq.vendor.ibis.backends.profiles import Profile
 
 
 # Most tests exercise rebase's own logic, which doesn't vary with storage; the
@@ -4013,3 +4014,109 @@ def test_a_swap_is_recorded_beside_the_ancestor(
     as_json = runner.invoke(cli, ["--path", path, "show", new, "--json"])
     assert as_json.exit_code == 0, as_json.output
     assert json.loads(as_json.stdout)["swapped_sources"] == swapped
+
+
+@pytest.fixture
+def profile_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = tmp_path / "profiles"
+    monkeypatch.setattr(xo.options.profiles, "profile_dir", path)
+    return path
+
+
+def stored_profile(con: SqliteBackend, alias: str) -> Profile:
+    profile = Profile.from_con(con)
+    profile.save(alias=alias)
+    return profile
+
+
+def prod_con(w: SimpleNamespace, *tables: str) -> SqliteBackend:
+    """A second sqlite database holding ELSEWHERE as each of ``tables``."""
+    con = SqliteBackend().connect(str(w.tmp_path / "prod.sqlite"))
+    for table in tables:
+        con.create_table(table, ELSEWHERE.to_pandas())
+    return con
+
+
+@pytest.mark.parametrize("via", ("cli", "api"))
+def test_a_profile_moves_every_swapped_source_to_its_connection(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, via: str
+) -> None:
+    name = beside_v(world, world.con)
+    prod = stored_profile(prod_con(world, "t", "v"), "prod")
+    swaps = ("--swap", "t", "t", "--swap", "v", "v", "--profile", "prod")
+
+    if via == "cli":
+        result = rebase(runner, world, name, *swaps)
+        assert result.exit_code == 0, result.output
+        new_name = result.stdout.strip()
+    else:
+        rebased = rebase_entry(
+            reopen(world).get_catalog_entry(name),
+            swaps=[("t", "t"), ("v", "v")],
+            profile="prod",
+            sync=False,
+        )
+        assert rebased.status == RebaseStatus.REBASED
+        new_name = rebased.new_entry.name
+    new = reopen(world).get_catalog_entry(new_name)
+    assert sorted(new.load_expr().execute()["a"]) == [5, 5, 6, 6]
+    record = drift.read_record(new)
+    # Every source reads through the stored profile, recorded as stored.
+    assert {
+        drift.make_profile(record.get_profile_dict(leaf)).content_hash
+        for leaf in record.external_leaves
+    } == {prod.content_hash}
+
+
+def test_a_profile_moves_a_source_onto_another_table_there(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    stored_profile(prod_con(world, "u"), "prod")
+
+    result = rebase(runner, world, world.name, "--swap", "t", "u", "--profile", "prod")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert list(new.load_expr().execute()["a"]) == [5, 6]
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    (
+        pytest.param(
+            ("--swap", "t", "t", "--profile", "nope"),
+            "--profile nope names no stored profile",
+            id="missing",
+        ),
+        pytest.param(
+            ("--profile", "prod"), "--profile needs at least one --swap", id="alone"
+        ),
+    ),
+)
+def test_a_profile_that_cannot_apply_is_a_usage_error(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    profile_dir: Path,
+    args: tuple[str, ...],
+    message: str,
+) -> None:
+    stored_profile(prod_con(world, "t"), "prod")
+
+    result = rebase(runner, world, world.name, *args)
+    assert result.exit_code == 2, result.output
+    assert message in result.stderr
+    with pytest.raises(ValueError, match=re.escape(message)):
+        rebase_old(
+            world, swaps=[("t", "t")] if "--swap" in args else (), profile=args[-1]
+        )
+    assert set(reopen(world).list()) == {world.name}
+
+
+def test_a_swap_onto_its_own_table_on_its_own_profile_is_refused(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    stored_profile(world.con, "live")
+
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "live")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == f"{world.name}: --swap t t swaps nothing\n"
+    assert set(reopen(world).list()) == {world.name}
