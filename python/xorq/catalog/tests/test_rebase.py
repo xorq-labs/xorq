@@ -3434,6 +3434,11 @@ def test_a_swap_of_a_read_is_refused(runner: CliRunner, world: SimpleNamespace) 
             id="twice",
         ),
         pytest.param(("--swap", "t", ""), "--swap t names no table", id="empty"),
+        pytest.param(
+            ("--swap", "t", "u", "--swap", "v", "u"),
+            "--swap t u and --swap v u both swap to u",
+            id="onto-one",
+        ),
     ),
 )
 def test_a_swap_that_contradicts_itself_is_a_usage_error(
@@ -3604,3 +3609,17 @@ def test_a_swap_of_every_source_ignores_their_drift(
     assert result.exit_code == 0, result.output
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert sorted(new.load_expr().execute()["a"]) == [5, 5, 6, 6]
+
+
+def test_an_ambiguous_rename_beside_a_swap_names_the_recorded_source(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    # As `rename-onto-a-held-binding`, with `t` swapped onto `u`.
+    (name, _, _) = refuse_rename_onto_a_held_binding(world)
+    world.con.create_table("u", world.con.table("t").to_pyarrow().to_pandas())
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--rename", "t", "a", "y")
+    assert result.exit_code == 1, result.output
+    assert f"{name}: --rename t: 'y' is declared as 'a''s live column" in (
+        result.stderr
+    )
