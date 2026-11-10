@@ -1112,11 +1112,13 @@ def test_a_rebased_entry_shows_its_ancestor(
     shown = runner.invoke(cli, ["--path", world.catalog_path, "show", new.name])
     assert shown.exit_code == 0, shown.output
     assert f"{'Rebased from:':<15} {world.name}" in shown.stdout.splitlines()
+    assert "Swapped:" not in shown.stdout
     as_json = runner.invoke(
         cli, ["--path", world.catalog_path, "show", new.name, "--json"]
     )
     assert as_json.exit_code == 0, as_json.output
     assert json.loads(as_json.stdout)["rebased_from"] == world.name
+    assert "swapped_sources" not in json.loads(as_json.stdout)
     # Recorded in the archive, where a catalog copy reads it from.
     with zipfile.ZipFile(new.catalog_path) as zf:
         (member,) = (m for m in zf.namelist() if m.endswith(DumpFiles.build_metadata))
@@ -2177,6 +2179,7 @@ ROOT_KEYS = {
     "unpushed",
     "output_changes",
     "renames",
+    "swaps",
     "failing_op",
     "drift",
     "aliases",
@@ -2313,9 +2316,11 @@ def test_json_reports_a_completed_rebase(
     if not rebased:
         # A no-op, proven or not, names the existing hash both times.
         assert document["new_entry"] == world.name
+        assert document["swaps"] is None
         assert document["aliases"] == aliases_document()
         assert alias_target_hash(reopen(world), "live") == world.name
         return
+    assert document["swaps"] == []
     new = document["new_entry"]
     assert new != world.name
     assert set(reopen(world).list()) == {world.name, world.other, new}
@@ -3812,3 +3817,52 @@ def test_a_swap_prints_its_document_with_the_swapped_to_source(
     assert {
         (leaf["name"], leaf["state"]) for leaf in document["drift"]["leaves"]
     } == leaves
+
+
+def archived_build_metadata(entry: CatalogEntry) -> dict:
+    with zipfile.ZipFile(entry.catalog_path) as zf:
+        (member,) = (m for m in zf.namelist() if m.endswith(DumpFiles.build_metadata))
+        return json.loads(zf.read(member))
+
+
+@pytest.mark.parametrize("copy", (None, "replay", "clone"))
+def test_a_swap_is_recorded_beside_the_ancestor(
+    runner: CliRunner, world: SimpleNamespace, tmp_path: Path, copy: str | None
+) -> None:
+    world.con.create_table("u", ELSEWHERE.to_pandas())
+    profile = only_leaf(world, world.name).profile
+    swapped = [
+        {
+            "old": {"name": "t", "profile": profile},
+            "new": {"name": "u", "profile": profile},
+        }
+    ]
+
+    _, preview = rebase_json(runner, world, world.name, "--swap", "t", "u", "--dry-run")
+    assert preview["swaps"] == swapped
+    _, document = rebase_json(runner, world, world.name, "--swap", "t", "u")
+    assert document["swaps"] == swapped
+    new = document["new_entry"]
+    # Outside the build hash: the entry is the hash the preview derived.
+    assert new == preview["new_hash"]
+    path = world.catalog_path
+    if copy is not None:
+        path = str(tmp_path / "copied")
+        args = (
+            ["--path", world.catalog_path, "replay", path]
+            if copy == "replay"
+            else ["clone", world.catalog_path, "--path", path]
+        )
+        copied = runner.invoke(cli, args)
+        assert copied.exit_code == 0, copied.output
+
+    entry = Catalog.from_kwargs(path=path, init=False).get_catalog_entry(new)
+    assert archived_build_metadata(entry)["swapped_sources"] == swapped
+    shown = runner.invoke(cli, ["--path", path, "show", new])
+    assert shown.exit_code == 0, shown.output
+    lines = shown.stdout.splitlines()
+    rebased_from = lines.index(f"{'Rebased from:':<15} {world.name}")
+    assert lines[rebased_from + 1] == f"{'Swapped:':<15} t ({profile}) -> u ({profile})"
+    as_json = runner.invoke(cli, ["--path", path, "show", new, "--json"])
+    assert as_json.exit_code == 0, as_json.output
+    assert json.loads(as_json.stdout)["swapped_sources"] == swapped

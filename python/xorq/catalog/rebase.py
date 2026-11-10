@@ -25,6 +25,7 @@ way a rebase of a resolved entry can end, buffered and emitted once::
       "unpushed": null,            # on a failure: whether there is a commit to push
       "output_changes": null,      # once derived: [{"name", "before", "after"}]
       "renames": null,             # once derived: [{"source", "old", "new"}]
+      "swaps": null,               # once derived: [{"old": {"name", "profile"}, "new": {...}}]
       "build_path": null,          # where `--no-add` wrote the build
       "failing_op": "Field",       # null unless an op could not be rebuilt
       "drift": {...},              # this entry's `check-sources --json` document
@@ -55,6 +56,10 @@ once a rebase is derived (``rebased``, ``push-failed``, ``preview``,
 ``after`` ``null`` where the column is absent, and empty when the output schema
 did not change. ``renames`` is set when ``output_changes`` is: each
 ``--rename`` the rebase put above its source, empty when none was given.
+``swaps`` is set when ``output_changes`` is: each source a ``--swap``
+re-pointed, by name and profile as recorded (``old``) and as now read
+(``new``), empty when none was given; the new entry's
+``build_metadata.json`` records the same list as ``swapped_sources``.
 ``build_path`` is set only on ``built``. ``error`` is present only when there
 is one, always as ``Type: message``, then the stderr hint, if any, on a line
 of its own: what refused or failed the rebase, what a
@@ -93,8 +98,10 @@ from xorq.catalog.catalog import (
     CatalogEntry,
     CatalogMergeConflict,
     CatalogPullError,
+    SourceAt,
+    SwappedSource,
 )
-from xorq.catalog.constants import REBASED_FROM
+from xorq.catalog.constants import REBASED_FROM, SWAPPED_SOURCES
 from xorq.catalog.drift import (
     LeafReport,
     checkable_leaves,
@@ -448,6 +455,15 @@ class RebaseResult:
         converter=converters.optional(tuple),
         validator=optional(deep_iterable(instance_of(Rename), instance_of(tuple))),
     )
+    # Set exactly when ``output_changes`` is: the sources swapped, empty if
+    # none was asked for.
+    swaps = field(
+        default=None,
+        converter=converters.optional(tuple),
+        validator=optional(
+            deep_iterable(instance_of(SwappedSource), instance_of(tuple))
+        ),
+    )
 
     def __attrs_post_init__(self) -> None:
         conflicted = self.status == RebaseStatus.CONFLICT
@@ -467,6 +483,8 @@ class RebaseResult:
             )
         if derived != (self.renames is not None):
             raise ValueError(f"a {self.status} rebase has renames={self.renames!r}")
+        if derived != (self.swaps is not None):
+            raise ValueError(f"a {self.status} rebase has swaps={self.swaps!r}")
         if (self.status == RebaseStatus.UNPROBED) != bool(self.unprobed):
             raise ValueError(f"a {self.status} rebase has unprobed={self.unprobed!r}")
         if (self.status == RebaseStatus.BUILT) != (self.build_path is not None):
@@ -535,6 +553,7 @@ class RebaseResult:
             created=self.created,
             output_changes=self.output_changes,
             renames=self.renames,
+            swaps=self.swaps,
             failing_op=conflict.op_name if conflicted else None,
             drift=drift,
             aliases=self.aliases,
@@ -556,6 +575,7 @@ def make_rebase_document(
     unpushed: bool | None = None,
     output_changes: Iterable[ColumnChange] | None = None,
     renames: Iterable[Rename] | None = None,
+    swaps: Iterable[SwappedSource] | None = None,
     failing_op: str | None = None,
     drift: dict | None = None,
     aliases: AliasOutcome | None = None,
@@ -580,6 +600,7 @@ def make_rebase_document(
         "renames": None
         if renames is None
         else [rename.to_dict() for rename in renames],
+        "swaps": None if swaps is None else [swap.to_dict() for swap in swaps],
         "failing_op": failing_op,
         "drift": drift,
         "aliases": {
@@ -862,15 +883,20 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
     (build_path / DumpFiles.requirements).write_bytes(requirements)
 
 
-def stamp_rebased_from(build_path: Path, ancestor: str) -> None:
-    """Record ``ancestor`` in ``build_path``'s ``build_metadata.json``.
+def stamp_rebased_from(
+    build_path: Path, ancestor: str, swaps: tuple[SwappedSource, ...] = ()
+) -> None:
+    """Record ``ancestor``, and ``swaps`` if any, in ``build_path``'s
+    ``build_metadata.json``.
 
     In the archive rather than only the sidecar: a catalog copy re-derives
     each sidecar from its archive. The build hash reads ``expr.yaml`` only.
     """
     path = build_path / DumpFiles.build_metadata
-    metadata = json.loads(path.read_text())
-    path.write_text(json.dumps(metadata | {REBASED_FROM: ancestor}, indent=2))
+    metadata = json.loads(path.read_text()) | {REBASED_FROM: ancestor}
+    if swaps:
+        metadata[SWAPPED_SOURCES] = [swap.to_dict() for swap in swaps]
+    path.write_text(json.dumps(metadata, indent=2))
 
 
 # POSIX `rename(2)` replaces an empty directory, so `publish_build` claims the
@@ -1097,6 +1123,24 @@ def swapped_leaves(
         for swap, by_key in resolved.items()
         for key, leaf in by_key.items()
     }
+
+
+def swapped_sources(
+    record: BuildRecord, swapped: dict[LeafKey, SourceLeaf]
+) -> tuple[SwappedSource, ...]:
+    """Each source ``swapped`` (``swapped_leaves``'s) re-points, once: as
+    recorded, and as it now reads."""
+    names = {key[2] for key in swapped}
+    return tuple(
+        dict.fromkeys(
+            SwappedSource(
+                SourceAt(leaf.name, leaf.profile), SourceAt(new.name, new.profile)
+            )
+            for leaf in record.external_leaves
+            if leaf.name in names
+            and (new := swapped.get(leaf_key(leaf, record))) is not None
+        )
+    )
 
 
 def unswapped_refusal(
@@ -1401,6 +1445,7 @@ def rebase_entry(
         entry_alias=entry_alias,
     )
     swapped = swapped_leaves(catalog_entry, record, options.swaps)
+    swap_records = swapped_sources(record, swapped)
     # A swapped source is probed where it now points, not where it was: every
     # binding of it, though bindings that share a key share one `swapped` entry.
     tables = {swap.old: swap.new for swap in options.swaps}
@@ -1542,9 +1587,10 @@ def rebase_entry(
                         new_hash=dumper.expr_hash,
                         output_changes=changes,
                         renames=checked_renames,
+                        swaps=swap_records,
                     )
                 build_path = dumper.dump_expr()
-                stamp_rebased_from(build_path, catalog_entry.name)
+                stamp_rebased_from(build_path, catalog_entry.name, swap_records)
                 stage_bundle(catalog_entry, build_path)
                 if not add:
                     return RebaseResult(
@@ -1556,6 +1602,7 @@ def rebase_entry(
                         new_hash=build_path.name,
                         output_changes=changes,
                         renames=checked_renames,
+                        swaps=swap_records,
                         build_path=publish_build(
                             catalog_entry, build_path, builds_dir
                         ).resolve(),
@@ -1578,4 +1625,5 @@ def rebase_entry(
             created=created,
             output_changes=changes,
             renames=checked_renames,
+            swaps=swap_records,
         )
