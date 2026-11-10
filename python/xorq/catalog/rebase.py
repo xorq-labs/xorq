@@ -142,9 +142,8 @@ from xorq.common.exceptions import (
     SchemaRefreshError,
     UnmatchedSourceError,
 )
-from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
+from xorq.common.utils.graph_utils import find_all_sources
 from xorq.common.utils.node_utils import update_read_kwargs
-from xorq.expr.relations import RemoteTable
 from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
 from xorq.ibis_yaml.packager import parse_python_minor
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
@@ -1184,29 +1183,33 @@ def swapped_sources(
     )
 
 
-def profile_con(expr: Expr, profile: Profile) -> BaseBackend:
-    """The connection ``expr`` already holds for ``profile``, else a new one,
-    so a source moved beside another on it shares that one's backend."""
-    return (
-        next(
-            (
-                con
-                for con in find_all_sources(expr)
-                if Profile.from_con(con).content_hash == profile.content_hash
-            ),
-            None,
-        )
-        or profile.get_con()
+def loaded_con(expr: Expr, con: BaseBackend) -> BaseBackend:
+    """The connection ``expr`` already holds to where ``con`` connects, else
+    ``con``, so a source moved beside another there shares its backend."""
+    content_hash = Profile.from_con(con).content_hash
+    return next(
+        (
+            source
+            for source in find_all_sources(expr)
+            if Profile.from_con(source).content_hash == content_hash
+        ),
+        con,
     )
 
 
-def mixes_backends(expr: Expr) -> bool:
-    """Whether one backend would run sources on several: in ``expr``, or in
-    a payload an ``into_backend`` runs on its own."""
-    payloads = (expr, *(node.remote_expr for node in walk_nodes(RemoteTable, expr)))
-    return any(
-        len(payload._find_backends()[0]) > 1  # xorq-style: disable=protected-access
-        for payload in payloads
+def left_behind(
+    record: BuildRecord, swapped: Mapping[LeafKey, SourceLeaf]
+) -> tuple[str, ...]:
+    """Unswapped sources on a connection a swap moves a source off: whatever
+    ran them together would run them on two backends."""
+    moved_off = {
+        key[1] for key, leaf in swapped.items() if leaf_key(leaf, record)[1] != key[1]
+    }
+    # Only keyed on a move: a leaf's profile may be what a plain rebase refuses.
+    return tuple(
+        leaf.name
+        for leaf in (record.source_leaves if moved_off else ())
+        if (key := leaf_key(leaf, record)) not in swapped and key[1] in moved_off
     )
 
 
@@ -1515,8 +1518,12 @@ def rebase_entry(
     # Then: reading the record opens a `BuildZip`, which refuses a
     # bundle-less archive with a bare assertion.
     check_bundle(catalog_entry)
-    record = with_profile(read_entry_record(catalog_entry), options.profile)
-    moved_to = options.profile and options.profile.hash_name
+    # Connected once: a build records its connection's profile, which fills in
+    # the defaults a stored profile may leave out.
+    con = options.profile and options.profile.get_con()
+    target = con and Profile.from_con(con)
+    record = with_profile(read_entry_record(catalog_entry), target)
+    moved_to = target and target.hash_name
     unprobed = check_rebasable(catalog_entry, record)
     # With no new name yet, only an unregistered alias is refused.
     plan = AliasPlan.read(
@@ -1527,6 +1534,12 @@ def rebase_entry(
         entry_alias=entry_alias,
     )
     swapped = swapped_leaves(catalog_entry, record, options.swaps, moved_to)
+    if left := left_behind(record, swapped):
+        raise RebaseError(
+            f"{catalog_entry.name}: --profile {profile} leaves {quoted(left)} on "
+            "its old connection; swap every source onto it",
+            RebaseFailure.REFUSED,
+        )
     swap_records = swapped_sources(record, swapped)
     # A swapped source is probed where it now points, not where it was: every
     # binding of it, though bindings that share a key share one `swapped` entry.
@@ -1627,7 +1640,7 @@ def rebase_entry(
                 repointed = repoint_tables(
                     loaded,
                     swapped,
-                    options.profile and profile_con(loaded, options.profile),
+                    con and loaded_con(loaded, con),
                 )
                 # Only the loaded expression holds each binding's marked rename:
                 # a --rename one would skip, onto a column it reads as its own,
@@ -1638,14 +1651,6 @@ def rebase_entry(
                     catalog_entry, ambiguous_renames(repointed, live, planned, names)
                 )
                 expr = refresh_schemas(repointed, live, planned)
-                # A source moved beside one left on its old connection: no
-                # backend runs the result.
-                if mixes_backends(expr):
-                    raise RebaseError(
-                        f"{catalog_entry.name}: --profile {profile} leaves a source"
-                        " on another connection; swap every source onto it",
-                        RebaseFailure.REFUSED,
-                    )
             except UnmatchedSourceError as e:
                 raise RebaseError(
                     f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED

@@ -4079,21 +4079,53 @@ def test_a_profile_moves_a_source_onto_another_table_there(
     assert list(new.load_expr().execute()["a"]) == [5, 6]
 
 
-@pytest.mark.parametrize("hub", (False, True), ids=("direct", "into-backend"))
-def test_a_profile_that_leaves_a_source_behind_is_refused(
-    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, hub: bool
+def test_a_profile_stored_without_its_defaults_moves_a_changed_source(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
 ) -> None:
-    """Moved beside a source left behind, even under an `into_backend`: one
-    backend would run both, reading the other's table on its own database."""
+    """A stored profile naming only its database is the one its connection
+    records, defaults and all."""
+    con = prod_con(world)
+    con.create_table("t", pa.table({"a": [5, 6], "b": ["p", "q"], "c": [1, 2]}))
+    Profile(
+        con_name="sqlite",
+        kwargs_tuple=(("database", str(world.tmp_path / "prod.sqlite")),),
+    ).save(alias="prod")
+
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip().splitlines()[-1])
+    assert list(new.load_expr().execute()["a"]) == [5, 6]
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    (
+        pytest.param(lambda expr, w: expr, id="direct"),
+        pytest.param(lambda expr, w: expr.into_backend(xo.connect()), id="into"),
+        pytest.param(
+            lambda expr, w: expr.cache(
+                cache=ParquetCache.from_kwargs(
+                    source=xo.connect(), relative_path=w.tmp_path
+                )
+            ),
+            id="cache",
+        ),
+    ),
+)
+def test_a_profile_that_leaves_a_source_behind_is_refused(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, wrap: Callable
+) -> None:
+    """Moved off a connection another source stays on, under whatever runs
+    them: one backend would read both, the other's table on its own database."""
     world.con.create_table("v", RECORDED.to_pandas())
     union = world.con.table("t").union(world.con.table("v"))
-    name = world.catalog.add(union.into_backend(xo.connect()) if hub else union).name
+    name = world.catalog.add(wrap(union, world)).name
     stored_profile(prod_con(world, "t"), "prod")
 
     result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "prod")
     assert result.exit_code == 1, result.output
     assert result.stderr == (
-        f"{name}: --profile prod leaves a source on another connection;"
+        f"{name}: --profile prod leaves 'v' on its old connection;"
         " swap every source onto it\n"
     )
     assert set(reopen(world).list()) == {world.name, name}
