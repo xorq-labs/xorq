@@ -3434,11 +3434,6 @@ def test_a_swap_of_a_read_is_refused(runner: CliRunner, world: SimpleNamespace) 
             id="twice",
         ),
         pytest.param(("--swap", "t", ""), "--swap t names no table", id="empty"),
-        pytest.param(
-            ("--swap", "t", "u", "--swap", "v", "u"),
-            "--swap t u and --swap v u both swap to u",
-            id="onto-one",
-        ),
     ),
 )
 def test_a_swap_that_contradicts_itself_is_a_usage_error(
@@ -3623,3 +3618,26 @@ def test_an_ambiguous_rename_beside_a_swap_names_the_recorded_source(
     assert f"{name}: --rename t: 'y' is declared as 'a''s live column" in (
         result.stderr
     )
+
+
+def test_two_swaps_onto_one_table_are_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    # One `--rename` plan per table: `t`'s and `v`'s would overwrite each other.
+    name = beside_v(world, world.con)
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--swap", "v", "u")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == f"{name}: --swap t u and --swap v u both swap to u\n"
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_two_swaps_onto_one_name_on_two_connections_pass(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    other = SqliteBackend().connect(str(world.tmp_path / "other.sqlite"))
+    name = beside_v(world, other)
+    other.create_table("u", ELSEWHERE.to_pandas())
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--swap", "v", "u")
+    assert result.exit_code == 0, result.output

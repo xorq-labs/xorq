@@ -259,20 +259,13 @@ def swap_tuple(swaps: Iterable[Swap | tuple[str, str]]) -> tuple:
 
 def repeated_swaps(swaps: tuple[Swap, ...]) -> Iterator[str]:
     """Why each of ``swaps`` that swaps a source to itself, or twice, or to no
-    table, or to a table another swap names, is refused: two sources on one
-    table would share one ``--rename`` plan."""
+    table, is refused."""
     yield from (f"--swap {swap.old} names no table" for swap in swaps if not swap.new)
     yield from (
         f"--swap {swap} swaps nothing" for swap in swaps if swap.old == swap.new
     )
     counts = Counter(swap.old for swap in swaps)
     yield from (f"--swap {old} is given twice" for old, n in counts.items() if n > 1)
-    yield from (
-        " and ".join(f"--swap {swap}" for swap in swaps if swap.new == new)
-        + f" both swap to {new}"
-        for new, n in Counter(swap.new for swap in swaps).items()
-        if new and n > 1
-    )
 
 
 def builds_path(builds_dir: str | Path) -> Path:
@@ -1040,13 +1033,29 @@ def swapped_leaves(
 ) -> dict[LeafKey, SourceLeaf]:
     """``leaf_key`` -> the leaf as it reads once swapped, for each source
     ``swaps`` names, found as ``--rename`` finds one. Refuses, all at once, a
-    swap naming no source, sources on several connections, or a read.
+    swap naming no source, sources on several connections, a read, or two
+    swaps onto one table: they would share one ``--rename`` plan.
     """
     resolved = {swap: renamed_source(catalog_entry, record, swap.old) for swap in swaps}
-    details = [
-        detail
+    onto = {
+        swap: {
+            (leaf.kind, leaf.profile, leaf.name)
+            for leaf in (swapped_leaf(leaf, swap.new) for leaf in by_key.values())
+        }
         for swap, by_key in resolved.items()
-        if (detail := swap_refusal(swap, by_key)) is not None
+    }
+    details = [
+        *(
+            detail
+            for swap, by_key in resolved.items()
+            if (detail := swap_refusal(swap, by_key)) is not None
+        ),
+        *(
+            " and ".join(f"--swap {swap}" for swap, ids in onto.items() if to in ids)
+            + f" both swap to {to[2]}"
+            for to, n in Counter(to for ids in onto.values() for to in ids).items()
+            if n > 1
+        ),
     ]
     if details:
         raise RebaseError(
