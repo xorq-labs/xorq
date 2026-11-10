@@ -1411,7 +1411,10 @@ def rebase(
     no longer fits conflicts. A --swap is refused when OLD names no source,
     sources on several connections, a read, a table pinned to a snapshot,
     or OLD's own table. One that swaps a source to itself, twice or to an
-    empty name, or comes with a --rename, is an invalid option.
+    empty name, or comes with a --rename, is an invalid option. After the
+    sweep, a swap is refused beside any source it leaves that changed, is
+    gone or could not be probed: rebase without --swap first, so each new
+    entry carries one kind of change; a swap of every source never is.
 
     \b
     Exit codes:
@@ -1427,13 +1430,15 @@ def rebase(
          another entry than the old or new one (once there is a new entry),
          ENTRY is an alias the pull moved or removed, a --rename is refused
          (see above), a probed source matched no source of the loaded
-         expression, a --swap is refused (see above), --no-add found its
+         expression, a --swap is refused (see above) or leaves a source
+         that changed or is gone, --no-add found its
          BUILDS_DIR/<hash> taken, or a
          write failed
          (the new entry and its alias moves are rolled back locally; if that
          fails too, the error names what is left, and --json says
          rollback-failed)
-      2  a source was unreachable or unreadable, its database is
+      2  a source was unreachable or unreadable (a --swap's other
+         sources included), its database is
          missing, or its reads disagree on its live schema; the record is
          unreadable or lacks its wheel or requirements; the sync's pull
          failed; or the options were invalid (--move-aliases with

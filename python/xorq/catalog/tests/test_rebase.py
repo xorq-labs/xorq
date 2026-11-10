@@ -3491,3 +3491,71 @@ def test_a_swap_under_a_sql_view_is_refused(
     assert result.exit_code == 1, result.output
     assert "SELECT a FROM t" in result.stderr
     assert set(reopen(world).list()) == {world.name, name}
+
+
+def beside_v(w: SimpleNamespace, con: SqliteBackend) -> str:
+    """An entry over `t` and a second source `v` on ``con``, with `u` to swap
+    `t` onto."""
+    con.create_table("v", RECORDED.to_pandas())
+    v = con.table("v")
+    if con is not w.con:
+        v = v.into_backend(w.con)
+    w.con.create_table("u", ELSEWHERE.to_pandas())
+    # The select keeps a grown `v` rebuildable, so its drift would fold in.
+    return w.catalog.add(w.con.table("t").union(v.select("a", "b"))).name
+
+
+def grow_v(w: SimpleNamespace) -> None:
+    w.con.drop_table("v")
+    w.con.create_table("v", GROWN.to_pandas())
+
+
+def test_a_swap_beside_a_changed_source_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    name = beside_v(world, world.con)
+    grow_v(world)
+
+    result = rebase(runner, world, name, "--swap", "t", "u")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"{name}: v changed; run `xorq catalog rebase {name}` first\n"
+    )
+    with pytest.raises(RebaseError) as refused:
+        rebase_entry(reopen(world).get_catalog_entry(name), swaps=[("t", "u")])
+    # The sweep it carries probed `u` where `t` was.
+    assert {(report.leaf.name, report.verdict) for report in refused.value.reports} == {
+        ("u", Verdict.EQUAL),
+        ("v", Verdict.CHANGED),
+    }
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_swap_beside_an_unreachable_source_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    other_db = world.tmp_path / "other.sqlite"
+    other = SqliteBackend().connect(str(other_db))
+    name = beside_v(world, other)
+    other.disconnect()
+    other_db.unlink()
+
+    result = rebase(runner, world, name, "--swap", "t", "u")
+    assert result.exit_code == 2, result.output
+    assert result.stderr.startswith(f"{name}: v could not be checked (")
+    assert result.stderr.endswith("); a swap needs every other source unchanged\n")
+    assert not other_db.exists()
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_swap_of_every_source_ignores_their_drift(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    name = beside_v(world, world.con)
+    grow_v(world)
+    world.con.create_table("w", ELSEWHERE.to_pandas())
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--swap", "v", "w")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert sorted(new.load_expr().execute()["a"]) == [5, 5, 6, 6]

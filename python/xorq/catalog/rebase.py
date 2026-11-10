@@ -1054,6 +1054,43 @@ def swapped_leaves(
     }
 
 
+def unswapped_refusal(
+    catalog_entry: CatalogEntry,
+    reports: Iterable[LeafReport],
+    unswapped: tuple[SourceLeaf, ...],
+) -> RebaseError | None:
+    """Why a swap is refused beside a source it leaves that is not proven
+    unchanged, if it is: each new entry carries one kind of change.
+
+    A drifted source is refused as an entry would be, ranked as `check-sources`
+    ranks it: a changed or missing table won't come back by retrying, an
+    unreachable or unreadable source may.
+    """
+    name = catalog_entry.name
+    blocking = tuple(
+        report
+        for report in reports
+        if report.leaf in unswapped and report.verdict != Verdict.EQUAL
+    )
+    if not blocking:
+        return None
+    details = "; ".join(
+        f"{report.leaf.name} changed; run `xorq catalog rebase {name}` first"
+        if report.verdict == Verdict.CHANGED
+        else f"{report.leaf.name} could not be checked "
+        f"({report.error or report.verdict}); a swap needs every other source "
+        "unchanged"
+        for report in blocking
+    )
+    worst = roll_up(report.verdict for report in blocking)
+    return RebaseError(
+        f"{name}: {details}",
+        RebaseFailure.REFUSED
+        if worst in (Verdict.CHANGED, Verdict.TABLE_MISSING)
+        else RebaseFailure.UNREACHABLE,
+    )
+
+
 def plan_renames(
     catalog_entry: CatalogEntry,
     record: BuildRecord,
@@ -1277,7 +1314,9 @@ def rebase_entry(
     ``old`` to the table ``new`` beside it: the sweep probes ``new`` against
     what ``old`` recorded, and the rebase goes on as over drift, so a swap
     with no schema change is still a new entry. A swap is refused, before
-    the sweep, as a ``--rename`` would be, or if ``old`` is a read.
+    the sweep, as a ``--rename`` would be, or if ``old`` is a read; after it,
+    if a source no swap names is not ``EQUAL``, so a new entry is never both
+    swapped and drifted.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -1318,9 +1357,15 @@ def rebase_entry(
         swapped_leaf(leaf, tables[leaf.name]) if leaf.name in tables else leaf
         for leaf in checkable_leaves(record)
     )
+    # With no swap, nothing is left unswapped for the swap guard to refuse.
+    unswapped = tuple(
+        leaf for leaf in checkable_leaves(record) if tables and leaf.name not in tables
+    )
     reports = tuple(iter_leaf_reports(record, leaves=leaves))
     # A refusal from here on reports the sweep, as a conflict does.
     with refusing_with(record=record, reports=reports):
+        if refusal := unswapped_refusal(catalog_entry, reports, unswapped):
+            raise refusal
         # Inside: a source whose profile is unreadable is refused with the
         # sweep, as it is without --rename.
         planned, checked_renames, failed = plan_renames(
