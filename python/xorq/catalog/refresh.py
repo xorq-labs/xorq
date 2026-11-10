@@ -538,7 +538,8 @@ def repoint_tables(expr: Any, tables: Mapping[LeafKey, str]) -> Any:
     name) reading that table instead, in its namespace, at its recorded schema.
 
     ``refresh_schemas`` then rebuilds it over the new table's live schema,
-    keyed under the new name. Raises if a key matches no source.
+    keyed under the new name. Raises if a key matches no source, or if a
+    ``SQLStringView`` reads a repointed table.
     """
     if not tables:
         return expr
@@ -551,6 +552,17 @@ def repoint_tables(expr: Any, tables: Mapping[LeafKey, str]) -> Any:
             return recreate(node, name=tables[key])
         if kwargs is None or isinstance(node, opaque_ops):
             return node
+        # Its query names the old table as text, which no rewrite reaches.
+        if isinstance(node, ops.SQLStringView):
+            refuse(
+                [
+                    (
+                        type(node).__name__,
+                        f"its query reads the table by name: {node.query}",
+                    )
+                ],
+                error_type=UnmatchedSourceError,
+            )
         return recreate_over(node, kwargs)
 
     repointed = replace_nodes(
