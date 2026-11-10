@@ -7,9 +7,12 @@ from pyiceberg.types import StringType
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceCache
-from xorq.catalog.drift import iter_leaf_reports
+from xorq.catalog.catalog import Catalog
+from xorq.catalog.drift import iter_leaf_reports, read_record
 from xorq.catalog.enums import Verdict
+from xorq.catalog.exceptions import RebaseError
 from xorq.catalog.inspection import BuildRecord
+from xorq.catalog.rebase import rebase_entry
 from xorq.catalog.refresh import op_key, refresh_build, refresh_schemas
 from xorq.common.utils.graph_utils import replace_sources
 from xorq.ibis_yaml.compiler import build_expr, load_expr
@@ -288,3 +291,14 @@ def test_a_broken_unrelated_table_does_not_affect_a_pinned_probe(
         iceberg_con.catalog.drop_table(f"{iceberg_con.namespace}.snapshot_probe_broken")
 
     assert report.verdict == Verdict.EQUAL
+
+
+def test_a_swap_of_a_pinned_table_is_refused(iceberg_con, quotes_df, tmp_path):
+    exprs = pinned_and_latest(iceberg_con, "snapshot_swap", quotes_df)
+    catalog = Catalog.from_kwargs(path=str(tmp_path / "catalog"), init=True)
+    entry = catalog.add(exprs["first"])
+    (leaf,) = read_record(entry).external_leaves
+
+    with pytest.raises(RebaseError, match="is pinned to a snapshot"):
+        rebase_entry(entry, swaps=[(leaf.name, "other")], sync=False)
+    assert catalog.list() == [entry.name]

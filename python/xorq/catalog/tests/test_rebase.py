@@ -3436,3 +3436,16 @@ def test_a_swapped_conflict_does_not_suggest_a_rename(
     result = rebase(runner, world, world.name, "--swap", "t", "u")
     assert result.exit_code == 4, result.output
     assert "--rename" not in result.stderr
+
+
+def test_a_swap_under_a_sql_view_is_refused(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    # The query names `t` as text, which re-pointing the table cannot reach.
+    name = world.catalog.add(world.con.table("t").sql("SELECT a FROM t")).name
+    world.con.create_table("u", ELSEWHERE.to_pandas())
+
+    result = rebase(runner, world, name, "--swap", "t", "u")
+    assert result.exit_code == 1, result.output
+    assert "SELECT a FROM t" in result.stderr
+    assert set(reopen(world).list()) == {world.name, name}
