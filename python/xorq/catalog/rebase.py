@@ -1043,9 +1043,10 @@ def swapped_leaves(
         if (detail := swap_refusal(swap, by_key)) is not None
     }
     onto = {
+        # Keyed as the `--rename` plans are: kind, profile hash, name.
         swap: {
-            (leaf.kind, leaf.profile, leaf.name)
-            for leaf in (swapped_leaf(leaf, swap.new) for leaf in by_key.values())
+            leaf_key(swapped_leaf(leaf, swap.new), record)[:3]
+            for leaf in by_key.values()
         }
         for swap, by_key in resolved.items()
         if swap not in refused

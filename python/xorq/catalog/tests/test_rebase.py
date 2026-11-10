@@ -3620,11 +3620,18 @@ def test_an_ambiguous_rename_beside_a_swap_names_the_recorded_source(
     )
 
 
+@pytest.mark.parametrize("same_instance", (True, False))
 def test_two_swaps_onto_one_table_are_refused(
-    runner: CliRunner, world: SimpleNamespace
+    runner: CliRunner, world: SimpleNamespace, same_instance: bool
 ) -> None:
-    # One `--rename` plan per table: `t`'s and `v`'s would overwrite each other.
-    name = beside_v(world, world.con)
+    # One `--rename` plan per table: `t`'s and `v`'s would overwrite each other,
+    # also where `v` is read through a second backend over the same file.
+    name = beside_v(
+        world,
+        world.con
+        if same_instance
+        else SqliteBackend().connect(str(world.tmp_path / "live.sqlite")),
+    )
 
     result = rebase(runner, world, name, "--swap", "t", "u", "--swap", "v", "u")
     assert result.exit_code == 1, result.output
