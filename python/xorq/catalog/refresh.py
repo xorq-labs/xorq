@@ -533,13 +533,27 @@ def refresh_schemas(
     return refreshed
 
 
-def repoint_tables(expr: Any, tables: Mapping[LeafKey, str]) -> Any:
-    """``expr`` with each table source ``tables`` keys (``leaf_key`` -> table
-    name) reading that table instead, in its namespace, at its recorded schema.
+def repointed_source(node: Node, leaf: SourceLeaf) -> Node:
+    """``node`` reading where its swapped ``leaf`` does: a read keeps its
+    method and kwargs but its path, a table is renamed in its namespace."""
+    if isinstance(node, Read):
+        path = dict(leaf.read_kwargs)[ReadKwarg.hash_path]
+        return recreate(
+            node,
+            read_kwargs=update_read_kwargs(
+                node.read_kwargs, ((ReadKwarg.hash_path, path),)
+            ),
+        )
+    return recreate(node, name=leaf.table)
 
-    ``refresh_schemas`` then rebuilds it over the new table's live schema,
+
+def repoint_tables(expr: Any, tables: Mapping[LeafKey, SourceLeaf]) -> Any:
+    """``expr`` with each source ``tables`` keys (``leaf_key`` -> the leaf as
+    swapped) reading where that leaf does, at its recorded schema.
+
+    ``refresh_schemas`` then rebuilds it over the new source's live schema,
     keyed under the new name. Raises if a key matches no source, or if a
-    ``SQLStringView`` reads a repointed table.
+    ``SQLStringView`` reads a repointed source.
     """
     if not tables:
         return expr
@@ -549,7 +563,7 @@ def repoint_tables(expr: Any, tables: Mapping[LeafKey, str]) -> Any:
     def replacer(node: Node, kwargs: dict | None) -> Node:
         if (key := repointed_key(node)) is not None:
             matched.add(key)
-            return recreate(node, name=tables[key])
+            return repointed_source(node, tables[key])
         if kwargs is None or isinstance(node, opaque_ops):
             return node
         # Its query names the old table as text, which no rewrite reaches.
