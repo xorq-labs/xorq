@@ -1449,7 +1449,30 @@ def rename_hints(
     )
 
 
-def untranslated_op(e: TranslationError) -> str:
+# What a compiler raises on an op its dialect cannot express.
+COMPILE_ERRORS = (TranslationError, NotImplementedError, ValueError)
+
+
+def compile_error(expr: Expr) -> Exception | None:
+    """Why ``expr`` does not compile for a backend it runs on, if it doesn't.
+
+    Compiled as the dump compiles it, per backend, untagged and at its
+    parameters' defaults: refreshing never reaches a dialect, and the dump
+    records a failure only as a warning. A parameter with no default leaves
+    nothing to compile, there as here.
+    """
+    try:
+        bound = bind_params(_remove_tag_nodes(expr), {})
+    except ValueError:
+        return None
+    try:
+        generate_sql_plans(bound)
+    except COMPILE_ERRORS as e:
+        return e
+    return None
+
+
+def untranslated_op(e: Exception) -> str:
     """The op whose compilation raised ``e``: the innermost frame holding
     one as ``op``, which every compiler ``visit_*`` method takes; else the
     error's own type."""
@@ -1697,13 +1720,6 @@ def rebase_entry(
                     catalog_entry, ambiguous_renames(repointed, live, planned, names)
                 )
                 expr = refresh_schemas(repointed, live, planned)
-                # Compiled as the dump compiles it, per backend, untagged and
-                # at its parameters' defaults: refreshing never reaches a
-                # dialect, and the dump records a failure only as a warning.
-                # A parameter with no default leaves nothing to compile, there
-                # as here.
-                with contextlib.suppress(ValueError):
-                    generate_sql_plans(bind_params(_remove_tag_nodes(expr), {}))
             except UnmatchedSourceError as e:
                 raise RebaseError(
                     f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED
@@ -1719,8 +1735,7 @@ def rebase_entry(
                         hints=rename_hints(record, changed, planned, names),
                     )
                 )
-            # After both: each is a `TranslationError` too.
-            except TranslationError as e:
+            if (e := compile_error(expr)) is not None:
                 # What the rebase changed: a drifted source or a swapped one.
                 involved = [
                     r
