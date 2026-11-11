@@ -61,8 +61,21 @@ jobs:
       - name: get wheel filename
         run: echo "WHEEL_FILE=$(ls dist/*.whl)" >> $GITHUB_ENV
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build postgres image with GHA layer cache
+        uses: docker/bake-action@v7
+        with:
+          files: compose.yaml
+          targets: postgres
+          load: true
+          set: |
+            postgres.cache-from=type=gha,scope=docker-postgres
+            postgres.cache-to=type=gha,scope=docker-postgres,mode=max
+
       - name: start services
-        run: docker compose up --build --wait
+        run: just up-ci postgres
 
       - name: test from_ibis compatibility with ibis ${{ matrix.dependencies.ibis-version }}
         run: |

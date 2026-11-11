@@ -54,9 +54,24 @@ jobs:
         run: uv sync --locked --extra examples --extra postgres --extra pyiceberg --extra ibis --extra datafusion --group dev --group test
         working-directory: ${{ github.workspace }}
 
+      - name: Set up Docker Buildx
+        if: matrix.slow-level != 3
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build postgres image with GHA layer cache
+        if: matrix.slow-level != 3
+        uses: docker/bake-action@v7
+        with:
+          files: compose.yaml
+          targets: postgres
+          load: true
+          set: |
+            postgres.cache-from=type=gha,scope=docker-postgres
+            postgres.cache-to=type=gha,scope=docker-postgres,mode=max
+
       - name: start services
         if: matrix.slow-level != 3
-        run: docker compose up postgres --build --wait
+        run: just up-ci postgres
 
       - name: pytest
         run: uv run --no-sync -- pytest --verbose --import-mode=importlib --numprocesses auto --dist loadgroup --cov --cov-report=xml -m 'slow(level=${{ matrix.slow-level }})' --durations=70
