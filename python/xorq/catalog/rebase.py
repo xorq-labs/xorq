@@ -1779,6 +1779,15 @@ def rebase_entry(
                 expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
             )
             if dumper.expr_hash == catalog_entry.name:
+                # A move that rebuilds this entry moved reads alone: the
+                # connection is no part of a read's build identity.
+                if moved_off:
+                    raise RebaseError(
+                        f"{catalog_entry.name}: --profile {profile} moves only "
+                        "reads, and a read's build identity does not include "
+                        "its connection, so the rebuild is this entry",
+                        RebaseFailure.REFUSED,
+                    ).carrying(new_hash=dumper.expr_hash)
                 plan.evolved(new=catalog_entry.name, alias=None)
                 return RebaseResult(
                     RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record

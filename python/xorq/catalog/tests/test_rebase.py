@@ -4210,6 +4210,76 @@ def test_a_profile_naming_a_missing_database_creates_none(
     assert not missing.exists()
 
 
+def test_a_profile_only_move_of_a_read_is_refused(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """A read's build identity leaves its connection out: moved, it would
+    rebuild as this entry."""
+    path = write_file(world.tmp_path / "m.parquet", RECORDED)
+    read = deferred_read_parquet(path, world.con, table_name="r")
+    name = world.catalog.add(read, relocate_reads=False).name
+    stored_profile(prod_con(world), "prod")
+
+    result = rebase(
+        runner, world, name, "--swap", str(path), str(path), "--profile", "prod"
+    )
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"{name}: --profile prod moves only reads, and a read's build identity "
+        "does not include its connection, so the rebuild is this entry\n"
+    )
+    assert set(reopen(world).list()) == {world.name, name}
+    document = json.loads(
+        rebase(
+            runner,
+            world,
+            name,
+            *("--swap", str(path), str(path), "--profile", "prod", "--json"),
+        ).stdout
+    )
+    assert document["new_hash"] == name
+
+
+def test_a_profile_moves_a_read_beside_a_table(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """The table's move changes the build: the read goes with it."""
+    path = write_file(world.tmp_path / "m.parquet", RECORDED)
+    read = deferred_read_parquet(path, world.con, table_name="r")
+    name = world.catalog.add(
+        world.con.table("t").union(read), relocate_reads=False
+    ).name
+    stored_profile(prod_con(world, "t"), "prod")
+
+    result = rebase(
+        runner,
+        world,
+        name,
+        *("--swap", "t", "t", "--swap", str(path), str(path), "--profile", "prod"),
+    )
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert len(new.load_expr().execute()) == len(ELSEWHERE) + len(RECORDED)
+
+
+@pytest.mark.parametrize("profile", ((), ("--profile", "live")))
+def test_a_bundled_swap_to_the_same_bytes_is_a_noop(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, profile: tuple
+) -> None:
+    """A swap that rebuilds the entry and leaves no connection moved nothing."""
+    old = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    copy = write_file(world.tmp_path / "m26.parquet", RECORDED)
+    read = deferred_read_parquet(old, world.con, table_name="r")
+    name = world.catalog.add(read).name
+    (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).source_leaves
+    stored_profile(world.con, "live")
+
+    result = rebase(runner, world, name, "--swap", leaf.name, str(copy), *profile)
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{name}\n"
+    assert set(reopen(world).list()) == {world.name, name}
+
+
 def test_a_profile_naming_the_loaded_connection_keeps_its_sources_together(
     runner: CliRunner, world: SimpleNamespace, profile_dir: Path
 ) -> None:
