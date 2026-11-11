@@ -63,8 +63,15 @@ jobs:
         if: matrix.backend.sys-deps != null
         run: |
           set -euo pipefail
-          sudo apt-get update -qq -y
-          sudo apt-get install -qq -y ${{ join(matrix.backend.sys-deps, ' ') }}
+          # The runner's Ubuntu mirrors sometimes fail to resolve for minutes.
+          for attempt in 1 2 3 4 5; do
+            sudo apt-get update -qq -y \
+              && sudo apt-get install -qq -y -o Acquire::Retries=3 ${{ join(matrix.backend.sys-deps, ' ') }} \
+              && exit 0
+            echo "apt attempt $attempt failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          exit 1
 
       - uses: actions/setup-python@v6
         with:
