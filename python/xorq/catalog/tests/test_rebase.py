@@ -4198,11 +4198,32 @@ def test_a_profile_only_move_of_a_read_is_refused(
     )
     assert result.exit_code == 1, result.output
     assert result.stderr == (
-        f"{name}: --swap {path} {path} moves a read onto another connection "
-        "only; a read's build identity does not include its connection, so "
-        "moving it changes nothing\n"
+        f"{name}: --profile prod moves only reads, and a read's build identity "
+        "does not include its connection, so the rebuild is this entry\n"
     )
     assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_profile_moves_a_read_beside_a_table(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """The table's move changes the build: the read goes with it."""
+    path = write_file(world.tmp_path / "m.parquet", RECORDED)
+    read = deferred_read_parquet(path, world.con, table_name="r")
+    name = world.catalog.add(
+        world.con.table("t").union(read), relocate_reads=False
+    ).name
+    stored_profile(prod_con(world, "t"), "prod")
+
+    result = rebase(
+        runner,
+        world,
+        name,
+        *("--swap", "t", "t", "--swap", str(path), str(path), "--profile", "prod"),
+    )
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert len(new.load_expr().execute()) == len(ELSEWHERE) + len(RECORDED)
 
 
 def test_a_profile_naming_the_loaded_connection_keeps_its_sources_together(

@@ -1062,17 +1062,6 @@ def swap_refusal(
             for key, leaf in leaves.items()
         ):
             return f"--swap {swap} swaps nothing"
-        # The connection is no part of a read's build identity: the rebuild
-        # would hash to this entry.
-        case {**leaves} if profile is not None and any(
-            leaf.kind == LeafKind.READ and leaf.name == swap.new
-            for leaf in leaves.values()
-        ):
-            return (
-                f"--swap {swap} moves a read onto another connection only; a "
-                "read's build identity does not include its connection, so "
-                "moving it changes nothing"
-            )
         # A snapshot id is one table's: `new` has none of `old`'s.
         case {**leaves} if any(
             leaf.snapshot_id is not None for leaf in leaves.values()
@@ -1723,6 +1712,15 @@ def rebase_entry(
                 expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
             )
             if dumper.expr_hash == catalog_entry.name:
+                # A swap that rebuilds this entry moved reads alone: the
+                # connection is no part of a read's build identity.
+                if options.swaps:
+                    raise RebaseError(
+                        f"{catalog_entry.name}: --profile {profile} moves only "
+                        "reads, and a read's build identity does not include "
+                        "its connection, so the rebuild is this entry",
+                        RebaseFailure.REFUSED,
+                    )
                 plan.evolved(new=catalog_entry.name, alias=None)
                 return RebaseResult(
                     RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
