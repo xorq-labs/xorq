@@ -79,7 +79,7 @@ jobs:
           restore-keys: hackernews-items-
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_examples.py -v --cov --cov-report=xml
+        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_examples.py -v -n auto --dist=loadgroup --durations=10 --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
