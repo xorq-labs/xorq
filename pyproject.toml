@@ -349,6 +349,7 @@ markers = [
     "gcs",
     "snapshot_check",
     "slow",
+    "annex: catalog tests that need the git-annex binary; CI runs them in the catalog annex shard",
     "datafusion: Apache Datafusion tests",
     "duckdb: DuckDB tests",
 

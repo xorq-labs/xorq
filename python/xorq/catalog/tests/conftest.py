@@ -246,9 +246,19 @@ def compare_repo_and_catalog(repo, catalog):
 
 _annex_available = shutil.which("git-annex") is not None
 
-requires_annex = pytest.mark.skipif(
-    not _annex_available, reason="git-annex not installed"
-)
+# CI routes tests to its annex shard by this marker; collection below skips
+# them where the binary is missing.
+requires_annex = pytest.mark.annex
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    if _annex_available:
+        return
+    skip = pytest.mark.skip(reason="git-annex not installed")
+    for item in items:
+        if item.get_closest_marker("annex"):
+            item.add_marker(skip)
+
 
 # For modules whose `backend_type` fixture pins one backend: the tests that
 # exercise what the storage backend decides opt back into all three.
@@ -263,12 +273,7 @@ every_storage_backend = pytest.mark.parametrize(
     scope="session",
     params=[
         "git",
-        pytest.param(
-            "annex",
-            marks=pytest.mark.skipif(
-                not _annex_available, reason="git-annex not installed"
-            ),
-        ),
+        pytest.param("annex", marks=requires_annex),
         "pointer",
     ],
 )

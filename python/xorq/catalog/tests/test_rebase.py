@@ -52,11 +52,11 @@ from xorq.catalog.refresh import leaf_key, op_key, refresh_schemas
 from xorq.catalog.tests.conftest import (
     RECORDED,
     TEST_WHEEL_NAME,
-    _annex_available,
     add_expr_entry,
     alias_target_hash,
     fail_nth_alias_move,
     pull_then,
+    requires_annex,
 )
 from xorq.cli import cli as top_cli
 from xorq.common.exceptions import LocalReadPathWarning, UnmatchedSourceError
@@ -80,13 +80,7 @@ ALL_BACKENDS = pytest.mark.parametrize(
     "backend_type",
     (
         pytest.param("git", id="git"),
-        pytest.param(
-            "annex",
-            marks=pytest.mark.skipif(
-                not _annex_available, reason="git-annex not installed"
-            ),
-            id="annex",
-        ),
+        pytest.param("annex", marks=requires_annex, id="annex"),
         pytest.param("pointer", id="pointer"),
     ),
 )

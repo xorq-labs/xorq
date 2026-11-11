@@ -91,9 +91,9 @@ jobs:
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
-          -m 'core and not uv_export'
+          -m 'core and not uv_export and not slow'
           --ignore=python/xorq/catalog
-          -k 'not script_execution and not slow'
+          -k 'not script_execution'
           -v --durations=20
           -n auto --dist=loadfile
         working-directory: ${{ github.workspace }}

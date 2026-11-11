@@ -15,17 +15,27 @@ runs:
         line=$(git ls-remote --exit-code https://github.com/ibis-project/testing-data refs/heads/master)
         echo "sha=${line%%[[:space:]]*}" >> "$GITHUB_OUTPUT"
 
-    # .git is left out: nothing reads it, and it is half the archive.
     - name: Restore testing data
       id: cache
-      uses: actions/cache@v5
+      uses: actions/cache/restore@v5
       with:
-        path: |
-          ci/ibis-testing-data
-          !ci/ibis-testing-data/.git
+        path: ci/ibis-testing-data
         key: ibis-testing-data-${{ steps.rev.outputs.sha }}
 
+    # The clone's .git is half the data and nothing reads it. A cache path
+    # exclusion cannot drop it (the directory is archived whole), so delete it.
     - name: download test data
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
-      run: just download-data
+      run: |
+        just download-data
+        rm -rf ci/ibis-testing-data/.git
+
+    # Each entry is ~0.45 GB against a 10 GB repo quota: save from pushes
+    # only, so pull requests restore main's entry instead of writing their own.
+    - name: Save testing data
+      if: steps.cache.outputs.cache-hit != 'true' && github.event_name == 'push'
+      uses: actions/cache/save@v5
+      with:
+        path: ci/ibis-testing-data
+        key: ${{ steps.cache.outputs.cache-primary-key }}
