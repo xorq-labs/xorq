@@ -3555,6 +3555,32 @@ def test_a_swap_carries_the_new_file_into_a_bundled_read(
     ]
 
 
+def test_a_bundled_read_is_not_an_external_read_at_its_member_path(
+    runner: CliRunner, world: SimpleNamespace, cwd: Path
+) -> None:
+    """An external read whose relative path is a bundled read's archive member,
+    on the same profile at the same schema, is another source: its drift is
+    not the bundled read's."""
+    path = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    bundled = world.catalog.add(deferred_read_parquet(path, xo.connect(), "r"))
+    (member,) = drift.read_record(bundled).source_leaves
+    (cwd / member.name).parent.mkdir()
+    write_file(cwd / member.name, RECORDED)
+    external = deferred_read_parquet(member.name, xo.connect(), "e")
+    name = world.catalog.add(
+        bundled.load_expr().join(external, "a"), relocate_reads=False
+    ).name
+    write_file(cwd / member.name, GROWN)
+
+    result = rebase(runner, world, name)
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert {
+        leaf.bundled: tuple(leaf.recorded)
+        for leaf in drift.read_record(new).source_leaves
+    } == {True: ("a", "b"), False: ("a", "b", "c")}
+
+
 def test_a_bundled_swap_beside_only_unprobed_sources_is_refused(
     runner: CliRunner, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
