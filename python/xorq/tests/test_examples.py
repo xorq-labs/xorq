@@ -17,6 +17,15 @@ LIBRARY_SCRIPTS = (
 )
 GCS_SCRIPTS = ("gcstorage_example",)
 S3_SCRIPTS = ("s3_content_store_catalog",)
+# examples that fill ./hackernews-items; its writes are not atomic, so under
+# xdist these share one worker rather than race on a cold item dir
+HACKERNEWS_SCRIPTS = (
+    "quickstart",
+    "deferred_fit_transform_example",
+    "deferred_fit_transform_predict_example",
+    "flight_serve_model",
+    "flight_udtf_example",
+)
 ExamplesEnv = EnvConfigable.subclass_from_kwargs("HACKERNEWS_ITEMS_DIR")
 NON_TESTABLE = (
     "mcp_flight_server.py",
@@ -58,18 +67,23 @@ def maybe_s3(name: str) -> pytest.MarkDecorator | tuple[()]:
     return pytest.mark.s3 if name in S3_SCRIPTS else ()
 
 
+def maybe_hackernews(name: str) -> pytest.MarkDecorator | tuple[()]:
+    return pytest.mark.xdist_group("hackernews") if name in HACKERNEWS_SCRIPTS else ()
+
+
 def maybe_marks(name: str):
-    fs = (maybe_library, maybe_gcs, maybe_s3)
+    fs = (maybe_library, maybe_gcs, maybe_s3, maybe_hackernews)
     return tuple(filter(None, (f(name) for f in fs)))
 
 
 @pytest.fixture(scope="session")
 def examples_cwd(tmp_path_factory):
-    """One cwd for every example, outside the repo.
+    """One cwd for every example, outside the repo; one per xdist worker.
 
     The examples write builds and caches relative to the cwd, and share them:
     the Hacker News examples fetch the same ~1,000 items into
-    ``./hackernews-items``, so only the first one pays for the requests.
+    ``./hackernews-items``, so only the first one pays for the requests; they
+    run on one worker (``HACKERNEWS_SCRIPTS``) to share that cwd.
     ``HACKERNEWS_ITEMS_DIR`` names a directory to keep those items in across
     sessions; CI restores it from its cache.
     """
