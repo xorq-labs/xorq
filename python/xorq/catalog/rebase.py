@@ -78,6 +78,7 @@ import os
 import shutil
 import sys
 import tempfile
+import traceback
 import warnings
 import zipfile
 from collections import Counter
@@ -105,6 +106,7 @@ from xorq.catalog.constants import REBASED_FROM, SWAPPED_SOURCES
 from xorq.catalog.drift import (
     LeafReport,
     checkable_leaves,
+    close_cons,
     format_error,
     iter_leaf_reports,
     make_profile,
@@ -141,14 +143,18 @@ from xorq.catalog.zip_utils import BuildZip, bundle_members, harvest_entry_from_
 from xorq.common.exceptions import (
     LocalReadPathWarning,
     SchemaRefreshError,
+    TranslationError,
     UnmatchedSourceError,
 )
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.common.utils.graph_utils import find_all_sources
 from xorq.common.utils.node_utils import update_read_kwargs
+from xorq.expr.api import _remove_tag_nodes, bind_params
 from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
 from xorq.ibis_yaml.packager import parse_python_minor
+from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
+from xorq.vendor.ibis.expr.operations import Node
 
 
 if TYPE_CHECKING:
@@ -404,9 +410,10 @@ def column_changes(before: Schema, after: Schema) -> tuple[ColumnChange, ...]:
 class RebaseConflict:
     """What a conflicted rebase could not follow.
 
-    ``op_name`` is the op that could not be rebuilt, ``None`` when a source is
-    gone. ``sources`` are the sweep's reports for every changed source in the
-    entry on an op failure, or for every source the sweep did not find equal
+    ``op_name`` is the op that could not be rebuilt or compiled, ``None`` when
+    a source is gone. ``sources`` are the sweep's reports for every changed
+    source in the entry on an op failure, for every changed or swapped source
+    on a compile failure, or for every source the sweep did not find equal
     (gone, changed, unreachable) on a missing-table conflict. ``detail`` is
     the cause as ``Type: message``: the op's error, or what refused the live
     schemas.
@@ -1465,6 +1472,43 @@ def rename_hints(
     )
 
 
+# What a compiler raises on an op its dialect cannot express.
+COMPILE_ERRORS = (TranslationError, NotImplementedError, TypeError, ValueError)
+
+
+def compile_error(expr: Expr) -> Exception | None:
+    """Why ``expr`` does not compile for a backend it runs on, if it doesn't.
+
+    Compiled as the dump compiles it, per backend, untagged and at its
+    parameters' defaults: refreshing never reaches a dialect, and the dump
+    records a failure only as a warning. A parameter with no default leaves
+    nothing to compile, there as here.
+    """
+    try:
+        bound = bind_params(_remove_tag_nodes(expr), {})
+    except ValueError:
+        return None
+    try:
+        generate_sql_plans(bound)
+    except COMPILE_ERRORS as e:
+        return e
+    return None
+
+
+def untranslated_op(e: Exception) -> str:
+    """The op whose compilation raised ``e``: the innermost frame holding
+    one as ``op``, which every compiler ``visit_*`` method takes; else the
+    error's own type."""
+    return next(
+        (
+            type(op).__name__
+            for frame, _ in reversed(tuple(traceback.walk_tb(e.__traceback__)))
+            if isinstance(op := frame.f_locals.get("op"), Node)
+        ),
+        type(e).__name__,
+    )
+
+
 def warn_consumed(renames: Iterable[Rename]) -> None:
     for rename in renames:
         if (message := rename.warning) is not None:
@@ -1526,7 +1570,10 @@ def rebase_entry(
     ``old``. ``profile`` names a stored profile every swapped source moves
     to; a missing one is refused before anything is read.
     """
-    from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
+    from xorq.ibis_yaml.compiler import (  # noqa: PLC0415
+        ExprDumper,
+        profile_content_key,
+    )
 
     options = RebaseOptions(
         alias=alias,
@@ -1583,7 +1630,13 @@ def rebase_entry(
     unswapped = tuple(
         leaf for leaf in checkable_leaves(record) if tables and leaf.name not in tables
     )
-    reports = tuple(iter_leaf_reports(record, leaves=leaves))
+    # The sweep reaches the profile through the rebase's own connection:
+    # duckdb refuses a second one, opened read-only, to the same file.
+    opened = {profile_content_key(target): con} if con else {}
+    try:
+        reports = tuple(iter_leaf_reports(record, con_cache=opened, leaves=leaves))
+    finally:
+        close_cons({key: c for key, c in opened.items() if c is not con})
     # A refusal from here on reports the sweep, as a conflict does.
     with refusing_with(record=record, reports=reports):
         if refusal := unswapped_refusal(catalog_entry, reports, unswapped):
@@ -1704,6 +1757,16 @@ def rebase_entry(
                         e.op_name,
                         hints=rename_hints(record, changed, planned, names),
                     )
+                )
+            if (e := compile_error(expr)) is not None:
+                # What the rebase changed: a drifted source or a swapped one.
+                involved = [
+                    r
+                    for r in reports
+                    if r.verdict != Verdict.EQUAL or r.leaf in swapped.values()
+                ]
+                return conflicted(
+                    RebaseConflict(format_error(e), involved, untranslated_op(e))
                 )
             warn_consumed(checked_renames)
             # `relocate_reads=False` keeps each read's recorded posture: a bundled

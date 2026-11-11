@@ -42,6 +42,7 @@ from xorq.catalog.inspection import SourceLeaf
 from xorq.catalog.rebase import (
     ColumnChange,
     Rename,
+    compile_error,
     rebase_entry,
     recorded_python_minor,
 )
@@ -548,7 +549,7 @@ def conflict_gone_beside_unreachable(w: SimpleNamespace) -> str:
     (
         pytest.param(
             conflict_dropped_column,
-            "Field cannot be rebuilt; changed sources in entry:",
+            "Field cannot be rebuilt; sources in entry:",
             "Field",
             [],
             ["t"],
@@ -564,7 +565,7 @@ def conflict_gone_beside_unreachable(w: SimpleNamespace) -> str:
         ),
         pytest.param(
             conflict_two_changed,
-            "Field cannot be rebuilt; changed sources in entry:",
+            "Field cannot be rebuilt; sources in entry:",
             "Field",
             [],
             ["t", "u"],
@@ -3382,7 +3383,7 @@ def test_a_swap_onto_a_wider_table_reports_the_output_change(
     (
         pytest.param(
             pa.table({"b": ["x", "y"]}),
-            "Field cannot be rebuilt; changed sources in entry: DatabaseTable u",
+            "Field cannot be rebuilt; sources in entry: DatabaseTable u",
             id="op-fails",
         ),
         pytest.param(None, "DatabaseTable u is gone", id="missing"),
@@ -4236,3 +4237,91 @@ def test_a_swap_onto_its_own_table_on_its_own_profile_is_refused(
     assert result.exit_code == 1, result.output
     assert result.stderr == f"{world.name}: --swap t t swaps nothing\n"
     assert set(reopen(world).list()) == {world.name}
+
+
+def duckdb_profile(w: SimpleNamespace, alias: str) -> None:
+    """A duckdb database holding ELSEWHERE as `t`, stored as ``alias``; its
+    connection closed, as duckdb opens a file once per configuration."""
+    con = xo.duckdb.connect(str(w.tmp_path / "prod.duckdb"))
+    con.create_table("t", ELSEWHERE)
+    stored_profile(con, alias)
+    con.disconnect()
+
+
+def test_a_profile_moves_a_source_onto_another_backend_type(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    duckdb_profile(world, "duck")
+
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "duck")
+    assert result.exit_code == 0, result.output
+    expr = reopen(world).get_catalog_entry(result.stdout.strip()).load_expr()
+    assert list(expr.execute()["a"]) == [5, 6]
+    assert [source.name for source in expr.ls.backends] == ["duckdb"]
+
+
+@pytest.mark.parametrize("dry_run", ((), ("--dry-run",)), ids=("rebase", "dry-run"))
+def test_a_profile_onto_a_backend_that_cannot_compile_an_op_conflicts(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, dry_run: tuple
+) -> None:
+    t = world.con.table("t")
+    name = world.catalog.add(t.mutate(host=t.b.host())).name
+    duckdb_profile(world, "duck")
+
+    result = rebase(
+        runner, world, name, "--swap", "t", "t", "--profile", "duck", *dry_run
+    )
+    assert result.exit_code == 4, result.output
+    assert (
+        f"{name}: conflict: ExtractHost cannot be rebuilt; "
+        "sources in entry: DatabaseTable t\n"
+    ) in result.stderr
+    assert "'ExtractHost' operation is not defined" in result.stderr
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_parameterized_entry_compiles_at_its_defaults(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    t = world.con.table("t")
+    name = world.catalog.add(t.filter(t.a > xo.param("floor", "int64", default=1))).name
+    replace_t(world, GROWN)
+
+    result = rebase(runner, world, name)
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert new.columns == ("a", "b", "c")
+
+
+@pytest.mark.parametrize(
+    ("connect", "column", "error", "op_name"),
+    (
+        pytest.param(
+            lambda: xo.duckdb.connect(),
+            lambda t: t.b.hexdigest("sha1"),
+            NotImplementedError,
+            "HexDigest",
+            id="duckdb-sha1",
+        ),
+        pytest.param(
+            # xorq's own engine: no backend extra needed.
+            lambda: xo.connect(),
+            lambda t: t.b.re_extract("(.)", t.a),
+            ValueError,
+            "RegexExtract",
+            id="xorq-datafusion-nonliteral-index",
+        ),
+    ),
+)
+def test_a_compiler_error_of_any_kind_names_its_op(
+    connect: Callable, column: Callable, error: type, op_name: str
+) -> None:
+    con = connect()
+    con.create_table("t", RECORDED)
+    t = con.table("t")
+
+    e = compile_error(t.mutate(c=column(t)))
+    assert isinstance(e, error)
+    assert rebase_module.untranslated_op(e) == op_name
+    # A parameter with no default leaves nothing to compile.
+    assert compile_error(t.filter(t.a > xo.param("floor", "int64"))) is None
