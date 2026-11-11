@@ -4100,6 +4100,22 @@ def test_a_profile_moves_every_swapped_source_to_its_connection(
     } == {prod.content_hash}
 
 
+def test_a_profile_moves_every_source_off_a_database_that_is_gone(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """Promotion after the old database is gone: every source leaves it, so
+    the rebase never connects to it, nor creates it."""
+    stored_profile(prod_con(world, "t"), "prod")
+    world.con.disconnect()
+    world.db_path.unlink()
+
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert list(new.load_expr().execute()["a"]) == [5, 6]
+    assert not world.db_path.exists()
+
+
 def test_a_profile_moves_a_source_onto_another_table_there(
     runner: CliRunner, world: SimpleNamespace, profile_dir: Path
 ) -> None:

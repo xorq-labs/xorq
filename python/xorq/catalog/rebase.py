@@ -856,17 +856,21 @@ def check_bundle(catalog_entry: CatalogEntry) -> None:
         )
 
 
-def check_databases_exist(catalog_entry: CatalogEntry, record: BuildRecord) -> None:
+def check_databases_exist(
+    catalog_entry: CatalogEntry, record: BuildRecord, left: Iterable[str] = ()
+) -> None:
     """Refuse if a local database file ``record``'s profiles name is gone.
 
     The load connects every profile, not only the probed ones, and sqlite and
-    duckdb create a missing file on connect.
+    duckdb create a missing file on connect. A profile every source ``left``
+    (by content hash) is loaded unconnected, so its file need not be there.
     """
     try:
         paths = tuple(
-            missing_database(make_profile(profile_dict))
+            missing_database(profile)
             for profile_dict in record.profiles.values()
             if isinstance(profile_dict, dict)
+            and (profile := make_profile(profile_dict)).content_hash not in left
         )
     except Exception as e:
         raise RebaseError(
@@ -1214,6 +1218,23 @@ def loaded_con(expr: Expr, con: BaseBackend) -> BaseBackend:
         ),
         con,
     )
+
+
+def left_cons(
+    record: BuildRecord, moved_off: Mapping[str, str]
+) -> dict[str, BaseBackend]:
+    """Each connection a source moved off, by content hash -> a connection to
+    it that opens only once used: by a source left on it, which is refused."""
+    profiles = (
+        make_profile(profile_dict)
+        for profile_dict in record.profiles.values()
+        if isinstance(profile_dict, dict)
+    )
+    return {
+        profile.content_hash: profile.get_con(lazy=True)
+        for profile in profiles
+        if profile.content_hash in moved_off.values()
+    }
 
 
 def vacated(
@@ -1737,7 +1758,8 @@ def rebase_entry(
             live = live_or_conflict(catalog_entry, record, reports)
             if isinstance(live, RebaseConflict):
                 return conflicted(live)
-            check_databases_exist(catalog_entry, record)
+            check_databases_exist(catalog_entry, record, moved_off.values())
+            left = left_cons(record, moved_off)
             # A failed cleanup must not end a rebase whose entry is already committed.
             with (
                 tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td,
@@ -1748,7 +1770,11 @@ def rebase_entry(
                 check_python_minor(catalog_entry, ignore_mismatch)
                 # Loaded inside the block: `load_expr` keeps the archive's extract dir,
                 # which bundled reads point into, alive only as long as the expression.
-                loaded = catalog_entry.load_expr(cache_dir=cache_dir)
+                # A connection every source left is loaded unconnected: its
+                # database may be gone, as after a dev->prod promotion.
+                loaded = catalog_entry.load_expr(
+                    cache_dir=cache_dir, con_cache=left or None
+                )
                 try:
                     repointed = repoint_tables(
                         loaded,

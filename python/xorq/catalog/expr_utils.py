@@ -94,12 +94,9 @@ def _pin_extract_dir_lifetime(expr: "Expr", td: str) -> None:
         )
     for backend in backends:
         try:
-            anchors = getattr(backend, _EXTRACT_DIR_ANCHOR_ATTR, None)
-            if anchors is None:
-                anchors = []
-                setattr(backend, _EXTRACT_DIR_ANCHOR_ATTR, anchors)
-            anchors.append(expr)
-        except AttributeError:
+            # Through `vars`: asking a lazy backend for an attribute connects it.
+            vars(backend).setdefault(_EXTRACT_DIR_ANCHOR_ATTR, []).append(expr)
+        except TypeError:
             # Can't anchor `expr`, so only weakref.finalize remains -- the
             # pre-#2133 behavior fuse/bind rewrapping defeats, silently reopening
             # the empty-result bug. No backend hits this today; warn if one does.
