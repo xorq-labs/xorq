@@ -4413,6 +4413,20 @@ def expr_udf(computed_kwargs_expr: xo.Table, name: str) -> Callable:
     )
 
 
+def test_a_rebase_closes_its_profile_connection(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """The database a --profile names is free again once the rebase returns:
+    opening it read-only is another configuration."""
+    duckdb_profile(world, "duck")
+
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "duck")
+    assert result.exit_code == 0, result.output
+    con = xo.duckdb.connect(str(world.tmp_path / "prod.duckdb"), read_only=True)
+    assert con.list_tables() == ["t"]
+    con.disconnect()
+
+
 @pytest.mark.parametrize("nested", (False, True), ids=("direct", "nested"))
 @pytest.mark.parametrize("dry_run", ((), ("--dry-run",)), ids=("rebase", "dry-run"))
 def test_a_udf_argument_a_backend_cannot_compile_conflicts(
