@@ -4255,3 +4255,16 @@ def test_a_profile_onto_a_backend_that_cannot_compile_an_op_conflicts(
     ) in result.stderr
     assert "'ExtractHost' operation is not defined" in result.stderr
     assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_parameterized_entry_compiles_at_its_defaults(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    t = world.con.table("t")
+    name = world.catalog.add(t.filter(t.a > xo.param("floor", "int64", default=1))).name
+    replace_t(world, GROWN)
+
+    result = rebase(runner, world, name)
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert new.columns == ("a", "b", "c")

@@ -147,7 +147,7 @@ from xorq.common.exceptions import (
 )
 from xorq.common.utils.graph_utils import find_all_sources
 from xorq.common.utils.node_utils import update_read_kwargs
-from xorq.expr.api import _remove_tag_nodes
+from xorq.expr.api import _remove_tag_nodes, bind_params
 from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
 from xorq.ibis_yaml.packager import parse_python_minor
 from xorq.ibis_yaml.sql import generate_sql_plans
@@ -1697,10 +1697,13 @@ def rebase_entry(
                     catalog_entry, ambiguous_renames(repointed, live, planned, names)
                 )
                 expr = refresh_schemas(repointed, live, planned)
-                # Compiled as the dump compiles it, per backend and untagged:
-                # refreshing rebuilds the expression but never reaches a
+                # Compiled as the dump compiles it, per backend, untagged and
+                # at its parameters' defaults: refreshing never reaches a
                 # dialect, and the dump records a failure only as a warning.
-                generate_sql_plans(_remove_tag_nodes(expr))
+                # A parameter with no default leaves nothing to compile, there
+                # as here.
+                with contextlib.suppress(ValueError):
+                    generate_sql_plans(bind_params(_remove_tag_nodes(expr), {}))
             except UnmatchedSourceError as e:
                 raise RebaseError(
                     f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED
