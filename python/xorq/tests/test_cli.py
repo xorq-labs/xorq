@@ -652,155 +652,72 @@ def test_join_command_no_rebind_backends_fails_cleanly(tmp_path: Path) -> None:
     assert b"different backend" in stderr
 
 
-@pytest.mark.slow(level=1)
-def test_run_command_default(tmp_path, fixture_dir):
-    target_dir = tmp_path / "build"
-    script_path = fixture_dir / "pipeline.py"
+def invoke_cli(*args):
+    """Run ``xorq`` in-process; the subprocess boundary is under test only in
+    ``test_run_command_stdout``."""
+    result = CliRunner().invoke(cli, [str(arg) for arg in args], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    return result.output
 
-    args = [
-        "xorq",
+
+def build_pipeline(fixture_dir, builds_dir):
+    output = invoke_cli(
         "build",
-        str(script_path),
+        fixture_dir / "pipeline.py",
         "--expr-name",
         "expr",
         "--builds-dir",
-        str(target_dir),
-    ]
-    (returncode, stdout, stderr) = subprocess_run(args)
-    assert returncode == 0, stderr
+        builds_dir,
+    )
+    return re.search(f"{builds_dir}/[0-9a-f]+", output).group()
 
-    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        expression_path = match.group()
-        test_args = [
-            "xorq",
-            "run",
-            expression_path,
-        ]
-        (returncode, _, _) = subprocess_run(test_args)
 
-        # test with problematic name (see https://github.com/xorq-labs/xorq/issues/1116)
-        test_args = [
-            "xorq",
-            "run",
-            str(
-                shutil.move(
-                    expression_path,
-                    Path(expression_path).parent.joinpath("becb4e71406b.bak"),
-                )
-            ),
-        ]
-        (returncode, _, stderr) = subprocess_run(test_args)
-
-        assert returncode == 0, stderr
-    else:
-        raise AssertionError("No expression hash")
+@pytest.mark.slow(level=1)
+def test_run_command_default(tmp_path, fixture_dir):
+    expression_path = build_pipeline(fixture_dir, tmp_path / "build")
+    invoke_cli("run", expression_path)
+    # test with problematic name (see https://github.com/xorq-labs/xorq/issues/1116)
+    invoke_cli(
+        "run",
+        shutil.move(
+            expression_path, Path(expression_path).parent.joinpath("becb4e71406b.bak")
+        ),
+    )
 
 
 @pytest.mark.slow(level=1)
 @pytest.mark.parametrize("output_format", OutputFormats)
 def test_run_command(tmp_path, fixture_dir, output_format):
-    target_dir = tmp_path / "build"
-    script_path = fixture_dir / "pipeline.py"
-
-    build_args = [
-        "xorq",
-        "build",
-        str(script_path),
-        "--expr-name",
-        "expr",
-        "--builds-dir",
-        str(target_dir),
-    ]
-    (returncode, stdout, stderr) = subprocess_run(build_args)
-    assert returncode == 0, stderr
-
-    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        output_path = tmp_path / f"test.{output_format}"
-        expression_path = match.group()
-        test_args = [
-            "xorq",
-            "run",
-            expression_path,
-            "--output-path",
-            str(output_path),
-            "--format",
-            output_format,
-        ]
-        (returncode, _, stderr) = subprocess_run(test_args)
-        assert returncode == 0, stderr
-        assert output_path.exists()
-        assert output_path.stat().st_size > 0
-
-    else:
-        raise AssertionError("No expression hash")
+    output_path = tmp_path / f"test.{output_format}"
+    invoke_cli(
+        "run",
+        build_pipeline(fixture_dir, tmp_path / "build"),
+        "--output-path",
+        output_path,
+        "--format",
+        output_format,
+    )
+    assert output_path.stat().st_size > 0
 
 
 @pytest.mark.slow(level=1)
 @pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
 def test_run_cached_command(tmp_path, fixture_dir, output_format):
-    target_dir = tmp_path / "build"
-    script_path = fixture_dir / "pipeline.py"
-
-    build_args = [
-        "xorq",
-        "build",
-        str(script_path),
-        "--expr-name",
-        "expr",
-        "--builds-dir",
-        str(target_dir),
-    ]
-    (returncode, stdout, stderr) = subprocess_run(build_args)
-    assert returncode == 0, stderr
-
-    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        output_path = tmp_path / f"test.{output_format}"
-        expression_path = match.group()
-        test_args = [
-            "xorq",
-            "run-cached",
-            expression_path,
-            "--output-path",
-            str(output_path),
-            "--format",
-            output_format,
-        ]
-        (returncode, _, stderr) = subprocess_run(test_args)
-        assert returncode == 0, stderr
-        assert output_path.exists()
-        assert output_path.stat().st_size > 0
-    else:
-        raise AssertionError("No expression hash")
+    output_path = tmp_path / f"test.{output_format}"
+    invoke_cli(
+        "run-cached",
+        build_pipeline(fixture_dir, tmp_path / "build"),
+        "--output-path",
+        output_path,
+        "--format",
+        output_format,
+    )
+    assert output_path.stat().st_size > 0
 
 
 @pytest.mark.slow(level=1)
 def test_run_cached_command_default(tmp_path, fixture_dir):
-    target_dir = tmp_path / "build"
-    script_path = fixture_dir / "pipeline.py"
-
-    build_args = [
-        "xorq",
-        "build",
-        str(script_path),
-        "--expr-name",
-        "expr",
-        "--builds-dir",
-        str(target_dir),
-    ]
-    (returncode, stdout, stderr) = subprocess_run(build_args)
-    assert returncode == 0, stderr
-
-    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        expression_path = match.group()
-        test_args = [
-            "xorq",
-            "run-cached",
-            expression_path,
-        ]
-        (returncode, _, stderr) = subprocess_run(test_args)
-        assert returncode == 0, stderr
-    else:
-        raise AssertionError("No expression hash")
+    invoke_cli("run-cached", build_pipeline(fixture_dir, tmp_path / "build"))
 
 
 @pytest.mark.slow(level=1)
@@ -813,44 +730,19 @@ def test_run_cached_command_default(tmp_path, fixture_dir):
     ],
 )
 def test_run_cached_command_cache_types(tmp_path, fixture_dir, cache_type, ttl):
-    target_dir = tmp_path / "build"
-    cache_dir = tmp_path / "cache"
-    script_path = fixture_dir / "pipeline.py"
-
-    build_args = [
-        "xorq",
-        "build",
-        str(script_path),
-        "--expr-name",
-        "expr",
-        "--builds-dir",
-        str(target_dir),
-    ]
-    (returncode, stdout, stderr) = subprocess_run(build_args)
-    assert returncode == 0, stderr
-
-    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        output_path = tmp_path / "test.parquet"
-        expression_path = match.group()
-        test_args = [
-            "xorq",
-            "run-cached",
-            expression_path,
-            "--cache-dir",
-            str(cache_dir),
-            "--cache-type",
-            cache_type,
-            "--output-path",
-            str(output_path),
-        ]
-        if ttl is not None:
-            test_args.extend(["--ttl", ttl])
-        (returncode, _, stderr) = subprocess_run(test_args)
-        assert returncode == 0, stderr
-        assert output_path.exists()
-        assert output_path.stat().st_size > 0
-    else:
-        raise AssertionError("No expression hash")
+    output_path = tmp_path / "test.parquet"
+    invoke_cli(
+        "run-cached",
+        build_pipeline(fixture_dir, tmp_path / "build"),
+        "--cache-dir",
+        tmp_path / "cache",
+        "--cache-type",
+        cache_type,
+        "--output-path",
+        output_path,
+        *(("--ttl", ttl) if ttl is not None else ()),
+    )
+    assert output_path.stat().st_size > 0
 
 
 @pytest.mark.slow(level=1)
