@@ -17,11 +17,13 @@ from unittest.mock import MagicMock
 import click
 import pyarrow as pa
 import pytest
+import toolz
 from attr import evolve
 from click.testing import CliRunner, Result
 from git import Repo
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog import cli as catalog_cli
@@ -64,6 +66,7 @@ from xorq.common.utils.defer_utils import (
     normalize_read_path_stat,
 )
 from xorq.common.utils.graph_utils import find_all_sources
+from xorq.expr import udf
 from xorq.expr.relations import Read, pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
 from xorq.ibis_yaml.enums import DumpFiles
@@ -4376,6 +4379,62 @@ def test_a_profile_onto_a_backend_that_cannot_compile_an_op_conflicts(
     ) in result.stderr
     assert "'ExtractHost' operation is not defined" in result.stderr
     assert set(reopen(world).list()) == {world.name, name}
+
+
+def expr_udf(computed_kwargs_expr: xo.Table, name: str) -> Callable:
+    return udf.make_pandas_expr_udf(
+        computed_kwargs_expr=computed_kwargs_expr,
+        fn=lambda value, frame, **kw: frame["a"],
+        schema=xo.schema({"a": "int64"}),
+        name=name,
+        return_type=dt.int64,
+        post_process_fn=toolz.identity,
+    )
+
+
+@pytest.mark.parametrize("nested", (False, True), ids=("direct", "nested"))
+@pytest.mark.parametrize("dry_run", ((), ("--dry-run",)), ids=("rebase", "dry-run"))
+def test_a_udf_argument_a_backend_cannot_compile_conflicts(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    profile_dir: Path,
+    dry_run: tuple,
+    nested: bool,
+) -> None:
+    """The UDF's computed argument runs on its own backend too, a UDF passed
+    as another's argument included."""
+    t = world.con.table("t")
+    first = expr_udf(t.b.host().max().name("h").as_table(), "first")
+    outer = expr_udf(t.a.max().name("m").as_table(), "outer")
+    call = first.on_expr(t)
+    name = world.catalog.add(t.mutate(n=outer(call) if nested else call)).name
+    duckdb_profile(world, "duck")
+
+    result = rebase(
+        runner, world, name, "--swap", "t", "t", "--profile", "duck", *dry_run
+    )
+    assert result.exit_code == 4, result.output
+    assert (
+        f"{name}: conflict: ExtractHost cannot be rebuilt; "
+        "sources in entry: DatabaseTable t\n"
+    ) in result.stderr
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_nested_udf_argument_compiles_at_its_defaults(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """A parameter only a nested UDF's computed argument reads is bound too."""
+    t = world.con.table("t")
+    floor = xo.param("floor", "int64", default=1)
+    inner = expr_udf(t.filter(t.a > floor).a.max().name("m").as_table(), "inner")
+    outer = expr_udf(t.a.max().name("m").as_table(), "outer")
+    name = world.catalog.add(t.mutate(n=outer(inner.on_expr(t)))).name
+    duckdb_profile(world, "duck")
+
+    result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "duck")
+    assert result.exit_code == 0, result.output
+    assert set(reopen(world).list()) == {world.name, name, result.stdout.strip()}
 
 
 def test_a_parameterized_entry_compiles_at_its_defaults(

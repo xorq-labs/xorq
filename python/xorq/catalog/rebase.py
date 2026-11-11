@@ -147,8 +147,13 @@ from xorq.common.exceptions import (
     UnmatchedSourceError,
 )
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
-from xorq.common.utils.graph_utils import find_all_sources
+from xorq.common.utils.graph_utils import (
+    find_all_sources,
+    gen_children_of,
+    walk_nodes,
+)
 from xorq.common.utils.node_utils import update_read_kwargs
+from xorq.expr import udf
 from xorq.expr.api import _remove_tag_nodes, bind_params
 from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
 from xorq.ibis_yaml.packager import parse_python_minor
@@ -1485,17 +1490,32 @@ def compile_error(expr: Expr) -> Exception | None:
 
     Compiled as the dump compiles it, per backend, untagged and at its
     parameters' defaults: refreshing never reaches a dialect, and the dump
-    records a failure only as a warning. A parameter with no default leaves
-    nothing to compile, there as here.
+    records a failure only as a warning. A UDF's computed argument is an
+    expression of its own, run on its own backend. A parameter with no default
+    leaves its expression nothing to compile, there as here.
     """
-    try:
-        bound = bind_params(_remove_tag_nodes(expr), {})
-    except ValueError:
-        return None
-    try:
-        generate_sql_plans(bound)
-    except COMPILE_ERRORS as e:
-        return e
+    untagged = _remove_tag_nodes(expr)
+    # A UDF's own arguments too, which its opaque edge leaves out: a UDF can
+    # be passed as another's.
+    computed = (
+        op.computed_kwargs_expr
+        for op in walk_nodes(
+            udf.ExprScalarUDF,
+            untagged,
+            gen_children=lambda node: (*gen_children_of(node), *node.__children__),
+        )
+    )
+    for each in (untagged, *computed):
+        # Bound one by one: `bind_params` does not reach a UDF passed as
+        # another's argument.
+        try:
+            bound = bind_params(each, {})
+        except ValueError:
+            continue
+        try:
+            generate_sql_plans(bound)
+        except COMPILE_ERRORS as e:
+            return e
     return None
 
 
