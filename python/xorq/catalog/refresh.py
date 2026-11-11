@@ -67,10 +67,11 @@ SCHEMA_FOLLOWS_PARENT = {
     Tag: "parent",
 }
 
-# (kind, name, snapshot_id, schema): a source's identity without its profile.
-SourceIdentity = tuple[str, str, int | None, Schema]
-# (kind, profile content hash, name, snapshot_id, schema).
-LeafKey = tuple[str, str | None, str, int | None, Schema]
+# (kind, name, snapshot_id, schema, bundled): a source's identity without its
+# profile.
+SourceIdentity = tuple[str, str, int | None, Schema, bool]
+# (kind, profile content hash, name, snapshot_id, schema, bundled).
+LeafKey = tuple[str, str | None, str, int | None, Schema, bool]
 
 # Exact source op class -> the `op` name it serializes as in expr.yaml.
 SOURCE_LEAF_KINDS: dict[type[Node], LeafKind] = {
@@ -78,6 +79,15 @@ SOURCE_LEAF_KINDS: dict[type[Node], LeafKind] = {
     PyIcebergTable: LeafKind.DATABASE_TABLE,
     Read: LeafKind.READ,
 }
+
+
+def reads_bundled(read_kwargs: Iterable[tuple[str, Any]]) -> bool:
+    """Whether ``read_kwargs`` still read from the archive: ADR-0006's one key.
+
+    Keyed apart, since a bundled read is named by its archive path, which an
+    external read can name too.
+    """
+    return ReadKwarg.read_path in dict(read_kwargs)
 
 
 def leaf_profile_key(leaf: SourceLeaf, record: BuildRecord) -> str | None:
@@ -99,6 +109,7 @@ def leaf_key(leaf: SourceLeaf, record: BuildRecord) -> LeafKey:
         leaf.name,
         leaf.snapshot_id,
         leaf.recorded,
+        reads_bundled(leaf.read_kwargs),
     )
 
 
@@ -110,6 +121,7 @@ def source_identity(node: Node) -> SourceIdentity | None:
     match kind := SOURCE_LEAF_KINDS.get(type(node)):
         case LeafKind.DATABASE_TABLE:
             name = node.to_expr().get_name()
+            bundled = False
         case LeafKind.READ:
             # Same fallback as `SourceLeaf`. A loaded bundled read points into
             # the extract dir; its record names it by its archive path.
@@ -120,9 +132,10 @@ def source_identity(node: Node) -> SourceIdentity | None:
                 or node.name
             )
             name = join_read_path(path)
+            bundled = reads_bundled(node.read_kwargs)
         case _:
             return None
-    return (kind, name, snapshot_pin(node), node.schema)
+    return (kind, name, snapshot_pin(node), node.schema, bundled)
 
 
 def op_key(node: Node) -> LeafKey | None:
@@ -132,10 +145,10 @@ def op_key(node: Node) -> LeafKey | None:
     """
     if (identity := source_identity(node)) is None:
         return None
-    (kind, name, snapshot_id, schema) = identity
+    (kind, name, snapshot_id, schema, bundled) = identity
     profile = Profile.from_con(node.source)
     profile_key = None if profile is None else profile.content_hash
-    return (kind, profile_key, name, snapshot_id, schema)
+    return (kind, profile_key, name, snapshot_id, schema, bundled)
 
 
 def keyed_source(keys: Iterable[LeafKey]) -> Callable[[Node], LeafKey | None]:
@@ -145,10 +158,7 @@ def keyed_source(keys: Iterable[LeafKey]) -> Callable[[Node], LeafKey | None]:
     backend.
     """
     keys = frozenset(keys)
-    candidates = {
-        (kind, name, snapshot_id, schema)
-        for (kind, _, name, snapshot_id, schema) in keys
-    }
+    candidates = {(kind, *identity) for (kind, _, *identity) in keys}
 
     def key_of(node: Node) -> LeafKey | None:
         if source_identity(node) in candidates and (key := op_key(node)) in keys:
@@ -164,7 +174,7 @@ def refuse_unmatched(keys: Iterable[LeafKey], matched: set[LeafKey]) -> None:
         refuse(
             (
                 (kind, f"{name} matched no source of the loaded expression")
-                for (kind, _, name, _, _) in unmatched
+                for (kind, _, name, *_) in unmatched
             ),
             error_type=UnmatchedSourceError,
         )
@@ -449,10 +459,7 @@ def ambiguous_renames(
     ``compose_renames`` refuses, for a caller to refuse as a bad rename before
     ``refresh_schemas``. ``names`` names a swapped source as it was recorded."""
     # Screen before `op_key`: resolving a profile connects a lazy backend.
-    candidates = {
-        (kind, name, snapshot_id, schema)
-        for (kind, _, name, snapshot_id, schema) in renames
-    }
+    candidates = {(kind, *identity) for (kind, _, *identity) in renames}
     details = []
     for mark in walk_nodes(HashingTag, expr):
         if (held := marked_renames(mark)) is None or not isinstance(
@@ -494,7 +501,7 @@ def refresh_schemas(
         refuse(
             (
                 (kind, f"{name} is renamed but not refreshed")
-                for (kind, _, name, _, _) in stray
+                for (kind, _, name, *_) in stray
             ),
             error_type=UnmatchedSourceError,
         )

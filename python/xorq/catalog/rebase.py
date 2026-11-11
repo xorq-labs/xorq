@@ -1077,16 +1077,20 @@ def swap_refusal(
 def swapped_leaf(leaf: SourceLeaf, new: str, profile: str | None = None) -> SourceLeaf:
     """``leaf`` reading ``new`` instead, through ``profile`` if given: a
     read's one path, or a table in ``leaf``'s namespace. A bundled read
-    stays bundled: the rebuild copies ``new`` into the archive."""
+    stays bundled: the rebuild copies ``new`` into the archive. Its archive
+    path goes, as the re-pointed read's does, so the two key alike."""
     profile = profile or leaf.profile
     if leaf.kind == LeafKind.READ:
+        read_kwargs = update_read_kwargs(
+            leaf.read_kwargs, ((ReadKwarg.hash_path, new),)
+        )
         return evolve(
             leaf,
             name=new,
             profile=profile,
             paths=(new,),
-            read_kwargs=update_read_kwargs(
-                leaf.read_kwargs, ((ReadKwarg.hash_path, new),)
+            read_kwargs=tuple(
+                (key, value) for key, value in read_kwargs if key != ReadKwarg.read_path
             ),
         )
     return evolve(
