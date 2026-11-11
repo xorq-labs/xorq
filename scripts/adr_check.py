@@ -53,9 +53,7 @@ PR_NUMBER_FLOOR = 1000
 # ahead of the file is the coordination this scheme exists to remove; an ADR
 # still being written takes the number of the pull request that adds it, and is
 # cited by slug until then.
-LEGACY_IN_FLIGHT = {
-    18: "content-store-capability-and-binding",  # hosted-presigned-catalogs-fixes
-}
+LEGACY_IN_FLIGHT = {}
 
 # The slug must start with a letter, which is what keeps it lexically disjoint
 # from a number. A digit-initial slug would make `ADR-2024-migration` parse as a
