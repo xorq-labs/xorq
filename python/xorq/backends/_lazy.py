@@ -1,6 +1,14 @@
 import threading
 
 
+def with_profile(backend, profile):
+    """``backend``, given ``profile`` if one: what recorded a lazy connection's
+    profile before it connected still names it after."""
+    if profile is not None:
+        backend._profile = profile  # xorq-style: disable=protected-access
+    return backend
+
+
 class LazyBackend:
     """Wraps a ``connect`` callable and defers the call until the first
     attribute access.
@@ -95,6 +103,9 @@ class LazyBackend:
                     connect = object.__getattribute__(self, "_connect")
                     args = object.__getattribute__(self, "_args")
                     kwargs = object.__getattribute__(self, "_kwargs")
-                    backend = connect(*args, **kwargs)
+                    backend = with_profile(
+                        connect(*args, **kwargs),
+                        object.__getattribute__(self, "_unconnected_profile"),
+                    )
                     object.__setattr__(self, "_backend", backend)
                     object.__setattr__(self, "_connected", True)
