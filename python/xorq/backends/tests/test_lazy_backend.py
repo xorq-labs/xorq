@@ -12,6 +12,7 @@ import xorq.backends.duckdb as duckdb
 import xorq.backends.sqlite as sqlite
 from xorq.backends._lazy import LazyBackend
 from xorq.vendor.ibis.backends import BaseBackend
+from xorq.vendor.ibis.backends.profiles import Profile
 
 
 def make_duckdb_lazy(**kwargs):
@@ -155,3 +156,15 @@ def test_lazy_duckdb_full_roundtrip(tmp_path):
 
     result = tbl.execute()
     assert set(result["city"]) == {"London", "Paris"}
+
+
+def test_a_lazy_connection_reports_the_database_it_opens(tmp_path):
+    """A lazy connection's profile is the one it connects with, overrides
+    included, before and after it connects."""
+    other = str(tmp_path / "b.sqlite")
+    profile = Profile.from_con(sqlite.Backend().connect(str(tmp_path / "a.sqlite")))
+    con = profile.get_con(lazy=True, database=other)
+    before = dict(Profile.from_con(con).kwargs_tuple)["database"]
+    con.list_tables()
+    after = dict(Profile.from_con(con).kwargs_tuple)["database"]
+    assert (before, after) == (other, other)

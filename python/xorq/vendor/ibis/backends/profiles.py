@@ -229,8 +229,9 @@ class Profile:
         connect = getattr(load_backend(self.con_name), "connect")
         if lazy:
             con = LazyBackend(connect, **_kwargs)
-            # Its profile is this one, so `from_con` need not connect it.
-            vars(con)["_profile"] = self
+            # Its profile is this one, overrides applied, so `from_con` need
+            # not connect it.
+            vars(con)["_profile"] = self.clone(**kwargs)
             return con
         return connect(**_kwargs)
 
