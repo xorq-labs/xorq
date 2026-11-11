@@ -126,7 +126,9 @@ def test_wheel_builder(template, tmpdir):
                 strict=False,
             ),
         )
+        # cached-fetcher's live fetch runs end to end in ci-test-templates
         for t in InitTemplates
+        if t != InitTemplates.cached_fetcher
     ],
 )
 def test_wheel_runner(template, tmpdir):
