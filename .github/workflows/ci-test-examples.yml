@@ -52,21 +52,7 @@ jobs:
         run: uv sync --locked --extra examples --extra pyiceberg --extra postgres --extra sqlite --group dev --group test
         working-directory: ${{ github.workspace }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build postgres image with GHA layer cache
-        uses: docker/bake-action@v7
-        with:
-          files: compose.yaml
-          targets: postgres
-          load: true
-          set: |
-            postgres.cache-from=type=gha,scope=docker-postgres
-            postgres.cache-to=type=gha,scope=docker-postgres,mode=max
-
-      - name: start services
-        run: just up-ci postgres
+      - uses: ./.github/actions/postgres
 
       # The Hacker News examples fetch ~1,000 items one request at a time; the
       # items are fixed by the pinned input, so keep them between runs.
@@ -81,15 +67,6 @@ jobs:
         run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_examples.py -v -n auto --dist=loadgroup --durations=10 --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_DATABASE: ibis_testing
-          XORQ_EXAMPLES_POSTGRES_HOST: localhost
-          XORQ_EXAMPLES_POSTGRES_USER: postgres
-          XORQ_EXAMPLES_POSTGRES_PASSWORD: postgres
-          XORQ_EXAMPLES_POSTGRES_DATABASE: ibis_testing
           HACKERNEWS_ITEMS_DIR: ${{ runner.temp }}/hackernews-items
           WEATHER_FEATURES_PORT: 8819
           WEATHER_API_URL: https://api.openweathermap.org/data/2.5/weather

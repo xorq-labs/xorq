@@ -57,23 +57,12 @@ jobs:
         run: uv sync --locked --extra examples --extra postgres --extra pyiceberg --extra ibis --extra datafusion --group dev --group test
         working-directory: ${{ github.workspace }}
 
-      - name: start services
+      - uses: ./.github/actions/postgres
         if: matrix.slow-level != 3
-        run: docker compose up postgres --build --wait
 
       - name: pytest
         run: uv run --no-sync -- pytest --verbose --import-mode=importlib --numprocesses auto --dist loadgroup --cov --cov-report=xml -m 'slow(level=${{ matrix.slow-level }})' --durations=70
         working-directory: ${{ github.workspace }}
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_DATABASE: ibis_testing
-          XORQ_EXAMPLES_POSTGRES_HOST: localhost
-          XORQ_EXAMPLES_POSTGRES_USER: postgres
-          XORQ_EXAMPLES_POSTGRES_PASSWORD: postgres
-          XORQ_EXAMPLES_POSTGRES_DATABASE: ibis_testing
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.5.4
