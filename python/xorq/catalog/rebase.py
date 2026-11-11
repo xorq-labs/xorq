@@ -86,7 +86,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from attr import Factory, asdict, converters, evolve, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
@@ -129,7 +129,7 @@ from xorq.catalog.exceptions import (
     RenameWarning,
     RollbackError,
 )
-from xorq.catalog.inspection import BuildRecord, SourceLeaf, table_name
+from xorq.catalog.inspection import BuildRecord, SourceLeaf, get_nodes, table_name
 from xorq.catalog.refresh import (
     LeafKey,
     ambiguous_renames,
@@ -156,7 +156,7 @@ from xorq.common.utils.graph_utils import (
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr import udf
 from xorq.expr.api import _remove_tag_nodes, bind_params
-from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
+from xorq.ibis_yaml.enums import DocKey, DumpFiles, NodeKey, ReadKwarg, RegistryEnum
 from xorq.ibis_yaml.packager import parse_python_minor
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
@@ -1220,16 +1220,43 @@ def loaded_con(expr: Expr, con: BaseBackend) -> BaseBackend:
     )
 
 
+def profile_refs(value: Any) -> Iterator[str]:
+    """Every profile name ``value``, a part of an expr document, refers to."""
+    match value:
+        case Mapping():
+            for key, item in value.items():
+                if key == NodeKey.profile and isinstance(item, str):
+                    yield item
+                else:
+                    yield from profile_refs(item)
+        case list() | tuple():
+            for item in value:
+                yield from profile_refs(item)
+
+
 def left_behind(
     record: BuildRecord, swapped: Mapping[LeafKey, SourceLeaf]
 ) -> frozenset[str]:
-    """The content hashes of the connections every source moved off: no
-    unswapped source stays on them."""
-    kept = {
-        key[1]
+    """The content hashes of the connections every source moved off that
+    nothing else in the entry names: an unswapped source, a payload's
+    destination, a writer."""
+    moved = {
+        leaf.node_ref
         for leaf in record.source_leaves
-        if (key := leaf_key(leaf, record)) not in swapped
+        if leaf_key(leaf, record) in swapped
     }
+    doc = record.expr_doc
+    rest = (
+        {key: value for key, value in doc.items() if key != DocKey.definitions},
+        {
+            key: value
+            for key, value in doc[DocKey.definitions].items()
+            if key != RegistryEnum.nodes
+        },
+        {ref: node for ref, node in get_nodes(doc).items() if ref not in moved},
+    )
+    # A profile's name is its content hash and its index.
+    kept = {name.rpartition("_")[0] for name in profile_refs(rest)}
     return frozenset(vacated(record, swapped).values()) - kept
 
 

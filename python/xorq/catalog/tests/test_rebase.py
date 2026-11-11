@@ -4116,6 +4116,23 @@ def test_a_profile_moves_every_source_off_a_database_that_is_gone(
     assert not world.db_path.exists()
 
 
+def test_a_profile_keeps_a_gone_database_an_entry_still_runs_on(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """`t` moves off, but the entry still runs on its old connection: the
+    gone database is refused, not recreated."""
+    entry = world.con.table("t").into_backend(world.con, "t_in")
+    name = world.catalog.add(entry).name
+    stored_profile(prod_con(world, "t"), "prod")
+    world.con.disconnect()
+    world.db_path.unlink()
+
+    result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 2, result.output
+    assert "live.sqlite does not exist" in result.stderr
+    assert not world.db_path.exists()
+
+
 def test_a_profile_moves_a_source_onto_another_table_there(
     runner: CliRunner, world: SimpleNamespace, profile_dir: Path
 ) -> None:
