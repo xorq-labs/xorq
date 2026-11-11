@@ -142,13 +142,17 @@ from xorq.common.exceptions import (
     SchemaRefreshError,
     UnmatchedSourceError,
 )
+from xorq.common.utils.graph_utils import find_all_sources
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
 from xorq.ibis_yaml.packager import parse_python_minor
+from xorq.vendor.ibis.backends.profiles import Profile, Profiles
 
 
 if TYPE_CHECKING:
+    from xorq.vendor.ibis.backends import BaseBackend
     from xorq.vendor.ibis.expr.schema import Schema
+    from xorq.vendor.ibis.expr.types import Expr
 
 
 def alias_names(only_aliases: Iterable[str]) -> tuple[str, ...]:
@@ -266,15 +270,26 @@ def swap_tuple(swaps: Iterable[Swap | tuple[str, str]]) -> tuple:
     return tuple(swap if isinstance(swap, Swap) else Swap(*swap) for swap in swaps)
 
 
-def repeated_swaps(swaps: tuple[Swap, ...]) -> Iterator[str]:
+def repeated_swaps(swaps: tuple[Swap, ...], moved: bool = False) -> Iterator[str]:
     """Why each of ``swaps`` that swaps a source to itself, or twice, or to no
-    table, is refused."""
+    table, is refused. ``moved``: onto another connection, its own name is
+    a swap."""
     yield from (f"--swap {swap.old} names no table" for swap in swaps if not swap.new)
     yield from (
-        f"--swap {swap} swaps nothing" for swap in swaps if swap.old == swap.new
+        f"--swap {swap} swaps nothing"
+        for swap in swaps
+        if swap.old == swap.new and not moved
     )
     counts = Counter(swap.old for swap in swaps)
     yield from (f"--swap {old} is given twice" for old, n in counts.items() if n > 1)
+
+
+def stored_profile(name: str) -> Profile:
+    """The stored profile ``name``, refused before any write if there is none."""
+    try:
+        return Profiles().get(name)
+    except FileNotFoundError as e:
+        raise RebaseOptionsError(f"--profile {name} names no stored profile") from e
 
 
 def builds_path(builds_dir: str | Path) -> Path:
@@ -310,6 +325,8 @@ class RebaseOptions:
         converter=swap_tuple,
         validator=deep_iterable(instance_of(Swap), instance_of(tuple)),
     )
+    # Every swap's new connection.
+    profile = field(default=None, converter=converters.optional(stored_profile))
 
     def __attrs_post_init__(self) -> None:
         if self.move_aliases and self.only_aliases:
@@ -329,7 +346,9 @@ class RebaseOptions:
             )
         if message := rename_refusal(repeated_renames(self.renames)):
             raise RebaseOptionsError(message)
-        if message := "; ".join(repeated_swaps(self.swaps)):
+        if self.profile is not None and not self.swaps:
+            raise RebaseOptionsError("--profile needs at least one --swap")
+        if message := "; ".join(repeated_swaps(self.swaps, self.profile is not None)):
             raise RebaseOptionsError(message)
 
     @property
@@ -1020,18 +1039,25 @@ def renamed_source(
     return by_key
 
 
-def swap_refusal(swap: Swap, by_key: dict[LeafKey, SourceLeaf] | str) -> str | None:
-    """Why ``swap`` is refused, given what ``renamed_source`` found, if it is.
+def swap_refusal(
+    swap: Swap,
+    by_key: dict[LeafKey, SourceLeaf] | str,
+    record: BuildRecord,
+    profile: str | None = None,
+) -> str | None:
+    """Why ``swap`` onto ``profile``, if given, is refused, given what
+    ``renamed_source`` found, if it is.
 
     One source is one kind: ``renamed_source`` refuses a name on two connections.
     """
     match by_key:
         case str():
             return f"--swap {by_key}"
-        # `old` spells the namespace too: `aux.t t` is `t` back onto itself.
+        # `old` spells the namespace too: `aux.t t` is `t` back onto itself,
+        # as is `t t` onto a profile with `t`'s connection.
         case {**leaves} if any(
-            leaf.kind == LeafKind.DATABASE_TABLE and leaf.table == swap.new
-            for leaf in leaves.values()
+            leaf_key(swapped_leaf(leaf, swap.new, profile), record)[:3] == key[:3]
+            for key, leaf in leaves.items()
         ):
             return f"--swap {swap} swaps nothing"
         # A snapshot id is one table's: `new` has none of `old`'s.
@@ -1046,20 +1072,24 @@ def swap_refusal(swap: Swap, by_key: dict[LeafKey, SourceLeaf] | str) -> str | N
             return None
 
 
-def swapped_leaf(leaf: SourceLeaf, new: str) -> SourceLeaf:
-    """``leaf`` reading ``new`` instead: a read's one path, or a table in
-    ``leaf``'s namespace. A bundled read stays bundled: the rebuild copies
-    ``new`` into the archive."""
+def swapped_leaf(leaf: SourceLeaf, new: str, profile: str | None = None) -> SourceLeaf:
+    """``leaf`` reading ``new`` instead, through ``profile`` if given: a
+    read's one path, or a table in ``leaf``'s namespace. A bundled read
+    stays bundled: the rebuild copies ``new`` into the archive."""
+    profile = profile or leaf.profile
     if leaf.kind == LeafKind.READ:
         return evolve(
             leaf,
             name=new,
+            profile=profile,
             paths=(new,),
             read_kwargs=update_read_kwargs(
                 leaf.read_kwargs, ((ReadKwarg.hash_path, new),)
             ),
         )
-    return evolve(leaf, table=new, name=table_name(leaf.namespace, new))
+    return evolve(
+        leaf, table=new, name=table_name(leaf.namespace, new), profile=profile
+    )
 
 
 def bundled_reads(record: BuildRecord) -> tuple[SourceLeaf, ...]:
@@ -1073,14 +1103,17 @@ def bundled_reads(record: BuildRecord) -> tuple[SourceLeaf, ...]:
 
 
 def swapped_leaves(
-    catalog_entry: CatalogEntry, record: BuildRecord, swaps: tuple[Swap, ...]
+    catalog_entry: CatalogEntry,
+    record: BuildRecord,
+    swaps: tuple[Swap, ...],
+    profile: str | None = None,
 ) -> dict[LeafKey, SourceLeaf]:
-    """``leaf_key`` -> the leaf as it reads once swapped, for each source
-    ``swaps`` names, found as ``--rename`` finds one. Refuses, all at once, a
-    swap naming no source, sources on several connections, or a swap onto
-    a table another swap, or a source left as is, reads: they would share
-    one ``--rename`` plan. A bundled read is named by its archive path, as
-    its record holds no other.
+    """``leaf_key`` -> the leaf as it reads once swapped, onto ``profile`` if
+    given, for each source ``swaps`` names, found as ``--rename`` finds one.
+    Refuses, all at once, a swap naming no source, sources on several
+    connections, or a swap onto a table another swap, or a source left as
+    is, reads: they would share one ``--rename`` plan. A bundled read is
+    named by its archive path, as its record holds no other.
     """
     swappable = record.external_leaves + bundled_reads(record)
     resolved = {
@@ -1090,12 +1123,12 @@ def swapped_leaves(
     refused = {
         swap: detail
         for swap, by_key in resolved.items()
-        if (detail := swap_refusal(swap, by_key)) is not None
+        if (detail := swap_refusal(swap, by_key, record, profile)) is not None
     }
     onto = {
         # Keyed as the `--rename` plans are: kind, profile hash, name.
         swap: {
-            leaf_key(swapped_leaf(leaf, swap.new), record)[:3]
+            leaf_key(swapped_leaf(leaf, swap.new, profile), record)[:3]
             for leaf in by_key.values()
         }
         for swap, by_key in resolved.items()
@@ -1126,7 +1159,7 @@ def swapped_leaves(
             RebaseFailure.REFUSED,
         )
     return {
-        key: swapped_leaf(leaf, swap.new)
+        key: swapped_leaf(leaf, swap.new, profile)
         for swap, by_key in resolved.items()
         for key, leaf in by_key.items()
     }
@@ -1148,6 +1181,52 @@ def swapped_sources(
             and (new := swapped.get(leaf_key(leaf, record))) is not None
         )
     )
+
+
+def loaded_con(expr: Expr, con: BaseBackend) -> BaseBackend:
+    """The connection ``expr`` already holds to where ``con`` connects, else
+    ``con``, so a source moved beside another there shares its backend."""
+    content_hash = Profile.from_con(con).content_hash
+    return next(
+        (
+            source
+            for source in find_all_sources(expr)
+            if Profile.from_con(source).content_hash == content_hash
+        ),
+        con,
+    )
+
+
+def vacated(
+    record: BuildRecord, swapped: Mapping[LeafKey, SourceLeaf]
+) -> dict[str, str]:
+    """Each swapped source moved off its connection -> that connection's
+    profile content hash."""
+    return {
+        key[2]: key[1]
+        for key, leaf in swapped.items()
+        if leaf_key(leaf, record)[1] != key[1]
+    }
+
+
+def profile_connection(name: str, profile: Profile, alias: str) -> BaseBackend:
+    """``profile``'s connection, refused where opening it would create its
+    database."""
+    if (path := missing_database(profile)) is not None:
+        raise RebaseError(
+            f"{name}: --profile {alias}: database {path} does not exist",
+            RebaseFailure.UNREACHABLE,
+        )
+    return profile.get_con()
+
+
+def with_profile(record: BuildRecord, profile: Profile | None) -> BuildRecord:
+    """``record`` also holding ``profile``, as a build records it, so a leaf
+    swapped onto it is keyed and probed there."""
+    if profile is None:
+        return record
+    recorded = profile.as_dict() | {"kwargs_tuple": profile.kwargs_dict}
+    return evolve(record, profiles={**record.profiles, profile.hash_name: recorded})
 
 
 def unswapped_refusal(
@@ -1384,6 +1463,7 @@ def rebase_entry(
     builds_dir: str | Path | None = None,
     renames: Iterable[Rename | tuple[str, str, str]] = (),
     swaps: Iterable[Swap | tuple[str, str]] = (),
+    profile: str | None = None,
 ) -> RebaseResult:
     """``catalog_entry`` re-derived over its live sources, as a new entry.
 
@@ -1420,7 +1500,8 @@ def rebase_entry(
     entry. A swap is refused, before the sweep, as a ``--rename`` would be;
     after it, if a source no swap names is not ``EQUAL``, so a new entry is
     never both swapped and drifted. A rename names a swapped source by
-    ``old``.
+    ``old``. ``profile`` names a stored profile every swapped source moves
+    to; a missing one is refused before anything is read.
     """
     from xorq.ibis_yaml.compiler import ExprDumper  # noqa: PLC0415
 
@@ -1433,6 +1514,7 @@ def rebase_entry(
         builds_dir=builds_dir,
         renames=renames,
         swaps=swaps,
+        profile=profile,
     )
     only_aliases, builds_dir = options.only_aliases, options.build_target_dir
     # `ExprDumper` validates `cache_dir` as a `Path`.
@@ -1443,7 +1525,14 @@ def rebase_entry(
     # Then: reading the record opens a `BuildZip`, which refuses a
     # bundle-less archive with a bare assertion.
     check_bundle(catalog_entry)
-    record = read_entry_record(catalog_entry)
+    # Connected once: a build records its connection's profile, which fills in
+    # the defaults a stored profile may leave out.
+    con = options.profile and profile_connection(
+        catalog_entry.name, options.profile, profile
+    )
+    target = con and Profile.from_con(con)
+    record = with_profile(read_entry_record(catalog_entry), target)
+    moved_to = target and target.hash_name
     unprobed = check_rebasable(catalog_entry, record)
     # With no new name yet, only an unregistered alias is refused.
     plan = AliasPlan.read(
@@ -1453,7 +1542,8 @@ def rebase_entry(
         only_aliases=only_aliases,
         entry_alias=entry_alias,
     )
-    swapped = swapped_leaves(catalog_entry, record, options.swaps)
+    swapped = swapped_leaves(catalog_entry, record, options.swaps, moved_to)
+    moved_off = vacated(record, swapped)
     swap_records = swapped_sources(record, swapped)
     # A swapped source is probed where it now points, not where it was: every
     # binding of it, though bindings that share a key share one `swapped` entry.
@@ -1463,7 +1553,7 @@ def rebase_entry(
     )
     probed = checkable_leaves(record) + swapped_bundled
     leaves = tuple(
-        swapped_leaf(leaf, tables[leaf.name]) if leaf.name in tables else leaf
+        swapped_leaf(leaf, tables[leaf.name], moved_to) if leaf.name in tables else leaf
         for leaf in probed
     )
     # With no swap, nothing is left unswapped for the swap guard to refuse.
@@ -1551,7 +1641,23 @@ def rebase_entry(
             # which bundled reads point into, alive only as long as the expression.
             loaded = catalog_entry.load_expr(cache_dir=cache_dir)
             try:
-                repointed = repoint_tables(loaded, swapped)
+                repointed = repoint_tables(
+                    loaded,
+                    swapped,
+                    con and loaded_con(loaded, con),
+                )
+                # Whatever still runs on a connection a source moved off would
+                # run it beside that source's new one: two backends.
+                if any(
+                    Profile.from_con(source).content_hash in moved_off.values()
+                    for source in find_all_sources(repointed)
+                ):
+                    raise RebaseError(
+                        f"{catalog_entry.name}: --profile {profile} moves "
+                        f"{quoted(moved_off)} off a connection the entry still "
+                        "uses; swap every source onto it",
+                        RebaseFailure.REFUSED,
+                    )
                 # Only the loaded expression holds each binding's marked rename:
                 # a --rename one would skip, onto a column it reads as its own,
                 # is the user's to fix, so refused as a bad --rename, not a

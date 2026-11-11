@@ -65,6 +65,7 @@ from xorq.common.utils.defer_utils import (
 from xorq.expr.relations import Read, pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
 from xorq.ibis_yaml.enums import DumpFiles
+from xorq.vendor.ibis.backends.profiles import Profile
 
 
 # Most tests exercise rebase's own logic, which doesn't vary with storage; the
@@ -4013,3 +4014,203 @@ def test_a_swap_is_recorded_beside_the_ancestor(
     as_json = runner.invoke(cli, ["--path", path, "show", new, "--json"])
     assert as_json.exit_code == 0, as_json.output
     assert json.loads(as_json.stdout)["swapped_sources"] == swapped
+
+
+@pytest.fixture
+def profile_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = tmp_path / "profiles"
+    monkeypatch.setattr(xo.options.profiles, "profile_dir", path)
+    return path
+
+
+def stored_profile(con: SqliteBackend, alias: str) -> Profile:
+    profile = Profile.from_con(con)
+    profile.save(alias=alias)
+    return profile
+
+
+def prod_con(w: SimpleNamespace, *tables: str) -> SqliteBackend:
+    """A second sqlite database holding ELSEWHERE as each of ``tables``."""
+    con = SqliteBackend().connect(str(w.tmp_path / "prod.sqlite"))
+    for table in tables:
+        con.create_table(table, ELSEWHERE.to_pandas())
+    return con
+
+
+@pytest.mark.parametrize("via", ("cli", "api"))
+def test_a_profile_moves_every_swapped_source_to_its_connection(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, via: str
+) -> None:
+    name = beside_v(world, world.con)
+    prod = stored_profile(prod_con(world, "t", "v"), "prod")
+    swaps = ("--swap", "t", "t", "--swap", "v", "v", "--profile", "prod")
+
+    if via == "cli":
+        result = rebase(runner, world, name, *swaps)
+        assert result.exit_code == 0, result.output
+        new_name = result.stdout.strip()
+    else:
+        rebased = rebase_entry(
+            reopen(world).get_catalog_entry(name),
+            swaps=[("t", "t"), ("v", "v")],
+            profile="prod",
+            sync=False,
+        )
+        assert rebased.status == RebaseStatus.REBASED
+        new_name = rebased.new_entry.name
+    new = reopen(world).get_catalog_entry(new_name)
+    assert sorted(new.load_expr().execute()["a"]) == [5, 5, 6, 6]
+    record = drift.read_record(new)
+    # Every source reads through the stored profile, recorded as stored.
+    assert {
+        drift.make_profile(record.get_profile_dict(leaf)).content_hash
+        for leaf in record.external_leaves
+    } == {prod.content_hash}
+
+
+def test_a_profile_moves_a_source_onto_another_table_there(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    stored_profile(prod_con(world, "u"), "prod")
+
+    result = rebase(runner, world, world.name, "--swap", "t", "u", "--profile", "prod")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert list(new.load_expr().execute()["a"]) == [5, 6]
+
+
+def test_a_profile_stored_without_its_defaults_moves_a_changed_source(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """A stored profile naming only its database is the one its connection
+    records, defaults and all."""
+    con = prod_con(world)
+    con.create_table("t", pa.table({"a": [5, 6], "b": ["p", "q"], "c": [1, 2]}))
+    Profile(
+        con_name="sqlite",
+        kwargs_tuple=(("database", str(world.tmp_path / "prod.sqlite")),),
+    ).save(alias="prod")
+
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip().splitlines()[-1])
+    assert list(new.load_expr().execute()["a"]) == [5, 6]
+
+
+def t_and_v(w: SimpleNamespace) -> xo.Expr:
+    w.con.create_table("v", RECORDED.to_pandas())
+    return w.con.table("t").union(w.con.table("v"))
+
+
+def t_and_v_elsewhere(w: SimpleNamespace) -> xo.Expr:
+    """`t` beside `v` on another database, run on `t`'s connection."""
+    other = SqliteBackend().connect(str(w.tmp_path / "other.sqlite"))
+    other.create_table("v", RECORDED.to_pandas())
+    return w.con.table("t").union(other.table("v").into_backend(w.con))
+
+
+@pytest.mark.parametrize(
+    "entry",
+    (
+        pytest.param(t_and_v, id="direct"),
+        pytest.param(lambda w: t_and_v(w).into_backend(xo.connect()), id="into"),
+        pytest.param(
+            lambda w: t_and_v(w).cache(
+                cache=ParquetCache.from_kwargs(
+                    source=xo.connect(), relative_path=w.tmp_path
+                )
+            ),
+            id="cache",
+        ),
+        pytest.param(t_and_v_elsewhere, id="boundary"),
+    ),
+)
+def test_a_profile_that_leaves_a_source_behind_is_refused(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, entry: Callable
+) -> None:
+    """Moved off a connection the entry still runs something on, a source or
+    an `into_backend`'s target: one backend would run both, the other's table
+    read on its own database."""
+    name = world.catalog.add(entry(world)).name
+    stored_profile(prod_con(world, "t"), "prod")
+
+    result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == (
+        f"{name}: --profile prod moves 't' off a connection the entry still uses;"
+        " swap every source onto it\n"
+    )
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+def test_a_profile_naming_a_missing_database_creates_none(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    missing = world.tmp_path / "prod.sqlite"
+    Profile(con_name="sqlite", kwargs_tuple=(("database", str(missing)),)).save(
+        alias="prod"
+    )
+
+    result = rebase(
+        runner, world, world.name, "--swap", "t", "t", "--profile", "prod", "--dry-run"
+    )
+    assert result.exit_code == 2, result.output
+    assert result.stderr == (
+        f"{world.name}: --profile prod: database {missing} does not exist\n"
+    )
+    assert not missing.exists()
+
+
+def test_a_profile_naming_the_loaded_connection_keeps_its_sources_together(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    name = beside_v(world, world.con)
+    stored_profile(world.con, "live")
+
+    result = rebase(runner, world, name, "--swap", "t", "u", "--profile", "live")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert sorted(new.load_expr().execute()["a"]) == [1, 2, 5, 6]
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    (
+        pytest.param(
+            ("--swap", "t", "t", "--profile", "nope"),
+            "--profile nope names no stored profile",
+            id="missing",
+        ),
+        pytest.param(
+            ("--profile", "prod"), "--profile needs at least one --swap", id="alone"
+        ),
+    ),
+)
+def test_a_profile_that_cannot_apply_is_a_usage_error(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    profile_dir: Path,
+    args: tuple[str, ...],
+    message: str,
+) -> None:
+    stored_profile(prod_con(world, "t"), "prod")
+
+    result = rebase(runner, world, world.name, *args)
+    assert result.exit_code == 2, result.output
+    assert message in result.stderr
+    with pytest.raises(ValueError, match=re.escape(message)):
+        rebase_old(
+            world, swaps=[("t", "t")] if "--swap" in args else (), profile=args[-1]
+        )
+    assert set(reopen(world).list()) == {world.name}
+
+
+def test_a_swap_onto_its_own_table_on_its_own_profile_is_refused(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    stored_profile(world.con, "live")
+
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "live")
+    assert result.exit_code == 1, result.output
+    assert result.stderr == f"{world.name}: --swap t t swaps nothing\n"
+    assert set(reopen(world).list()) == {world.name}

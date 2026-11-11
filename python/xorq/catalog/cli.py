@@ -1329,6 +1329,12 @@ def check_sources(
     help="Re-point the source OLD to the table NEW beside it, or an external "
     "read to the path NEW (repeatable).",
 )
+@click.option(
+    "--profile",
+    default=None,
+    metavar="NAME",
+    help="Move every --swap onto the stored profile NAME's connection.",
+)
 @json_option
 @click.pass_context
 def rebase(
@@ -1345,6 +1351,7 @@ def rebase(
     builds_dir: str | None,
     renames: tuple[tuple[str, str, str], ...],
     swaps: tuple[tuple[str, str], ...],
+    profile: str | None,
     as_json: bool,
 ) -> None:
     """Re-derive an entry over its live sources and catalog it as a new entry.
@@ -1421,6 +1428,11 @@ def rebase(
     gone or could not be probed: rebase without --swap first, so each new
     entry carries one kind of change; a swap of every source never is.
 
+    --profile NAME moves every swapped source onto the connection of the
+    stored profile NAME (`--swap t t --profile prod` reads t there). It
+    needs a --swap; a NAME with no stored profile is an invalid option, and
+    a swap onto its own table on its own connection is refused.
+
     \b
     Exit codes:
       0  no drift, drift not ruled out (no source could be probed), or
@@ -1450,7 +1462,8 @@ def rebase(
          --only-alias, --no-add with --dry-run or an alias option,
          --builds-dir without --no-add, a --rename that repeats a column of
          its source or renames one to itself, a --swap that swaps a source
-         to itself, twice or to an empty name);
+         to itself (without --profile), twice or to an empty name, a
+         --profile with no --swap or no stored profile);
          nothing written
       3  a rebase was derived but not cataloged: --dry-run printed its
          hash, or --no-add its build directory
@@ -1488,6 +1501,8 @@ def rebase(
       xorq catalog rebase prod-matches --swap data/m25.parquet data/m26.parquet
       xorq catalog rebase prod-matches --swap matches matches_v2 \\
           --rename matches team_id team
+      xorq catalog rebase prod-matches --swap matches matches \\
+          --swap teams teams --profile prod
     """
     from xorq.catalog.drift import format_leaf_report  # noqa: PLC0415
     from xorq.catalog.enums import RebaseStatus, Verdict  # noqa: PLC0415
@@ -1512,6 +1527,7 @@ def rebase(
             builds_dir=builds_dir,
             renames=renames,
             swaps=swaps,
+            profile=profile,
         )
     except RebaseOptionsError as e:
         raise click.UsageError(str(e)) from e
@@ -1550,6 +1566,7 @@ def rebase(
                     builds_dir=builds_dir,
                     renames=renames,
                     swaps=swaps,
+                    profile=profile,
                 )
         except Exception as e:
             # The handler prints an error and no document; with --json, a
