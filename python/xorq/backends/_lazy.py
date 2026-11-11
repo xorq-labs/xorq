@@ -1,6 +1,14 @@
 import threading
 
 
+def with_profile(backend, profile):
+    """``backend``, given ``profile`` if one: what recorded a lazy connection's
+    profile before it connected still names it after."""
+    if profile is not None:
+        backend._profile = profile  # xorq-style: disable=protected-access
+    return backend
+
+
 class LazyBackend:
     """Wraps a ``connect`` callable and defers the call until the first
     attribute access.
@@ -17,6 +25,9 @@ class LazyBackend:
         initialised, connected backend.
     *args, **kwargs
         Forwarded verbatim to ``connect()`` on first attribute access.
+    _profile : Profile, optional
+        The profile ``connect`` opens, reported until it does so asking for
+        it need not connect; the connected backend's own afterwards.
 
     Examples
     --------
@@ -30,7 +41,7 @@ class LazyBackend:
     True
     """
 
-    def __init__(self, connect, *args, **kwargs):
+    def __init__(self, connect, *args, _profile=None, **kwargs):
         object.__setattr__(self, "_connect", connect)
         if hasattr(connect, "__self__"):
             # plain bound method: raw.connect
@@ -41,6 +52,7 @@ class LazyBackend:
         object.__setattr__(self, "_backend_cls", backend_cls)
         object.__setattr__(self, "_args", args)
         object.__setattr__(self, "_kwargs", kwargs)
+        object.__setattr__(self, "_unconnected_profile", _profile)
         object.__setattr__(self, "_backend", None)
         object.__setattr__(self, "_connected", False)
         object.__setattr__(self, "_lock", threading.Lock())
@@ -48,6 +60,16 @@ class LazyBackend:
     @property
     def is_connected(self) -> bool:
         return object.__getattribute__(self, "_connected")
+
+    @property
+    def _profile(self):
+        backend = object.__getattribute__(self, "_backend")
+        if backend is None and (
+            profile := object.__getattribute__(self, "_unconnected_profile")
+        ):
+            return profile
+        # Connects if it has not.
+        return self.__getattr__("_profile")
 
     @property
     def __class__(self):
@@ -81,6 +103,9 @@ class LazyBackend:
                     connect = object.__getattribute__(self, "_connect")
                     args = object.__getattribute__(self, "_args")
                     kwargs = object.__getattribute__(self, "_kwargs")
-                    backend = connect(*args, **kwargs)
+                    backend = with_profile(
+                        connect(*args, **kwargs),
+                        object.__getattribute__(self, "_unconnected_profile"),
+                    )
                     object.__setattr__(self, "_backend", backend)
                     object.__setattr__(self, "_connected", True)

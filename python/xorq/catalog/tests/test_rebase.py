@@ -4100,6 +4100,46 @@ def test_a_profile_moves_every_swapped_source_to_its_connection(
     } == {prod.content_hash}
 
 
+def test_a_profile_moves_every_source_off_a_database_that_is_gone(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """Promotion after the old database is gone: every source leaves it, so
+    the rebase never connects to it, nor creates it."""
+    stored_profile(prod_con(world, "t"), "prod")
+    world.con.disconnect()
+    world.db_path.unlink()
+
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert list(new.load_expr().execute()["a"]) == [5, 6]
+    assert not world.db_path.exists()
+
+
+@pytest.mark.parametrize(
+    "build",
+    (
+        pytest.param(lambda t: t.into_backend(t.op().source, "t_in"), id="payload"),
+        pytest.param(lambda t: t.cache(), id="cache"),
+    ),
+)
+def test_a_profile_keeps_a_gone_database_an_entry_still_runs_on(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, build: Callable
+) -> None:
+    """`t` moves off, but the entry still runs on its old connection: the
+    gone database is refused, not recreated."""
+    entry = build(world.con.table("t"))
+    name = world.catalog.add(entry).name
+    stored_profile(prod_con(world, "t"), "prod")
+    world.con.disconnect()
+    world.db_path.unlink()
+
+    result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 2, result.output
+    assert "live.sqlite does not exist" in result.stderr
+    assert not world.db_path.exists()
+
+
 def test_a_profile_moves_a_source_onto_another_table_there(
     runner: CliRunner, world: SimpleNamespace, profile_dir: Path
 ) -> None:

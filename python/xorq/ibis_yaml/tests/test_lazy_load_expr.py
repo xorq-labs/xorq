@@ -354,3 +354,17 @@ def test_lazy_load_expr_postgres(builds_dir, lahman_parquet_dir):
     lazy_expr = load_expr(expr_path, lazy=True, read_only_parquet_metadata=True)
 
     assert lazy_expr.execute() is not None
+
+
+def test_a_lazily_loaded_read_rebuilds_and_reloads(builds_dir, awards_players_parquet):
+    """A build of a lazily loaded, unconnected read names the profile it
+    records, though building connects it."""
+    expr = deferred_read_parquet(
+        awards_players_parquet, xo.connect(), table_name="awards_players"
+    )
+    loaded = load_expr(
+        build_expr(expr, builds_dir=builds_dir, relocate_reads=False), lazy=True
+    )
+
+    rebuilt = build_expr(loaded, builds_dir=builds_dir, relocate_reads=False)
+    assert_frame_equal(load_expr(rebuilt).execute(), expr.execute())

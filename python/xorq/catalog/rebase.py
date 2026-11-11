@@ -86,7 +86,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from attr import Factory, asdict, converters, evolve, field, frozen
 from attr.validators import deep_iterable, in_, instance_of, optional
@@ -129,7 +129,7 @@ from xorq.catalog.exceptions import (
     RenameWarning,
     RollbackError,
 )
-from xorq.catalog.inspection import BuildRecord, SourceLeaf, table_name
+from xorq.catalog.inspection import BuildRecord, SourceLeaf, get_nodes, table_name
 from xorq.catalog.refresh import (
     LeafKey,
     ambiguous_renames,
@@ -156,7 +156,7 @@ from xorq.common.utils.graph_utils import (
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr import udf
 from xorq.expr.api import _remove_tag_nodes, bind_params
-from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
+from xorq.ibis_yaml.enums import DocKey, DumpFiles, ReadKwarg, RegistryEnum
 from xorq.ibis_yaml.packager import parse_python_minor
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
@@ -856,17 +856,21 @@ def check_bundle(catalog_entry: CatalogEntry) -> None:
         )
 
 
-def check_databases_exist(catalog_entry: CatalogEntry, record: BuildRecord) -> None:
+def check_databases_exist(
+    catalog_entry: CatalogEntry, record: BuildRecord, left: Iterable[str] = ()
+) -> None:
     """Refuse if a local database file ``record``'s profiles name is gone.
 
     The load connects every profile, not only the probed ones, and sqlite and
-    duckdb create a missing file on connect.
+    duckdb create a missing file on connect. A profile every source ``left``
+    (by content hash) is loaded unconnected, so its file need not be there.
     """
     try:
         paths = tuple(
-            missing_database(make_profile(profile_dict))
+            missing_database(profile)
             for profile_dict in record.profiles.values()
             if isinstance(profile_dict, dict)
+            and (profile := make_profile(profile_dict)).content_hash not in left
         )
     except Exception as e:
         raise RebaseError(
@@ -1214,6 +1218,63 @@ def loaded_con(expr: Expr, con: BaseBackend) -> BaseBackend:
         ),
         con,
     )
+
+
+def doc_strings(value: Any) -> Iterator[str]:
+    """Every string in ``value``, a part of an expr document: a profile is
+    named under more than one key (a source's `profile`, a cache's `source`)."""
+    match value:
+        case str():
+            yield value
+        case Mapping():
+            for item in value.values():
+                yield from doc_strings(item)
+        case list() | tuple():
+            for item in value:
+                yield from doc_strings(item)
+
+
+def left_behind(
+    record: BuildRecord, swapped: Mapping[LeafKey, SourceLeaf]
+) -> frozenset[str]:
+    """The content hashes of the connections every source moved off that
+    nothing else in the entry names: an unswapped source, a payload's
+    destination, a cache, a writer."""
+    moved = {
+        leaf.node_ref
+        for leaf in record.source_leaves
+        if leaf_key(leaf, record) in swapped
+    }
+    doc = record.expr_doc
+    rest = (
+        {key: value for key, value in doc.items() if key != DocKey.definitions},
+        {
+            key: value
+            for key, value in doc[DocKey.definitions].items()
+            if key != RegistryEnum.nodes
+        },
+        {ref: node for ref, node in get_nodes(doc).items() if ref not in moved},
+    )
+    # A profile's name is its content hash and its index.
+    kept = {
+        name.rpartition("_")[0] for name in doc_strings(rest) if name in record.profiles
+    }
+    return frozenset(vacated(record, swapped).values()) - kept
+
+
+def left_cons(record: BuildRecord, left: Iterable[str]) -> dict[str, BaseBackend]:
+    """Each connection ``left`` names, by content hash -> a connection to it
+    that opens only once used."""
+    profiles = (
+        make_profile(profile_dict)
+        for profile_dict in record.profiles.values()
+        if isinstance(profile_dict, dict)
+    )
+    return {
+        profile.content_hash: profile.get_con(lazy=True)
+        for profile in profiles
+        if profile.content_hash in left
+    }
 
 
 def vacated(
@@ -1737,7 +1798,9 @@ def rebase_entry(
             live = live_or_conflict(catalog_entry, record, reports)
             if isinstance(live, RebaseConflict):
                 return conflicted(live)
-            check_databases_exist(catalog_entry, record)
+            gone = left_behind(record, swapped)
+            check_databases_exist(catalog_entry, record, gone)
+            left = left_cons(record, gone)
             # A failed cleanup must not end a rebase whose entry is already committed.
             with (
                 tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td,
@@ -1748,7 +1811,11 @@ def rebase_entry(
                 check_python_minor(catalog_entry, ignore_mismatch)
                 # Loaded inside the block: `load_expr` keeps the archive's extract dir,
                 # which bundled reads point into, alive only as long as the expression.
-                loaded = catalog_entry.load_expr(cache_dir=cache_dir)
+                # A connection every source left is loaded unconnected: its
+                # database may be gone, as after a dev->prod promotion.
+                loaded = catalog_entry.load_expr(
+                    cache_dir=cache_dir, con_cache=left or None
+                )
                 try:
                     repointed = repoint_tables(
                         loaded,
