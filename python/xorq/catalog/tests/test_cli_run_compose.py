@@ -28,6 +28,12 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.enums import DumpFiles
 
 
+# The uv end-to-end tests exercise uv resolving and running the packaged entry;
+# reading the entry out of each storage backend is covered by the in-process
+# run and compose tests in this file, so these run on git alone.
+git_storage_only = pytest.mark.parametrize("backend_type", ("git",))
+
+
 @pytest.fixture(autouse=True)
 def _cwd_in_tmp_path(tmp_path, monkeypatch):
     # compose, join and union build into ./builds; keep that out of the repo
@@ -841,6 +847,7 @@ def test_catalog_run_cached_reinvokes_via_uv(
 
 @pytest.mark.slow(level=1)
 @pytest.mark.installs_entry_wheel
+@git_storage_only
 def test_catalog_run_uv_path_end_to_end(catalog_with_source_and_transform, tmp_path):
     """Full pipeline: archive => `uv tool run xorq run`. Slow because uv
     resolves and installs the entry's pinned env."""
@@ -1068,6 +1075,7 @@ def test_catalog_compose_emit_build_path_to_short_circuits(
 
 @pytest.mark.slow(level=1)
 @pytest.mark.installs_entry_wheel
+@git_storage_only
 def test_catalog_compose_uv_path_end_to_end(
     catalog_with_source_and_transform, tmp_path
 ):
