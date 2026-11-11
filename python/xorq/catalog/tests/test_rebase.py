@@ -4116,12 +4116,19 @@ def test_a_profile_moves_every_source_off_a_database_that_is_gone(
     assert not world.db_path.exists()
 
 
+@pytest.mark.parametrize(
+    "build",
+    (
+        pytest.param(lambda t: t.into_backend(t.op().source, "t_in"), id="payload"),
+        pytest.param(lambda t: t.cache(), id="cache"),
+    ),
+)
 def test_a_profile_keeps_a_gone_database_an_entry_still_runs_on(
-    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, build: Callable
 ) -> None:
     """`t` moves off, but the entry still runs on its old connection: the
     gone database is refused, not recreated."""
-    entry = world.con.table("t").into_backend(world.con, "t_in")
+    entry = build(world.con.table("t"))
     name = world.catalog.add(entry).name
     stored_profile(prod_con(world, "t"), "prod")
     world.con.disconnect()
