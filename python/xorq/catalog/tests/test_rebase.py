@@ -4175,6 +4175,27 @@ def test_a_profile_that_leaves_a_source_behind_is_refused(
     assert set(reopen(world).list()) == {world.name, name}
 
 
+def test_a_profile_leaves_a_source_behind_in_its_own_payload(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """`v` keeps the old connection only inside its own `into_backend`, which
+    runs there alone: no backend reads both."""
+    world.con.create_table("v", RECORDED.to_pandas())
+    hub = xo.connect()
+    entry = (
+        world.con.table("t")
+        .into_backend(hub, "t_in")
+        .union(world.con.table("v").into_backend(hub, "v_in"))
+    )
+    name = world.catalog.add(entry).name
+    stored_profile(prod_con(world, "t"), "prod")
+
+    result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "prod")
+    assert result.exit_code == 0, result.output
+    new = reopen(world).get_catalog_entry(result.stdout.strip().splitlines()[-1])
+    assert sorted(new.load_expr().execute()["a"]) == [1, 2, 5, 6]
+
+
 @pytest.mark.parametrize(
     ("kwargs", "error"),
     (

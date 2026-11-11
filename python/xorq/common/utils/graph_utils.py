@@ -896,6 +896,41 @@ def gen_children_flight_leaf(node: Node) -> Tuple[Node, ...]:
     return tuple(gen_children_of(node, opaque_edges=_FLIGHT_LEAF_EDGES))
 
 
+# Every opaque edge cut: a walk stays inside the one execution scope it starts in.
+_SCOPE_EDGES = MappingProxyType(dict.fromkeys(OPAQUE_EDGES, ()))
+
+
+def execution_scopes(expr: Expr | Node) -> Tuple[Tuple[Any, ...], ...]:
+    """The backend sources of each part of *expr* that one backend runs.
+
+    The root is one part, and so is each sub-expression an opaque op runs on
+    its own (``OPAQUE_SPECS``, along the execution path): a ``RemoteTable``'s
+    ``remote_expr``, a cache's ``parent``, a Flight input, a UDF's computed
+    kwargs. An opaque op is a leaf of the part holding it, by its own source.
+    """
+    op = expr.op() if isinstance(expr, Expr) else expr
+    roots = (
+        op,
+        *(
+            child
+            for opaque in walk_nodes(opaque_ops, op, gen_children=_gen_children_exec)
+            for child in _gen_children_exec(opaque)
+        ),
+    )
+    return tuple(
+        get_ordered_unique_sources(
+            walk_nodes(
+                BACKEND_LEAF_NODE_TYPES,
+                root,
+                gen_children=lambda node: gen_children_of(
+                    node, opaque_edges=_SCOPE_EDGES
+                ),
+            )
+        )
+        for root in roots
+    )
+
+
 def exclusively_pinned_leaves(
     expr: Expr | Node, leaf_types: type | Tuple[type, ...]
 ) -> frozenset:
