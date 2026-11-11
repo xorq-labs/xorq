@@ -4143,21 +4143,43 @@ def test_a_profile_that_leaves_a_source_behind_is_refused(
     assert set(reopen(world).list()) == {world.name, name}
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    (
+        pytest.param(
+            lambda missing: (("database", str(missing)),),
+            lambda missing: f"database {missing} does not exist",
+            id="path",
+        ),
+        pytest.param(
+            lambda missing: (("database", f"file:{missing}"), ("uri", True)),
+            lambda missing: "OperationalError: unable to open database file",
+            id="file-uri",
+        ),
+        pytest.param(
+            lambda missing: (("attached", (("aux", str(missing)),)),),
+            lambda missing: (
+                f"OperationalError: unable to open database: file://{missing}?mode=rw"
+            ),
+            id="attached",
+        ),
+    ),
+)
 def test_a_profile_naming_a_missing_database_creates_none(
-    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+    runner: CliRunner,
+    world: SimpleNamespace,
+    profile_dir: Path,
+    kwargs: Callable,
+    error: Callable,
 ) -> None:
     missing = world.tmp_path / "prod.sqlite"
-    Profile(con_name="sqlite", kwargs_tuple=(("database", str(missing)),)).save(
-        alias="prod"
-    )
+    Profile(con_name="sqlite", kwargs_tuple=kwargs(missing)).save(alias="prod")
 
     result = rebase(
         runner, world, world.name, "--swap", "t", "t", "--profile", "prod", "--dry-run"
     )
     assert result.exit_code == 2, result.output
-    assert result.stderr == (
-        f"{world.name}: --profile prod: database {missing} does not exist\n"
-    )
+    assert result.stderr == f"{world.name}: --profile prod: {error(missing)}\n"
     assert not missing.exists()
 
 
