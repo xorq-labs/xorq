@@ -598,27 +598,6 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
         )
         return pa.ipc.RecordBatchReader.from_batches(pyarrow_schema, producer)
 
-    def to_pyarrow(
-        self,
-        expr: ir.Expr,
-        /,
-        *,
-        params: Mapping[ir.Scalar, Any] | None = None,
-        limit: int | str | None = None,
-        **kwargs: Any,
-    ) -> pa.Table:
-        self._run_pre_execute_hooks(expr)
-
-        sql = self.compile(expr, limit=limit, params=params, **kwargs)
-        with self._safe_raw_sql(sql) as cur:
-            res = cur.fetchall_arrow()
-
-        target_schema = expr.as_table().schema().to_pyarrow()
-        if res is None:
-            res = target_schema.empty_table()
-
-        return expr.__pyarrow_result__(res)
-
     def _fetch_from_cursor(self, cursor, schema: sch.Schema) -> pd.DataFrame:
         if (table := cursor.fetchall_arrow()) is None:
             table = schema.to_pyarrow().empty_table()

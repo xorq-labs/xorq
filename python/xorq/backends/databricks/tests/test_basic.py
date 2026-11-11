@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pyarrow as pa
 
 
 def test_execute_returns_dataframe(functional_alltypes):
@@ -102,3 +103,27 @@ def test_chained_filter_project(batting):
     assert (result["yearID"] >= 2000).all()
     assert (result["AB"] > 100).all()
     assert len(result) <= 20
+
+
+def test_to_pyarrow_table_matches_schema(con, functional_alltypes):
+    expr = (
+        functional_alltypes.select("id", "int_col", "string_col", "timestamp_col")
+        .order_by("id")
+        .limit(5)
+    )
+    result = con.to_pyarrow(expr)
+    assert isinstance(result, pa.Table)
+    assert result.num_rows == 5
+    assert result.column_names == list(expr.columns)
+    assert result.schema.equals(expr.schema().to_pyarrow())
+    assert result["id"].to_pylist() == expr.execute()["id"].tolist()
+
+
+def test_to_pyarrow_empty_result_keeps_schema(con, functional_alltypes):
+    expr = functional_alltypes.select("id", "string_col").filter(
+        functional_alltypes.id < 0
+    )
+    result = con.to_pyarrow(expr)
+    assert isinstance(result, pa.Table)
+    assert result.num_rows == 0
+    assert result.schema.equals(expr.schema().to_pyarrow())
