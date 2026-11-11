@@ -20,6 +20,7 @@ from xorq.expr.relations import (
 )
 from xorq.expr.remote_table_exec import (
     count_remote_table_readers,
+    count_unbound_scans,
     project_and_cast_reader,
 )
 from xorq.ibis_yaml.enums import ExprKind
@@ -451,3 +452,49 @@ def test_project_and_cast_reader_drops_extra_and_retypes() -> None:
     table = out.read_all()
     assert table.schema == logical_schema
     assert table.column("a").to_pylist() == [1, 2]
+
+
+# -- count_unbound_scans ------------------------------------------------------
+
+
+UNBOUND = xo.table(xo.schema({"k": "int64", "v": "float64"}), name="in")
+
+
+@pytest.mark.parametrize("make_con", (xo.connect, lambda: xo.duckdb.connect()))
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    (
+        pytest.param(UNBOUND.filter(UNBOUND.k == 3), 1, id="single"),
+        pytest.param(UNBOUND.filter(UNBOUND.v > UNBOUND.v.mean()), 2, id="subquery"),
+        pytest.param(UNBOUND.union(UNBOUND), 2, id="self_union"),
+    ),
+)
+def test_count_unbound_scans(make_con, expr: Table, expected: int) -> None:
+    assert count_unbound_scans(expr, make_con().compiler) == expected
+
+
+def test_count_unbound_scans_unknown_is_none() -> None:
+    # duckdb re-scans a PARTITION BY-only window's input below the SQL
+    window = UNBOUND.mutate(s=UNBOUND.v.sum().over(xo.window(group_by="k")))
+    assert count_unbound_scans(window, xo.duckdb.connect().compiler) is None
+
+
+def test_count_unbound_scans_compile_failure_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # to_sqlglot failure -> no count -> the caller builds an unbounded cache
+    compiler = xo.duckdb.connect().compiler
+
+    def boom(*a, **k):
+        raise RuntimeError("no sql")
+
+    monkeypatch.setattr(type(compiler), "to_sqlglot", boom)
+    assert count_unbound_scans(UNBOUND, compiler) is None
+
+
+@pytest.mark.parametrize("make_con", (xo.connect, lambda: xo.duckdb.connect()))
+def test_count_unbound_scans_ignores_a_same_named_bound_table(make_con) -> None:
+    # a bound table sharing the input's name is not a scan of the input
+    con = make_con()
+    bound = con.create_table("in", pa.table({"k": [1], "w": [2.0]}))
+    assert count_unbound_scans(UNBOUND.join(bound, "k"), con.compiler) == 1
