@@ -1,0 +1,44 @@
+name: ci-test-examples-remote
+
+# Pull request CI points connect_examples() at the job's own postgres. This
+# keeps the public examples server itself under test: once per push to main,
+# one job, serial, so it holds a single connection slot at a time.
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install the project
+        run: uv sync --locked --extra examples --extra pyiceberg --extra postgres --extra sqlite --group dev --group test
+
+      - name: pytest against the public examples server
+        run: >
+          uv run --no-sync pytest
+          --import-mode=importlib
+          -v
+          "python/xorq/tests/test_backend.py::test_remote_reconnect[<lambda>1]"
+          python/xorq/ibis_yaml/tests/test_compiler.py::test_multi_join_expr_yaml_line_count
+          "python/xorq/tests/test_examples.py::test_script_execution[yaml_roundtrip]"
+          "python/xorq/tests/test_examples.py::test_script_execution[into_backend_example]"
+          "python/xorq/tests/test_cli.py::test_examples[postgres_caching.py-expr]"
+          "python/xorq/tests/test_cli.py::test_examples[local_cache.py-expr]"
