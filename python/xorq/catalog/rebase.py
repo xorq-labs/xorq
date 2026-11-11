@@ -1712,9 +1712,9 @@ def rebase_entry(
                 expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
             )
             if dumper.expr_hash == catalog_entry.name:
-                # A swap that rebuilds this entry moved reads alone: the
-                # connection is no part of a read's build identity.
-                if options.swaps:
+                # A --profile move that rebuilds this entry moved reads alone:
+                # the connection is no part of a read's build identity.
+                if options.profile:
                     raise RebaseError(
                         f"{catalog_entry.name}: --profile {profile} moves only "
                         "reads, and a read's build identity does not include "

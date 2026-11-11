@@ -4226,6 +4226,22 @@ def test_a_profile_moves_a_read_beside_a_table(
     assert len(new.load_expr().execute()) == len(ELSEWHERE) + len(RECORDED)
 
 
+def test_a_bundled_swap_to_the_same_bytes_is_a_noop(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """With no --profile, a swap that rebuilds the entry moved nothing."""
+    old = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    copy = write_file(world.tmp_path / "m26.parquet", RECORDED)
+    read = deferred_read_parquet(old, xo.connect(), table_name="r")
+    name = world.catalog.add(read).name
+    (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).source_leaves
+
+    result = rebase(runner, world, name, "--swap", leaf.name, str(copy))
+    assert result.exit_code == 0, result.output
+    assert result.stdout == f"{name}\n"
+    assert set(reopen(world).list()) == {world.name, name}
+
+
 def test_a_profile_naming_the_loaded_connection_keeps_its_sources_together(
     runner: CliRunner, world: SimpleNamespace, profile_dir: Path
 ) -> None:
