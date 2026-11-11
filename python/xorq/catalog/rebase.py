@@ -112,6 +112,7 @@ from xorq.catalog.drift import (
     read_record,
     reports_document,
     roll_up,
+    sqlite_no_create,
     state_and_code,
     unchecked_leaves,
 )
@@ -1211,13 +1212,28 @@ def vacated(
 
 def profile_connection(name: str, profile: Profile, alias: str) -> BaseBackend:
     """``profile``'s connection, refused where opening it would create its
-    database."""
+    database.
+
+    sqlite is first opened never creating, which fails on a missing `file:` URI
+    or attached database; the connection kept opens as stored, so it records
+    ``profile`` as stored, which source matching keys on. duckdb only gets the
+    path check, since a read-only open refuses the read-write one the entry may
+    load on the same file.
+    """
     if (path := missing_database(profile)) is not None:
         raise RebaseError(
             f"{name}: --profile {alias}: database {path} does not exist",
             RebaseFailure.UNREACHABLE,
         )
-    return profile.get_con()
+    kwargs = sqlite_no_create(profile)[1] if profile.con_name == "sqlite" else {}
+    try:
+        if kwargs:
+            profile.get_con(**kwargs).disconnect()
+        return profile.get_con()
+    except Exception as e:
+        raise RebaseError(
+            f"{name}: --profile {alias}: {format_error(e)}", RebaseFailure.UNREACHABLE
+        ) from e
 
 
 def with_profile(record: BuildRecord, profile: Profile | None) -> BuildRecord:
