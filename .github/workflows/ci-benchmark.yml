@@ -50,21 +50,8 @@ jobs:
         run: uv sync --locked --all-extras --all-groups
         working-directory: ${{ github.workspace }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build postgres image with GHA layer cache
-        uses: docker/bake-action@v7
-        with:
-          files: compose.yaml
-          targets: postgres
-          load: true
-          set: |
-            postgres.cache-from=type=gha,scope=docker-postgres
-            postgres.cache-to=type=gha,scope=docker-postgres,mode=max
-
       - name: start services
-        run: just up-ci postgres trino
+        run: docker compose up --build --wait
 
       # Runner speed is bimodal across ubuntu-latest hosts, so a pull request
       # is judged against the tip of its base branch measured on this same
