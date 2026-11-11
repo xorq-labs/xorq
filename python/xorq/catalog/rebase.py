@@ -1450,7 +1450,7 @@ def rename_hints(
 
 
 # What a compiler raises on an op its dialect cannot express.
-COMPILE_ERRORS = (TranslationError, NotImplementedError, ValueError)
+COMPILE_ERRORS = (TranslationError, NotImplementedError, TypeError, ValueError)
 
 
 def compile_error(expr: Expr) -> Exception | None:
