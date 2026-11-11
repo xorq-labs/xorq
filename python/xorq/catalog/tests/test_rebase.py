@@ -4282,11 +4282,12 @@ def test_a_parameterized_entry_compiles_at_its_defaults(
             id="duckdb-sha1",
         ),
         pytest.param(
-            lambda: xo.datafusion.connect(),
+            # xorq's own engine: no backend extra needed.
+            lambda: xo.connect(),
             lambda t: t.b.re_extract("(.)", t.a),
             ValueError,
             "RegexExtract",
-            id="datafusion-nonliteral-index",
+            id="xorq-datafusion-nonliteral-index",
         ),
     ),
 )
