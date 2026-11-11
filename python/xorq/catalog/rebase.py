@@ -1220,11 +1220,22 @@ def loaded_con(expr: Expr, con: BaseBackend) -> BaseBackend:
     )
 
 
-def left_cons(
-    record: BuildRecord, moved_off: Mapping[str, str]
-) -> dict[str, BaseBackend]:
-    """Each connection a source moved off, by content hash -> a connection to
-    it that opens only once used: by a source left on it, which is refused."""
+def left_behind(
+    record: BuildRecord, swapped: Mapping[LeafKey, SourceLeaf]
+) -> frozenset[str]:
+    """The content hashes of the connections every source moved off: no
+    unswapped source stays on them."""
+    kept = {
+        key[1]
+        for leaf in record.source_leaves
+        if (key := leaf_key(leaf, record)) not in swapped
+    }
+    return frozenset(vacated(record, swapped).values()) - kept
+
+
+def left_cons(record: BuildRecord, left: Iterable[str]) -> dict[str, BaseBackend]:
+    """Each connection ``left`` names, by content hash -> a connection to it
+    that opens only once used."""
     profiles = (
         make_profile(profile_dict)
         for profile_dict in record.profiles.values()
@@ -1233,7 +1244,7 @@ def left_cons(
     return {
         profile.content_hash: profile.get_con(lazy=True)
         for profile in profiles
-        if profile.content_hash in moved_off.values()
+        if profile.content_hash in left
     }
 
 
@@ -1758,8 +1769,9 @@ def rebase_entry(
             live = live_or_conflict(catalog_entry, record, reports)
             if isinstance(live, RebaseConflict):
                 return conflicted(live)
-            check_databases_exist(catalog_entry, record, moved_off.values())
-            left = left_cons(record, moved_off)
+            gone = left_behind(record, swapped)
+            check_databases_exist(catalog_entry, record, gone)
+            left = left_cons(record, gone)
             # A failed cleanup must not end a rebase whose entry is already committed.
             with (
                 tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td,
