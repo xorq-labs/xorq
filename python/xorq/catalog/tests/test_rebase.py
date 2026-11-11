@@ -4381,21 +4381,33 @@ def test_a_profile_onto_a_backend_that_cannot_compile_an_op_conflicts(
     assert set(reopen(world).list()) == {world.name, name}
 
 
-@pytest.mark.parametrize("dry_run", ((), ("--dry-run",)), ids=("rebase", "dry-run"))
-def test_a_udf_argument_a_backend_cannot_compile_conflicts(
-    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, dry_run: tuple
-) -> None:
-    """The UDF's computed argument runs on its own backend too."""
-    t = world.con.table("t")
-    first = udf.make_pandas_expr_udf(
-        computed_kwargs_expr=t.b.host().max().name("h").as_table(),
+def expr_udf(computed_kwargs_expr: xo.Table, name: str) -> Callable:
+    return udf.make_pandas_expr_udf(
+        computed_kwargs_expr=computed_kwargs_expr,
         fn=lambda value, frame, **kw: frame["a"],
         schema=xo.schema({"a": "int64"}),
-        name="first",
+        name=name,
         return_type=dt.int64,
         post_process_fn=toolz.identity,
     )
-    name = world.catalog.add(t.mutate(n=first.on_expr(t))).name
+
+
+@pytest.mark.parametrize("nested", (False, True), ids=("direct", "nested"))
+@pytest.mark.parametrize("dry_run", ((), ("--dry-run",)), ids=("rebase", "dry-run"))
+def test_a_udf_argument_a_backend_cannot_compile_conflicts(
+    runner: CliRunner,
+    world: SimpleNamespace,
+    profile_dir: Path,
+    dry_run: tuple,
+    nested: bool,
+) -> None:
+    """The UDF's computed argument runs on its own backend too, a UDF passed
+    as another's argument included."""
+    t = world.con.table("t")
+    first = expr_udf(t.b.host().max().name("h").as_table(), "first")
+    outer = expr_udf(t.a.max().name("m").as_table(), "outer")
+    call = first.on_expr(t)
+    name = world.catalog.add(t.mutate(n=outer(call) if nested else call)).name
     duckdb_profile(world, "duck")
 
     result = rebase(

@@ -147,7 +147,11 @@ from xorq.common.exceptions import (
     UnmatchedSourceError,
 )
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
-from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
+from xorq.common.utils.graph_utils import (
+    find_all_sources,
+    gen_children_of,
+    walk_nodes,
+)
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr import udf
 from xorq.expr.api import _remove_tag_nodes, bind_params
@@ -1494,7 +1498,16 @@ def compile_error(expr: Expr) -> Exception | None:
         bound = bind_params(_remove_tag_nodes(expr), {})
     except ValueError:
         return None
-    computed = (op.computed_kwargs_expr for op in walk_nodes(udf.ExprScalarUDF, bound))
+    # A UDF's own arguments too, which its opaque edge leaves out: a UDF can
+    # be passed as another's.
+    computed = (
+        op.computed_kwargs_expr
+        for op in walk_nodes(
+            udf.ExprScalarUDF,
+            bound,
+            gen_children=lambda node: (*gen_children_of(node), *node.__children__),
+        )
+    )
     for each in (bound, *computed):
         try:
             generate_sql_plans(each)
