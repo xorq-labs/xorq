@@ -8,6 +8,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.4.12] - 2026-11-11
+### Details
+#### Changed
+- Stream uploads into ADBC-ingesting backends by @mesejo in [#2568](https://github.com/xorq-labs/xorq/pull/2568)
+- Give check-sources --json leaves a node_ref, profile and paths by @mesejo in [#2571](https://github.com/xorq-labs/xorq/pull/2571)
+- Cache just and the gizmosql server binary instead of downloading them by @mesejo in [#2573](https://github.com/xorq-labs/xorq/pull/2573)
+- Name each entry on stderr while check-sources --json sweeps by @mesejo in [#2572](https://github.com/xorq-labs/xorq/pull/2572)
+- Record the check-sources and rebase design by @mesejo in [#2598](https://github.com/xorq-labs/xorq/pull/2598)
+- Check-sources help no longer says pinned bytes are archived by @mesejo in [#2599](https://github.com/xorq-labs/xorq/pull/2599)
+- Rebase --swap re-points a table source by @mesejo in [#2610](https://github.com/xorq-labs/xorq/pull/2610)
+- Refuse a swap beside an unswapped source that drifted by @mesejo in [#2613](https://github.com/xorq-labs/xorq/pull/2613)
+- Rebase --swap re-points an external read to a new path by @mesejo in [#2616](https://github.com/xorq-labs/xorq/pull/2616)
+- Let --rename combine with --swap, by the old name by @mesejo in [#2615](https://github.com/xorq-labs/xorq/pull/2615)
+- Record each --swap in the rebased entry by @mesejo in [#2619](https://github.com/xorq-labs/xorq/pull/2619)
+- Rebase --swap carries a new file into a bundled read by @mesejo in [#2617](https://github.com/xorq-labs/xorq/pull/2617)
+- Move swapped sources to a stored --profile connection by @mesejo in [#2620](https://github.com/xorq-labs/xorq/pull/2620)
+- Compile a rebased entry per backend before cataloging it by @mesejo in [#2622](https://github.com/xorq-labs/xorq/pull/2622)
+
+#### Fixed
+- Accept a list of paths in deferred_read_parquet/csv by @mesejo in [#2369](https://github.com/xorq-labs/xorq/pull/2369)
+- Pin that an ingesting backend's type mapping is not drift by @mesejo in [#2574](https://github.com/xorq-labs/xorq/pull/2574)
+- Check-sources footer counts a table-missing entry as drifted by @mayuriphad in [#2466](https://github.com/xorq-labs/xorq/pull/2466)
+- Count check-sources footer entries by their rolled-up state by @mesejo in [#2597](https://github.com/xorq-labs/xorq/pull/2597)
+- Serialize an expression in one post-order pass by @mesejo in [#2397](https://github.com/xorq-labs/xorq/pull/2397)
+- Load_expr no longer recurses once per node by @mesejo in [#2350](https://github.com/xorq-labs/xorq/pull/2350)
+- Check-sources counts a relocated pin as pinned by @mesejo in [#2600](https://github.com/xorq-labs/xorq/pull/2600)
+- Cache key works on tables without an id column by @mesejo in [#2601](https://github.com/xorq-labs/xorq/pull/2601)
+- Cache key works on views and WITHOUT ROWID tables by @mesejo in [#2602](https://github.com/xorq-labs/xorq/pull/2602)
+- Compile strftime, string parsing, as_interval and bucket by @mesejo in [#2603](https://github.com/xorq-labs/xorq/pull/2603)
+- Group by a key that shadows a column without hiding it by @mesejo in [#2608](https://github.com/xorq-labs/xorq/pull/2608)
+- A rebase refused once its hash is derived reports it by @mesejo in [#2605](https://github.com/xorq-labs/xorq/pull/2605)
+- Give each catalog test its own content cache by @mesejo in [#2606](https://github.com/xorq-labs/xorq/pull/2606)
+- A synced rebase, pin or unpin that stops says what is left to push by @mesejo in [#2607](https://github.com/xorq-labs/xorq/pull/2607)
+- Refuse a swap under a SQL view by @mesejo in [#2611](https://github.com/xorq-labs/xorq/pull/2611)
+- Pin that a rebase copies a bundled read from the old archive by @mesejo in [#2612](https://github.com/xorq-labs/xorq/pull/2612)
+- Rebase --swap --json prints its document by @mesejo in [#2614](https://github.com/xorq-labs/xorq/pull/2614)
+- Pin that a swap re-points a namespaced table by @mesejo in [#2618](https://github.com/xorq-labs/xorq/pull/2618)
+- Open a --profile destination without creating its sqlite database by @mesejo in [#2621](https://github.com/xorq-labs/xorq/pull/2621)
+- Key a bundled read apart from an external read at its member path by @mesejo in [#2623](https://github.com/xorq-labs/xorq/pull/2623)
+- Refuse a --profile move that only re-points a read's connection by @mesejo in [#2624](https://github.com/xorq-labs/xorq/pull/2624)
+- Build the bundled-read keying entry on one connection by @mesejo in [#2628](https://github.com/xorq-labs/xorq/pull/2628)
+- Pin that a swap re-points every binding sharing one key by @mesejo in [#2627](https://github.com/xorq-labs/xorq/pull/2627)
+- Compile a UDF's computed argument in the rebase compile check by @mesejo in [#2625](https://github.com/xorq-labs/xorq/pull/2625)
+- Allow a --profile move beside a payload that runs on its own by @mesejo in [#2626](https://github.com/xorq-labs/xorq/pull/2626)
+- Close the --profile connection when a rebase returns by @mesejo in [#2630](https://github.com/xorq-labs/xorq/pull/2630)
+- Move every source off a gone database with --profile by @mesejo in [#2629](https://github.com/xorq-labs/xorq/pull/2629)
+
+#### Removed
+- Delete four tests that duplicate another test verbatim by @mesejo in [#2569](https://github.com/xorq-labs/xorq/pull/2569)
+
+## New Contributors
+* @mayuriphad made their first contribution in [#2466](https://github.com/xorq-labs/xorq/pull/2466)
 ## [0.4.11] - 2026-11-03
 ### Details
 #### Added
