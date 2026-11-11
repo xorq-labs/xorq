@@ -1,0 +1,31 @@
+name: ibis testing data
+description: >
+  Restore ci/ibis-testing-data from the actions cache, keyed on the upstream
+  master commit, and clone it with `just download-data` only on a miss.
+  Needs just on PATH. Not for pull_request_target workflows: there the PR
+  head would supply this action and could save into the base branch's cache.
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve testing-data commit
+      id: rev
+      shell: bash
+      run: |
+        line=$(git ls-remote --exit-code https://github.com/ibis-project/testing-data refs/heads/master)
+        echo "sha=${line%%[[:space:]]*}" >> "$GITHUB_OUTPUT"
+
+    # .git is left out: nothing reads it, and it is half the archive.
+    - name: Restore testing data
+      id: cache
+      uses: actions/cache@v5
+      with:
+        path: |
+          ci/ibis-testing-data
+          !ci/ibis-testing-data/.git
+        key: ibis-testing-data-${{ steps.rev.outputs.sha }}
+
+    - name: download test data
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: just download-data

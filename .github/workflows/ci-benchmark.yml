@@ -24,8 +24,7 @@ jobs:
 
       - uses: ./.github/actions/setup-just
 
-      - name: download test data
-        run: just download-data
+      - uses: ./.github/actions/ibis-testing-data
 
       - uses: actions/setup-python@v6
         with:

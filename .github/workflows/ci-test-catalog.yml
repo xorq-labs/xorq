@@ -57,8 +57,7 @@ jobs:
 
       - uses: ./.github/actions/setup-just
 
-      - name: download test data
-        run: just download-data
+      - uses: ./.github/actions/ibis-testing-data
 
       - name: install system dependencies
         if: matrix.backend.sys-deps != null
