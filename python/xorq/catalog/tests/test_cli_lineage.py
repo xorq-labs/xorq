@@ -20,6 +20,12 @@ from xorq.common.utils.lineage_utils import LineageDAG, _mermaid_id
 
 
 @pytest.fixture
+def backend_type() -> str:
+    """Every level reads the stored sidecar, which no storage backend changes."""
+    return "git"
+
+
+@pytest.fixture
 def catalog_with_udxf(catalog_path: str) -> tuple[str, str]:
     """A catalog holding one duckdb -> xorq join over a FlightUDXF.
 

@@ -31,7 +31,7 @@ from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.bind import _eval_code
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.exceptions import CatalogPushError
-from xorq.catalog.tests.conftest import requires_annex
+from xorq.catalog.tests.conftest import every_storage_backend
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
@@ -108,13 +108,6 @@ def _run(coro):
 def backend_type() -> str:
     """Render and key-handling tests read nothing the storage backend decides."""
     return "git"
-
-
-# Tests that write through the TUI or read the repo's alias, commit or revision
-# state, which the storage backend does decide.
-every_storage_backend = pytest.mark.parametrize(
-    "backend_type", ("git", pytest.param("annex", marks=requires_annex), "pointer")
-)
 
 
 @pytest.fixture

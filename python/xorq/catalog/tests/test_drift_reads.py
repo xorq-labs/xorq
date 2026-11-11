@@ -72,6 +72,12 @@ def read_doc(hash_path: str, extra: tuple = ()) -> dict:
 
 
 @pytest.fixture
+def backend_type() -> str:
+    """One storage backend: test_drift sweeps the store fetch a check makes."""
+    return "git"
+
+
+@pytest.fixture
 def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
     """One parquet file, built into a catalog twice: relocation off, then on."""
     src = tmp_path / "src.parquet"

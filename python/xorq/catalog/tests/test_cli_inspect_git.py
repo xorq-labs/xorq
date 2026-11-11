@@ -16,6 +16,7 @@ from xorq.catalog.constants import MAIN_BRANCH
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     compare_repo_and_catalog,
+    every_storage_backend,
     make_build_zip,
 )
 from xorq.catalog.zip_utils import (
@@ -23,6 +24,16 @@ from xorq.catalog.zip_utils import (
     write_zip,
 )
 from xorq.ibis_yaml.enums import REQUIRED_ARCHIVE_NAMES
+
+
+@pytest.fixture
+def backend_type() -> str:
+    """Listing and rendering read what every backend stores the same way.
+
+    Tests that fetch content, check the repo or move it between remotes are
+    marked `every_storage_backend`.
+    """
+    return "git"
 
 
 # --- info command ---
@@ -58,6 +69,7 @@ def test_info_alias_count(runner, catalog_path, data_dict):
     assert "aliases: 2" in result.output
 
 
+@every_storage_backend
 def test_info_shows_remotes(runner, repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
         repo_cloned_bare.working_dir, Path(tmpdir).joinpath("info-remote-test")
@@ -133,6 +145,7 @@ def test_list_aliases_populated(runner, catalog_path, data_dict):
 # --- get command ---
 
 
+@every_storage_backend
 def test_get_command(runner, catalog_path, data_dict, tmpdir):
     path = str(next(iter(data_dict.values())))
     runner.invoke(cli, ["--path", catalog_path, "add", path])
@@ -144,6 +157,7 @@ def test_get_command(runner, catalog_path, data_dict, tmpdir):
     assert "Exported to" in result.output
 
 
+@every_storage_backend
 def test_get_creates_a_missing_output_dir(runner, catalog_path, data_dict, tmp_path):
     path = str(next(iter(data_dict.values())))
     runner.invoke(cli, ["--path", catalog_path, "add", path])
@@ -158,6 +172,7 @@ def test_get_creates_a_missing_output_dir(runner, catalog_path, data_dict, tmp_p
     assert (output_dir / f"{name}.zip").is_file()
 
 
+@every_storage_backend
 def test_get_default_output_dir(runner, catalog_path, data_dict):
     path = str(next(iter(data_dict.values())))
     runner.invoke(cli, ["--path", catalog_path, "add", path])
@@ -168,6 +183,7 @@ def test_get_default_output_dir(runner, catalog_path, data_dict):
         assert "Exported to" in result.output
 
 
+@every_storage_backend
 def test_get_nonexistent_entry(runner, catalog_path, tmpdir):
     output_dir = str(Path(tmpdir).joinpath("export"))
     Path(output_dir).mkdir()
@@ -180,12 +196,14 @@ def test_get_nonexistent_entry(runner, catalog_path, tmpdir):
 # --- check command ---
 
 
+@every_storage_backend
 def test_check_command(runner, catalog_path):
     result = runner.invoke(cli, ["--path", catalog_path, "check"])
     assert result.exit_code == 0, result.output
     assert "OK" in result.output
 
 
+@every_storage_backend
 def test_check_catches_inconsistency(runner, catalog_path, tmpdir):
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
     zip_path = write_zip(
@@ -203,6 +221,7 @@ def test_check_catches_inconsistency(runner, catalog_path, tmpdir):
     assert result.exit_code != 0
 
 
+@every_storage_backend
 def test_check_populated(runner, catalog_path, data_dict):
     paths = [str(p) for p in data_dict.values()]
     runner.invoke(cli, ["--path", catalog_path, "add", *paths])
@@ -243,6 +262,7 @@ def test_log_empty_catalog(runner, catalog_path):
 # --- replay command ---
 
 
+@every_storage_backend
 def test_replay_command(runner, catalog_path, data_dict, tmpdir):
     paths = [str(p) for p in data_dict.values()]
     runner.invoke(cli, ["--path", catalog_path, "add", *paths])
@@ -256,6 +276,7 @@ def test_replay_command(runner, catalog_path, data_dict, tmpdir):
     )
 
 
+@every_storage_backend
 def test_replay_dry_run(runner, catalog_path, data_dict, tmpdir):
     paths = [str(p) for p in data_dict.values()]
     runner.invoke(cli, ["--path", catalog_path, "add", *paths])
@@ -265,6 +286,7 @@ def test_replay_dry_run(runner, catalog_path, data_dict, tmpdir):
     assert "Replayed" not in result.output
 
 
+@every_storage_backend
 def test_replay_no_preserve_commits(runner, catalog_path, data_dict, tmpdir):
     paths = [str(p) for p in data_dict.values()]
     runner.invoke(cli, ["--path", catalog_path, "add", *paths])
@@ -279,6 +301,7 @@ def test_replay_no_preserve_commits(runner, catalog_path, data_dict, tmpdir):
 # --- clone command ---
 
 
+@every_storage_backend
 def test_clone_command(runner, catalog_populated, tmpdir):
     dest = str(Path(tmpdir).joinpath("cloned"))
     result = runner.invoke(
@@ -289,6 +312,7 @@ def test_clone_command(runner, catalog_populated, tmpdir):
     assert Path(dest).exists()
 
 
+@every_storage_backend
 def test_clone_name_and_path_mutually_exclusive(runner, catalog_populated):
     result = runner.invoke(
         cli,
@@ -304,6 +328,7 @@ def test_clone_name_and_path_mutually_exclusive(runner, catalog_populated):
     assert result.exit_code != 0
 
 
+@every_storage_backend
 def test_clone_derives_name_from_url(runner, catalog_populated, tmpdir, monkeypatch):
     clone_base = Path(tmpdir).joinpath("clone-base")
     clone_base.mkdir()
@@ -316,6 +341,7 @@ def test_clone_derives_name_from_url(runner, catalog_populated, tmpdir, monkeypa
 # --- push / pull / sync ---
 
 
+@every_storage_backend
 def test_push_with_remote(runner, repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
         repo_cloned_bare.working_dir, Path(tmpdir).joinpath("push-test")
@@ -349,6 +375,7 @@ def test_push_with_remote(runner, repo_cloned_bare, tmpdir):
     compare_repo_and_catalog(repo_cloned_bare, cloned)
 
 
+@every_storage_backend
 def test_pull_with_remote(runner, repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
         repo_cloned_bare.working_dir, Path(tmpdir).joinpath("pull-test")
@@ -379,6 +406,7 @@ def test_pull_with_remote(runner, repo_cloned_bare, tmpdir):
     assert after == pusher.repo.head.commit.hexsha
 
 
+@every_storage_backend
 def test_sync_with_remote(runner, repo_cloned_bare, tmpdir):
     cloned = Catalog.clone_from(
         repo_cloned_bare.working_dir, Path(tmpdir).joinpath("sync-test")
