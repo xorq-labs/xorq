@@ -163,6 +163,10 @@ jobs:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DATABASE: ibis_testing
+          XORQ_EXAMPLES_POSTGRES_HOST: localhost
+          XORQ_EXAMPLES_POSTGRES_USER: postgres
+          XORQ_EXAMPLES_POSTGRES_PASSWORD: postgres
+          XORQ_EXAMPLES_POSTGRES_DATABASE: ibis_testing
 
       # Builds its own wheel and isolated env, so the dev/test groups installed
       # here cannot mask a missing declaration.

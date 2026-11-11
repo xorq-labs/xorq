@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import attrs
 import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -16,7 +17,7 @@ from xorq.common.utils.adbc_utils import staged_ingest
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
-from xorq.common.utils.env_utils import maybe_substitute_env_var
+from xorq.common.utils.env_utils import EnvConfigable, maybe_substitute_env_var
 from xorq.common.utils.logging_utils import get_logger
 from xorq.config import default_backend
 from xorq.vendor.ibis import util
@@ -48,6 +49,18 @@ def _default_ingest_name(table_name, *, temporary, prefix):
     return gen_name(prefix)
 
 
+# The public examples database, each field overridable as
+# XORQ_EXAMPLES_POSTGRES_<FIELD>: CI points it at its own postgres, which loads
+# the same tables, instead of sharing the public server's connection slots.
+ExamplesPostgresConfig = EnvConfigable.subclass_from_kwargs(
+    prefix="XORQ_EXAMPLES_POSTGRES_",
+    host="examples.letsql.com",
+    user="letsql",
+    password="letsql",
+    database="letsql",
+)
+
+
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
     _secret_keys = (
@@ -69,12 +82,7 @@ class Backend(IbisPostgresBackend):
 
     @classmethod
     def connect_examples(cls, **kwargs):
-        examples_kwargs = {
-            "host": "examples.letsql.com",
-            "user": "letsql",
-            "password": "letsql",
-            "database": "letsql",
-        }
+        examples_kwargs = attrs.asdict(ExamplesPostgresConfig.from_env())
         return cls().connect(**(examples_kwargs | kwargs))
 
     def upload_ingest(self, table_name):

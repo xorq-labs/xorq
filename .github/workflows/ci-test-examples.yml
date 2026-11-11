@@ -87,6 +87,10 @@ jobs:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DATABASE: ibis_testing
+          XORQ_EXAMPLES_POSTGRES_HOST: localhost
+          XORQ_EXAMPLES_POSTGRES_USER: postgres
+          XORQ_EXAMPLES_POSTGRES_PASSWORD: postgres
+          XORQ_EXAMPLES_POSTGRES_DATABASE: ibis_testing
           HACKERNEWS_ITEMS_DIR: ${{ runner.temp }}/hackernews-items
           WEATHER_FEATURES_PORT: 8819
           WEATHER_API_URL: https://api.openweathermap.org/data/2.5/weather
