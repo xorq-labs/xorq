@@ -42,6 +42,7 @@ from xorq.catalog.inspection import SourceLeaf
 from xorq.catalog.rebase import (
     ColumnChange,
     Rename,
+    compile_error,
     rebase_entry,
     recorded_python_minor,
 )
@@ -4268,3 +4269,36 @@ def test_a_parameterized_entry_compiles_at_its_defaults(
     assert result.exit_code == 0, result.output
     new = reopen(world).get_catalog_entry(result.stdout.strip())
     assert new.columns == ("a", "b", "c")
+
+
+@pytest.mark.parametrize(
+    ("connect", "column", "error", "op_name"),
+    (
+        pytest.param(
+            lambda: xo.duckdb.connect(),
+            lambda t: t.b.hexdigest("sha1"),
+            NotImplementedError,
+            "HexDigest",
+            id="duckdb-sha1",
+        ),
+        pytest.param(
+            lambda: xo.datafusion.connect(),
+            lambda t: t.b.re_extract("(.)", t.a),
+            ValueError,
+            "RegexExtract",
+            id="datafusion-nonliteral-index",
+        ),
+    ),
+)
+def test_a_compiler_error_of_any_kind_names_its_op(
+    connect: Callable, column: Callable, error: type, op_name: str
+) -> None:
+    con = connect()
+    con.create_table("t", RECORDED)
+    t = con.table("t")
+
+    e = compile_error(t.mutate(c=column(t)))
+    assert isinstance(e, error)
+    assert rebase_module.untranslated_op(e) == op_name
+    # A parameter with no default leaves nothing to compile.
+    assert compile_error(t.filter(t.a > xo.param("floor", "int64"))) is None
