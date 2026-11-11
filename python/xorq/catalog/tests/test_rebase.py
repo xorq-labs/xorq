@@ -4202,6 +4202,15 @@ def test_a_profile_only_move_of_a_read_is_refused(
         "does not include its connection, so the rebuild is this entry\n"
     )
     assert set(reopen(world).list()) == {world.name, name}
+    document = json.loads(
+        rebase(
+            runner,
+            world,
+            name,
+            *("--swap", str(path), str(path), "--profile", "prod", "--json"),
+        ).stdout
+    )
+    assert document["new_hash"] == name
 
 
 def test_a_profile_moves_a_read_beside_a_table(
@@ -4226,17 +4235,19 @@ def test_a_profile_moves_a_read_beside_a_table(
     assert len(new.load_expr().execute()) == len(ELSEWHERE) + len(RECORDED)
 
 
+@pytest.mark.parametrize("profile", ((), ("--profile", "live")))
 def test_a_bundled_swap_to_the_same_bytes_is_a_noop(
-    runner: CliRunner, world: SimpleNamespace
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, profile: tuple
 ) -> None:
-    """With no --profile, a swap that rebuilds the entry moved nothing."""
+    """A swap that rebuilds the entry and leaves no connection moved nothing."""
     old = write_file(world.tmp_path / "m25.parquet", RECORDED)
     copy = write_file(world.tmp_path / "m26.parquet", RECORDED)
-    read = deferred_read_parquet(old, xo.connect(), table_name="r")
+    read = deferred_read_parquet(old, world.con, table_name="r")
     name = world.catalog.add(read).name
     (leaf,) = drift.read_record(reopen(world).get_catalog_entry(name)).source_leaves
+    stored_profile(world.con, "live")
 
-    result = rebase(runner, world, name, "--swap", leaf.name, str(copy))
+    result = rebase(runner, world, name, "--swap", leaf.name, str(copy), *profile)
     assert result.exit_code == 0, result.output
     assert result.stdout == f"{name}\n"
     assert set(reopen(world).list()) == {world.name, name}
