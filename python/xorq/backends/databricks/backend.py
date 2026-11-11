@@ -284,19 +284,26 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
 
         return self.table(name, database=(catalog, database))
 
-    def table(self, name: str, /, *, database: str | None = None) -> ir.Table:
-        table_loc = self._to_sqlglot_table(database)
+    def table(
+        self, name: str, /, *, database: tuple[str, str] | str | None = None
+    ) -> ir.Table:
+        """Construct a table expression.
 
-        catalog = table_loc.catalog or None
-        database = table_loc.db or None
+        Parameters
+        ----------
+        name
+            Table name
+        database
+            Database name, a dotted path like `"catalog.database"`, or a
+            tuple of strings like `("catalog", "database")`.
 
-        table_schema = self.get_schema(name, catalog=catalog, database=database)
-        return ops.DatabaseTable(
-            name,
-            schema=table_schema,
-            source=self,
-            namespace=ops.Namespace(catalog=catalog, database=database),
-        ).to_expr()
+        Returns
+        -------
+        Table
+            Table expression
+
+        """
+        return super().table(name, database=database)
 
     def get_schema(
         self,
