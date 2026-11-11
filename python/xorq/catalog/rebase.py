@@ -1490,27 +1490,30 @@ def compile_error(expr: Expr) -> Exception | None:
 
     Compiled as the dump compiles it, per backend, untagged and at its
     parameters' defaults: refreshing never reaches a dialect, and the dump
-    records a failure only as a warning. A parameter with no default leaves
-    nothing to compile, there as here. A UDF's computed argument is an
-    expression of its own, run on its own backend.
+    records a failure only as a warning. A UDF's computed argument is an
+    expression of its own, run on its own backend. A parameter with no default
+    leaves its expression nothing to compile, there as here.
     """
-    try:
-        bound = bind_params(_remove_tag_nodes(expr), {})
-    except ValueError:
-        return None
+    untagged = _remove_tag_nodes(expr)
     # A UDF's own arguments too, which its opaque edge leaves out: a UDF can
     # be passed as another's.
     computed = (
         op.computed_kwargs_expr
         for op in walk_nodes(
             udf.ExprScalarUDF,
-            bound,
+            untagged,
             gen_children=lambda node: (*gen_children_of(node), *node.__children__),
         )
     )
-    for each in (bound, *computed):
+    for each in (untagged, *computed):
+        # Bound one by one: `bind_params` does not reach a UDF passed as
+        # another's argument.
         try:
-            generate_sql_plans(each)
+            bound = bind_params(each, {})
+        except ValueError:
+            continue
+        try:
+            generate_sql_plans(bound)
         except COMPILE_ERRORS as e:
             return e
     return None

@@ -4421,6 +4421,22 @@ def test_a_udf_argument_a_backend_cannot_compile_conflicts(
     assert set(reopen(world).list()) == {world.name, name}
 
 
+def test_a_nested_udf_argument_compiles_at_its_defaults(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """A parameter only a nested UDF's computed argument reads is bound too."""
+    t = world.con.table("t")
+    floor = xo.param("floor", "int64", default=1)
+    inner = expr_udf(t.filter(t.a > floor).a.max().name("m").as_table(), "inner")
+    outer = expr_udf(t.a.max().name("m").as_table(), "outer")
+    name = world.catalog.add(t.mutate(n=outer(inner.on_expr(t)))).name
+    duckdb_profile(world, "duck")
+
+    result = rebase(runner, world, name, "--swap", "t", "t", "--profile", "duck")
+    assert result.exit_code == 0, result.output
+    assert set(reopen(world).list()) == {world.name, name, result.stdout.strip()}
+
+
 def test_a_parameterized_entry_compiles_at_its_defaults(
     runner: CliRunner, world: SimpleNamespace
 ) -> None:
