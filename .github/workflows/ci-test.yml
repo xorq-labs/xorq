@@ -125,23 +125,11 @@ jobs:
           path: ~/.cache/gizmosql/v${{ steps.gizmosql.outputs.version }}
           key: gizmosql-${{ steps.gizmosql.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Set up Docker Buildx
-        if: ${{ matrix.backend.services }}
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build postgres image with GHA layer cache
-        if: ${{ contains(matrix.backend.services, 'postgres') }}
-        uses: docker/bake-action@v7
-        with:
-          files: compose.yaml
-          targets: postgres
-          load: true
-          set: |
-            postgres.cache-from=type=gha,scope=docker-postgres
-            postgres.cache-to=type=gha,scope=docker-postgres,mode=max
+      - uses: ./.github/actions/postgres
+        if: ${{ matrix.backend.services == 'postgres' }}
 
       - name: start services
-        if: ${{ matrix.backend.services }}
+        if: ${{ matrix.backend.services && matrix.backend.services != 'postgres' }}
         run: just up-ci ${{ matrix.backend.services }}
 
       - name: pytest
@@ -156,16 +144,6 @@ jobs:
           -v --durations=20
           ${{ matrix.backend.parallel && '-n auto --dist=loadfile' || '' }}
         working-directory: ${{ github.workspace }}
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_DATABASE: ibis_testing
-          XORQ_EXAMPLES_POSTGRES_HOST: localhost
-          XORQ_EXAMPLES_POSTGRES_USER: postgres
-          XORQ_EXAMPLES_POSTGRES_PASSWORD: postgres
-          XORQ_EXAMPLES_POSTGRES_DATABASE: ibis_testing
 
       # Builds its own wheel and isolated env, so the dev/test groups installed
       # here cannot mask a missing declaration.
