@@ -227,6 +227,10 @@ test = [
     "deltalake>=1.0",
     "hypothesis>=6.112",
 ]
+ml-spike = [
+    "orbital>=0.6.0",
+    "pyarrow-hotfix>=0.6",
+]
 docs = [
     "quartodoc<0.11.2,>=0.7.2",
     "griffe<2.0",
