@@ -7,8 +7,11 @@ own module so the xorq-specific normalization logic stays focused.
 
 from __future__ import annotations
 
+import contextvars
+import dis
 import functools
 import operator
+import sys
 import types
 from typing import TYPE_CHECKING
 
@@ -53,6 +56,90 @@ def normalize_attrs(obj: object) -> tuple:
             f"normalize_attrs expected an attrs class, got {type(obj).__name__!r}"
         )
     return tuple(sorted(obj.__getstate__().items()))
+
+
+# Functions whose globals are being tokenized right now, by id. A function
+# reachable from its own globals (through a ``partial`` or ``curry`` global,
+# say) meets this guard and folds by name instead of recursing until the
+# stack runs out.
+_functions_in_progress: contextvars.ContextVar[frozenset[int]] = contextvars.ContextVar(
+    "_xorq_functions_in_progress", default=frozenset()
+)
+
+
+def _referenced_names(code: types.CodeType) -> frozenset[str]:
+    """Every global a code object loads, nested code objects (lambdas,
+    comprehensions, inner defs) included. Read off the ``LOAD_GLOBAL``
+    instructions rather than ``co_names``, which also lists attribute names
+    (``pc.add`` would drag in an unrelated global called ``add``), and not
+    ``LOAD_NAME``, which a nested class body resolves locally first."""
+    loads = frozenset(
+        instruction.argval
+        for instruction in dis.get_instructions(code)
+        if instruction.opname == "LOAD_GLOBAL"
+    )
+    nested = (const for const in code.co_consts if isinstance(const, types.CodeType))
+    return loads.union(*map(_referenced_names, nested))
+
+
+def _is_importable(func: types.FunctionType) -> bool:
+    """True when ``module.qualname`` resolves back to ``func``: a library
+    function its name can stand for. A closure, a lambda or an exec'd helper
+    does not resolve, and carries state its name says nothing about."""
+    module = sys.modules.get(func.__module__ or "")
+    try:
+        return functools.reduce(getattr, func.__qualname__.split("."), module) is func
+    except AttributeError:
+        return False
+
+
+def _global_token(hasher, value) -> tuple | str:
+    """A referenced global's contribution to its function's token.
+
+    An importable function folds by reference (module and qualname), the
+    way dasher already folds a class or a module: by-value recursion into a
+    library function's own globals reaches thread-locals and sentinels that
+    have no normalizer (``sklearn.metrics.*`` dies on ``_threadlocal``).
+    Everything else, a closure-made helper included, goes through the active
+    hasher like a closure cell or a default would, so a value without a
+    normalizer raises the same way.
+    """
+    match value:
+        case types.FunctionType() if _is_importable(value):
+            return ("function", value.__module__, value.__qualname__)
+        case _:
+            return hasher.tokenize(value)
+
+
+def normalize_function_with_globals(func: types.FunctionType) -> tuple:
+    """``normalize_function`` plus the globals the function references.
+
+    ``co_names`` crossed with ``__globals__`` is the half of a function's
+    captured environment that ``__closure__`` does not carry; without it two
+    functions with identical bytecode and different global bindings collide
+    (#2147). The globals are tokenized eagerly, inside the in-progress guard,
+    rather than returned for the hasher's lazy recursion: that is what lets a
+    function reachable from its own globals through a ``partial`` or a
+    ``curry`` terminate.
+    """
+    from xorq.common.utils.dasher import (  # noqa: PLC0415  # xorq-style: disable=unlisted-import
+        HASHER,
+        _current_hasher,
+    )
+
+    in_progress = _functions_in_progress.get()
+    if id(func) in in_progress:
+        return ("function", func.__module__, func.__qualname__)
+    hasher = _current_hasher.get() or HASHER
+    names = sorted(_referenced_names(func.__code__) & func.__globals__.keys())
+    token = _functions_in_progress.set(in_progress | {id(func)})
+    try:
+        globals_ = tuple(
+            (name, _global_token(hasher, func.__globals__[name])) for name in names
+        )
+    finally:
+        _functions_in_progress.reset(token)
+    return (*normalize_function(func), globals_)
 
 
 def normalize_lru_cache(func: functools._lru_cache_wrapper) -> tuple:
@@ -174,6 +261,7 @@ def normalize_sklearn_hidden(obj: _SklearnHidden) -> tuple:
 __all__ = [
     "normalize_attrs",
     "normalize_builtin_callable",
+    "normalize_function_with_globals",
     "normalize_functools_partial",
     "normalize_ibis_schema",
     "normalize_lru_cache",
