@@ -58,8 +58,6 @@ jobs:
               - --extra postgres
               - --extra examples
               - --extra pyiceberg  # test_pyiceberg_catalog: an iceberg catalog in postgres
-            sys-deps:
-              - libpq5
           - name: pandas
             services: false
             extras: []
@@ -97,14 +95,6 @@ jobs:
           git config --global user.email "ci@xorq.dev"
 
       - uses: ./.github/actions/setup-just
-
-      - name: update and install system dependencies
-        if: matrix.backend.sys-deps != null
-        run: |
-          set -euo pipefail
-
-          sudo apt-get update -qq -y
-          sudo apt-get install -qq -y build-essential ${{ join(matrix.backend.sys-deps, ' ') }}
 
       - name: download test data
         run: just download-data

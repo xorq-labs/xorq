@@ -51,13 +51,6 @@ jobs:
 
       - uses: ./.github/actions/setup-just
 
-      - name: update and install system dependencies
-        run: |
-          set -euo pipefail
-
-          sudo apt-get update -qq -y
-          sudo apt-get install -qq -y build-essential libpq5
-
       - name: download test data
         run: just download-data
 
