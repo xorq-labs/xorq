@@ -14,6 +14,12 @@ from xorq.vendor.ibis.expr import operations as ops
 
 
 @pytest.fixture
+def backend_type() -> str:
+    """Parameter handling reads the stored expression the same way on every backend."""
+    return "git"
+
+
+@pytest.fixture
 def saved_registry():
     """Save and restore the handler registry around a test."""
     saved = dict(_FROM_TAG_NODE_REGISTRY)

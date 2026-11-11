@@ -29,6 +29,12 @@ TABLE = pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]})
 
 
 @pytest.fixture
+def backend_type() -> str:
+    """One storage backend: test_drift sweeps the store fetch a check makes."""
+    return "git"
+
+
+@pytest.fixture
 def world(tmp_path: Path, catalog_path: str) -> SimpleNamespace:
     """Two tables in one sqlite database, joined: two leaves on one profile."""
     db_path = tmp_path / "live.sqlite"
