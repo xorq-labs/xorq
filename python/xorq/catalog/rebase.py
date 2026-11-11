@@ -1062,6 +1062,17 @@ def swap_refusal(
             for key, leaf in leaves.items()
         ):
             return f"--swap {swap} swaps nothing"
+        # The connection is no part of a read's build identity: the rebuild
+        # would hash to this entry.
+        case {**leaves} if profile is not None and any(
+            leaf.kind == LeafKind.READ and leaf.name == swap.new
+            for leaf in leaves.values()
+        ):
+            return (
+                f"--swap {swap} moves a read onto another connection only; a "
+                "read's build identity does not include its connection, so "
+                "moving it changes nothing"
+            )
         # A snapshot id is one table's: `new` has none of `old`'s.
         case {**leaves} if any(
             leaf.snapshot_id is not None for leaf in leaves.values()
