@@ -1431,7 +1431,9 @@ def rebase(
     --profile NAME moves every swapped source onto the connection of the
     stored profile NAME (`--swap t t --profile prod` reads t there). It
     needs a --swap; a NAME with no stored profile is an invalid option, and
-    a swap onto its own table on its own connection is refused.
+    a swap onto its own table on its own connection is refused. NAME may be
+    another backend type: the rebuilt entry is compiled for each backend it
+    runs on, and an op that backend cannot compile conflicts.
 
     \b
     Exit codes:
@@ -1467,8 +1469,8 @@ def rebase(
          nothing written
       3  a rebase was derived but not cataloged: --dry-run printed its
          hash, or --no-add its build directory
-      4  conflict: an op no longer fits its new inputs, or a source's
-         table is gone; stderr names the op (if one failed) and the
+      4  conflict: an op no longer fits its new inputs or does not
+         compile on its backend, or a source's table is gone; stderr names the op (if one failed) and the
          sources involved, with their recorded and live schemas, and
          any columns each changed source lost and gained; nothing written
       5  rebased locally, but the sync's push failed: the new entry is
@@ -1597,7 +1599,7 @@ def rebase(
             names = ", ".join(f"{r.leaf.kind} {r.leaf.name}" for r in conflict.sources)
             click.echo(
                 f"{result.old_entry.name}: conflict: {conflict.op_name} cannot be "
-                f"rebuilt; changed sources in entry: {names}",
+                f"rebuilt; sources in entry: {names}",
                 err=True,
             )
         # One block per source, as `check-sources` prints it.
