@@ -143,6 +143,7 @@ from xorq.common.exceptions import (
     SchemaRefreshError,
     UnmatchedSourceError,
 )
+from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.common.utils.graph_utils import find_all_sources
 from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
@@ -1214,11 +1215,11 @@ def profile_connection(name: str, profile: Profile, alias: str) -> BaseBackend:
     """``profile``'s connection, refused where opening it would create its
     database.
 
-    sqlite is first opened never creating, which fails on a missing `file:` URI
-    or attached database; the connection kept opens as stored, so it records
-    ``profile`` as stored, which source matching keys on. duckdb only gets the
-    path check, since a read-only open refuses the read-write one the entry may
-    load on the same file.
+    sqlite opens never creating, which fails on a missing `file:` URI or
+    attached database, yet the connection kept records ``profile`` as stored,
+    which source matching keys on. duckdb only gets the path check, since a
+    read-only open refuses the read-write one the entry may load on the same
+    file.
     """
     if (path := missing_database(profile)) is not None:
         raise RebaseError(
@@ -1227,9 +1228,15 @@ def profile_connection(name: str, profile: Profile, alias: str) -> BaseBackend:
         )
     kwargs = sqlite_no_create(profile)[1] if profile.con_name == "sqlite" else {}
     try:
-        if kwargs:
-            profile.get_con(**kwargs).disconnect()
-        return profile.get_con()
+        opened = profile.get_con(**kwargs)
+        if not kwargs:
+            return opened
+        # A backend records the kwargs it is built with: built from the stored
+        # ones, it opens with the never-creating ones `opened` used.
+        con = type(opened)(**profile.kwargs_dict)
+        con.do_connect(**maybe_substitute_env_vars(profile.kwargs_dict | kwargs))
+        opened.disconnect()
+        return con
     except Exception as e:
         raise RebaseError(
             f"{name}: --profile {alias}: {format_error(e)}", RebaseFailure.UNREACHABLE
