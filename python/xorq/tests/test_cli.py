@@ -1265,7 +1265,10 @@ def uv_build_args(script_path, root, *options):
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
-@pytest.mark.parametrize("template", InitTemplates)
+# cached-fetcher's live fetch runs end to end in ci-test-templates
+@pytest.mark.parametrize(
+    "template", tuple(t for t in InitTemplates if t != InitTemplates.cached_fetcher)
+)
 def test_init_uv_build_uv_run(template, tmpdir):
     tmpdir = Path(tmpdir)
     path = tmpdir.joinpath(f"xorq-template-{template}")
