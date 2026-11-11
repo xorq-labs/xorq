@@ -148,6 +148,7 @@ from xorq.common.exceptions import (
 )
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.common.utils.graph_utils import (
+    execution_scopes,
     find_all_sources,
     gen_children_of,
     walk_nodes,
@@ -1746,11 +1747,13 @@ def rebase_entry(
                     swapped,
                     con and loaded_con(loaded, con),
                 )
-                # Whatever still runs on a connection a source moved off would
-                # run it beside that source's new one: two backends.
+                # Whatever one backend runs beside a connection a source moved
+                # off would run two backends.
                 if any(
-                    Profile.from_con(source).content_hash in moved_off.values()
-                    for source in find_all_sources(repointed)
+                    len(hashes := {Profile.from_con(s).content_hash for s in sources})
+                    > 1
+                    and not hashes.isdisjoint(moved_off.values())
+                    for sources in execution_scopes(repointed)
                 ):
                     raise RebaseError(
                         f"{catalog_entry.name}: --profile {profile} moves "
