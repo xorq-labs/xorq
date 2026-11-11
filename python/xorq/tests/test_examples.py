@@ -6,6 +6,7 @@ import pytest
 from pytest import param
 
 import xorq.api as xo
+from xorq.common.utils.env_utils import EnvConfigable
 from xorq.tests.test_cli import build_run_examples_expr_names
 
 
@@ -16,6 +17,7 @@ LIBRARY_SCRIPTS = (
 )
 GCS_SCRIPTS = ("gcstorage_example",)
 S3_SCRIPTS = ("s3_content_store_catalog",)
+ExamplesEnv = EnvConfigable.subclass_from_kwargs("HACKERNEWS_ITEMS_DIR")
 NON_TESTABLE = (
     "mcp_flight_server.py",
     "duckdb_flight_example.py",
@@ -68,8 +70,15 @@ def examples_cwd(tmp_path_factory):
     The examples write builds and caches relative to the cwd, and share them:
     the Hacker News examples fetch the same ~1,000 items into
     ``./hackernews-items``, so only the first one pays for the requests.
+    ``HACKERNEWS_ITEMS_DIR`` names a directory to keep those items in across
+    sessions; CI restores it from its cache.
     """
-    return tmp_path_factory.mktemp("examples-cwd")
+    cwd = tmp_path_factory.mktemp("examples-cwd")
+    if items_dir := ExamplesEnv.from_env().HACKERNEWS_ITEMS_DIR:
+        items = pathlib.Path(items_dir).absolute()
+        items.mkdir(parents=True, exist_ok=True)
+        cwd.joinpath("hackernews-items").symlink_to(items, target_is_directory=True)
+    return cwd
 
 
 @pytest.fixture(autouse=True)
