@@ -46,7 +46,7 @@ from xorq.catalog.rebase import (
     rebase_entry,
     recorded_python_minor,
 )
-from xorq.catalog.refresh import op_key, refresh_schemas
+from xorq.catalog.refresh import leaf_key, op_key, refresh_schemas
 from xorq.catalog.tests.conftest import (
     RECORDED,
     TEST_WHEEL_NAME,
@@ -4423,3 +4423,31 @@ def test_a_compiler_error_of_any_kind_names_its_op(
     assert rebase_module.untranslated_op(e) == op_name
     # A parameter with no default leaves nothing to compile.
     assert compile_error(t.filter(t.a > xo.param("floor", "int64"))) is None
+
+
+def test_a_swap_re_points_every_binding_that_shares_one_key(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """Two reads of one file with different options are two bindings with one
+    leaf key: the swap re-points both, not one per key."""
+    old = write_file(world.tmp_path / "m25.parquet", RECORDED)
+    new = write_file(world.tmp_path / "m26.parquet", ELSEWHERE)
+    con = xo.connect()
+    left = deferred_read_parquet(old, con, "r")
+    right = deferred_read_parquet(old, con, "s", skip_metadata=False)
+    name = world.catalog.add(
+        left.select("a").union(right.select("a")), relocate_reads=False
+    ).name
+    record = drift.read_record(reopen(world).get_catalog_entry(name))
+    assert len(record.external_leaves) == 2
+    assert len({leaf_key(leaf, record) for leaf in record.external_leaves}) == 1
+    old.unlink()
+
+    result = rebase(runner, world, name, "--swap", str(old), str(new))
+    assert result.exit_code == 0, result.output
+    new_entry = reopen(world).get_catalog_entry(result.stdout.strip())
+    assert sorted(new_entry.load_expr().execute()["a"]) == [5, 5, 6, 6]
+    assert [leaf.name for leaf in drift.read_record(new_entry).external_leaves] == [
+        str(new),
+        str(new),
+    ]
