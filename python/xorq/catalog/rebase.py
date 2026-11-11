@@ -1625,257 +1625,275 @@ def rebase_entry(
     con = options.profile and profile_connection(
         catalog_entry.name, options.profile, profile
     )
-    target = con and Profile.from_con(con)
-    record = with_profile(read_entry_record(catalog_entry), target)
-    moved_to = target and target.hash_name
-    unprobed = check_rebasable(catalog_entry, record)
-    # With no new name yet, only an unregistered alias is refused.
-    plan = AliasPlan.read(
-        catalog_entry,
-        alias=alias,
-        move_aliases=move_aliases,
-        only_aliases=only_aliases,
-        entry_alias=entry_alias,
-    )
-    swapped = swapped_leaves(catalog_entry, record, options.swaps, moved_to)
-    moved_off = vacated(record, swapped)
-    swap_records = swapped_sources(record, swapped)
-    # A swapped source is probed where it now points, not where it was: every
-    # binding of it, though bindings that share a key share one `swapped` entry.
-    tables = {swap.old: swap.new for swap in options.swaps}
-    swapped_bundled = tuple(
-        leaf for leaf in bundled_reads(record) if leaf.name in tables
-    )
-    probed = checkable_leaves(record) + swapped_bundled
-    leaves = tuple(
-        swapped_leaf(leaf, tables[leaf.name], moved_to) if leaf.name in tables else leaf
-        for leaf in probed
-    )
-    # With no swap, nothing is left unswapped for the swap guard to refuse.
-    unswapped = tuple(
-        leaf for leaf in checkable_leaves(record) if tables and leaf.name not in tables
-    )
-    # The sweep reaches the profile through the rebase's own connection:
-    # duckdb refuses a second one, opened read-only, to the same file.
-    opened = {profile_content_key(target): con} if con else {}
+    # Closed on the way out: duckdb holds an open database file for the whole
+    # process, so a later open by another configuration is refused, and one
+    # of a new file at the same path gets this one.
     try:
-        reports = tuple(iter_leaf_reports(record, con_cache=opened, leaves=leaves))
-    finally:
-        close_cons({key: c for key, c in opened.items() if c is not con})
-    # A refusal from here on reports the sweep, as a conflict does.
-    with refusing_with(record=record, reports=reports):
-        if refusal := unswapped_refusal(catalog_entry, reports, unswapped):
-            raise refusal
-        # Inside: a source whose profile is unreadable is refused with the
-        # sweep, as it is without --rename.
-        # A bundled read is renamed only where swapped: elsewhere it can't drift.
-        planned, checked_renames, failed = plan_renames(
+        target = con and Profile.from_con(con)
+        record = with_profile(read_entry_record(catalog_entry), target)
+        moved_to = target and target.hash_name
+        unprobed = check_rebasable(catalog_entry, record)
+        # With no new name yet, only an unregistered alias is refused.
+        plan = AliasPlan.read(
             catalog_entry,
-            record,
-            options.renames,
-            unprobed,
-            record.external_leaves + swapped_bundled,
+            alias=alias,
+            move_aliases=move_aliases,
+            only_aliases=only_aliases,
+            entry_alias=entry_alias,
         )
-        # `--rename` names a swapped source as recorded; the sweep keys it, and
-        # the rebuild finds it, where it now points. Reported by its old name.
-        moved = {key: leaf_key(leaf, record) for key, leaf in swapped.items()}
-        planned = {moved.get(key, key): by_old for key, by_old in planned.items()}
-        names = {new: old[2] for old, new in moved.items()}
-        # Before the no-op: a rename of an unchanged source is refused, not
-        # ignored.
-        planned = check_live_renames(
-            catalog_entry, record, reports, planned, failed, names
+        swapped = swapped_leaves(catalog_entry, record, options.swaps, moved_to)
+        moved_off = vacated(record, swapped)
+        swap_records = swapped_sources(record, swapped)
+        # A swapped source is probed where it now points, not where it was: every
+        # binding of it, though bindings that share a key share one `swapped` entry.
+        tables = {swap.old: swap.new for swap in options.swaps}
+        swapped_bundled = tuple(
+            leaf for leaf in bundled_reads(record) if leaf.name in tables
         )
-        # Only a sweep that probed every source can prove a no-op on its own,
-        # and a swap re-points a source even where its schema is unchanged.
-        if not (unprobed or swapped) and all(
-            report.verdict == Verdict.EQUAL for report in reports
-        ):
-            # The new entry is this one, so each of `only_aliases` must be on it;
-            # `alias` is not added.
-            plan.evolved(new=catalog_entry.name, alias=None)
-            return RebaseResult(
-                RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
-            )
-        if unprobed and swapped:
-            raise RebaseError(
-                f"{catalog_entry.name}: {quoted(unprobed)} could not be checked; "
-                "a swap needs every other source unchanged",
-                RebaseFailure.REFUSED,
-            )
-        if unprobed:
-            # Nothing can be refreshed, so nothing is loaded or written, and the
-            # aliases are checked as on a no-op.
-            plan.evolved(new=catalog_entry.name, alias=None)
-            return RebaseResult(
-                RebaseStatus.UNPROBED,
+        probed = checkable_leaves(record) + swapped_bundled
+        leaves = tuple(
+            swapped_leaf(leaf, tables[leaf.name], moved_to)
+            if leaf.name in tables
+            else leaf
+            for leaf in probed
+        )
+        # With no swap, nothing is left unswapped for the swap guard to refuse.
+        unswapped = tuple(
+            leaf
+            for leaf in checkable_leaves(record)
+            if tables and leaf.name not in tables
+        )
+        # The sweep reaches the profile through the rebase's own connection:
+        # duckdb refuses a second one, opened read-only, to the same file.
+        opened = {profile_content_key(target): con} if con else {}
+        try:
+            reports = tuple(iter_leaf_reports(record, con_cache=opened, leaves=leaves))
+        finally:
+            close_cons({key: c for key, c in opened.items() if c is not con})
+        # A refusal from here on reports the sweep, as a conflict does.
+        with refusing_with(record=record, reports=reports):
+            if refusal := unswapped_refusal(catalog_entry, reports, unswapped):
+                raise refusal
+            # Inside: a source whose profile is unreadable is refused with the
+            # sweep, as it is without --rename.
+            # A bundled read is renamed only where swapped: elsewhere it can't drift.
+            planned, checked_renames, failed = plan_renames(
                 catalog_entry,
-                catalog_entry,
-                reports,
                 record,
-                unprobed=unprobed,
+                options.renames,
+                unprobed,
+                record.external_leaves + swapped_bundled,
             )
-
-        def conflicted(conflict: RebaseConflict) -> RebaseResult:
-            return RebaseResult(
-                RebaseStatus.CONFLICT,
-                catalog_entry,
-                catalog_entry,
-                reports,
-                record,
-                conflict=conflict,
+            # `--rename` names a swapped source as recorded; the sweep keys it, and
+            # the rebuild finds it, where it now points. Reported by its old name.
+            moved = {key: leaf_key(leaf, record) for key, leaf in swapped.items()}
+            planned = {moved.get(key, key): by_old for key, by_old in planned.items()}
+            names = {new: old[2] for old, new in moved.items()}
+            # Before the no-op: a rename of an unchanged source is refused, not
+            # ignored.
+            planned = check_live_renames(
+                catalog_entry, record, reports, planned, failed, names
             )
-
-        live = live_or_conflict(catalog_entry, record, reports)
-        if isinstance(live, RebaseConflict):
-            return conflicted(live)
-        check_databases_exist(catalog_entry, record)
-        # A failed cleanup must not end a rebase whose entry is already committed.
-        with (
-            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td,
-            keeping_read_posture(),
-        ):
-            # Only before loading, which unpickles the UDFs: a no-op or an
-            # unprobed entry loads nothing, whatever minor it was built on.
-            check_python_minor(catalog_entry, ignore_mismatch)
-            # Loaded inside the block: `load_expr` keeps the archive's extract dir,
-            # which bundled reads point into, alive only as long as the expression.
-            loaded = catalog_entry.load_expr(cache_dir=cache_dir)
-            try:
-                repointed = repoint_tables(
-                    loaded,
-                    swapped,
-                    con and loaded_con(loaded, con),
-                )
-                # Whatever one backend runs beside a connection a source moved
-                # off would run two backends.
-                if any(
-                    len(hashes := {Profile.from_con(s).content_hash for s in sources})
-                    > 1
-                    and not hashes.isdisjoint(moved_off.values())
-                    for sources in execution_scopes(repointed)
-                ):
-                    raise RebaseError(
-                        f"{catalog_entry.name}: --profile {profile} moves "
-                        f"{quoted(moved_off)} off a connection the entry still "
-                        "uses; swap every source onto it",
-                        RebaseFailure.REFUSED,
-                    )
-                # Only the loaded expression holds each binding's marked rename:
-                # a --rename one would skip, onto a column it reads as its own,
-                # is the user's to fix, so refused as a bad --rename, not a
-                # conflict. Over `repointed`, which keys a swapped source as
-                # `planned` does.
-                refuse_renames(
-                    catalog_entry, ambiguous_renames(repointed, live, planned, names)
-                )
-                expr = refresh_schemas(repointed, live, planned)
-            except UnmatchedSourceError as e:
-                raise RebaseError(
-                    f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED
-                ) from e
-            except SchemaRefreshError as e:
-                changed = [r for r in reports if r.verdict == Verdict.CHANGED]
-                # The cause alone: the CLI's headline already names the op.
-                return conflicted(
-                    RebaseConflict(
-                        format_error(e.cause),
-                        changed,
-                        e.op_name,
-                        hints=rename_hints(record, changed, planned, names),
-                    )
-                )
-            if (e := compile_error(expr)) is not None:
-                # What the rebase changed: a drifted source or a swapped one.
-                involved = [
-                    r
-                    for r in reports
-                    if r.verdict != Verdict.EQUAL or r.leaf in swapped.values()
-                ]
-                return conflicted(
-                    RebaseConflict(format_error(e), involved, untranslated_op(e))
-                )
-            warn_consumed(checked_renames)
-            # `relocate_reads=False` keeps each read's recorded posture: a bundled
-            # read stays bundled, an external one external.
-            dumper = ExprDumper(
-                expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
-            )
-            if dumper.expr_hash == catalog_entry.name:
-                # A move that rebuilds this entry moved reads alone: the
-                # connection is no part of a read's build identity.
-                if moved_off:
-                    raise RebaseError(
-                        f"{catalog_entry.name}: --profile {profile} moves only "
-                        "reads, and a read's build identity does not include "
-                        "its connection, so the rebuild is this entry",
-                        RebaseFailure.REFUSED,
-                    ).carrying(new_hash=dumper.expr_hash)
+            # Only a sweep that probed every source can prove a no-op on its own,
+            # and a swap re-points a source even where its schema is unchanged.
+            if not (unprobed or swapped) and all(
+                report.verdict == Verdict.EQUAL for report in reports
+            ):
+                # The new entry is this one, so each of `only_aliases` must be on it;
+                # `alias` is not added.
                 plan.evolved(new=catalog_entry.name, alias=None)
                 return RebaseResult(
                     RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
                 )
-            # A refusal from here on reports the hash the rebase derived.
-            with refusing_with(new_hash=dumper.expr_hash):
-                # As a table: an entry can be a column or a scalar.
-                changes = column_changes(
-                    loaded.as_table().schema(), expr.as_table().schema()
+            if unprobed and swapped:
+                raise RebaseError(
+                    f"{catalog_entry.name}: {quoted(unprobed)} could not be checked; "
+                    "a swap needs every other source unchanged",
+                    RebaseFailure.REFUSED,
                 )
-                # The new name is known now: an alias on another entry is refused
-                # before the dump and the sync's pull, not after them.
-                plan = plan.evolved(new=dumper.expr_hash)
-                if not add:
-                    # Refused before the dump: nothing is built over a taken path.
-                    free_build_target(catalog_entry, builds_dir, dumper.expr_hash)
-                if dry_run:
-                    return RebaseResult(
-                        RebaseStatus.PREVIEW,
-                        catalog_entry,
-                        catalog_entry,
-                        reports,
-                        record,
-                        # What the rebase would do to them, before any pull.
-                        aliases=AliasOutcome.of(plan, plan),
-                        new_hash=dumper.expr_hash,
-                        output_changes=changes,
-                        renames=checked_renames,
-                        swaps=swap_records,
-                    )
-                build_path = dumper.dump_expr()
-                stamp_rebased_from(build_path, catalog_entry.name, swap_records)
-                stage_bundle(catalog_entry, build_path)
-                if not add:
-                    return RebaseResult(
-                        RebaseStatus.BUILT,
-                        catalog_entry,
-                        catalog_entry,
-                        reports,
-                        record,
-                        new_hash=build_path.name,
-                        output_changes=changes,
-                        renames=checked_renames,
-                        swaps=swap_records,
-                        build_path=publish_build(
-                            catalog_entry, build_path, builds_dir
-                        ).resolve(),
-                    )
-                catalog = catalog_entry.catalog
-                if sync:
-                    pull_before(catalog)
-                new_entry, aliases, created = add_with_aliases(
-                    plan, build_path, pulled=sync
+            if unprobed:
+                # Nothing can be refreshed, so nothing is loaded or written, and the
+                # aliases are checked as on a no-op.
+                plan.evolved(new=catalog_entry.name, alias=None)
+                return RebaseResult(
+                    RebaseStatus.UNPROBED,
+                    catalog_entry,
+                    catalog_entry,
+                    reports,
+                    record,
+                    unprobed=unprobed,
                 )
-        push_error = push_after(catalog) if sync else None
-        return RebaseResult(
-            RebaseStatus.REBASED if push_error is None else RebaseStatus.PUSH_FAILED,
-            catalog_entry,
-            new_entry,
-            reports,
-            record,
-            aliases=aliases,
-            push_error=push_error,
-            created=created,
-            output_changes=changes,
-            renames=checked_renames,
-            swaps=swap_records,
-        )
+
+            def conflicted(conflict: RebaseConflict) -> RebaseResult:
+                return RebaseResult(
+                    RebaseStatus.CONFLICT,
+                    catalog_entry,
+                    catalog_entry,
+                    reports,
+                    record,
+                    conflict=conflict,
+                )
+
+            live = live_or_conflict(catalog_entry, record, reports)
+            if isinstance(live, RebaseConflict):
+                return conflicted(live)
+            check_databases_exist(catalog_entry, record)
+            # A failed cleanup must not end a rebase whose entry is already committed.
+            with (
+                tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td,
+                keeping_read_posture(),
+            ):
+                # Only before loading, which unpickles the UDFs: a no-op or an
+                # unprobed entry loads nothing, whatever minor it was built on.
+                check_python_minor(catalog_entry, ignore_mismatch)
+                # Loaded inside the block: `load_expr` keeps the archive's extract dir,
+                # which bundled reads point into, alive only as long as the expression.
+                loaded = catalog_entry.load_expr(cache_dir=cache_dir)
+                try:
+                    repointed = repoint_tables(
+                        loaded,
+                        swapped,
+                        con and loaded_con(loaded, con),
+                    )
+                    # Whatever one backend runs beside a connection a source moved
+                    # off would run two backends.
+                    if any(
+                        len(
+                            hashes := {
+                                Profile.from_con(s).content_hash for s in sources
+                            }
+                        )
+                        > 1
+                        and not hashes.isdisjoint(moved_off.values())
+                        for sources in execution_scopes(repointed)
+                    ):
+                        raise RebaseError(
+                            f"{catalog_entry.name}: --profile {profile} moves "
+                            f"{quoted(moved_off)} off a connection the entry still "
+                            "uses; swap every source onto it",
+                            RebaseFailure.REFUSED,
+                        )
+                    # Only the loaded expression holds each binding's marked rename:
+                    # a --rename one would skip, onto a column it reads as its own,
+                    # is the user's to fix, so refused as a bad --rename, not a
+                    # conflict. Over `repointed`, which keys a swapped source as
+                    # `planned` does.
+                    refuse_renames(
+                        catalog_entry,
+                        ambiguous_renames(repointed, live, planned, names),
+                    )
+                    expr = refresh_schemas(repointed, live, planned)
+                except UnmatchedSourceError as e:
+                    raise RebaseError(
+                        f"{catalog_entry.name}: {e.cause}", RebaseFailure.REFUSED
+                    ) from e
+                except SchemaRefreshError as e:
+                    changed = [r for r in reports if r.verdict == Verdict.CHANGED]
+                    # The cause alone: the CLI's headline already names the op.
+                    return conflicted(
+                        RebaseConflict(
+                            format_error(e.cause),
+                            changed,
+                            e.op_name,
+                            hints=rename_hints(record, changed, planned, names),
+                        )
+                    )
+                if (e := compile_error(expr)) is not None:
+                    # What the rebase changed: a drifted source or a swapped one.
+                    involved = [
+                        r
+                        for r in reports
+                        if r.verdict != Verdict.EQUAL or r.leaf in swapped.values()
+                    ]
+                    return conflicted(
+                        RebaseConflict(format_error(e), involved, untranslated_op(e))
+                    )
+                warn_consumed(checked_renames)
+                # `relocate_reads=False` keeps each read's recorded posture: a bundled
+                # read stays bundled, an external one external.
+                dumper = ExprDumper(
+                    expr, builds_dir=td, cache_dir=cache_dir, relocate_reads=False
+                )
+                if dumper.expr_hash == catalog_entry.name:
+                    # A move that rebuilds this entry moved reads alone: the
+                    # connection is no part of a read's build identity.
+                    if moved_off:
+                        raise RebaseError(
+                            f"{catalog_entry.name}: --profile {profile} moves only "
+                            "reads, and a read's build identity does not include "
+                            "its connection, so the rebuild is this entry",
+                            RebaseFailure.REFUSED,
+                        ).carrying(new_hash=dumper.expr_hash)
+                    plan.evolved(new=catalog_entry.name, alias=None)
+                    return RebaseResult(
+                        RebaseStatus.NOOP, catalog_entry, catalog_entry, reports, record
+                    )
+                # A refusal from here on reports the hash the rebase derived.
+                with refusing_with(new_hash=dumper.expr_hash):
+                    # As a table: an entry can be a column or a scalar.
+                    changes = column_changes(
+                        loaded.as_table().schema(), expr.as_table().schema()
+                    )
+                    # The new name is known now: an alias on another entry is refused
+                    # before the dump and the sync's pull, not after them.
+                    plan = plan.evolved(new=dumper.expr_hash)
+                    if not add:
+                        # Refused before the dump: nothing is built over a taken path.
+                        free_build_target(catalog_entry, builds_dir, dumper.expr_hash)
+                    if dry_run:
+                        return RebaseResult(
+                            RebaseStatus.PREVIEW,
+                            catalog_entry,
+                            catalog_entry,
+                            reports,
+                            record,
+                            # What the rebase would do to them, before any pull.
+                            aliases=AliasOutcome.of(plan, plan),
+                            new_hash=dumper.expr_hash,
+                            output_changes=changes,
+                            renames=checked_renames,
+                            swaps=swap_records,
+                        )
+                    build_path = dumper.dump_expr()
+                    stamp_rebased_from(build_path, catalog_entry.name, swap_records)
+                    stage_bundle(catalog_entry, build_path)
+                    if not add:
+                        return RebaseResult(
+                            RebaseStatus.BUILT,
+                            catalog_entry,
+                            catalog_entry,
+                            reports,
+                            record,
+                            new_hash=build_path.name,
+                            output_changes=changes,
+                            renames=checked_renames,
+                            swaps=swap_records,
+                            build_path=publish_build(
+                                catalog_entry, build_path, builds_dir
+                            ).resolve(),
+                        )
+                    catalog = catalog_entry.catalog
+                    if sync:
+                        pull_before(catalog)
+                    new_entry, aliases, created = add_with_aliases(
+                        plan, build_path, pulled=sync
+                    )
+            push_error = push_after(catalog) if sync else None
+            return RebaseResult(
+                RebaseStatus.REBASED
+                if push_error is None
+                else RebaseStatus.PUSH_FAILED,
+                catalog_entry,
+                new_entry,
+                reports,
+                record,
+                aliases=aliases,
+                push_error=push_error,
+                created=created,
+                output_changes=changes,
+                renames=checked_renames,
+                swaps=swap_records,
+            )
+    finally:
+        if con:
+            con.disconnect()
