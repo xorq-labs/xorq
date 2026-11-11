@@ -147,8 +147,9 @@ from xorq.common.exceptions import (
     UnmatchedSourceError,
 )
 from xorq.common.utils.env_utils import maybe_substitute_env_vars
-from xorq.common.utils.graph_utils import find_all_sources
+from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.node_utils import update_read_kwargs
+from xorq.expr import udf
 from xorq.expr.api import _remove_tag_nodes, bind_params
 from xorq.ibis_yaml.enums import DumpFiles, ReadKwarg
 from xorq.ibis_yaml.packager import parse_python_minor
@@ -1486,16 +1487,19 @@ def compile_error(expr: Expr) -> Exception | None:
     Compiled as the dump compiles it, per backend, untagged and at its
     parameters' defaults: refreshing never reaches a dialect, and the dump
     records a failure only as a warning. A parameter with no default leaves
-    nothing to compile, there as here.
+    nothing to compile, there as here. A UDF's computed argument is an
+    expression of its own, run on its own backend.
     """
     try:
         bound = bind_params(_remove_tag_nodes(expr), {})
     except ValueError:
         return None
-    try:
-        generate_sql_plans(bound)
-    except COMPILE_ERRORS as e:
-        return e
+    computed = (op.computed_kwargs_expr for op in walk_nodes(udf.ExprScalarUDF, bound))
+    for each in (bound, *computed):
+        try:
+            generate_sql_plans(each)
+        except COMPILE_ERRORS as e:
+            return e
     return None
 
 

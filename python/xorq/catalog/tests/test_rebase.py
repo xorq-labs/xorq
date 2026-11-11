@@ -17,11 +17,13 @@ from unittest.mock import MagicMock
 import click
 import pyarrow as pa
 import pytest
+import toolz
 from attr import evolve
 from click.testing import CliRunner, Result
 from git import Repo
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog import cli as catalog_cli
@@ -64,6 +66,7 @@ from xorq.common.utils.defer_utils import (
     normalize_read_path_stat,
 )
 from xorq.common.utils.graph_utils import find_all_sources
+from xorq.expr import udf
 from xorq.expr.relations import Read, pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
 from xorq.ibis_yaml.enums import DumpFiles
@@ -4375,6 +4378,34 @@ def test_a_profile_onto_a_backend_that_cannot_compile_an_op_conflicts(
         "sources in entry: DatabaseTable t\n"
     ) in result.stderr
     assert "'ExtractHost' operation is not defined" in result.stderr
+    assert set(reopen(world).list()) == {world.name, name}
+
+
+@pytest.mark.parametrize("dry_run", ((), ("--dry-run",)), ids=("rebase", "dry-run"))
+def test_a_udf_argument_a_backend_cannot_compile_conflicts(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path, dry_run: tuple
+) -> None:
+    """The UDF's computed argument runs on its own backend too."""
+    t = world.con.table("t")
+    first = udf.make_pandas_expr_udf(
+        computed_kwargs_expr=t.b.host().max().name("h").as_table(),
+        fn=lambda value, frame, **kw: frame["a"],
+        schema=xo.schema({"a": "int64"}),
+        name="first",
+        return_type=dt.int64,
+        post_process_fn=toolz.identity,
+    )
+    name = world.catalog.add(t.mutate(n=first.on_expr(t))).name
+    duckdb_profile(world, "duck")
+
+    result = rebase(
+        runner, world, name, "--swap", "t", "t", "--profile", "duck", *dry_run
+    )
+    assert result.exit_code == 4, result.output
+    assert (
+        f"{name}: conflict: ExtractHost cannot be rebuilt; "
+        "sources in entry: DatabaseTable t\n"
+    ) in result.stderr
     assert set(reopen(world).list()) == {world.name, name}
 
 
