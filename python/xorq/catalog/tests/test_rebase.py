@@ -63,6 +63,7 @@ from xorq.common.utils.defer_utils import (
     make_read_kwargs,
     normalize_read_path_stat,
 )
+from xorq.common.utils.graph_utils import find_all_sources
 from xorq.expr.relations import Read, pin_cache
 from xorq.ibis_yaml.compiler import ExprDumper, build_expr
 from xorq.ibis_yaml.enums import DumpFiles
@@ -3566,10 +3567,11 @@ def test_a_bundled_read_is_not_an_external_read_at_its_member_path(
     (member,) = drift.read_record(bundled).source_leaves
     (cwd / member.name).parent.mkdir()
     write_file(cwd / member.name, RECORDED)
-    external = deferred_read_parquet(member.name, xo.connect(), "e")
-    name = world.catalog.add(
-        bundled.load_expr().join(external, "a"), relocate_reads=False
-    ).name
+    loaded = bundled.load_expr()
+    # On the loaded read's own connection: a join across two is not executable.
+    (con,) = find_all_sources(loaded)
+    external = deferred_read_parquet(member.name, con, "e")
+    name = world.catalog.add(loaded.join(external, "a"), relocate_reads=False).name
     write_file(cwd / member.name, GROWN)
 
     result = rebase(runner, world, name)
