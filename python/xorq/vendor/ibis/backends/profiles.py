@@ -228,11 +228,7 @@ class Profile:
         _kwargs = dict(self.kwargs_tuple) | kwargs
         connect = getattr(load_backend(self.con_name), "connect")
         if lazy:
-            con = LazyBackend(connect, **_kwargs)
-            # Its profile is this one, overrides applied, so `from_con` need
-            # not connect it.
-            vars(con)["_profile"] = self.clone(**kwargs)
-            return con
+            return LazyBackend(connect, _profile=self.clone(**kwargs), **_kwargs)
         return connect(**_kwargs)
 
     def clone(self, idx=None, **kwargs):

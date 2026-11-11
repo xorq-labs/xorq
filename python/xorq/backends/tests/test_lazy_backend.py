@@ -168,3 +168,14 @@ def test_a_lazy_connection_reports_the_database_it_opens(tmp_path):
     con.list_tables()
     after = dict(Profile.from_con(con).kwargs_tuple)["database"]
     assert (before, after) == (other, other)
+
+
+def test_a_lazy_connection_reports_what_it_attaches(tmp_path):
+    """Once connected, a lazy connection's profile is its backend's, which an
+    attach updates."""
+    profile = Profile.from_con(sqlite.Backend().connect(str(tmp_path / "a.sqlite")))
+    con = profile.get_con(lazy=True)
+    con.attach("aux", str(tmp_path / "aux.sqlite"))
+    assert dict(dict(Profile.from_con(con).kwargs_tuple)["attached"]) == {
+        "aux": str(tmp_path / "aux.sqlite")
+    }
