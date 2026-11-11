@@ -31,6 +31,7 @@ from xorq.caching import ParquetSnapshotCache
 from xorq.catalog.bind import _eval_code
 from xorq.catalog.catalog import Catalog, CatalogAlias, CatalogEntry
 from xorq.catalog.exceptions import CatalogPushError
+from xorq.catalog.tests.conftest import requires_annex
 from xorq.catalog.tests.testing import (
     Assert,
     Press,
@@ -101,6 +102,19 @@ def _run(coro):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def backend_type() -> str:
+    """Render and key-handling tests read nothing the storage backend decides."""
+    return "git"
+
+
+# Tests that write through the TUI or read the repo's alias, commit or revision
+# state, which the storage backend does decide.
+every_storage_backend = pytest.mark.parametrize(
+    "backend_type", ("git", pytest.param("annex", marks=requires_annex), "pointer")
+)
 
 
 @pytest.fixture
@@ -456,6 +470,7 @@ def test_quit_exits_app(catalog):
     _run(_test())
 
 
+@every_storage_backend
 def test_add_entry_from_build_directory_with_alias(catalog, entry_a, entry_b, tmp_path):
     async def _test():
         zip_path = catalog.get_zip(entry_b.name, dir_path=tmp_path)
@@ -504,6 +519,7 @@ def test_add_entry_rejects_zip_path(catalog, tmp_path):
     _run(_test())
 
 
+@every_storage_backend
 def test_add_alias_to_selected_entry(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
@@ -565,6 +581,7 @@ def test_delete_entry_can_be_cancelled(catalog, entry_a):
     _run(_test())
 
 
+@every_storage_backend
 def test_delete_entry_removes_entry_and_aliases(catalog, entry_a):
     async def _test():
         catalog.add_alias(entry_a.name, "to-delete")
@@ -591,6 +608,7 @@ def test_delete_entry_removes_entry_and_aliases(catalog, entry_a):
     _run(_test())
 
 
+@every_storage_backend
 def test_remove_alias_keeps_entry_and_other_aliases(catalog, entry_a):
     async def _test():
         catalog.add_alias(entry_a.name, "keep-me")
@@ -667,6 +685,7 @@ def test_find_project_path_returns_none_when_absent(tmp_path: Path) -> None:
     assert _find_project_path(build_dir) is None
 
 
+@every_storage_backend
 def test_add_entry_forwards_project_path_anchored_on_build_dir(
     catalog: Catalog,
     entry_a: CatalogEntry,
@@ -713,6 +732,7 @@ def test_add_entry_forwards_project_path_anchored_on_build_dir(
     _run(_test())
 
 
+@every_storage_backend
 def test_delete_push_failure_warns_and_keeps_local_change(
     catalog: Catalog, entry_a: CatalogEntry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1047,6 +1067,7 @@ def _leaf_label_for(screen: CatalogScreen, entry_hash: str) -> str:
     )
 
 
+@every_storage_backend
 def test_refresh_attaches_alias_added_after_entry_cached(
     catalog: Catalog, entry_a: CatalogEntry
 ) -> None:
@@ -1074,6 +1095,7 @@ def test_refresh_attaches_alias_added_after_entry_cached(
     _run(_test())
 
 
+@every_storage_backend
 def test_refresh_moves_alias_repointed_to_new_entry(
     catalog: Catalog, entry_a: CatalogEntry
 ) -> None:
@@ -1108,6 +1130,7 @@ def _alias_target(aliases: tuple, alias: str) -> str:
     return next(ca.catalog_entry.name for ca in aliases if ca.alias == alias)
 
 
+@every_storage_backend
 def test_get_catalog_aliases_sees_pure_repoint(
     catalog: Catalog, entry_a: CatalogEntry, entry_b: CatalogEntry
 ) -> None:
@@ -1129,6 +1152,7 @@ def test_get_catalog_aliases_sees_pure_repoint(
     assert _alias_target(after, "latest") == entry_b.name
 
 
+@every_storage_backend
 def test_refresh_moves_alias_repointed_between_existing_entries(
     catalog: Catalog, entry_a: CatalogEntry, entry_b: CatalogEntry
 ) -> None:
@@ -1327,6 +1351,7 @@ def test_v_toggles_revisions(catalog: Catalog) -> None:
     _run(_test())
 
 
+@every_storage_backend
 def test_list_revisions_cached_hits_and_invalidates(catalog, entry_a, alias_for_a):
     """Same (alias, HEAD sha) hits cache; a new commit invalidates it."""
     _list_revisions_cached.cache_clear()
@@ -1387,6 +1412,7 @@ def test_git_log_row_data_is_frozen():
         row.hash = "new"
 
 
+@every_storage_backend
 def test_builds_from_real_catalog_commits(catalog, entry_a, entry_b):
     rows = _build_git_log_rows(catalog.repo, max_count=50)
     # init + add catalog.yaml + add entry_a + add entry_b = at least 4 commits
@@ -1402,6 +1428,7 @@ def test_max_count_limits_output(catalog, entry_a, entry_b):
     assert len(one_row) == 1
 
 
+@every_storage_backend
 def test_empty_catalog_has_initial_commit(catalog):
     rows = _build_git_log_rows(catalog.repo)
     assert len(rows) >= 1
@@ -1489,6 +1516,7 @@ def test_render_git_log_populates_table(catalog):
     _run(_test())
 
 
+@every_storage_backend
 def test_toggle_triggers_load_from_real_repo(catalog, entry_a):
     async def _test():
         app = _make_tui(catalog)
@@ -2179,6 +2207,7 @@ def test_render_highlighted_node_noop_when_detached():
     assert screen._highlight_timer is None
 
 
+@every_storage_backend
 def test_load_revisions_preview_renders_rows(catalog, entry_a, alias_for_a):
     """Highlighting an aliased entry runs the worker: resolve HEAD, walk, render."""
     _list_revisions_cached.cache_clear()
