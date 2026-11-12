@@ -31,6 +31,9 @@ def test_connect_examples_follows_port_override(examples_env_to_local, monkeypat
 
 
 def test_empty_override_keeps_the_public_value(monkeypatch):
+    # CI's postgres action exports these; the baseline is the public server
+    for field in FIELDS:
+        monkeypatch.delenv(f"XORQ_EXAMPLES_POSTGRES_{field.upper()}", raising=False)
     monkeypatch.setattr(Backend, "connect", lambda self, **kwargs: kwargs)
     public = xo.postgres.connect_examples()
     monkeypatch.setenv("XORQ_EXAMPLES_POSTGRES_HOST", "")
