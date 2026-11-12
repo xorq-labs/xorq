@@ -1578,3 +1578,26 @@ class TestForwardCtxParams:
         result = _forward_ctx_params(captured["ctx"])
         assert "myarg" not in result
         assert "--opt" in result
+
+
+@pytest.mark.parametrize(
+    "args",
+    (
+        pytest.param(("compose", "src", "trn"), id="compose"),
+        pytest.param(("join", "src", "src", "--how", "cross"), id="join"),
+        pytest.param(("union", "src", "src"), id="union"),
+    ),
+)
+def test_a_second_alias_is_refused_not_dropped(
+    runner, catalog_with_source_and_transform, args
+):
+    """`-a` takes one alias: a second is an invalid option, not a silent
+    replacement of the first."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    result = runner.invoke(cli, ["--path", catalog_path, *args, "-a", "a1", "-a", "a2"])
+    assert result.exit_code == 2, result.output
+    assert "takes one alias; got 'a1', 'a2'" in result.output
+    assert not set(Catalog.from_kwargs(path=catalog_path).list_aliases()) & {
+        "a1",
+        "a2",
+    }
