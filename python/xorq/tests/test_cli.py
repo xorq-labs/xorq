@@ -669,7 +669,9 @@ def build_pipeline(fixture_dir, builds_dir):
         "--builds-dir",
         builds_dir,
     )
-    return re.search(f"{builds_dir}/[0-9a-f]+", output).group()
+    match = re.search(f"{builds_dir}/[0-9a-f]+", output)
+    assert match, f"no expression hash in build output: {output}"
+    return match.group()
 
 
 @pytest.mark.slow(level=1)
