@@ -5,7 +5,6 @@ import pytest
 import toolz
 
 from xorq.backends.datafusion import Backend as DatafusionBackend
-from xorq.backends.postgres import Backend as PostgresBackend
 from xorq.backends.snowflake import Backend as SnowflakeBackend
 from xorq.backends.snowflake.enums import SnowflakeAuthenticator
 from xorq.backends.sqlite import Backend as SqliteBackend
@@ -18,20 +17,6 @@ from xorq.common.utils.ibis_utils import (
 
 
 ibis = pytest.importorskip("ibis")
-
-
-def connect_postgres():
-    from xorq.common.utils.postgres_utils import (  # noqa: PLC0415
-        make_connection_defaults,
-        make_credential_defaults,
-    )
-
-    return ibis.postgres.connect(
-        **toolz.valmap(
-            maybe_substitute_env_var,
-            (make_credential_defaults() | make_connection_defaults()),
-        )
-    )
 
 
 def connect_snowflake():
@@ -63,20 +48,11 @@ def connect_snowflake():
     )
 
 
+# No postgres case: from_ibis over an ibis postgres connection is not covered.
+# The ibis-compatibility jobs start no postgres server.
 @pytest.mark.parametrize(
     "get_con,backend_type",
     (
-        pytest.param(
-            connect_postgres,
-            PostgresBackend,
-            marks=[
-                pytest.mark.skipif(
-                    importlib.util.find_spec("psycopg2") is None,
-                    reason="requires backwards postgres compatibility",
-                )
-            ],
-            id="postgres",
-        ),
         pytest.param(
             lambda: ibis.datafusion.connect(), DatafusionBackend, id="datafusion"
         ),
