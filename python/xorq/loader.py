@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import pathlib
 import sys
+import time
 import types
 
 
@@ -13,6 +14,9 @@ except ModuleNotFoundError:
 
 
 BACKEND_GROUPS = ("xorq.backends", "ibis.backends")
+# a directory changed this recently may still be mid-install (entry_points.txt
+# not yet written into its new .dist-info), so its scan is not cached
+RACY_WINDOW_NS = 2_000_000_000
 
 
 def _env_fingerprint() -> tuple[tuple[str, int], ...]:
@@ -43,7 +47,14 @@ def _scan_entry_points(
 def _load_entry_points(
     group: str = "xorq.backends",
 ) -> tuple[importlib_metadata.EntryPoint, ...]:
-    return _scan_entry_points(group, _env_fingerprint())
+    fingerprint = _env_fingerprint()
+    newest = max((mtime for _, mtime in fingerprint), default=0)
+    scan = (
+        _scan_entry_points.__wrapped__
+        if time.time_ns() - newest < RACY_WINDOW_NS
+        else _scan_entry_points
+    )
+    return scan(group, fingerprint)
 
 
 def _find_entry_point(name: str) -> importlib_metadata.EntryPoint | None:

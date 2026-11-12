@@ -57,3 +57,22 @@ def test_load_backend_entry_points_are_loadable(con_name: str) -> None:
     except ImportError as e:
         pytest.skip(f"{con_name} backend not importable: {e}")
     assert hasattr(module, "Backend")
+
+
+def test_find_entry_point_sees_entry_points_written_after_a_lookup(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lookup that lands mid-install, after the .dist-info directory exists
+    but before entry_points.txt is written, must not hide the backend: writing
+    into the .dist-info directory leaves the sys.path directory's mtime as is."""
+    monkeypatch.syspath_prepend(tmp_path)
+    dist_info = tmp_path / "xorq_xorqlatebackend-0.1.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: xorq-xorqlatebackend\nVersion: 0.1\n"
+    )
+    assert _find_entry_point("xorqlatebackend") is None
+    (dist_info / "entry_points.txt").write_text(
+        "[xorq.backends]\nxorqlatebackend = xorq_xorqlatebackend\n"
+    )
+    assert _find_entry_point("xorqlatebackend") is not None
