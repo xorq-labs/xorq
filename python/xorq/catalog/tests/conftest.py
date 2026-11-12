@@ -260,23 +260,21 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(skip)
 
 
+# Every storage backend, once: the session fixture below and the marks that
+# re-parametrize `backend_type` all read it.
+STORAGE_BACKENDS = ("git", pytest.param("annex", marks=requires_annex), "pointer")
+
 # For modules whose `backend_type` fixture pins one backend: the tests that
 # exercise what the storage backend decides opt back into all three.
 every_storage_backend = pytest.mark.parametrize(
-    "backend_type",
-    ("git", pytest.param("annex", marks=requires_annex), "pointer"),
-    scope="session",
+    "backend_type", STORAGE_BACKENDS, scope="session"
 )
 
+# For tests whose outcome cannot depend on the storage backend.
+git_storage_only = pytest.mark.parametrize("backend_type", ("git",))
 
-@pytest.fixture(
-    scope="session",
-    params=[
-        "git",
-        pytest.param("annex", marks=requires_annex),
-        "pointer",
-    ],
-)
+
+@pytest.fixture(scope="session", params=STORAGE_BACKENDS)
 def backend_type(request: pytest.FixtureRequest) -> str:
     return request.param
 

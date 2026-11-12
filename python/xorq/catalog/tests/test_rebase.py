@@ -51,12 +51,12 @@ from xorq.catalog.rebase import (
 from xorq.catalog.refresh import leaf_key, op_key, refresh_schemas
 from xorq.catalog.tests.conftest import (
     RECORDED,
+    STORAGE_BACKENDS,
     TEST_WHEEL_NAME,
     add_expr_entry,
     alias_target_hash,
     fail_nth_alias_move,
     pull_then,
-    requires_annex,
 )
 from xorq.cli import cli as top_cli
 from xorq.common.exceptions import LocalReadPathWarning, UnmatchedSourceError
@@ -76,14 +76,7 @@ from xorq.vendor.ibis.backends.profiles import Profile
 # Most tests exercise rebase's own logic, which doesn't vary with storage; the
 # basic add, no-op and rollback paths run on every backend. Aliases are git
 # symlinks on all of them.
-ALL_BACKENDS = pytest.mark.parametrize(
-    "backend_type",
-    (
-        pytest.param("git", id="git"),
-        pytest.param("annex", marks=requires_annex, id="annex"),
-        pytest.param("pointer", id="pointer"),
-    ),
-)
+ALL_BACKENDS = pytest.mark.parametrize("backend_type", STORAGE_BACKENDS)
 
 
 @pytest.fixture
