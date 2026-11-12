@@ -67,6 +67,7 @@ from xorq.ibis_yaml.compiler import (
 )
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.init_templates import InitTemplates
+from xorq.tests.util import OFFLINE_TEMPLATES
 
 
 build_run_examples_expr_names = (
@@ -1159,10 +1160,7 @@ def uv_build_args(script_path, root, *options):
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
-# cached-fetcher's live fetch runs end to end in ci-test-templates
-@pytest.mark.parametrize(
-    "template", tuple(t for t in InitTemplates if t != InitTemplates.cached_fetcher)
-)
+@pytest.mark.parametrize("template", OFFLINE_TEMPLATES)
 def test_init_uv_build_uv_run(template, tmpdir):
     tmpdir = Path(tmpdir)
     path = tmpdir.joinpath(f"xorq-template-{template}")

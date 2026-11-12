@@ -47,6 +47,7 @@ from xorq.ibis_yaml.packager import (
     validate_params_early,
 )
 from xorq.init_templates import InitTemplates
+from xorq.tests.util import OFFLINE_TEMPLATES
 
 
 @functools.cache
@@ -126,9 +127,7 @@ def test_wheel_builder(template, tmpdir):
                 strict=False,
             ),
         )
-        # cached-fetcher's live fetch runs end to end in ci-test-templates
-        for t in InitTemplates
-        if t != InitTemplates.cached_fetcher
+        for t in OFFLINE_TEMPLATES
     ],
 )
 def test_wheel_runner(template, tmpdir):

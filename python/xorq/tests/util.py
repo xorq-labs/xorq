@@ -11,6 +11,7 @@ import pandas as pd
 import pandas.testing as tm
 import pyarrow as pa
 
+from xorq.init_templates import InitTemplates
 from xorq.loader import _load_entry_points
 
 
@@ -99,6 +100,12 @@ def reader_counts(expr: Any) -> list[int]:
 
 
 SPLIT_KEY = "split"
+
+# cached-fetcher's live fetch runs end to end in ci-test-templates, on pull
+# requests and on push to main, so the slow suite leaves it out.
+OFFLINE_TEMPLATES = tuple(
+    template for template in InitTemplates if template != InitTemplates.cached_fetcher
+)
 
 
 def make_batch(split: int, n_rows: int) -> pa.RecordBatch:
