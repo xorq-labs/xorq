@@ -126,8 +126,11 @@ jobs:
           path: ~/.cache/gizmosql/v${{ steps.gizmosql.outputs.version }}
           key: gizmosql-${{ steps.gizmosql.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
+      # The action also exports POSTGRES_* and XORQ_EXAMPLES_POSTGRES_*, so
+      # any entry that names postgres among its services goes through it;
+      # up-ci then starts the rest (a running postgres is left alone).
       - uses: ./.github/actions/postgres
-        if: ${{ matrix.backend.services == 'postgres' }}
+        if: ${{ contains(matrix.backend.services, 'postgres') }}
 
       - name: start services
         if: ${{ matrix.backend.services && matrix.backend.services != 'postgres' }}
