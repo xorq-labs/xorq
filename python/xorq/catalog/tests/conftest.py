@@ -246,32 +246,39 @@ def compare_repo_and_catalog(repo, catalog):
 
 _annex_available = shutil.which("git-annex") is not None
 
-requires_annex = pytest.mark.skipif(
-    not _annex_available, reason="git-annex not installed"
-)
+# CI routes tests to its annex shard by this marker; collection below skips
+# them where the binary is missing.
+requires_annex = pytest.mark.annex
 
-# For modules whose `backend_type` fixture pins one backend: the tests that
-# exercise what the storage backend decides opt back into all three.
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    if _annex_available:
+        return
+    skip = pytest.mark.skip(reason="git-annex not installed")
+    for item in items:
+        if item.get_closest_marker("annex"):
+            item.add_marker(skip)
+
+
+# Every storage backend, once: the session fixture below and the marks that
+# re-parametrize `backend_type` all read it.
+STORAGE_BACKENDS = ("git", pytest.param("annex", marks=requires_annex), "pointer")
+
+# Six modules pin `backend_type` to git (test_tui, test_cli_inspect_git,
+# test_cli_lineage, test_cli_params, test_drift_connections, test_drift_reads),
+# so a new test there runs on git alone unless marked with this. Mark any test
+# whose outcome depends on how the backend stores an entry or alias: adding,
+# removing or re-pointing one, pushing, pulling, or fetching content that no
+# per-backend test in test_catalog.py already reads.
 every_storage_backend = pytest.mark.parametrize(
-    "backend_type",
-    ("git", pytest.param("annex", marks=requires_annex), "pointer"),
-    scope="session",
+    "backend_type", STORAGE_BACKENDS, scope="session"
 )
 
+# For tests whose outcome cannot depend on the storage backend.
+git_storage_only = pytest.mark.parametrize("backend_type", ("git",))
 
-@pytest.fixture(
-    scope="session",
-    params=[
-        "git",
-        pytest.param(
-            "annex",
-            marks=pytest.mark.skipif(
-                not _annex_available, reason="git-annex not installed"
-            ),
-        ),
-        "pointer",
-    ],
-)
+
+@pytest.fixture(scope="session", params=STORAGE_BACKENDS)
 def backend_type(request: pytest.FixtureRequest) -> str:
     return request.param
 

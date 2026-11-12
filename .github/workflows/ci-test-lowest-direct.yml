@@ -40,9 +40,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Pull requests check the floor on the floor Python; pushes check every
-        # supported Python.
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10"]' || '["3.10", "3.11", "3.12", "3.13"]') }}
+        # Pull requests check the floor on the floor Python, plus the newest
+        # one when pyproject.toml or uv.lock changed (several bounds split by
+        # python_version); pushes check every supported Python.
+        python-version: ${{ fromJSON(github.event_name != 'pull_request' && '["3.10", "3.11", "3.12", "3.13"]' || needs.changes.outputs.deps == 'true' && '["3.10", "3.13"]' || '["3.10"]') }}
     steps:
       - uses: actions/checkout@v6
 
@@ -91,9 +92,9 @@ jobs:
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
-          -m 'core and not uv_export'
+          -m 'core and not uv_export and not slow'
           --ignore=python/xorq/catalog
-          -k 'not script_execution and not slow'
+          -k 'not script_execution'
           -v --durations=20
           -n auto --dist=loadfile
         working-directory: ${{ github.workspace }}

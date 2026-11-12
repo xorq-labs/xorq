@@ -10,7 +10,9 @@ from typing import Any
 import pandas as pd
 import pandas.testing as tm
 import pyarrow as pa
+import pytest
 
+from xorq.init_templates import InitTemplates
 from xorq.loader import _load_entry_points
 
 
@@ -99,6 +101,29 @@ def reader_counts(expr: Any) -> list[int]:
 
 
 SPLIT_KEY = "split"
+
+EXAMPLES_DIR = pathlib.Path(__file__).parents[3] / "examples"
+
+
+def examples_remote_marks(script: str) -> tuple[pytest.MarkDecorator, ...]:
+    """Mark an example script that calls connect_examples():
+    ci-test-examples-remote runs those against the public server.
+
+    An installed wheel ships no examples/ (ci-test-library), so a missing
+    script carries no mark; the tests that run it are not selected there."""
+    path = EXAMPLES_DIR.joinpath(script)
+    return (
+        (pytest.mark.examples_remote,)
+        if path.exists() and "connect_examples(" in path.read_text()
+        else ()
+    )
+
+
+# cached-fetcher's live fetch runs end to end in ci-test-templates, on pull
+# requests and on push to main, so the slow suite leaves it out.
+OFFLINE_TEMPLATES = tuple(
+    template for template in InitTemplates if template != InitTemplates.cached_fetcher
+)
 
 
 def make_batch(split: int, n_rows: int) -> pa.RecordBatch:

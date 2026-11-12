@@ -55,10 +55,22 @@ def _default_ingest_name(table_name, *, temporary, prefix):
 ExamplesPostgresConfig = EnvConfigable.subclass_from_kwargs(
     prefix="XORQ_EXAMPLES_POSTGRES_",
     host="examples.letsql.com",
+    port="5432",  # a string, like every value read from the environment
     user="letsql",
     password="letsql",
     database="letsql",
 )
+
+
+def _examples_connect_kwargs():
+    """The examples database's connection fields, with every non-empty
+    XORQ_EXAMPLES_POSTGRES_<FIELD> variable applied."""
+    overrides = {
+        name: value
+        for name, value in ExamplesPostgresConfig.get_env_overrides().items()
+        if value
+    }
+    return attrs.asdict(ExamplesPostgresConfig(**overrides))
 
 
 class Backend(IbisPostgresBackend):
@@ -82,8 +94,14 @@ class Backend(IbisPostgresBackend):
 
     @classmethod
     def connect_examples(cls, **kwargs):
-        examples_kwargs = attrs.asdict(ExamplesPostgresConfig.from_env())
-        return cls().connect(**(examples_kwargs | kwargs))
+        """Connect to the public examples database.
+
+        Each field can be pointed elsewhere with an environment variable:
+        XORQ_EXAMPLES_POSTGRES_HOST, _PORT, _USER, _PASSWORD and _DATABASE.
+        Unset or empty ones keep the public value; keyword arguments override
+        both.
+        """
+        return cls().connect(**(_examples_connect_kwargs() | kwargs))
 
     def upload_ingest(self, table_name):
         """A staged ADBC ingest over a connection of its own; see

@@ -10,6 +10,11 @@ on:
       - master
   workflow_dispatch:
 
+# Merges to main close together: queue runs instead of overlapping them.
+concurrency:
+  group: examples-remote
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -31,14 +36,15 @@ jobs:
       - name: Install the project
         run: uv sync --locked --extra examples --extra pyiceberg --extra postgres --extra sqlite --group dev --group test
 
+      # Tests marked examples_remote, i.e. that call connect_examples(); a
+      # test file outside this list that gains one must be added here.
       - name: pytest against the public examples server
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
           -v
-          "python/xorq/tests/test_backend.py::test_remote_reconnect[<lambda>1]"
-          python/xorq/ibis_yaml/tests/test_compiler.py::test_multi_join_expr_yaml_line_count
-          "python/xorq/tests/test_examples.py::test_script_execution[yaml_roundtrip]"
-          "python/xorq/tests/test_examples.py::test_script_execution[into_backend_example]"
-          "python/xorq/tests/test_cli.py::test_examples[postgres_caching.py-expr]"
-          "python/xorq/tests/test_cli.py::test_examples[local_cache.py-expr]"
+          -m examples_remote
+          python/xorq/tests/test_backend.py
+          python/xorq/ibis_yaml/tests/test_compiler.py
+          python/xorq/tests/test_examples.py
+          python/xorq/tests/test_cli.py

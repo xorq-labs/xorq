@@ -59,6 +59,8 @@ jobs:
 
       - uses: ./.github/actions/postgres
         if: matrix.slow-level != 3
+        with:
+          layer-cache: "false"
 
       - name: pytest
         run: uv run --no-sync -- pytest --verbose --import-mode=importlib --numprocesses auto --dist loadgroup --cov --cov-report=xml -m 'slow(level=${{ matrix.slow-level }})' --durations=70

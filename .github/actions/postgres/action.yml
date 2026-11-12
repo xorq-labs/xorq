@@ -1,17 +1,28 @@
 name: postgres
 description: >
-  Start the compose postgres for the tests: build its image through the GHA
-  layer cache, wait until it is healthy, and export the POSTGRES_* and
+  Start the compose postgres for the tests: build its image (through the GHA
+  layer cache unless layer-cache is "false"), wait until it is healthy, and
+  export the POSTGRES_* and
   XORQ_EXAMPLES_POSTGRES_* variables to the job's later steps. Needs just on
   PATH. Not for pull_request_target workflows: the PR head would supply this
   action and could write into the base branch's layer cache.
+
+inputs:
+  layer-cache:
+    description: >
+      Build through buildx and the GHA layer cache. Set "false" where a plain
+      compose build is faster: the buildx and bake steps cost 16-30s, and
+      ci-test-slow's plain build takes about 16s against 27s through them.
+    default: "true"
 
 runs:
   using: composite
   steps:
     - uses: docker/setup-buildx-action@v4
+      if: inputs.layer-cache == 'true'
 
     - name: Build postgres image with GHA layer cache
+      if: inputs.layer-cache == 'true'
       uses: docker/bake-action@v7
       with:
         files: compose.yaml
@@ -21,10 +32,18 @@ runs:
           postgres.cache-from=type=gha,scope=docker-postgres
           postgres.cache-to=type=gha,scope=docker-postgres,mode=max
 
+    # XORQ_EXAMPLES_POSTGRES_* points connect_examples() here instead of the
+    # public examples server. Known difference: this batting table stores the
+    # stat columns as bigint, the public one as float; ci-test-examples-remote
+    # runs the public-server tests on push to main.
     - name: Start postgres
       shell: bash
       run: |
-        just up-ci postgres
+        if [ "$LAYER_CACHE" = true ]; then
+          just up-ci postgres
+        else
+          docker compose up --build --wait postgres
+        fi
         cat >> "$GITHUB_ENV" <<'ENV'
         POSTGRES_PASSWORD=postgres
         POSTGRES_USER=postgres
@@ -32,7 +51,10 @@ runs:
         POSTGRES_PORT=5432
         POSTGRES_DATABASE=ibis_testing
         XORQ_EXAMPLES_POSTGRES_HOST=localhost
+        XORQ_EXAMPLES_POSTGRES_PORT=5432
         XORQ_EXAMPLES_POSTGRES_USER=postgres
         XORQ_EXAMPLES_POSTGRES_PASSWORD=postgres
         XORQ_EXAMPLES_POSTGRES_DATABASE=ibis_testing
         ENV
+      env:
+        LAYER_CACHE: ${{ inputs.layer-cache }}

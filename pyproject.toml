@@ -349,6 +349,8 @@ markers = [
     "gcs",
     "snapshot_check",
     "slow",
+    "examples_remote: calls connect_examples(); ci-test-examples-remote runs these against the public server",
+    "annex: catalog tests that need the git-annex binary; CI runs them in the catalog annex shard",
     "datafusion: Apache Datafusion tests",
     "duckdb: DuckDB tests",
 

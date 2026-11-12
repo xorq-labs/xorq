@@ -34,17 +34,14 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12"]
-        # Partition relies on the session fixture in
-        # python/xorq/catalog/tests/conftest.py (params=["git", "annex"]):
-        # tests that consume `backend_type` get [git]/[annex] in their
-        # nodeids; tests without it fall into the `git` job. New tests that
-        # need the git-annex binary must consume `backend_type` (or otherwise
-        # tag themselves with [annex]) to be routed to the annex job.
+        # Partition by the `annex` marker (`requires_annex` in
+        # python/xorq/catalog/tests/conftest.py, also on the annex storage
+        # param): marked tests run in the annex job, everything else in git.
         backend:
           - name: git
-            k_filter: "not [annex] and not script_execution and not slow"
+            m_filter: "not annex and not slow"
           - name: annex
-            k_filter: "[annex] and not script_execution and not slow"
+            m_filter: "annex and not slow"
             # git-annex from PyPI (the `annex` extra): no apt, so no
             # dependence on the runner's Ubuntu mirrors.
             extras: --extra annex
@@ -73,16 +70,21 @@ jobs:
         run: uv sync --locked --group dev --group test ${{ matrix.backend.extras }}
         working-directory: ${{ github.workspace }}
 
+      # Without the binary every annex test skips and the shard passes green.
+      - name: check git-annex is installed
+        if: matrix.backend.name == 'annex'
+        run: uv run --no-sync git-annex version
+
       - name: pytest
         timeout-minutes: 20
         env:
-          K_FILTER: ${{ matrix.backend.k_filter }}
+          M_FILTER: ${{ matrix.backend.m_filter }}
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
           --cov --cov-report=xml
           python/xorq/catalog/tests
-          -k "$K_FILTER"
+          -m "$M_FILTER"
           -v --durations=20 -n auto --dist=loadfile
         working-directory: ${{ github.workspace }}
 

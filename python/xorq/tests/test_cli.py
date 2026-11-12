@@ -67,6 +67,7 @@ from xorq.ibis_yaml.compiler import (
 )
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.init_templates import InitTemplates
+from xorq.tests.util import OFFLINE_TEMPLATES, examples_remote_marks
 
 
 build_run_examples_expr_names = (
@@ -669,7 +670,9 @@ def build_pipeline(fixture_dir, builds_dir):
         "--builds-dir",
         builds_dir,
     )
-    return re.search(f"{builds_dir}/[0-9a-f]+", output).group()
+    match = re.search(f"{builds_dir}/[0-9a-f]+", output)
+    assert match, f"no expression hash in build output: {output}"
+    return match.group()
 
 
 @pytest.mark.slow(level=1)
@@ -1037,7 +1040,10 @@ def test_build_command_bad_expr_name(tmp_path, fixture_dir, expression, message)
 
 @pytest.mark.parametrize(
     ("example", "expr_name"),
-    build_run_examples_expr_names,
+    [
+        pytest.param(example, expr_name, marks=examples_remote_marks(example))
+        for example, expr_name in build_run_examples_expr_names
+    ],
 )
 @pytest.mark.slow(level=2)
 def test_examples(
@@ -1157,10 +1163,7 @@ def uv_build_args(script_path, root, *options):
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
-# cached-fetcher's live fetch runs end to end in ci-test-templates
-@pytest.mark.parametrize(
-    "template", tuple(t for t in InitTemplates if t != InitTemplates.cached_fetcher)
-)
+@pytest.mark.parametrize("template", OFFLINE_TEMPLATES)
 def test_init_uv_build_uv_run(template, tmpdir):
     tmpdir = Path(tmpdir)
     path = tmpdir.joinpath(f"xorq-template-{template}")

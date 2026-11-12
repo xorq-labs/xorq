@@ -1023,6 +1023,7 @@ def make_multi_join_expr(parquet_dir: pathlib.Path):
     ).drop("playerID_right", "yearID_right", "teamID_right")
 
 
+@pytest.mark.examples_remote
 def test_multi_join_expr_yaml_line_count(tmp_path, builds_dir):
     parquet_dir = make_lahman_parquet_dir(tmp_path)
     expr = make_multi_join_expr(parquet_dir)

@@ -33,8 +33,7 @@ jobs:
         run: uv sync --extra snowflake --extra postgres --extra ibis --group dev --group test
         working-directory: ${{ github.workspace }}
 
-      - name: start services
-        run: docker compose up --build --wait postgres
+      - uses: ./.github/actions/postgres
 
       - name: pytest
         run: uv run --no-sync pytest --import-mode=importlib -m snowflake -v --cov --cov-report=xml -s -vv
@@ -47,11 +46,6 @@ jobs:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_GH_ACCOUNT }}
           SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
           SNOWFLAKE_PRIVATE_KEY_PWD: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PWD }}
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_DATABASE: ibis_testing
 
       - name: Upload coverage reports to Codecov
         if: success()

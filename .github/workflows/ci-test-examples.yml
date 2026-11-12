@@ -54,14 +54,27 @@ jobs:
 
       - uses: ./.github/actions/postgres
 
-      # The Hacker News examples fetch ~1,000 items one request at a time; the
-      # items are fixed by the pinned input, so keep them between runs.
+      # The Hacker News examples fetch ~1,000 items one request at a time, so
+      # keep them between runs. Keyed on the fetchers that run (the pinned
+      # hackernews_lib versions the examples load, the local lib, and
+      # flight_udtf_example's own) with no fallback key: a change to any starts
+      # cold, so the live fetch path runs whenever it changes.
+      - name: Hacker News fetcher fingerprint
+        id: hackernews
+        run: |
+          fingerprint=$(
+            {
+              grep -oh '"hackernews_lib", version="[^"]*"' examples/*.py | sort -u
+              cat examples/libs/hackernews_lib.py examples/flight_udtf_example.py
+            } | sha256sum | cut -c1-16
+          )
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
       - name: Cache Hacker News items
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/hackernews-items
-          key: hackernews-items-${{ hashFiles('examples/*.py') }}
-          restore-keys: hackernews-items-
+          key: hackernews-items-${{ steps.hackernews.outputs.fingerprint }}
 
       - name: pytest
         run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_examples.py -v -n auto --dist=loadgroup --durations=10 --cov --cov-report=xml

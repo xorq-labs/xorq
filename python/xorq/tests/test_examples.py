@@ -8,6 +8,7 @@ from pytest import param
 import xorq.api as xo
 from xorq.common.utils.env_utils import EnvConfigable
 from xorq.tests.test_cli import build_run_examples_expr_names
+from xorq.tests.util import examples_remote_marks
 
 
 KEY_PREFIX = xo.config.options.cache.key_prefix
@@ -18,7 +19,9 @@ LIBRARY_SCRIPTS = (
 GCS_SCRIPTS = ("gcstorage_example",)
 S3_SCRIPTS = ("s3_content_store_catalog",)
 # examples that fill ./hackernews-items; its writes are not atomic, so under
-# xdist these share one worker rather than race on a cold item dir
+# xdist these share one worker rather than race on a cold item dir. Kept by
+# hand: a new example that imports hackernews_lib must be added here, or it
+# races on the shared dir that CI saves to the actions cache.
 HACKERNEWS_SCRIPTS = (
     "quickstart",
     "deferred_fit_transform_example",
@@ -73,7 +76,10 @@ def maybe_hackernews(name: str) -> pytest.MarkDecorator | tuple[()]:
 
 def maybe_marks(name: str):
     fs = (maybe_library, maybe_gcs, maybe_s3, maybe_hackernews)
-    return tuple(filter(None, (f(name) for f in fs)))
+    return (
+        *filter(None, (f(name) for f in fs)),
+        *examples_remote_marks(f"{name}.py"),
+    )
 
 
 @pytest.fixture(scope="session")

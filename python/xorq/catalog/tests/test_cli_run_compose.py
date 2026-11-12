@@ -23,15 +23,15 @@ from xorq.catalog.cli import (
     _stage_bundle_into_build,
     cli,
 )
+from xorq.catalog.tests.conftest import git_storage_only
 from xorq.cli import cli as top_cli
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.enums import DumpFiles
 
 
-# The uv end-to-end tests exercise uv resolving and running the packaged entry;
-# reading the entry out of each storage backend is covered by the in-process
-# run and compose tests in this file, so these run on git alone.
-git_storage_only = pytest.mark.parametrize("backend_type", ("git",))
+# The uv end-to-end tests below are git_storage_only: they exercise uv
+# resolving and running the packaged entry, and reading the entry out of each
+# storage backend is covered by the in-process run and compose tests here.
 
 
 @pytest.fixture(autouse=True)
