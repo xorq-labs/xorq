@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata
 import subprocess
 from typing import Callable
 
@@ -184,3 +185,22 @@ def test_benchmark_module_import(module):
             f"import {module}",
         )
     )
+
+
+@pytest.mark.parametrize(
+    "name", ("__test__", "__wrapped__", "_ipython_canary_method_should_not_exist_")
+)
+def test_private_attribute_miss_skips_backend_lookup(monkeypatch, name):
+    # pytest and IPython probe these on every module-level `xo`; resolving them
+    # as backends rescanned every installed distribution's entry points
+    scans = []
+    entry_points = importlib.metadata.entry_points
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda **kwargs: scans.append(kwargs) or entry_points(**kwargs),
+    )
+    with pytest.raises(AttributeError) as excinfo:
+        getattr(xo, name)
+    assert scans == []
+    assert str(excinfo.value) == f"module 'xorq.api' has no attribute '{name}'"

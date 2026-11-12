@@ -74,6 +74,11 @@ from xorq import flight  # noqa: E402
 
 
 def __getattr__(name):
+    # no backend name starts with "_"; pytest and IPython probe such names
+    # (__test__, _repr_html_) and each backend lookup miss rescans entry points
+    if name.startswith("_"):
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
     from xorq.vendor import ibis  # noqa: PLC0415
 
     backend = load_backend(name) or ibis.load_backend(name)
