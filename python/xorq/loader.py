@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import functools
-import importlib
+import os
+import pathlib
+import sys
 import types
 
 
@@ -11,32 +13,63 @@ except ModuleNotFoundError:
     import importlib_metadata
 
 
-@functools.cache
-def _load_entry_points() -> tuple[importlib_metadata.EntryPoint, ...]:
-    # cached: the scan costs ~15ms and validate_con_name runs per Profile. A
-    # tuple, so the shared value can't be mutated in place by a caller.
-    eps = importlib_metadata.entry_points(group="xorq.backends")
-    return tuple(sorted(eps))
+BACKEND_GROUPS = ("xorq.backends", "ibis.backends")
+
+
+def _env_fingerprint() -> tuple[tuple[str, int | None], ...]:
+    """Every installed distribution's metadata directory with its mtime.
+
+    Installing a distribution adds a .dist-info directory and writing its
+    entry_points.txt moves that directory's mtime; uninstalling removes it; a new
+    sys.path entry brings its own. Any of these changes the tuple, so an
+    unchanged fingerprint means unchanged entry points: a lookup miss costs a
+    directory listing per sys.path entry instead of a rescan, and a backend
+    installed into a live process (pip install in a Jupyter kernel) is still
+    found without a restart.
+    """
+    return tuple(
+        (entry.path, _mtime_ns(entry))
+        for path in sys.path
+        if pathlib.Path(path or ".").is_dir()
+        for entry in os.scandir(path or ".")
+        if entry.name.endswith((".dist-info", ".egg-info"))
+    )
+
+
+def _mtime_ns(entry: os.DirEntry) -> int | None:
+    try:
+        return entry.stat().st_mtime_ns
+    except FileNotFoundError:  # removed after the listing (a live uninstall)
+        return None
+
+
+@functools.lru_cache(maxsize=len(BACKEND_GROUPS))
+def _scan_entry_points(
+    group: str, fingerprint: tuple[tuple[str, int | None], ...]
+) -> tuple[importlib_metadata.EntryPoint, ...]:
+    # a tuple, so the shared value can't be mutated in place by a caller
+    return tuple(sorted(importlib_metadata.entry_points(group=group)))
+
+
+def _load_entry_points(
+    group: str = "xorq.backends",
+) -> tuple[importlib_metadata.EntryPoint, ...]:
+    return _scan_entry_points(group, _env_fingerprint())
 
 
 def _find_entry_point(name: str) -> importlib_metadata.EntryPoint | None:
-    """Look up a `xorq.backends` entry point, refreshing the cache once on a miss.
-
-    Resolve through here rather than scanning `_load_entry_points()` directly: a
-    direct scan sees the cache as it was, so it rejects a backend installed into a
-    live process (pip install in a Jupyter kernel) until restart. Only a miss pays
-    the rescan -- but *every* miss pays it (no negative caching), and
-    `invalidate_caches` is a process-global side effect that taxes unrelated later
-    imports. Accepted for now; a sys.path + directory-mtime fingerprint could skip
-    both when the environment demonstrably hasn't changed.
-    """
-    if entry_point := next(
-        (ep for ep in _load_entry_points() if ep.name == name), None
-    ):
-        return entry_point
-    importlib.invalidate_caches()  # a new dist postdates the import caches too
-    _load_entry_points.cache_clear()
+    """Look up a `xorq.backends` entry point, rescanning only when distributions changed."""
     return next((ep for ep in _load_entry_points() if ep.name == name), None)
+
+
+def backend_names() -> frozenset[str]:
+    """Names `xorq.api` resolves as backends: xorq's and ibis's entry points."""
+    fingerprint = _env_fingerprint()
+    return frozenset(
+        ep.name
+        for group in BACKEND_GROUPS
+        for ep in _scan_entry_points(group, fingerprint)
+    )
 
 
 def load_backend(name: str) -> types.ModuleType | None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata
 import subprocess
 from typing import Callable
 
@@ -12,6 +13,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import Backend
 from xorq.config import default_backend, options
 from xorq.tests.conftest import TEST_TABLES
+from xorq.tests.util import installed_mid_process
 
 
 def test_list_tables(con):
@@ -184,3 +186,41 @@ def test_benchmark_module_import(module):
             f"import {module}",
         )
     )
+
+
+@pytest.mark.parametrize("name", ("__test__", "_repr_html_", "nosuchbackend"))
+def test_attribute_miss_does_not_rescan_entry_points(monkeypatch, name):
+    # pytest and IPython probe these on every module-level `xo`
+    with pytest.raises(AttributeError):
+        getattr(xo, name)
+    scans = []
+    entry_points = importlib.metadata.entry_points
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda **kwargs: scans.append(kwargs) or entry_points(**kwargs),
+    )
+    with pytest.raises(AttributeError) as excinfo:
+        getattr(xo, name)
+    assert scans == []
+    assert str(excinfo.value).startswith(
+        f"module 'xorq.api' has no attribute '{name}' (backends: "
+    )
+
+
+def test_backends_and_submodules_resolve():
+    assert xo.duckdb.connect().name == "duckdb"
+    assert xo.flight.__name__ == "xorq.flight"
+    assert xo.catalog.__name__ == "xorq.catalog.api"
+
+
+def test_backend_installed_mid_process_resolves(tmp_path, request):
+    con_name = "xorqfakeapibackend"
+    request.addfinalizer(lambda: vars(xo).pop(con_name, None))
+    (tmp_path / f"xorq_{con_name}.py").write_text(
+        "from xorq.backends.duckdb import Backend  # noqa: F401\n"
+    )
+    with pytest.raises(AttributeError):
+        getattr(xo, con_name)
+    with installed_mid_process(tmp_path, con_name):
+        assert getattr(xo, con_name).connect().name == "duckdb"
