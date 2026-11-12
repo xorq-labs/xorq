@@ -67,7 +67,7 @@ from xorq.ibis_yaml.compiler import (
 )
 from xorq.ibis_yaml.enums import DumpFiles
 from xorq.init_templates import InitTemplates
-from xorq.tests.util import OFFLINE_TEMPLATES
+from xorq.tests.util import OFFLINE_TEMPLATES, examples_remote_marks
 
 
 build_run_examples_expr_names = (
@@ -1040,7 +1040,10 @@ def test_build_command_bad_expr_name(tmp_path, fixture_dir, expression, message)
 
 @pytest.mark.parametrize(
     ("example", "expr_name"),
-    build_run_examples_expr_names,
+    [
+        pytest.param(example, expr_name, marks=examples_remote_marks(example))
+        for example, expr_name in build_run_examples_expr_names
+    ],
 )
 @pytest.mark.slow(level=2)
 def test_examples(
