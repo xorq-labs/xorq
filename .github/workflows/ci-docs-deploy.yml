@@ -26,16 +26,7 @@ jobs:
 
       - uses: ./.github/actions/setup-just
 
-      - name: cache ibis test data
-        id: cache-test-data
-        uses: actions/cache@v5
-        with:
-          path: ci/ibis-testing-data
-          key: ibis-testing-data-${{ hashFiles('justfile') }}
-
-      - name: download test data
-        if: steps.cache-test-data.outputs.cache-hit != 'true'
-        run: just download-data
+      - uses: ./.github/actions/ibis-testing-data
 
       - uses: actions/setup-python@v6
         with:

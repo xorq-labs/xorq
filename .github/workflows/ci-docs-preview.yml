@@ -34,12 +34,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: cache ibis test data
+      # Inline copy of .github/actions/ibis-testing-data, which a
+      # pull_request_target job must not run from the PR head: restore-only,
+      # under the same key, so this job never writes a cache entry.
+      - name: Resolve testing-data commit
+        id: testing-data-rev
+        run: |
+          line=$(git ls-remote --exit-code https://github.com/ibis-project/testing-data refs/heads/master)
+          echo "sha=${line%%[[:space:]]*}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore testing data
         id: cache-test-data
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: ci/ibis-testing-data
-          key: ibis-testing-data-${{ hashFiles('justfile') }}
+          key: ibis-testing-data-${{ steps.testing-data-rev.outputs.sha }}
 
       - name: download test data
         if: steps.cache-test-data.outputs.cache-hit != 'true'
