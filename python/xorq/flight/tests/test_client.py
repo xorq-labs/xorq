@@ -13,6 +13,9 @@ import pytest
 from xorq.flight.client import FlightClient
 
 
+pytestmark = pytest.mark.dep_floor
+
+
 def _make_client():
     """Return a FlightClient with no live connection."""
     return object.__new__(FlightClient)
