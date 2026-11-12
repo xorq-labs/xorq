@@ -264,8 +264,12 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 # re-parametrize `backend_type` all read it.
 STORAGE_BACKENDS = ("git", pytest.param("annex", marks=requires_annex), "pointer")
 
-# For modules whose `backend_type` fixture pins one backend: the tests that
-# exercise what the storage backend decides opt back into all three.
+# Six modules pin `backend_type` to git (test_tui, test_cli_inspect_git,
+# test_cli_lineage, test_cli_params, test_drift_connections, test_drift_reads),
+# so a new test there runs on git alone unless marked with this. Mark any test
+# whose outcome depends on how the backend stores an entry or alias: adding,
+# removing or re-pointing one, pushing, pulling, or fetching content that no
+# per-backend test in test_catalog.py already reads.
 every_storage_backend = pytest.mark.parametrize(
     "backend_type", STORAGE_BACKENDS, scope="session"
 )
