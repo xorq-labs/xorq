@@ -360,6 +360,20 @@ def test_an_alias_already_on_the_entry_moves_and_is_reported(
     assert targets(world, "live", "staging") == (new, new)
 
 
+def test_a_second_alias_is_refused_not_dropped(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """`-a` takes one alias: a second is an invalid option, not a silent
+    replacement of the first."""
+    replace_t(world, GROWN)
+    commits = commit_count(world.catalog)
+
+    result = rebase(runner, world, world.name, "-a", "live", "-a", "v2")
+    assert result.exit_code == 2, result.output
+    assert "takes one alias; got 'live', 'v2'" in result.stderr
+    assert commit_count(reopen(world)) == commits
+
+
 @pytest.mark.parametrize(
     "args",
     (
@@ -3160,6 +3174,24 @@ def test_a_rename_onto_a_recorded_column_is_allowed_with_a_warning(
     _, document = rebase_json(
         runner, world, name, "--rename", "t", "a", "b", "--no-sync"
     )
+    assert CONSUMED in document["warnings"]
+
+
+def test_a_rename_onto_a_recorded_column_warns_when_it_conflicts(
+    runner: CliRunner, world: SimpleNamespace
+) -> None:
+    """The expression still reads `b`, which the rename consumed: the conflict
+    carries the warning that explains it."""
+    name = world.catalog.add(world.con.table("t").select("a", "b")).name
+    replace_t(world, pa.table({"b": pa.array([1, 2], pa.int64())}))
+
+    result = rebase(runner, world, name, "--rename", "t", "a", "b")
+    assert result.exit_code == 4, result.output
+    assert f"{CONSUMED}\n" in result.stderr
+    _, document = rebase_json(
+        runner, world, name, "--rename", "t", "a", "b", "--no-sync"
+    )
+    assert document["state"] == "conflict", document
     assert CONSUMED in document["warnings"]
 
 

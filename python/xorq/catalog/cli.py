@@ -633,6 +633,21 @@ def _catalog_pin_command(
     click.echo(new_entry.name)
 
 
+def _one_alias(
+    ctx: click.Context, param: click.Parameter, aliases: tuple[str, ...]
+) -> str | None:
+    """Refuse a repeated ``-a``, which Click would otherwise keep only the last of."""
+    match aliases:
+        case ():
+            return None
+        case (alias,):
+            return alias
+        case _:
+            raise click.BadParameter(
+                f"takes one alias; got {', '.join(map(repr, aliases))}"
+            )
+
+
 def _catalog_pin_shared_options(fn: _F) -> _F:
     """Options common to `catalog pin`, `catalog unpin` and `catalog rebase`.
 
@@ -652,7 +667,8 @@ def _catalog_pin_shared_options(fn: _F) -> _F:
         click.option(
             "-a",
             "--alias",
-            default=None,
+            multiple=True,
+            callback=_one_alias,
             help="Register this alias for the new entry.",
         ),
         click.option(
@@ -1359,8 +1375,10 @@ def rebase(
     Run it once `xorq catalog check-sources` reports a changed source. The
     recorded expression is rebuilt over the schemas the sources have now; the
     old entry is never edited or removed. The new entry keeps the old one's
-    wheels and requirements, and records the old one as its ancestor, and
-    each --swap, which `xorq catalog show` prints.
+    wheels and requirements; `xorq catalog show` prints its ancestor and each
+    --swap. A rebuild already cataloged adds nothing (--json: `created` is
+    false). Only a lost column an op reads conflicts, yet the output schema
+    can change: check stderr's `Output:` line before moving aliases.
 
     --dry-run writes nothing to the catalog (it may fetch the entry's archive,
     as any rebase does): it prints the hash a rebase would produce, says what
@@ -1374,8 +1392,8 @@ def rebase(
     building. It does not sync, and takes no --alias, --move-aliases or
     --only-alias, since there is no entry to name. An interrupted --no-add can
     leave a hidden BUILDS_DIR/.<hash>.* stage, safe to delete. With no drift,
-    or no source that can be probed, neither writes anything and both print the
-    entry's own name.
+    or no source that can be probed, neither writes anything: both print the
+    entry's own name and exit 0.
 
     No alias moves unless asked. --move-aliases moves every alias the old
     entry has once the sync's pull is in, and names any the pull took off it;
@@ -1393,9 +1411,9 @@ def rebase(
 
     Prints the resulting entry name on stdout, and the detail on stderr. With
     no drift that name is the entry's own, and nothing is committed. An entry
-    none of whose sources can be probed is left alone, since nothing can be
-    refreshed: its own name is printed, and stderr says drift was not ruled
-    out.
+    with no source check-sources can probe (it names those it cannot; one
+    that is down is unreachable instead) is left alone: its own name is printed, and stderr
+    says drift was not ruled out.
 
     A renamed column is a removed one to rebase, unless --rename says which
     live column it is now: `--rename t a b` reads t's recorded column a from
@@ -1421,12 +1439,14 @@ def rebase(
     with ", ". A bundled read is OLD by its archive path (reads/<hash>.parquet)
     and stays bundled: the new entry carries NEW's bytes. A --swap is
     refused when OLD names no source, sources on several connections, a
-    table pinned to a snapshot, or OLD's own table. One that swaps a source to itself, twice or to an
-    empty name is an invalid option. A --rename beside it names the swapped
-    source by OLD, as recorded, and its conflict hints do too. After the
-    sweep, a swap is refused beside any source it leaves that changed, is
+    table pinned to a snapshot, or the table OLD already reads (as `aux.t
+    t` does). One that swaps a source to itself, twice or to an empty name
+    is an invalid option. A --rename beside it names the swapped source by
+    OLD, as recorded, and its conflict hints do too. Once every source is
+    probed, a swap is refused beside any source it leaves that changed, is
     gone or could not be probed: rebase without --swap first, so each new
-    entry carries one kind of change; a swap of every source never is.
+    entry carries one kind of change; a swap of every source never is. A
+    source whose table is gone conflicts; --swap it onto its replacement.
 
     --profile NAME moves every swapped source onto the connection of the
     stored profile NAME (`--swap t t --profile prod` reads t there). It
@@ -1444,35 +1464,31 @@ def rebase(
          cannot be probed, the entry was built on another Python minor or
          records none (--ignore-venv-mismatch overrides it, with a
          warning), --only-alias names an alias on neither the old entry
-         nor the new one (an
-         unregistered one before the sweep), --alias names an alias on
-         another entry than the old or new one (once there is a new entry),
-         ENTRY is an alias the pull moved or removed, a --rename is refused
-         (see above), a probed source matched no source of the loaded
-         expression, a --swap is refused (see above) or leaves a source
-         that changed or is gone, --no-add found its
-         BUILDS_DIR/<hash> taken, or a
-         write failed
-         (the new entry and its alias moves are rolled back locally; if that
-         fails too, the error names what is left, and --json says
-         rollback-failed)
+         nor the new one (an unregistered one before the probe), --alias
+         names an alias on another entry than the old or new one (once
+         there is a new entry), ENTRY is an alias the pull moved or
+         removed, a --rename or --swap is refused (see above), a probed
+         source matched no source of the loaded expression, --no-add found
+         its BUILDS_DIR/<hash> taken, or a write failed (the new entry and
+         its alias moves are rolled back locally; if that fails too, the
+         error names what is left, and --json says rollback-failed)
       2  a source was unreachable or unreadable (a --swap's other
-         sources included), its database is
-         missing, or its reads disagree on its live schema; the record is
-         unreadable or lacks its wheel or requirements; the sync's pull
-         failed; or the options were invalid (--move-aliases with
-         --only-alias, --no-add with --dry-run or an alias option,
-         --builds-dir without --no-add, a --rename that repeats a column of
-         its source or renames one to itself, a --swap that swaps a source
+         sources included), its database is missing, or its reads
+         disagree on its live schema; the record is unreadable or lacks
+         its wheel or requirements; the sync's pull failed; or the options
+         were invalid (--move-aliases with --only-alias, --no-add with
+         --dry-run or an alias option, --builds-dir without --no-add, a
+         second -a, a --rename that repeats a column of its source, maps
+         two to one or renames one to itself, a --swap that swaps a source
          to itself (without --profile), twice or to an empty name, a
-         --profile with no --swap or no stored profile);
-         nothing written
+         --profile with no --swap or no stored profile); nothing written
       3  a rebase was derived but not cataloged: --dry-run printed its
          hash, or --no-add its build directory
       4  conflict: an op no longer fits its new inputs or does not
-         compile on its backend, or a source's table is gone; stderr names the op (if one failed) and the
-         sources involved, with their recorded and live schemas, and
-         any columns each changed source lost and gained; nothing written
+         compile on its backend, or a source's table is gone; stderr names
+         the op (if one failed) and the sources involved, with their
+         recorded and live schemas, and any columns each changed source
+         lost and gained; nothing written
       5  rebased locally, but the sync's push failed: the new entry is
          printed and its alias moves are kept; `xorq catalog sync`
          (pull, then push) finishes it
@@ -1481,10 +1497,10 @@ def rebase(
     and nothing else; its `state` and `exit_code` sit at the root, and the
     exit code is the process's. Every outcome of rebasing a resolved entry
     prints one, a failed write included; a warning the rebase raises goes in
-    its `warnings`, not on stderr. As with `check-sources --json`, a
-    rebase that never started prints none: a name that does not resolve or a
-    catalog that does not open exits 1, and invalid options exit 2, with the
-    error on stderr. Its shape is documented in `xorq.catalog.rebase`.
+    its `warnings`, not on stderr. A rebase that never started (the name
+    does not resolve, the catalog does not open, or the options are invalid)
+    prints none, only the error on stderr. Its shape is documented in
+    `xorq.catalog.rebase`.
 
     \b
     Arguments:
