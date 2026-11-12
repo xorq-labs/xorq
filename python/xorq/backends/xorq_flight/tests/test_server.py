@@ -518,12 +518,19 @@ def test_close_after_unfinished_exchange_keeps_the_port_reserved():
         schema_in,
         xo.schema({"row_count": "int64"}),
     )
+    table = pa.table({"dummy": [0]})
     for _ in range(20):
         server = FlightServer(exchangers=[udxf])
         with server:
-            # the result reader is dropped unread, leaving the exchange unfinished
-            server.client.do_exchange(
-                udxf.command, xo.memtable({"dummy": [0]}, schema=schema_in)
-            )
+            # one thread writes and leaves the results unread, so the exchange is
+            # unfinished at close; a reader thread hitting the end of the stream
+            # while a writer thread is still writing aborts the process in
+            # Arrow Flight (both send WritesDone)
+            client = pa.flight.FlightClient(server.flight_url.to_location())
+            descriptor = pa.flight.FlightDescriptor.for_command(udxf.command)
+            writer, _ = client.do_exchange(descriptor)
+            writer.begin(table.schema)
+            writer.write_table(table)
+            writer.done_writing()
         assert FlightUrl.port_in_use(server.flight_url.port)
         server.flight_url.unbind_socket()
