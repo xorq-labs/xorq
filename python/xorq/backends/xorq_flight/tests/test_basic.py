@@ -1,9 +1,9 @@
 import pytest
 
 import xorq.api as xo
+from xorq.backends.xorq_flight.tests.test_server import make_flight_url
 from xorq.common.utils.tls_utils import TLSKwargs
 from xorq.flight import BasicAuth, FlightServer
-from xorq.flight.tests.test_server import make_flight_url
 
 
 pytestmark = pytest.mark.dep_floor

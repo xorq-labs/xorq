@@ -29,6 +29,7 @@ from xorq.flight.enums import UploadMode
 from xorq.flight.exchanger import UnboundExprExchanger, make_udxf
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
+from xorq.vendor.ibis.backends import NoUrl  # xorq-style: disable=unlisted-import
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-class Backend(SQLBackend):
+class Backend(SQLBackend, NoUrl):
     @property
     def name(self):
         return "xorq_flight"

@@ -7,10 +7,11 @@ import pytest
 
 import xorq.api as xo
 from xorq.api import _
+from xorq.backends.xorq_flight.tests.test_server import make_flight_url
 from xorq.common.utils.tls_utils import TLSKwargs
 from xorq.flight import FlightServer
 from xorq.flight.exchanger import make_udxf
-from xorq.flight.tests.test_server import make_flight_url
+from xorq.loader import load_backend
 
 
 @pytest.fixture(scope="module")
@@ -101,3 +102,7 @@ def test_backend_get_flight_udxf():
     server_thread.join(timeout=2.0)
 
     assert not server_thread.is_alive()
+
+
+def test_load_backend_builds_the_flight_proxy():
+    assert load_backend("xorq_flight").name == "xorq_flight"

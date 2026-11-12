@@ -4,15 +4,15 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
-from xorq.caching import ParquetCache
-from xorq.common.utils.graph_utils import find_all_sources
-from xorq.flight.tests.conftest import (
+from xorq.backends.xorq_flight.tests.conftest import (
     do_agg,
     field_name,
     my_udf,
     my_udf_on_expr,
     return_type,
 )
+from xorq.caching import ParquetCache
+from xorq.common.utils.graph_utils import find_all_sources
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 from xorq.tests.util import assert_frame_equal
 

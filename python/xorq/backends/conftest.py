@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import importlib.util
 import itertools
+import re
 
 import _pytest
 import pytest
@@ -92,9 +93,34 @@ def pytest_ignore_collect(collection_path, config):
     if not mark_expr:
         return False
     expr = _pytest.mark.expression.Expression.compile(mark_expr)
+    # at directory level only backend markers are known; any other marker
+    # (dep_floor, slow, ...) is decided per test. Keep the directory when the
+    # expression holds with every unknown marker off, as before, or when this
+    # backend's marker is what makes it satisfiable: `xorq_flight and
+    # dep_floor` keeps the flight directory, while `slow` (satisfiable with no
+    # backend at all) still skips every backend directory
+    unknown = sorted(
+        set(re.findall(r"[A-Za-z_]\w*", mark_expr))
+        - {"and", "or", "not", "core", "backend", *_get_backend_names()}
+    )
+    assignments = tuple(
+        itertools.chain.from_iterable(
+            itertools.combinations(unknown, n) for n in range(len(unknown) + 1)
+        )
+    )
+
+    def satisfiable(known):
+        return any(
+            expr.evaluate(lambda s, on=on, **_kw: s in (*known, *on))
+            for on in assignments
+        )
+
     # we check the "backend" marker as well since if that's passed
     # any file matching a backend should be skipped
-    keep = expr.evaluate(lambda s, **_kw: s in (backend, "backend"))
+    on_backend = (backend, "backend")
+    keep = expr.evaluate(lambda s, **_kw: s in on_backend) or (
+        satisfiable(on_backend) and not satisfiable(())
+    )
     return not keep
 
 

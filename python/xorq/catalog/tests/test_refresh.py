@@ -67,7 +67,6 @@ from xorq.expr.relations import (
     pin_cache,
 )
 from xorq.flight import FlightServer
-from xorq.flight.tests.test_server import make_flight_url
 from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.ibis_yaml.enums import ReadKwarg
 from xorq.vendor.ibis.common.annotations import ValidationError
@@ -1011,7 +1010,6 @@ def test_a_flight_expr_without_an_unbound_table_is_named(
 
 def test_a_flight_source_keys_without_a_profile() -> None:
     with FlightServer(
-        flight_url=make_flight_url(None),
         verify_client=False,
         make_connection=xo.duckdb.connect,
     ) as server:
