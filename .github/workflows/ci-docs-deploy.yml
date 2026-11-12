@@ -51,6 +51,8 @@ jobs:
         with:
           version: 1.8.24
 
+      # Not .github/actions/postgres: it points connect_examples() at this
+      # server, and the published docs should show the public examples data.
       - name: start services
         run: docker compose up postgres --wait --remove-orphans
 

@@ -46,6 +46,8 @@ jobs:
         run: uv sync --extra examples --group dev --group test
         working-directory: ${{ github.workspace }}
 
+      # Inline copy of .github/actions/postgres, which a pull_request_target
+      # job must not run from the PR head; keep the env values in step with it.
       - name: start services
         run: docker compose up --build --wait
 
