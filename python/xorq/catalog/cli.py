@@ -1448,11 +1448,12 @@ def rebase(
     source whose table is gone conflicts; --swap it onto its replacement.
 
     --profile NAME moves every swapped source onto the connection of the
-    stored profile NAME (`--swap t t --profile prod` reads t there). It
-    needs a --swap; a NAME with no stored profile is an invalid option, and
-    a swap onto its own table on its own connection is refused. NAME may be
-    another backend type: the rebuilt entry is compiled for each backend it
-    runs on, and an op that backend cannot compile conflicts.
+    profile saved as NAME, by `Profile.from_con(con).save(alias=NAME)`
+    (`--swap t t --profile prod` reads t there). It needs a --swap; an
+    unsaved NAME is an invalid option, and a swap onto its own table on its
+    own connection is refused. NAME may be another backend type: the
+    rebuilt entry is compiled for each backend it runs on, and an op that
+    backend cannot compile conflicts.
 
     \b
     Exit codes:

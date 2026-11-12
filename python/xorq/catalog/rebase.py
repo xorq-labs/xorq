@@ -300,10 +300,13 @@ def repeated_swaps(swaps: tuple[Swap, ...], moved: bool = False) -> Iterator[str
 
 def stored_profile(name: str) -> Profile:
     """The stored profile ``name``, refused before any write if there is none."""
+    profiles = Profiles()
     try:
-        return Profiles().get(name)
+        return profiles.get(name)
     except FileNotFoundError as e:
-        raise RebaseOptionsError(f"--profile {name} names no stored profile") from e
+        raise RebaseOptionsError(
+            f"--profile {name} names no stored profile in {profiles.profile_dir}"
+        ) from e
 
 
 def builds_path(builds_dir: str | Path) -> Path:

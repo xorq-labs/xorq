@@ -4409,6 +4409,15 @@ def test_a_profile_that_cannot_apply_is_a_usage_error(
     assert set(reopen(world).list()) == {world.name}
 
 
+def test_a_missing_profile_names_where_profiles_are_stored(
+    runner: CliRunner, world: SimpleNamespace, profile_dir: Path
+) -> None:
+    """No command lists stored profiles: the error says where they are."""
+    result = rebase(runner, world, world.name, "--swap", "t", "t", "--profile", "nope")
+    assert result.exit_code == 2, result.output
+    assert f"--profile nope names no stored profile in {profile_dir}" in (result.stderr)
+
+
 def test_a_swap_onto_its_own_table_on_its_own_profile_is_refused(
     runner: CliRunner, world: SimpleNamespace, profile_dir: Path
 ) -> None:
