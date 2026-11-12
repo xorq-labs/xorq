@@ -21,6 +21,10 @@ runs:
           postgres.cache-from=type=gha,scope=docker-postgres
           postgres.cache-to=type=gha,scope=docker-postgres,mode=max
 
+    # XORQ_EXAMPLES_POSTGRES_* points connect_examples() here instead of the
+    # public examples server. Known difference: this batting table stores the
+    # stat columns as bigint, the public one as float; ci-test-examples-remote
+    # runs the public-server tests on push to main.
     - name: Start postgres
       shell: bash
       run: |
