@@ -51,6 +51,7 @@ _NOT_REMOTE_PUT = frozenset(
         "bigquery",
         "pyiceberg",
         "gizmosql",
+        "xorq_flight",
     )
 )
 

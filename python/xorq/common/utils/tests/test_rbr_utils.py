@@ -2,7 +2,7 @@
 
 The end-to-end pin of the abort policy through a real Flight exchange is
 ``test_streaming_split_exchange_flight_failure_aborts`` in
-``xorq.flight.tests.test_flight_exchange``, where it joins the flight tests'
+``xorq.backends.xorq_flight.tests.test_flight_exchange``, where it joins the flight tests'
 xdist group instead of running concurrently with them.
 """
 

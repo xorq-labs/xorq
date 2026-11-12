@@ -10,8 +10,8 @@ name: ci-test-lowest-direct
 # override and the test group's `deltalake` floor). See issue #2109.
 # Flight tests contribute only those marked `dep_floor`: the ones that exercise
 # a third-party API surface (pyarrow.flight, opentelemetry, cloudpickle) rather
-# than xorq logic. Today they still carry `core`; the `flight` term keeps them
-# selected once flight runs as its own backend.
+# than xorq logic. Flight runs as its own backend (`xorq_flight`), so they are
+# selected by that marker rather than `core`.
 
 on:
   push:
@@ -96,7 +96,7 @@ jobs:
         run: >
           uv run --no-sync pytest
           --import-mode=importlib
-          -m '(core or (flight and dep_floor)) and not uv_export and not slow'
+          -m '(core or (xorq_flight and dep_floor)) and not uv_export and not slow'
           --ignore=python/xorq/catalog
           -k 'not script_execution'
           -v --durations=20

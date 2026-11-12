@@ -15,6 +15,13 @@ import toolz
 from pytest import param
 
 import xorq.api as xo
+from xorq.backends.xorq_flight.tests.conftest import (
+    do_agg,
+    field_name,
+    my_udf,
+    my_udf_on_expr,
+    return_type,
+)
 from xorq.caching import ParquetCache
 from xorq.common.utils.rbr_utils import streaming_split_exchange
 from xorq.expr.relations import (
@@ -30,13 +37,6 @@ from xorq.flight.exchanger import (
     process_batch,
 )
 from xorq.flight.server import STATUS_MESSAGE_BUDGET, bounded_message, bounded_status
-from xorq.flight.tests.conftest import (
-    do_agg,
-    field_name,
-    my_udf,
-    my_udf_on_expr,
-    return_type,
-)
 from xorq.tests.util import SPLIT_KEY, make_batch, make_split_f
 
 

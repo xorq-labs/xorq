@@ -15,6 +15,12 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.flight.action as A
 import xorq.flight.exchanger as E
+from xorq.backends.xorq_flight.tests.conftest import (
+    do_agg,
+    field_name,
+    my_udf,
+    return_type,
+)
 from xorq.common.utils import classproperty
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.rbr_utils import instrument_reader
@@ -27,7 +33,6 @@ from xorq.flight import (
 )
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
-from xorq.flight.tests.conftest import do_agg, field_name, my_udf, return_type
 from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal
 

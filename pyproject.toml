@@ -254,6 +254,7 @@ gizmosql = "xorq.backends.gizmosql"
 databricks = "xorq.backends.databricks"
 bigquery = "xorq.backends.bigquery"
 redshift = "xorq.backends.redshift"
+xorq_flight = "xorq.flight"
 
 [project.scripts]
 xorq = "xorq.cli:main"
