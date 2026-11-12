@@ -381,8 +381,11 @@ tmp_path_retention_policy = "failed"
 
 [tool.coverage.run]
 source = ["python/xorq"]
-# sys.monitoring tracing, Python >= 3.12; older Pythons warn and fall back.
+# sys.monitoring tracing, Python >= 3.12; older Pythons fall back to the C
+# tracer. Silence that fallback warning: every subprocess under --cov would
+# otherwise print it to its stderr.
 core = "sysmon"
+disable_warnings = ["no-sysmon"]
 omit = [
     "*/tests/*",
     "*/vendor/*",
