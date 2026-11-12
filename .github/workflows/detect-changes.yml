@@ -6,12 +6,16 @@ on:
       code:
         description: "true if any non-docs files changed (always true for push/dispatch)"
         value: ${{ jobs.changes.outputs.code }}
+      deps:
+        description: "true if pyproject.toml or uv.lock changed (always true for push/dispatch)"
+        value: ${{ jobs.changes.outputs.deps }}
 
 jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
+      deps: ${{ github.event_name != 'pull_request' || steps.filter.outputs.deps == 'true' }}
     steps:
       - uses: dorny/paths-filter@v4 # v3
         id: filter
@@ -32,3 +36,6 @@ jobs:
               - '!**/*.qmd'
               - '!codecov.yml'
               - '!.envrc'
+            # one pattern: under "every" a file must match all of a filter's patterns
+            deps:
+              - '**/{pyproject.toml,uv.lock}'
