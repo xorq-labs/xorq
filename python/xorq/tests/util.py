@@ -107,9 +107,16 @@ EXAMPLES_DIR = pathlib.Path(__file__).parents[3] / "examples"
 
 def examples_remote_marks(script: str) -> tuple[pytest.MarkDecorator, ...]:
     """Mark an example script that calls connect_examples():
-    ci-test-examples-remote runs those against the public server."""
-    text = EXAMPLES_DIR.joinpath(script).read_text()
-    return (pytest.mark.examples_remote,) if "connect_examples(" in text else ()
+    ci-test-examples-remote runs those against the public server.
+
+    An installed wheel ships no examples/ (ci-test-library), so a missing
+    script carries no mark; the tests that run it are not selected there."""
+    path = EXAMPLES_DIR.joinpath(script)
+    return (
+        (pytest.mark.examples_remote,)
+        if path.exists() and "connect_examples(" in path.read_text()
+        else ()
+    )
 
 
 # cached-fetcher's live fetch runs end to end in ci-test-templates, on pull
