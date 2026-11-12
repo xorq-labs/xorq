@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import os
 import pathlib
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from xorq.loader import (
     _find_entry_point,
     _load_entry_points,
+    _mtime_ns,
     load_backend,
 )
 from xorq.tests.util import installed_mid_process
@@ -96,3 +98,14 @@ def test_find_entry_point_miss_ignores_unrelated_writes(
     )
     assert _find_entry_point("xorq-no-such-backend") is None
     assert scans == []
+
+
+def test_mtime_ns_of_a_distribution_removed_after_listing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """An uninstall can remove a .dist-info between the directory listing and
+    its stat; the fingerprint records it as gone instead of raising."""
+    (tmp_path / "xorq_gone-0.1.dist-info").mkdir()
+    (entry,) = os.scandir(tmp_path)
+    (tmp_path / "xorq_gone-0.1.dist-info").rmdir()
+    assert _mtime_ns(entry) is None

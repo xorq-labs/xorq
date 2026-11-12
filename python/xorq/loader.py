@@ -16,7 +16,7 @@ except ModuleNotFoundError:
 BACKEND_GROUPS = ("xorq.backends", "ibis.backends")
 
 
-def _env_fingerprint() -> tuple[tuple[str, int], ...]:
+def _env_fingerprint() -> tuple[tuple[str, int | None], ...]:
     """Every installed distribution's metadata directory with its mtime.
 
     Installing a distribution adds a .dist-info directory and writing its
@@ -28,7 +28,7 @@ def _env_fingerprint() -> tuple[tuple[str, int], ...]:
     found without a restart.
     """
     return tuple(
-        (entry.path, entry.stat().st_mtime_ns)
+        (entry.path, _mtime_ns(entry))
         for path in sys.path
         if pathlib.Path(path or ".").is_dir()
         for entry in os.scandir(path or ".")
@@ -36,9 +36,16 @@ def _env_fingerprint() -> tuple[tuple[str, int], ...]:
     )
 
 
+def _mtime_ns(entry: os.DirEntry) -> int | None:
+    try:
+        return entry.stat().st_mtime_ns
+    except FileNotFoundError:  # removed after the listing (a live uninstall)
+        return None
+
+
 @functools.lru_cache(maxsize=len(BACKEND_GROUPS))
 def _scan_entry_points(
-    group: str, fingerprint: tuple[tuple[str, int], ...]
+    group: str, fingerprint: tuple[tuple[str, int | None], ...]
 ) -> tuple[importlib_metadata.EntryPoint, ...]:
     # a tuple, so the shared value can't be mutated in place by a caller
     return tuple(sorted(importlib_metadata.entry_points(group=group)))
@@ -57,8 +64,11 @@ def _find_entry_point(name: str) -> importlib_metadata.EntryPoint | None:
 
 def backend_names() -> frozenset[str]:
     """Names `xorq.api` resolves as backends: xorq's and ibis's entry points."""
+    fingerprint = _env_fingerprint()
     return frozenset(
-        ep.name for group in BACKEND_GROUPS for ep in _load_entry_points(group)
+        ep.name
+        for group in BACKEND_GROUPS
+        for ep in _scan_entry_points(group, fingerprint)
     )
 
 
