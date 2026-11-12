@@ -13,6 +13,9 @@ import pytest
 from xorq.backends.conftest import pytest_ignore_collect
 
 
+# under backends/ but no backend's, so nothing marks it core automatically
+pytestmark = pytest.mark.core
+
 FLIGHT_TESTS = Path(__file__).parents[1] / "xorq_flight" / "tests"
 
 
