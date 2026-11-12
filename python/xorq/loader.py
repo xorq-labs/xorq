@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import functools
+import os
 import pathlib
 import sys
-import time
 import types
 
 
@@ -14,25 +14,25 @@ except ModuleNotFoundError:
 
 
 BACKEND_GROUPS = ("xorq.backends", "ibis.backends")
-# a directory changed this recently may still be mid-install (entry_points.txt
-# not yet written into its new .dist-info), so its scan is not cached
-RACY_WINDOW_NS = 2_000_000_000
 
 
 def _env_fingerprint() -> tuple[tuple[str, int], ...]:
-    """Each sys.path directory with its mtime.
+    """Every installed distribution's metadata directory with its mtime.
 
-    Installing a distribution writes a .dist-info directory into a sys.path
-    directory (pip and uv both), which moves that directory's mtime, and a new
-    sys.path entry changes the tuple. An unchanged fingerprint therefore means no
-    new entry points, so a lookup miss costs a few stats instead of a rescan, and
-    a backend installed into a live process (pip install in a Jupyter kernel) is
-    still found without a restart.
+    Installing a distribution adds a .dist-info directory and writing its
+    entry_points.txt moves that directory's mtime; uninstalling removes it; a new
+    sys.path entry brings its own. Any of these changes the tuple, so an
+    unchanged fingerprint means unchanged entry points: a lookup miss costs a
+    directory listing per sys.path entry instead of a rescan, and a backend
+    installed into a live process (pip install in a Jupyter kernel) is still
+    found without a restart.
     """
     return tuple(
-        (path, directory.stat().st_mtime_ns)
+        (entry.path, entry.stat().st_mtime_ns)
         for path in sys.path
-        if (directory := pathlib.Path(path)).is_dir()
+        if pathlib.Path(path or ".").is_dir()
+        for entry in os.scandir(path or ".")
+        if entry.name.endswith((".dist-info", ".egg-info"))
     )
 
 
@@ -47,18 +47,11 @@ def _scan_entry_points(
 def _load_entry_points(
     group: str = "xorq.backends",
 ) -> tuple[importlib_metadata.EntryPoint, ...]:
-    fingerprint = _env_fingerprint()
-    newest = max((mtime for _, mtime in fingerprint), default=0)
-    scan = (
-        _scan_entry_points.__wrapped__
-        if time.time_ns() - newest < RACY_WINDOW_NS
-        else _scan_entry_points
-    )
-    return scan(group, fingerprint)
+    return _scan_entry_points(group, _env_fingerprint())
 
 
 def _find_entry_point(name: str) -> importlib_metadata.EntryPoint | None:
-    """Look up a `xorq.backends` entry point, rescanning only when sys.path changed."""
+    """Look up a `xorq.backends` entry point, rescanning only when distributions changed."""
     return next((ep for ep in _load_entry_points() if ep.name == name), None)
 
 
