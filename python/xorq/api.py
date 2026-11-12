@@ -20,7 +20,7 @@ from xorq.ml import *  # noqa: F403
 from xorq.backends.xorq_datafusion import Backend
 from xorq.internal import SessionConfig
 
-from xorq.loader import load_backend
+from xorq.loader import backend_names, load_backend
 from xorq.ibis_yaml.compiler import (
     build_expr,
     load_expr,
@@ -74,10 +74,11 @@ from xorq import flight  # noqa: E402
 
 
 def __getattr__(name):
-    # no backend name starts with "_"; pytest and IPython probe such names
-    # (__test__, _repr_html_) and each backend lookup miss rescans entry points
-    if name.startswith("_"):
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if name not in (names := backend_names()):
+        raise AttributeError(
+            f"module {__name__!r} has no attribute {name!r}"
+            f" (backends: {', '.join(sorted(names))})"
+        )
 
     from xorq.vendor import ibis  # noqa: PLC0415
 

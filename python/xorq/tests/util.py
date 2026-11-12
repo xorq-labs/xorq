@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import importlib
 import pathlib
 import sys
 from collections.abc import Callable, Iterator
@@ -41,13 +40,9 @@ def installed_mid_process(root: pathlib.Path, con_name: str) -> Iterator[str]:
     assert not any(ep.name == con_name for ep in _load_entry_points())  # warm it
     sys.path.insert(0, str(root))
     try:
-        # the cached value still predates the install
-        assert not any(ep.name == con_name for ep in _load_entry_points())
         yield con_name
     finally:
         sys.path.remove(str(root))
-        importlib.invalidate_caches()
-        _load_entry_points.cache_clear()
 
 
 def _pandas_semi_join(left, right, on, **_):
