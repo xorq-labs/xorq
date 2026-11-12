@@ -40,6 +40,9 @@ from xorq.flight.tests.conftest import (
 from xorq.tests.util import SPLIT_KEY, make_batch, make_split_f
 
 
+pytestmark = pytest.mark.dep_floor
+
+
 @pytest.mark.uv_export
 def test_unbound_exchanger_command_stable_across_reduce(tmp_path: Path) -> None:
     """`UnboundExprExchanger.command` embeds the expression's token.
