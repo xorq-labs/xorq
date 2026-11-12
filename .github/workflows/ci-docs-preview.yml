@@ -52,7 +52,7 @@ jobs:
 
       - name: download test data
         if: steps.cache-test-data.outputs.cache-hit != 'true'
-        run: just download-data
+        run: just download-data ibis-project testing-data master
 
       - uses: actions/setup-python@v6
         with:
