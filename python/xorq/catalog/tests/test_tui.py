@@ -106,7 +106,12 @@ def _run(coro):
 
 @pytest.fixture
 def backend_type() -> str:
-    """Render and key-handling tests read nothing the storage backend decides."""
+    """Pin the TUI tests to git storage.
+
+    Some of them add entries and execute ``entry.expr``, which goes through
+    the storage backend; that path runs per backend in test_catalog.py
+    (test_catalog_entry_roundtrip_execute), so here git alone is enough.
+    """
     return "git"
 
 
