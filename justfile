@@ -26,7 +26,9 @@ download-data owner="ibis-project" repo="testing-data" rev="master":
 
     args=("$url")
     if [ "{{ rev }}" = "master" ]; then
-        args+=("--depth" "1")
+        # name the branch: a repository whose default branch is not master
+        # would otherwise clone that one
+        args+=("--depth" "1" "--branch" "master")
     fi
 
     args+=("$outdir")
