@@ -1849,6 +1849,9 @@ def rebase_entry(
                         catalog_entry,
                         ambiguous_renames(repointed, live, planned, names),
                     )
+                    # Before the rebuild: a consumed column an op still reads
+                    # is what makes it conflict.
+                    warn_consumed(checked_renames)
                     expr = refresh_schemas(repointed, live, planned)
                 except UnmatchedSourceError as e:
                     raise RebaseError(
@@ -1875,7 +1878,6 @@ def rebase_entry(
                     return conflicted(
                         RebaseConflict(format_error(e), involved, untranslated_op(e))
                     )
-                warn_consumed(checked_renames)
                 # `relocate_reads=False` keeps each read's recorded posture: a bundled
                 # read stays bundled, an external one external.
                 dumper = ExprDumper(
