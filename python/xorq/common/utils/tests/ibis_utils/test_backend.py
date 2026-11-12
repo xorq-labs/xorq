@@ -1,13 +1,13 @@
 import importlib
+import importlib.metadata
 
 import pandas as pd
 import pytest
 import toolz
+from packaging import version
 
-from xorq.backends.datafusion import Backend as DatafusionBackend
 from xorq.backends.snowflake import Backend as SnowflakeBackend
 from xorq.backends.snowflake.enums import SnowflakeAuthenticator
-from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.common.utils.env_utils import maybe_substitute_env_var
 from xorq.common.utils.ibis_utils import (
     from_ibis,
@@ -17,6 +17,12 @@ from xorq.common.utils.ibis_utils import (
 
 
 ibis = pytest.importorskip("ibis")
+
+# ibis registers its builtin udfs with input_types=, which datafusion 52
+# renamed to input_fields
+datafusion_renamed_input_types = bool(importlib.util.find_spec("datafusion")) and (
+    version.parse(importlib.metadata.version("datafusion")) >= version.parse("52")
+)
 
 
 def connect_snowflake():
@@ -51,15 +57,23 @@ def connect_snowflake():
 # No postgres case: from_ibis over an ibis postgres connection is not covered.
 # The ibis-compatibility jobs start no postgres server.
 @pytest.mark.parametrize(
-    "get_con,backend_type",
+    "get_con,backend_name",
     (
         pytest.param(
-            lambda: ibis.datafusion.connect(), DatafusionBackend, id="datafusion"
+            lambda: ibis.datafusion.connect(),
+            "datafusion",
+            id="datafusion",
+            marks=pytest.mark.xfail(
+                datafusion_renamed_input_types,
+                raises=TypeError,
+                reason="ibis datafusion backend predates datafusion 52",
+                strict=True,
+            ),
         ),
-        pytest.param(lambda: ibis.sqlite.connect(), SqliteBackend, id="sqlite"),
+        pytest.param(lambda: ibis.sqlite.connect(), "sqlite", id="sqlite"),
     ),
 )
-def test_backends(get_con, backend_type):
+def test_backends(get_con, backend_name):
     conn = get_con()
     ta = conn.create_table("foo", pd.DataFrame({"id": [1, 2, 3]}))
     expr = ta.select(ibis._.id).filter(ibis._.id > 2)
@@ -67,7 +81,7 @@ def test_backends(get_con, backend_type):
     xorq_expr = from_ibis(expr)
     assert xorq_expr is not None
     assert not xorq_expr.execute().empty
-    assert isinstance(xorq_expr._find_backend(), backend_type)
+    assert xorq_expr._find_backend().name == backend_name
 
     try:
         conn.drop_table("foo")
