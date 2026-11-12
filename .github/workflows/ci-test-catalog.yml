@@ -70,6 +70,11 @@ jobs:
         run: uv sync --locked --group dev --group test ${{ matrix.backend.extras }}
         working-directory: ${{ github.workspace }}
 
+      # Without the binary every annex test skips and the shard passes green.
+      - name: check git-annex is installed
+        if: matrix.backend.name == 'annex'
+        run: uv run --no-sync git-annex version
+
       - name: pytest
         timeout-minutes: 20
         env:
