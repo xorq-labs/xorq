@@ -648,6 +648,11 @@ def _one_alias(
             )
 
 
+one_alias_option = partial(
+    click.option, "-a", "--alias", multiple=True, callback=_one_alias
+)
+
+
 def _catalog_pin_shared_options(fn: _F) -> _F:
     """Options common to `catalog pin`, `catalog unpin` and `catalog rebase`.
 
@@ -664,13 +669,7 @@ def _catalog_pin_shared_options(fn: _F) -> _F:
         click.argument("entry", shell_complete=_complete_entry_or_alias_names),
         sync_option,
         cache_dir_option,
-        click.option(
-            "-a",
-            "--alias",
-            multiple=True,
-            callback=_one_alias,
-            help="Register this alias for the new entry.",
-        ),
+        one_alias_option(help="Register this alias for the new entry."),
         click.option(
             "--move-aliases",
             is_flag=True,
@@ -2694,12 +2693,7 @@ def _compose_via_reinvoke(ctx, catalog, entries):
 @click.argument("entries", nargs=-1, shell_complete=_complete_entry_or_alias_names)
 @sync_option
 @code_option
-@click.option(
-    "-a",
-    "--alias",
-    default=None,
-    help="Also register this alias for the cataloged entry.",
-)
+@one_alias_option(help="Also register this alias for the cataloged entry.")
 @cache_dir_option
 @click.option(
     "--dry-run",
@@ -2842,12 +2836,7 @@ def compose(
 @click.argument("right_entry", shell_complete=_complete_entry_or_alias_names)
 @join_predicate_options(noun="entry")
 @sync_option
-@click.option(
-    "-a",
-    "--alias",
-    default=None,
-    help="Also register this alias for the cataloged entry.",
-)
+@one_alias_option(help="Also register this alias for the cataloged entry.")
 @cache_dir_option
 @ignore_venv_mismatch_option
 @rebind_backends_option
@@ -2937,12 +2926,7 @@ def join(
     help="Deduplicate rows (default is union-all).",
 )
 @sync_option
-@click.option(
-    "-a",
-    "--alias",
-    default=None,
-    help="Also register this alias for the cataloged entry.",
-)
+@one_alias_option(help="Also register this alias for the cataloged entry.")
 @cache_dir_option
 @ignore_venv_mismatch_option
 @rebind_backends_option
