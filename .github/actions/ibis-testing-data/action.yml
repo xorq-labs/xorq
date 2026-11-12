@@ -5,6 +5,16 @@ description: >
   Needs just on PATH. Not for pull_request_target workflows: there the PR
   head would supply this action and could save into the base branch's cache.
 
+# The key and the clone read these same inputs, so a change to the justfile
+# recipe's defaults cannot restore data under a stale key.
+inputs:
+  owner:
+    default: ibis-project
+  repo:
+    default: testing-data
+  branch:
+    default: master
+
 runs:
   using: composite
   steps:
@@ -12,8 +22,12 @@ runs:
       id: rev
       shell: bash
       run: |
-        line=$(git ls-remote --exit-code https://github.com/ibis-project/testing-data refs/heads/master)
+        line=$(git ls-remote --exit-code "https://github.com/$OWNER/$REPO" "refs/heads/$BRANCH")
         echo "sha=${line%%[[:space:]]*}" >> "$GITHUB_OUTPUT"
+      env:
+        OWNER: ${{ inputs.owner }}
+        REPO: ${{ inputs.repo }}
+        BRANCH: ${{ inputs.branch }}
 
     - name: Restore testing data
       id: cache
@@ -28,8 +42,12 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        just download-data
+        just download-data "$OWNER" "$REPO" "$BRANCH"
         rm -rf ci/ibis-testing-data/.git
+      env:
+        OWNER: ${{ inputs.owner }}
+        REPO: ${{ inputs.repo }}
+        BRANCH: ${{ inputs.branch }}
 
     # Each entry is ~0.45 GB against a 10 GB repo quota: save from pushes
     # only, so pull requests restore main's entry instead of writing their own.
