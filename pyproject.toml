@@ -166,7 +166,7 @@ gizmosql = [
     "cryptography>=42",
 ]
 ibis = [
-    "ibis-framework>=10.5.0",
+    "ibis-framework[duckdb]>=10.5.0",
 ]
 geospatial = [
     "geoarrow-types>=0.2,<1",

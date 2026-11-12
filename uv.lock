@@ -2207,6 +2207,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/b3/11d406849715b47c9d69bb22f50874f80caee96bd1cbe7b61abbebbf5a05/ibis_framework-12.0.0-py3-none-any.whl", hash = "sha256:0bbd790f268da9cb87926d5eaad2b827a573927113c4ed3be5095efa89b9e512", size = 2079219, upload-time = "2026-02-07T14:31:10.646Z" },
 ]
 
+[package.optional-dependencies]
+duckdb = [
+    { name = "duckdb" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "pyarrow-hotfix" },
+    { name = "rich" },
+]
+
 [[package]]
 name = "identify"
 version = "2.6.19"
@@ -4430,6 +4442,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyarrow-hotfix"
+version = "0.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d2/ed/c3e8677f7abf3981838c2af7b5ac03e3589b3ef94fcb31d575426abae904/pyarrow_hotfix-0.7.tar.gz", hash = "sha256:59399cd58bdd978b2e42816a4183a55c6472d4e33d183351b6069f11ed42661d", size = 9910, upload-time = "2025-04-25T10:17:06.247Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2e/c3/94ade4906a2f88bc935772f59c934013b4205e773bcb4239db114a6da136/pyarrow_hotfix-0.7-py3-none-any.whl", hash = "sha256:3236f3b5f1260f0e2ac070a55c1a7b339c4bb7267839bd2015e283234e758100", size = 7923, upload-time = "2025-04-25T10:17:05.224Z" },
+]
+
+[[package]]
 name = "pyasn1"
 version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -6547,7 +6568,7 @@ gizmosql = [
     { name = "gizmosql" },
 ]
 ibis = [
-    { name = "ibis-framework" },
+    { name = "ibis-framework", extra = ["duckdb"] },
 ]
 postgres = [
     { name = "adbc-driver-postgresql" },
@@ -6651,7 +6672,7 @@ requires-dist = [
     { name = "gizmosql", marker = "extra == 'gizmosql'", specifier = ">=1.26.0,<2" },
     { name = "google-cloud-bigquery", marker = "extra == 'bigquery'", specifier = ">=3,<4" },
     { name = "google-cloud-bigquery-storage", marker = "extra == 'bigquery'", specifier = ">=2,<3" },
-    { name = "ibis-framework", marker = "extra == 'ibis'", specifier = ">=10.5.0" },
+    { name = "ibis-framework", extras = ["duckdb"], marker = "extra == 'ibis'", specifier = ">=10.5.0" },
     { name = "matplotlib", marker = "python_full_version >= '3.13' and extra == 'examples'", specifier = ">=3.9.2" },
     { name = "matplotlib", marker = "python_full_version < '3.13' and extra == 'examples'", specifier = ">=3.8.0" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
