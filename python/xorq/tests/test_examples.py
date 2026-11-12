@@ -18,7 +18,9 @@ LIBRARY_SCRIPTS = (
 GCS_SCRIPTS = ("gcstorage_example",)
 S3_SCRIPTS = ("s3_content_store_catalog",)
 # examples that fill ./hackernews-items; its writes are not atomic, so under
-# xdist these share one worker rather than race on a cold item dir
+# xdist these share one worker rather than race on a cold item dir. Kept by
+# hand: a new example that imports hackernews_lib must be added here, or it
+# races on the shared dir that CI saves to the actions cache.
 HACKERNEWS_SCRIPTS = (
     "quickstart",
     "deferred_fit_transform_example",
