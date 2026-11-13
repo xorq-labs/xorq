@@ -488,6 +488,22 @@ wheels = [
 ]
 
 [[package]]
+name = "batchcorder-datafusion"
+version = "55.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyarrow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5d/48/edac9a1e1bf817ebb905297a23c3ee90505bc1dab481ea2b565a19a645ec/batchcorder_datafusion-55.0.0.tar.gz", hash = "sha256:1cc0da5aa2cdf4385dc0f75d6c6a2eb12d4fa9979674c80063369c671484d91d", size = 71073, upload-time = "2026-11-13T11:04:19.826Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7d/f3/cad30d26c31819881ab5e9bda9de86ab7ca591347b22c5d2dcc73433e080/batchcorder_datafusion-55.0.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b6dd30d566f11ee7d3109b08b46b175ab93a964a8851f9a8d26201b37667a600", size = 19846190, upload-time = "2026-11-13T11:04:07.109Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/69/625d27a2d414f0df18bdba65b9b07ba168bdb0708c6f40723e34e7a22e42/batchcorder_datafusion-55.0.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:e07f1fd193412628edc55045a8ac5896f6695342aa7b265750f85951543f6dad", size = 19041798, upload-time = "2026-11-13T11:04:09.918Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/15/58c9c4897d2fbf7185c2ea188a914652301559d1ac8a69f3208b86bb01be/batchcorder_datafusion-55.0.0-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:11cc0b1016f0c7d447f51799ee40f437628a9f9900863795dc57515b37f75cc7", size = 21386918, upload-time = "2026-11-13T11:04:12.55Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/19/01955eb58e0cff4061bdbc916f7f81986ce5ddc4d2623f4a572410be738d/batchcorder_datafusion-55.0.0-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:c1d11865c377b82d5d287892cc236306f749da21b3861982e083665e490f7c6e", size = 22889083, upload-time = "2026-11-13T11:04:15.259Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/c5/9405fc91a3bdebb122e7088bd1c3ce36118c85df4332d6ae50025343c7ee/batchcorder_datafusion-55.0.0-cp310-abi3-win_amd64.whl", hash = "sha256:e6a5d56e9c305733f58d55355b3b4613e364765ff87adf61f1cd7489853a51e9", size = 18917340, upload-time = "2026-11-13T11:04:17.854Z" },
+]
+
+[[package]]
 name = "beartype"
 version = "0.22.9"
 source = { registry = "https://pypi.org/simple" }
@@ -6484,6 +6500,7 @@ dependencies = [
     { name = "atpublic" },
     { name = "attrs" },
     { name = "batchcorder" },
+    { name = "batchcorder-datafusion" },
     { name = "click" },
     { name = "cloudpickle" },
     { name = "cryptography" },
@@ -6654,6 +6671,7 @@ requires-dist = [
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.1.0" },
     { name = "batchcorder", specifier = "==0.1.3" },
+    { name = "batchcorder-datafusion", specifier = "==55.0.0" },
     { name = "boring-semantic-layer", marker = "extra == 'bsl'", specifier = ">=0.3.13" },
     { name = "click", specifier = ">=8.0" },
     { name = "cloudpickle", specifier = ">=3.1.1" },

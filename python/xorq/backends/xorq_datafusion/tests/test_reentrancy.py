@@ -8,10 +8,10 @@ xorq's execution teardown drops the views it registered from inside the result
 borrow across the GIL-releasing future, the re-entrant ``sql()`` raised
 ``RuntimeError: Already borrowed``.
 
-Fixed upstream in xorq-labs/xorq-datafusion#37 (methods take ``&self``); xorq
-additionally only bounds a ``StreamCache`` with ``max_readers`` on backends that
-scan it directly (DuckDB), leaving datafusion-fed caches unbounded so cache
-eviction never shifts the stream-exhaustion timing that made this deterministic.
+Fixed upstream in xorq-labs/xorq-datafusion#37 (methods take ``&self``). A
+RemoteTable on datafusion now registers a sealed ``TeeTableProvider`` that evicts
+batches as its planned scans advance, so these tests guard teardown re-entrancy
+under that timing.
 
 These tests guard against reintroducing the hazard from the xorq side.
 """

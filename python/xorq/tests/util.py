@@ -89,12 +89,6 @@ def default_series_rename(series: pd.Series, name: str = "tmp") -> pd.Series:
     return series.rename(name)
 
 
-def reader_counts(expr: Any) -> list[int]:
-    from xorq.expr.remote_table_exec import count_remote_table_readers  # noqa: PLC0415
-
-    return sorted(count_remote_table_readers(expr).values())
-
-
 SPLIT_KEY = "split"
 
 EXAMPLES_DIR = pathlib.Path(__file__).parents[3] / "examples"

@@ -7,8 +7,10 @@ from typing import Any, Callable, NamedTuple
 
 import pyarrow as pa
 from batchcorder import StreamCache
+from batchcorder_datafusion import TeeTableProvider
 
 from xorq.common.compat import raise_collected_errors
+from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
 from xorq.common.utils.logging_utils import get_logger
 from xorq.common.utils.otel_utils import get_current_span
 from xorq.expr.enums import Traversal
@@ -48,9 +50,6 @@ def project_and_cast_reader(
     )
 
 
-# dialects whose planner inlines a CTE at every reference, scanning its body
-# once per reference; the others (duckdb) materialise it and scan it once
-CTE_INLINING_DIALECTS = frozenset({"DataFusion"})
 # dialects whose optimiser re-scans a PARTITION BY-only window's input below
 # the SQL layer (a GROUP BY self-join), where counting Table nodes undercounts
 RESCANNING_DIALECTS = frozenset({"DuckDB"})
@@ -64,12 +63,12 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     one ``RemoteTable``). Each ``RemoteTable`` is rewritten to a placeholder
     table under a freshly generated, unique name, the placeholder expression is
     compiled to a sqlglot AST, and the ``Table`` nodes bearing that name are
-    counted. On a dialect that inlines a CTE at every reference (datafusion),
-    each CTE's body is weighted by its reference count, since a window or join
-    hoisted into a CTE and used twice scans its source twice; a dialect that
-    materialises CTEs (duckdb) scans the body once, and an overcount there
-    would keep every batch buffered waiting for a reader that never comes
-    (eviction starts only once ``max_readers`` readers exist). Counting
+    counted. A CTE's body counts once however often it is referenced: the
+    counted backends (duckdb) materialise it, and an overcount would keep every
+    batch buffered waiting for a reader that never comes (eviction starts only
+    once ``max_readers`` readers exist). DataFusion targets are not counted:
+    they register a ``TeeTableProvider``, which reserves a reader per planned
+    scan (see ``tees_stream_scans``). Counting
     ``Table`` AST nodes (rather than substrings of the rendered SQL) ignores
     column references, aliases, and string literals, so even a short or shared
     user-supplied table name cannot inflate the count.
@@ -96,6 +95,10 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     See ADR-0013 ("Counting accuracy").
     """
     op = expr.op()
+    # a backend that tees its own scans counts them from the query plan; a SQL
+    # count for it would undercount a CTE its planner inlines at each reference
+    if all(tees_stream_scans(node.source) for node in op.find(RemoteTable)):
+        return {}
     sentinels = {}
 
     def replacer(node, kwargs):
@@ -108,6 +111,11 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
         return node
 
     placeholder = op.replace(replacer).to_expr()
+    sentinels = {
+        node: name
+        for node, name in sentinels.items()
+        if not tees_stream_scans(node.source)
+    }
     if not sentinels:
         return {}
     try:
@@ -121,10 +129,8 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     except Exception:
         return {}
 
-    # xorq's datafusion compiler and the vendored one each carry their own
-    # `DataFusion` dialect class, so the dialect is matched by name
+    # dialects are matched by name: backends carry their own dialect classes
     dialect = compiler.dialect.__name__
-    inlines_ctes = dialect in CTE_INLINING_DIALECTS
     queries = out if isinstance(out, list) else [out]
     rescanned = (
         set().union(*map(tables_under_rescans, queries))
@@ -133,7 +139,7 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     )
     counts = Counter()
     for query in queries:
-        counts.update(_count_table_scans(query, inlines_ctes))
+        counts.update(_count_table_scans(query))
     return {
         node: max(1, counts[name])
         for node, name in sentinels.items()
@@ -178,20 +184,19 @@ def tables_under_rescans(query) -> set[str]:
     )
 
 
-def _count_table_scans(query, inlines_ctes: bool) -> Counter:
-    """Count ``Table`` nodes by name; with ``inlines_ctes``, expand each CTE by
-    its reference count, else count each CTE body once.
+def _count_table_scans(query) -> Counter:
+    """Count ``Table`` nodes by name, each referenced CTE's body once.
 
-    The compilers hoist windows and joins into CTEs, and a CTE referenced by
-    both sides of a self cross join is inlined by datafusion (duckdb
-    materialises it): its body is scanned once per reference. The walk only
+    The compilers hoist windows and joins into CTEs, which duckdb materialises:
+    a CTE referenced by both sides of a self cross join scans its body once,
+    and an unreferenced one not at all. The walk only
     descends (the compiled AST shares nodes, so a node's parent pointer does
     not say where it was reached from) and stops at each scope: a CTE body, or
     a nested query with a WITH of its own (an embedded raw-SQL query, whose CTE
     names may shadow the generated ones). Nested queries are folded in as
     scanned once; CTE bodies last-to-first, so a later CTE's references to an
     earlier one are already in ``counts`` when the earlier one's body is
-    weighted.
+    counted.
     """
     import sqlglot as sg  # noqa: PLC0415
 
@@ -208,12 +213,10 @@ def _count_table_scans(query, inlines_ctes: bool) -> Counter:
         elif isinstance(node, sg.exp.CTE):
             ctes.append(node)
         elif is_scope(node):
-            counts.update(_count_table_scans(node, inlines_ctes))
+            counts.update(_count_table_scans(node))
     for cte in reversed(ctes):
-        weight = counts.pop(cte.alias_or_name, 0)
-        if not inlines_ctes:
-            weight = min(weight, 1)
-        for name, n in _count_table_scans(cte.this, inlines_ctes).items():
+        weight = min(counts.pop(cte.alias_or_name, 0), 1)
+        for name, n in _count_table_scans(cte.this).items():
             counts[name] += weight * n
     return counts
 
@@ -260,7 +263,8 @@ class _ScopeEntry(NamedTuple):
 
 class RemoteTableScope:
     """Owns resources materialized while replacing ``RemoteTable`` nodes:
-    upstream readers, ``StreamCache``s, placeholder tables, and write-through
+    upstream readers, ``StreamCache``s or ``TeeTableProvider``s, placeholder
+    tables, and write-through
     drains (folded in from tee transforms).
 
     ``close()`` is idempotent and tears down in dependency order: drains first
@@ -310,7 +314,9 @@ class RemoteTableScope:
         self._readers.append(_ScopeEntry("reader", type(reader).__name__, reader.close))
         return reader
 
-    def adopt_cache(self, cache: StreamCache) -> StreamCache:
+    def adopt_cache(
+        self, cache: StreamCache | TeeTableProvider
+    ) -> StreamCache | TeeTableProvider:
         self._caches.append(_ScopeEntry("cache", type(cache).__name__, cache.close))
         return cache
 
@@ -424,6 +430,18 @@ def bind_scope_to_reader(
     return out
 
 
+def tees_stream_scans(con: BaseBackend) -> bool:
+    """Whether ``con`` fans one stream out to every scan itself.
+
+    A backend that sets ``tees_stream_scans = True`` takes a
+    ``TeeTableProvider`` in ``read_record_batches``: the provider reserves a
+    reader per scan its query plans, so no ``max_readers`` is counted up
+    front. Every other backend gets a ``StreamCache`` bounded by
+    ``count_remote_table_readers``.
+    """
+    return getattr(con, "tees_stream_scans", False)
+
+
 def _make_remote_replacer(
     expr: Expr, scope: RemoteTableScope, read_record_batches_kwargs: dict
 ) -> Replacer:
@@ -441,7 +459,11 @@ def _make_remote_replacer(
     # SQL AST because one graph reference can become several physical scans (a
     # self-join over one RemoteTable). So it cannot be merged into the
     # materializing walk. REMOTE_PASS's ``when`` keeps it (and this walk) from
-    # running at all when no RemoteTable is reachable at this boundary.
+    # running at all when no RemoteTable is reachable at this boundary. A
+    # RemoteTable on a backend that tees its own scans gets a TeeTableProvider,
+    # not a StreamCache; the count leaves it out, and compiles nothing when no
+    # other RemoteTable is left.
+    remote_tables = expr.op().find(RemoteTable)
     reader_counts = count_remote_table_readers(expr)
 
     # Emit the historical ``remote_table.replace`` event on the active
@@ -452,7 +474,7 @@ def _make_remote_replacer(
     # for a compiler-less backend or a failed SQL compile even when RemoteTables
     # are present, so gating on it would silently drop the event in exactly that
     # case (see gh-2160).
-    remote_table_count = len(expr.op().find(RemoteTable))
+    remote_table_count = len(remote_tables)
     if remote_table_count:
         get_current_span().add_event(
             "remote_table.replace", {"remote_table.count": remote_table_count}
@@ -465,10 +487,11 @@ def _make_remote_replacer(
             logical_schema = node.schema.to_pyarrow()
             casting_reader = project_and_cast_reader(raw_reader, logical_schema)
             cache = scope.adopt_cache(
-                StreamCache(
-                    casting_reader,
-                    max_readers=reader_counts.get(node),
-                )
+                # the provider is registered as is, past the backends' own
+                # pandas-metadata stripping (#2266)
+                TeeTableProvider(drop_pandas_schema_metadata(casting_reader))
+                if tees_stream_scans(node.source)
+                else StreamCache(casting_reader, max_readers=reader_counts.get(node))
             )
             # adopt before registering: a partial failure inside
             # read_record_batches (register, then raise) can't strand the

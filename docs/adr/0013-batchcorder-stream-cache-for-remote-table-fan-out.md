@@ -1,6 +1,6 @@
 # ADR-0013: Replace SafeTee with batchcorder StreamCache for RemoteTable fan-out
 
-- **Status:** Accepted
+- **Status:** Amended
 - **Date:** 2026-05-22
 - **Deciders:** Daniel
 - **Context area:** `python/xorq/expr/remote_table_exec.py`, `python/xorq/expr/api.py`, `python/xorq/expr/relations.py`
@@ -296,6 +296,33 @@ ingestion and an optional disk spill path.
   is acceptable; disk mode would require deterministic cleanup (e.g. wrapping the
   reader in a context manager).
 
+## Amendment (2026-11-13): DataFusion targets tee their own scans
+
+The StreamCache decision stands for every other backend. A RemoteTable whose
+target is `xorq_datafusion` or `datafusion` is now registered as a
+`batchcorder_datafusion.TeeTableProvider` instead, built from the same projected
+and cast reader. The provider reserves a reader for each scan in the query plan
+when the query is planned, so the count comes from the plan, not the SQL.
+
+- `tees_stream_scans = True` on both DataFusion backends selects this path in
+  `python/xorq/expr/remote_table_exec.py`. `count_remote_table_readers` leaves
+  their RemoteTables out, and compiles no SQL when no other RemoteTable remains.
+- Weighting a CTE body by its reference count, which existed only for
+  DataFusion's CTE inlining, is removed: a CTE body now counts once.
+- The provider is sealed: it serves one executed query. A second on the same
+  placeholder fails ("earliest cached batch has been evicted").
+- The provider reports `TableType::Temporary`, which DataFusion's `DROP TABLE`
+  does not find. Both backends' `drop_table` deregisters a temporary table in the
+  default schema; with `database=` it goes to `DROP`, which fails and leaves it.
+- `pyproject.toml` pins `xorq-datafusion==0.3.0`, `batchcorder-datafusion==55.0.0`
+  and, in the `datafusion` extra, `datafusion>=55,<56`: one DataFusion major.
+- `batchcorder-datafusion` is a required dependency of every install. It
+  compiles in its own copy of DataFusion and its own Tokio runtime: 79 MB
+  installed, against 4.5 MB for `batchcorder`.
+- A host outside the provider's DataFusion major fails when a RemoteTable is
+  registered (`RuntimeError` from the provider's host check), not when it is
+  installed: the `datafusion` pin binds only when that extra is requested.
+
 ## References
 
 - [Issue #983](https://github.com/xorq-labs/xorq/issues/983) — `asof_join` with `tolerance` and `into_backend` gives empty result
@@ -304,3 +331,4 @@ ingestion and an optional disk spill path.
 - `python/xorq/expr/api.py` — `_transform_expr`, `remote_table_scope`, `to_pyarrow_batches`, `_pandas_execute`, `get_plans`
 - `python/xorq/expr/relations.py` — `RemoteTable`
 - [batchcorder on PyPI](https://pypi.org/project/batchcorder/)
+- [batchcorder-datafusion on PyPI](https://pypi.org/project/batchcorder-datafusion/)
