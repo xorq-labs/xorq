@@ -60,6 +60,22 @@ if TYPE_CHECKING:
 ALL_OPERATIONS = frozenset(get_subclasses(ops.Node))
 
 
+def _prepend_ctes(query: sge.Expression, ctes: Iterable[sge.CTE]) -> sge.Expression:
+    # `with_` appends after the query's own CTEs, which then cannot read
+    # these, and it drops WITH RECURSIVE: extend the query's own WITH instead.
+    # Edits `query` in place, so pass a tree no one else holds.
+    match query.ctes:
+        case [first, *_] as own:
+            first.parent.set("expressions", [*ctes, *own])
+            return query
+        case _:
+            return reduce(
+                lambda q, cte: q.with_(cte.args["alias"], as_=cte.this, copy=False),
+                ctes,
+                query,
+            )
+
+
 class AggGen:
     """A descriptor for compiling aggregate functions.
 
@@ -658,13 +674,18 @@ class SQLGlotCompiler(abc.ABC):
             out = out.this
 
         # add cte definitions to the select statement
-        for cte in ctes:
-            alias = sg.to_identifier(aliases[cte], quoted=self.quoted)
-            out = out.with_(
-                alias, as_=results[cte].this, dialect=self.dialect, copy=False
-            )
-
-        return out
+        return _prepend_ctes(
+            out,
+            [
+                sge.CTE(
+                    this=results[cte].this,
+                    alias=sge.TableAlias(
+                        this=sg.to_identifier(aliases[cte], quoted=self.quoted)
+                    ),
+                )
+                for cte in ctes
+            ],
+        )
 
     def visit_node(self, op: ops.Node, **kwargs):
         if isinstance(op, ops.ScalarUDF):
@@ -1566,27 +1587,17 @@ class SQLGlotCompiler(abc.ABC):
 
         compiled_ibis_expr = self.to_sqlglot(table)
 
-        # pull existing CTEs from the compiled Ibis expression and combine them
-        # with the new query
-        parsed = reduce(
-            lambda parsed, cte: parsed.with_(cte.args["alias"], as_=cte.args["this"]),
-            compiled_ibis_expr.ctes,
-            sg.parse_one(query, read=dialect),
-        )
-
-        # remove all ctes from the compiled expression, since they're now in
-        # our larger expression (through the With node: its arg key is "with"
-        # or "with_" depending on the sqlglot version)
+        # hoist the compiled expression's CTEs and put them, then the
+        # expression itself under `name`, ahead of the query's own
         if ctes := compiled_ibis_expr.ctes:
             ctes[0].parent.pop()
-
-        # add the new str query as a CTE
-        parsed = parsed.with_(
-            sg.to_identifier(name, quoted=self.quoted), as_=compiled_ibis_expr
+        view = sge.CTE(
+            this=compiled_ibis_expr,
+            alias=sge.TableAlias(this=sg.to_identifier(name, quoted=self.quoted)),
         )
-
-        # generate the SQL string
-        return parsed.sql(dialect)
+        return _prepend_ctes(sg.parse_one(query, read=dialect), [*ctes, view]).sql(
+            dialect
+        )
 
     def _make_sample_backwards_compatible(self, *, sample, parent):
         # sample was changed to be owned by the table being sampled in 25.17.0
