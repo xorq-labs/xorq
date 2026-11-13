@@ -184,3 +184,30 @@ def test_sql_with_recursive(backend, to_named):
     # a later .sql hoists the recursive CTE and must keep it recursive
     chained = expr.alias("s").sql("SELECT n FROM s")
     assert sorted(chained.execute().n) == [1, 2, 2, 3, 3]
+
+
+def test_sql_on_aliased_memtable():
+    expr = xo.memtable({"a": [1, 2]}).alias("rt").sql("SELECT a FROM rt")
+    assert sorted(expr.execute().a) == [1, 2]
+
+
+@pytest.mark.parametrize("backend", ["datafusion", "duckdb", "xorq_datafusion"])
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        pytest.param("SELECT b FROM rt", [10, 20], id="select"),
+        pytest.param(
+            "WITH RECURSIVE r(b) AS "
+            "(SELECT b FROM rt UNION ALL SELECT b + 1 FROM r WHERE b < 11) "
+            "SELECT b FROM r",
+            [10, 11, 20],
+            id="recursive",
+        ),
+    ],
+)
+def test_sql_on_aliased_memtable_join(backend, query, expected):
+    # the memtable reaches the backend only through the aliased join
+    con = getattr(xo, backend).connect()
+    t = con.create_table("k", pd.DataFrame({"a": [1, 2]}), overwrite=True)
+    expr = t.join(xo.memtable({"a": [1, 2], "b": [10, 20]}), "a").alias("rt")
+    assert sorted(expr.sql(query).execute().b) == expected
