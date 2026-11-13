@@ -274,6 +274,15 @@ def test_get_plans_drops_placeholders(recording_caches: list) -> None:
     assert con.list_tables() == []
 
 
+def test_get_plans_duckdb_target() -> None:
+    t = pa.table({"k": [1, 1, 2, 2], "v": [1, 2, 3, 4]})
+    d = xo.duckdb.connect()
+    rt = xo.duckdb.connect().create_table("s", t).into_backend(d, "rt")
+    plans = get_plans(rt.join(rt, "k"))
+    assert "HASH_JOIN" in plans["physical_plan"]
+    assert d.list_tables() == []
+
+
 def test_table_sql_failure_does_not_leak(recording_caches: list) -> None:
     target = xo.duckdb.connect()
     expr = make_remote_expr(target)

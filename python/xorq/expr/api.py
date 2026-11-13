@@ -841,11 +841,12 @@ def to_json(
 def get_plans(expr: ir.Expr) -> dict:
     # Strip tee nodes first (like to_sql): EXPLAIN is a non-executing path, so
     # it must not register a pass-through table or fire the side-effect write.
-    # Full close is safe here: EXPLAIN is materialized via to_pandas inside.
+    # Full close is safe here: EXPLAIN is materialized inside the scope.
+    # Plan rows are (kind, plan) pairs; the column names vary by engine.
     with remote_table_scope(_remove_tee_nodes(expr)) as _expr:
         con, _ = find_backend(_expr.op())
         sql = f"EXPLAIN {to_sql(_expr)}"
-        return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
+        return dict(zip(*con.con.sql(sql).to_arrow_table().to_pydict().values()))
 
 
 def get_object_metadata(path: str, **kwargs: Any) -> dict:
