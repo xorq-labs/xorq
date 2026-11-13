@@ -166,24 +166,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         yield self.raw_sql(sql).collect()
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
-        name = gen_name("datafusion_metadata_view")
-        table = sg.table(name, quoted=self.compiler.quoted)
-        src = sge.Create(
-            this=table,
-            kind="VIEW",
-            expression=sg.parse_one(query, read=self.dialect),
-            properties=sge.Properties(expressions=[sge.TemporaryProperty()]),
-        )
-
-        with self._safe_raw_sql(src):
-            pass
-
-        try:
-            df = self.con.table(name)
-        finally:
-            self.drop_view(name)
-
-        return PyArrowSchema.to_ibis(df.schema())
+        # planning is lazy: the DataFrame's schema needs no view and no execution
+        return PyArrowSchema.to_ibis(self.con.sql(query).schema())
 
     def _register_builtin_udfs(self):
         from xorq.backends.xorq_datafusion import udfs  # noqa: PLC0415
