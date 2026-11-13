@@ -204,6 +204,7 @@ class SQLBackend(BaseBackend, _DatabaseSchemaHandler):
         self, *, name: str, table: ir.Table, query: str
     ) -> sch.Schema:
         sql = self.compiler.add_query_to_expr(name=name, table=table, query=query)
+        self._register_in_memory_tables(table)
         return self._get_schema_using_query(sql)
 
     def _register_udfs(self, expr: ir.Expr) -> None:
