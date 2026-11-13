@@ -95,6 +95,10 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
     See ADR-0013 ("Counting accuracy").
     """
     op = expr.op()
+    # a backend that tees its own scans counts them from the query plan; a SQL
+    # count for it would undercount a CTE its planner inlines at each reference
+    if all(tees_stream_scans(node.source) for node in op.find(RemoteTable)):
+        return {}
     sentinels = {}
 
     def replacer(node, kwargs):
@@ -107,8 +111,6 @@ def count_remote_table_readers(expr: Expr) -> dict[RemoteTable, int]:
         return node
 
     placeholder = op.replace(replacer).to_expr()
-    # a backend that tees its own scans counts them from the query plan; a SQL
-    # count for it would undercount a CTE its planner inlines at each reference
     sentinels = {
         node: name
         for node, name in sentinels.items()
