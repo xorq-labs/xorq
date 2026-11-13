@@ -1,6 +1,8 @@
 import pandas as pd
 import pyarrow as pa
 import pytest
+import sqlglot
+from packaging.version import Version
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
@@ -211,3 +213,23 @@ def test_sql_on_aliased_memtable_join(backend, query, expected):
     t = con.create_table("k", pd.DataFrame({"a": [1, 2]}), overwrite=True)
     expr = t.join(xo.memtable({"a": [1, 2], "b": [10, 20]}), "a").alias("rt")
     assert sorted(expr.sql(query).execute().b) == expected
+
+
+@pytest.mark.skipif(
+    Version(sqlglot.__version__) < Version("27.26"),
+    reason="sqlglot parses DuckDB USING KEY from 27.26",
+)
+def test_sql_hoist_keeps_cte_using_key():
+    con = xo.duckdb.connect()
+    t = con.create_table("rt", pd.DataFrame({"k": [1], "n": [1]}), overwrite=True)
+    keyed = t.sql(
+        "WITH RECURSIVE r(k, n) USING KEY (k) AS "
+        "(SELECT k, n FROM rt UNION SELECT k, n + 1 FROM r WHERE n < 3) "
+        "SELECT k, n FROM r"
+    )
+    # a chained .sql's schema probe hoists r into the outer query's WITH;
+    # without USING KEY, r keeps every step instead of the last one per key
+    sql = con.compiler.add_query_to_expr(
+        name="s", table=keyed, query="SELECT k, n FROM s"
+    )
+    assert con.raw_sql(sql).fetchall() == [(1, 3)]
