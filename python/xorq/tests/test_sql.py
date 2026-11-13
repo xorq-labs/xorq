@@ -181,3 +181,6 @@ def test_sql_with_recursive(backend, to_named):
         "SELECT n FROM r ORDER BY n"
     )
     assert expr.execute().n.tolist() == [1, 2, 2, 3, 3]
+    # a later .sql hoists the recursive CTE and must keep it recursive
+    chained = expr.alias("s").sql("SELECT n FROM s")
+    assert sorted(chained.execute().n) == [1, 2, 2, 3, 3]

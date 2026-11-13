@@ -60,17 +60,23 @@ if TYPE_CHECKING:
 ALL_OPERATIONS = frozenset(get_subclasses(ops.Node))
 
 
-def _prepend_ctes(query: sge.Expression, ctes: Iterable[sge.CTE]) -> sge.Expression:
+def _prepend_ctes(
+    query: sge.Expression, ctes: Iterable[sge.CTE], *, recursive: bool = False
+) -> sge.Expression:
     # `with_` appends after the query's own CTEs, which then cannot read
     # these, and it drops WITH RECURSIVE: extend the query's own WITH instead.
     # Edits `query` in place, so pass a tree no one else holds.
     match query.ctes:
         case [first, *_] as own:
-            first.parent.set("expressions", [*ctes, *own])
+            with_ = first.parent
+            with_.set("expressions", [*ctes, *own])
+            with_.set("recursive", recursive or with_.args.get("recursive"))
             return query
         case _:
             return reduce(
-                lambda q, cte: q.with_(cte.args["alias"], as_=cte.this, copy=False),
+                lambda q, cte: q.with_(
+                    cte.args["alias"], as_=cte.this, recursive=recursive, copy=False
+                ),
                 ctes,
                 query,
             )
@@ -1589,15 +1595,19 @@ class SQLGlotCompiler(abc.ABC):
 
         # hoist the compiled expression's CTEs and put them, then the
         # expression itself under `name`, ahead of the query's own
-        if ctes := compiled_ibis_expr.ctes:
-            ctes[0].parent.pop()
+        match compiled_ibis_expr.ctes:
+            case [first, *_] as ctes:
+                recursive = first.parent.args.get("recursive")
+                first.parent.pop()
+            case ctes:
+                recursive = False
         view = sge.CTE(
             this=compiled_ibis_expr,
             alias=sge.TableAlias(this=sg.to_identifier(name, quoted=self.quoted)),
         )
-        return _prepend_ctes(sg.parse_one(query, read=dialect), [*ctes, view]).sql(
-            dialect
-        )
+        return _prepend_ctes(
+            sg.parse_one(query, read=dialect), [*ctes, view], recursive=recursive
+        ).sql(dialect)
 
     def _make_sample_backwards_compatible(self, *, sample, parent):
         # sample was changed to be owned by the table being sampled in 25.17.0
