@@ -401,10 +401,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # this table"; an unqualified name resolves in the default namespace,
         # so check that one and name the view instead
         unqualified = schema is None and database is None
-        if (
-            unqualified
-            and table_kind(self.con.catalog().database(), table_name) == "view"
-        ):
+        if unqualified and table_kind(self._default_schema, table_name) == "view":
             raise ValueError(f"cannot insert into {table_name!r}: it is a view")
         super().insert(
             table_name, obj, schema=schema, database=database, overwrite=overwrite
@@ -917,6 +914,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             self.con.deregister_table(table_ident)
             raise
 
+    def _default_schema(self) -> Any:
+        return self.con.catalog().database()
+
     def drop_table(
         self,
         name: str,
@@ -927,7 +927,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # the default schema is deregistered here. With ``database`` given the
         # call goes to DROP, which leaves a temporary table in place.
         if database is None and deregister_temporary_table(
-            self.con, self.con.catalog().database(), name, quoted=self.compiler.quoted
+            self.con, self._default_schema, name, quoted=self.compiler.quoted
         ):
             return
         super().drop_table(name, database=database, force=force)

@@ -143,3 +143,16 @@ def test_read_record_batches_tee_provider_refuses_pandas_metadata() -> None:
     reader = pa.Table.from_pandas(pd.DataFrame({"a": [1]})).to_reader()
     with pytest.raises(ValueError, match="pandas"):
         con.read_record_batches(TeeTableProvider(reader), "t")
+
+
+def test_drop_table_with_a_custom_default_catalog() -> None:
+    config = datafusion.SessionConfig().with_default_catalog_and_schema(
+        "mycat", "mysch"
+    )
+    ctx = datafusion.SessionContext(config)
+    con = xo.datafusion.connect(ctx)
+    ctx.from_arrow(pa.table({"a": [1]}), "base")
+
+    con.drop_table("base")
+
+    assert not ctx.table_exist("base")

@@ -132,6 +132,9 @@ class Backend(IbisDatafusionBackend):
         self.con.from_arrow(drop_pandas_schema_metadata(table), table_ident)
         return self.table(table_name)
 
+    def _default_schema(self) -> Any:
+        return self.con.catalog().schema()
+
     def drop_table(
         self,
         name: str,
@@ -142,7 +145,7 @@ class Backend(IbisDatafusionBackend):
         # the default schema is deregistered here. With ``database`` given the
         # call goes to DROP, which leaves a temporary table in place.
         if database is None and deregister_temporary_table(
-            self.con, self.con.catalog().schema(), name, quoted=self.compiler.quoted
+            self.con, self._default_schema, name, quoted=self.compiler.quoted
         ):
             return
         super().drop_table(name, database=database, force=force)
