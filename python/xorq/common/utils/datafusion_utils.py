@@ -11,7 +11,10 @@ def table_kind(default_schema: Callable[[], Any], name: str) -> str | None:
 
     ``"physical"``, ``"view"`` or ``"temporary"`` (a ``TeeTableProvider``);
     ``None`` when there is no such table or the schema cannot be looked up (a
-    session whose default catalog is not the hosts' ``datafusion``). The hosts
+    session whose default catalog is not the hosts' ``datafusion``: neither
+    host exposes the configured default outside information_schema, so a
+    temporary table there is left to ``DROP``, which keeps it registered). The
+    hosts
     name the default schema differently: ``ctx.catalog().database()`` on
     xorq-datafusion, ``ctx.catalog().schema()`` on datafusion-python.
     """
