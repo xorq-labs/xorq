@@ -457,3 +457,14 @@ def test_read_record_batches_tee_provider_refuses_pandas_metadata():
     reader = pa.Table.from_pandas(pd.DataFrame({"a": [1]})).to_reader()
     with pytest.raises(ValueError, match="pandas"):
         con.read_record_batches(TeeTableProvider(reader), "t")
+
+
+def test_read_record_batches_refused_provider_keeps_existing_table():
+    con = xo.connect()
+    con.create_table("orders", pa.table({"a": [1]}))
+    reader = pa.Table.from_pandas(pd.DataFrame({"a": [2]})).to_reader()
+
+    with pytest.raises(ValueError, match="pandas"):
+        con.read_record_batches(TeeTableProvider(reader), "orders")
+
+    assert con.table("orders").a.sum().execute() == 1

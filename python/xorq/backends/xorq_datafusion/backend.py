@@ -857,7 +857,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
-        self.con.deregister_table(table_ident)
         registered: Any = None
         match source:
             case TeeTableProvider():
@@ -904,6 +903,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # Build the ir.Table after registering; if that build fails, deregister
         # so a failed call never leaves a half-registered table behind. Applies
         # to every source type, not just the lazy StreamCache path.
+        # replace an existing table only once the source has been accepted
+        self.con.deregister_table(table_ident)
         if isinstance(registered, TeeTableProvider):
             self.con.register_table_provider(table_ident, registered)
         else:
