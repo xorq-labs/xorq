@@ -4,6 +4,7 @@ import pytest
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.api import _
 
 
 @pytest.mark.parametrize("file_format", ["parquet", "csv"])
@@ -146,3 +147,40 @@ def test_sql_hoists_child_ctes(backend, to_child):
         to_child(t).alias("s").sql("SELECT b, a + 1 AS c FROM s WHERE a > 1 ORDER BY a")
     )
     assert expr.execute().to_dict("list") == {"b": ["y", "z"], "c": [3, 4]}
+
+
+@pytest.mark.parametrize("backend", ["datafusion", "duckdb", "xorq_datafusion"])
+@pytest.mark.parametrize(
+    "to_named",
+    [
+        pytest.param(
+            lambda con, df: (xo.memtable(df).into_backend(con, "rt"), "rt"),
+            id="into_backend",
+        ),
+        pytest.param(
+            lambda con, df: (con.create_table("rt", df, overwrite=True), "rt"),
+            id="table",
+        ),
+        pytest.param(
+            lambda con, df: (
+                (f := con.create_table("src", df, overwrite=True).filter(_.a > 0))
+                .join(f.view(), "a")
+                .select("a")
+                .alias("rt"),
+                "rt",
+            ),
+            id="child_with_cte",
+        ),
+    ],
+)
+def test_sql_with_recursive(backend, to_named):
+    (t, name) = to_named(getattr(xo, backend).connect(), pd.DataFrame({"a": [1, 2]}))
+    expr = t.sql(
+        "WITH RECURSIVE r(n) AS "
+        f"(SELECT a FROM {name} UNION ALL SELECT n + 1 FROM r WHERE n < 3) "
+        "SELECT n FROM r ORDER BY n"
+    )
+    assert expr.execute().n.tolist() == [1, 2, 2, 3, 3]
+    # a later .sql hoists the recursive CTE and must keep it recursive
+    chained = expr.alias("s").sql("SELECT n FROM s")
+    assert sorted(chained.execute().n) == [1, 2, 2, 3, 3]
