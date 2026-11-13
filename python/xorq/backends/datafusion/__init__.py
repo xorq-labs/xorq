@@ -138,6 +138,9 @@ class Backend(IbisDatafusionBackend):
         database: tuple[str, str] | str | None = None,
         force: bool = False,
     ) -> None:
+        # DROP TABLE skips a temporary table (a TeeTableProvider), so one in
+        # the default schema is deregistered here. With ``database`` given the
+        # call goes to DROP, which leaves a temporary table in place.
         if database is None and deregister_temporary_table(
             self.con, self.con.catalog().schema(), name, quoted=self.compiler.quoted
         ):
