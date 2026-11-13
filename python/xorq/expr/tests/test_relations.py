@@ -389,6 +389,32 @@ def test_count_leaves_out_a_backend_that_tees_its_scans(connect) -> None:
     assert count_remote_table_readers(expr) == {}
 
 
+@pytest.mark.parametrize(
+    "connect",
+    [
+        pytest.param(xo.connect, id="xorq"),
+        pytest.param(lambda: xo.datafusion.connect(), id="datafusion"),
+    ],
+)
+def test_count_compiles_nothing_when_every_target_tees(
+    connect, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # every RemoteTable lands on a backend that tees its scans, so there is
+    # nothing to count and no SQL to compile for it
+    target = connect()
+    compiled = []
+    real = type(target.compiler).to_sqlglot
+    monkeypatch.setattr(
+        type(target.compiler),
+        "to_sqlglot",
+        lambda self, *a, **k: compiled.append(a) or real(self, *a, **k),
+    )
+    rt = xo.memtable({"a": [1, 2, 3]}).into_backend(target, "rt")
+
+    assert count_remote_table_readers(rt.join(rt.view(), "a")) == {}
+    assert compiled == []
+
+
 def test_count_non_sql_backend_returns_empty() -> None:
     # a non-SQL backend can't produce SQL -> empty mapping -> unbounded cache
     pandas_con = xo.pandas.connect()
