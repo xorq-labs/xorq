@@ -123,7 +123,12 @@ class Backend(IbisDatafusionBackend):
             refuse_pandas_schema_metadata(source.schema)
             self.con.deregister_table(table_ident)
             self.con.register_table(table_ident, source)
-            return self.table(table_name)
+            # a failed table build must not leave the provider registered
+            try:
+                return self.table(table_name)
+            except Exception:
+                self.con.deregister_table(table_ident)
+                raise
         # read before from_arrow: from_arrow holds the session context while it
         # consumes a stream, and a tee into this connection re-enters it from
         # inside that stream

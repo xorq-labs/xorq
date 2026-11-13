@@ -156,3 +156,18 @@ def test_drop_table_with_a_custom_default_catalog() -> None:
     con.drop_table("base")
 
     assert not ctx.table_exist("base")
+
+
+def test_read_record_batches_tee_provider_rolls_back_on_table_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    con = xo.datafusion.connect()
+
+    def boom(self, *args, **kwargs):
+        raise RuntimeError("table build failed")
+
+    monkeypatch.setattr(type(con), "table", boom)
+    with pytest.raises(RuntimeError, match="table build failed"):
+        con.read_record_batches(TeeTableProvider(make_reader(3)), "t")
+
+    assert not con.con.table_exist("t")
