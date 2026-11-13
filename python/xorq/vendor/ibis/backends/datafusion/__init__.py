@@ -166,8 +166,18 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         yield self.raw_sql(sql).collect()
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
-        # planning is lazy: the DataFrame's schema needs no view and no execution
-        return PyArrowSchema.to_ibis(self.con.sql(query).schema())
+        # planning is lazy: the DataFrame's schema needs no view and no
+        # execution. SessionContext.sql runs DDL eagerly, so a probe must not
+        # accept DDL, DML or session statements.
+        read_only = (
+            df.SQLOptions()
+            .with_allow_ddl(False)
+            .with_allow_dml(False)
+            .with_allow_statements(False)
+        )
+        return PyArrowSchema.to_ibis(
+            self.con.sql_with_options(query, read_only).schema()
+        )
 
     def _register_builtin_udfs(self):
         from xorq.backends.xorq_datafusion import udfs  # noqa: PLC0415

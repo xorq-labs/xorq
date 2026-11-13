@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 import xorq.api as xo
 
@@ -30,5 +31,15 @@ def test_sql_schema_probe_leaves_no_view():
     con.create_table("base", pd.DataFrame({"a": [1]}))
 
     con.sql("SELECT a FROM base")
+
+    assert con.list_tables() == ["base"]
+
+
+def test_sql_schema_probe_does_not_run_ddl():
+    con = xo.datafusion.connect()
+    con.create_table("base", pd.DataFrame({"a": [1]}))
+
+    with pytest.raises(Exception, match="DDL not supported"):
+        con.sql("DROP TABLE base")
 
     assert con.list_tables() == ["base"]
