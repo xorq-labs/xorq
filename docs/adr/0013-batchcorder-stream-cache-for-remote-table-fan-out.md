@@ -298,24 +298,24 @@ ingestion and an optional disk spill path.
 
 ## Amendment (2026-11-13): DataFusion targets tee their own scans
 
-The StreamCache decision stands for duckdb and the other backends. A RemoteTable
-whose target is `xorq_datafusion` or `datafusion` is now registered as a
-`batchcorder_datafusion.TeeTableProvider` instead. The provider reserves a reader
-for each scan in the query plan when the query is planned, so the reader count
-comes from the plan DataFusion runs, not from the compiled SQL. Those targets are
-no longer counted.
+The StreamCache decision stands for every other backend. A RemoteTable whose
+target is `xorq_datafusion` or `datafusion` is now registered as a
+`batchcorder_datafusion.TeeTableProvider` instead, built from the same projected
+and cast reader. The provider reserves a reader for each scan in the query plan
+when the query is planned, so the count comes from the plan, not the SQL.
 
 - `tees_stream_scans = True` on both DataFusion backends selects this path in
-  `python/xorq/expr/remote_table_exec.py`. `count_remote_table_readers` runs only
-  when some RemoteTable lands on a backend without the flag.
-- The CTE-reference weighting that existed only for DataFusion's CTE inlining is
-  removed. The counted backends (duckdb) materialise a CTE, so its body counts once.
-- A sealed provider serves one query, and a placeholder serves exactly one query.
-- The provider reports `TableType::Temporary`, which DataFusion's `DROP TABLE` skips.
-  Both backends' `drop_table` deregisters a temporary table in the default schema;
-  base tables and views still go through `DROP`.
-- `datafusion` and `xorq-datafusion` must share the provider's DataFusion major
-  (55 → `datafusion>=55,<56`, `xorq-datafusion>=0.3,<0.4`).
+  `python/xorq/expr/remote_table_exec.py`. `count_remote_table_readers` leaves
+  their RemoteTables out, and compiles no SQL when no other RemoteTable remains.
+- Weighting a CTE body by its reference count, which existed only for
+  DataFusion's CTE inlining, is removed: a CTE body now counts once.
+- The provider is sealed: it serves one executed query. A second on the same
+  placeholder fails ("earliest cached batch has been evicted").
+- The provider reports `TableType::Temporary`, which DataFusion's `DROP TABLE`
+  does not find. Both backends' `drop_table` deregisters a temporary table in the
+  default schema; with `database=` it goes to `DROP`, which fails and leaves it.
+- `pyproject.toml` pins `xorq-datafusion==0.3.0`, `batchcorder-datafusion==55.0.0`
+  and, in the `datafusion` extra, `datafusion>=55,<56`: one DataFusion major.
 - `batchcorder-datafusion` is a required dependency of every install. It
   compiles in its own copy of DataFusion and its own Tokio runtime: 79 MB
   installed, against 4.5 MB for `batchcorder`.
