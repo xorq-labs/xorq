@@ -99,3 +99,12 @@ def test_insert_into_view_names_the_view():
     assert "is a view" not in str(excinfo.value)
 
     assert con.table("t").count().execute() == 2
+
+
+def test_drop_table_with_qualified_database():
+    con = xo.connect()
+    con.create_table("tp", pa.table({"a": [1]}))
+
+    con.drop_table("tp", database=("datafusion", "public"))
+
+    assert "tp" not in con.list_tables()
