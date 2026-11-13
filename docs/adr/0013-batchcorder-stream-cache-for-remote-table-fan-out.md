@@ -316,6 +316,12 @@ no longer counted.
   base tables and views still go through `DROP`.
 - `datafusion` and `xorq-datafusion` must share the provider's DataFusion major
   (55 → `datafusion>=55,<56`, `xorq-datafusion>=0.3,<0.4`).
+- `batchcorder-datafusion` is a required dependency of every install. It
+  compiles in its own copy of DataFusion and its own Tokio runtime: 79 MB
+  installed, against 4.5 MB for `batchcorder`.
+- A host outside the provider's DataFusion major fails when a RemoteTable is
+  registered (`RuntimeError` from the provider's host check), not when it is
+  installed: the `datafusion` pin binds only when that extra is requested.
 
 ## References
 
