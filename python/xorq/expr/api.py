@@ -566,7 +566,8 @@ def _transform_expr(
 
     Returns ``(expr, scope)``. One scope, created up front and carried in the
     ``TransformCtx``, owns every resource the effectful passes materialize
-    (upstream readers, StreamCaches, placeholder tables); the caller must close
+    (upstream readers, StreamCaches or tee providers, placeholder tables); the
+    caller must close
     it once the transformed expr is consumed. Because all passes adopt into that
     *same* scope, a failure in any pass tears down what *earlier* passes created
     -- not just its own. The driver (``run_transform_passes``) selects each

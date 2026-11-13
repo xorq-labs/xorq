@@ -264,9 +264,10 @@ def test_flight_serve_returns_serve_unbound_result(monkeypatch):
 
 @pytest.fixture
 def remote_table() -> Table:
+    # counted on duckdb: datafusion targets tee their own scans, uncounted
     src = xo.connect()
     t = src.register(pa.table({"a": [1, 2, 3], "k": [1, 1, 2]}), "tt")
-    return t.into_backend(xo.connect(), "rt")
+    return t.into_backend(xo.duckdb.connect(), "rt")
 
 
 def _only_count(expr: Table) -> int:
@@ -316,24 +317,24 @@ def test_count_union_all_three(remote_table: Table) -> None:
     assert _only_count(expr) == 3
 
 
-def test_count_window_cte_used_twice_is_two(remote_table: Table) -> None:
+def test_count_window_cte_used_twice_is_one(remote_table: Table) -> None:
     # the window is hoisted into a CTE referenced by both sides of the cross
-    # join; backends that inline CTEs scan the source once per reference
+    # join; duckdb materialises the CTE, scanning the source once
     r = remote_table.mutate(rn=remote_table.a.cumsum())
     expr = (
         r.filter(r.k == 1).select(x=r.rn).cross_join(r.filter(r.k == 2).select(y=r.rn))
     )
+    assert _only_count(expr) == 1
+
+
+def test_count_self_join_cte_used_twice_is_two(remote_table: Table) -> None:
+    # two scans inside the CTE, which duckdb materialises once
+    r = remote_table.join(remote_table.view(), "k").select("a", "k")
+    expr = r.filter(r.k == 1).select(x=r.a).cross_join(r.filter(r.k == 2).select(y=r.a))
     assert _only_count(expr) == 2
 
 
-def test_count_self_join_cte_used_twice_is_four(remote_table: Table) -> None:
-    # two scans inside the CTE, times two references to it
-    r = remote_table.join(remote_table.view(), "k").select("a", "k")
-    expr = r.filter(r.k == 1).select(x=r.a).cross_join(r.filter(r.k == 2).select(y=r.a))
-    assert _only_count(expr) == 4
-
-
-def test_count_direct_plus_cte_used_twice_is_three(remote_table: Table) -> None:
+def test_count_direct_plus_cte_used_twice_is_two(remote_table: Table) -> None:
     # one direct scan plus a windowed CTE referenced twice; the compiled AST
     # shares the placeholder node between the two, so the count must not rely
     # on a node's single parent pointer
@@ -344,7 +345,7 @@ def test_count_direct_plus_cte_used_twice_is_three(remote_table: Table) -> None:
         w.filter(w.k == 2).select(x=w.rn),
         distinct=False,
     )
-    assert _only_count(expr) == 3
+    assert _only_count(expr) == 2
 
 
 def test_count_embedded_sql_cte_shadowing_generated_alias(
@@ -362,7 +363,7 @@ def test_count_embedded_sql_cte_shadowing_generated_alias(
         f'WITH "{alias}" AS (SELECT "z" FROM "other") SELECT "z" FROM "{alias}"'
     )
     assert f'WITH "{alias}"' in xo.to_sql(expr.cross_join(inner))
-    assert _only_count(expr.cross_join(inner)) == 4
+    assert _only_count(expr.cross_join(inner)) == 2
 
 
 def test_count_join_plus_scalar_subquery(remote_table: Table) -> None:
@@ -370,6 +371,22 @@ def test_count_join_plus_scalar_subquery(remote_table: Table) -> None:
     r = remote_table
     expr = r.mutate(mx=r.a.max().as_scalar()).join(r.view(), "k")
     assert _only_count(expr) == 3
+
+
+@pytest.mark.parametrize(
+    "connect",
+    [
+        pytest.param(xo.connect, id="xorq"),
+        pytest.param(lambda: xo.datafusion.connect(), id="datafusion"),
+    ],
+)
+def test_count_leaves_out_a_backend_that_tees_its_scans(connect) -> None:
+    # a datafusion target counts its scans from the plan; a SQL count for it
+    # would undercount a CTE the planner inlines twice
+    rt = xo.memtable({"a": [1, 2, 3]}).into_backend(connect(), "rt")
+    w = rt.mutate(rn=rt.a.cumsum(order_by="a"))
+    expr = w.select(x=w.rn).cross_join(w.select(y=w.rn))
+    assert count_remote_table_readers(expr) == {}
 
 
 def test_count_non_sql_backend_returns_empty() -> None:
@@ -382,7 +399,7 @@ def test_count_non_sql_backend_returns_empty() -> None:
 def test_count_name_collision_is_exact() -> None:
     # two distinct RemoteTables sharing one user-supplied name are still counted
     # independently: fresh sentinel names per table prevent any over-count
-    target = xo.connect()
+    target = xo.duckdb.connect()
     a = xo.memtable({"id": [1, 2, 3], "v": [10, 20, 30]}).into_backend(target, "t")
     b = xo.memtable({"id": [1, 2, 3], "v": [40, 50, 60]}).into_backend(target, "t")
     counts = count_remote_table_readers(a.join(b, "id"))
@@ -395,7 +412,7 @@ def test_count_deferred_read_fanout(tmp_path: pathlib.Path) -> None:
     path = tmp_path / "data.parquet"
     pd.DataFrame({"id": [1, 2, 3, 4], "k": ["a", "a", "b", "b"]}).to_parquet(path)
     read = xo.deferred_read_parquet(path, xo.connect(), table_name="dr")
-    rt = read.into_backend(xo.connect(), "rt")
+    rt = read.into_backend(xo.duckdb.connect(), "rt")
     assert _only_count(rt.filter(rt.id > 1)) == 1
     assert _only_count(rt.join(rt.view(), "k")) == 2
 
@@ -430,7 +447,7 @@ def test_count_compile_failure_returns_empty(monkeypatch: pytest.MonkeyPatch) ->
     # to_sqlglot failure -> empty mapping -> caller builds unbounded cache (safe)
     src = xo.connect()
     t = src.register(pa.table({"a": [1, 2, 3]}), "tt")
-    target = xo.connect()
+    target = xo.duckdb.connect()
     expr = t.into_backend(target, "rt")
 
     def boom(*a, **k):

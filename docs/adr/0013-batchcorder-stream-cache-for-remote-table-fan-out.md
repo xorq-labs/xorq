@@ -1,6 +1,6 @@
 # ADR-0013: Replace SafeTee with batchcorder StreamCache for RemoteTable fan-out
 
-- **Status:** Accepted
+- **Status:** Amended
 - **Date:** 2026-05-22
 - **Deciders:** Daniel
 - **Context area:** `python/xorq/expr/remote_table_exec.py`, `python/xorq/expr/api.py`, `python/xorq/expr/relations.py`
@@ -296,6 +296,27 @@ ingestion and an optional disk spill path.
   is acceptable; disk mode would require deterministic cleanup (e.g. wrapping the
   reader in a context manager).
 
+## Amendment (2026-11-13): DataFusion targets tee their own scans
+
+The StreamCache decision stands for duckdb and the other backends. A RemoteTable
+whose target is `xorq_datafusion` or `datafusion` is now registered as a
+`batchcorder_datafusion.TeeTableProvider` instead. The provider reserves a reader
+for each scan in the query plan when the query is planned, so the reader count
+comes from the plan DataFusion runs, not from the compiled SQL. Those targets are
+no longer counted.
+
+- `tees_stream_scans = True` on both DataFusion backends selects this path in
+  `python/xorq/expr/remote_table_exec.py`. `count_remote_table_readers` runs only
+  when some RemoteTable lands on a backend without the flag.
+- The CTE-reference weighting that existed only for DataFusion's CTE inlining is
+  removed. The counted backends (duckdb) materialise a CTE, so its body counts once.
+- A sealed provider serves one query, and a placeholder serves exactly one query.
+- The provider reports `TableType::Temporary`, which DataFusion's `DROP TABLE` skips.
+  Both backends' `drop_table` deregisters a temporary table in the default schema;
+  base tables and views still go through `DROP`.
+- `datafusion` and `xorq-datafusion` must share the provider's DataFusion major
+  (55 → `datafusion>=55,<56`, `xorq-datafusion>=0.3,<0.4`).
+
 ## References
 
 - [Issue #983](https://github.com/xorq-labs/xorq/issues/983) — `asof_join` with `tolerance` and `into_backend` gives empty result
@@ -304,3 +325,4 @@ ingestion and an optional disk spill path.
 - `python/xorq/expr/api.py` — `_transform_expr`, `remote_table_scope`, `to_pyarrow_batches`, `_pandas_execute`, `get_plans`
 - `python/xorq/expr/relations.py` — `RemoteTable`
 - [batchcorder on PyPI](https://pypi.org/project/batchcorder/)
+- [batchcorder-datafusion on PyPI](https://pypi.org/project/batchcorder-datafusion/)

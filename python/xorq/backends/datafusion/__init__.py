@@ -7,12 +7,17 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import sqlglot as sg
 import sqlglot.expressions as sge
+from batchcorder_datafusion import TeeTableProvider
 
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.datafusion.compiler import compiler
-from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
+from xorq.common.utils.arrow_utils import (
+    drop_pandas_schema_metadata,
+    refuse_pandas_schema_metadata,
+)
+from xorq.common.utils.datafusion_utils import deregister_temporary_table
 from xorq.common.utils.deltalake_utils import import_delta_table
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.datafusion import Backend as IbisDatafusionBackend
@@ -38,6 +43,9 @@ class Backend(IbisDatafusionBackend):
     # deferred_read_* rejects a list/tuple of paths up front: the readers
     # take a single path
     reads_single_path = True
+    # the remote pass hands read_record_batches a TeeTableProvider, which
+    # reserves one reader per planned scan; no reader count is needed
+    tees_stream_scans = True
 
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         self.con.from_arrow(
@@ -58,20 +66,22 @@ class Backend(IbisDatafusionBackend):
 
     def read_record_batches(
         self,
-        source: pa.Table | pa.RecordBatchReader | StreamCache,
+        source: pa.Table | pa.RecordBatchReader | StreamCache | TeeTableProvider,
         table_name: str | None = None,
     ) -> ir.Table:
-        """Register ``source`` as an in-memory table named ``table_name``.
+        """Register ``source`` as a table named ``table_name``.
 
-        The whole stream is read into a ``pa.Table`` first; datafusion-python
-        has no stream-backed table provider, so unlike duckdb's
-        ``read_record_batches`` nothing is registered lazily.
+        A ``TeeTableProvider`` is registered as is: every scan in the next
+        query replays its stream, which is read lazily and at most once. Any
+        other stream is read into a ``pa.Table`` first, so it stays queryable
+        any number of times.
 
         Parameters
         ----------
         source
             Any Arrow stream: a ``pa.Table``, a ``pa.RecordBatchReader`` or a
-            batchcorder ``StreamCache``.
+            batchcorder ``StreamCache``; or a ``TeeTableProvider``, which
+            serves a single query.
         table_name
             Name to register under; a ``read_record_batches`` name is
             generated when ``None``.
@@ -106,14 +116,33 @@ class Backend(IbisDatafusionBackend):
             - An existing table or view named ``table_name`` is deregistered
               and replaced, whatever its schema, without warning.
         """
+        table_name = table_name or gen_name("read_record_batches")
+        # an unquoted name is case-folded and lands on another table
+        table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
+        if isinstance(source, TeeTableProvider):
+            refuse_pandas_schema_metadata(source.schema)
+            self.con.deregister_table(table_ident)
+            self.con.register_table(table_ident, source)
+            return self.table(table_name)
         # read before from_arrow: from_arrow holds the session context while it
         # consumes a stream, and a tee into this connection re-enters it from
-        # inside that stream; datafusion-python has no stream-backed provider
-        table_name = table_name or gen_name("read_record_batches")
+        # inside that stream
         table = pa.RecordBatchReader.from_stream(source).read_all()
-        self.con.deregister_table(table_name)
-        self.con.from_arrow(drop_pandas_schema_metadata(table), table_name)
+        self.con.deregister_table(table_ident)
+        self.con.from_arrow(drop_pandas_schema_metadata(table), table_ident)
         return self.table(table_name)
+
+    def drop_table(
+        self,
+        name: str,
+        database: tuple[str, str] | str | None = None,
+        force: bool = False,
+    ) -> None:
+        if database is None and deregister_temporary_table(
+            self.con, self.con.catalog().schema(), name, quoted=self.compiler.quoted
+        ):
+            return
+        super().drop_table(name, database=database, force=force)
 
     def read_delta(
         self, source_table: str | Path, table_name: str | None = None, **kwargs: Any

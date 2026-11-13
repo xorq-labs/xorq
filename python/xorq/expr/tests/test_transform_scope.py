@@ -57,6 +57,30 @@ def recording_caches(monkeypatch: pytest.MonkeyPatch) -> list:
     return instances
 
 
+@pytest.fixture
+def recording_tee_providers(monkeypatch: pytest.MonkeyPatch) -> list:
+    instances = []
+    real = remote_table_exec.TeeTableProvider
+
+    def record(*args: object, **kwargs: object):
+        provider = real(*args, **kwargs)
+        instances.append(provider)
+        return provider
+
+    monkeypatch.setattr(remote_table_exec, "TeeTableProvider", record)
+    return instances
+
+
+def assert_all_providers_closed(providers: list) -> None:
+    # a closed provider refuses to plan a new scan
+    assert providers
+    for provider in providers:
+        ctx = xo.connect().con
+        ctx.register_table_provider("probe", provider)
+        with pytest.raises(ValueError, match="has been closed"):
+            ctx.sql("SELECT * FROM probe").to_arrow_table()
+
+
 def make_remote_expr(target: BaseBackend) -> ir.Table:
     df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
     rt = xo.memtable(df).into_backend(target, "rt_tbl")
@@ -264,13 +288,12 @@ def test_failing_drop_does_not_skip_cache_close(
     assert_all_closed_once(recording_caches)
 
 
-def test_get_plans_drops_placeholders(recording_caches: list) -> None:
+def test_get_plans_drops_placeholders() -> None:
     con = xo.connect()
     df = pd.DataFrame({"a": [1, 2, 3]})
     expr = xo.memtable(df).into_backend(con, "rt_tbl")
     plans = get_plans(expr)
     assert plans
-    assert_all_closed_once(recording_caches)
     assert con.list_tables() == []
 
 
@@ -358,6 +381,7 @@ def test_stream_early_termination_then_close(recording_caches: list) -> None:
     [
         pytest.param(xo.duckdb.connect, id="duckdb"),
         pytest.param(xo.connect, id="xorq"),
+        pytest.param(lambda: xo.datafusion.connect(), id="datafusion"),
     ],
 )
 def test_into_backend_executes_correctly(connect: Callable[[], BaseBackend]) -> None:
@@ -376,6 +400,7 @@ def test_into_backend_executes_correctly(connect: Callable[[], BaseBackend]) -> 
     [
         pytest.param(xo.duckdb.connect, id="duckdb"),
         pytest.param(xo.connect, id="xorq"),
+        pytest.param(lambda: xo.datafusion.connect(), id="datafusion"),
     ],
 )
 def test_into_backend_fanout_executes_correctly(
@@ -631,3 +656,29 @@ def test_partial_read_record_batches_failure_drops_placeholder(
         expr.execute()
     assert_all_closed_once(recording_caches)
     assert target.list_tables() == []
+
+
+TEE_TARGETS = [
+    pytest.param(xo.connect, id="xorq"),
+    pytest.param(lambda: xo.datafusion.connect(), id="datafusion"),
+]
+
+
+@pytest.mark.parametrize("connect", TEE_TARGETS)
+def test_tee_providers_closed_after_execute(connect, recording_tee_providers) -> None:
+    make_remote_expr(connect()).execute()
+    assert_all_providers_closed(recording_tee_providers)
+
+
+@pytest.mark.parametrize("connect", TEE_TARGETS)
+def test_tee_providers_closed_after_get_plans(connect, recording_tee_providers) -> None:
+    assert get_plans(make_remote_expr(connect()))
+    assert_all_providers_closed(recording_tee_providers)
+
+
+@pytest.mark.parametrize("connect", TEE_TARGETS)
+def test_tee_providers_closed_after_stream_drained(
+    connect, recording_tee_providers
+) -> None:
+    to_pyarrow_batches(make_remote_expr(connect())).read_all()
+    assert_all_providers_closed(recording_tee_providers)

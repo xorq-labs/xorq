@@ -12,6 +12,7 @@ import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import pytest
 from batchcorder import StreamCache
+from batchcorder_datafusion import TeeTableProvider
 from pandas.testing import assert_frame_equal
 
 import xorq.api as xo
@@ -403,3 +404,56 @@ def test_register_pandas_backed_read_matches_into_backend(tmp_path: Path) -> Non
     assert not pd_t.execute().empty
     assert not t_into_backend.execute().empty
     assert_frame_equal(t_registered.execute(), t_into_backend.execute())
+
+
+def test_read_record_batches_tee_provider_reads_upstream_once():
+    con = xo.connect()
+    schema = pa.schema([("a", pa.int64())])
+    pulled = []
+    batches = (
+        pulled.append(i) or pa.record_batch([[i]], schema=schema) for i in range(3)
+    )
+    reader = pa.RecordBatchReader.from_batches(schema, batches)
+
+    t = con.read_record_batches(TeeTableProvider(reader), "t")
+
+    assert len(t.join(t.view(), "a").execute()) == 3
+    assert pulled == [0, 1, 2]
+    con.drop_table("t")
+    assert "t" not in con.list_tables()
+
+
+def test_read_record_batches_tee_provider_rejects_a_cast():
+    con = xo.connect()
+    schema = pa.schema([("a", pa.int64())])
+    provider = TeeTableProvider(pa.RecordBatchReader.from_batches(schema, []))
+    with pytest.raises(ValueError, match="cannot be cast"):
+        con.read_record_batches(provider, "t", schema=pa.schema([("a", pa.int32())]))
+
+
+def test_drop_table_keeps_a_table_differing_only_in_case():
+    con = xo.connect()
+    con.create_table("mytable", pa.table({"a": [1]}))
+    con.create_table("MyTable", pa.table({"a": [2]}))
+
+    con.drop_table("MyTable")
+
+    assert "mytable" in con.list_tables()
+    assert "MyTable" not in con.list_tables()
+
+
+def test_drop_table_refuses_a_view():
+    con = xo.connect()
+    con.con.sql("CREATE VIEW vv AS SELECT 1 AS x").collect()
+
+    with pytest.raises(Exception, match="vv"):
+        con.drop_table("vv")
+
+    assert "vv" in con.list_tables()
+
+
+def test_read_record_batches_tee_provider_refuses_pandas_metadata():
+    con = xo.connect()
+    reader = pa.Table.from_pandas(pd.DataFrame({"a": [1]})).to_reader()
+    with pytest.raises(ValueError, match="pandas"):
+        con.read_record_batches(TeeTableProvider(reader), "t")

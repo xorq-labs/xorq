@@ -15,6 +15,20 @@ def has_pandas_schema_metadata(schema: pa.Schema) -> bool:
     return PANDAS_METADATA_KEY in (schema.metadata or {})
 
 
+def refuse_pandas_schema_metadata(schema: pa.Schema) -> None:
+    """Raise when ``schema`` carries the ``pandas`` blob.
+
+    For a source registered as is (a ``TeeTableProvider`` cannot be restated
+    after construction): strip its upstream with ``drop_pandas_schema_metadata``
+    before building it, or joins fail on a schema-metadata mismatch (#2266).
+    """
+    if has_pandas_schema_metadata(schema):
+        raise ValueError(
+            "source carries pandas schema metadata; strip its upstream with "
+            "drop_pandas_schema_metadata before building it"
+        )
+
+
 def _drop_key(metadata: dict[bytes, bytes] | None) -> dict[bytes, bytes] | None:
     rest = {k: v for k, v in (metadata or {}).items() if k != PANDAS_METADATA_KEY}
     return rest or None

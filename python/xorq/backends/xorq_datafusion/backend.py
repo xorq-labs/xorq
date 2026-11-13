@@ -19,6 +19,7 @@ import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 from batchcorder import StreamCache
+from batchcorder_datafusion import TeeTableProvider
 
 import xorq
 import xorq.common.exceptions as com
@@ -30,8 +31,15 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion.compiler import compiler
 from xorq.backends.xorq_datafusion.provider import IbisTableProvider
 from xorq.common.utils import classproperty
-from xorq.common.utils.arrow_utils import drop_pandas_schema_metadata
+from xorq.common.utils.arrow_utils import (
+    drop_pandas_schema_metadata,
+    refuse_pandas_schema_metadata,
+)
 from xorq.common.utils.aws_utils import make_s3_connection
+from xorq.common.utils.datafusion_utils import (
+    deregister_temporary_table,
+    table_kind,
+)
 from xorq.common.utils.deltalake_utils import import_delta_table
 from xorq.expr import Expr
 from xorq.expr.pyaggregator import PyAggregator, make_struct_type
@@ -207,6 +215,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     name = "xorq_datafusion"
     supports_in_memory_tables = True
     compiler = compiler
+    # the remote pass hands read_record_batches a TeeTableProvider, which
+    # reserves one reader per planned scan; no reader count is needed
+    tees_stream_scans = True
 
     @staticmethod
     def _translate_sort(exprs: list[ir.Expr]) -> list[Expr]:
@@ -390,15 +401,14 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # this table"; an unqualified name resolves in the default namespace,
         # so check that one and name the view instead
         unqualified = schema is None and database is None
-        if unqualified and self._table_kind(table_name) == "view":
+        if (
+            unqualified
+            and table_kind(self.con.catalog().database(), table_name) == "view"
+        ):
             raise ValueError(f"cannot insert into {table_name!r}: it is a view")
         super().insert(
             table_name, obj, schema=schema, database=database, overwrite=overwrite
         )
-
-    def _table_kind(self, table_name):
-        with contextlib.suppress(Exception):
-            return self.con.catalog().database().table(table_name).kind
 
     @property
     def current_catalog(self) -> str:
@@ -772,6 +782,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         source: pa.Table
         | pa.RecordBatchReader
         | StreamCache
+        | TeeTableProvider
         | Iterable[pa.RecordBatch],
         table_name: str | None = None,
         schema: pa.Schema | None = None,
@@ -791,6 +802,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
             - ``StreamCache`` — multi-scan capable; batches are cast and
               re-ingested into a new inner cache.
+            - ``TeeTableProvider`` — registered as is: every scan in the next
+              query replays its stream, read at most once. It serves a single
+              query and cannot cast, so ``schema`` must be ``None`` or equal
+              to its schema.
             - ``pa.Table`` — converted to batches via ``to_batches()``.
             - ``pa.RecordBatchReader`` — consumed directly; schema taken from
               the reader.
@@ -822,7 +837,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             If ``source`` is not a ``pa.Table``, ``pa.RecordBatchReader``, or iterable.
         ValueError
             If ``source`` is an iterable with no rows (schema cannot be inferred),
-            or if a batch is missing columns required by the declared schema.
+            or if a batch is missing columns required by the declared schema,
+            or if a ``TeeTableProvider`` carries pandas schema metadata or a
+            schema differing from ``schema``.
             Cast errors from type incompatibilities are deferred: they surface
             during ``.execute()``, not at this call site, because batches are
             cast lazily as DataFusion consumes the reader.
@@ -846,6 +863,14 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self.con.deregister_table(table_ident)
         registered: Any = None
         match source:
+            case TeeTableProvider():
+                refuse_pandas_schema_metadata(source.schema)
+                if schema is not None and not schema.equals(source.schema):
+                    raise ValueError(
+                        "a TeeTableProvider cannot be cast; cast its upstream "
+                        "reader before building it"
+                    )
+                registered = source
             case StreamCache():
                 target_schema = _target_schema(schema, source.schema)
                 # source.cast returns a CastingStreamCache: a replayable view
@@ -882,12 +907,27 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # Build the ir.Table after registering; if that build fails, deregister
         # so a failed call never leaves a half-registered table behind. Applies
         # to every source type, not just the lazy StreamCache path.
-        self.con.register_record_batch_reader(table_ident, registered)
+        if isinstance(registered, TeeTableProvider):
+            self.con.register_table_provider(table_ident, registered)
+        else:
+            self.con.register_record_batch_reader(table_ident, registered)
         try:
             return self.table(table_name)
         except Exception:
             self.con.deregister_table(table_ident)
             raise
+
+    def drop_table(
+        self,
+        name: str,
+        database: tuple[str, str] | str | None = None,
+        force: bool = False,
+    ) -> None:
+        if database is None and deregister_temporary_table(
+            self.con, self.con.catalog().database(), name, quoted=self.compiler.quoted
+        ):
+            return
+        super().drop_table(name, database=database, force=force)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)

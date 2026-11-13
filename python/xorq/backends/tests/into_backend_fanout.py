@@ -1,9 +1,12 @@
-"""into_backend fan-out shapes shared by the duckdb and xorq_datafusion suites.
+"""into_backend fan-out shapes shared by the duckdb, xorq_datafusion and
+datafusion suites.
 
-Each shape pins the reader count the remote pass computes from the compiled
-SQL and checks the query still executes correctly. The importing test module
-supplies the ``target`` fixture. This file has no ``test_`` prefix, so pytest
-collects the suite only through the per-backend modules that import it.
+Each shape checks the query executes correctly. On a backend that bounds a
+``StreamCache`` by the reader count the remote pass computes from the compiled
+SQL (duckdb), the shape also pins that count; a backend that tees its own scans
+(``tees_stream_scans``) is not counted. The importing test module supplies the
+``target`` fixture. This file has no ``test_`` prefix, so pytest collects the
+suite only through the per-backend modules that import it.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ import pandas as pd
 import pytest
 
 import xorq.api as xo
-from xorq.expr.remote_table_exec import count_remote_table_readers
+from xorq.expr.remote_table_exec import count_remote_table_readers, tees_stream_scans
 from xorq.tests.util import assert_frame_equal
 
 
@@ -27,16 +30,17 @@ def reader_counts(expr) -> list[int]:
     return sorted(count_remote_table_readers(expr).values())
 
 
-# the count a PARTITION BY-only window yields per backend: none on duckdb,
-# whose optimiser re-scans the window's input, and none on pandas, which
-# compiles no SQL; one scan everywhere else
-PARTITION_WINDOW_COUNTS = {"duckdb": [], "pandas": []}
+def assert_reader_counts(expr, target, counts: list[int]) -> None:
+    if not tees_stream_scans(target):
+        assert reader_counts(expr) == counts
 
 
 def test_into_backend_partition_window_count(df: pd.DataFrame, target) -> None:
     rt = xo.memtable(df).into_backend(target, "t")
     expr = rt.mutate(s=rt.v.sum().over(xo.window(group_by="k")))
-    assert reader_counts(expr) == PARTITION_WINDOW_COUNTS.get(target.name, [1])
+    # duckdb re-scans a PARTITION BY-only window's input below the SQL, so the
+    # count leaves that table out (unbounded cache)
+    assert_reader_counts(expr, target, [])
     assert expr.execute().sort_values("id").s.tolist() == [30, 30, 70, 70]
 
 
@@ -47,7 +51,8 @@ def _same_rows(got: pd.DataFrame, df: pd.DataFrame) -> bool:
     return True
 
 
-# (shape over one remote table `rt`, expected reader counts, check on the result)
+# (shape over one remote table `rt`, duckdb's expected reader counts, check on
+# the result)
 SHAPES = [
     pytest.param(lambda rt: rt, [1], _same_rows, id="bare"),
     pytest.param(
@@ -94,13 +99,41 @@ SHAPES = [
         lambda got, df: len(got) == 2,
         id="self-join-limit",
     ),
+    pytest.param(
+        # a window hoisted into a CTE referenced by both sides of a cross join:
+        # duckdb materialises the CTE (one scan), datafusion inlines it (two)
+        lambda rt: (
+            (w := rt.mutate(rn=rt.v.cumsum(order_by="id")))
+            .filter(w.k == "a")
+            .select(x=w.rn)
+            .cross_join(w.filter(w.k == "b").select(y=w.rn))
+        ),
+        [1],
+        lambda got, df: (
+            sorted(zip(got.x, got.y)) == [(10, 60), (10, 100), (30, 60), (30, 100)]
+        ),
+        id="window-cte-twice",
+    ),
+    pytest.param(
+        # a self-join hoisted into a CTE referenced twice: four scans when
+        # datafusion inlines the CTE
+        lambda rt: (
+            (j := rt.join(rt.view(), "k").select("v", "k"))
+            .filter(j.k == "a")
+            .select(x=j.v)
+            .cross_join(j.filter(j.k == "b").select(y=j.v))
+        ),
+        [2],
+        lambda got, df: len(got) == 16,
+        id="self-join-cte-twice",
+    ),
 ]
 
 
 @pytest.mark.parametrize(("shape", "counts", "check"), SHAPES)
 def test_into_backend_fanout_shape(df, target, shape, counts, check) -> None:
     expr = shape(xo.memtable(df).into_backend(target, "t"))
-    assert reader_counts(expr) == counts
+    assert_reader_counts(expr, target, counts)
     assert check(expr.execute(), df)
 
 
@@ -108,7 +141,7 @@ def test_into_backend_two_distinct_tables(df, target) -> None:
     left = xo.memtable(df).into_backend(target, "l")
     right = xo.memtable(df.assign(v=df.v * 2)).into_backend(target, "r")
     expr = left.join(right, "k")
-    assert reader_counts(expr) == [1, 1]
+    assert_reader_counts(expr, target, [1, 1])
     assert len(expr.execute()) == 8
 
 
@@ -118,7 +151,7 @@ def test_into_backend_empty_table_fanout(target) -> None:
     )
     rt = xo.memtable(empty).into_backend(target, "e")
     expr = rt.join(rt.view(), "id")
-    assert reader_counts(expr) == [2]
+    assert_reader_counts(expr, target, [2])
     assert expr.execute().empty
 
 
@@ -128,8 +161,19 @@ def test_into_backend_nested_chain(df, target) -> None:
     other = xo.connect() if target.name == "duckdb" else xo.duckdb.connect()
     rt = xo.memtable(df).into_backend(other, "inner").into_backend(target, "outer")
     expr = rt.join(rt.view(), "id")
-    assert reader_counts(expr) == [2]
+    assert_reader_counts(expr, target, [2])
     assert len(expr.execute()) == 4
+
+
+def test_into_backend_cross_join_of_two_pandas_sources(target) -> None:
+    # each pandas source carries its own {"pandas": ...} schema metadata;
+    # datafusion rejects a plan whose inputs disagree on it (#2266)
+    a = pd.DataFrame({"g": ["x", "y"], "v": [0, 1]})
+    b = pd.DataFrame({"w": [5, 6, 7]})
+    left = xo.pandas.connect({"a": a}).table("a").into_backend(target, "l")
+    right = xo.pandas.connect({"b": b}).table("b").into_backend(target, "r")
+    expr = left.cross_join(right).group_by("g").aggregate(n=left.v.sum())
+    assert sorted(expr.execute().itertuples(index=False)) == [("x", 0), ("y", 3)]
 
 
 __all__ = ["df", "reader_counts", *(name for name in dir() if name.startswith("test_"))]
