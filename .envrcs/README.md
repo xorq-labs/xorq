@@ -10,9 +10,21 @@ The fragments follow [xorq-labs/xorq-envrcs](https://github.com/xorq-labs/xorq-e
 direnv allow
 ```
 
-The first load rebuilds `.gitignore` and creates `.envrc.secrets` and `.envrc.user` from their templates (below). `.env.local` is not created for you: copy `.env.local.template` if you need it.
+The first load rebuilds `.gitignore` and creates `.envrc.secrets` and `.envrc.user` from their templates (below). `.env.local` is not created for you; if you need it:
 
-**If you already have a `.gitignore`**, the first load compares it with the rebuild. If it has rules the template lacks, it is moved to `.gitignore.orig` and the load says so: move the rules you want into `.gitignore.local`, then delete `.gitignore.orig`. Until you do, those rules are not applied.
+```sh
+cp .envrcs/.env.local.template .envrcs/.env.local
+```
+
+**If you already have an `.envrc.user`**, it is kept as it is, so it lacks lines the template has gained: `dotenv_if_exists .env.local`, and the commented `source_env .envrc.user.kenn` and `source_env .envrc.kata`. Copy the ones you want from `.envrc.user.template`; without the first, `.env.local` is never read.
+
+**If you already have a `.gitignore`**, the first load compares it with the rebuild. If it has rules the template lacks, it is moved to `.gitignore.orig` and the load says so, once. Until you move the rules you want into `.gitignore.local`, they are not applied, and files they hid show up in `git status` and `git add -A`:
+
+```sh
+$EDITOR .gitignore.orig .gitignore.local   # copy the rules you want into .gitignore.local
+rm .gitignore.orig
+direnv reload
+```
 
 ## Tracked (templates & helpers)
 
