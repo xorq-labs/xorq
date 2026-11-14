@@ -43,6 +43,7 @@ from attr.validators import deep_iterable, in_, instance_of, optional
 
 from xorq.catalog.enums import LeafKind, PinKey, PinOp
 from xorq.catalog.zip_utils import BuildZip
+from xorq.ibis_yaml.common import DATA_KEYS
 from xorq.ibis_yaml.enums import (
     BundledSourceTypes,
     DocKey,
@@ -153,7 +154,9 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
 
     ``pruned_at_pin`` names the keys not descended *at a ``CacheTag`` only*.
     Everywhere else every value is descended, so a node the pin shares with a
-    live branch is still reached.
+    live branch is still reached. A ``Literal`` value or ``NamedScalarParameter``
+    default is data, not translated YAML, so a ``node_ref`` key inside it is not
+    followed.
     """
     nodes = get_nodes(doc)
     seen: set[str] = set()
@@ -165,7 +168,13 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
                 if (ref := cur.get(RefEnum.node_ref)) is not None and ref not in seen:
                     seen.add(ref)
                     stack.append(get_node_def(nodes, ref))
-                pruned = pruned_at_pin if cur.get(NodeKey.op) == PinOp.CACHE_TAG else ()
+                op = cur.get(NodeKey.op)
+                if op == PinOp.CACHE_TAG:
+                    pruned = pruned_at_pin
+                elif isinstance(op, str) and op in DATA_KEYS:
+                    pruned = (DATA_KEYS[op],)
+                else:
+                    pruned = ()
                 stack.extend(value for key, value in cur.items() if key not in pruned)
             case list() | tuple():
                 stack.extend(cur)
