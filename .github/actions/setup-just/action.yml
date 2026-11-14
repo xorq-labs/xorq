@@ -18,20 +18,20 @@ runs:
   steps:
     - name: Restore just
       id: restore
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@v5.1.0
       with:
         path: ${{ runner.tool_cache }}/just/${{ inputs.just-version }}
         key: just-${{ inputs.just-version }}-${{ runner.os }}-${{ runner.arch }}
 
     # On a hit, setup-just finds the restored binary in the tool cache and
     # neither queries the GitHub API nor downloads.
-    - uses: extractions/setup-just@v4
+    - uses: extractions/setup-just@v4.0.0
       with:
         just-version: ${{ inputs.just-version }}
 
     - name: Save just
       if: steps.restore.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v5
+      uses: actions/cache/save@v5.1.0
       with:
         path: ${{ runner.tool_cache }}/just/${{ inputs.just-version }}
         key: ${{ steps.restore.outputs.cache-primary-key }}

@@ -44,14 +44,14 @@ jobs:
             duckdb-version: "1.4.2"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
 
       - uses: ./.github/actions/setup-just
 
       - uses: ./.github/actions/ibis-testing-data
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v7.6.0
         with:
           enable-cache: true
 
