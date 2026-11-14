@@ -2,6 +2,8 @@
 
 direnv configuration split into composable fragments, sourced from the root `.envrc`.
 
+The fragments follow [xorq-labs/xorq-envrcs](https://github.com/xorq-labs/xorq-envrcs) at 9e7f67d, whose `.envrcs/README.md` explains the reasoning behind each one. `.envrc.sops`, `.envrc.kata`, `.envrc.user.kenn`, `kenn.rev` and `.envrc.user.flake` match it except for their comments; `.envrc.nix-config` and `.envrc.user.uv` add xorq's nix config and shell completion to it.
+
 ## Tracked (templates & helpers)
 
 | File | Purpose |
@@ -13,6 +15,8 @@ direnv configuration split into composable fragments, sourced from the root `.en
 | `.envrc.user.flake` | User env variant: nix flake (immutable install) |
 | `.envrc.user.editable` | User env variant: nix flake with editable install |
 | `.envrc.user.uv` | User env variant: uv sync + venv activation |
+| `.envrc.user.kenn` | Optional, additive: kenn-io toolkit (kata among it) on PATH, pinned by `kenn.rev` |
+| `.envrc.kata` | Optional: points kata at a team server from `KATA_TEAM_SERVER` and `KATA_TEAM_TOKEN` |
 
 ## Gitignored (local / secret)
 
@@ -38,7 +42,7 @@ Prefer these over bare relative paths like `../.venv` or `.env.foo`, which break
 ```
 .envrc (repo root)
 ├── watch_file pyproject.toml
-├── export direnv_root
+├── export direnv_root, pin direnv_layout_dir to $direnv_root/.direnv
 ├── source_env_if_exists .envrcs/.envrc.secrets
 │   └── .envrc.sops → use_sops on encrypted .env files
 └── source_env_if_exists .envrcs/.envrc.user

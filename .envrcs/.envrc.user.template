@@ -2,5 +2,13 @@ export ACERO_ALIGNMENT_HANDLING=ignore
 
 source_env .envrc.user.uv
 
+# Optional, additive to the toolchain above: kenn-io toolkit (kata among it)
+# on PATH, at the revision in kenn.rev.
+# source_env .envrc.user.kenn
+
 dotenv_if_exists .env.user.snowflake
 dotenv_if_exists .env.otel
+
+# Optional: kata calls go to the team server. After whatever sets
+# KATA_TEAM_SERVER and KATA_TEAM_TOKEN; see the header of .envrc.kata.
+# source_env .envrc.kata

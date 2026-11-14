@@ -1,0 +1,21 @@
+# kata calls from this checkout go to a team server, from KATA_TEAM_SERVER
+# (.env.local, say) and KATA_TEAM_TOKEN (the secrets layer), names kata
+# doesn't read on its own. Opt in with `source_env .envrc.kata` in
+# .envrc.user, after whatever sets the two. kata itself comes from
+# elsewhere (.envrc.user.kenn, say). Why this shape: xorq-labs/xorq-envrcs
+# .envrcs/README.md, "kata".
+
+if [ -n "${KATA_TEAM_SERVER:-}" ] && [ -n "${KATA_TEAM_TOKEN:-}" ]; then
+    # KATA_TRUST_PRIVATE_NETWORK lets kata send the token over plain http to
+    # any literal private IP (the tailnet's is in 100.64.0.0/10), never to a
+    # name or a public IP; KATA_ALLOW_INSECURE would lift both, so it goes.
+    export KATA_SERVER=$KATA_TEAM_SERVER KATA_AUTH_TOKEN=$KATA_TEAM_TOKEN KATA_TRUST_PRIVATE_NETWORK=1
+    unset KATA_ALLOW_INSECURE
+else
+    # One inherited from outside would go to whatever daemon kata picks.
+    unset KATA_AUTH_TOKEN
+    _kata_missing=
+    [ -n "${KATA_TEAM_SERVER:-}" ] || _kata_missing=KATA_TEAM_SERVER
+    [ -n "${KATA_TEAM_TOKEN:-}" ] || _kata_missing="${_kata_missing:+$_kata_missing and }KATA_TEAM_TOKEN"
+    log_error "kata here is not set up for the team server: $_kata_missing unset or empty"
+fi
