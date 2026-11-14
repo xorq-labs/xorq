@@ -27,7 +27,11 @@ uv run pre-commit install
 git config --replace-all blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 > [!IMPORTANT]
-> Rename `.gitignore.template` to `.gitignore` 
+> `.gitignore` is generated, not tracked. With direnv, `direnv allow` builds it
+> from `.gitignore.template` plus your untracked `.gitignore.local` on every
+> load (`.envrcs/README.md`, "Getting started"). Without direnv, copy it:
+> `cp .gitignore.template .gitignore`. Do not rename the template: the rebuild
+> reads it, and git shows it as deleted.
 
 ### git blame and bulk reformats
 
