@@ -1,4 +1,11 @@
+# The root .gitignore is generated: .envrcs/.envrc.gitignore rebuilds it
+# from this file, then the untracked .gitignore.local (your own rules), on
+# every direnv load. Edit those two, never .gitignore. Unanchored, so it also
+# keeps ignoring the nested, untracked .gitignore files tools write.
 .gitignore
+/.gitignore.local
+/.gitignore.orig
+/.gitignore.tmp.*
 /target
 
 .claude
@@ -97,3 +104,9 @@ builds
 .envrcs/.worktree-symlinks
 .worktree-manifest
 .devcontainer/
+
+# Per-user dotenv files and secret bundles under .envrcs/ (.envrcs/README.md).
+# The bundles too: each is encrypted to one developer's key, so committing
+# it gives a clone nothing. Last, so no later rule re-ignores the templates.
+.envrcs/.env.*
+!.envrcs/.env.*.template

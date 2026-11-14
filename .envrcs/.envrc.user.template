@@ -8,7 +8,8 @@ source_env .envrc.user.uv
 
 dotenv_if_exists .env.user.snowflake
 dotenv_if_exists .env.otel
+dotenv_if_exists .env.local
 
-# Optional: kata calls go to the team server. After whatever sets
-# KATA_TEAM_SERVER and KATA_TEAM_TOKEN; see the header of .envrc.kata.
+# Optional: kata calls go to the team server. After .env.local, which can
+# hold KATA_TEAM_SERVER; see the header of .envrc.kata.
 # source_env .envrc.kata
