@@ -19,7 +19,7 @@ import cloudpickle
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-import yaml
+import yaml12
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
@@ -414,7 +414,7 @@ def test_node_ref_key_in_a_map_literal_is_data(tmp_path: Path) -> None:
     t = xo.memtable({"a": [1]}, name="t")
     expr = t.mutate(m=ibis.literal({"node_ref": "value"}, type="map<string, string>"))
     path = build_expr(expr, builds_dir=tmp_path)
-    doc = yaml.safe_load((path / DumpFiles.expr).read_text())
+    doc = yaml12.parse_yaml((path / DumpFiles.expr).read_text())
     refs = walk_node_refs(doc, SOURCE_WALK_PRUNED)
     assert "value" not in refs
     nodes = doc["definitions"]["nodes"]
