@@ -19,8 +19,10 @@ import cloudpickle
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import yaml
 
 import xorq.api as xo
+import xorq.vendor.ibis as ibis
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog.catalog import Catalog, CatalogEntry
@@ -405,6 +407,18 @@ def test_dangling_node_ref_names_the_ref() -> None:
     doc = {"definitions": {"nodes": {}}, "expression": {"node_ref": "@filter_0"}}
     with pytest.raises(ValueError, match="@filter_0"):
         walk_node_refs(doc, SOURCE_WALK_PRUNED)
+
+
+def test_node_ref_key_in_a_map_literal_is_data(tmp_path: Path) -> None:
+    """A map literal keyed ``node_ref`` is a value, not a ref to follow."""
+    t = xo.memtable({"a": [1]}, name="t")
+    expr = t.mutate(m=ibis.literal({"node_ref": "value"}, type="map<string, string>"))
+    path = build_expr(expr, builds_dir=tmp_path)
+    doc = yaml.safe_load((path / DumpFiles.expr).read_text())
+    refs = walk_node_refs(doc, SOURCE_WALK_PRUNED)
+    assert "value" not in refs
+    nodes = doc["definitions"]["nodes"]
+    assert {nodes[ref]["op"] for ref in refs} == {"Project", "Read"}
 
 
 @pytest.mark.parametrize(
