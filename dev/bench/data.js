@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794752647117,
+  "lastUpdate": 1794759586772,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -87220,6 +87220,212 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.1886157053873473",
             "extra": "mean: 1.4700227125999845 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fb6a4ae5d2c140202680af7fc5215db72c3c0bc8",
+          "message": "chore(envrcs): sync fragments with xorq-labs/xorq-envrcs (#2670)\n\nBrings `.envrc`, `.envrcs/` and `.gitignore.template` up to\n[xorq-labs/xorq-envrcs](https://github.com/xorq-labs/xorq-envrcs) at\n9e7f67d: every upstream fragment, with xorq keeping its own templates,\nnix config (`NIX_CONF_DIR`, the `nix/` watches), default toolchain (uv),\n`.envrc.user.editable` and `xorq install-completion`.\n\n## What changes for a contributor\n\n**On the first `direnv allow` after this merges**, `.envrc.gitignore`\nrebuilds `.gitignore` from `.gitignore.template` plus an untracked\n`.gitignore.local`. A `.gitignore` that is a copy of the current\ntemplate loses no rule and is simply replaced. One holding personal\nrules is moved to `.gitignore.orig`, and the load says so **once**;\nlater loads are silent while `.gitignore.orig` sits there. **Until those\nrules are moved into `.gitignore.local`, they do not apply**, so files\nthey hid show up in `git status` (and in `git add -A`).\n`.envrcs/README.md`, \"Getting started\", says this and gives the\ncommands.\n\n- **`.envrc.from-template`**: creates `.envrc.secrets` and `.envrc.user`\nfrom their templates when missing (mode 600). Never overwrites; refuses\na file git does not ignore; skips linked worktrees. A fresh clone needs\nonly `direnv allow`.\n- **`.gitignore.template`** now ignores `.envrcs/.env.*` (per-user\ndotenv files and secret bundles), which the README already listed as\nnever-commit but the template did not ignore, and the files the rebuild\nwrites (`/.gitignore.{local,orig,tmp.*}`). It keeps `.gitignore`\nunanchored, unlike upstream: that also ignores the untracked nested\n`.gitignore` files tools write, and is why a copy of the old template\nloses nothing on the rebuild.\n- **`.envrc.sops`**: secrets are applied with `declare -gx` instead of\n`export`. Before, a bundle key named like one of direnv's own function\nlocals (`cmd`, `REPLY`, `rcpath`, ...) was decrypted and then dropped,\nwith no error.\nIt also now **refuses any non-dotenv bundle** (`use_sops <path>\nbinary`), which main `eval`ed as shell. xorq's `.envrc.secrets.template`\nused that for the snowflake keypair (a multi-line PEM); it now loads the\nkeypair bundle as dotenv, the PEM on one double-quoted line with its\nnewlines written as `\\n`, which sops keeps as is and direnv's dotenv\nparser turns back into newlines. **An existing keypair bundle must be\nre-encrypted once**: `.envrcs/README.md`, \"Getting started\", gives the\nsteps; until then its load fails with `sops --decrypt failed for …`.\n- **`.envrc`**: `direnv_layout_dir` is pinned once at the root, so\nfragments (which run with PWD at `.envrcs/`) do not create a second\nlayout dir under `.envrcs/.direnv`.\n- **`.envrc.nix-config`**: nix-direnv 2.4.0 → 3.0.5. The first load\nrebuilds the cached devShell once.\n- **`.envrc.user.uv`**: also watches `uv.lock`, passes `--project\n\"$direnv_root\"`.\n- **`.envrc.user.flake` / `.envrc.user.editable`**: pass the flake\nexplicitly and pushd to the root, so `flake.lock` is watched and\nnix-direnv's reload helper is not generated under `.envrcs/`.\n- **New, opt-in** (commented lines in `.envrc.user.template`; an\nexisting `.envrc.user` is untouched): `.envrc.user.kenn` (kenn-io\ntoolkit on PATH at the revision in `kenn.rev`), `.envrc.kata` (team kata\nserver from `KATA_TEAM_SERVER` / `KATA_TEAM_TOKEN`), and\n`.env.local.template`, the per-user non-secret layer where\n`KATA_TEAM_SERVER` goes. `.env.local` is not auto-created.\n- **`.envrcs/test-fragments.sh`**: upstream's tests for the two new\nfragments, run against xorq's templates. Two cases are adapted to the\nunanchored `.gitignore` rule. **`.github/workflows/ci-envrcs.yml`** runs\nit on every pull request (no `paths:` filter, for the reason\n`ci-adr.yml` gives). It also loads every bundle\n`.envrc.secrets.template` names through `.envrc.sops` with a stub\n`sops`; the PEM and passphrase values are checked only where `direnv` is\non PATH, which the CI runner lacks. It does not test `.envrc.kata` or\n`.envrc.user.kenn`.\n- **`CONTRIBUTING.md`**: the \"rename `.gitignore.template` to\n`.gitignore`\" step is replaced. With direnv, `.gitignore` is generated;\nwithout it, the template is copied. Renaming the template would delete a\ntracked file and make the rebuild a no-op.\n- **`.envrcs/README.md`**, \"Getting started\": commands for the\n`.env.local` copy and the `.gitignore.orig` merge-back, and a note that\nan `.envrc.user` from before this change lacks the new `.env.local` /\nkenn / kata lines.\n\nFragment comments cite upstream's `.envrcs/README.md` for the reasoning;\nxorq's README covers setup and the file tables only.\n\n## Not taken\n\n- The demo age key and demo sops bundle, and upstream's placeholder\ntemplates (`.envrc.secrets.template`, the `EXAMPLE_*` lines of\n`.env.local.template`, the both-commented `.envrc.user.template`), per\nupstream's own adoption notes.\n\n## Worktrees, #2668 and devcontainer#168\n\nBoth have merged. #2668's worktree paragraph told contributors to copy\n`.gitignore` into a new worktree; this PR, merging second, rewrites that\nsentence: the first `direnv` load in a worktree builds `.gitignore` from\nthe template, and `.gitignore.local` is the file to copy. A copied\n`.gitignore` holding the main checkout's own rules without its\n`.gitignore.local` is moved to `.gitignore.orig`. devcontainer#168 makes\n`new-worktree` copy `.gitignore.local`, so worktrees made with it hit no\nmove-aside. Checked in a scratch repo with a linked worktree: built from\nthe template when nothing was copied; no `.gitignore.orig` and the main\ncheckout's rule applied when `.gitignore.local` was copied; moved aside,\nwith the status line, when it was not.\n\n## How this was checked\n\n- `.envrcs/test-fragments.sh` on the current head: all passed, 92 cases\nwith `direnv` on PATH, 90 and one skip without it (87 before the secrets\ncases were added). Upstream's copy passes in upstream. With the\ntemplate's `.gitignore` anchored as upstream's is, the adapted\nnested-`.gitignore` case fails.\n- `git check-ignore` against `.gitignore.template` alone, in a scratch\nrepo with no global excludes: every row of the README's gitignored table\nis ignored, including the `.envrcs/.env.*` files that were not before;\nevery tracked file under `.envrc`, `.envrcs/` and the new templates is\nnot. `git ls-files -ci` lists the same tracked files under the old and\nnew template.\n- Dropped-rule check (the fragment's own awk comparison) of the new\ntemplate against the old one: nothing dropped. With `.gitignore`\nanchored: `.gitignore` is dropped, i.e. every contributor would get a\n`.gitignore.orig`.\n- Code (comments stripped) of `.envrc.gitignore`,\n`.envrc.from-template`, `.envrc.sops`, `.envrc.kata`, `.envrc.user.kenn`\nand `.envrc.user.flake` is identical to upstream.\n- Live `direnv exec` in a checkout of this branch whose `.gitignore`\nheld 31 personal rules: the load moved it to `.gitignore.orig` and\nreported it; the new `.gitignore` equals the template. After moving the\ndropped rules to `.gitignore.local` and deleting `.gitignore.orig`, `git\nstatus` matched its output before the load. Environment vs a main\ncheckout with the same local secrets/user files: the same 129 variable\nnames, every value hash equal except path-dependent ones (`PATH`,\n`VIRTUAL_ENV`, `NIX_CONF_DIR`, `NIX_USER_CONF_FILES`, `XDG_DATA_DIRS`,\n`direnv_root`, direnv's own).\n- The sops fix, before and after: a throwaway bundle holding `cmd=...`\nand a control key, loaded through main's `.envrc.sops` and through this\nbranch's. Main's: `cmd` empty, control set. This branch's: both set.\n- `virtualenv-editable-312` exists in `devShells.x86_64-linux`. The\nflake and editable variants were **not** built or loaded.\n- The secrets cases, on scratch copies: with the template's `binary`\nrestored, `FAIL secrets: every line of the template loads with no error`\n(with and without direnv); with `.envrc.sops` flattening `\\n`, `FAIL\nsecrets: the quoted \\n PEM loads with its newlines` with direnv, and a\npass without it. The README re-encrypt block, run in a scratch dir\nagainst a binary bundle made with a throwaway age key (`--age` in place\nof `--pgp`): the result loads through this branch's `use_sops` with the\nPEM byte-identical and the passphrase as written, and leaves no\nplaintext behind.\n- The new CI job's script, with `.envrc.gitignore`'s dropped-rule test\nbroken (`END { exit !dropped }` → `END { exit 1 }`, in a scratch copy):\nexit 1, 8 failed, first `FAIL gitignore: ... and the old one kept as\n.gitignore.orig`. Unbroken, on that head: 87 ok. The job has since run\non PR CI and passed (90 ok, the value checks skipped: the runner has no\n`direnv`).\n\n**Re-run by a separate reviewer** on the head before the review fixes,\nin scratch copies: the 87 cases; comment-only difference from upstream\nfor the six named fragments; every row of the README's gitignored table\nignored by the template alone, and the tracked files not ignored; `git\nls-files -ci` the same under both templates; the sops `cmd`\nbefore/after; and a live `direnv` load of a fresh scratch clone (both\nfiles created mode 600, `.gitignore` equal to the template). The same\nreviewer reproduced the keypair-bundle refusal above with a stub `sops`\n(main: one `sops` call; this branch: refused, none). Not re-run by\nanyone else: the 129-variable environment comparison and the 31-rule\n`.gitignore` move, which depend on the author's private files.\n\n## Review record\n\nTwo structural review rounds. Round 1 read the head before the review\nfixes; round 2 read only the commits made after it (the review fixes and\nthe keypair change). 22 findings (17 from the two reviewers, 5 from\nclosing round 1 and checking its fixes): 6 clear, 10 mild, 6 lock-tight.\nFixed on this branch: the keypair bundle (quoted-`\\n` dotenv), with a\ntest that loads the template through `.envrc.sops` against a `sops` stub\nthat checks its flags and reads the values from a child process; the CI\njob; the README and CONTRIBUTING setup steps and the git ≥ 2.31\nprerequisite; the keypair re-encrypt steps, which read both values from\nthe old bundle inside a removed temp directory; and the worktree\n`.gitignore` sentence from #2668. Accepted as a limit, named in the\nREADME with the commands that cover it: a bare clone with worktrees gets\nno auto-created `.envrc.secrets`/`.envrc.user`. Left to\nxorq-labs/xorq-envrcs, to arrive with a later sync: the one-shot\n`.gitignore.orig` notice, the `.gitignore` rename on every load, and\ntests for the `.envrc.sops`/`.envrc.kata`/`.envrc.user.kenn` refusals.\nDeferred as later work: installing `direnv` in the CI job so the keypair\nvalue checks run there. The last three nits, accepted: the README block\nreads `\"$fp\"`, checked before anything is decrypted (sops given an empty\n`--pgp` still exits 0, which would have let the old bundle be replaced);\nthe template comment no longer overstates what `sops exec-env` and a\nliteral backslash-n do; and this body's test counts name their head.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5.5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-11-15T11:15:03-05:00",
+          "tree_id": "89fd970236cba1451f55014dbb44d0295470b83b",
+          "url": "https://github.com/xorq-labs/xorq/commit/fb6a4ae5d2c140202680af7fc5215db72c3c0bc8"
+        },
+        "date": 1794759583216,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 10.13014446470696,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0160139875271448",
+            "extra": "mean: 98.71527533333429 msec\nrounds: 15"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 3.968101760058576,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07730964446700492",
+            "extra": "mean: 252.00966620000142 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 1.379238808942165,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13683196112426238",
+            "extra": "mean: 725.0376029999984 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 4.100773702242444,
+            "unit": "iter/sec",
+            "range": "stddev: 0.042910644353727365",
+            "extra": "mean: 243.85642139998254 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 4.998909075575005,
+            "unit": "iter/sec",
+            "range": "stddev: 0.009554986728571876",
+            "extra": "mean: 200.0436465000064 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 3.618378762353588,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05071666070312698",
+            "extra": "mean: 276.3668664000079 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 383.6612327594161,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0027110416589626305",
+            "extra": "mean: 2.606466107632703 msec\nrounds: 511"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 5.91816973574874,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1020882688186883",
+            "extra": "mean: 168.9711590999991 msec\nrounds: 10"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 19.45492364992275,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01703144528133103",
+            "extra": "mean: 51.4008699285731 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/ibis_yaml/tests/test_benchmark.py::test_to_yaml_long_chain",
+            "value": 2.2998675444185137,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06247028595357634",
+            "extra": "mean: 434.8076489999926 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/ibis_yaml/tests/test_benchmark.py::test_to_yaml_shared_remote_tables",
+            "value": 2.6798870655285305,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06847985811468112",
+            "extra": "mean: 373.15005279999696 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 21.805693592307733,
+            "unit": "iter/sec",
+            "range": "stddev: 0.002508583764157268",
+            "extra": "mean: 45.85958230435579 msec\nrounds: 23"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 16.460256479852944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.004849626792455529",
+            "extra": "mean: 60.75239478947257 msec\nrounds: 19"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 10.832212569433398,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0130425022798133",
+            "extra": "mean: 92.31724299999655 msec\nrounds: 12"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 5.693954510204673,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04123698451959795",
+            "extra": "mean: 175.62486637499575 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 5.823342354061894,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03017951736301851",
+            "extra": "mean: 171.72268762499954 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 4.954537015579996,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010692799758116586",
+            "extra": "mean: 201.83520616667275 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 4.946250941738187,
+            "unit": "iter/sec",
+            "range": "stddev: 0.03146611001713201",
+            "extra": "mean: 202.1733251666736 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 3.1347685166708557,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018937201712981164",
+            "extra": "mean: 319.0028210000037 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 2.7798547354327705,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0667257798617092",
+            "extra": "mean: 359.73102740000513 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 2.059030104271579,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10869190635432764",
+            "extra": "mean: 485.6655558000057 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 2.6174710004720496,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06697149795914756",
+            "extra": "mean: 382.04816780000783 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.9623073220006682,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10632948665607292",
+            "extra": "mean: 509.6041730000025 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.8492029966335923,
+            "unit": "iter/sec",
+            "range": "stddev: 0.05694856686370947",
+            "extra": "mean: 540.7735126000034 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 1.586059591365586,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09164249133474799",
+            "extra": "mean: 630.493334200014 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.8962937244193164,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15218042914268545",
+            "extra": "mean: 1.1157056807999766 sec\nrounds: 5"
           }
         ]
       }
