@@ -55,33 +55,6 @@ direnv allow
 
 ## Git worktrees
 
-Worktree helpers (`new-worktree`, `setup-worktree`, `cleanup-worktree`) are provided by the [devcontainer repo](https://github.com/xorq-labs/devcontainer). Clone it as a sibling and add to PATH in `.envrc.user`:
+A new worktree has none of the gitignored files above, so direnv there loads no secrets and no user env until you copy them from the main checkout. It has no `.gitignore` either, since that file is untracked: copy it first, or those secrets show up as untracked files `git add` will stage. It also lacks the test data in `ci/ibis-testing-data`: run `just download-data` in the worktree, or symlink the main checkout's copy.
 
-```sh
-git clone git@github.com:xorq-labs/devcontainer.git ../devcontainer
-# in .envrcs/.envrc.user:
-PATH_add $direnv_root/../devcontainer/dev
-```
-
-### Quick start
-
-```sh
-new-worktree feat/my-feature
-# creates ../xorq-feat-my-feature, copies envrc files, symlinks .gitignore, runs direnv allow
-```
-
-### Manual setup
-
-```sh
-git worktree add ../xorq-pr-123 pr-123-branch
-cd ../xorq-pr-123
-setup-worktree
-direnv allow
-```
-
-### Clean removal
-
-```sh
-cd ../xorq-feat-my-feature
-cleanup-worktree
-```
+Maintainers use the worktree helpers in the [devcontainer repo](https://github.com/xorq-labs/devcontainer) (`new-worktree`, `setup-worktree`), which do all of this; see its README. They are optional and Linux-only.
