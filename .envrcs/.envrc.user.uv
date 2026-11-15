@@ -1,2 +1,26 @@
-uv sync --all-extras --all-groups && source $direnv_root/.venv/bin/activate
-xorq install-completion 2>/dev/null || true
+# Watch before the test, so a pyproject.toml added later retriggers the
+# reload; see xorq-labs/xorq-envrcs .envrcs/README.md, "sops", for why that
+# is the rule. uv.lock too, so a pull that bumps pinned versions re-syncs
+# rather than leaving a stale venv. (nix-direnv watches flake.lock itself
+# once it exists, so the flake fragment only needs the flake.nix watch; a
+# first run with no lock does cost it the same one-off double reload.)
+watch_file "$direnv_root/pyproject.toml"
+watch_file "$direnv_root/uv.lock"
+
+# No-op when there is no project to sync, so this fragment can stay enabled
+# in a repo that has no pyproject.toml yet.
+if [ -f "$direnv_root/pyproject.toml" ]; then
+    # --project for the same reason .envrc.user.flake passes $direnv_root:
+    # this fragment runs with PWD at .envrcs/, and leaning on uv's upward
+    # project discovery would break the moment .envrcs/ grows a pyproject.toml.
+    uv sync --project "$direnv_root" --all-extras --all-groups &&
+        source "$direnv_root/.venv/bin/activate"
+    xorq install-completion 2>/dev/null || true
+    # Re-record uv.lock: the watch above ran before `uv sync`, which is
+    # what writes it, so on a first sync (or any that re-resolves) direnv
+    # would see a stale watch at the very next prompt and do a second full
+    # reload — another uv sync — before settling.
+    watch_file "$direnv_root/uv.lock"
+else
+    log_status "no pyproject.toml in $direnv_root; skipping uv sync"
+fi

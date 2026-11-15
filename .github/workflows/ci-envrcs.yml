@@ -1,0 +1,33 @@
+name: ci-envrcs
+
+# Deliberately no `paths:` filter, for the reason ci-adr.yml gives: a
+# path-filtered workflow reports no status on pull requests that miss it, so
+# it can never be a required check. The script takes seconds.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test-fragments:
+    runs-on: ubuntu-latest
+
+    steps:
+      # The tests build throwaway git repositories and copy the fragments in;
+      # they read nothing from this one's history.
+      - uses: actions/checkout@v6
+
+      # bash, git, awk and install are on the runner; direnv is not, so the
+      # secrets case checks only that no template line is refused (see the
+      # script's header).
+      - name: Test .envrc.gitignore, .envrc.from-template and .envrc.secrets.template
+        run: .envrcs/test-fragments.sh
