@@ -10,6 +10,8 @@ from __future__ import annotations
 import datetime
 import decimal
 import pickle
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,8 +21,10 @@ import cloudpickle
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import yaml12
 
 import xorq.api as xo
+import xorq.vendor.ibis as ibis
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.caching import ParquetCache
 from xorq.catalog.catalog import Catalog, CatalogEntry
@@ -405,6 +409,51 @@ def test_dangling_node_ref_names_the_ref() -> None:
     doc = {"definitions": {"nodes": {}}, "expression": {"node_ref": "@filter_0"}}
     with pytest.raises(ValueError, match="@filter_0"):
         walk_node_refs(doc, SOURCE_WALK_PRUNED)
+
+
+def map_keyed_node_ref() -> ibis.Expr:
+    return ibis.literal({"node_ref": "value"}, type="map<string, string>")
+
+
+@pytest.mark.parametrize(
+    "make_expr",
+    [
+        pytest.param(lambda t: t.mutate(m=map_keyed_node_ref()), id="literal-value"),
+        pytest.param(
+            lambda t: t.mutate(
+                m=xo.param(
+                    "p", "map<string, string>", default=map_keyed_node_ref().op().value
+                )
+            ),
+            id="param-default",
+        ),
+        pytest.param(lambda t: t.select(node_ref=t.a), id="column-named-node_ref"),
+        pytest.param(lambda t: t.select(op=t.a + 1), id="column-named-op"),
+    ],
+)
+def test_node_ref_key_that_is_not_a_ref_is_data(
+    tmp_path: Path, make_expr: Callable
+) -> None:
+    """A ``node_ref`` or ``op`` key whose value is not translated YAML is data."""
+    t = xo.memtable({"a": [1]}, name="t")
+    path = build_expr(make_expr(t), builds_dir=tmp_path)
+    doc = yaml12.parse_yaml((path / DumpFiles.expr).read_text())
+    refs = walk_node_refs(doc, SOURCE_WALK_PRUNED)
+    assert "value" not in refs
+    nodes = doc["definitions"]["nodes"]
+    assert {nodes[ref]["op"] for ref in refs} == {"Project", "Read"}
+
+
+def test_import_does_not_load_the_yaml_translator() -> None:
+    """Importing the module stays light: the translator loads on first use."""
+    code = (
+        "import sys, xorq.catalog.inspection; "
+        "print('xorq.ibis_yaml.common' in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "False"
 
 
 @pytest.mark.parametrize(
