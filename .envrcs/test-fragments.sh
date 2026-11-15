@@ -398,13 +398,19 @@ check "from-template: ... and says git could not tell, not 'not ignored'" \
 # that is what sops's dotenv store emits on decrypt (stores/dotenv/store.go,
 # LoadPlainFile and EmitPlainFile, at v3.13.3). direnv's dotenv parser is
 # the real one when direnv is on PATH; without it, a stub stands in and
-# the case checks only that no line is refused before or after sops.
+# the case checks only that no line is refused before or after sops. The
+# stub refuses a call without --input-type dotenv --output-type dotenv, as
+# real sops refuses to emit a dotenv bundle as binary. The values are read
+# from a child process: direnv hands the user's shell exported ones only.
 
 r=$work/x1
 scratch_repo "$r"
 mkdir "$r/bin"
 # shellcheck disable=SC2016 # the stub's script is for sh to expand
-printf '%s\n' '#!/bin/sh' 'for a; do f=$a; done' 'echo "$f" >>"$SOPS_CALLS"' 'cat "$f"' >"$r/bin/sops"
+printf '%s\n' '#!/bin/sh' \
+    'for t in --input-type --output-type; do' \
+    '    case " $* " in *" $t dotenv "*) ;; *) echo "stub sops: no $t dotenv: $*" >&2; exit 1 ;; esac' \
+    'done' 'for a; do f=$a; done' 'echo "$f" >>"$SOPS_CALLS"' 'cat "$f"' >"$r/bin/sops"
 pem=$(printf '%s\n' '-----BEGIN PRIVATE KEY-----' 'AAAA/b+c=' '-----END PRIVATE KEY-----')
 real_direnv=$(command -v direnv || true)
 if [ -z "$real_direnv" ]; then
@@ -431,8 +437,8 @@ PATH=$r/bin:$PATH SOPS_CALLS=$r.sops bash -c '
     }
     cd "$direnv_root"
     source_env .envrcs/.envrc.secrets.template
-    printf "%s" "$SNOWFLAKE_PRIVATE_KEY" >"$direnv_root.key"
-    printf "%s" "$SNOWFLAKE_PRIVATE_KEY_PWD" >"$direnv_root.pwd"
+    sh -c '"'"'printf "%s" "$SNOWFLAKE_PRIVATE_KEY"'"'"' >"$direnv_root.key"
+    sh -c '"'"'printf "%s" "$SNOWFLAKE_PRIVATE_KEY_PWD"'"'"' >"$direnv_root.pwd"
 ' secrets "$r" 2>"$r.err"
 check "secrets: the template names the keypair bundle" \
     grep -qx .env.secrets.snowflake.keypair.sops-encrypted "$r.bundles"
