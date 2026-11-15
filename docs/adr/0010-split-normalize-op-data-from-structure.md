@@ -365,15 +365,21 @@ prediction returned the other model's results.
 
 The helper now also contributes the model expression's structural hash: its
 SQL after the names a build generates (random `InMemoryTable` names,
+generated names of tables registered or read with no `table_name`,
 counter-suffixed names of UDFs given none) are replaced with placeholders,
 descending through `CachedNode.parent` but not into a nested
 `ExprScalarUDF`'s model, which its own normalization covers.
 
 What "data-free" means for the helper is narrower than the *Scope* section
 states: it is free of `InMemoryTable` data, but the structural SQL names each
-opaque node by a placeholder that folds in a `Read`'s path and a
-`CachedNode`'s or `RemoteTable`'s full parent token. That identity also
-reaches the outer slots, so it is redundant with them, never a substitute.
+opaque node by a placeholder that folds in a `Read`'s path, the full parent
+token of a `CachedNode`, `RemoteTable`, `FlightExpr` or `FlightUDXF`, and a
+`CacheTag`'s cache key. That identity also reaches the outer slots, so it is
+redundant with them, never a substitute.
+
+Compiling the model expression makes tokenizing fail on one its backend
+cannot compile, where before this amendment it tokenized and failed only at
+execution.
 
 Every expression containing a fitted-model UDF changes key once: existing
 cache entries for them miss, and none are served stale.

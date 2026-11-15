@@ -335,21 +335,25 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
 def _placeholder_build_names(op: Node) -> Node:
     """Replace the names a build generates with placeholders, for SQL hashing.
 
-    An ``InMemoryTable`` compiles to a random name and a UDF given no name to a
+    An ``InMemoryTable`` compiles to a random name, a table registered or read
+    with no ``table_name`` to a ``gen_name`` one, and a UDF given no name to a
     counter-suffixed one, so the same expression built twice compiles to two
-    SQL strings. Each ``InMemoryTable`` becomes an unbound table keyed by schema
-    and position, and each UDF class a subclass named by its first-appearance
-    order. Neither carries identity here: an ``InMemoryTable``'s data is an
-    outer data slot, and a UDF's function is in the structural hash's ``udfs``.
+    SQL strings. Each ``InMemoryTable`` and plain ``DatabaseTable`` becomes an
+    unbound table keyed by schema and position, and each UDF class a subclass
+    named by its first-appearance order. None carries identity here: a table's
+    data is an outer data slot, and a UDF's function is in the structural
+    hash's ``udfs``.
     """
     from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
     from xorq.expr import api, udf  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations.relations import (  # noqa: PLC0415
+        DatabaseTable,
         InMemoryTable,
     )
     from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
 
     memtable_count = itertools.count()
+    table_count = itertools.count()
     udf_classes = {}
 
     def _placeholder_class(cls):
@@ -363,6 +367,11 @@ def _placeholder_build_names(op: Node) -> Node:
             name = _stable_opaque_name(
                 "memtable", node.schema, str(next(memtable_count))
             )
+            return api.table(node.schema, name=name).op()
+        # Exact type: the opaque subclasses (``Read``, ``CachedNode``, ...) keep
+        # the placeholders ``_xorq_opaque_to_placeholder`` gives them.
+        if type(node) is DatabaseTable:
+            name = _stable_opaque_name("table", node.schema, str(next(table_count)))
             return api.table(node.schema, name=name).op()
         if isinstance(node, (AggUDF, ScalarUDF)):
             args = _kwargs or dict(zip(node.__argnames__, node.__args__))
@@ -422,9 +431,14 @@ def _normalize_computed_kwargs_expr_impl(cke: Expr) -> tuple:
 
     It is free of ``InMemoryTable`` data, including under a ``CachedNode``.
     It is not free of every leaf's identity: the structural SQL names each
-    opaque node by a placeholder that folds in a ``Read``'s path and a
-    ``CachedNode``'s or ``RemoteTable``'s full parent token. That identity
-    also reaches the outer data slots, so it never substitutes for them.
+    opaque node by a placeholder that folds in a ``Read``'s path, the full
+    parent token of a ``CachedNode``, ``RemoteTable``, ``FlightExpr`` or
+    ``FlightUDXF``, and a ``CacheTag``'s cache key. That identity also
+    reaches the outer data slots, so it never substitutes for them.
+
+    The structural hash compiles the model expression to SQL, so a model
+    expression its backend cannot compile (``Table.sample`` with a seed on the
+    default backend) raises here, at tokenize time, rather than at execution.
 
     Decomposition mirrors the legacy
     ``dask_normalize_expr._normalize_computed_kwargs_expr`` (deleted with the
