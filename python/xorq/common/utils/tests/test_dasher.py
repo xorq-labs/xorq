@@ -32,6 +32,7 @@ import pickle
 import tempfile
 import threading
 import types
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
@@ -85,7 +86,7 @@ from xorq.common.utils.tests._test_helpers import BombHasher, MockOp, Probe
 from xorq.common.utils.toolz_utils import curry as xo_curry
 from xorq.expr import api
 from xorq.expr.ml.metrics import MetricComputation, deferred_sklearn_metric
-from xorq.expr.udf import agg, make_pandas_expr_udf
+from xorq.expr.udf import agg, make_pandas_expr_udf, make_pandas_udf
 from xorq.ibis_yaml.compiler import build_expr
 from xorq.vendor.ibis.expr.operations.relations import DatabaseTable, Schema
 from xorq.vendor.ibis.expr.operations.udf import ScalarUDF
@@ -754,15 +755,180 @@ def test_opaque_placeholders_are_content_addressed(tmp_path):
         assert tokenize(build()) == tokenize(build())
 
 
-def test_normalize_computed_kwargs_expr_is_data_free():
-    """``_normalize_computed_kwargs_expr`` is data-free per ADR-0010 — two
-    cked expressions with the same shape but different ``InMemoryTable``
-    contents must produce identical helper output."""
-    cke_a = xo.memtable(pd.DataFrame({"x": [1, 2, 3]})).filter(xo._.x > 0)
-    cke_b = xo.memtable(pd.DataFrame({"x": [10, 20, 30]})).filter(xo._.x > 0)
-    assert _normalize_computed_kwargs_expr(cke_a) == _normalize_computed_kwargs_expr(
-        cke_b
+def test_normalize_computed_kwargs_expr_is_data_free(tmp_path: pathlib.Path) -> None:
+    """``_normalize_computed_kwargs_expr`` is free of ``InMemoryTable`` data
+    (ADR-0010) -- two cked expressions with the same shape but different
+    contents must produce identical helper output, including when the data
+    sits under a ``CachedNode`` as it does for ``fit(..., cache=...)``."""
+    cache = ParquetCache.from_kwargs(base_path=tmp_path)
+
+    def _cke(values: list[int]) -> Expr:
+        return xo.memtable(pd.DataFrame({"x": values})).filter(xo._.x > 0)
+
+    assert _normalize_computed_kwargs_expr(
+        _cke([1, 2, 3])
+    ) == _normalize_computed_kwargs_expr(_cke([10, 20, 30]))
+    assert _normalize_computed_kwargs_expr(
+        _cke([1, 2, 3]).cache(cache)
+    ) == _normalize_computed_kwargs_expr(_cke([10, 20, 30]).cache(cache))
+
+
+def _train(df: pd.DataFrame) -> bytes:
+    return pickle.dumps({"trained": True})
+
+
+def _predict(model: bytes, df: pd.DataFrame) -> list[float]:
+    return [0.0] * len(df)
+
+
+def _double(df: pd.DataFrame) -> pd.Series:
+    return df["b"] * 2
+
+
+def _predict_op(t: Expr, train_on: Expr, cache: ParquetCache | None) -> ScalarUDF:
+    """A prediction over ``t`` from a model fit on ``train_on``, shaped as
+    ``fit_lib`` builds it: with a cache, the model is a cached table."""
+    model_udaf = agg.pandas_df(
+        fn=_train, schema=train_on.schema(), return_type=dt.binary, name="mymodel"
     )
+    model = model_udaf.on_expr(train_on)
+    if cache is not None:
+        model = model.as_table().cache(cache=cache)
+    predict_udf = make_pandas_expr_udf(
+        computed_kwargs_expr=model,
+        fn=_predict,
+        schema=t.schema(),
+        return_type=dt.float64,
+        name="mypredict",
+    )
+    return predict_udf(*(t[name] for name in t.schema())).op()
+
+
+@pytest.mark.parametrize(
+    "cached",
+    [pytest.param(False, id="uncached"), pytest.param(True, id="cached")],
+)
+@pytest.mark.parametrize(
+    "relation",
+    [
+        pytest.param(lambda t, u, k: t.filter(t.a < k), id="filter"),
+        pytest.param(lambda t, u, k: t.order_by(t.a).limit(k), id="order_by_limit"),
+        pytest.param(
+            lambda t, u, k: t.join(u.filter(u.a < k), "a").select("a", "b"),
+            id="join",
+        ),
+    ],
+)
+def test_scalar_udf_token_tracks_computed_kwargs_relations(
+    tmp_path: pathlib.Path, cached: bool, relation: Callable
+) -> None:
+    """Two models fit on different relations over the same tables share every
+    leaf, so only the relational ops between the leaves and the fit tell their
+    predictions apart; a fit on the same relation rebuilt must still match."""
+    cache = ParquetCache.from_kwargs(base_path=tmp_path) if cached else None
+    con = xo.connect()
+    frame = pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+    t, u = con.register(frame, "t"), con.register(frame, "u")
+
+    low = _predict_op(t, relation(t, u, 2), cache)
+    high = _predict_op(t, relation(t, u, 3), cache)
+    assert tokenize(low) != tokenize(high)
+    assert tokenize(low) == tokenize(_predict_op(t, relation(t, u, 2), cache))
+
+
+def test_snapshot_cache_key_tracks_computed_kwargs_relations(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The snapshot strategy hashes with its own data-blind rules, which reach
+    the model expression through ``_current_hasher``; those must see the
+    training filter too."""
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]}), "t")
+    cache = ParquetSnapshotCache.from_kwargs(base_path=tmp_path, source=con)
+
+    def _key(train_on: Expr) -> str:
+        predicted = _predict_op(t, train_on, cache).to_expr()
+        return t.mutate(p=predicted).cache(cache).ls.get_key()
+
+    assert _key(t.filter(t.a < 2)) != _key(t.filter(t.a >= 2))
+    assert _key(t.filter(t.a < 2)) == _key(t.filter(t.a < 2))
+
+
+def test_scalar_udf_token_tracks_nested_computed_kwargs_relations() -> None:
+    """A second step trained on the first step's predictions must see the
+    first step's training filter: the structure contract holds transitively."""
+    t = xo.connect().register(pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]}), "t")
+
+    def _two_steps(first_filter: Expr) -> ScalarUDF:
+        first = _predict_op(t, t.filter(first_filter), None)
+        return _predict_op(t, t.mutate(p=first.to_expr()), None)
+
+    assert tokenize(_two_steps(t.a < 2)) != tokenize(_two_steps(t.a >= 2))
+    assert tokenize(_two_steps(t.a < 2)) == tokenize(_two_steps(t.a < 2))
+
+
+def test_nested_computed_kwargs_token_stable_across_unnamed_udf_builds() -> None:
+    """A first step trained through a UDF given no name, nested under a second
+    step, must not give the second step a new token on every build."""
+    t = xo.connect().register(pd.DataFrame({"b": [4.0, 5.0, 6.0]}), "t")
+
+    def _two_steps() -> ScalarUDF:
+        doubled = make_pandas_udf(_double, schema=t.schema(), return_type=dt.float64)
+        first = _predict_op(t, t.mutate(c=doubled(t.b)), None)
+        return _predict_op(t, t.mutate(p=first.to_expr()), None)
+
+    assert tokenize(_two_steps()) == tokenize(_two_steps())
+
+
+@pytest.mark.parametrize(
+    "cached",
+    [pytest.param(False, id="uncached"), pytest.param(True, id="cached")],
+)
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("unnamed_udf", id="unnamed_udf"),
+        pytest.param("memtable", id="memtable"),
+    ],
+)
+def test_computed_kwargs_token_stable_across_builds(
+    tmp_path: pathlib.Path, source: str, cached: bool
+) -> None:
+    """A UDF given no name compiles to a counter-suffixed name and a memtable
+    to a random one, so a model trained through either must not take a new
+    token on every build -- under a cache too, where the model expression is
+    a ``CachedNode``'s parent."""
+    cache = ParquetCache.from_kwargs(base_path=tmp_path) if cached else None
+    t = xo.connect().register(pd.DataFrame({"b": [4.0, 5.0, 6.0]}), "t")
+
+    def _build() -> ScalarUDF:
+        match source:
+            case "unnamed_udf":
+                doubled = make_pandas_udf(
+                    _double, schema=t.schema(), return_type=dt.float64
+                )
+                train_on = t.mutate(c=doubled(t.b))
+            case "memtable":
+                train_on = xo.memtable(pd.DataFrame({"b": [4.0, 5.0, 6.0]}))
+        return _predict_op(t, train_on, cache)
+
+    assert tokenize(_build()) == tokenize(_build())
+
+
+@pytest.mark.parametrize(
+    "cached",
+    [pytest.param(False, id="uncached"), pytest.param(True, id="cached")],
+)
+def test_computed_kwargs_token_compiles_with_the_training_backend(
+    tmp_path: pathlib.Path, cached: bool
+) -> None:
+    """The structural hash compiles the model expression with its own backend:
+    duckdb compiles a seeded sample, which the default backend refuses."""
+    cache = ParquetCache.from_kwargs(base_path=tmp_path) if cached else None
+    t = xo.duckdb.connect().create_table(
+        "t", pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+    )
+    tokenize(_predict_op(t, t.sample(0.5, seed=7), cache))
 
 
 # NOTE: test_replace_nodes_raises_on_unhandled_opaque was removed: it guarded

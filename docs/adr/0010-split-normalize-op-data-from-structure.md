@@ -352,3 +352,40 @@ metadata in the first place.
 - `dasher/_recompute.py` — `compute_expr_token`, vendored `_encode`/`_write`
 - `dasher/__init__.py` — public exports, `with_caches` wrapper
 - `tests/test_dasher.py` — round-trip, structural stability, slot invalidation, minimal-env tests
+
+## Amendment: a fitted model's key carries its relational structure
+
+The *Scope* section says `_normalize_computed_kwargs_expr` contributes only
+schemas, UDF identity, read settings and cache class, and that data identity
+for the model expression's leaves flows into the outer `data_deps`. Both
+halves held, and together they under-discriminated (#2669): two models fit
+on different filters of one table share every leaf, so the outer slots are
+equal, and the helper saw no filter, so prediction keys collided and a cached
+prediction returned the other model's results.
+
+The helper now also contributes the model expression's structural hash: its
+SQL after the names a build generates (random `InMemoryTable` names,
+counter-suffixed names of UDFs given none) are replaced with placeholders,
+descending through `CachedNode.parent` but not into a nested
+`ExprScalarUDF`'s model, which its own normalization covers.
+
+A table registered or read with no `table_name` keeps its generated name: an
+unbound placeholder would drop its backend, so the SQL would compile with the
+default one. A model trained on such a table takes a new key every build.
+
+What "data-free" means for the helper is narrower than the *Scope* section
+states: it is free of `InMemoryTable` data, but the structural SQL names each
+opaque node by a placeholder that folds in a `Read`'s path, the full parent
+token of a `CachedNode`, `RemoteTable`, `FlightExpr` or `FlightUDXF`, and a
+`CacheTag`'s cache key. That identity also reaches the outer slots, so it is
+redundant with them, never a substitute.
+
+Compiling the model expression makes tokenizing fail on one its backend
+cannot compile, where before this amendment it tokenized and failed only at
+execution.
+
+Every expression containing a fitted-model UDF changes key once: existing
+cache entries for them miss, and none are served stale.
+
+- `dasher/_opaque.py` — `_placeholder_build_names`, `_normalize_computed_kwargs_expr`
+- `tests/test_dasher.py` — `test_scalar_udf_token_tracks_computed_kwargs_relations`, `test_computed_kwargs_token_stable_across_builds`

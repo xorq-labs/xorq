@@ -166,6 +166,7 @@ def _install_per_call_memos():
     cooperatively installs the same memos via :func:`with_caches`).
     """
     from xorq.common.utils.dasher._opaque import (  # noqa: PLC0415
+        _cke_normalize_memo,
         _expr_normalize_memo,
         _parent_token_memo,
     )
@@ -178,6 +179,8 @@ def _install_per_call_memos():
         tokens.append((_dt_normalize_memo, _dt_normalize_memo.set({})))
     if _expr_normalize_memo.get() is None:
         tokens.append((_expr_normalize_memo, _expr_normalize_memo.set({})))
+    if _cke_normalize_memo.get() is None:
+        tokens.append((_cke_normalize_memo, _cke_normalize_memo.set({})))
     return tokens
 
 
