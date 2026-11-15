@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794763293638,
+  "lastUpdate": 1794774351120,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -87632,6 +87632,212 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.1920828557084603",
             "extra": "mean: 1.450379672400004 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dlovell@gmail.com",
+            "name": "Dan Lovell",
+            "username": "dlovell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8443437bb460359bdaf26a48096a62d15d1e6daa",
+          "message": "fix(dasher): a fitted model's key carries its training relations (#2671)\n\nFixes #2669.\n\n## Release note\n\nEvery expression containing a fitted-model UDF changes cache key once.\nExisting cache entries for those expressions miss and are recomputed;\nnone are served stale. Build hashes for such expressions change too\n(reasoned, not measured).\n\nFixes the cache-key collision in #2669. It does not make two fitted\nmodels in one query safe: they still both return the last-registered\nmodel's predictions (#2672). Tokenizing a fitted pipeline is 2–3×\nslower.\n\n## Problem\n\nTwo models fit on different filters of one table produced prediction\nexpressions with the same cache key, so `.cache()` returned the first\nmodel's predictions for the second. The prediction UDF folds its model\nexpression into the key through `_normalize_computed_kwargs_expr`, which\ncontributed only schemas, UDFs, read settings and cache class. No\nrelational op between the table and the fit reached the key, and the\nouter expression's data slots are equal when both fits read the same\ntable.\n\n## Change\n\n`_normalize_computed_kwargs_expr` now also contributes the model\nexpression's structural hash: its SQL with the leaf data slots left out.\n\n- **Build-generated names are replaced first**\n(`_placeholder_build_names`). An `InMemoryTable` compiles to a random\nname and a UDF given no name to a counter-suffixed one, so hashing the\nraw SQL would give the same pipeline a new key on every build. Memtables\nbecome schema-and-position placeholders, and UDF classes are renamed by\norder of first appearance. Their data and function identity already\nenter the key elsewhere. A `DatabaseTable` keeps its name, even a\ngenerated one: an unbound placeholder would drop its backend, and the\nSQL would then compile with the default backend's compiler.\n- **The rewrite descends through `CachedNode.parent`**, where `fit(...,\ncache=...)` puts the model, and stops at a nested `ExprScalarUDF`, whose\nmodel its own normalization covers.\n- **A per-call memo** (`_cke_normalize_memo`) stores one token per model\nexpression.\n\nADR-0010 gets an amendment recording the change, a narrower statement of\nwhat \"data-free\" means for this helper, and the tokenize-time failure\nbelow.\n\n## Consequences\n\n- **One-time key change:** every expression containing a fitted-model\nUDF changes cache key once. Existing cache entries for them miss; none\nare served stale. Build hashes for such expressions change too\n(reasoned, not measured).\n- **Tokenizing a fitted pipeline costs more**, measured with\n`.ls.tokenized` on a `StandardScaler`×n → `LogisticRegression` pipeline:\n\n| steps | main, uncached | this PR, uncached | main, cached fit | this\nPR, cached fit |\n  |---|---|---|---|---|\n  | 4 | 0.08 s | 0.18 s | 0.11 s | 0.27 s |\n  | 8 | 0.23 s | 0.61 s | 0.34 s | 1.02 s |\n\nWithout the memo, cost roughly quadruples per step (55 s at 6 steps).\nMeasured before the review fix to `_placeholder_build_names`, which adds\none type check per node. A fresh reviewer's re-run on another machine\ngot different absolute times with the same ~2× ratio.\n- **A model trained on a table registered or read with no `table_name`\ntakes a new key every build**, because that table keeps its generated\nname. On main its uncached prediction key was stable across builds.\nThese are cache misses; nothing is served stale. This is accepted and\nstated in the helper's docstring and the ADR amendment.\n- **Tokenizing compiles the model expression**, so a model expression\nits backend cannot compile now raises at tokenize time. Example:\n`Table.sample` with a seed on the default backend. On main it tokenized\nand failed only at execution. This is accepted, and stated in the\nhelper's docstring and the ADR amendment.\n- **The `to_sql` cache grows faster.** `_cached_with_op` is an unbounded\n`functools.cache`, and on main it already gains entries on every\ntokenize of a fitted pipeline. This PR's placeholder classes add more.\nThe reviewer's probe, 50 tokenizes of one 4-step cached-fit pipeline,\nmeasured about 65 KB per tokenize on main and about 152 KB on this PR.\nThe cache is left unbounded for now; a code comment at\n`_placeholder_class` records the growth.\n\n## Tests\n\n- **`test_dasher.py`:**\n- Different training relations give different prediction keys: filter,\n`order_by`+`limit` and join, each cached and uncached.\n- The same holds for a `ParquetSnapshotCache` key and for a two-step\npipeline.\n- Keys stay stable across rebuilds when the model is trained on a\nmemtable or through an unnamed UDF, cached and uncached, including\nnested.\n- The structural hash compiles with the training table's backend: a\nDuckDB seeded sample, which the default backend refuses, tokenizes,\ncached and uncached.\n  - The helper stays free of memtable data under a cache.\n- **`test_pipeline_lib.py`:** the issue's end-to-end case, where cached\npredictions from the two fits must differ.\n\nEach part of the change was broken on its own and fails its own tests:\nthe structural hash, the UDF rename, the memtable rename, and descending\nthrough `CachedNode`. The discrimination tests fail on main and the\nstability tests pass on main (they guard against regressing it). The\nDuckDB backend test fails when `DatabaseTable`s are replaced with\nunbound placeholders.\n\n## Review\n\nTwo structural review rounds, each with a fresh reviewer. Round 1\ncovered the diff and this body; it re-ran the suite, the timing and the\nfour part-breaking probes, and those held. It found four issues:\n- Generated table names entered the structural hash, so a model trained\non an unnamed table got a new key every build. Fixed in round 1, then\nreverted after round 2 (below); now an accepted limit, see Consequences.\n- The ADR amendment and docstring listed fewer opaque nodes than the\ncode. Fixed.\n- Tokenizing can raise on a model expression its backend cannot compile.\nAccepted; see Consequences.\n- The `to_sql` cache growth. Left unbounded for now.\n\nRound 2 covered only round 1's fixes. It found that replacing tables\nwith unbound placeholders made the structural SQL compile with the\ndefault backend. A DuckDB training expression that runs then raised at\ntokenize, directly or through `into_backend`. That table rename is\nreverted, and a test now pins the backend. Its probes, re-run on the\nreverted code by the author's session, show every DuckDB case\ntokenizing.\n\nA fresh agent that did not write the revert re-ran round 2's probes\nagainst this head, the commit before the revert, and main. At this head\nthe DuckDB cases tokenize, where before the revert they raised. Its\noutput matches the author's run line for line except one result from the\nDuckDB table normalizer, which this PR does not change (see the DuckDB\nnamespace bullet under Not fixed here). No reviewer has read the\nrevert's code; the re-run checked its behaviour only.\n\n## Not fixed here\n\nThe review turned up separate bugs in the same area, filed on their own:\n\n- #2672: two fitted models used in one query both return the\nlast-registered model's predictions, with no cache involved. This PR\ndoes not make that case safe.\n- #2673: cache keys ignore state held by UDF callables.\n- #2674: tables registered from a RecordBatchReader are cached by schema\nand name only.\n- #2675: Flight exchangers built from the same `process_df` overwrite\neach other.\n- #2676: `Pipeline.fit` loses `training_hash` for any training\nexpression that is not a bare table.\n- The DuckDB table normalizer keys on the table name only. For\nsame-named tables in two schemas it raises, or reads another schema's\ntable. Main gives such tables equal keys; this branch separates them\nthrough the model's structural SQL. No GitHub issue yet.\n- A cached fit over a table registered or read with no `table_name`\ntakes a new outer key every build, on main as on this branch. The\ninstability is in the outer `CachedNode` token, which this PR does not\nchange. No GitHub issue yet.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n---------\n\nCo-authored-by: Claude Opus 5.5 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-11-15T15:19:28-05:00",
+          "tree_id": "5d0def4fa95ed04e13fdb610f234751eeac2d97b",
+          "url": "https://github.com/xorq-labs/xorq/commit/8443437bb460359bdaf26a48096a62d15d1e6daa"
+        },
+        "date": 1794774345579,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 7.933534704955196,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011346486683032947",
+            "extra": "mean: 126.04722071429414 msec\nrounds: 7"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.1800417636094145,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06268325551271837",
+            "extra": "mean: 458.7068086000045 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7854644100283793,
+            "unit": "iter/sec",
+            "range": "stddev: 0.19734534769447648",
+            "extra": "mean: 1.2731321588000015 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.3329520807490005,
+            "unit": "iter/sec",
+            "range": "stddev: 0.07359179651763227",
+            "extra": "mean: 428.6414659999991 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.594199394539262,
+            "unit": "iter/sec",
+            "range": "stddev: 0.062247389120618425",
+            "extra": "mean: 385.4753810000034 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.6762397503878574,
+            "unit": "iter/sec",
+            "range": "stddev: 0.056017638447964556",
+            "extra": "mean: 373.6586005999925 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 146.25494196550974,
+            "unit": "iter/sec",
+            "range": "stddev: 0.00844984221373197",
+            "extra": "mean: 6.837375794356561 msec\nrounds: 248"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 4.435689823981514,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013306607735179578",
+            "extra": "mean: 225.44407739998178 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 12.620755546833848,
+            "unit": "iter/sec",
+            "range": "stddev: 0.015407718131091945",
+            "extra": "mean: 79.23455899998544 msec\nrounds: 6"
+          },
+          {
+            "name": "python/xorq/ibis_yaml/tests/test_benchmark.py::test_to_yaml_long_chain",
+            "value": 1.1504022790536648,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13631103755721602",
+            "extra": "mean: 869.2611430000056 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/ibis_yaml/tests/test_benchmark.py::test_to_yaml_shared_remote_tables",
+            "value": 1.3240320659742217,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1638886619692335",
+            "extra": "mean: 755.2687171999878 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 11.361411611115104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.018624706762653695",
+            "extra": "mean: 88.01723185714698 msec\nrounds: 14"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 9.276765061540234,
+            "unit": "iter/sec",
+            "range": "stddev: 0.023118283378656186",
+            "extra": "mean: 107.79619763637398 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.966046335538581,
+            "unit": "iter/sec",
+            "range": "stddev: 0.005455838725808126",
+            "extra": "mean: 143.55345224999638 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.7373781281281335,
+            "unit": "iter/sec",
+            "range": "stddev: 0.01640828568042999",
+            "extra": "mean: 211.08722440003476 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.614207393362292,
+            "unit": "iter/sec",
+            "range": "stddev: 0.013063088209115373",
+            "extra": "mean: 216.7219447999969 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.3096630578998396,
+            "unit": "iter/sec",
+            "range": "stddev: 0.06383993342239364",
+            "extra": "mean: 432.96358599998257 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.0520250435206875,
+            "unit": "iter/sec",
+            "range": "stddev: 0.04323508570916058",
+            "extra": "mean: 327.6513088000229 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.687563898109281,
+            "unit": "iter/sec",
+            "range": "stddev: 0.10298942460140667",
+            "extra": "mean: 592.5701546000028 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.844139036078702,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0871441212770135",
+            "extra": "mean: 542.2584634000032 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.4651605227128006,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11553064967132752",
+            "extra": "mean: 682.5190718000385 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.463803782883177,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13968862540542182",
+            "extra": "mean: 683.1516707999981 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.2390534134877715,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12467067840142562",
+            "extra": "mean: 807.0677091999869 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.1320008882176944,
+            "unit": "iter/sec",
+            "range": "stddev: 0.14110431832724832",
+            "extra": "mean: 883.3915330000082 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.95870261643355,
+            "unit": "iter/sec",
+            "range": "stddev: 0.12759013044810363",
+            "extra": "mean: 1.043076323000014 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5746003336178737,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1508094234083434",
+            "extra": "mean: 1.7403400963999958 sec\nrounds: 5"
           }
         ]
       }
