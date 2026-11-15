@@ -109,6 +109,6 @@ Prefer these over bare relative paths like `../.venv`, which break when the eval
 
 ## Git worktrees
 
-A new worktree has none of the gitignored files above, so direnv there loads no secrets and no user env until you copy them from the main checkout. It has no `.gitignore` either, since that file is untracked: copy it first, or those secrets show up as untracked files `git add` will stage. It also lacks the test data in `ci/ibis-testing-data`: run `just download-data` in the worktree, or symlink the main checkout's copy.
+A new worktree has none of the gitignored files above, so direnv there loads no secrets and no user env until you copy them from the main checkout. It needs no `.gitignore` copied in: the first direnv load there builds one from `.gitignore.template`, which ignores those files, plus `.gitignore.local`, so copy that file too if you have one. A `.gitignore` copied from a main checkout that has its own rules, without its `.gitignore.local`, is moved to `.gitignore.orig` ("Getting started" above). It also lacks the test data in `ci/ibis-testing-data`: run `just download-data` in the worktree, or symlink the main checkout's copy.
 
 Maintainers use the worktree helpers in the [devcontainer repo](https://github.com/xorq-labs/devcontainer) (`new-worktree`, `setup-worktree`), which do all of this; see its README. They are optional and Linux-only.
