@@ -365,10 +365,13 @@ prediction returned the other model's results.
 
 The helper now also contributes the model expression's structural hash: its
 SQL after the names a build generates (random `InMemoryTable` names,
-generated names of tables registered or read with no `table_name`,
 counter-suffixed names of UDFs given none) are replaced with placeholders,
 descending through `CachedNode.parent` but not into a nested
 `ExprScalarUDF`'s model, which its own normalization covers.
+
+A table registered or read with no `table_name` keeps its generated name: an
+unbound placeholder would drop its backend, so the SQL would compile with the
+default one. A model trained on such a table takes a new key every build.
 
 What "data-free" means for the helper is narrower than the *Scope* section
 states: it is free of `InMemoryTable` data, but the structural SQL names each

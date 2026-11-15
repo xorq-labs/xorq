@@ -889,21 +889,17 @@ def test_nested_computed_kwargs_token_stable_across_unnamed_udf_builds() -> None
     [
         pytest.param("unnamed_udf", id="unnamed_udf"),
         pytest.param("memtable", id="memtable"),
-        pytest.param("unnamed_table", id="unnamed_table"),
     ],
 )
 def test_computed_kwargs_token_stable_across_builds(
     tmp_path: pathlib.Path, source: str, cached: bool
 ) -> None:
-    """A UDF given no name compiles to a counter-suffixed name, a memtable to a
-    random one and a table registered with no name to a generated one, so a
-    model trained through any of them must not take a new token on every
-    build -- under a cache too, where the model expression is a
-    ``CachedNode``'s parent."""
+    """A UDF given no name compiles to a counter-suffixed name and a memtable
+    to a random one, so a model trained through either must not take a new
+    token on every build -- under a cache too, where the model expression is
+    a ``CachedNode``'s parent."""
     cache = ParquetCache.from_kwargs(base_path=tmp_path) if cached else None
-    con = xo.connect()
-    frame = pd.DataFrame({"b": [4.0, 5.0, 6.0]})
-    t = con.register(frame, "t")
+    t = xo.connect().register(pd.DataFrame({"b": [4.0, 5.0, 6.0]}), "t")
 
     def _build() -> ScalarUDF:
         match source:
@@ -913,12 +909,26 @@ def test_computed_kwargs_token_stable_across_builds(
                 )
                 train_on = t.mutate(c=doubled(t.b))
             case "memtable":
-                train_on = xo.memtable(frame)
-            case "unnamed_table":
-                train_on = con.register(frame)
+                train_on = xo.memtable(pd.DataFrame({"b": [4.0, 5.0, 6.0]}))
         return _predict_op(t, train_on, cache)
 
     assert tokenize(_build()) == tokenize(_build())
+
+
+@pytest.mark.parametrize(
+    "cached",
+    [pytest.param(False, id="uncached"), pytest.param(True, id="cached")],
+)
+def test_computed_kwargs_token_compiles_with_the_training_backend(
+    tmp_path: pathlib.Path, cached: bool
+) -> None:
+    """The structural hash compiles the model expression with its own backend:
+    duckdb compiles a seeded sample, which the default backend refuses."""
+    cache = ParquetCache.from_kwargs(base_path=tmp_path) if cached else None
+    t = xo.duckdb.connect().create_table(
+        "t", pd.DataFrame({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+    )
+    tokenize(_predict_op(t, t.sample(0.5, seed=7), cache))
 
 
 # NOTE: test_replace_nodes_raises_on_unhandled_opaque was removed: it guarded
