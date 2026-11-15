@@ -1,0 +1,109 @@
+# Rebuild the root .gitignore on every load: .gitignore.template, then the
+# untracked .gitignore.local (your own rules) if present. Edit those two,
+# never .gitignore: the next load replaces it. Needs awk.
+# .envrcs/test-fragments.sh tests this file. Why a rebuild and not a one-time
+# copy, and how a repo opts out: xorq-labs/xorq-envrcs .envrcs/README.md,
+# "The generated .gitignore".
+#
+# PWD is .envrcs/ here (source_env pushd's into it), so every path is
+# $direnv_root-prefixed; `return`, never `exit`, which would end direnv's
+# whole load.
+
+# Watch before the test, so adding a template later retriggers the reload.
+watch_file "$direnv_root/.gitignore.template" "$direnv_root/.gitignore.local"
+
+# No template: the repo keeps a .gitignore of its own. A silent no-op, as for
+# any layer whose template is not tracked.
+[ -f "$direnv_root/.gitignore.template" ] || return 0
+
+# A tracked .gitignore and a template both: rebuilding would dirty the
+# tracked file on every load. Refuse until one of them goes. ls-files exits
+# 0 for tracked, 1 for untracked (present or not), 128 when git could not
+# tell; only 1 rebuilds.
+_gitignore_rc=0
+git -C "$direnv_root" ls-files --error-unmatch .gitignore >/dev/null 2>&1 || _gitignore_rc=$?
+case $_gitignore_rc in
+1) unset _gitignore_rc ;;
+0)
+    unset _gitignore_rc
+    log_error ".gitignore is tracked; not rebuilding it from .gitignore.template (remove one of them)"
+    return 0
+    ;;
+*)
+    unset _gitignore_rc
+    log_error "git could not say whether .gitignore is tracked; not rebuilding it"
+    return 0
+    ;;
+esac
+
+# A .gitignore that is not a regular file (a directory, say): mv would put
+# the rebuild inside it.
+if [ -e "$direnv_root/.gitignore" ] && [ ! -f "$direnv_root/.gitignore" ]; then
+    log_error ".gitignore is not a regular file; not rebuilding it"
+    return 0
+fi
+
+# Through a temp file renamed into place only after every read succeeded, so
+# an unreadable template keeps the old .gitignore. The echo keeps the
+# template's last rule off the first .gitignore.local line. A load killed
+# before the rename leaves its temp file behind, ignored; nothing sweeps it,
+# since another load's may be in flight.
+_gitignore_tmp=$direnv_root/.gitignore.tmp.$$
+if ! { cat "$direnv_root/.gitignore.template" &&
+    { [ ! -f "$direnv_root/.gitignore.local" ] ||
+        { echo && cat "$direnv_root/.gitignore.local"; }; }; } >"$_gitignore_tmp"; then
+    rm -f "$_gitignore_tmp"
+    log_error ".gitignore not rebuilt; the previous one, if any, is kept"
+else
+    # Does the old .gitignore hold a rule the new one lacks (one added by
+    # hand, or kept from before the rebuild existed)? Lines are compared as
+    # git reads them: trailing blanks and CR dropped, a comment is a '#' in
+    # column 0. awk exits 0 for yes, 1 for no; anything else, or an
+    # unreadable file (busybox awk reads one as empty), means it could not
+    # say, and the old file is kept.
+    if [ ! -f "$direnv_root/.gitignore" ]; then
+        _gitignore_rc=1
+    elif [ ! -r "$direnv_root/.gitignore" ]; then
+        _gitignore_rc=2
+    else
+        _gitignore_rc=0
+        awk '
+            { sub(/[ \t\r]+$/, "") }
+            FILENAME == ARGV[1] { built[$0]; next }
+            !($0 in built) && !/^(#|$)/ { dropped = 1 }
+            END { exit !dropped }' "$_gitignore_tmp" "$direnv_root/.gitignore" ||
+            _gitignore_rc=$?
+    fi
+    case $_gitignore_rc in
+    # Moved aside to .gitignore.orig, never dropped; a second such .gitignore
+    # waits until that one is dealt with.
+    0)
+        if [ -e "$direnv_root/.gitignore.orig" ]; then
+            rm -f "$_gitignore_tmp"
+            log_error ".gitignore has rules the rebuild would drop, and .gitignore.orig exists; not rebuilding (move the rules you want into .gitignore.local, then delete .gitignore.orig)"
+        elif ! mv -f "$direnv_root/.gitignore" "$direnv_root/.gitignore.orig"; then
+            rm -f "$_gitignore_tmp"
+            log_error "could not move .gitignore to .gitignore.orig; the previous one is kept"
+        elif ! mv -f "$_gitignore_tmp" "$direnv_root/.gitignore"; then
+            # Put the old one back rather than leave no .gitignore at all.
+            rm -f "$_gitignore_tmp"
+            mv -f "$direnv_root/.gitignore.orig" "$direnv_root/.gitignore" ||
+                log_error "could not move .gitignore.orig back to .gitignore; nothing is ignored until it is"
+            log_error ".gitignore not rebuilt: the rename failed; the previous one is kept"
+        else
+            log_status ".gitignore had rules the rebuild drops; the old file is .gitignore.orig (move the rules you want into .gitignore.local, then delete it)"
+        fi
+        ;;
+    1)
+        if ! mv -f "$_gitignore_tmp" "$direnv_root/.gitignore"; then
+            rm -f "$_gitignore_tmp"
+            log_error ".gitignore not rebuilt: the rename failed; the previous one, if any, is kept"
+        fi
+        ;;
+    *)
+        rm -f "$_gitignore_tmp"
+        log_error "could not compare .gitignore with its rebuild; the previous one is kept"
+        ;;
+    esac
+fi
+unset _gitignore_tmp _gitignore_rc

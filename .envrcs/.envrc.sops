@@ -1,18 +1,186 @@
+# Secrets are applied with `declare -gx NAME=VAL`, rewritten from the
+# `export NAME=VAL` that `direnv dotenv` emits: bash's `local` is dynamically
+# scoped, so an `export` here writes an enclosing frame's slot whenever a
+# caller declared that name `local` — and direnv's own use() and source_env()
+# declare six names a secret might plausibly be called. The .envrcs/README.md
+# of xorq-labs/xorq-envrcs, where this file comes from, under "Secrets are
+# applied with declare -gx", is the reference for why, for
+# the shape being rewritten, for what the rewrite refuses, and for the one of
+# those six names (REPLY) that is still unsafe to use as a bundle key.
+#
+# Every local in this file is _sops_-prefixed so this file's variables cannot
+# collide with the fragments that source it, and so the _sops_in/_sops_tok
+# parser state that _sops_globalize shares with _sops_take_token and
+# _sops_skip_space through that same dynamic scope stays out of the way. A
+# bundle key cannot collide with either: `declare -gx` writes the global,
+# never a local slot.
+
+# Consume one token — a bare run, a `$'...'` literal, or a `'...'` literal —
+# from the front of $_sops_in, appending it verbatim to $_sops_tok. Both are
+# the caller's locals, shared by dynamic scope. $1 ends a bare token: `=`
+# after a name, `;` after a value.
+#
+# The two quoted forms close by different rules and are not interchangeable:
+#
+#   $'...'  a backslash escapes the character after it, so the closing quote
+#           is the first one preceded by an even-length run of backslashes.
+#           Nothing else in there is escaped, which is why the loop below
+#           skips a value instead of splitting on it.
+#   '...'   POSIX single quotes have no escapes at all, so the first `'`
+#           closes it — `'a\'` is a complete value ending in a backslash.
+#
+# direnv emits `''` only for the empty string today, but sharing the $'...'
+# rule with it would turn a value ending in a backslash into a refusal of the
+# entire dump, so each form gets its own rule.
+_sops_take_token() {
+    local _sops_stop=$1 _sops_open= _sops_chunk _sops_bs
+    case $_sops_in in
+    "\$'"*) _sops_open="\$'" ;;
+    "'"*)   _sops_open="'" ;;
+    esac
+    if [ -z "$_sops_open" ]; then
+        # A bare token runs to the first whitespace or stop byte. direnv's
+        # bare alphabet contains neither, so nothing is ever trimmed off a
+        # value here; whitespace at this point is separator. The caller is
+        # what requires the stop byte to actually be there.
+        _sops_tok=${_sops_in%%[[:space:]]*}
+        _sops_tok=${_sops_tok%%"$_sops_stop"*}
+        [ -n "$_sops_tok" ] || return 1
+        _sops_in=${_sops_in#"$_sops_tok"}
+        return 0
+    fi
+    _sops_in=${_sops_in#"$_sops_open"}
+    _sops_tok=$_sops_open
+    while :; do
+        case $_sops_in in *"'"*) ;; *) return 1 ;; esac
+        _sops_chunk=${_sops_in%%"'"*}
+        _sops_in=${_sops_in#"$_sops_chunk'"}
+        _sops_tok+=$_sops_chunk\'
+        # A `'...'` has no escapes, so that quote closed it.
+        [ "$_sops_open" = "\$'" ] || return 0
+        # In a `$'...'`, the trailing run of backslashes: everything after
+        # the last character that is not one. An all-backslash chunk leaves
+        # the pattern unmatched, which yields the chunk itself — still
+        # correct.
+        _sops_bs=${_sops_chunk##*[!\\]}
+        [ $(( ${#_sops_bs} % 2 )) -eq 1 ] || return 0
+    done
+}
+
+# Drop the leading whitespace run from $_sops_in, the caller's local. An
+# all-whitespace $_sops_in leaves the pattern unmatched, which yields the
+# whole string, so removing it empties it — still correct.
+_sops_skip_space() {
+    _sops_in=${_sops_in#"${_sops_in%%[![:space:]]*}"}
+}
+
+# Rewrite `export NAME=VAL;...` into `declare -gx NAME=VAL;...` on stdout.
+# Name and value bytes are copied through untouched; the only edit is each
+# statement's leading keyword. Anything that does not fit — a statement that
+# is not an `export`, an unterminated quote, a missing `=` or `;` — returns
+# non-zero rather than guessing.
+#
+# Whitespace between the pieces is skipped rather than required to be absent.
+# direnv emits exactly one space after `export` and nothing around the `;`,
+# but a value can only ever carry whitespace inside a quoted literal, so
+# tolerating it costs nothing and keeps a purely cosmetic change in direnv's
+# formatting from disabling the whole secrets layer on an upgrade. The one
+# place whitespace is still rejected is around the `=`, because `export A = 1`
+# is a different command in bash rather than a differently formatted one.
+_sops_globalize() {
+    local _sops_in=$1 _sops_out= _sops_tok
+    _sops_skip_space
+    while [ -n "$_sops_in" ]; do
+        case $_sops_in in
+        "export"[[:space:]]*) _sops_in=${_sops_in#export}; _sops_skip_space ;;
+        *) return 1 ;;
+        esac
+        _sops_take_token '=' || return 1
+        _sops_out+="declare -gx $_sops_tok"
+        case $_sops_in in
+        "="*) _sops_out+='='; _sops_in=${_sops_in#=} ;;
+        *) return 1 ;;
+        esac
+        _sops_take_token ';' || return 1
+        _sops_out+=$_sops_tok
+        _sops_skip_space
+        case $_sops_in in
+        ";"*) _sops_out+=';'; _sops_in=${_sops_in#;} ;;
+        *) return 1 ;;
+        esac
+        _sops_skip_space
+    done
+    printf '%s' "$_sops_out"
+}
+
+# Shared default bundle path, so a bare `use sops` / `use sops_if_exists` is
+# not a no-op. Fails loudly when direnv_root is unset: this fragment expects
+# to be sourced from the root .envrc, and without it the default would
+# silently become /.envrcs/... and the secrets layer would quietly do
+# nothing — the exact failure the rest of this file exists to prevent.
+_sops_bundle_path() {
+    if [ -n "$1" ]; then
+        printf '%s\n' "$1"
+        return 0
+    fi
+    if [ -z "${direnv_root:-}" ]; then
+        log_error "use_sops: no path given and direnv_root is unset; pass a path or source this from the root .envrc"
+        return 1
+    fi
+    printf '%s\n' "$direnv_root/.envrcs/.env.secrets.concatenated.sops-encrypted"
+}
+
 use_sops() {
     # https://github.com/direnv/direnv/wiki/Sops#how-to-encrypt
-    local path=${1:-$PWD/../secrets.yaml}
-    local output_type=${2:-dotenv}
-    if [ "$output_type" = "dotenv" ]; then
-        eval "$(sops --decrypt --input-type dotenv --output-type dotenv "$path" | direnv dotenv bash /dev/stdin)"
-    else
-        eval "$(sops --decrypt --input-type $output_type --output-type $output_type "$path")"
+    local _sops_path _sops_output_type=${2:-dotenv} _sops_decrypted _sops_parsed _sops_global
+    _sops_path=$(_sops_bundle_path "${1:-}") || return 1
+
+    # dotenv only. Any other output type would have to be `eval`d as shell,
+    # which for a YAML or JSON payload is a syntax error at best and
+    # arbitrary command execution at worst.
+    if [ "$_sops_output_type" != "dotenv" ]; then
+        log_error "use_sops: only dotenv bundles are supported (got '$_sops_output_type')"
+        return 1
     fi
 
-    watch_file "$path"
+    # watch before decrypting: a file that fails to decrypt is still watched,
+    # so fixing it (or the key) retriggers the reload.
+    watch_file "$_sops_path"
+
+    _sops_decrypted=$(sops --decrypt --input-type dotenv --output-type dotenv "$_sops_path") || {
+        log_error "sops --decrypt failed for $_sops_path"
+        return 1
+    }
+
+    # Capture the parse separately rather than piping straight into eval:
+    # inside a pipeline the exit status is discarded, so a bundle that
+    # decrypts but is malformed would eval to nothing and report success.
+    # printf, not echo: echo's treatment of option-like strings and
+    # backslashes depends on shell options (xpg_echo), and printf '%s\n'
+    # is unambiguous.
+    _sops_parsed=$(printf '%s\n' "$_sops_decrypted" | direnv dotenv bash /dev/stdin) || {
+        log_error "direnv dotenv failed to parse $_sops_path"
+        return 1
+    }
+
+    _sops_global=$(_sops_globalize "$_sops_parsed") || {
+        log_error "use_sops: unrecognized direnv dotenv output for $_sops_path; refusing to apply it"
+        return 1
+    }
+    eval "$_sops_global"
 }
 
 use_sops_if_exists() {
-    if [ -f "$1" ]; then
-        use_sops "$@"
+    local _sops_path
+    _sops_path=$(_sops_bundle_path "${1:-}") || return 1
+
+    # watch before the test, mirroring direnv's own source_env_if_exists and
+    # dotenv_if_exists: a missing file is recorded as a watch with
+    # exists:false, so creating the bundle later retriggers the reload
+    # instead of waiting for a manual `direnv reload`.
+    watch_file "$_sops_path"
+
+    if [ -f "$_sops_path" ]; then
+        use_sops "$_sops_path" "${@:2}"
     fi
 }

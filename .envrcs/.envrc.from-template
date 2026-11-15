@@ -1,0 +1,64 @@
+# Create .envrcs/.envrc.{secrets,user} (mode 600) from their tracked
+# templates, so a fresh clone needs nothing but `direnv allow`.
+# .envrcs/test-fragments.sh tests this file; xorq-labs/xorq-envrcs
+# .envrcs/README.md, "Auto-create, and how to disable a fragment", is the
+# reference.
+#
+# Existing files are never overwritten, and a missing template is skipped:
+# a repo drops a layer by not tracking its template. NOTE: deleting one of
+# these does not disable it — it is recreated on the next reload. To
+# durably disable a fragment in one checkout, empty it
+# (`> .envrcs/.envrc.user`); an empty file is kept and is a no-op when
+# sourced.
+#
+# PWD is .envrcs/ here, hence $direnv_root on every path; `return`, never
+# `exit`, which would end direnv's whole load.
+
+# Nothing to create (each file exists, or has no template): nothing to say.
+_from_template_todo=
+for _from_template_f in "$direnv_root"/.envrcs/.envrc.secrets "$direnv_root"/.envrcs/.envrc.user; do
+    [ -f "$_from_template_f" ] || [ ! -f "$_from_template_f.template" ] || _from_template_todo=1
+done
+if [ -z "$_from_template_todo" ]; then
+    unset _from_template_f _from_template_todo
+    return 0
+fi
+unset _from_template_f _from_template_todo
+
+# Not in a linked worktree, whose git dir differs from the common one (a
+# subdirectory of a checkout and a submodule share theirs): its two files are
+# copied from the main checkout, and devcontainer's setup-worktree copies
+# only where they are absent, so creating them here first would leave the
+# worktree on the templates. Outside any repo, rev-parse fails and the git
+# check below refuses each file. GIT_DIR and friends are dropped so the
+# answer is about $direnv_root, not about whatever repo the shell exported.
+# Needs git 2.31 or newer: older git echoes --path-format=absolute back and
+# exits 0, so every checkout reads as a linked worktree.
+if _from_template_dirs=$(unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR
+    git -C "$direnv_root" rev-parse --path-format=absolute \
+        --git-dir --git-common-dir 2>/dev/null) &&
+    [ "${_from_template_dirs%%$'\n'*}" != "${_from_template_dirs#*$'\n'}" ]; then
+    unset _from_template_dirs
+    log_status "linked git worktree: not creating .envrcs/.envrc.{secrets,user}; copy them from the main checkout"
+    return 0
+fi
+unset _from_template_dirs
+
+# Only where git already ignores the file, so one is never created
+# stageable — under a .gitignore that lacks the rules, a failed rebuild, or a
+# .gitignore.local that re-includes it — to be edited into holding a secret
+# and committed. check-ignore exits 1 for "not ignored" and 128 when it could
+# not tell; only 0 creates. `|| _from_template_rc=$?` keeps a non-zero exit
+# from aborting the load under strict_env.
+for _from_template_f in "$direnv_root"/.envrcs/.envrc.secrets "$direnv_root"/.envrcs/.envrc.user; do
+    [ -f "$_from_template_f" ] || [ ! -f "$_from_template_f.template" ] || {
+        _from_template_rc=0
+        git -C "$direnv_root" check-ignore -q "$_from_template_f" || _from_template_rc=$?
+        case $_from_template_rc in
+        0) install -m 600 "$_from_template_f.template" "$_from_template_f" ;;
+        1) log_error "${_from_template_f#"$direnv_root"/} is not ignored by git; not creating it" ;;
+        *) log_error "git could not say whether ${_from_template_f#"$direnv_root"/} is ignored; not creating it" ;;
+        esac
+    }
+done
+unset _from_template_f _from_template_rc

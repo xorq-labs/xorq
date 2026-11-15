@@ -1,0 +1,45 @@
+# kenn-io toolkit on PATH, built from xorq-labs/devcontainer nix/kenn at the
+# revision in kenn.rev. Additive to .envrc.user.{uv,flake}. Why a PATH layer
+# rather than `use flake`: xorq-labs/xorq-envrcs .envrcs/README.md, "kenn".
+
+# Watch before reading, so moving the pin retriggers the reload.
+watch_file "$direnv_root/.envrcs/kenn.rev"
+
+# KENN_REV overrides the pin: a commit, tag, or slash-free branch. Export it;
+# a one-shot `KENN_REV=x direnv reload` never reaches the eval. Empty pin
+# refuses: `github:owner/repo/` would silently float on the default branch.
+kenn_rev="${KENN_REV:-$(cat "$direnv_root/.envrcs/kenn.rev" 2>/dev/null || true)}"
+kenn_rev="${kenn_rev%%[[:space:]]*}"
+kenn_flake="github:xorq-labs/devcontainer/${kenn_rev}?dir=nix/kenn"
+# Not -all: it adds kenn-forge (unfree, Elastic-2.0), a licensing call rather
+# than a template default.
+kenn_attr="kenn-io-toolkit"
+# In the checkout, not $(direnv_layout_dir): the link is a GC root, so it must
+# die with the checkout, and a direnvrc that relocates layouts would carry it
+# somewhere that outlives one. Why here and not the layout dir like the flake
+# profile: xorq-labs/xorq-envrcs .envrcs/README.md, "kenn".
+kenn_link="$direnv_root/.direnv/kenn-toolkit"
+
+kenn_layer() {
+    PATH_add "$kenn_link/bin"
+    # share/ holds the tools' shell completions. :- with the spec default, not
+    # :+: unset means /usr/local/share:/usr/share to readers, and :+ drops it.
+    export XDG_DATA_DIRS="$kenn_link/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+}
+
+mkdir -p "${kenn_link%/*}"
+# --out-link, not --no-link: the link is the toolkit's GC root, and its name
+# stays outside the {nix,flake}-profile* glob nix-direnv deletes. The -d test
+# follows the symlink, so a collected store path falls through to the error.
+# --extra-experimental-features: the user's nix.conf may not enable flakes.
+if [ -z "$kenn_rev" ]; then
+    log_error "kenn: no revision -- restore .envrcs/kenn.rev, or set KENN_REV to build unpinned"
+elif nix --extra-experimental-features 'nix-command flakes' \
+       build --out-link "$kenn_link" "${kenn_flake}#${kenn_attr}"; then
+    kenn_layer
+elif [ -d "$kenn_link/bin" ]; then
+    log_status "kenn: build failed -- using previously built toolkit"
+    kenn_layer
+else
+    log_error "kenn: could not build ${kenn_flake}#${kenn_attr}"
+fi

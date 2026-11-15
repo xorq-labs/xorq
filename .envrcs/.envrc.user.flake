@@ -1,3 +1,31 @@
-# use `use flake` for non-mutable install
 source_env .envrc.nix-config
-use flake
+
+# Watch before the test, so a flake.nix added later retriggers the reload.
+# See xorq-labs/xorq-envrcs .envrcs/README.md, "sops", for why
+# watch-before-test is the rule.
+watch_file "$direnv_root/flake.nix"
+
+# No-op when there is no flake to build, so this fragment can stay enabled
+# in a repo that has no flake.nix yet.
+if [ -f "$direnv_root/flake.nix" ]; then
+    # Pass the flake explicitly: nix-direnv's use_flake defaults its
+    # expression to ".", and this fragment runs with PWD at .envrcs/. The
+    # build still succeeds — nix reports "does not contain a 'flake.nix',
+    # searching up" and evaluates the root flake — but nix-direnv derives
+    # its watches from the expression it was given, so it records
+    # .envrcs/flake.nix and .envrcs/flake.lock as exists:false and the real
+    # flake.lock goes unwatched. The watch_file above covers flake.nix; nothing
+    # would cover the lock.
+    #
+    # The pushd is for the generated nix-direnv-reload helper, whose body
+    # bakes in $PWD at generation time (the layout dir needs no pushd:
+    # .envrc pins it):
+    # built from .envrcs/, its `touch "$PWD/.envrc"` would *create* a stray
+    # .envrcs/.envrc, which direnv then loads instead of the root one — and
+    # refuses as unallowed — for any shell whose cwd is under .envrcs/.
+    pushd "$direnv_root" >/dev/null || return 1
+    use flake "$direnv_root"
+    popd >/dev/null
+else
+    log_status "no flake.nix in $direnv_root; skipping use flake"
+fi

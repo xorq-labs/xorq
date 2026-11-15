@@ -1,2 +1,9 @@
+# .envrc.user.flake, with the editable-install devShell. Why the explicit
+# "$direnv_root" and the pushd: the comments there.
 source_env .envrc.nix-config
-use flake .#virtualenv-editable-312
+
+watch_file "$direnv_root/flake.nix"
+
+pushd "$direnv_root" >/dev/null || return 1
+use flake "$direnv_root#virtualenv-editable-312"
+popd >/dev/null
