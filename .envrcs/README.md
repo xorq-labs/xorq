@@ -35,18 +35,19 @@ rm .gitignore.orig
 direnv reload
 ```
 
-**If you have a snowflake keypair bundle** (`.env.secrets.snowflake.keypair.sops-encrypted`) from before this change, it is sops `binary`, which the load now reads as dotenv and fails on: `sops --decrypt failed for …`, and its variables are not set. Re-encrypt it as dotenv, one line per variable: the PEM double-quoted with its newlines written as `\n`, the passphrase single-quoted (`.envrc.secrets.template` says why; a passphrase holding `'` cannot be written this way). The old bundle is shell that the previous loader `eval`ed, so the steps below read both values from it in a subshell: nothing secret is typed, printed, or written outside a temporary directory they remove (in `.envrcs/`, `.gitignore` would not hide it). Run them in `.envrcs/`, with the key flag the bundle was made with: its JSON names it, `"pgp": [{… "fp": …}]` for `--pgp <fingerprint>`, `"age": [{… "recipient": …}]` for `--age <recipient>` (`jq '.sops | keys' .env.secrets.snowflake.keypair.sops-encrypted`).
+**If you have a snowflake keypair bundle** (`.env.secrets.snowflake.keypair.sops-encrypted`) from before this change, it is sops `binary`, which the load now reads as dotenv and fails on: `sops --decrypt failed for …`, and its variables are not set. Re-encrypt it as dotenv, one line per variable: the PEM double-quoted with its newlines written as `\n`, the passphrase single-quoted (`.envrc.secrets.template` says why; a passphrase holding `'` cannot be written this way). The old bundle is shell that the previous loader `eval`ed, so the steps below read both values from it in a subshell: nothing secret is typed, printed, or written outside a temporary directory they remove (in `.envrcs/`, `.gitignore` would not hide it). Run them in `.envrcs/`, with `fp` set to the fingerprint the bundle was encrypted to: its JSON names it, `"pgp": [{… "fp": …}]` (`jq '.sops.pgp' .env.secrets.snowflake.keypair.sops-encrypted`). For an `"age"` entry, set `fp` to its recipient and write `--age` for `--pgp`. The checks on `fp` matter: given an empty `--pgp`, sops still exits 0, so nothing else would stop the `mv` over the old bundle.
 
 ```sh
 f=.env.secrets.snowflake.keypair.sops-encrypted
+: "${fp:?set fp to the pgp fingerprint of the bundle}"
 t=$(mktemp -d)                                                 # mode 700
-sops --decrypt --input-type binary --output-type binary "$f" >"$t/old" &&
+[ -n "${fp:-}" ] && sops --decrypt --input-type binary --output-type binary "$f" >"$t/old" &&
 ( . "$t/old"
   [ -n "${SNOWFLAKE_PRIVATE_KEY:-}" ] || { echo "no SNOWFLAKE_PRIVATE_KEY in $f" >&2; exit 1; }
   printf 'SNOWFLAKE_PRIVATE_KEY="%s"\n' "$(printf '%s' "$SNOWFLAKE_PRIVATE_KEY" | awk '{printf "%s\\n", $0}')"
   printf "SNOWFLAKE_PRIVATE_KEY_PWD='%s'\n" "${SNOWFLAKE_PRIVATE_KEY_PWD:-}"
 ) >"$t/keypair.env" &&
-sops --encrypt --input-type dotenv --output-type dotenv --pgp <fingerprint> "$t/keypair.env" >"$t/new" &&
+sops --encrypt --input-type dotenv --output-type dotenv --pgp "$fp" "$t/keypair.env" >"$t/new" &&
   mv "$t/new" "$f"
 rm -r "$t"
 ```
