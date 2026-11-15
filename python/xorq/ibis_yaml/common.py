@@ -169,6 +169,8 @@ def _child_node_refs(registry: Registry, yaml_obj) -> list[str]:
         match value := pending.pop():
             case Mapping():
                 node_ref, data_key = node_ref_and_data_key(value)
+                # a missing ref (None) is looked up too: only a hand-edited
+                # document has a null key under definitions.nodes
                 if node_ref in registry.nodes:
                     refs.append(node_ref)
                 pending.extend(child for key, child in value.items() if key != data_key)

@@ -2448,6 +2448,15 @@ def test_plain_dict_document_with_a_column_named_op_loads(compiler):
     assert compiler.from_yaml(plain).schema() == expr.schema()
 
 
+def test_plain_dict_document_with_a_column_named_node_ref_loads(compiler):
+    # a Project's values mapping keys "node_ref" to a column node, not a ref
+    t = ibis.table({"a": "int64"}, name="t")
+    expr = t.select(node_ref=t.a + 1)
+    plain = json.loads(json.dumps(compiler.to_yaml(expr), default=str))
+
+    assert compiler.from_yaml(plain).schema() == expr.schema()
+
+
 def test_map_literal_does_not_reach_unused_node_definition(compiler):
     value = {"node_ref": "@unused"}
     expr = ibis.literal(value, type="map<string, string>")
@@ -2469,6 +2478,13 @@ def test_parameter_default_does_not_reach_node_definition():
     param = {"op": "NamedScalarParameter", "default": {"node_ref": "@unused"}}
 
     assert reachable_node_refs(registry, param) == ()
+
+
+def test_ref_naming_no_registered_node_is_skipped():
+    registry = Registry(nodes={"@a": {"op": "DatabaseTable", "profile": "missing"}})
+    yaml_obj = {"x": {"node_ref": "@missing"}, "y": {"node_ref": "@a"}}
+
+    assert reachable_node_refs(registry, yaml_obj) == ("@a",)
 
 
 @pytest.mark.parametrize(
