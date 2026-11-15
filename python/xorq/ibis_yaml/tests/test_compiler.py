@@ -54,6 +54,7 @@ from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.common import (
     Registry,
     TranslationContext,
+    node_ref_and_data_key,
     reachable_node_refs,
     translate_to_yaml,
     warm_translate_to_yaml,
@@ -2468,6 +2469,22 @@ def test_parameter_default_does_not_reach_node_definition():
     param = {"op": "NamedScalarParameter", "default": {"node_ref": "@unused"}}
 
     assert reachable_node_refs(registry, param) == ()
+
+
+@pytest.mark.parametrize(
+    ("mapping", "expected"),
+    [
+        pytest.param({"node_ref": "@a"}, ("@a", None), id="str-ref"),
+        pytest.param({"node_ref": {"op": "Field"}}, (None, None), id="non-str-ref"),
+        pytest.param({"op": "Literal"}, (None, "value"), id="str-op-in-data-keys"),
+        pytest.param({"op": "NamedScalarParameter"}, (None, "default"), id="param-op"),
+        pytest.param({"op": "Field"}, (None, None), id="str-op-not-in-data-keys"),
+        pytest.param({"op": {"op": "Literal"}}, (None, None), id="non-str-op"),
+        pytest.param({}, (None, None), id="empty"),
+    ],
+)
+def test_node_ref_and_data_key(mapping, expected):
+    assert node_ref_and_data_key(mapping) == expected
 
 
 def test_from_yaml_ignores_unreachable_node_definitions(compiler):
