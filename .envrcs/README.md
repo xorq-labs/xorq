@@ -35,6 +35,18 @@ rm .gitignore.orig
 direnv reload
 ```
 
+**If you have a snowflake keypair bundle** (`.env.secrets.snowflake.keypair.sops-encrypted`) from before this change, it is sops `binary`, which the load now reads as dotenv and fails on: `sops --decrypt failed for …`, and its variables are not set. Re-encrypt it as dotenv, one line per variable: the PEM double-quoted with its newlines written as `\n`, the passphrase single-quoted (`.envrc.secrets.template` says why). In `.envrcs/`, with the PEM in `key.p8`, its passphrase in `$pwd`, and the recipient flag the bundle was made with (its `sops` metadata names it):
+
+```sh
+f=.env.secrets.snowflake.keypair.sops-encrypted
+sops --decrypt --input-type binary --output-type binary "$f"   # what it holds
+( umask 077
+  printf 'SNOWFLAKE_PRIVATE_KEY="%s"\n' "$(awk '{printf "%s\\n", $0}' key.p8)" >keypair.env
+  printf "SNOWFLAKE_PRIVATE_KEY_PWD='%s'\n" "$pwd" >>keypair.env )
+sops --encrypt --input-type dotenv --output-type dotenv --age <recipient> keypair.env >"$f"
+rm keypair.env
+```
+
 ## Tracked (templates & helpers)
 
 | File | Purpose |
@@ -51,7 +63,7 @@ direnv reload
 | `.envrc.user.kenn` | Optional, additive: kenn-io toolkit (kata among it) on PATH, pinned by `kenn.rev` |
 | `.envrc.kata` | Optional: points kata at a team server from `KATA_TEAM_SERVER` and `KATA_TEAM_TOKEN` |
 | `.env.local.template` | Per-user, non-secret `KEY=value` settings |
-| `test-fragments.sh` | Tests `.envrc.gitignore` and `.envrc.from-template` in scratch repos |
+| `test-fragments.sh` | Tests `.envrc.gitignore` and `.envrc.from-template` in scratch repos, and that every bundle `.envrc.secrets.template` names loads through `.envrc.sops` |
 
 ## Gitignored (local / secret)
 

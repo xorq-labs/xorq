@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests .envrcs/.envrc.gitignore and .envrcs/.envrc.from-template in scratch
-# git repos.
+# git repos, and that every bundle .envrcs/.envrc.secrets.template names
+# loads through .envrcs/.envrc.sops.
 #
 # Each case loads a fragment through a source_env that pushd's into .envrcs/
 # as direnv's does, so a path missing its $direnv_root prefix fails here as
@@ -26,7 +27,7 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME=$work/x
 fragments_into() { # <dir>: the fragments and templates under test
     mkdir -p "$1/.envrcs"
     cp "$repo/.gitignore.template" "$1/"
-    cp "$repo"/.envrcs/.envrc.{gitignore,from-template,secrets.template,user.template} "$1/.envrcs/"
+    cp "$repo"/.envrcs/.envrc.{gitignore,from-template,secrets.template,user.template,sops} "$1/.envrcs/"
 }
 
 # A main checkout at $1 holding the fragments and templates under test.
@@ -390,6 +391,62 @@ check "from-template: git failing creates neither file" \
     test ! -e "$r/.envrcs/.envrc.secrets" -a ! -e "$r/.envrcs/.envrc.user"
 check "from-template: ... and says git could not tell, not 'not ignored'" \
     grep -q 'git could not say' "$r.err"
+
+# --- .envrc.secrets.template ---
+# Every bundle the template names exists, so every line runs use_sops. sops
+# is a stub that prints the bundle as it is: for a line with no real newline
+# that is what sops's dotenv store emits on decrypt (stores/dotenv/store.go,
+# LoadPlainFile and EmitPlainFile, at v3.13.3). direnv's dotenv parser is
+# the real one when direnv is on PATH; without it, a stub stands in and
+# the case checks only that no line is refused before or after sops.
+
+r=$work/x1
+scratch_repo "$r"
+mkdir "$r/bin"
+# shellcheck disable=SC2016 # the stub's script is for sh to expand
+printf '%s\n' '#!/bin/sh' 'for a; do f=$a; done' 'echo "$f" >>"$SOPS_CALLS"' 'cat "$f"' >"$r/bin/sops"
+pem=$(printf '%s\n' '-----BEGIN PRIVATE KEY-----' 'AAAA/b+c=' '-----END PRIVATE KEY-----')
+real_direnv=$(command -v direnv || true)
+if [ -z "$real_direnv" ]; then
+    printf '%s\n' '#!/bin/sh' 'echo "export DIRENV_STUB=1;"' >"$r/bin/direnv"
+fi
+chmod +x "$r"/bin/*
+sed -n 's/^use sops_if_exists \([^ ]*\).*/\1/p' "$r/.envrcs/.envrc.secrets.template" >"$r.bundles"
+while read -r b; do
+    echo "PLAIN_${b//[^a-z]/_}='x'" >"$r/.envrcs/$b"
+done <"$r.bundles"
+{
+    printf 'SNOWFLAKE_PRIVATE_KEY="%s"\n' "$(awk '{printf "%s\\n", $0}' <<<"$pem")"
+    printf '%s\n' "SNOWFLAKE_PRIVATE_KEY_PWD='p w\$d\"x'"
+} >"$r/.envrcs/.env.secrets.snowflake.keypair.sops-encrypted"
+PATH=$r/bin:$PATH SOPS_CALLS=$r.sops bash -c '
+    export direnv_root=$1
+    watch_file() { :; }
+    log_error() { echo "log_error: $*" >&2; }
+    use() { "use_$1" "${@:2}"; }
+    source_env() {
+        pushd "$(dirname "$1")" >/dev/null
+        . "./${1##*/}"
+        popd >/dev/null
+    }
+    cd "$direnv_root"
+    source_env .envrcs/.envrc.secrets.template
+    printf "%s" "$SNOWFLAKE_PRIVATE_KEY" >"$direnv_root.key"
+    printf "%s" "$SNOWFLAKE_PRIVATE_KEY_PWD" >"$direnv_root.pwd"
+' secrets "$r" 2>"$r.err"
+check "secrets: the template names the keypair bundle" \
+    grep -qx .env.secrets.snowflake.keypair.sops-encrypted "$r.bundles"
+check "secrets: every line of the template loads with no error" no_errors "$r.err"
+check "secrets: ... and every bundle reaches sops" \
+    test "$(sed 's,.*/,,' "$r.sops" 2>/dev/null)" = "$(cat "$r.bundles")"
+if [ -n "$real_direnv" ]; then
+    check "secrets: the quoted \\n PEM loads with its newlines" \
+        test "$(cat "$r.key")" = "$pem"
+    check "secrets: ... and the single-quoted passphrase as written" \
+        test "$(cat "$r.pwd")" = "p w\$d\"x"
+else
+    echo "skip secrets: PEM and passphrase values (no direnv on PATH)"
+fi
 
 # --- both, under strict_env ---
 
