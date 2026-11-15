@@ -75,6 +75,14 @@ _expr_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextV
     "_xorq_expr_normalize_memo", default=None
 )
 
+# Per-outer-call memo for ``_normalize_computed_kwargs_expr`` keyed by
+# ``(id(hasher), op)``.  Each step of a fitted pipeline nests the previous
+# step's model expression, and its structural hash tokenizes every UDF below
+# it, so without this the cost of a deep pipeline roughly quadruples per step.
+_cke_normalize_memo: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_xorq_cke_normalize_memo", default=None
+)
+
 # When True, TeeNode writer identity is folded into the structural hash.
 # Set by ``get_expr_hash`` (build hash path) so that different writers produce
 # different build artifacts, while the cache hash path leaves this False.
@@ -324,26 +332,119 @@ def _xorq_opaque_to_placeholder(node, _kwargs=None, **_kw):
     return api.table(node.schema, name=name).op()
 
 
-def _normalize_computed_kwargs_expr(cke):
+def _placeholder_build_names(op: Node) -> Node:
+    """Replace the names a build generates with placeholders, for SQL hashing.
+
+    An ``InMemoryTable`` compiles to a random name and a UDF given no name to a
+    counter-suffixed one, so the same expression built twice compiles to two
+    SQL strings. Each ``InMemoryTable`` becomes an unbound table keyed by schema
+    and position, and each UDF class a subclass named by its first-appearance
+    order. Neither carries identity here: an ``InMemoryTable``'s data is an
+    outer data slot, and a UDF's function is in the structural hash's ``udfs``.
+
+    A ``DatabaseTable`` keeps its name, generated or not: an unbound placeholder
+    would drop its backend, and the SQL would compile with the default one. So
+    a model trained on a table registered or read with no ``table_name`` takes
+    a new key on every build.
+    """
+    from xorq.common.utils.graph_utils import replace_nodes  # noqa: PLC0415
+    from xorq.expr import api, udf  # noqa: PLC0415
+    from xorq.vendor.ibis.expr.operations.relations import (  # noqa: PLC0415
+        InMemoryTable,
+    )
+    from xorq.vendor.ibis.expr.operations.udf import AggUDF, ScalarUDF  # noqa: PLC0415
+
+    memtable_count = itertools.count()
+    udf_classes = {}
+
+    # Known limit: a fresh class per call makes the rewritten op unequal across
+    # calls, so each tokenize adds an entry to ``to_sql``'s unbounded
+    # ``_cached_with_op`` cache. Main already adds one per tokenize of a fitted
+    # pipeline (``restore_udf`` makes a new class per call); this adds more.
+    def _placeholder_class(cls):
+        if cls not in udf_classes:
+            name = f"udf_{len(udf_classes)}"
+            udf_classes[cls] = type(name, (cls,), {"__func_name__": name})
+        return udf_classes[cls]
+
+    def rename(node, _kwargs=None, **_kw):
+        if isinstance(node, InMemoryTable):
+            name = _stable_opaque_name(
+                "memtable", node.schema, str(next(memtable_count))
+            )
+            return api.table(node.schema, name=name).op()
+        if isinstance(node, (AggUDF, ScalarUDF)):
+            args = _kwargs or dict(zip(node.__argnames__, node.__args__))
+            return _placeholder_class(type(node))(**args)
+        if _kwargs:
+            return node.__recreate__(_kwargs)
+        return node
+
+    # Descend opaque edges (a fitted model sits under ``CachedNode.parent``), but
+    # not a nested ``ExprScalarUDF``'s model: its token comes from its own
+    # normalization, memoized on the unrewritten op, which a rewrite would miss.
+    return replace_nodes(
+        rename, op, stop=lambda node: isinstance(node, udf.ExprScalarUDF)
+    )
+
+
+def _normalize_computed_kwargs_expr(cke: Expr) -> str:
+    """Token of :func:`_normalize_computed_kwargs_expr_impl`, memoized per
+    outer call via :data:`_cke_normalize_memo`. A token rather than the tuple,
+    so a memo hit does not re-normalize the UDF ops the tuple holds."""
+    # Lazy: HASHER is constructed in ``__init__`` *after* this module is
+    # imported, so a top-level import here would create a bootstrap cycle.
+    from xorq.common.utils.dasher import (  # noqa: PLC0415  # xorq-style: disable=redundant-import,unlisted-import
+        HASHER,
+        _current_hasher,
+    )
+
+    hasher = _current_hasher.get() or HASHER
+    memo = _cke_normalize_memo.get()
+    key = (id(hasher), cke.op())
+    if memo is not None and key in memo:
+        return memo[key]
+    tok = hasher.tokenize(_normalize_computed_kwargs_expr_impl(cke))
+    if memo is not None:
+        memo[key] = tok
+    return tok
+
+
+def _normalize_computed_kwargs_expr_impl(cke: Expr) -> tuple:
     """Content-stable, structural-only normalization of a ``computed_kwargs_expr``.
 
-    The default Expr rule routes through SQL compilation, which embeds the
-    auto-generated counter-suffixed dynamic class names that ibis assigns to
-    each ScalarUDF (``_inner_fit_0`` vs ``_inner_fit_3``). Two pipelines built
-    in different import orders would therefore tokenize differently — a
-    correctness regression for ML fit-then-predict flows.
+    The default Expr rule routes through SQL compilation, which embeds names
+    generated per build (see :func:`_placeholder_build_names`), so two
+    identical pipelines would tokenize differently depending on what was
+    built before them. The structural hash below compiles the expression only
+    after those names are replaced.
 
-    Per ADR-0010, this helper is **data-free**: data identity for any leaf
-    reachable through ``ExprScalarUDF.computed_kwargs_expr`` flows into the
-    outer expression's leaves (via the recursive HASHER tokenization of the
-    enclosing expression), so here we contribute only structural shape
-    (schemas, op types, UDF function identity, cache class).
+    Per ADR-0010, data identity for any leaf reachable through
+    ``ExprScalarUDF.computed_kwargs_expr`` flows into the outer expression's
+    data slots (via the recursive HASHER tokenization of the enclosing
+    expression), so this helper's job is structure: schemas, UDF function
+    identity, cache class, and the expression's structural hash -- its SQL
+    after :func:`_placeholder_build_names`, without the leaf data slots. The
+    structural hash is what carries the relational ops between the leaves and
+    the fit: two fits on different filters of one table share every leaf, so
+    without it their predictions share a key.
+
+    It is free of ``InMemoryTable`` data, including under a ``CachedNode``.
+    It is not free of every leaf's identity: the structural SQL names each
+    opaque node by a placeholder that folds in a ``Read``'s path, the full
+    parent token of a ``CachedNode``, ``RemoteTable``, ``FlightExpr`` or
+    ``FlightUDXF``, and a ``CacheTag``'s cache key. That identity also
+    reaches the outer data slots, so it never substitutes for them.
+
+    The structural hash compiles the model expression to SQL, so a model
+    expression its backend cannot compile (``Table.sample`` with a seed on the
+    default backend) raises here, at tokenize time, rather than at execution.
 
     Decomposition mirrors the legacy
     ``dask_normalize_expr._normalize_computed_kwargs_expr`` (deleted with the
     ``dask_normalize/`` package); ScalarUDF normalization recurses through
-    this helper so the structural-only contract holds transitively across
-    nested ``ExprScalarUDF`` steps.
+    this helper so the contract holds transitively across nested
+    ``ExprScalarUDF`` steps.
     """
     from xorq.expr.relations import CachedNode, Read  # noqa: PLC0415
     from xorq.vendor.ibis.expr.operations import relations as _rel  # noqa: PLC0415
@@ -369,6 +470,7 @@ def _normalize_computed_kwargs_expr(cke):
         )
         for r in reads
     )
+    cke_structure = _placeholder_build_names(op)
     return (
         "normalize_computed_kwargs_expr",
         cke.schema() if isinstance(cke, Table) else cke.type(),
@@ -377,17 +479,17 @@ def _normalize_computed_kwargs_expr(cke):
         scalar_udfs,
         read_structural,
         tuple((c.schema, type(c.cache).__name__) for c in cached),
+        _hash_expr_components(cke_structure.to_expr(), cke_structure)[0],
     )
 
 
 def _normalize_scalar_udf_xorq(udf):
-    """ScalarUDF normalizer that routes ``computed_kwargs_expr`` through the
-    data-free :func:`_normalize_computed_kwargs_expr` helper.
+    """ScalarUDF normalizer that routes ``computed_kwargs_expr`` through
+    :func:`_normalize_computed_kwargs_expr`.
 
     Dasher 0.1.0's rule returns the raw ``computed_kwargs_expr`` and lets
-    recursion through the Expr rule normalize it via SQL — which embeds the
-    counter-suffixed dynamic class name (see :func:`_normalize_computed_kwargs_expr`
-    for context).
+    recursion through the Expr rule normalize it via SQL, which embeds names
+    generated per build (see :func:`_placeholder_build_names`).
     """
     typs = tuple(arg.dtype for arg in udf.args)
     computed_kwargs_expr = udf.__config__.get("computed_kwargs_expr")

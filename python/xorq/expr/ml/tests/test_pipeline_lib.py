@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import operator
 from numbers import Real
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ import pytest
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
+from xorq.caching import ParquetCache
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.pipeline_lib import Pipeline, Step, make_estimator_typ
@@ -1269,3 +1271,27 @@ def test_fitted_step_predict_raw_explicit_name(t):
     fitted = step.fit(t, features=(feature0, feature1), target=TARGET)
     col = fitted.predict_raw(t, name="my_pred")
     assert col.get_name() == "my_pred"
+
+
+def test_cached_predictions_follow_the_training_filter(tmp_path: Path) -> None:
+    """Models fit on two filters of one table, with opposite relationships
+    between x and y, must not share cached predictions."""
+    x = np.random.default_rng(0).normal(size=400)
+    ids = np.arange(400)
+    frame = pd.DataFrame(
+        {"id": ids, "x": x, "y": np.where(ids < 200, x > 0, x < 0).astype(int)}
+    )
+    con = xo.connect()
+    t = con.register(frame, "t")
+    cache = ParquetCache.from_kwargs(source=con, base_path=tmp_path)
+
+    def _predictions(train: Expr) -> Expr:
+        return (
+            Pipeline.from_instance(SklearnPipeline([("lr", LogisticRegression())]))
+            .fit(train, features=("x",), target="y", cache=cache)
+            .predict(t.filter(t.id >= 380))
+        )
+
+    first = _predictions(t.filter(t.id < 200)).cache(cache).execute()
+    second = _predictions(t.filter((t.id >= 200) & (t.id < 380))).cache(cache).execute()
+    assert (first.predict != second.predict).all()
