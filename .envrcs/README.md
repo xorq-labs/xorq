@@ -35,15 +35,17 @@ rm .gitignore.orig
 direnv reload
 ```
 
-**If you have a snowflake keypair bundle** (`.env.secrets.snowflake.keypair.sops-encrypted`) from before this change, it is sops `binary`, which the load now reads as dotenv and fails on: `sops --decrypt failed for …`, and its variables are not set. Re-encrypt it as dotenv, one line per variable: the PEM double-quoted with its newlines written as `\n`, the passphrase single-quoted (`.envrc.secrets.template` says why; a passphrase holding `'` cannot be written this way). Plaintext goes in a temporary directory outside the checkout: in `.envrcs/`, `.gitignore` would not hide it. In `.envrcs/`, with the passphrase in `$pwd` and the key flag the bundle was made with (its `sops` metadata names it: `--pgp <fingerprint>` for a `sops_pgp` entry, `--age <recipient>` for `sops_age`):
+**If you have a snowflake keypair bundle** (`.env.secrets.snowflake.keypair.sops-encrypted`) from before this change, it is sops `binary`, which the load now reads as dotenv and fails on: `sops --decrypt failed for …`, and its variables are not set. Re-encrypt it as dotenv, one line per variable: the PEM double-quoted with its newlines written as `\n`, the passphrase single-quoted (`.envrc.secrets.template` says why; a passphrase holding `'` cannot be written this way). The old bundle is shell that the previous loader `eval`ed, so the steps below read both values from it in a subshell: nothing secret is typed, printed, or written outside a temporary directory they remove (in `.envrcs/`, `.gitignore` would not hide it). Run them in `.envrcs/`, with the key flag the bundle was made with: its JSON names it, `"pgp": [{… "fp": …}]` for `--pgp <fingerprint>`, `"age": [{… "recipient": …}]` for `--age <recipient>` (`jq '.sops | keys' .env.secrets.snowflake.keypair.sops-encrypted`).
 
 ```sh
 f=.env.secrets.snowflake.keypair.sops-encrypted
 t=$(mktemp -d)                                                 # mode 700
-sops --decrypt --input-type binary --output-type binary "$f"   # what it holds
-# save the PEM from it as "$t/key.p8"
-printf 'SNOWFLAKE_PRIVATE_KEY="%s"\n' "$(awk '{printf "%s\\n", $0}' "$t/key.p8")" >"$t/keypair.env"
-printf "SNOWFLAKE_PRIVATE_KEY_PWD='%s'\n" "$pwd" >>"$t/keypair.env"
+sops --decrypt --input-type binary --output-type binary "$f" >"$t/old" &&
+( . "$t/old"
+  [ -n "${SNOWFLAKE_PRIVATE_KEY:-}" ] || { echo "no SNOWFLAKE_PRIVATE_KEY in $f" >&2; exit 1; }
+  printf 'SNOWFLAKE_PRIVATE_KEY="%s"\n' "$(printf '%s' "$SNOWFLAKE_PRIVATE_KEY" | awk '{printf "%s\\n", $0}')"
+  printf "SNOWFLAKE_PRIVATE_KEY_PWD='%s'\n" "${SNOWFLAKE_PRIVATE_KEY_PWD:-}"
+) >"$t/keypair.env" &&
 sops --encrypt --input-type dotenv --output-type dotenv --pgp <fingerprint> "$t/keypair.env" >"$t/new" &&
   mv "$t/new" "$f"
 rm -r "$t"
