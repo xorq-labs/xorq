@@ -43,7 +43,6 @@ from attr.validators import deep_iterable, in_, instance_of, optional
 
 from xorq.catalog.enums import LeafKind, PinKey, PinOp
 from xorq.catalog.zip_utils import BuildZip
-from xorq.ibis_yaml.common import DATA_KEYS
 from xorq.ibis_yaml.enums import (
     BundledSourceTypes,
     DocKey,
@@ -156,8 +155,13 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
     Everywhere else every value is descended, so a node the pin shares with a
     live branch is still reached. A ``Literal`` value or ``NamedScalarParameter``
     default is data, not translated YAML, so a ``node_ref`` key inside it is not
-    followed.
+    followed; nor is one whose value is not a string, as when a column is named
+    ``node_ref``. A string-valued ``node_ref`` key anywhere else is a ref, and
+    raises from ``get_node_def`` when it names no node, even where the loader
+    would skip it as data.
     """
+    from xorq.ibis_yaml.common import DATA_KEYS  # noqa: PLC0415
+
     nodes = get_nodes(doc)
     seen: set[str] = set()
     stack: list[Any] = [get_doc_key(doc, DocKey.expression)]
@@ -165,7 +169,9 @@ def walk_node_refs(doc: dict, pruned_at_pin: frozenset[str]) -> frozenset[str]:
         cur = stack.pop()
         match cur:
             case dict():
-                if (ref := cur.get(RefEnum.node_ref)) is not None and ref not in seen:
+                # a column named node_ref keys a mapping, not a ref
+                ref = cur.get(RefEnum.node_ref)
+                if isinstance(ref, str) and ref not in seen:
                     seen.add(ref)
                     stack.append(get_node_def(nodes, ref))
                 op = cur.get(NodeKey.op)
