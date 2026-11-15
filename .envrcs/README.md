@@ -10,6 +10,15 @@ The fragments follow [xorq-labs/xorq-envrcs](https://github.com/xorq-labs/xorq-e
 direnv allow
 ```
 
+Needs git 2.31 or later and awk. On older git, `.envrc.from-template` reads every checkout as a linked worktree and creates neither `.envrc.secrets` nor `.envrc.user`.
+
+Linked worktrees are skipped on purpose: they take both files from the main checkout (devcontainer's `setup-worktree` copies them). A bare clone with worktrees (`git clone --bare` + `git worktree add`) has no main checkout, so nothing creates them there; copy the templates by hand:
+
+```sh
+install -m 600 .envrcs/.envrc.secrets.template .envrcs/.envrc.secrets
+install -m 600 .envrcs/.envrc.user.template .envrcs/.envrc.user
+```
+
 The first load rebuilds `.gitignore` and creates `.envrc.secrets` and `.envrc.user` from their templates (below). `.env.local` is not created for you; if you need it:
 
 ```sh
