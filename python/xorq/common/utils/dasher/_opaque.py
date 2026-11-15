@@ -356,6 +356,10 @@ def _placeholder_build_names(op: Node) -> Node:
     table_count = itertools.count()
     udf_classes = {}
 
+    # Known limit: a fresh class per call makes the rewritten op unequal across
+    # calls, so each tokenize adds an entry to ``to_sql``'s unbounded
+    # ``_cached_with_op`` cache. Main already adds one per tokenize of a fitted
+    # pipeline (``restore_udf`` makes a new class per call); this adds more.
     def _placeholder_class(cls):
         if cls not in udf_classes:
             name = f"udf_{len(udf_classes)}"
