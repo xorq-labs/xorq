@@ -54,22 +54,6 @@ the duration instead, and the next checkout puts it back:
 git config --unset-all blame.ignoreRevsFile
 ```
 
-## Dev container
-
-Development tooling (devcontainer, worktree helpers) lives in a separate repository:
-
-```bash
-git clone git@github.com:xorq-labs/devcontainer.git ../devcontainer
-```
-
-Add the tooling to your PATH in `.envrcs/.envrc.user`:
-
-```bash
-PATH_add $direnv_root/../devcontainer/dev
-```
-
-See the [devcontainer repo](https://github.com/xorq-labs/devcontainer) for full usage details.
-
 ## Running the test suite
 Install the [just](https://github.com/casey/just#installation) command runner, if needed.
 Download example data to run the tests successfully.
