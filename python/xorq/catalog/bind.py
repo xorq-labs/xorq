@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from xorq.catalog.enums import CatalogTag
 from xorq.common.utils.graph_utils import replace_nodes, replace_unbound, walk_nodes
-from xorq.expr.relations import HashingTag, RemoteTable, gen_name
+from xorq.expr.relations import HashingTag, Read, RemoteTable, gen_name
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -234,6 +234,12 @@ def _make_source_expr(source, con=None, alias=None, cache_dir=None):
     return source_expr
 
 
+def _reads_span_backends(expr: Expr) -> bool:
+    """Whether ``expr``'s own payload (not behind a RemoteTable) reads on several backends."""
+    backends, _ = expr._find_backends()  # xorq-style: disable=protected-access
+    return len(backends) > 1 and bool(expr.op().find(Read))
+
+
 def fuse_catalog_source(expr):
     """Strip catalog-created RemoteTable + HashingTag layers for catalog sources.
 
@@ -296,6 +302,15 @@ def fuse_catalog_source(expr):
                     return node
 
         result = replace_nodes(replacer, expr).to_expr()
+        retained = walk_nodes(RemoteTable, result) or ()
+        payloads = (result, *(rt.remote_expr for rt in retained))
+        if any(map(_reads_span_backends, payloads)):
+            # A deferred read registers on its own connection, so reads spread
+            # over several connections need the stripped RemoteTables to move
+            # their rows into one backend. Tables already in one database do not.
+            span.set_attribute("fused", False)
+            span.set_attribute("reason", "multiple_backends")
+            return expr
         span.set_attribute("fused", True)
         # #2133: bundled (relocated) reads are already resolved before fuse runs.
         # `_resolve_source` loads each source entry via `load_expr`, rewriting its
