@@ -540,6 +540,8 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
         table_name: str | None = None,
         schema: sch.Schema | None = None,
         mode: str = "create",
+        catalog_name: str | None = None,
+        db_schema_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
         reader = default_backend()
@@ -550,6 +552,8 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
             record_batches=record_batches,
             table_name=table_name or util.gen_name("ls-read-csv"),
             mode=mode,
+            catalog_name=catalog_name,
+            db_schema_name=db_schema_name,
         )
 
     def _make_memtable_finalizer(self, name: str) -> Callable[..., None]:

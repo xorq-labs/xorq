@@ -142,3 +142,20 @@ def test_deferred_read_csv_reader_kwarg(con, tmp_path):
         assert t.execute().sort_values("A", ignore_index=True).equals(df)
     finally:
         con.drop_table(table_name, force=True)
+
+
+def test_read_csv_ingest_destination(con: Backend, tmp_path: Path) -> None:
+    # catalog and schema options must reach the ingestion, not the reader
+    path = tmp_path / "dest.csv"
+    pd.DataFrame({"a": [1, 2]}).to_csv(path, index=False)
+    table_name = gen_name("dest")
+    try:
+        t = con.read_csv(
+            path,
+            table_name=table_name,
+            catalog_name=con.current_catalog,
+            db_schema_name=con.current_database,
+        )
+        assert sorted(t.execute()["a"]) == [1, 2]
+    finally:
+        con.drop_table(table_name, force=True)
