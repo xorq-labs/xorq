@@ -161,6 +161,9 @@ class DataFusionCompiler(SQLGlotCompiler):
                     return self.cast("+Inf", dt.float64)
                 elif math.isnan(value):
                     return self.cast("NaN", dt.float64)
+            elif dtype.is_integer() and dtype != dt.int64:
+                sign = "U" if dtype.is_unsigned_integer() else ""
+                return self.f.arrow_cast(value, f"{sign}Int{dtype.nbytes * 8}")
             return sg.exp.convert(value)
         elif dtype.is_interval():
             if dtype.unit.short in ("ms", "us", "ns"):

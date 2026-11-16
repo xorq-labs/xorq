@@ -294,3 +294,16 @@ def test_pandas_expr_udf(con, diamonds):
     from_ls = con.execute(expr)
 
     assert_frame_equal(from_ls, from_pd)
+
+
+def test_udf_on_int8_literal_case():
+    @udf.scalar.pyarrow
+    def double_int8(target: dt.int8) -> dt.int8:
+        return pc.add(target, target)
+
+    t = xo.memtable({"a": [1.0, 5.0]})
+    flagged = t.mutate(target=xo.cases((t.a > 2, 1), else_=0))
+    expr = flagged.mutate(doubled=double_int8(flagged.target))
+
+    assert flagged.target.type() == dt.int8
+    assert xo.execute(expr)["doubled"].tolist() == [0, 2]
