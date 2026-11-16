@@ -8,8 +8,7 @@ execute:
 Every Xorq expression has an `ls` attribute. It returns a read-only accessor
 bound to the expression's root operation, and it's how you ask what an
 expression is built from: which backends it touches, which tables and files it
-reads, which tags it carries, and which caches it holds. Nothing on `ls`
-executes the expression, except `pin(ensure_materialized=True)`.
+reads, which tags it carries, and which caches it holds.
 
 ## Kind, backends, and sources
 
