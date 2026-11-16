@@ -198,6 +198,31 @@ def test_run_entry_joining_two_upstream_entries(
     assert sorted(result.output.strip().splitlines()[1:]) == ['1,"a","x"', '2,"b","y"']
 
 
+def test_run_entry_joining_tables_of_one_database(
+    runner: CliRunner, catalog_path: str, tmp_path: Path
+) -> None:
+    """Separate connections to one database still run the join as one query."""
+    db_path = str(tmp_path / "shared.sqlite")
+    seed = xo.sqlite.connect(db_path)
+    seed.create_table("left", pd.DataFrame({"id": [1, 2], "v": ["a", "b"]}))
+    seed.create_table("right", pd.DataFrame({"id": [1, 2], "w": ["x", "y"]}))
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    for name in ("left", "right"):
+        catalog.add(xo.sqlite.connect(db_path).table(name), aliases=(name,))
+    local = xo.sqlite.connect(db_path)
+    joined = catalog.load("left", con=local).join(
+        catalog.load("right", con=local), "id"
+    )
+    catalog.add(joined, aliases=("joined",))
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "run", "joined", "-o", "-", "-f", "csv"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert sorted(result.output.strip().splitlines()[1:]) == ['1,"a","x"', '2,"b","y"']
+
+
 def test_run_no_entries(runner, catalog_with_source_and_transform):
     catalog_path, _, _ = catalog_with_source_and_transform
     result = runner.invoke(

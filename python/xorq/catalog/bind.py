@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from xorq.catalog.enums import CatalogTag
 from xorq.common.utils.graph_utils import replace_nodes, replace_unbound, walk_nodes
-from xorq.expr.relations import HashingTag, RemoteTable, gen_name
+from xorq.expr.relations import HashingTag, Read, RemoteTable, gen_name
 from xorq.ibis_yaml.enums import ExprKind
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -297,9 +297,10 @@ def fuse_catalog_source(expr):
 
         result = replace_nodes(replacer, expr).to_expr()
         backends, _ = result._find_backends()  # xorq-style: disable=protected-access
-        if len(backends) > 1:
-            # Sources on separate connections: the stripped RemoteTables were
-            # what moved each one's rows into a single backend.
+        if len(backends) > 1 and walk_nodes(Read, result):
+            # A deferred read registers on its own connection, so reads spread
+            # over several connections need the stripped RemoteTables to move
+            # their rows into one backend. Tables already in one database do not.
             span.set_attribute("fused", False)
             span.set_attribute("reason", "multiple_backends")
             return expr
