@@ -1625,3 +1625,18 @@ def test_validate_con_name_sees_a_backend_installed_mid_process(
         # a name that really doesn't exist still raises, against the fresh list
         with pytest.raises(ValueError, match="Unknown backend 'xorqnosuchbackend'"):
             Profile(con_name="xorqnosuchbackend", kwargs_tuple=())
+
+
+@pytest.mark.parametrize("module_name", ("xorq.api", "xorq.profiles"))
+def test_profile_and_profiles_from_public_module(
+    module_name: str, tmp_path: pathlib.Path
+) -> None:
+    """Profile and Profiles are reachable without the vendored import path:
+    a profile saved through the public names lists and loads back."""
+    mod = importlib.import_module(module_name)
+    profile = mod.Profile.from_con(xo.duckdb.connect())
+    profile.save(profile_dir=tmp_path, alias="public_alias")
+    profiles = mod.Profiles(profile_dir=tmp_path)
+    assert "public_alias" in profiles.list()
+    assert profiles["public_alias"].almost_equals(profile)
+    assert profiles.public_alias.get_con().list_tables() == []
