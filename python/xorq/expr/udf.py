@@ -18,6 +18,7 @@ from xorq.vendor.ibis.expr.operations.udf import (
     ScalarUDF,
     _make_udf_name,
     _wrap,
+    make_udf_config,
     reduce_udf,
     scalar,
 )
@@ -492,8 +493,6 @@ def make_pandas_udf(
     agg : For aggregation functions
     """
 
-    from xorq.vendor.ibis.expr.operations.udf import ScalarUDF  # noqa: PLC0415
-
     name = name if name is not None else _make_udf_name(fn)
     bases = (ScalarUDF,)
     fields = make_fields(schema)
@@ -502,7 +501,7 @@ def make_pandas_udf(
         "__input_type__": InputType.PYARROW,
         "__func__": make_dunder_func(fn, schema, return_type),
         # valid config keys: volatility
-        "__config__": FrozenDict(**kwargs),
+        "__config__": make_udf_config(kwargs),
         "__udf_namespace__": Namespace(database=database, catalog=catalog),
         "__module__": fn.__module__,
         # FIXME: determine why this fails with case mismatch by default

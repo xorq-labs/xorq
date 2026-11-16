@@ -1,3 +1,6 @@
+import enum
+from pathlib import Path
+
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -191,13 +194,19 @@ def test_aggudf_func_token_survives_roundtrip(compiler):
     assert aggudf_func_tokens(roundtrip) == live_tokens
 
 
-@xo.udf.scalar.pyarrow
-def plus_one(arr: dt.float64) -> dt.float64:
-    return pc.add(arr, 1.0)
-
-
-def test_pyarrow_scalar_udf_survives_build_load(tmp_path):
+@pytest.mark.parametrize(
+    "config",
+    (
+        pytest.param({}, id="empty"),
+        pytest.param({"volatility": "volatile"}, id="volatile"),
+    ),
+)
+def test_pyarrow_scalar_udf_survives_build_load(tmp_path: Path, config: dict) -> None:
     # GH #2347: a loaded pyarrow UDF could not be hashed or compiled to SQL
+    @xo.udf.scalar.pyarrow(**config)
+    def plus_one(arr: dt.float64) -> dt.float64:
+        return pc.add(arr, 1.0)
+
     t = (
         SqliteBackend()
         .connect(str(tmp_path / "db.sqlite"))
@@ -209,6 +218,85 @@ def test_pyarrow_scalar_udf_survives_build_load(tmp_path):
 
     assert get_expr_hash(loaded) == get_expr_hash(expr)
     assert xo.to_sql(loaded) == xo.to_sql(expr)
+
+
+def test_pyarrow_scalar_udf_volatility_moves_build_hash() -> None:
+    # builds that differ only in volatility return different rows, so they
+    # must not share a build hash
+    def make_expr(**config):
+        @xo.udf.scalar.pyarrow(**config)
+        def plus_one(arr: dt.float64) -> dt.float64:
+            return pc.add(arr, 1.0)
+
+        t = xo.table({"x": "float64"}, name="t")
+        return t.mutate(y=plus_one(t.x))
+
+    hashes = {
+        get_expr_hash(make_expr(**config))
+        for config in ({}, {"volatility": "volatile"}, {"volatility": "immutable"})
+    }
+
+    assert len(hashes) == 3
+
+
+class Volatility(enum.Enum):
+    # stands in for datafusion's Volatility, whose str() is the lowercase name
+    Volatile = "volatile"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@pytest.mark.parametrize(
+    "config",
+    (
+        pytest.param({}, id="empty"),
+        pytest.param({"volatility": "volatile"}, id="volatile"),
+        pytest.param({"volatility": Volatility.Volatile}, id="enum"),
+        pytest.param({"volatility": "stable", "op": "x"}, id="reserved-key"),
+    ),
+)
+def test_pyarrow_scalar_udf_config_roundtrip(compiler, config: dict) -> None:
+    # only volatility is kept, as its string value
+    expected = {k: str(v) for k, v in config.items() if k == "volatility"}
+
+    @xo.udf.scalar.pyarrow(**config)
+    def plus_two(arr: dt.float64) -> dt.float64:
+        return pc.add(arr, 2.0)
+
+    t = xo.table({"x": "float64"}, name="t")
+    expr = t.mutate(y=plus_two(t.x))
+
+    yaml_dict = compiler.to_yaml(expr)
+    (udf_yaml,) = (
+        node["values"]["y"]
+        for node in yaml_dict["definitions"]["nodes"].values()
+        if node.get("op") == "Project"
+    )
+    (loaded,) = walk_nodes(ops.ScalarUDF, compiler.from_yaml(yaml_dict))
+
+    # no volatility writes no key, so expr.yaml of UDFs without it stays
+    # unchanged
+    assert ("volatility" in udf_yaml) == bool(expected)
+    assert dict(loaded.__config__) == expected
+
+
+def test_pyarrow_scalar_udf_volatility_with_side_effects_raises() -> None:
+    # duckdb would follow side_effects and every other backend volatility
+    with pytest.raises(ValueError, match="side_effects"):
+
+        @xo.udf.scalar.pyarrow(volatility="volatile", side_effects=False)
+        def plus_one(arr: dt.float64) -> dt.float64:
+            return pc.add(arr, 1.0)
+
+
+@pytest.mark.parametrize("volatility", ("Volatile", "sometimes"))
+def test_pyarrow_scalar_udf_unknown_volatility_raises(volatility: str) -> None:
+    with pytest.raises(ValueError, match=volatility):
+
+        @xo.udf.scalar.pyarrow(volatility=volatility)
+        def plus_one(arr: dt.float64) -> dt.float64:
+            return pc.add(arr, 1.0)
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,12 @@
+import random
+
 import numpy as np
+import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
 import xorq.api as xo
+import xorq.expr.datatypes as dt
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,
@@ -10,6 +15,7 @@ from xorq.caching import (
 )
 from xorq.common.utils.dasher import tokenize
 from xorq.conftest import array_types_df
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
 
@@ -167,3 +173,43 @@ def test_array_filter_cached(con, duckdb_con):
 
     assert tokenize(uncached)
     assert not expr.execute().empty
+
+
+def test_pyarrow_udf_load_executes(tmp_path):
+    @xo.udf.scalar.pyarrow
+    def plus_one(arr: dt.float64) -> dt.float64:
+        return pc.add(arr, 1.0)
+
+    t = xo.duckdb.connect().create_table("t", {"x": [1.5, 2.5]})
+    expr = t.mutate(y=plus_one(t.x))
+    actual = load_expr(build_expr(expr, builds_dir=tmp_path)).execute()
+
+    assert actual.to_dict("records") == [{"x": 1.5, "y": 2.5}, {"x": 2.5, "y": 3.5}]
+
+
+# expected == 1 relies on duckdb folding a side-effect-free python UDF over a
+# literal into one call, an optimizer behaviour rather than an API guarantee
+@pytest.mark.parametrize(
+    ("volatility", "expected"), [("volatile", 3), ("immutable", 1), ("stable", 1)]
+)
+def test_pyarrow_udf_volatility_controls_folding(volatility, expected):
+    @xo.udf.scalar.pyarrow(volatility=volatility)
+    def noise(arr: dt.float64) -> dt.float64:
+        return pa.array([random.random() for _ in range(len(arr))])
+
+    t = xo.duckdb.connect().create_table("t", {"x": [1.0, 2.0, 3.0]})
+    actual = t.mutate(r=noise(xo.literal(1.0, "float64"))).execute()
+
+    assert actual.r.nunique() == expected
+
+
+def test_pyarrow_udf_load_keeps_volatility(tmp_path):
+    @xo.udf.scalar.pyarrow(volatility="volatile")
+    def noise(arr: dt.float64) -> dt.float64:
+        return pa.array([random.random() for _ in range(len(arr))])
+
+    t = xo.duckdb.connect().create_table("t", {"x": [1.0, 2.0, 3.0]})
+    expr = t.mutate(r=noise(xo.literal(1.0, "float64")))
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path))
+
+    assert loaded.execute().r.nunique() == expr.execute().r.nunique() == 3

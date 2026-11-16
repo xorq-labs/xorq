@@ -32,6 +32,28 @@ if TYPE_CHECKING:
 
 EMPTY = inspect.Parameter.empty
 
+VOLATILITIES = ("immutable", "stable", "volatile")
+
+
+def make_udf_config(kwargs: dict[str, Any]) -> FrozenDict:
+    """UDF config with ``volatility``, if given, as one of ``VOLATILITIES``.
+
+    Enum values (such as datafusion's ``Volatility``) become their string.
+    ``side_effects`` together with ``volatility`` is rejected: duckdb would
+    follow one and every other backend the other.
+    """
+    match kwargs:
+        case {"volatility": _, "side_effects": _}:
+            raise ValueError("pass volatility or side_effects, not both")
+        case {"volatility": volatility, **rest}:
+            if (value := str(volatility)) not in VOLATILITIES:
+                raise ValueError(
+                    f"volatility must be one of {VOLATILITIES}, got {volatility!r}"
+                )
+            return FrozenDict(rest | {"volatility": value})
+        case _:
+            return FrozenDict(kwargs)
+
 
 _udf_name_cache: MutableMapping[type[ops.Node], Iterable[int]] = (
     collections.defaultdict(itertools.count)
@@ -180,7 +202,7 @@ class _UDF(abc.ABC):
                 # must wrap `fn` in a `property` otherwise `fn` is assumed to be a
                 # method
                 "__func__": property(fget=lambda _, fn=fn: fn),
-                "__config__": FrozenDict(kwargs),
+                "__config__": make_udf_config(kwargs),
                 "__udf_namespace__": ops.Namespace(database=database, catalog=catalog),
                 "__module__": fn.__module__,
                 "__func_name__": func_name,

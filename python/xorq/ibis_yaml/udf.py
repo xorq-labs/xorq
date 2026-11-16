@@ -19,6 +19,7 @@ from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor import ibis
 from xorq.vendor.ibis.common.annotations import Argument
+from xorq.vendor.ibis.common.collections import FrozenDict
 
 
 @translate_to_yaml.register(ops.ScalarUDF)
@@ -42,6 +43,14 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
         if op.__udf_namespace__ != ops.Namespace()
         else {}
     )
+    # of the config only volatility is kept, and only when set; AggUDF and
+    # ExprScalarUDF write their whole meta, but converging would change
+    # the expr.yaml (and build hash) of existing scalar UDF builds
+    volatility = (
+        {"volatility": volatility}
+        if (volatility := op.__config__.get("volatility")) is not None
+        else {}
+    )
     return freeze(
         {
             "op": "ScalarUDF",
@@ -55,6 +64,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
             "arg_names": arg_names,
         }
         | namespace
+        | volatility
     )
 
 
@@ -104,7 +114,11 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         "dtype": dtype,
         "__input_type__": input_type,
         "__func__": udf.property_wrap_fn(fn),
-        "__config__": {"volatility": "immutable"},
+        "__config__": (
+            FrozenDict(volatility=yaml_dict["volatility"])
+            if "volatility" in yaml_dict
+            else FrozenDict()
+        ),
         "__udf_namespace__": (
             translate_from_yaml(yaml_dict["namespace"], compiler)
             if "namespace" in yaml_dict
