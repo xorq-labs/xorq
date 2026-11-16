@@ -64,3 +64,8 @@ def test_fetch_default_backend():
     on = set(batting.columns).intersection(awards_players.columns)
     joined = batting.select(on).join(awards_players.select(on), predicates=on).execute()
     assert not joined.empty
+
+
+def test_fetch_People_xorq_backend():
+    t = xo.examples.People.fetch(backend=xo.connect())
+    assert not t.execute().empty
