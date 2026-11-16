@@ -7,10 +7,6 @@ pa.ArrowIOError is OSError in this PyArrow version (direct alias, not subclass).
 Generic-exception tests use ValueError to avoid hitting the ArrowIOError handler.
 """
 
-import subprocess
-import sys
-import textwrap
-
 import pyarrow as pa
 import pytest
 
@@ -188,43 +184,3 @@ def test_healthcheck_runtime_error_attempt_count_in_message(mocker):
 
     with pytest.raises(RuntimeError, match="3 attempts"):
         client._wait_on_healthcheck(n_tries=3, sleep_n=0)
-
-
-# ---------------------------------------------------------------------------
-# nested exchanges do not starve a shared thread pool
-# ---------------------------------------------------------------------------
-
-
-NESTED_UDXF_SCRIPT = textwrap.dedent("""
-    import xorq.api as xo
-    from xorq.flight import FlightServer
-
-    def passthru(df):
-        return df
-
-    schema = xo.schema({"unit": "int64"})
-    expr = xo.memtable([{"unit": 1}], name="unit_tbl")
-    for i in range(12):
-        expr = xo.expr.relations.flight_udxf(
-            expr,
-            process_df=passthru,
-            maybe_schema_in=schema,
-            maybe_schema_out=schema,
-            name=f"Passthru{i}",
-            make_server=FlightServer,
-        )
-    print(len(xo.execute(expr)))
-""")
-
-
-def test_nested_flight_udxf_completes():
-    # depth 12 holds 35 exchange threads at once, more than a default
-    # ThreadPoolExecutor ever has (<= 32); a deadlock hangs, so run it in a
-    # subprocess that the timeout kills
-    proc = subprocess.run(
-        [sys.executable, "-c", NESTED_UDXF_SCRIPT],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert (proc.returncode, proc.stdout.strip()) == (0, "1"), proc.stderr

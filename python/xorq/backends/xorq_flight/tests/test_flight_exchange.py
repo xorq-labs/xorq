@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import functools
 import operator
+import subprocess
+import sys
+import textwrap
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -550,3 +553,44 @@ def test_process_batch_keeps_returned_dtypes() -> None:
     batch = pa.RecordBatch.from_pydict({"a": [1, 2], "b": [0.5, 1.5]})
     out = process_batch(lambda df: df.assign(b=df["a"]), toolz.identity, batch)
     assert out.schema.field("b").type == pa.int64()
+
+
+# ---------------------------------------------------------------------------
+# nested exchanges do not starve a shared thread pool
+# ---------------------------------------------------------------------------
+
+
+NESTED_UDXF_SCRIPT = textwrap.dedent("""
+    import xorq.api as xo
+    from xorq.flight import FlightServer
+
+    def passthru(df):
+        return df
+
+    schema = xo.schema({"unit": "int64"})
+    expr = xo.memtable([{"unit": 1}], name="unit_tbl")
+    for i in range(12):
+        expr = xo.expr.relations.flight_udxf(
+            expr,
+            process_df=passthru,
+            maybe_schema_in=schema,
+            maybe_schema_out=schema,
+            name=f"Passthru{i}",
+            make_server=FlightServer,
+        )
+    print(len(xo.execute(expr)))
+""")
+
+
+def test_nested_flight_udxf_completes():
+    # one shared pool needed 3 slots per exchange, 35 at depth 12: more than a
+    # default ThreadPoolExecutor ever has (<= 32). A deadlock leaves pool
+    # threads that block interpreter exit, so run it in a subprocess that the
+    # timeout kills
+    proc = subprocess.run(
+        [sys.executable, "-c", NESTED_UDXF_SCRIPT],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert (proc.returncode, proc.stdout.strip()) == (0, "1"), proc.stderr

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 def submit(fn, *args):
     # one thread per task: an exchange's tasks block on each other and on
     # the exchanges nested inside it, so a shared bounded pool can deadlock
-    executor = ThreadPoolExecutor(max_workers=1)
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="xorq-flight")
     fut = executor.submit(fn, *args)
     executor.shutdown(wait=False)
     return fut
@@ -335,12 +335,11 @@ class FlightClient:
                 # `with writer` must happen inside a future
                 # # so its context remains alive during enclosed writes and reads
                 with writer:
-                    do_writes_fut = submit(do_writes, writer, reader)
+                    # reads start first: the server may not take more input
+                    # until its output is drained
                     do_reads_fut = submit(do_reads, _reader, queue)
-                    (n_writes, n_reads) = (
-                        do_writes_fut.result(),
-                        do_reads_fut.result(),
-                    )
+                    n_writes = do_writes(writer, reader)
+                    n_reads = do_reads_fut.result()
             except BaseException as e:
                 queue.put(e)
                 raise
