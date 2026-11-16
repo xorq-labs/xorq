@@ -102,7 +102,7 @@ print(pinned.ls.has_cached, pinned.ls.unpin().ls.is_cached)
 | `get_tags(predicate)` | `Tag` nodes whose metadata satisfies `predicate` |
 | `untagged` | The expression with non-hashing tags removed |
 | `builder` | The domain object recovered from the outermost registered tag, see [ADR 0005](https://github.com/xorq-labs/xorq/blob/main/docs/adr/0005-expr-builder-from-tagged-registry.md) |
-| `pipeline`, `pipelines` | Fitted scikit-learn pipelines recovered from tags |
+| `pipeline`, `pipelines` | Unfitted Xorq `Pipeline` objects rebuilt from the step definitions a fitted pipeline leaves in its tags; `pipeline` takes the outermost and raises `ValueError` when there is none |
 | `is_cached` | Whether the root is a `CachedNode` |
 | `has_cached` | Whether any `CachedNode` is in the graph |
 | `cached_nodes` | All `CachedNode` operations, outermost first |
