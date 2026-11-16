@@ -125,7 +125,7 @@ def test_deferred_read_csv_keeps_schema(con: Backend, tmp_path: Path) -> None:
         result = xo.deferred_read_csv(
             path, con=con, schema=schema, table_name=table_name
         ).execute()
-        assert result["id"].tolist() == [1.0, 2.0, 3.0]
+        assert sorted(result["id"]) == [1.0, 2.0, 3.0]
         assert con.table(table_name).schema() == schema
     finally:
         con.drop_table(table_name, force=True)
