@@ -25,7 +25,13 @@ if TYPE_CHECKING:
     from xorq.flight.server import PutCommand
 
 
-executor = ThreadPoolExecutor()
+def submit(fn, *args):
+    # one thread per task: an exchange's tasks block on each other and on
+    # the exchanges nested inside it, so a shared bounded pool can deadlock
+    executor = ThreadPoolExecutor(max_workers=1)
+    fut = executor.submit(fn, *args)
+    executor.shutdown(wait=False)
+    return fut
 
 
 logger = get_logger(__name__)
@@ -329,8 +335,8 @@ class FlightClient:
                 # `with writer` must happen inside a future
                 # # so its context remains alive during enclosed writes and reads
                 with writer:
-                    do_writes_fut = executor.submit(do_writes, writer, reader)
-                    do_reads_fut = executor.submit(do_reads, _reader, queue)
+                    do_writes_fut = submit(do_writes, writer, reader)
+                    do_reads_fut = submit(do_reads, _reader, queue)
                     (n_writes, n_reads) = (
                         do_writes_fut.result(),
                         do_reads_fut.result(),
@@ -363,7 +369,7 @@ class FlightClient:
 
         queue = Queue()
         output_schema = get_output_schema(command, reader)
-        fut = executor.submit(do_writes_reads, command, reader, queue)
+        fut = submit(do_writes_reads, command, reader, queue)
         rbr = queue_to_rbr(output_schema, queue)
         return fut, rbr
 
