@@ -1511,7 +1511,8 @@ class CatalogAddition:
         catalog_yaml_before = catalog_yaml.yaml_path.read_bytes()
         self.ensure_dirs()
         try:
-            catalog_entry.metadata_path.write_text(metadata)
+            with atomic_write(catalog_entry.metadata_path) as tmp:
+                tmp.write_text(metadata)
             catalog_yaml.add(self.name)
             backend.stage_content(self.build_zip.path, catalog_entry.catalog_path)
         except BaseException:
@@ -1713,8 +1714,8 @@ class CatalogEntry:
             .joinpath(self.name)
             .with_suffix(PREFERRED_SUFFIX)
         )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(self.catalog_path, target)
+        with atomic_write(target) as tmp:
+            shutil.copy(self.catalog_path, tmp)
         return target
 
     def assert_consistency(self):
@@ -1904,10 +1905,8 @@ class CatalogYAML:
 
     def __attrs_post_init__(self):
         if not self.yaml_path.exists():
-            self.yaml_path.write_text(
-                yaml12.format_yaml(
-                    {str(CatalogInfix.ENTRY): [], str(CatalogInfix.ALIAS): []}
-                )
+            self.set_contents(
+                {str(CatalogInfix.ENTRY): [], str(CatalogInfix.ALIAS): []}
             )
 
     @property
@@ -1927,7 +1926,8 @@ class CatalogYAML:
         return raw
 
     def set_contents(self, contents):
-        self.yaml_path.write_text(yaml12.format_yaml(contents))
+        with atomic_write(self.yaml_path) as tmp:
+            tmp.write_text(yaml12.format_yaml(contents))
         return self.yaml_path
 
     def contains(self, entry):

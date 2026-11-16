@@ -2638,3 +2638,53 @@ def test_adopt_names_the_staging_file_a_concurrent_reap_removed(
 
     with pytest.raises(ContentStoreError, match="disappeared before it could be"):
         cache.adopt("cat/aa/bb/entry.zip", vanished)
+
+
+def _crash_mid_write(monkeypatch, cls, name):
+    """Make cls.name write half its payload, then fail like a full disk."""
+    original = getattr(cls, name)
+
+    def half_then_fail(*args, **kwargs):
+        *head, data = args
+        original(*head, data[: len(data) // 2], **kwargs)
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(cls, name, half_then_fail)
+
+
+def test_catalog_yaml_set_contents_atomic(tmp_path, monkeypatch):
+    catalog_yaml = catalog_mod.CatalogYAML(tmp_path)
+    before = catalog_yaml.yaml_path.read_text()
+    _crash_mid_write(monkeypatch, Path, "write_text")
+    with pytest.raises(OSError, match="No space left"):
+        catalog_yaml.set_contents(
+            {str(CatalogInfix.ENTRY): ["a" * 64], str(CatalogInfix.ALIAS): []}
+        )
+    assert catalog_yaml.yaml_path.read_text() == before
+
+
+def test_catalog_yaml_init_atomic(tmp_path, monkeypatch):
+    _crash_mid_write(monkeypatch, Path, "write_text")
+    with pytest.raises(OSError, match="No space left"):
+        catalog_mod.CatalogYAML(tmp_path)
+    monkeypatch.undo()
+    catalog_yaml = catalog_mod.CatalogYAML(tmp_path)
+    assert catalog_yaml.contents == {
+        str(CatalogInfix.ENTRY): [],
+        str(CatalogInfix.ALIAS): [],
+    }
+
+
+def test_catalog_entry_get_atomic(catalog, tmp_path, monkeypatch):
+    entry = catalog.add(xo.memtable({"x": [1, 2, 3]}))
+    out_dir = tmp_path / "out"
+
+    def half_then_fail(src, dst, **kwargs):
+        data = Path(src).read_bytes()
+        Path(dst).write_bytes(data[: len(data) // 2])
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(shutil, "copyfile", half_then_fail)
+    with pytest.raises(OSError, match="No space left"):
+        entry.get(dir_path=out_dir)
+    assert not tuple(out_dir.iterdir())

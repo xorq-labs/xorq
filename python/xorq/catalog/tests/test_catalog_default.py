@@ -1,6 +1,8 @@
+import errno
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -266,3 +268,21 @@ def test_subprocess_default_env_override(subprocess_config_path):
     assert result.returncode == 0
     assert "from-env" in result.stdout
     assert "env" in result.stdout
+
+
+def test_default_set_atomic(monkeypatch, tmp_path):
+    """A failed write of the default keeps the previous default intact."""
+    config_path = tmp_path / "catalog-default"
+    config_path.write_text("previous-catalog\n")
+    monkeypatch.setattr("xorq.catalog.constants.DEFAULT_CATALOG_CONFIG", config_path)
+    original = Path.write_text
+
+    def half_then_fail(self, data, *args, **kwargs):
+        original(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", half_then_fail)
+    result = CliRunner().invoke(default_catalog, ["--set", "a-much-longer-name"])
+    assert isinstance(result.exception, OSError)
+    monkeypatch.undo()
+    assert config_path.read_text() == "previous-catalog\n"
