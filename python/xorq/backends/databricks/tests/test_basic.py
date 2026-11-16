@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import pandas as pd
 
 import xorq.api as xo
 from xorq.common.utils.defer_utils import infer_csv_schema_pandas
 from xorq.vendor.ibis.util import gen_name
+
+
+if TYPE_CHECKING:
+    from xorq.backends.databricks import Backend
 
 
 def test_execute_returns_dataframe(functional_alltypes):
@@ -108,15 +115,17 @@ def test_chained_filter_project(batting):
     assert len(result) <= 20
 
 
-def test_deferred_read_csv_keeps_schema(con, data_dir):
-    path = data_dir / "csv" / "astronauts.csv"
+def test_deferred_read_csv_keeps_schema(con: Backend, tmp_path: Path) -> None:
+    # a few rows only: ingest into databricks is slow per row
+    path = tmp_path / "ids.csv"
+    pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]}).to_csv(path, index=False)
     schema = xo.schema({**infer_csv_schema_pandas(path), "id": "float64"})
-    table_name = gen_name("astronauts")
+    table_name = gen_name("ids")
     try:
         result = xo.deferred_read_csv(
             path, con=con, schema=schema, table_name=table_name
         ).execute()
-        assert len(result) == 1277
+        assert result["id"].tolist() == [1.0, 2.0, 3.0]
         assert con.table(table_name).schema() == schema
     finally:
         con.drop_table(table_name, force=True)
