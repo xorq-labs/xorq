@@ -63,6 +63,18 @@ _UDF_INPUT_TYPE_MAPPING = {
 }
 
 
+# duckdb's create_function has no volatility; it takes side_effects
+_SIDE_EFFECTS_BY_VOLATILITY = {"immutable": False, "stable": False, "volatile": True}
+
+
+def _create_function_config(config):
+    match dict(config):
+        case {"volatility": volatility, **rest}:
+            return {"side_effects": _SIDE_EFFECTS_BY_VOLATILITY[volatility], **rest}
+        case rest:
+            return rest
+
+
 class _Settings:
     def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
         self.con = con
@@ -1823,7 +1835,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                 parameters=input_types,
                 return_type=type_mapper.to_string(udf_node.dtype),
                 type=_UDF_INPUT_TYPE_MAPPING[udf_node.__input_type__],
-                **udf_node.__config__,
+                **_create_function_config(udf_node.__config__),
             )
 
         return register_udf

@@ -498,13 +498,16 @@ def _normalize_scalar_udf_xorq(udf):
         if computed_kwargs_expr is not None
         else None
     )
+    # volatility changes which rows appear; appended only when set so the
+    # hash of a UDF without it does not move
+    volatility = udf.__config__.get("volatility")
     return (
         "ibis.ScalarUDF",
         typs,
         udf.dtype,
         udf.__func__,
         cke_token,
-    )
+    ) + (() if volatility is None else (volatility,))
 
 
 def _normalize_expr_xorq(expr):
