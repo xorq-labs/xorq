@@ -120,3 +120,16 @@ def test_deferred_read_csv_keeps_schema(con, data_dir):
         assert con.table(table_name).schema() == schema
     finally:
         con.drop_table(table_name, force=True)
+
+
+def test_deferred_read_csv_reader_kwarg(con, tmp_path):
+    # a reader option must reach the reader, not the ingestion
+    path = tmp_path / "semicolon.csv"
+    df = pd.DataFrame({"A": [1, 2, 3], "B": ["a", "b", "c"]})
+    df.to_csv(path, index=False, sep=";")
+    table_name = gen_name("semicolon")
+    try:
+        t = xo.deferred_read_csv(path, con=con, table_name=table_name, delimiter=";")
+        assert t.execute().sort_values("A", ignore_index=True).equals(df)
+    finally:
+        con.drop_table(table_name, force=True)

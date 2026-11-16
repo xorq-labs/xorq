@@ -539,16 +539,17 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
         path: str | Path,
         table_name: str | None = None,
         schema: sch.Schema | None = None,
+        mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
         reader = default_backend()
         record_batches = reader.read_csv(
-            path, **read_csv_schema_kwargs(reader, schema)
+            path, **read_csv_schema_kwargs(reader, schema), **kwargs
         ).to_pyarrow_batches()
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name or util.gen_name("ls-read-csv"),
-            **kwargs,
+            mode=mode,
         )
 
     def _make_memtable_finalizer(self, name: str) -> Callable[..., None]:
