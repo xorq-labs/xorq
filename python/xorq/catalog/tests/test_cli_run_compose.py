@@ -174,6 +174,30 @@ def test_run_two_entries_with_limit(runner, catalog_with_source_and_transform):
     assert len(lines) == 2  # header + 1 data row
 
 
+def test_run_entry_joining_two_upstream_entries(
+    runner: CliRunner, catalog_path: str, tmp_path: Path
+) -> None:
+    """#2148: each source reads on its own connection; fusing must not merge them."""
+    (tmp_path / "left.csv").write_text("id,v\n1,a\n2,b\n")
+    (tmp_path / "right.csv").write_text("id,w\n1,x\n2,y\n")
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    for name in ("left", "right"):
+        source = xo.deferred_read_csv(tmp_path / f"{name}.csv", con=xo.connect())
+        catalog.add(source, aliases=(name,))
+    local = xo.connect()
+    joined = catalog.load("left", con=local).join(
+        catalog.load("right", con=local), "id"
+    )
+    catalog.add(joined, aliases=("joined",))
+
+    result = runner.invoke(
+        cli, ["--path", catalog_path, "run", "joined", "-o", "-", "-f", "csv"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert sorted(result.output.strip().splitlines()[1:]) == ['1,"a","x"', '2,"b","y"']
+
+
 def test_run_no_entries(runner, catalog_with_source_and_transform):
     catalog_path, _, _ = catalog_with_source_and_transform
     result = runner.invoke(

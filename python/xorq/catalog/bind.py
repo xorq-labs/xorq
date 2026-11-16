@@ -296,6 +296,13 @@ def fuse_catalog_source(expr):
                     return node
 
         result = replace_nodes(replacer, expr).to_expr()
+        backends, _ = result._find_backends()  # xorq-style: disable=protected-access
+        if len(backends) > 1:
+            # Sources on separate connections: the stripped RemoteTables were
+            # what moved each one's rows into a single backend.
+            span.set_attribute("fused", False)
+            span.set_attribute("reason", "multiple_backends")
+            return expr
         span.set_attribute("fused", True)
         # #2133: bundled (relocated) reads are already resolved before fuse runs.
         # `_resolve_source` loads each source entry via `load_expr`, rewriting its
