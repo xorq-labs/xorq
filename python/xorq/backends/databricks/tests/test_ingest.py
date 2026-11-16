@@ -62,7 +62,24 @@ def test_read_record_batches_modes(con: Backend, table_name: str) -> None:
         make_table(N_ROWS).to_reader(), table_name=table_name, mode="append"
     )
     assert t.count().execute() == 2 * N_ROWS
+    reordered = make_table().select(["label", "id", "value", "name", "flag", "bucket"])
+    t = con.read_record_batches(
+        reordered.to_reader(), table_name=table_name, mode="append"
+    )
+    assert t.id.sum().execute() == 2 * sum(range(N_ROWS)) + sum(
+        range(N_ROWS, 2 * N_ROWS)
+    )
     t = con.read_record_batches(
         make_table().to_reader(), table_name=table_name, mode="replace"
     )
     assert t.count().execute() == N_ROWS
+
+
+def test_read_record_batches_bad_mode_uploads_nothing(
+    con: Backend, table_name: str
+) -> None:
+    with pytest.raises(ValueError, match="bogus"):
+        con.read_record_batches(
+            make_table().to_reader(), table_name=table_name, mode="bogus"
+        )
+    assert staged_files(con) == []

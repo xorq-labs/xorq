@@ -545,13 +545,20 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
         target = sg.table(
             table_name, db=db_schema_name, catalog=catalog_name, quoted=quoted
         )
-        upstream_path = self._put_parquet(
-            record_batches, f"{util.gen_name('ingest')}.parquet"
-        )
+        stem = f"{util.gen_name('ingest')}.parquet"
         source = sg.select(STAR).from_(
-            sg.table(upstream_path, db="parquet", quoted=quoted)
+            sg.table(
+                f"{self._memtable_volume_path}/{stem}", db="parquet", quoted=quoted
+            )
         )
-        insert = sge.insert(source, into=target)
+        insert = sge.insert(
+            source,
+            into=target,
+            columns=[
+                sg.to_identifier(name, quoted=quoted)
+                for name in record_batches.schema.names
+            ],
+        )
         statements = {
             IngestMode.CREATE: (
                 sge.Create(kind="TABLE", this=target, expression=source),
@@ -567,6 +574,7 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
                 insert,
             ),
         }[IngestMode(mode)]
+        upstream_path = self._put_parquet(record_batches, stem)
         try:
             with self.con.cursor() as cur:
                 for statement in statements:
