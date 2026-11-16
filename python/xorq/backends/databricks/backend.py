@@ -511,15 +511,24 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
         record_batches: pa.RecordBatchReader,
         table_name: str | None = None,
         mode: str = "create",
+        catalog_name: str | None = None,
+        db_schema_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
         from xorq.common.utils.databricks_utils import DatabricksADBC  # noqa: PLC0415
 
         table_name = table_name or util.gen_name("databricks_record_batches")
+        catalog_name = catalog_name or self.current_catalog
+        db_schema_name = db_schema_name or self.current_database
         DatabricksADBC(self).adbc_ingest(
-            table_name, record_batches, mode=mode, **kwargs
+            table_name,
+            record_batches,
+            mode=mode,
+            catalog_name=catalog_name,
+            db_schema_name=db_schema_name,
+            **kwargs,
         )
-        return self.table(table_name)
+        return self.table(table_name, database=(catalog_name, db_schema_name))
 
     def read_parquet(
         self, path: str | Path, table_name: str | None = None, **kwargs: Any
