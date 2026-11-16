@@ -108,3 +108,25 @@ def test_drop_table_with_qualified_database():
     con.drop_table("tp", database=("datafusion", "public"))
 
     assert "tp" not in con.list_tables()
+
+
+@pytest.mark.parametrize(
+    "connect",
+    [
+        param(lambda: xo.connect(), id="xorq"),
+        param(lambda: xo.datafusion.connect(), id="datafusion"),
+    ],
+)
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        param({"obj": xo.memtable({"a": [1]})}, id="obj"),
+        param({"schema": ibis.schema({"a": "int64"})}, id="schema"),
+    ],
+)
+def test_create_table_temp(connect, kwargs):
+    con = connect()
+    t = con.create_table("t", temp=True, **kwargs)
+
+    assert t.schema() == ibis.schema({"a": "int64"})
+    assert "t" in con.list_tables()

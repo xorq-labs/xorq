@@ -214,7 +214,8 @@ class Backend(IbisDatafusionBackend):
             The name of the database in which to create the table; if not
             passed, the current database is used.
         temp
-            Create a temporary table
+            Accepted for API compatibility; DataFusion tables already live
+            only as long as the session, so no TEMPORARY clause is emitted
         overwrite
             If `True`, replace the table if it already exists, otherwise fail
             if the table exists
@@ -224,11 +225,6 @@ class Backend(IbisDatafusionBackend):
             raise ValueError("Either `obj` or `schema` must be specified")
         if schema is not None:
             schema = ibis.schema(schema)
-
-        properties = []
-
-        if temp:
-            properties.append(sge.TemporaryProperty())
 
         quoted = self.compiler.quoted
 
@@ -272,7 +268,6 @@ class Backend(IbisDatafusionBackend):
         create_stmt = sge.Create(
             kind="TABLE",
             this=target,
-            properties=sge.Properties(expressions=properties),
             expression=query,
             replace=overwrite,
         )
