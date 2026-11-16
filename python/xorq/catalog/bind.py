@@ -234,6 +234,12 @@ def _make_source_expr(source, con=None, alias=None, cache_dir=None):
     return source_expr
 
 
+def _reads_span_backends(expr: Expr) -> bool:
+    """Whether ``expr``'s own payload (not behind a RemoteTable) reads on several backends."""
+    backends, _ = expr._find_backends()  # xorq-style: disable=protected-access
+    return len(backends) > 1 and bool(expr.op().find(Read))
+
+
 def fuse_catalog_source(expr):
     """Strip catalog-created RemoteTable + HashingTag layers for catalog sources.
 
@@ -296,8 +302,9 @@ def fuse_catalog_source(expr):
                     return node
 
         result = replace_nodes(replacer, expr).to_expr()
-        backends, _ = result._find_backends()  # xorq-style: disable=protected-access
-        if len(backends) > 1 and walk_nodes(Read, result):
+        retained = walk_nodes(RemoteTable, result) or ()
+        payloads = (result, *(rt.remote_expr for rt in retained))
+        if any(map(_reads_span_backends, payloads)):
             # A deferred read registers on its own connection, so reads spread
             # over several connections need the stripped RemoteTables to move
             # their rows into one backend. Tables already in one database do not.

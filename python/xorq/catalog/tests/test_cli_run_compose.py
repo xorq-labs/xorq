@@ -174,8 +174,12 @@ def test_run_two_entries_with_limit(runner, catalog_with_source_and_transform):
     assert len(lines) == 2  # header + 1 data row
 
 
+@pytest.mark.parametrize(
+    "wrap",
+    (pytest.param(False, id="bare"), pytest.param(True, id="into_backend")),
+)
 def test_run_entry_joining_two_upstream_entries(
-    runner: CliRunner, catalog_path: str, tmp_path: Path
+    runner: CliRunner, catalog_path: str, tmp_path: Path, wrap: bool
 ) -> None:
     """#2148: each source reads on its own connection; fusing must not merge them."""
     (tmp_path / "left.csv").write_text("id,v\n1,a\n2,b\n")
@@ -188,7 +192,9 @@ def test_run_entry_joining_two_upstream_entries(
     joined = catalog.load("left", con=local).join(
         catalog.load("right", con=local), "id"
     )
-    catalog.add(joined, aliases=("joined",))
+    catalog.add(
+        joined.into_backend(xo.connect()) if wrap else joined, aliases=("joined",)
+    )
 
     result = runner.invoke(
         cli, ["--path", catalog_path, "run", "joined", "-o", "-", "-f", "csv"]
