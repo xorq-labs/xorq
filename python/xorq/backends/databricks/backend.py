@@ -25,6 +25,7 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.defer_utils import read_csv_schema_kwargs
+from xorq.common.utils.enums import IngestMode
 from xorq.config import default_backend
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import CanCreateDatabase, UrlFromPath
@@ -481,14 +482,37 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
     def _memtable_volume_path(self) -> str:
         return f"/Volumes/{self._memtable_catalog}/{self._memtable_database}/{self._memtable_volume}"
 
-    def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
+    def _put_parquet(self, data: pa.Table | pa.RecordBatchReader, stem: str) -> str:
+        """Upload ``data`` as a parquet file to the memtable volume.
+
+        Returns the file's volume path.
+        """
         import pyarrow.parquet as pq  # noqa: PLC0415
 
+        record_batches = pa.RecordBatchReader.from_stream(data)
+        upstream_path = f"{self._memtable_volume_path}/{stem}"
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            path = Path(tmpdir, stem)
+            # optimize for bandwidth: zstd typically compresses better;
+            # databricks cannot read nanosecond parquet timestamps
+            with pq.ParquetWriter(
+                path,
+                record_batches.schema,
+                compression="zstd",
+                coerce_timestamps="us",
+                allow_truncated_timestamps=True,
+            ) as writer:
+                for batch in record_batches:
+                    writer.write_batch(batch)
+            with self.con.cursor() as cur:
+                cur.execute(f"PUT '{path}' INTO '{upstream_path}' OVERWRITE")
+        return upstream_path
+
+    def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         quoted = self.compiler.quoted
         name = op.name
-        stem = f"{name}.parquet"
-
-        upstream_path = f"{self._memtable_volume_path}/{stem}"
+        data = op.data.to_pyarrow(schema=op.schema)
+        upstream_path = self._put_parquet(data, f"{name}.parquet")
         sql = sge.Create(
             kind="VIEW",
             this=sg.table(name, quoted=quoted),
@@ -497,38 +521,58 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
             ),
             properties=sge.Properties(expressions=[sge.TemporaryProperty()]),
         ).sql(self.dialect)
-        data = op.data.to_pyarrow(schema=op.schema)
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-            path = Path(tmpdir, stem)
-            put_into = f"PUT '{path}' INTO '{upstream_path}' OVERWRITE"
-            # optimize for bandwidth: zstd typically compresses better
-            pq.write_table(data, path, compression="zstd")
-            with self.con.cursor() as cur:
-                cur.execute(put_into)
-                cur.execute(sql)
+        with self.con.cursor() as cur:
+            cur.execute(sql)
 
     def read_record_batches(
         self,
-        record_batches: pa.RecordBatchReader,
+        record_batches: pa.Table | pa.RecordBatchReader,
         table_name: str | None = None,
-        mode: str = "create",
+        mode: str = IngestMode.CREATE,
         catalog_name: str | None = None,
         db_schema_name: str | None = None,
-        **kwargs: Any,
     ) -> ir.Table:
-        from xorq.common.utils.databricks_utils import DatabricksADBC  # noqa: PLC0415
+        """Write ``record_batches`` to a table through a staged parquet file.
 
+        ``mode`` is an ``IngestMode``: ``create`` fails on an existing table,
+        ``append`` on an absent one, ``replace`` overwrites it, and
+        ``create_append`` creates the table if it is absent.
+        """
+        quoted = self.compiler.quoted
         table_name = table_name or util.gen_name("databricks_record_batches")
         catalog_name = catalog_name or self.current_catalog
         db_schema_name = db_schema_name or self.current_database
-        DatabricksADBC(self).adbc_ingest(
-            table_name,
-            record_batches,
-            mode=mode,
-            catalog_name=catalog_name,
-            db_schema_name=db_schema_name,
-            **kwargs,
+        target = sg.table(
+            table_name, db=db_schema_name, catalog=catalog_name, quoted=quoted
         )
+        upstream_path = self._put_parquet(
+            record_batches, f"{util.gen_name('ingest')}.parquet"
+        )
+        source = sg.select(STAR).from_(
+            sg.table(upstream_path, db="parquet", quoted=quoted)
+        )
+        insert = sge.insert(source, into=target)
+        statements = {
+            IngestMode.CREATE: (
+                sge.Create(kind="TABLE", this=target, expression=source),
+            ),
+            IngestMode.REPLACE: (
+                sge.Create(kind="TABLE", this=target, expression=source, replace=True),
+            ),
+            IngestMode.APPEND: (insert,),
+            IngestMode.CREATE_APPEND: (
+                sge.Create(
+                    kind="TABLE", this=target, expression=source.limit(0), exists=True
+                ),
+                insert,
+            ),
+        }[IngestMode(mode)]
+        try:
+            with self.con.cursor() as cur:
+                for statement in statements:
+                    cur.execute(statement.sql(self.dialect))
+        finally:
+            _remove_memtable_file(upstream_path, self.con)
         return self.table(table_name, database=(catalog_name, db_schema_name))
 
     def read_parquet(
