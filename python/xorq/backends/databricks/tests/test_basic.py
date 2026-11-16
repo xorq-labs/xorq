@@ -1,6 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import pandas as pd
+
+import xorq.api as xo
+from xorq.common.utils.defer_utils import infer_csv_schema_pandas
+from xorq.vendor.ibis.util import gen_name
+
+
+if TYPE_CHECKING:
+    from xorq.backends.databricks import Backend
 
 
 def test_execute_returns_dataframe(functional_alltypes):
@@ -102,3 +113,49 @@ def test_chained_filter_project(batting):
     assert (result["yearID"] >= 2000).all()
     assert (result["AB"] > 100).all()
     assert len(result) <= 20
+
+
+def test_deferred_read_csv_keeps_schema(con: Backend, tmp_path: Path) -> None:
+    # a few rows only: ingest into databricks is slow per row
+    path = tmp_path / "ids.csv"
+    pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]}).to_csv(path, index=False)
+    schema = xo.schema({**infer_csv_schema_pandas(path), "id": "float64"})
+    table_name = gen_name("ids")
+    try:
+        result = xo.deferred_read_csv(
+            path, con=con, schema=schema, table_name=table_name
+        ).execute()
+        assert sorted(result["id"]) == [1.0, 2.0, 3.0]
+        assert con.table(table_name).schema() == schema
+    finally:
+        con.drop_table(table_name, force=True)
+
+
+def test_deferred_read_csv_reader_kwarg(con, tmp_path):
+    # a reader option must reach the reader, not the ingestion
+    path = tmp_path / "semicolon.csv"
+    df = pd.DataFrame({"A": [1, 2, 3], "B": ["a", "b", "c"]})
+    df.to_csv(path, index=False, sep=";")
+    table_name = gen_name("semicolon")
+    try:
+        t = xo.deferred_read_csv(path, con=con, table_name=table_name, delimiter=";")
+        assert t.execute().sort_values("A", ignore_index=True).equals(df)
+    finally:
+        con.drop_table(table_name, force=True)
+
+
+def test_read_csv_ingest_destination(con: Backend, tmp_path: Path) -> None:
+    # catalog and schema options must reach the ingestion, not the reader
+    path = tmp_path / "dest.csv"
+    pd.DataFrame({"a": [1, 2]}).to_csv(path, index=False)
+    table_name = gen_name("dest")
+    try:
+        t = con.read_csv(
+            path,
+            table_name=table_name,
+            catalog_name=con.current_catalog,
+            db_schema_name=con.current_database,
+        )
+        assert sorted(t.execute()["a"]) == [1, 2]
+    finally:
+        con.drop_table(table_name, force=True)
