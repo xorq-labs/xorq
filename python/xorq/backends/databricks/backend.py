@@ -24,6 +24,7 @@ import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.defer_utils import read_csv_schema_kwargs
 from xorq.config import default_backend
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import CanCreateDatabase, UrlFromPath
@@ -530,6 +531,23 @@ class Backend(SQLBackend, CanCreateDatabase, UrlFromPath):
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
+            **kwargs,
+        )
+
+    def read_csv(
+        self,
+        path: str | Path,
+        table_name: str | None = None,
+        schema: sch.Schema | None = None,
+        **kwargs: Any,
+    ) -> ir.Table:
+        reader = default_backend()
+        record_batches = reader.read_csv(
+            path, **read_csv_schema_kwargs(reader, schema)
+        ).to_pyarrow_batches()
+        return self.read_record_batches(
+            record_batches=record_batches,
+            table_name=table_name or util.gen_name("ls-read-csv"),
             **kwargs,
         )
 

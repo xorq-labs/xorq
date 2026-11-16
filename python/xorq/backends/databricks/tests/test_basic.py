@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+import xorq.api as xo
+from xorq.common.utils.defer_utils import infer_csv_schema_pandas
+from xorq.vendor.ibis.util import gen_name
+
 
 def test_execute_returns_dataframe(functional_alltypes):
     result = functional_alltypes.limit(5).execute()
@@ -102,3 +106,17 @@ def test_chained_filter_project(batting):
     assert (result["yearID"] >= 2000).all()
     assert (result["AB"] > 100).all()
     assert len(result) <= 20
+
+
+def test_deferred_read_csv_keeps_schema(con, data_dir):
+    path = data_dir / "csv" / "astronauts.csv"
+    schema = xo.schema({**infer_csv_schema_pandas(path), "id": "float64"})
+    table_name = gen_name("astronauts")
+    try:
+        result = xo.deferred_read_csv(
+            path, con=con, schema=schema, table_name=table_name
+        ).execute()
+        assert len(result) == 1277
+        assert con.table(table_name).schema() == schema
+    finally:
+        con.drop_table(table_name, force=True)
