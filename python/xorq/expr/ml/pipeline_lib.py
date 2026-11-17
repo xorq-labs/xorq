@@ -1166,6 +1166,36 @@ class FittedPipeline:
             | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
         )
 
+    def predict_raw(self, expr: Expr, name: str | None = None) -> Expr:
+        """Return the predictions as a column of `expr`.
+
+        `predict` returns a new table without the feature columns, so it
+        cannot be passed to `expr.mutate`; this column can.
+
+        Parameters
+        ----------
+        expr
+            The table holding the feature columns. Pass the table itself,
+            not a selection of it, so the column binds to it.
+        name
+            The column name; defaults to the predict step's name.
+
+        Returns
+        -------
+        Expr
+            A column that `expr.mutate` or `expr.select` accepts.
+
+        Examples
+        --------
+        >>> t.mutate(predicted=fitted.predict_raw(t))  # doctest: +SKIP
+        """
+        columns = functools.reduce(
+            _with_transformed_columns,
+            self.transform_steps,
+            {c: expr[c] for c in expr.columns},
+        )
+        return self.predict_step.predict_raw(columns, name=name)
+
     @toolz.curry
     def invoke_predict_method(self, expr, tag_name, *, methodname, name=None):
         if not self.is_predict:
@@ -1303,6 +1333,17 @@ class FittedPipeline:
         ).assign(**{target: y})
         expr = api.register(df, "t")
         return self.score_expr(expr, scorer=scorer, **kwargs).execute()
+
+
+def _with_transformed_columns(columns: dict, fitted_step: FittedStep) -> dict:
+    # mirrors FittedStep.transform: kv-encoded output stays one column,
+    # known-schema struct output is spread into its fields
+    col = fitted_step.transform_raw(columns)
+    return columns | (
+        {col.get_name(): col}
+        if fitted_step.structer.is_kv_encoded
+        else {name: col[name] for name in col.names}
+    )
 
 
 def get_target_type(step_instance, step, expr, features, target):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import operator
+from collections.abc import Callable
 from numbers import Real
 from pathlib import Path
 
@@ -185,6 +186,37 @@ def test_score_expr_returns_metric(t, fitted_xorq_pipeline):
     score_expr = fitted_xorq_pipeline.score_expr(t)
     result = score_expr.execute()
     assert isinstance(result, Real)
+
+
+@pytest.mark.parametrize(
+    "make_steps",
+    (
+        pytest.param(lambda: (StandardScaler(), LinearRegression()), id="known-schema"),
+        pytest.param(
+            lambda: (OneHotEncoder(sparse_output=False), LinearRegression()),
+            id="kv-encoded",
+        ),
+    ),
+)
+def test_predict_mutate(make_steps: Callable[[], tuple[BaseEstimator, ...]]) -> None:
+    t = xo.memtable(
+        {
+            feature0: [1.0, 2.0, 3.0, 4.0],
+            feature1: [2.0, 1.0, 4.0, 3.0],
+            TARGET: [1.0, 3.0, 2.0, 4.0],
+            "other": [10, 20, 30, 40],
+        }
+    )
+    sklearn_pipeline = sklearn.pipeline.make_pipeline(*make_steps())
+    fitted = xo.Pipeline.from_instance(sklearn_pipeline).fit(
+        t, features=features, target=TARGET
+    )
+    df = t.mutate(predicted=fitted.predict_raw(t)).execute()
+    sklearn_pipeline.fit(df[list(features)], df[TARGET])
+    assert tuple(df.columns) == (*t.columns, "predicted")
+    np.testing.assert_allclose(
+        df["predicted"], sklearn_pipeline.predict(df[list(features)])
+    )
 
 
 def test_fitted_step_transform_known_schema_unpacks():
