@@ -77,6 +77,7 @@ from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
     crash_mid_write,
     directory_store_config,
+    every_storage_backend,
     requires_annex,
 )
 from xorq.catalog.tui import get_cache_key_path
@@ -105,14 +106,7 @@ def test_catalog_add(catalog, data_dict):
         catalog.add(path)
 
 
-@pytest.mark.parametrize(
-    "backend_type",
-    (
-        pytest.param("git", id="git"),
-        pytest.param("annex", marks=requires_annex, id="annex"),
-    ),
-    scope="session",
-)
+@every_storage_backend
 def test_catalog_add_get_preserves_mtime(
     catalog: Catalog, data_dict: dict[str, Path], tmp_path: Path
 ) -> None:
