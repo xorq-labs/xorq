@@ -798,13 +798,34 @@ def test_rebuild_collision_records_remap_to_existing_entry(tmpdir, saved_registr
     assert {"ca", "cb"} <= set(target.list_aliases())
 
 
+def _register_filter_handler(threshold, override=False):
+    def reemit(tag_node, rebuild_subexpr):
+        inner = tag_node.parent.to_expr()
+        return inner.filter(inner.a > threshold)
+
+    register_tag_handler(
+        TagHandler(
+            tag_names=("rebased_handler",),
+            extract_metadata=lambda tag_node: {"type": "rebased_handler"},
+            reemit=reemit,
+        ),
+        override=override,
+    )
+
+
 @pytest.fixture
-def rebased_catalog(tmp_path):
+def rebased_catalog(tmp_path, saved_registry):
+    # The ancestor rebuilds to a new hash (its handler changes before replay),
+    # so a correct stamp must name the ancestor's target hash, not its source one.
+    _register_filter_handler(0)
     catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
-    ancestor = catalog.add(xo.memtable({"a": [1, 2]}), aliases=("old",))
+    ancestor = catalog.add(
+        xo.memtable({"a": [1, 2]}).tag("rebased_handler"), aliases=("old",)
+    )
     with build_expr_context(xo.memtable({"a": [1, 2, 3]})) as build_path:
         stamp_rebased_from(build_path, ancestor.name)
         catalog.add(build_path, aliases=("new",))
+    _register_filter_handler(1, override=True)
     return catalog
 
 
@@ -813,7 +834,22 @@ def test_rebuild_keeps_rebased_from(rebased_catalog, target_path):
 
     rebased = target.get_catalog_entry("new", maybe_alias=True)
     ancestor = target.get_catalog_entry("old", maybe_alias=True)
+    source_ancestor = rebased_catalog.get_catalog_entry("old", maybe_alias=True)
+    assert ancestor.name != source_ancestor.name
     assert rebased.rebased_from == ancestor.name
+
+
+def test_rebuild_warns_on_unreplayed_ancestor(tmp_path, target_path):
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    with build_expr_context(xo.memtable({"a": [1]})) as build_path:
+        stamp_rebased_from(build_path, "not-in-this-catalog")
+        catalog.add(build_path, aliases=("new",))
+
+    with pytest.warns(UserWarning, match="not-in-this-catalog"):
+        target = _replay_rebuild(catalog, target_path)
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    assert rebased.rebased_from == "not-in-this-catalog"
 
 
 def test_rebuild_maps_rebased_from_through_remap(rebased_catalog, target_path):

@@ -32,7 +32,7 @@ import os
 import re
 import tempfile
 import warnings
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from functools import cached_property, partial
 
 from attr import field, frozen
@@ -76,6 +76,19 @@ def _translate(name, remap):
     path is :meth:`ExprComposer.with_inputs_translated`'s ``lookup``.
     """
     return remap.get(name, name)
+
+
+def _translate_ancestor(ancestor, remap):
+    """Translate a ``rebased_from`` ancestor through *remap*, warning when the
+    ancestor was not replayed: the stamp then keeps the source catalog's name.
+    """
+    if ancestor not in remap:
+        warnings.warn(
+            f"rebuild: rebased_from ancestor {ancestor!r} was not replayed into "
+            "the target; the stamp keeps its source name",
+            stacklevel=3,
+        )
+    return _translate(ancestor, remap)
 
 
 @contextmanager
@@ -458,27 +471,30 @@ class AddEntry:
             return
 
         source_entry = from_catalog.get_catalog_entry(self.entry_hash)
-        try:
-            expr = _rebuild_subexpr(
-                source_entry.lazy_expr,
-                from_catalog=from_catalog,
-                to_catalog=to_catalog,
-                ctx=ctx,
-            )
-            with build_expr_context(expr, relocate_reads=True) as build_path:
-                # A fresh build records no ancestor: stamp it, under its target name.
-                if (ancestor := source_entry.rebased_from) is not None:
-                    stamp_rebased_from(build_path, _translate(ancestor, ctx.remap))
-                new_entry = to_catalog.add(
-                    build_path,
-                    sync=False,
-                    aliases=self.aliases,
-                    exist_ok=True,
+        with ExitStack() as stack:
+            try:
+                expr = _rebuild_subexpr(
+                    source_entry.lazy_expr,
+                    from_catalog=from_catalog,
+                    to_catalog=to_catalog,
+                    ctx=ctx,
                 )
-        except Exception as e:
-            raise RuntimeError(
-                f"rebuild: failed to rebuild entry {source_entry.name!r}: {e}"
-            ) from e
+                build_path = stack.enter_context(
+                    build_expr_context(expr, relocate_reads=True)
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"rebuild: failed to rebuild entry {source_entry.name!r}: {e}"
+                ) from e
+            # A fresh build records no ancestor: stamp it, under its target name.
+            if (ancestor := source_entry.rebased_from) is not None:
+                stamp_rebased_from(build_path, _translate_ancestor(ancestor, ctx.remap))
+            new_entry = to_catalog.add(
+                build_path,
+                sync=False,
+                aliases=self.aliases,
+                exist_ok=True,
+            )
         ctx.remap[self.entry_hash] = new_entry.name
 
     def verify_commit(self, commit):
