@@ -1,6 +1,8 @@
 import functools
 import pickle
+import warnings
 
+import cloudpickle
 import toolz
 from attr import (
     field,
@@ -18,6 +20,7 @@ from toolz.curried import (
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ibis_ops
+import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import connect
 from xorq.caching import (
     ParquetCache,
@@ -52,12 +55,31 @@ from xorq.expr.ml.structer import (
     Structer,
 )
 from xorq.expr.relations import HashingTag, Tag
+from xorq.expr.udf import make_pandas_expr_udf
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.expr.api import struct
 from xorq.vendor.ibis.expr.types.core import Expr
 
 
-ORIGINAL_ROW = "_xorq_original_row"
+def _as_table(expr):
+    return expr if isinstance(expr, ir.Table) else expr.as_table()
+
+
+def _unpickle_models(models):
+    return tuple(map(cloudpickle.loads, models.values()))
+
+
+@toolz.curry
+def _predict_sklearn_pipeline(models, df, features):
+    import sklearn.pipeline  # noqa: PLC0415
+
+    pipeline = sklearn.pipeline.Pipeline(
+        [(f"m{i}", model) for i, model in enumerate(models)]
+    )
+    # each step was fit on named columns but gets the previous step's array
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "X does not have valid feature names")
+        return pipeline.predict(df[list(features)])
 
 
 def do_into_backend(expr, con=None):
@@ -1170,40 +1192,69 @@ class FittedPipeline:
             | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
         )
 
-    def mutate_predict(self, expr: Expr, name: str | None = None) -> Expr:
-        """Return `expr` with the predictions added as a column.
+    def predict_raw(self, expr, name=None):
+        """Return the predictions for `expr` as a column of `expr`.
 
-        `predict` drops the feature columns and returns a new table, so its
-        result cannot be passed to `expr.mutate`. This method carries every
-        column of `expr` through `predict` in one struct column and unpacks
-        it afterwards.
+        Unlike `predict`, which returns a new table, the result can be added
+        to `expr` with `mutate`; the pipeline tags ride on the column's model
+        input, so the pipeline stays recoverable from the mutated table.
 
         Parameters
         ----------
         expr
-            The table holding the feature columns.
+            The table holding the first step's feature columns.
         name
-            The prediction column's name; defaults to the predict step's name.
+            The column's name; defaults to the name `predict` gives it.
 
         Returns
         -------
         Expr
-            The columns of `expr` followed by the prediction column; like
-            `expr.mutate`, a column of `expr` with that name is replaced in
-            place.
+            A column of `expr`.
 
         Examples
         --------
-        >>> fitted.mutate_predict(t, name="predicted")  # doctest: +SKIP
+        >>> t.mutate(predicted=fitted.predict_raw(t))  # doctest: +SKIP
         """
-        predicted = expr.select(
-            *self.fitted_steps[0].features,
-            struct({c: expr[c] for c in expr.columns}).name(ORIGINAL_ROW),
-        ).pipe(self.predict, name=name)
-        (prediction,) = (c for c in predicted.columns if c != ORIGINAL_ROW)
-        row = predicted[ORIGINAL_ROW]
-        return predicted.select(
-            **{c: row[c] for c in expr.columns} | {prediction: predicted[prediction]}
+        if not self.is_predict:
+            raise ValueError("Pipeline does not have a predict step")
+        for prev, step in toolz.sliding_window(2, self.fitted_steps):
+            outputs = prev.structer.get_output_columns(prev.dest_col or "transformed")
+            if step.features != outputs:
+                raise ValueError(
+                    f"step {step.step.name!r} consumes {step.features}, not exactly "
+                    f"the previous step's outputs {outputs}; use predict instead"
+                )
+        con = connect()
+        models = tuple(
+            model.select(**{f"m{i}": model[0]}).into_backend(con)
+            for i, model in enumerate(
+                _as_table(fitted_step.deferred_model)
+                for fitted_step in self.fitted_steps
+            )
+        )
+        joined = functools.reduce(lambda left, right: left.cross_join(right), models)
+        models_expr = joined.select(
+            models=struct({c: joined[c] for c in joined.columns})
+        ).tag(
+            str(FittedPipelineTagKey.PREDICT),
+            **self.get_tag_kwargs(FittedPipelineTagKey.PREDICT)
+            | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
+        )
+        features = self.fitted_steps[0].features
+        return (
+            make_pandas_expr_udf(
+                computed_kwargs_expr=models_expr,
+                fn=_predict_sklearn_pipeline(features=features),
+                schema=expr.select(features).schema(),
+                return_type=self.predict_step.predict_return_type,
+                post_process_fn=_unpickle_models,
+                name=make_name(
+                    "pipeline_predict",
+                    self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
+                ),
+            )
+            .on_expr(expr)
+            .name(name or self.predict_step.dest_col or ResponseMethod.PREDICT.value)
         )
 
     @toolz.curry
