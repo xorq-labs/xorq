@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 
 
@@ -36,3 +37,51 @@ def test_minimal_joinchain_self_reference(
         _ = q_roundtrip["cust_nation"]
     except Exception as e:
         pytest.fail(f"Accessing 'cust_nation' on the roundtrip query failed: {e}")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda left, right, middle: left.asof_join(right, "t"), id="on"),
+        pytest.param(
+            lambda left, right, middle: left.asof_join(right, "t", "k"),
+            id="on-predicates",
+        ),
+        pytest.param(
+            lambda left, right, middle: left.asof_join(right, left.t >= right.t, "k"),
+            id="on-expression",
+        ),
+        pytest.param(
+            lambda left, right, middle: left.asof_join(right, "t", "k", tolerance=1),
+            id="tolerance",
+        ),
+        pytest.param(
+            lambda left, right, middle: left.join(middle, "k").asof_join(
+                right, "t", "k"
+            ),
+            id="asof-after-join",
+        ),
+    ],
+)
+def test_asof_join_roundtrip(compiler, con, build):
+    left = con.create_table(
+        "asof_left", pd.DataFrame({"k": [1, 1], "t": [1, 5]}), overwrite=True
+    )
+    right = con.create_table(
+        "asof_right",
+        pd.DataFrame({"k": [1, 1], "t": [0, 3], "v": [10, 30]}),
+        overwrite=True,
+    )
+    middle = con.create_table(
+        "asof_middle", pd.DataFrame({"k": [1], "w": [7]}), overwrite=True
+    )
+    expr = build(left, right, middle)
+
+    yaml_dict = compiler.to_yaml(expr)
+    roundtrip = compiler.from_yaml(yaml_dict, {con._profile.hash_name: con})
+
+    assert roundtrip.equals(expr)
+    pd.testing.assert_frame_equal(
+        roundtrip.execute().sort_values("t").reset_index(drop=True),
+        expr.execute().sort_values("t").reset_index(drop=True),
+    )
