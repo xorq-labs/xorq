@@ -33,6 +33,7 @@ from xorq.expr.ml import (
     calc_split_column,
     train_test_splits,
 )
+from xorq.expr.ml.native.rewrite import ML_PASS
 from xorq.expr.operations import _MISSING, NamedScalarParameter
 from xorq.expr.relations import (
     TEE_PASS,
@@ -465,7 +466,7 @@ def _resolve_params(params):
 # The tier-1 transform as a declarative, ordered table (see xorq.expr.transform).
 # Each record fixes its own traversal kind (DESCEND vs BOUNDARY) and ``after``
 # ordering, so the driver -- not a per-call-site convention -- picks the walk and
-# asserts the dependency chain: bind -> tags -> cache -> tee -> remote -> reads.
+# asserts the dependency chain: bind -> tags -> cache -> ml -> tee -> remote -> reads.
 # ``produces_resources`` passes (tee, remote) adopt into the shared scope; cache
 # materializes persistent parquet and owns nothing scope-tracked.
 #
@@ -510,6 +511,7 @@ _PASSES = (
     # TEE_PASS / REMOTE_PASS are defined with their replacers; their ``after`` is
     # echoed here so the whole chain reads in one place (the driver still checks
     # each record's real ``after``, so an echo that drifts raises).
+    ML_PASS,  # BOUNDARY; after=("cache",)
     TEE_PASS,  # BOUNDARY; after=("cache",)
     REMOTE_PASS,  # BOUNDARY; after=("tee",)
     TransformPass(
