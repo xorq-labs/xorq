@@ -1113,7 +1113,7 @@ def _join_chain_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Ex
         table = context.translate_from_yaml(join["table"])
         predicates = [context.translate_from_yaml(pred) for pred in join["predicates"]]
         match join["how"], predicates:
-            # asof_join stores its `on` inequality first
+            # asof_join stores its `on` predicate first
             case "asof", [on, *rest]:
                 result = result.asof_join(table, on, rest)
             case how, _:
