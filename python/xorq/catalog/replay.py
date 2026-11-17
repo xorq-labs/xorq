@@ -40,6 +40,8 @@ from attr.validators import deep_iterable, instance_of, optional
 
 from xorq.catalog.constants import CATALOG_YAML_NAME
 from xorq.catalog.enums import CatalogInfix, CatalogTag, OnUnrebuiltBuilder
+from xorq.catalog.expr_utils import build_expr_context
+from xorq.catalog.rebase import stamp_rebased_from
 
 
 @frozen
@@ -463,12 +465,16 @@ class AddEntry:
                 to_catalog=to_catalog,
                 ctx=ctx,
             )
-            new_entry = to_catalog.add(
-                expr,
-                sync=False,
-                aliases=self.aliases,
-                exist_ok=True,
-            )
+            with build_expr_context(expr, relocate_reads=True) as build_path:
+                # A fresh build records no ancestor: stamp it, under its target name.
+                if (ancestor := source_entry.rebased_from) is not None:
+                    stamp_rebased_from(build_path, _translate(ancestor, ctx.remap))
+                new_entry = to_catalog.add(
+                    build_path,
+                    sync=False,
+                    aliases=self.aliases,
+                    exist_ok=True,
+                )
         except Exception as e:
             raise RuntimeError(
                 f"rebuild: failed to rebuild entry {source_entry.name!r}: {e}"
