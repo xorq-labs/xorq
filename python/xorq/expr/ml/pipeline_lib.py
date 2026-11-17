@@ -1188,19 +1188,22 @@ class FittedPipeline:
         Returns
         -------
         Expr
-            The columns of `expr` followed by the prediction column.
+            The columns of `expr` followed by the prediction column; like
+            `expr.mutate`, a column of `expr` with that name is replaced in
+            place.
 
         Examples
         --------
         >>> fitted.mutate_predict(t, name="predicted")  # doctest: +SKIP
         """
-        return (
-            expr.select(
-                *self.fitted_steps[0].features,
-                struct({c: expr[c] for c in expr.columns}).name(ORIGINAL_ROW),
-            )
-            .pipe(self.predict, name=name)
-            .unpack(ORIGINAL_ROW)
+        predicted = expr.select(
+            *self.fitted_steps[0].features,
+            struct({c: expr[c] for c in expr.columns}).name(ORIGINAL_ROW),
+        ).pipe(self.predict, name=name)
+        (prediction,) = (c for c in predicted.columns if c != ORIGINAL_ROW)
+        row = predicted[ORIGINAL_ROW]
+        return predicted.select(
+            **{c: row[c] for c in expr.columns} | {prediction: predicted[prediction]}
         )
 
     @toolz.curry

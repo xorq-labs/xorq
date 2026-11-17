@@ -223,6 +223,13 @@ def test_predict_mutate(make_steps: Callable[[], tuple[BaseEstimator, ...]]) -> 
     )
 
 
+def test_predict_mutate_replaces_existing_column(t, fitted_xorq_pipeline) -> None:
+    once = fitted_xorq_pipeline.mutate_predict(t, name=TARGET)
+    twice = fitted_xorq_pipeline.mutate_predict(once, name=TARGET)
+    assert once.columns == t.columns
+    pd.testing.assert_frame_equal(twice.execute(), once.execute())
+
+
 def test_fitted_step_transform_known_schema_unpacks():
     """Test FittedStep.transform unpacks struct columns for known schema."""
 
