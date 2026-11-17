@@ -294,3 +294,36 @@ def test_pandas_expr_udf(con, diamonds):
     from_ls = con.execute(expr)
 
     assert_frame_equal(from_ls, from_pd)
+
+
+def test_agg_udf_on_int8_literal():
+    @udf.agg.pyarrow
+    def sum_int8(arg: dt.int8) -> dt.int64:
+        return pc.sum(arg)
+
+    t = xo.memtable({"a": [1.0, 5.0]})
+    expr = t.aggregate(s=sum_int8(xo.literal(1, "int8")))
+
+    assert xo.execute(expr)["s"].tolist() == [2]
+
+
+@pytest.mark.parametrize(
+    ("make_target", "expected"),
+    [
+        pytest.param(lambda t: xo.cases((t.a > 2, 1), else_=0), [0, 2], id="cases"),
+        pytest.param(lambda t: (t.a > 2).ifelse(1, 0), [0, 2], id="ifelse"),
+        pytest.param(lambda t: xo.literal(1), [2, 2], id="literal"),
+        pytest.param(lambda t: xo.coalesce(xo.null("int8"), 3), [6, 6], id="coalesce"),
+    ],
+)
+def test_udf_on_int8_literal_expr(make_target, expected):
+    @udf.scalar.pyarrow
+    def double_int8(target: dt.int8) -> dt.int8:
+        return pc.add(target, target)
+
+    t = xo.memtable({"a": [1.0, 5.0]})
+    flagged = t.mutate(target=make_target(t))
+    expr = flagged.mutate(doubled=double_int8(flagged.target))
+
+    assert flagged.target.type() == dt.int8
+    assert xo.execute(expr)["doubled"].tolist() == expected

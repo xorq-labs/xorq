@@ -82,6 +82,13 @@ with contextlib.suppress(AttributeError):
     DataFusion.Generator.TRANSFORMS[sge.Median] = rename_func("median")
 
 
+def _narrow_int_arrow_type(dtype):
+    if dtype.is_integer() and dtype != dt.int64:
+        sign = "U" if dtype.is_unsigned_integer() else ""
+        return f"{sign}Int{dtype.nbytes * 8}"
+    return None
+
+
 class DataFusionCompiler(SQLGlotCompiler):
     __slots__ = ()
 
@@ -229,14 +236,29 @@ class DataFusionCompiler(SQLGlotCompiler):
         else:
             raise ValueError(f"Unrecognized how value: {how}")
 
+    def _typed_udf_args(self, op, kw):
+        # DataFusion computes integer expressions as Int64; a UDF signature
+        # declared with a narrower integer only matches the exact type
+        return tuple(
+            arg
+            if (arrow_type := _narrow_int_arrow_type(getattr(op, name).dtype)) is None
+            else self.f.arrow_cast(arg, arrow_type)
+            for name, arg in kw.items()
+        )
+
     def visit_ScalarUDF(self, op, **kw):
         input_type = op.__input_type__
         if input_type in (InputType.PYARROW, InputType.BUILTIN):
-            return self.f.anon[op.__func_name__](*kw.values())
+            return self.f.anon[op.__func_name__](*self._typed_udf_args(op, kw))
         else:
             raise NotImplementedError(
                 f"DataFusion only supports PyArrow UDFs: got a {input_type.name.lower()} UDF"
             )
+
+    def visit_AggUDF(self, op, *, where, **kw):
+        return self.agg[self.__sql_name__(op)](
+            *self._typed_udf_args(op, kw), where=where
+        )
 
     def visit_ElementWiseVectorizedUDF(
         self, op, *, func, func_args, input_type, return_type
