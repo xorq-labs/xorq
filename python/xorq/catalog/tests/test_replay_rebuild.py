@@ -20,6 +20,8 @@ from xorq.catalog.content_store import (
     parse_pointer,
 )
 from xorq.catalog.enums import CatalogTag
+from xorq.catalog.expr_utils import build_expr_context
+from xorq.catalog.rebase import stamp_rebased_from
 from xorq.catalog.replay import (
     AddAlias,
     AddEntry,
@@ -794,3 +796,35 @@ def test_rebuild_collision_records_remap_to_existing_entry(tmpdir, saved_registr
     assert ctx.remap[src_a.name] == tgt_a.name
     assert ctx.remap[src_b.name] == tgt_b.name
     assert {"ca", "cb"} <= set(target.list_aliases())
+
+
+@pytest.fixture
+def rebased_catalog(tmp_path):
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    ancestor = catalog.add(xo.memtable({"a": [1, 2]}), aliases=("old",))
+    with build_expr_context(xo.memtable({"a": [1, 2, 3]})) as build_path:
+        stamp_rebased_from(build_path, ancestor.name)
+        catalog.add(build_path, aliases=("new",))
+    return catalog
+
+
+def test_rebuild_keeps_rebased_from(rebased_catalog, target_path):
+    target = _replay_rebuild(rebased_catalog, target_path)
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    ancestor = target.get_catalog_entry("old", maybe_alias=True)
+    assert rebased.rebased_from == ancestor.name
+
+
+def test_rebuild_maps_rebased_from_through_remap(rebased_catalog, target_path):
+    target = Catalog.from_repo_path(target_path, init=True)
+    moved = target.add(xo.memtable({"b": [1]}))
+    source = rebased_catalog.get_catalog_entry("new", maybe_alias=True)
+    remap = {source.rebased_from: moved.name}
+
+    AddEntry(entry_hash=source.name, aliases=("new",)).do(
+        rebased_catalog, target, RebuildContext(rebuild=True, remap=remap)
+    )
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    assert rebased.rebased_from == moved.name
