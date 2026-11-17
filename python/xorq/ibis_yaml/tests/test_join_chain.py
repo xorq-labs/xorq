@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 
 
@@ -36,3 +37,31 @@ def test_minimal_joinchain_self_reference(
         _ = q_roundtrip["cust_nation"]
     except Exception as e:
         pytest.fail(f"Accessing 'cust_nation' on the roundtrip query failed: {e}")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"on": "t"},
+        {"on": "t", "predicates": "k"},
+        {"on": "t", "predicates": "k", "tolerance": 1},
+    ],
+)
+def test_asof_join_roundtrip(compiler, con, kwargs):
+    left = con.create_table(
+        "asof_left", pd.DataFrame({"k": [1, 1], "t": [1, 5]}), overwrite=True
+    )
+    right = con.create_table(
+        "asof_right",
+        pd.DataFrame({"k": [1, 1], "t": [0, 3], "v": [10, 30]}),
+        overwrite=True,
+    )
+    expr = left.asof_join(right, **kwargs)
+
+    yaml_dict = compiler.to_yaml(expr)
+    roundtrip = compiler.from_yaml(yaml_dict, {con._profile.hash_name: con})
+
+    pd.testing.assert_frame_equal(
+        roundtrip.execute().sort_values("t").reset_index(drop=True),
+        expr.execute().sort_values("t").reset_index(drop=True),
+    )
