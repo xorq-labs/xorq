@@ -8,6 +8,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.5.0] - 2026-11-17
+### Details
+#### Changed
+- Cancel superseded pull request runs by @mesejo in [#2632](https://github.com/xorq-labs/xorq/pull/2632)
+- Start only postgres, from the cached build, in examples and ibis-compat by @mesejo in [#2633](https://github.com/xorq-labs/xorq/pull/2633)
+- Keep Hacker News items between examples runs by @mesejo in [#2634](https://github.com/xorq-labs/xorq/pull/2634)
+- Run benchmarks only on push to main by @mesejo in [#2635](https://github.com/xorq-labs/xorq/pull/2635)
+- Drop the apt step that installs nothing the tests use by @mesejo in [#2640](https://github.com/xorq-labs/xorq/pull/2640)
+- Run the examples job under xdist by @mesejo in [#2639](https://github.com/xorq-labs/xorq/pull/2639)
+- Cache the ibis testing data between runs by @mesejo in [#2642](https://github.com/xorq-labs/xorq/pull/2642)
+- Run lowest-direct on the floor Python only for pull requests by @mesejo in [#2643](https://github.com/xorq-labs/xorq/pull/2643)
+- Stop starting postgres in the ibis compatibility jobs by @mesejo in [#2647](https://github.com/xorq-labs/xorq/pull/2647)
+- Start the test postgres from one composite action by @mesejo in [#2648](https://github.com/xorq-labs/xorq/pull/2648)
+- Restore test coverage the throughput changes dropped by @mesejo in [#2649](https://github.com/xorq-labs/xorq/pull/2649)
+- Select floor-sensitive flight tests by a dep_floor marker by @mesejo in [#2651](https://github.com/xorq-labs/xorq/pull/2651)
+- Resolve only declared backend names on xorq.api by @mesejo in [#2654](https://github.com/xorq-labs/xorq/pull/2654)
+- Run the flight tests in their own xorq_flight job by @mesejo in [#2652](https://github.com/xorq-labs/xorq/pull/2652)
+- Measure coverage with sys.monitoring by @mesejo in [#2658](https://github.com/xorq-labs/xorq/pull/2658)
+- Tee RemoteTable streams on datafusion with batchcorder-datafusion by @mesejo in [#2660](https://github.com/xorq-labs/xorq/pull/2660)
+- Stop presenting devcontainer as contributor setup by @dlovell in [#2668](https://github.com/xorq-labs/xorq/pull/2668)
+- Sync fragments with xorq-labs/xorq-envrcs by @dlovell in [#2670](https://github.com/xorq-labs/xorq/pull/2670)
+- Document the ls accessor by @mesejo in [#2688](https://github.com/xorq-labs/xorq/pull/2688)
+- Bump batchcorder to 0.1.4 by @mesejo in [#2695](https://github.com/xorq-labs/xorq/pull/2695)
+
+#### Fixed
+- Run the cached-fetcher template end to end once per push by @mesejo in [#2636](https://github.com/xorq-labs/xorq/pull/2636)
+- Run TUI tests on one storage backend by @mesejo in [#2637](https://github.com/xorq-labs/xorq/pull/2637)
+- Point example postgres connections at the job's own postgres by @mesejo in [#2638](https://github.com/xorq-labs/xorq/pull/2638)
+- Run the uv end-to-end catalog tests on git only by @mesejo in [#2641](https://github.com/xorq-labs/xorq/pull/2641)
+- Run storage-invariant catalog CLI tests on git only by @mesejo in [#2644](https://github.com/xorq-labs/xorq/pull/2644)
+- Run the build-and-run tests in-process by @mesejo in [#2645](https://github.com/xorq-labs/xorq/pull/2645)
+- Install git-annex from the annex extra in the catalog job by @mesejo in [#2646](https://github.com/xorq-labs/xorq/pull/2646)
+- Run ibis_utils tests in core by declaring ibis's duckdb extra by @mesejo in [#2650](https://github.com/xorq-labs/xorq/pull/2650)
+- Refuse a repeated -a and warn on a conflicting consumed --rename by @mesejo in [#2655](https://github.com/xorq-labs/xorq/pull/2655)
+- Drive the unfinished exchange from one thread by @mesejo in [#2653](https://github.com/xorq-labs/xorq/pull/2653)
+- Refuse a repeated -a on compose, join and union by @mesejo in [#2656](https://github.com/xorq-labs/xorq/pull/2656)
+- Say where rebase --profile looks for a stored profile by @mesejo in [#2657](https://github.com/xorq-labs/xorq/pull/2657)
+- Read a query's schema from its plan, not a temporary view by @mesejo in [#2661](https://github.com/xorq-labs/xorq/pull/2661)
+- Render a qualified table location in the backend's dialect by @mesejo in [#2662](https://github.com/xorq-labs/xorq/pull/2662)
+- Keep Table.sql's own WITH RECURSIVE ahead of the hoisted CTEs by @mesejo in [#2664](https://github.com/xorq-labs/xorq/pull/2664)
+- Register memtables before Table.sql probes the query schema by @mesejo in [#2665](https://github.com/xorq-labs/xorq/pull/2665)
+- Keep CTE options when Table.sql hoists a query's CTEs by @mesejo in [#2666](https://github.com/xorq-labs/xorq/pull/2666)
+- Follow only string node_refs, and none inside literal data by @mayuriphad in [#2667](https://github.com/xorq-labs/xorq/pull/2667)
+- A fitted model's key carries its training relations by @dlovell in [#2671](https://github.com/xorq-labs/xorq/pull/2671)
+- Accept temp=True in create_table by @mesejo in [#2679](https://github.com/xorq-labs/xorq/pull/2679)
+- Read csv through the default backend by @mesejo in [#2680](https://github.com/xorq-labs/xorq/pull/2680)
+- Read_record_batches returns the table it ingested into by @mesejo in [#2681](https://github.com/xorq-labs/xorq/pull/2681)
+- Ingest record batches through a staged parquet file by @mesejo in [#2682](https://github.com/xorq-labs/xorq/pull/2682)
+- Leave sources on separate connections unfused by @mesejo in [#2683](https://github.com/xorq-labs/xorq/pull/2683)
+- Keep a scalar UDF's config through build and load by @mesejo in [#2678](https://github.com/xorq-labs/xorq/pull/2678)
+- Cast narrow-integer UDF arguments to their declared type by @mesejo in [#2689](https://github.com/xorq-labs/xorq/pull/2689)
+- Rebuild asof join links through asof_join by @mesejo in [#2694](https://github.com/xorq-labs/xorq/pull/2694)
+
 ## [0.4.12] - 2026-11-11
 ### Details
 #### Changed
