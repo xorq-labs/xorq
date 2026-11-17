@@ -105,6 +105,24 @@ def test_catalog_add(catalog, data_dict):
         catalog.add(path)
 
 
+@pytest.mark.parametrize(
+    "backend_type",
+    (
+        pytest.param("git", id="git"),
+        pytest.param("annex", marks=requires_annex, id="annex"),
+    ),
+    scope="session",
+)
+def test_catalog_add_get_preserves_mtime(
+    catalog: Catalog, data_dict: dict[str, Path], tmp_path: Path
+) -> None:
+    path = next(iter(data_dict.values()))
+    build_mtime = 1_000_000_000
+    os.utime(path, (build_mtime, build_mtime))
+    entry = catalog.add(path)
+    assert entry.get(dir_path=tmp_path).stat().st_mtime == build_mtime
+
+
 def test_catalog_addition_from_expr(catalog):
     expr = xo.memtable({"from-expr": ["from-expr"]})
     catalog_addition = CatalogAddition.from_expr(expr, catalog)

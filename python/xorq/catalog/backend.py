@@ -144,7 +144,7 @@ class GitBackend(CatalogBackend):
 
     def stage_content(self, source_path: str | Path, catalog_path: str | Path) -> None:
         with atomic_write(Path(catalog_path)) as tmp:
-            shutil.copy(source_path, tmp)
+            shutil.copy2(source_path, tmp)
         self.stage(catalog_path)
 
     def stage_unlink(self, path: str | Path) -> None:
@@ -190,7 +190,7 @@ class GitAnnexBackend(CatalogBackend):
 
     def stage_content(self, source_path: str | Path, catalog_path: str | Path) -> None:
         with atomic_write(Path(catalog_path)) as tmp:
-            shutil.copy(source_path, tmp)
+            shutil.copy2(source_path, tmp)
         relpath = self.get_relpath(catalog_path)
         self.annex.add(relpath)
         self.repo.index.add([str(catalog_path)])
