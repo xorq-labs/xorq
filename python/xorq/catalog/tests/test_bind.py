@@ -265,6 +265,17 @@ def test_bind_multi_unbound_transform_raises(catalog_with_entries):
         bind(source_entry, join_entry)
 
 
+def test_bind_empty_schema_transform(catalog_with_entries: tuple) -> None:
+    """A single UnboundTable with no columns is still a one-input transform."""
+    catalog, source_entry, _ = catalog_with_entries
+    empty = ops.UnboundTable(name="e", schema={}).to_expr()
+    catalog.add(empty.mutate(one=xo.literal(1)), aliases=("empty-in",))
+    entry = catalog.get_catalog_entry("empty-in", maybe_alias=True)
+    assert entry.metadata.schema_in == Schema({})
+    result = bind(source_entry, entry).execute()
+    assert result["one"].tolist() == [1, 1, 1]
+
+
 def test_bind_cross_catalog_raises(catalog_with_entries, tmpdir):
     """Binding entries from different catalogs raises ValueError."""
     catalog, source_entry, _ = catalog_with_entries
