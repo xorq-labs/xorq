@@ -210,6 +210,7 @@ website:
                 - reference/Scalar.qmd
                 - reference/StringValue.qmd
                 - reference/Table.qmd
+                - api_reference/ls_accessor.qmd
                 - reference/TimeValue.qmd
                 - reference/TimestampValue.qmd
                 - reference/Value.qmd

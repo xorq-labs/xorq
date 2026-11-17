@@ -1,0 +1,116 @@
+---
+title: 'The ls accessor'
+description: "Inspect an expression's kind, backends, sources, tags, and caches through expr.ls"
+execute:
+  eval: true
+---
+
+Every Xorq expression has an `ls` attribute. It returns a read-only accessor
+bound to the expression's root operation, and it's how you ask what an
+expression is built from: which backends it touches, which tables and files it
+reads, which tags it carries, and which caches it holds.
+
+## Kind, backends, and sources
+
+```{python}
+import xorq.api as xo
+
+ddb = xo.duckdb.connect()
+penguins = xo.examples.penguins.fetch(backend=ddb)
+expr = penguins.filter(xo._.year == 2008)
+
+print(penguins.ls.kind, expr.ls.kind)
+print(expr.ls.backends == (ddb,))
+print([type(dt).__name__ for dt in expr.ls.dts])
+print(len(expr.ls.reads))
+```
+
+`kind` is `source` for a leaf, `expr` for a bound expression with transforms,
+and `unbound_expr` for an expression built on `xo.table(schema=...)`. A catalog
+composition reports `composed` and an expression wrapped by a registered
+builder reports `expr_builder`. See
+[Expression types](../concepts/understanding_xorq/expression_types.qmd).
+
+Moving part of a pipeline to a second engine makes it multi-engine:
+
+```{python}
+dfn = xo.connect()
+counts = expr.into_backend(dfn).group_by("species").agg(n=xo._.count())
+
+print(expr.ls.is_multiengine, counts.ls.is_multiengine)
+print(len(counts.ls.backends))
+print(xo.memtable({"a": [1]}).ls.backends)
+```
+
+## Tags
+
+`tag(...)` attaches metadata that doesn't change the result. `ls.tags` returns
+every `Tag` node in the graph and `ls.untagged` strips them again:
+
+```{python}
+tagged = expr.tag("filtered", owner="docs")
+
+print([tag.metadata for tag in tagged.ls.tags])
+print(type(tagged.ls.untagged.op()).__name__)
+```
+
+`get_tags(predicate)` filters tags by their metadata dict, for example
+`tagged.ls.get_tags(lambda md: md.get("owner") == "docs")`.
+
+## Caches
+
+```{python}
+import tempfile
+
+from xorq.caching import ParquetCache
+
+cache = ParquetCache.from_kwargs(source=dfn, base_path=tempfile.mkdtemp())
+cached = counts.cache(cache)
+
+print(cached.ls.is_cached, cached.ls.has_cached, len(cached.ls.cached_nodes))
+print(type(cached.ls.cache).__name__, len(cached.ls.caches))
+print(cached.ls.cache_exists())
+cached.execute()
+print(cached.ls.cache_exists())
+print(cached.ls.uncached.ls.has_cached)
+```
+
+`is_cached` looks at the root only; `has_cached` and `cached_nodes` look at the
+whole graph. `cache` is `None` unless the root is cached, and `cache_exists()`
+is `None` in that case too.
+
+`pin()` replaces each cache with a direct read of its stored result; `unpin()`
+restores it. A pinned expression no longer counts as cached:
+
+```{python}
+pinned = cached.ls.pin()
+
+print(pinned.ls.has_cached, pinned.ls.unpin().ls.is_cached)
+```
+
+## Member reference
+
+| Member | Returns |
+|---|---|
+| `kind` | `ExprKind`: `source`, `expr`, `unbound_expr`, `composed`, or `expr_builder` |
+| `backends` | Distinct backend connections in the graph |
+| `is_multiengine` | `True` when `backends` has more than one entry |
+| `dts` | Database tables, SQL query results, and reads, excluding cache and remote-table nodes |
+| `reads` | Deferred `Read` nodes |
+| `tags` | All `Tag` nodes, outermost first |
+| `get_tags(predicate)` | `Tag` nodes whose metadata satisfies `predicate` |
+| `untagged` | The expression with non-hashing tags removed |
+| `builder` | The domain object recovered from the outermost registered tag, see [ADR 0005](https://github.com/xorq-labs/xorq/blob/main/docs/adr/0005-expr-builder-from-tagged-registry.md) |
+| `pipeline`, `pipelines` | Unfitted Xorq `Pipeline` objects rebuilt from the step definitions a fitted pipeline leaves in its tags; `pipeline` takes the outermost and raises `ValueError` when there is none |
+| `is_cached` | Whether the root is a `CachedNode` |
+| `has_cached` | Whether any `CachedNode` is in the graph |
+| `cached_nodes` | All `CachedNode` operations, outermost first |
+| `cache` | The root's cache object, or `None` |
+| `caches` | The cache object of every `CachedNode` |
+| `cache_exists()` | Whether the root cache is materialized, `None` when not cached |
+| `cache_path`, `get_cache_paths()` | Storage paths for caches that write files |
+| `get_key()`, `get_keys()` | Cache keys for the root or for every cache |
+| `uncached` | The expression with every cache removed |
+| `pin(ensure_materialized=False)`, `unpin()` | Freeze caches into direct reads and back |
+| `fused` | A catalog-composed expression with its catalog wrappers removed so it runs as one query |
+| `tokenized` | The hex token the modification-time cache strategy keys on, see [ADR 0015](https://github.com/xorq-labs/xorq/blob/main/docs/adr/0015-build-hash-cache-hash-split.md) |
