@@ -41,6 +41,7 @@ for submodule in (
     "cluster",
     "compose",
     "ensemble",
+    "feature_extraction.text",
     "feature_selection",
     "impute",
     "linear_model",
@@ -70,6 +71,7 @@ ColumnTransformer = sklearn.compose.ColumnTransformer
 SelectKBest = sklearn.feature_selection.SelectKBest
 f_classif = sklearn.feature_selection.f_classif
 FeatureUnion = sklearn.pipeline.FeatureUnion
+TfidfVectorizer = sklearn.feature_extraction.text.TfidfVectorizer
 OneHotEncoder = sklearn.preprocessing.OneHotEncoder
 StandardScaler = sklearn.preprocessing.StandardScaler
 BaseEstimator = sklearn.base.BaseEstimator
@@ -241,6 +243,81 @@ def test_predict_raw_in_mutate(
     assert tuple(df.columns) == (*t.columns, "predicted")
     pd.testing.assert_frame_equal(df[list(t.columns)], t.execute())
     np.testing.assert_allclose(df["predicted"], expected["predicted"])
+
+
+def _mixed_table() -> Expr:
+    return xo.memtable(
+        {
+            "cat": ["a", "b", "a", "c", "b", "c"],
+            "num": [1.0, 5.0, 2.0, 4.0, 3.0, 6.0],
+            "text": ["red fox", "blue sky", "red sky", "fox den", "blue den", "sky"],
+            TARGET: [1.0, 3.0, 2.0, 4.0, 2.5, 5.0],
+        },
+        name="predict_raw_mixed",
+    )
+
+
+@pytest.mark.parametrize(
+    "make_steps, step_features",
+    (
+        pytest.param(
+            lambda: (
+                ColumnTransformer(
+                    [
+                        ("cat", OneHotEncoder(sparse_output=False), ["cat"]),
+                        ("num", StandardScaler(), ["num"]),
+                    ]
+                ),
+                LinearRegression(),
+            ),
+            ("cat", "num"),
+            id="categorical-first-column-transformer",
+        ),
+        pytest.param(
+            lambda: (
+                TfidfVectorizer(),
+                LinearRegression(),
+            ),
+            ("text",),
+            id="tfidf",
+        ),
+        pytest.param(
+            lambda: (
+                StandardScaler(),
+                ColumnTransformer([("num", StandardScaler(), ["num"])]),
+                LinearRegression(),
+            ),
+            ("num",),
+            id="column-transformer-after-scaler",
+        ),
+    ),
+)
+def test_predict_raw_matches_predict_for_step_input_contracts(
+    make_steps: Callable[[], tuple[BaseEstimator, ...]],
+    step_features: tuple[str, ...],
+) -> None:
+    t = _mixed_table()
+    fitted = xo.Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(*make_steps())
+    ).fit(t, features=step_features, target=TARGET)
+    df = t.mutate(predicted=fitted.predict_raw(t)).execute()
+    expected = fitted.predict(t, name="predicted").execute()
+    np.testing.assert_allclose(df["predicted"], expected["predicted"])
+
+
+def test_predict_raw_two_pipelines_in_one_mutate() -> None:
+    t = _predict_raw_table()
+    other = t.mutate(**{TARGET: -t[TARGET]})
+
+    def fit(train: Expr) -> FittedPipeline:
+        return xo.Pipeline.from_instance(
+            sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+        ).fit(train, features=features, target=TARGET)
+
+    first, second = fit(t), fit(other)
+    df = t.mutate(a=first.predict_raw(t), b=second.predict_raw(t)).execute()
+    np.testing.assert_allclose(df["a"], first.predict(t, name="a").execute()["a"])
+    np.testing.assert_allclose(df["b"], second.predict(t, name="b").execute()["b"])
 
 
 @predict_raw_steps
