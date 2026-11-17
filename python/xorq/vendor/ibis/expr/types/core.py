@@ -945,7 +945,7 @@ class ExprMetadata:
             ),
             schema_in=(
                 ibis.Schema.from_tuples([(k, v) for k, v in schema_in_raw.items()])
-                if schema_in_raw
+                if schema_in_raw is not None
                 else None
             ),
             root_tag=data.get("root_tag"),
@@ -1015,7 +1015,9 @@ class ExprMetadata:
                 ("kind", str(self.kind)),
                 (
                     "schema_in",
-                    toolz.valmap(str, self.schema_in) if self.schema_in else None,
+                    toolz.valmap(str, self.schema_in)
+                    if self.schema_in is not None
+                    else None,
                 ),
                 ("schema_out", toolz.valmap(str, self.schema_out)),
                 ("root_tag", self.root_tag),

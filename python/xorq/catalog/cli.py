@@ -2305,6 +2305,11 @@ def _eval_entry(catalog_entry, code, instream=None, cache_dir=None):
             from xorq.common.utils.io_utils import maybe_open  # noqa: PLC0415
             from xorq.expr.api import read_pyarrow_stream  # noqa: PLC0415
 
+            if catalog_entry.metadata.schema_in is None:
+                raise click.ClickException(
+                    f"Entry {catalog_entry.name!r} has more than one UnboundTable; "
+                    "piped input can bind only a single-input entry."
+                )
             loaded_expr = catalog_entry.load_expr(cache_dir=cache_dir)
             try:
                 with maybe_open(instream, "rb") as stream:
@@ -2354,6 +2359,7 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
     from xorq.catalog.bind import (  # noqa: PLC0415
         _eval_code,
         _resolve_source,
+        _validate_chain,
     )
     from xorq.common.utils.graph_utils import rename_params  # noqa: PLC0415
 
@@ -2397,6 +2403,7 @@ def _compose_expr(catalog, entries, code, rename_map=None, cache_dir=None):
     source_tagged, resolved_con = _resolve_source(source_expr, None, None)
 
     if transform_entries:
+        _validate_chain(source_tagged.schema(), transform_entries)
         from xorq.catalog.bind import _ensure_remote  # noqa: PLC0415
         from xorq.common.utils.graph_utils import replace_unbound  # noqa: PLC0415
         from xorq.expr.relations import RemoteTable, gen_name  # noqa: PLC0415
