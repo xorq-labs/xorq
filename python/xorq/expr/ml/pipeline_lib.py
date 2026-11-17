@@ -53,7 +53,11 @@ from xorq.expr.ml.structer import (
 )
 from xorq.expr.relations import HashingTag, Tag
 from xorq.ibis_yaml.utils import freeze
+from xorq.vendor.ibis.expr.api import struct
 from xorq.vendor.ibis.expr.types.core import Expr
+
+
+ORIGINAL_ROW = "_xorq_original_row"
 
 
 def do_into_backend(expr, con=None):
@@ -1166,35 +1170,38 @@ class FittedPipeline:
             | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
         )
 
-    def predict_raw(self, expr: Expr, name: str | None = None) -> Expr:
-        """Return the predictions as a column of `expr`.
+    def mutate_predict(self, expr: Expr, name: str | None = None) -> Expr:
+        """Return `expr` with the predictions added as a column.
 
-        `predict` returns a new table without the feature columns, so it
-        cannot be passed to `expr.mutate`; this column can.
+        `predict` drops the feature columns and returns a new table, so its
+        result cannot be passed to `expr.mutate`. This method carries every
+        column of `expr` through `predict` in one struct column and unpacks
+        it afterwards.
 
         Parameters
         ----------
         expr
-            The table holding the feature columns. Pass the table itself,
-            not a selection of it, so the column binds to it.
+            The table holding the feature columns.
         name
-            The column name; defaults to the predict step's name.
+            The prediction column's name; defaults to the predict step's name.
 
         Returns
         -------
         Expr
-            A column that `expr.mutate` or `expr.select` accepts.
+            The columns of `expr` followed by the prediction column.
 
         Examples
         --------
-        >>> t.mutate(predicted=fitted.predict_raw(t))  # doctest: +SKIP
+        >>> fitted.mutate_predict(t, name="predicted")  # doctest: +SKIP
         """
-        columns = functools.reduce(
-            _with_transformed_columns,
-            self.transform_steps,
-            {c: expr[c] for c in expr.columns},
+        return (
+            expr.select(
+                *self.fitted_steps[0].features,
+                struct({c: expr[c] for c in expr.columns}).name(ORIGINAL_ROW),
+            )
+            .pipe(self.predict, name=name)
+            .unpack(ORIGINAL_ROW)
         )
-        return self.predict_step.predict_raw(columns, name=name)
 
     @toolz.curry
     def invoke_predict_method(self, expr, tag_name, *, methodname, name=None):
@@ -1333,17 +1340,6 @@ class FittedPipeline:
         ).assign(**{target: y})
         expr = api.register(df, "t")
         return self.score_expr(expr, scorer=scorer, **kwargs).execute()
-
-
-def _with_transformed_columns(columns: dict, fitted_step: FittedStep) -> dict:
-    # mirrors FittedStep.transform: kv-encoded output stays one column,
-    # known-schema struct output is spread into its fields
-    col = fitted_step.transform_raw(columns)
-    return columns | (
-        {col.get_name(): col}
-        if fitted_step.structer.is_kv_encoded
-        else {name: col[name] for name in col.names}
-    )
 
 
 def get_target_type(step_instance, step, expr, features, target):

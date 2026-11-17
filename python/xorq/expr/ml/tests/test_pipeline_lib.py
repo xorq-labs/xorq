@@ -196,6 +196,10 @@ def test_score_expr_returns_metric(t, fitted_xorq_pipeline):
             lambda: (OneHotEncoder(sparse_output=False), LinearRegression()),
             id="kv-encoded",
         ),
+        pytest.param(
+            lambda: (SimpleImputer(), StandardScaler(), LinearRegression()),
+            id="two-transforms",
+        ),
     ),
 )
 def test_predict_mutate(make_steps: Callable[[], tuple[BaseEstimator, ...]]) -> None:
@@ -211,7 +215,7 @@ def test_predict_mutate(make_steps: Callable[[], tuple[BaseEstimator, ...]]) -> 
     fitted = xo.Pipeline.from_instance(sklearn_pipeline).fit(
         t, features=features, target=TARGET
     )
-    df = t.mutate(predicted=fitted.predict_raw(t)).execute()
+    df = fitted.mutate_predict(t, name="predicted").execute()
     sklearn_pipeline.fit(df[list(features)], df[TARGET])
     assert tuple(df.columns) == (*t.columns, "predicted")
     np.testing.assert_allclose(
