@@ -1062,6 +1062,17 @@ def test_build_expr_kind_partial(tmp_path):
     assert entry["schema_in"] == {"a": "int64"}
 
 
+def test_build_expr_kind_unbound_join(tmp_path):
+    a = ibis.table({"id": "int64", "x": "string"}, name="stg_a")
+    b = ibis.table({"id": "int64", "y": "string"}, name="stg_b")
+    expr = a.join(b, "id")
+    build_dir = build_expr(expr, builds_dir=tmp_path)
+    entry = json.loads((build_dir / DumpFiles.expr_metadata).read_text())
+    assert entry["kind"] == ExprKind.UnboundExpr
+    assert entry["schema_out"] == {"id": "int64", "x": "string", "y": "string"}
+    assert "schema_in" not in entry
+
+
 def test_extract_sql_queries_binds_non_none_defaults() -> None:
     """Params with non-None defaults are bound into the generated SQL."""
     threshold = xo.param("threshold", "float64", default=1.0)

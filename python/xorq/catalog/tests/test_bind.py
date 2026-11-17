@@ -254,6 +254,17 @@ def test_bind_plain_expr_as_transform_raises(catalog_with_entries):
         bind(source_entry, another_entry)
 
 
+def test_bind_multi_unbound_transform_raises(catalog_with_entries):
+    """A transform takes one input: an entry with two UnboundTables is rejected."""
+    catalog, source_entry, _ = catalog_with_entries
+    a = ops.UnboundTable(name="a", schema={"user_id": "int64"}).to_expr()
+    b = ops.UnboundTable(name="b", schema={"user_id": "int64"}).to_expr()
+    join_entry = catalog.add(a.join(b, "user_id"), aliases=("join",))
+    assert join_entry.kind == ExprKind.UnboundExpr
+    with pytest.raises(ValueError, match="more than one UnboundTable"):
+        bind(source_entry, join_entry)
+
+
 def test_bind_cross_catalog_raises(catalog_with_entries, tmpdir):
     """Binding entries from different catalogs raises ValueError."""
     catalog, source_entry, _ = catalog_with_entries

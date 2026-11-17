@@ -698,13 +698,19 @@ class Expr(Immutable, Coercible):
         return LETSQLAccessor(self.op())
 
 
-def _extract_unbound_node(expr):
+def _extract_unbound_nodes(expr):
     from xorq.common.utils.graph_utils import walk_nodes  # noqa: PLC0415
 
-    unbound_node, *rest = walk_nodes(ops.UnboundTable, expr) or (None,)
-    if rest:
-        raise ValueError("Expected at most one UnboundTable")
-    return unbound_node
+    return walk_nodes(ops.UnboundTable, expr)
+
+
+def _extract_schema_in(expr):
+    """Input schema of a single-input expr; None with zero or several inputs."""
+    match _extract_unbound_nodes(expr):
+        case (unbound_node,):
+            return unbound_node.schema
+        case _:
+            return None
 
 
 def _extract_is_source(expr):
@@ -771,11 +777,10 @@ class ExprTraits:
 
     @classmethod
     def from_expr(cls, expr):
-        unbound_node = _extract_unbound_node(expr)
         catalog_tag_nodes = _extract_catalog_tag_nodes(expr)
         builders = _extract_builders(expr)
         return cls(
-            has_unbound=unbound_node is not None,
+            has_unbound=bool(_extract_unbound_nodes(expr)),
             has_composition=bool(catalog_tag_nodes),
             has_builders=bool(builders),
             is_source=_extract_is_source(expr),
@@ -793,7 +798,7 @@ def _extract_kind(expr):
     from xorq.expr.relations import CachedNode, HashingTag, Read, Tag  # noqa: PLC0415
 
     # UnboundExpr: whole-graph check (it's a constraint, not a structural kind)
-    if _extract_unbound_node(expr) is not None:
+    if _extract_unbound_nodes(expr):
         return ExprKind.UnboundExpr
 
     # Walk the outermost Tag/HashingTag chain
@@ -967,7 +972,6 @@ class ExprMetadata:
 
         validate_params(expr)
 
-        unbound_node = _extract_unbound_node(expr)
         catalog_tag_nodes = _extract_catalog_tag_nodes(expr)
         builders = _extract_builders(expr)
 
@@ -995,7 +999,7 @@ class ExprMetadata:
 
         return cls(
             kind=_extract_kind(expr),
-            schema_in=unbound_node.schema if unbound_node else None,
+            schema_in=_extract_schema_in(expr),
             schema_out=expr.as_table().schema(),
             root_tag=root_tag,
             projected_cache_key=projected_cache_key,
