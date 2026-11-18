@@ -75,6 +75,7 @@ from xorq.catalog.git_utils import commit_context
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     compare_repo_and_catalog,
+    crash_mid_write,
     directory_store_config,
     requires_annex,
 )
@@ -2638,3 +2639,59 @@ def test_adopt_names_the_staging_file_a_concurrent_reap_removed(
 
     with pytest.raises(ContentStoreError, match="disappeared before it could be"):
         cache.adopt("cat/aa/bb/entry.zip", vanished)
+
+
+def test_catalog_yaml_set_contents_atomic(tmp_path, monkeypatch):
+    catalog_yaml = catalog_mod.CatalogYAML(tmp_path)
+    before = catalog_yaml.yaml_path.read_text()
+    crash_mid_write(monkeypatch, Path, "write_text")
+    with pytest.raises(OSError, match="No space left"):
+        catalog_yaml.set_contents(
+            {str(CatalogInfix.ENTRY): ["a" * 64], str(CatalogInfix.ALIAS): []}
+        )
+    assert catalog_yaml.yaml_path.read_text() == before
+
+
+def test_catalog_yaml_init_atomic(tmp_path, monkeypatch):
+    crash_mid_write(monkeypatch, Path, "write_text")
+    with pytest.raises(OSError, match="No space left"):
+        catalog_mod.CatalogYAML(tmp_path)
+    monkeypatch.undo()
+    catalog_yaml = catalog_mod.CatalogYAML(tmp_path)
+    assert catalog_yaml.contents == {
+        str(CatalogInfix.ENTRY): [],
+        str(CatalogInfix.ALIAS): [],
+    }
+
+
+def test_catalog_entry_get_atomic(catalog, tmp_path, monkeypatch):
+    entry = catalog.add(xo.memtable({"x": [1, 2, 3]}))
+    out_dir = tmp_path / "out"
+
+    def half_then_fail(src, dst, **kwargs):
+        data = Path(src).read_bytes()
+        Path(dst).write_bytes(data[: len(data) // 2])
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(shutil, "copyfile", half_then_fail)
+    with pytest.raises(OSError, match="No space left"):
+        entry.get(dir_path=out_dir)
+    assert not tuple(out_dir.iterdir())
+
+
+def test_catalog_entry_get_into_its_own_directory(catalog):
+    """Getting an entry onto its own archive leaves the catalog untouched."""
+    entry = catalog.add(xo.memtable({"x": [1, 2, 3]}))
+    status_before = catalog.repo.git.status("--porcelain")
+    target = entry.get(dir_path=entry.catalog_path.parent)
+    assert target.read_bytes() == entry.catalog_path.read_bytes()
+    assert catalog.repo.git.status("--porcelain") == status_before
+
+
+def test_catalog_entry_get_overwrites_a_previous_get(catalog, tmp_path):
+    """A second get into the same directory replaces the first copy."""
+    entry = catalog.add(xo.memtable({"x": [1, 2, 3]}))
+    first = entry.get(dir_path=tmp_path)
+    second = entry.get(dir_path=tmp_path)
+    assert second == first
+    assert second.read_bytes() == entry.catalog_path.read_bytes()

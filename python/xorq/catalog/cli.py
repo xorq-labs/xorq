@@ -897,16 +897,15 @@ def default_catalog(set_name, unset):
       xorq catalog default --unset
     """
     from xorq.catalog.catalog import Catalog  # noqa: PLC0415
+    from xorq.catalog.content_store import atomic_write  # noqa: PLC0415
     from xorq.vendor.ibis.config import env_config  # noqa: PLC0415
 
     if set_name and unset:
         raise click.UsageError("--set and --unset are mutually exclusive.")
 
     if set_name:
-        catalog_constants.DEFAULT_CATALOG_CONFIG.parent.mkdir(
-            parents=True, exist_ok=True
-        )
-        catalog_constants.DEFAULT_CATALOG_CONFIG.write_text(set_name + "\n")
+        with atomic_write(catalog_constants.DEFAULT_CATALOG_CONFIG) as tmp:
+            tmp.write_text(set_name + "\n")
         click.echo(f"Default catalog set to {set_name!r}")
     elif unset:
         try:

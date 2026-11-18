@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import shutil
 import uuid
 import zipfile
@@ -171,6 +172,18 @@ def _entry_wheel(request, monkeypatch):
     monkeypatch.setattr(
         catalog_mod, "_ensure_wheel_artifacts", entry_wheel.ensure_wheel_artifacts
     )
+
+
+def crash_mid_write(monkeypatch, cls, name):
+    """Make cls.name write half its payload, then fail like a full disk."""
+    original = getattr(cls, name)
+
+    def half_then_fail(*args, **kwargs):
+        *head, data = args
+        original(*head, data[: len(data) // 2], **kwargs)
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(cls, name, half_then_fail)
 
 
 def get_split_tree(repo):

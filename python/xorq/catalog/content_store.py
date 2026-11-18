@@ -275,15 +275,20 @@ class ContentSpec:
 
 @contextmanager
 def atomic_write(dest: Path) -> Iterator[Path]:
-    """Yield a tmp path in the same directory; on success replace *dest*, on error clean up."""
+    """Yield a tmp path in the same directory; on success replace *dest*, on error clean up.
+
+    An existing *dest*'s mode carries over once the body is done, so a
+    read-only *dest* (an annexed archive copied out by ``get``) can still be
+    replaced.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=dest.parent, suffix=".tmp")
     tmp_path = Path(tmp)
     try:
         os.close(fd)
+        yield tmp_path
         if dest.exists():
             os.chmod(tmp, dest.stat().st_mode)
-        yield tmp_path
         tmp_path.replace(dest)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
