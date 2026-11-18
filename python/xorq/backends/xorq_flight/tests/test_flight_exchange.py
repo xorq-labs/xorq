@@ -513,7 +513,7 @@ def make_two_table_join() -> xo.Table:
     "make_expr,match",
     [
         param(make_two_table_join, r"found 2: .*left_tbl", id="two-tables"),
-        param(lambda: xo.memtable({"x": [1]}), r"found 0", id="no-table"),
+        param(lambda: xo.memtable({"x": [1]}), r"found 0$", id="no-table"),
     ],
 )
 def test_flight_serve_requires_exactly_one_table(

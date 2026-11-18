@@ -317,8 +317,9 @@ class UnboundExprExchanger(AbstractExchanger):
                 return unbound
             case unbounds:
                 names = ", ".join(unbound.name for unbound in unbounds)
+                listed = f": {names}" if names else ""
                 raise ValueError(
-                    f"expr must have exactly one unbound table, found {len(unbounds)}: {names}"
+                    f"expr must have exactly one unbound table, found {len(unbounds)}{listed}"
                 )
 
     @staticmethod
