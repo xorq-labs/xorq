@@ -2697,3 +2697,12 @@ def test_catalog_entry_get_into_its_own_directory(catalog):
     target = entry.get(dir_path=entry.catalog_path.parent)
     assert target.read_bytes() == entry.catalog_path.read_bytes()
     assert catalog.repo.git.status("--porcelain") == status_before
+
+
+def test_catalog_entry_get_overwrites_a_previous_get(catalog, tmp_path):
+    """A second get into the same directory replaces the first copy."""
+    entry = catalog.add(xo.memtable({"x": [1, 2, 3]}))
+    first = entry.get(dir_path=tmp_path)
+    second = entry.get(dir_path=tmp_path)
+    assert second == first
+    assert second.read_bytes() == entry.catalog_path.read_bytes()
