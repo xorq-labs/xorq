@@ -1,4 +1,3 @@
-import errno
 import os
 import subprocess
 import sys
@@ -12,6 +11,7 @@ from xorq.catalog.cli import default_catalog
 from xorq.catalog.constants import (
     DEFAULT_CATALOG_NAME,
 )
+from xorq.catalog.tests.conftest import crash_mid_write
 from xorq.vendor.ibis.config import env_config
 
 
@@ -275,13 +275,7 @@ def test_default_set_atomic(monkeypatch, tmp_path):
     config_path = tmp_path / "catalog-default"
     config_path.write_text("previous-catalog\n")
     monkeypatch.setattr("xorq.catalog.constants.DEFAULT_CATALOG_CONFIG", config_path)
-    original = Path.write_text
-
-    def half_then_fail(self, data, *args, **kwargs):
-        original(self, data[: len(data) // 2], *args, **kwargs)
-        raise OSError(errno.ENOSPC, "No space left on device")
-
-    monkeypatch.setattr(Path, "write_text", half_then_fail)
+    crash_mid_write(monkeypatch, Path, "write_text")
     result = CliRunner().invoke(default_catalog, ["--set", "a-much-longer-name"])
     assert isinstance(result.exception, OSError)
     monkeypatch.undo()

@@ -75,6 +75,7 @@ from xorq.catalog.git_utils import commit_context
 from xorq.catalog.tests.conftest import (
     TEST_WHEEL_NAME,
     compare_repo_and_catalog,
+    crash_mid_write,
     directory_store_config,
     requires_annex,
 )
@@ -2640,22 +2641,10 @@ def test_adopt_names_the_staging_file_a_concurrent_reap_removed(
         cache.adopt("cat/aa/bb/entry.zip", vanished)
 
 
-def _crash_mid_write(monkeypatch, cls, name):
-    """Make cls.name write half its payload, then fail like a full disk."""
-    original = getattr(cls, name)
-
-    def half_then_fail(*args, **kwargs):
-        *head, data = args
-        original(*head, data[: len(data) // 2], **kwargs)
-        raise OSError(errno.ENOSPC, "No space left on device")
-
-    monkeypatch.setattr(cls, name, half_then_fail)
-
-
 def test_catalog_yaml_set_contents_atomic(tmp_path, monkeypatch):
     catalog_yaml = catalog_mod.CatalogYAML(tmp_path)
     before = catalog_yaml.yaml_path.read_text()
-    _crash_mid_write(monkeypatch, Path, "write_text")
+    crash_mid_write(monkeypatch, Path, "write_text")
     with pytest.raises(OSError, match="No space left"):
         catalog_yaml.set_contents(
             {str(CatalogInfix.ENTRY): ["a" * 64], str(CatalogInfix.ALIAS): []}
@@ -2664,7 +2653,7 @@ def test_catalog_yaml_set_contents_atomic(tmp_path, monkeypatch):
 
 
 def test_catalog_yaml_init_atomic(tmp_path, monkeypatch):
-    _crash_mid_write(monkeypatch, Path, "write_text")
+    crash_mid_write(monkeypatch, Path, "write_text")
     with pytest.raises(OSError, match="No space left"):
         catalog_mod.CatalogYAML(tmp_path)
     monkeypatch.undo()
