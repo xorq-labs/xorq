@@ -312,10 +312,15 @@ class UnboundExprExchanger(AbstractExchanger):
 
     @staticmethod
     def get_one_unbound(expr):
-        (unbound, *rest) = walk_nodes(ops.UnboundTable, expr)
-        if rest:
-            raise ValueError("expr must only have one unbound table")
-        return unbound
+        match walk_nodes(ops.UnboundTable, expr):
+            case (unbound,):
+                return unbound
+            case unbounds:
+                names = ", ".join(unbound.name for unbound in unbounds)
+                listed = f": {names}" if names else ""
+                raise ValueError(
+                    f"expr must have exactly one unbound table, found {len(unbounds)}{listed}"
+                )
 
     @staticmethod
     def set_one_unbound_name(expr, unbound, name="fixed-name"):

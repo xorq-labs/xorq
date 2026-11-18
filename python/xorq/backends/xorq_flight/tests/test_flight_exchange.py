@@ -505,6 +505,28 @@ def test_flight_serve_unbound_over_registered_memtable(parquet_dir):
     )
 
 
+def make_two_table_join() -> xo.Table:
+    con = xo.connect()
+    left = con.register(pa.table({"x": [1, 2]}), "left_tbl")
+    right = con.register(pa.table({"x": [1, 3]}), "right_tbl")
+    return left.join(right, "x")
+
+
+@pytest.mark.parametrize(
+    "make_expr,match",
+    [
+        param(make_two_table_join, r"found 2: .*left_tbl", id="two-tables"),
+        param(lambda: xo.memtable({"x": [1]}), r"found 0$", id="no-table"),
+    ],
+)
+def test_flight_serve_requires_exactly_one_table(
+    make_expr: Callable[[], xo.Table], match: str
+) -> None:
+    """GH #1589: flight_serve names the tables it would unbind unless there is exactly one."""
+    with pytest.raises(ValueError, match=match):
+        xo.expr.relations.flight_serve(make_expr())
+
+
 def make_reordering_udxf(columns: tuple[str, ...]) -> xo.Table:
     """A UDXF declaring ``a, b`` whose ``process_df`` returns ``columns``."""
     schema = xo.schema({"a": "int64", "b": "float64"})
