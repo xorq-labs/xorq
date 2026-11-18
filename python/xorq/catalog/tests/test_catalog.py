@@ -2688,3 +2688,12 @@ def test_catalog_entry_get_atomic(catalog, tmp_path, monkeypatch):
     with pytest.raises(OSError, match="No space left"):
         entry.get(dir_path=out_dir)
     assert not tuple(out_dir.iterdir())
+
+
+def test_catalog_entry_get_into_its_own_directory(catalog):
+    """Getting an entry onto its own archive leaves the catalog untouched."""
+    entry = catalog.add(xo.memtable({"x": [1, 2, 3]}))
+    status_before = catalog.repo.git.status("--porcelain")
+    target = entry.get(dir_path=entry.catalog_path.parent)
+    assert target.read_bytes() == entry.catalog_path.read_bytes()
+    assert catalog.repo.git.status("--porcelain") == status_before

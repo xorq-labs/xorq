@@ -1714,6 +1714,9 @@ class CatalogEntry:
             .joinpath(self.name)
             .with_suffix(PREFERRED_SUFFIX)
         )
+        if target.exists() and target.samefile(self.catalog_path):
+            # already there; replacing it would swap an annex symlink for a copy
+            return target
         with atomic_write(target) as tmp:
             shutil.copy(self.catalog_path, tmp)
         return target
