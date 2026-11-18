@@ -21,6 +21,7 @@ from xorq.backends.xorq_datafusion import Backend
 from xorq.internal import SessionConfig
 
 from xorq.loader import backend_names, load_backend
+from xorq.profiles import Profile, Profiles
 from xorq.ibis_yaml.compiler import (
     build_expr,
     load_expr,
@@ -46,6 +47,8 @@ __all__ = [  # noqa: PLE0604
     "config",
     "connect",
     "options",
+    "Profile",
+    "Profiles",
     "SessionConfig",
     "udf",
     "build_expr",
