@@ -8,7 +8,9 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
+import xorq.expr.api
 import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.expr.api import _transform_expr as transform_expr
 from xorq.vendor import ibis
 
 
@@ -112,3 +114,25 @@ def test_deferred_read_parquet_streams_expression_schema(tmp_path, arrow_type, d
     reader = expr.to_pyarrow_batches()
     assert reader.schema == expr.schema().to_pyarrow()
     assert reader.read_all().column("s").type == arrow_type
+
+
+def test_to_pyarrow_batches_closes_scope_when_widening_fails(tmp_path, monkeypatch):
+    path = tmp_path / "t.parquet"
+    pq.write_table(pa.table({"s": [1, 2]}), path)
+    expr = xo.deferred_read_parquet(
+        path=path,
+        con=xo.duckdb.connect(),
+        schema=ibis.schema({"s": dt.BinaryView()}),
+    )
+    scopes = []
+
+    def capture(*args, **kwargs):
+        transformed, scope = transform_expr(*args, **kwargs)
+        scopes.append(scope)
+        return transformed, scope
+
+    monkeypatch.setattr(xorq.expr.api, "_transform_expr", capture)
+
+    with pytest.raises(pa.ArrowTypeError):
+        expr.to_pyarrow_batches()
+    assert [scope.closed for scope in scopes] == [True]
