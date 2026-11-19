@@ -14,7 +14,6 @@ from batchcorder import StreamCache
 from parsy import ParseError
 
 import xorq.vendor.ibis.expr.datatypes as dt
-import xorq.vendor.ibis.expr.schema as sch
 from xorq.common.exceptions import XorqError
 from xorq.expr.remote_table_exec import bind_scope_to_reader
 from xorq.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
@@ -171,7 +170,22 @@ class Backend(IbisDuckDBBackend):
     ) -> pa.ipc.RecordBatchReader:
         # duckdb keeps one pending result per connection: any later statement
         # on ``self.con`` empties a stream on it without an error (GH #1733),
-        # so a stream goes on its own cursor whenever the cursor reads alike
+        # so a stream goes on its own cursor whenever the cursor reads alike.
+        # Building any stream runs statements on the connection, so none may
+        # start while a stream left on it is open.
+        match self._connection_stream:
+            case ConnectionStream(blockers=blockers, closed=closed) if (
+                not closed.is_set()
+            ):
+                raise XorqError(
+                    "DuckDB streams one result per connection, and a stream on"
+                    " this connection is still open: it reads"
+                    f" {', '.join(blockers)}, which a separate cursor cannot see."
+                    " Another statement on the connection would silently empty"
+                    " that stream. Read persistent tables, create the data"
+                    " through xorq (read_* methods, memtables), or execute one"
+                    " side first."
+                )
         sql = self._to_duckdb_sql(expr, params=params, limit=limit)
         sources, blockers = self._cursor_sources(sql)
         if blockers:
@@ -198,35 +212,7 @@ class Backend(IbisDuckDBBackend):
         self._connection_stream = None
         super()._post_connect(extensions)
 
-    def _ensure_no_connection_stream(self) -> None:
-        match self._connection_stream:
-            case ConnectionStream(blockers=blockers, closed=closed) if (
-                not closed.is_set()
-            ):
-                raise XorqError(
-                    "DuckDB streams one result per connection, and a stream on"
-                    " this connection is still open: it reads"
-                    f" {', '.join(blockers)}, which a separate cursor cannot see."
-                    " Another statement on the connection would silently empty"
-                    " that stream. Read persistent tables, create the data"
-                    " through xorq (read_* methods, memtables), or execute one"
-                    " side first."
-                )
-
-    def raw_sql(self, query: str | sg.Expression, **kwargs: Any) -> Any:
-        self._ensure_no_connection_stream()
-        return super().raw_sql(query, **kwargs)
-
-    def get_schema(self, table_name: str, **kwargs: Any) -> sch.Schema:
-        self._ensure_no_connection_stream()
-        return super().get_schema(table_name, **kwargs)
-
-    def _run_pre_execute_hooks(self, expr: ir.Expr) -> None:
-        self._ensure_no_connection_stream()
-        super()._run_pre_execute_hooks(expr)
-
     def _register(self, name: str, obj: Any) -> None:
-        self._ensure_no_connection_stream()
         super()._register(name, obj)
         self._xorq_objects[self._temp_view_oid(name)] = obj
 
