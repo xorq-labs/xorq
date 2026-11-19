@@ -471,6 +471,9 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         self._record_batch_readers_consumed = {}
 
+    def _register(self, name: str, obj: Any) -> None:
+        self.con.register(name, obj)
+
     def _load_extensions(
         self, extensions: list[str], force_install: bool = False
     ) -> None:
@@ -862,7 +865,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         # We don't create a view since DuckDB special cases Arrow Datasets
         # so if we also create a view we end up with both a "lazy table"
         # and a view with the same name
-        self.con.register(table_name, dataset)
+        self._register(table_name, dataset)
         # DuckDB normally auto-detects Arrow Datasets that are defined
         # in local variables but the `dataset` variable won't be local
         # by the time we execute against this so we register it
@@ -1401,12 +1404,24 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         where performance might matter, and use the standard
         `duckdb_con.execute` everywhere else.
         """
+        return self.con.sql(
+            self._to_duckdb_sql(expr, params=params, limit=limit, **kwargs)
+        )
+
+    def _to_duckdb_sql(
+        self,
+        expr: ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        **kwargs: Any,
+    ) -> str:
         self._run_pre_execute_hooks(expr)
         table_expr = expr.as_table()
         sql = self.compile(table_expr, limit=limit, params=params, **kwargs)
         if table_expr.schema().geospatial:
             self._load_extensions(["spatial"])
-        return self.con.sql(sql)
+        return sql
 
     def to_pyarrow_batches(
         self,
@@ -1805,7 +1820,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         except AttributeError:
             obj = data.to_pyarrow(schema)
 
-        self.con.register(op.name, obj)
+        self._register(op.name, obj)
 
     def _register_udfs(self, expr: ir.Expr) -> None:
         con = self.con
@@ -1871,12 +1886,12 @@ def _read_in_memory(source: Any, table_name: str, _conn: Backend, **_: Any):
 @_read_in_memory.register("pandas.DataFrame")
 @_read_in_memory.register("pyarrow.dataset.Dataset")
 def _default(source, table_name, _conn, **_: Any):
-    _conn.con.register(table_name, source)
+    _conn._register(table_name, source)
 
 
 @_read_in_memory.register("pyarrow.RecordBatchReader")
 def _pyarrow_rbr(source, table_name, _conn, **_: Any):
-    _conn.con.register(table_name, source)
+    _conn._register(table_name, source)
     # Ensure the reader isn't marked as started, in case the name is
     # being overwritten.
     _conn._record_batch_readers_consumed[table_name] = False

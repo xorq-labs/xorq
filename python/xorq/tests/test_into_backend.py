@@ -3,6 +3,8 @@ from __future__ import annotations
 import itertools
 import operator
 import random
+import subprocess
+import sys
 import warnings
 from operator import methodcaller
 from pathlib import PosixPath
@@ -805,3 +807,164 @@ def test_into_backend_projects_extra_physical_column():
         pd.DataFrame({"a": [1, 2, 3]}),
         check_dtype=False,
     )
+
+
+DUCKDB_TARGETS = [
+    pytest.param(lambda: xo.connect(), id="xorq_datafusion"),
+    pytest.param(lambda: xo.duckdb.connect(), id="duckdb"),
+]
+
+
+@pytest.mark.parametrize("target", DUCKDB_TARGETS)
+def test_into_backend_two_duckdb_streams_issue_snippet(target):
+    # GH #1733: two streams from one duckdb connection, opened before either
+    # is read
+    con = xo.duckdb.connect()
+    con.raw_sql(
+        "CREATE TABLE flights AS SELECT * FROM (VALUES (1, 'ATL'), (2, 'LAX'), (3, 'ATL')) t(id, origin)"
+    )
+    con.raw_sql(
+        "CREATE TABLE airports AS SELECT * FROM (VALUES ('ATL', 'Atlanta'), ('LAX', 'Los Angeles')) t(code, city)"
+    )
+
+    flights = con.table("flights")
+    airports = con.table("airports")
+
+    target = target()
+    f = flights.into_backend(target)
+    a = airports.into_backend(target)
+    actual = f.inner_join(a, f.origin == a.code).execute()
+
+    assert sorted(actual.id) == [1, 2, 3]
+
+
+@pytest.mark.parametrize("target", DUCKDB_TARGETS)
+def test_into_backend_two_duckdb_streams_union(target):
+    src = xo.duckdb.connect()
+    frame = pd.DataFrame({"k": [1, 2, 3], "v": [1, 2, 3]})
+    target = target()
+    t = src.create_table("a", frame).into_backend(target)
+    u = src.create_table("b", frame).into_backend(target)
+
+    assert len(t.join(u, "k").execute()) == 3
+    assert len(t.union(u, distinct=False).execute()) == 6
+
+
+def test_into_backend_two_duckdb_streams_read_parquet_and_memtable(parquet_dir):
+    # a read_* TEMP view and a registered memtable, both created by xorq
+    src = xo.duckdb.connect()
+    path = parquet_dir.joinpath("awards_players.parquet")
+    players = xo.deferred_read_parquet(path, con=src).select("playerID", "yearID")
+    years = pd.DataFrame({"yearID": [1990, 2000]})
+    memtable_side = (
+        src.create_table("years", years)
+        .join(xo.memtable(years.assign(label="x")), "yearID")
+        .select("yearID", "label")
+    )
+    target = xo.connect()
+    joined = players.into_backend(target).join(
+        memtable_side.into_backend(target), "yearID"
+    )
+
+    expected = pd.read_parquet(path).merge(years, on="yearID")
+    assert len(joined.execute()) == len(expected) > 0
+
+
+def test_into_backend_duckdb_chain_back_into_source_does_not_hang():
+    # a subprocess, not a thread: a hung duckdb query also hangs interpreter exit
+    code = (
+        "import pandas as pd, xorq.api as xo\n"
+        "src = xo.duckdb.connect()\n"
+        "t = src.create_table('a', pd.DataFrame({'k': [1, 2, 3]}))\n"
+        "expr = t.into_backend(src).into_backend(xo.connect()).into_backend(src)\n"
+        "print(sorted(expr.execute().k))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
+
+    assert result.stdout.strip() == "[1, 2, 3]", result.stderr
+
+
+@pytest.mark.parametrize("timezone", [None, "America/New_York"])
+def test_into_backend_duckdb_stream_keeps_session_timezone(timezone):
+    src = xo.duckdb.connect()
+    if timezone is not None:
+        src.settings["TimeZone"] = timezone
+    expr = src.sql(
+        "SELECT CAST('2024-01-01 00:00:00' AS TIMESTAMPTZ) AS ts"
+    ).into_backend(xo.connect())
+
+    (actual,) = expr.execute().ts
+
+    assert actual == pd.Timestamp("2024-01-01", tz=timezone or "UTC")
+
+
+@pytest.mark.parametrize(
+    "create, blocker",
+    [
+        pytest.param(
+            lambda src, name: src.create_table(
+                name, pd.DataFrame({"k": [1, 2, 3]}), temp=True
+            ),
+            "TEMP table",
+            id="temp_table",
+        ),
+        pytest.param(
+            lambda src, name: src.raw_sql(
+                f"CREATE TEMP VIEW {name} AS SELECT * FROM range(1, 4) t(k)"
+            ),
+            "TEMP view",
+            id="temp_view",
+        ),
+    ],
+)
+@pytest.mark.parametrize("target", DUCKDB_TARGETS)
+def test_into_backend_two_duckdb_streams_on_the_connection_raise(
+    target, create, blocker
+):
+    # a user TEMP object keeps its stream on the connection: a second stream
+    # there would empty the first, so it raises instead of returning 0 rows
+    src = xo.duckdb.connect()
+    for name in ("a", "b"):
+        create(src, name)
+    target = target()
+    a = src.table("a").into_backend(target)
+    b = src.table("b").into_backend(target)
+
+    with pytest.raises(XorqError, match="one result per connection") as excinfo:
+        a.join(b, "k").execute()
+
+    assert f"reads {blocker} " in str(excinfo.value)
+    assert "execute one side first" in str(excinfo.value)
+    assert sorted(src.table("a").execute().k) == [1, 2, 3]
+
+
+@pytest.mark.parametrize(
+    "setup, sql, expected",
+    [
+        pytest.param(
+            "CREATE TEMP VIEW tv AS SELECT 1 AS k",
+            "SELECT k FROM tv",
+            [1],
+            id="temp_view",
+        ),
+        pytest.param(
+            "CREATE VIEW pv AS SELECT 1 AS k",
+            "SELECT k FROM pv",
+            [1],
+            id="persistent_view",
+        ),
+        pytest.param(
+            "CREATE TEMP TABLE tt (k INT)",
+            "SELECT table_name AS k FROM duckdb_tables() WHERE temporary",
+            ["tt"],
+            id="duckdb_tables",
+        ),
+    ],
+)
+def test_duckdb_single_stream_on_the_connection(setup, sql, expected):
+    con = xo.duckdb.connect()
+    con.raw_sql(setup)
+
+    assert con.sql(sql).execute().k.tolist() == expected

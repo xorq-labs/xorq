@@ -379,6 +379,8 @@ class RemoteTableScope:
             entry.safe_cleanup()
         for entry in reversed(self._readers):
             entry.safe_cleanup()
+        # a traceback that keeps the scope must not keep what it closed alive
+        self._tables, self._caches, self._readers = [], [], []
         if raise_drain_errors:
             raise_collected_errors("tee drain failures", drain_errors)
         else:
