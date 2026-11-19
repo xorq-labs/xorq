@@ -986,3 +986,16 @@ def test_duckdb_single_stream_on_the_connection(setup, sql, expected):
     con.raw_sql(setup)
 
     assert con.sql(sql).execute().k.tolist() == expected
+
+
+def test_remote_table_scope_lists_its_tables_after_close():
+    src = xo.duckdb.connect()
+    t = src.create_table("a", pd.DataFrame({"k": [1, 2, 3]})).into_backend(src)
+
+    scope = RemoteTableScope()
+    expr = apply_pass(REMOTE_PASS, t, TransformCtx(scope=scope))
+    with scope:
+        query = ibis.to_sql(expr, dialect="duckdb")
+
+    assert scope.table_count == 1
+    assert scope.table_names[0] in query
