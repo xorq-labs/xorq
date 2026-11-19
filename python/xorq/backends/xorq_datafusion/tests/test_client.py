@@ -53,6 +53,25 @@ def test_create_table(con):
 
 
 @pytest.mark.parametrize(
+    "kwargs",
+    [
+        param({"schema": ibis.schema({"a": "!int64", "b": "string"})}, id="schema"),
+        param(
+            {"obj": pa.table({"a": pa.array([], pa.int64())})},
+            id="empty-pyarrow",
+        ),
+    ],
+)
+def test_create_empty_table(kwargs):
+    con = xo.connect()
+    expected = kwargs.get("schema") or ibis.schema(kwargs["obj"].schema)
+    t = con.create_table("t", **kwargs)
+
+    assert t.schema() == expected
+    assert t.count().execute() == 0
+
+
+@pytest.mark.parametrize(
     "keys",
     [
         param((), id="empty"),

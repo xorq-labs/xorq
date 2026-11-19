@@ -659,13 +659,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         self.con.deregister_table(name)
         table = drop_pandas_schema_metadata(op.data.to_pyarrow(schema))
-        if batches := table.to_batches():
-            self.con.register_record_batches(name, [batches])
-        else:
-            import pyarrow.dataset as ds  # noqa: PLC0415
-
-            empty_dataset = ds.dataset([], schema=schema.to_pyarrow())
-            self.con.register_dataset(name=name, dataset=empty_dataset)
+        self.con.register_record_batches(
+            name, [table.to_batches() or [pa.RecordBatch.from_pylist([], table.schema)]]
+        )
 
     def _register_in_memory_tables(self, expr: ir.Expr) -> None:
         if self.supports_in_memory_tables:
@@ -1024,56 +1020,34 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         quoted = self.compiler.quoted
 
-        if obj is not None:
-            if not isinstance(obj, ir.Expr):
-                table = ibis.memtable(obj, schema=schema)
-            else:
-                table = obj
+        if obj is None:
+            obj = schema.to_pyarrow().empty_table()
+        table = obj if isinstance(obj, ir.Expr) else ibis.memtable(obj, schema=schema)
 
-            self._run_pre_execute_hooks(table)
-            compiler = self.compiler
+        self._run_pre_execute_hooks(table)
+        compiler = self.compiler
 
-            relname = "_"
-            query = sg.select(
-                *(
-                    compiler.cast(
-                        sg.column(col, table=relname, quoted=quoted), dtype
-                    ).as_(col, quoted=quoted)
-                    if not isinstance(dtype, dt.LargeString)
-                    else compiler.f.arrow_cast(
-                        sg.column(col, table=relname, quoted=quoted), "LargeUtf8"
-                    ).as_(col, quoted=quoted)
-                    for col, dtype in table.schema().items()
+        relname = "_"
+        query = sg.select(
+            *(
+                compiler.cast(sg.column(col, table=relname, quoted=quoted), dtype).as_(
+                    col, quoted=quoted
                 )
-            ).from_(
-                compiler.to_sqlglot(table).subquery(
-                    sg.to_identifier(relname, quoted=quoted)
-                )
+                if not isinstance(dtype, dt.LargeString)
+                else compiler.f.arrow_cast(
+                    sg.column(col, table=relname, quoted=quoted), "LargeUtf8"
+                ).as_(col, quoted=quoted)
+                for col, dtype in table.schema().items()
             )
-        else:
-            query = None
-
-        table_ident = sg.to_identifier(name, quoted=quoted)
-        if query is None:
-            column_defs = [
-                sge.ColumnDef(
-                    this=sg.to_identifier(colname, quoted=quoted),
-                    kind=self.compiler.type_mapper.from_ibis(typ),
-                    constraints=(
-                        None
-                        if typ.nullable
-                        else [sge.ColumnConstraint(kind=sge.NotNullColumnConstraint())]
-                    ),
-                )
-                for colname, typ in (schema or table.schema()).items()
-            ]
-            target = sge.Schema(this=table_ident, expressions=column_defs)
-        else:
-            target = table_ident
+        ).from_(
+            compiler.to_sqlglot(table).subquery(
+                sg.to_identifier(relname, quoted=quoted)
+            )
+        )
 
         create_stmt = sge.Create(
             kind="TABLE",
-            this=target,
+            this=sg.to_identifier(name, quoted=quoted),
             expression=query,
             replace=overwrite,
         )
