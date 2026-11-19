@@ -711,16 +711,16 @@ def to_pyarrow_batches(
     try:
         con, _ = find_backend(expr.op(), use_default=True)
         span.set_attribute("engine", con.name)
-        reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+        reader = _widen_reader(
+            con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs), schema
+        )
     except Exception:
         scope.close()
         raise
 
     # cleanup stays deferred to the result reader's exhaustion/collection:
     # the backends scan the placeholders lazily while the reader drains
-    return otel_instrument_reader(
-        bind_scope_to_reader(scope, _widen_reader(reader, schema))
-    )
+    return otel_instrument_reader(bind_scope_to_reader(scope, reader))
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):
