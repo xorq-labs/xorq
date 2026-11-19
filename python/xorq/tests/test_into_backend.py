@@ -940,15 +940,28 @@ def test_into_backend_two_duckdb_streams_on_the_connection_raise(
     assert sorted(src.table("a").execute().k) == [1, 2, 3]
 
 
-def test_duckdb_statement_beside_a_stream_on_the_connection_raises():
+@pytest.mark.parametrize(
+    "statement",
+    [
+        pytest.param(lambda src: src.sql("SELECT 1 AS x"), id="sql"),
+        pytest.param(lambda src: src.table("a"), id="table"),
+    ],
+)
+def test_duckdb_statement_beside_a_stream_on_the_connection_raises(statement):
     src = xo.duckdb.connect()
     src.create_table("a", pd.DataFrame({"k": [1, 2, 3]}), temp=True)
     reader = src.to_pyarrow_batches(src.table("a"))
 
     with pytest.raises(XorqError, match="reads TEMP table a"):
-        src.sql("SELECT 1 AS x")
+        statement(src)
 
     assert reader.read_all().num_rows == 3
+
+
+def test_duckdb_connect_with_extensions_streams():
+    con = xo.duckdb.connect(extensions=["json"])
+
+    assert con.sql("SELECT 1 AS k").execute().k.tolist() == [1]
 
 
 @pytest.mark.parametrize(

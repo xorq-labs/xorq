@@ -14,6 +14,7 @@ from batchcorder import StreamCache
 from parsy import ParseError
 
 import xorq.vendor.ibis.expr.datatypes as dt
+import xorq.vendor.ibis.expr.schema as sch
 from xorq.common.exceptions import XorqError
 from xorq.expr.remote_table_exec import bind_scope_to_reader
 from xorq.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
@@ -190,12 +191,12 @@ class Backend(IbisDuckDBBackend):
         return bind_scope_to_reader(cursor, reader)
 
     def _post_connect(self, extensions: Sequence[str] | None = None) -> None:
-        super()._post_connect(extensions)
         # what xorq put in the TEMP catalog, by oid: the CREATE statement of a
         # read_* view, or the object registered (weakly: duckdb holds it)
         self._xorq_views = {}
         self._xorq_objects = weakref.WeakValueDictionary()
         self._connection_stream = None
+        super()._post_connect(extensions)
 
     def _ensure_no_connection_stream(self) -> None:
         match self._connection_stream:
@@ -215,6 +216,10 @@ class Backend(IbisDuckDBBackend):
     def raw_sql(self, query: str | sg.Expression, **kwargs: Any) -> Any:
         self._ensure_no_connection_stream()
         return super().raw_sql(query, **kwargs)
+
+    def get_schema(self, table_name: str, **kwargs: Any) -> sch.Schema:
+        self._ensure_no_connection_stream()
+        return super().get_schema(table_name, **kwargs)
 
     def _run_pre_execute_hooks(self, expr: ir.Expr) -> None:
         self._ensure_no_connection_stream()
