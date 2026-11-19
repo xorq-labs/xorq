@@ -175,3 +175,15 @@ def test_deferred_read_parquet_large_string_caches_into_duckdb(
     cached = read.cache(SourceCache.from_kwargs(source=xo.duckdb.connect()))
 
     assert sorted(cached.execute().s) == ["a", "b"]
+
+
+def test_create_table_from_schema_only():
+    con = xo.connect()
+    schema = ibis.schema({"c": LargeString()})
+    t = con.create_table("e", schema=schema)
+    con.insert("e", pa.table({"c": pa.array(["x"], pa.large_string())}))
+
+    assert t.schema() == schema
+    assert con.table("e").to_pyarrow() == pa.table(
+        {"c": pa.array(["x"], pa.large_string())}
+    )

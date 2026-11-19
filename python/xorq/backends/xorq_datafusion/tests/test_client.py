@@ -53,6 +53,65 @@ def test_create_table(con):
 
 
 @pytest.mark.parametrize(
+    "kwargs",
+    [
+        param({"schema": ibis.schema({"a": "!int64", "b": "string"})}, id="schema"),
+        param(
+            {"obj": pa.table({"a": pa.array([], pa.int64())})},
+            id="empty-pyarrow",
+        ),
+    ],
+)
+def test_create_empty_table(kwargs):
+    con = xo.connect()
+    expected = kwargs.get("schema") or ibis.schema(kwargs["obj"].schema)
+    t = con.create_table("t", **kwargs)
+
+    assert t.schema() == expected
+    assert t.count().execute() == 0
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    ["timestamp('UTC', 6)", "int8", "struct<a: int64>", "!int64", "largestring"],
+)
+def test_create_table_from_schema_keeps_types(dtype):
+    con = xo.connect()
+    schema = ibis.schema({"c": dtype})
+
+    assert con.create_table("t", schema=schema).schema() == schema
+
+
+def test_create_table_from_schema_adds_only_that_table():
+    con = xo.connect()
+    before = set(con.list_tables())
+    con.create_table("t", schema=ibis.schema({"a": "int64"}))
+
+    assert set(con.list_tables()) - before == {"t"}
+
+
+def test_create_table_from_schema_overwrite():
+    con = xo.connect()
+    con.create_table("t", schema=ibis.schema({"a": "int64"}))
+    t = con.create_table("t", schema=ibis.schema({"b": "string"}), overwrite=True)
+
+    assert t.schema() == ibis.schema({"b": "string"})
+    with pytest.raises(ValueError, match="already exists"):
+        con.create_table("t", schema=ibis.schema({"b": "string"}))
+
+
+def test_create_table_from_schema_failed_overwrite_keeps_table():
+    con = xo.connect()
+    con.create_table("t", pa.table({"a": [1]}))
+
+    with pytest.raises(ValueError, match="precision"):
+        con.create_table(
+            "t", schema=ibis.schema({"c": "decimal(77, 2)"}), overwrite=True
+        )
+    assert con.table("t").to_pyarrow() == pa.table({"a": [1]})
+
+
+@pytest.mark.parametrize(
     "keys",
     [
         param((), id="empty"),
