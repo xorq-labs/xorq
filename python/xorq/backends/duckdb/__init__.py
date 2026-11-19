@@ -212,6 +212,10 @@ class Backend(IbisDuckDBBackend):
                     " side first."
                 )
 
+    def raw_sql(self, query: str | sg.Expression, **kwargs: Any) -> Any:
+        self._ensure_no_connection_stream()
+        return super().raw_sql(query, **kwargs)
+
     def _run_pre_execute_hooks(self, expr: ir.Expr) -> None:
         self._ensure_no_connection_stream()
         super()._run_pre_execute_hooks(expr)
@@ -222,7 +226,6 @@ class Backend(IbisDuckDBBackend):
         self._xorq_objects[self._temp_view_oid(name)] = obj
 
     def _create_temp_view(self, table_name, source) -> None:
-        self._ensure_no_connection_stream()
         super()._create_temp_view(table_name, source)
         self._xorq_views[self._temp_view_oid(table_name)] = (
             self._get_temp_view_definition(table_name, source).sql(self.name)

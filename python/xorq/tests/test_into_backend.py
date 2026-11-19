@@ -940,6 +940,17 @@ def test_into_backend_two_duckdb_streams_on_the_connection_raise(
     assert sorted(src.table("a").execute().k) == [1, 2, 3]
 
 
+def test_duckdb_statement_beside_a_stream_on_the_connection_raises():
+    src = xo.duckdb.connect()
+    src.create_table("a", pd.DataFrame({"k": [1, 2, 3]}), temp=True)
+    reader = src.to_pyarrow_batches(src.table("a"))
+
+    with pytest.raises(XorqError, match="reads TEMP table a"):
+        src.sql("SELECT 1 AS x")
+
+    assert reader.read_all().num_rows == 3
+
+
 @pytest.mark.parametrize(
     "setup, sql, expected",
     [
