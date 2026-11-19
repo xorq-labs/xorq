@@ -72,6 +72,35 @@ def test_create_empty_table(kwargs):
 
 
 @pytest.mark.parametrize(
+    "dtype",
+    ["timestamp('UTC', 6)", "int8", "struct<a: int64>", "!int64", "largestring"],
+)
+def test_create_table_from_schema_keeps_types(dtype):
+    con = xo.connect()
+    schema = ibis.schema({"c": dtype})
+
+    assert con.create_table("t", schema=schema).schema() == schema
+
+
+def test_create_table_from_schema_adds_only_that_table():
+    con = xo.connect()
+    before = set(con.list_tables())
+    con.create_table("t", schema=ibis.schema({"a": "int64"}))
+
+    assert set(con.list_tables()) - before == {"t"}
+
+
+def test_create_table_from_schema_overwrite():
+    con = xo.connect()
+    con.create_table("t", schema=ibis.schema({"a": "int64"}))
+    t = con.create_table("t", schema=ibis.schema({"b": "string"}), overwrite=True)
+
+    assert t.schema() == ibis.schema({"b": "string"})
+    with pytest.raises(ValueError, match="already exists"):
+        con.create_table("t", schema=ibis.schema({"b": "string"}))
+
+
+@pytest.mark.parametrize(
     "keys",
     [
         param((), id="empty"),
