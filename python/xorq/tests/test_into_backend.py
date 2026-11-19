@@ -999,3 +999,15 @@ def test_remote_table_scope_lists_its_tables_after_close():
 
     assert scope.table_count == 1
     assert scope.table_names[0] in query
+
+
+def test_duckdb_stream_with_cte_named_like_a_read_view(tmp_path):
+    con = xo.duckdb.connect()
+    path = tmp_path.joinpath("cte.parquet")
+    pd.DataFrame({"k": [9]}).to_parquet(path)
+    con.read_parquet(path, table_name="cte")
+    path.unlink()
+
+    expr = con.sql("WITH cte AS (SELECT 1 AS k) SELECT k FROM cte")
+
+    assert expr.execute().k.tolist() == [1]

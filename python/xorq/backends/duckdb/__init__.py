@@ -84,6 +84,8 @@ def cursor_blocker(
             return None
         case ():
             return f"unknown relation {'.'.join(part.name for part in table.parts)}"
+        case (CatalogEntry(temporary=True) as entry, *_) if table.name.lower() in ctes:
+            return f"CTE named like TEMP {entry.kind} {entry.name}"
         case (entry,) if entry.oid in xorq_oids:
             return None
         case (CatalogEntry(kind="table", temporary=True) as entry, *_):
