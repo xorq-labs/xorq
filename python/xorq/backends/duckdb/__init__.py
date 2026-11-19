@@ -272,7 +272,13 @@ class Backend(IbisDuckDBBackend):
         rows = self.con.execute(
             CATALOG_SQL, {"names": [table.name.lower() for table in tables]}
         ).fetchall()
-        entries = tuple(CatalogEntry(*row) for row in rows)
+        # the name filter in SQL ignores qualifiers: a TEMP view named like a
+        # qualified persistent table is neither read nor replayed
+        entries = tuple(
+            entry
+            for entry in (CatalogEntry(*row) for row in rows)
+            if any(entry.is_named_by(table) for table in tables)
+        )
         sources = {
             entry.oid: (entry.name, source)
             for entry in entries

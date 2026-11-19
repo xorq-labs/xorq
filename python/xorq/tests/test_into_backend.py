@@ -964,6 +964,17 @@ def test_duckdb_connect_with_extensions_streams():
     assert con.sql("SELECT 1 AS k").execute().k.tolist() == [1]
 
 
+def test_duckdb_stream_of_qualified_table_skips_same_named_view(tmp_path):
+    con = xo.duckdb.connect()
+    con.create_table("a", pd.DataFrame({"k": [1, 2]}))
+    path = tmp_path.joinpath("a.parquet")
+    pd.DataFrame({"k": [9]}).to_parquet(path)
+    con.read_parquet(path, table_name="a")
+    path.unlink()
+
+    assert con.sql("SELECT k FROM memory.main.a").execute().k.tolist() == [1, 2]
+
+
 @pytest.mark.parametrize(
     "setup, sql, expected",
     [
