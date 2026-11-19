@@ -239,7 +239,7 @@ def compute_sha256(path: str | Path) -> str:
 def copy_and_digest(src: str | Path, dest: str | Path) -> str:
     """Copy *src* onto *dest*, returning the SHA-256 of the bytes copied.
 
-    Equivalent to ``shutil.copy`` followed by ``compute_sha256``, but reads the
+    Equivalent to ``shutil.copy2`` followed by ``compute_sha256``, but reads the
     source once rather than twice.
     """
     digest = hashlib.sha256()
@@ -247,8 +247,8 @@ def copy_and_digest(src: str | Path, dest: str | Path) -> str:
         while chunk := source.read(_TRANSFER_CHUNK_BYTES):
             digest.update(chunk)
             destination.write(chunk)
-    # shutil.copy propagates the source mode; keep that observable behaviour.
-    shutil.copymode(src, dest)
+    # Like shutil.copy2: keep the source mode and the build's mtime.
+    shutil.copystat(src, dest)
     return digest.hexdigest()
 
 

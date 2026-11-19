@@ -77,6 +77,7 @@ from xorq.catalog.tests.conftest import (
     compare_repo_and_catalog,
     crash_mid_write,
     directory_store_config,
+    every_storage_backend,
     requires_annex,
 )
 from xorq.catalog.tui import get_cache_key_path
@@ -103,6 +104,17 @@ def test_catalog_add(catalog, data_dict):
     path = next(iter(data_dict.values()))
     with pytest.raises(ValueError, match="already exists"):
         catalog.add(path)
+
+
+@every_storage_backend
+def test_catalog_add_get_preserves_mtime(
+    catalog: Catalog, data_dict: dict[str, Path], tmp_path: Path
+) -> None:
+    path = next(iter(data_dict.values()))
+    build_mtime = 1_000_000_000
+    os.utime(path, (build_mtime, build_mtime))
+    entry = catalog.add(path)
+    assert entry.get(dir_path=tmp_path).stat().st_mtime == build_mtime
 
 
 def test_catalog_addition_from_expr(catalog):

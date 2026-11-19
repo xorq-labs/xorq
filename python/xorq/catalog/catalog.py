@@ -1541,7 +1541,7 @@ class CatalogAddition:
     def from_expr(cls, expr, catalog):
         ntfh = tempfile.NamedTemporaryFile(suffix=PREFERRED_SUFFIX)
         with build_expr_context_zip(expr) as zip_path:
-            shutil.copy(zip_path, ntfh.name)
+            shutil.copy2(zip_path, ntfh.name)
         return cls(BuildZip(ntfh.name), catalog, maybe_tmpfile=ntfh)
 
 
@@ -1718,7 +1718,7 @@ class CatalogEntry:
             # already there; replacing it would swap an annex symlink for a copy
             return target
         with atomic_write(target) as tmp:
-            shutil.copy(self.catalog_path, tmp)
+            shutil.copy2(self.catalog_path, tmp)
         return target
 
     def assert_consistency(self):
