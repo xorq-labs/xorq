@@ -13,6 +13,7 @@ import toolz
 
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
+import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import Backend
 from xorq.common.exceptions import XorqError
@@ -650,6 +651,24 @@ def _pandas_execute(con: BaseBackend, expr: ir.Expr, **kwargs: Any) -> "pd.DataF
         return con.execute(expr, **kwargs)
 
 
+# dtypes an engine may store as their base type (DuckDB: VARCHAR, BLOB); the
+# transform replaces a Read with the registered table, whose schema has the base
+WIDENED_DTYPES = frozenset((dt.LargeString, dt.BinaryView))
+
+
+def _widen_reader(
+    reader: pa.RecordBatchReader, schema: sch.Schema
+) -> pa.RecordBatchReader:
+    """Cast the columns ``schema`` declares as a WIDENED_DTYPES dtype to it."""
+    target = pa.schema(
+        field.with_type(dtype.to_pyarrow())
+        if type(dtype := schema.get(field.name)) in WIDENED_DTYPES
+        else field
+        for field in reader.schema
+    )
+    return reader if target == reader.schema else reader.cast(target)
+
+
 @tracer.start_as_current_span("to_pyarrow_batches")
 def to_pyarrow_batches(
     expr: ir.Expr,
@@ -687,6 +706,7 @@ def to_pyarrow_batches(
         span.set_attribute("engine", "flight")
         # chunk_size does not apply to to_rbr; kwargs carry no read kwargs here.
         return _flight_to_rbr(expr, params=params)
+    schema = expr.as_table().schema()
     expr, scope = _transform_expr(expr, params=params)
     try:
         con, _ = find_backend(expr.op(), use_default=True)
@@ -698,7 +718,9 @@ def to_pyarrow_batches(
 
     # cleanup stays deferred to the result reader's exhaustion/collection:
     # the backends scan the placeholders lazily while the reader drains
-    return otel_instrument_reader(bind_scope_to_reader(scope, reader))
+    return otel_instrument_reader(
+        bind_scope_to_reader(scope, _widen_reader(reader, schema))
+    )
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):

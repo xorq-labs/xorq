@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
@@ -88,3 +90,25 @@ def test_read_csv_columns_and_types(tmp_path):
     assert t.execute().a.tolist() == [1, 2]
     t = con.read_csv(path, types={"a": "DECIMAL(10,2)"})
     assert duckdb_types(con, t) == {"a": "DECIMAL(10,2)", "b": "VARCHAR"}
+
+
+@pytest.mark.parametrize(
+    "arrow_type,dtype",
+    [
+        pytest.param(pa.large_string(), dt.LargeString(), id="large_string"),
+        pytest.param(pa.binary_view(), dt.BinaryView(), id="binary_view"),
+    ],
+)
+def test_deferred_read_parquet_streams_expression_schema(tmp_path, arrow_type, dtype):
+    path = tmp_path / "t.parquet"
+    pq.write_table(
+        pa.table({"id": [1, 2], "s": pa.array([b"a", b"b"]).cast(arrow_type)}), path
+    )
+    expr = xo.deferred_read_parquet(
+        path=path,
+        con=xo.duckdb.connect(),
+        schema=ibis.schema({"id": "int64", "s": dtype}),
+    )
+    reader = expr.to_pyarrow_batches()
+    assert reader.schema == expr.schema().to_pyarrow()
+    assert reader.read_all().column("s").type == arrow_type
