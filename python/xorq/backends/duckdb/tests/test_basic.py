@@ -213,3 +213,19 @@ def test_pyarrow_udf_load_keeps_volatility(tmp_path):
     loaded = load_expr(build_expr(expr, builds_dir=tmp_path))
 
     assert loaded.execute().r.nunique() == expr.execute().r.nunique() == 3
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        pa.array(["a", None], pa.large_string()),
+        pa.array([b"a", None], pa.large_binary()),
+        pa.array([["a"], None], pa.large_list(pa.large_string())),
+        pa.array([b"a", None], pa.binary_view()),
+    ],
+    ids=["large_string", "large_binary", "large_list", "binary_view"],
+)
+def test_create_table_from_arrow_large_types(duckdb_con, column):
+    t = duckdb_con.create_table("large_types", pa.table({"c": column}), overwrite=True)
+
+    assert t.to_pyarrow().column("c").to_pylist() == column.to_pylist()

@@ -478,11 +478,12 @@ class NamedUnknown(Unknown):
     other columns, and an error refusing a read of it can say what the
     backend called it.
 
-    ``name`` is ``Unknown``'s, so dispatch keyed on the name -- such as
-    ``SqlglotType.from_ibis``'s ``_from_ibis_<name>`` lookup -- treats the two
-    alike. Dispatch keyed on the class does not: the Arrow conversion maps
-    ``Unknown`` to ``string`` and has no entry for this class, so it raises
-    rather than handing the backend's data back as strings.
+    ``name`` is ``Unknown``'s, so code keyed on the name treats the two alike,
+    and ``SqlglotType.from_ibis`` walks the class's MRO, so a backend's
+    ``_from_ibis_Unknown`` reaches this class too. Dispatch keyed on the exact
+    class does not: the Arrow conversion maps ``Unknown`` to ``string`` and has
+    no entry for this class, so it raises rather than handing the backend's
+    data back as strings.
     """
 
     raw_type: str

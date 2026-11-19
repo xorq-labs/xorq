@@ -2759,9 +2759,8 @@ def test_an_unmappable_column_round_trips_through_yaml_with_its_spelling() -> No
 
 
 def test_an_unmappable_column_is_named_unknown_and_renders_its_spelling() -> None:
-    """``name`` is ``Unknown``'s on purpose: ``SqlglotType.from_ibis``
-    dispatches on it, so a backend's ``_from_ibis_Unknown`` reaches this class
-    too. The rendering is what a schema shows a user."""
+    """``name`` is ``Unknown``'s on purpose, so code keyed on the name treats
+    this class as ``Unknown``. The rendering is what a schema shows a user."""
     dtype = dt.NamedUnknown(raw_type="super", nullable=False)
 
     assert dtype.name == dt.unknown.name == "Unknown"
