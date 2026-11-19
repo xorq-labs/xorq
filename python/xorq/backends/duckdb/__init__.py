@@ -170,11 +170,14 @@ class Backend(IbisDuckDBBackend):
         chunk_size: int = 10_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
-        # duckdb keeps one pending result per connection: any later statement
-        # on ``self.con`` empties a stream on it without an error (GH #1733),
-        # so a stream goes on its own cursor whenever the cursor reads alike.
+        self._check_no_connection_stream()
+        return self._to_duckdb_relation(
+            expr, params=params, limit=limit
+        ).fetch_arrow_reader(chunk_size)
+
+    def _check_no_connection_stream(self) -> None:
         # Building any stream runs statements on the connection, so none may
-        # start while a stream left on it is open.
+        # start while a remote stream left on it is open.
         match self._connection_stream:
             case ConnectionStream(blockers=blockers, closed=closed) if (
                 not closed.is_set()
@@ -188,6 +191,21 @@ class Backend(IbisDuckDBBackend):
                     " through xorq (read_* methods, memtables), or execute one"
                     " side first."
                 )
+
+    def _to_isolated_pyarrow_batches(
+        self,
+        expr: ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        chunk_size: int = 10_000,
+        **_: Any,
+    ) -> pa.ipc.RecordBatchReader:
+        # duckdb keeps one pending result per connection: any later statement
+        # on ``self.con`` empties a stream on it without an error (GH #1733),
+        # so a remote stream goes on its own cursor whenever the cursor reads
+        # alike.
+        self._check_no_connection_stream()
         sql = self._to_duckdb_sql(expr, params=params, limit=limit)
         sources, blockers = self._cursor_sources(sql)
         if blockers:

@@ -955,7 +955,9 @@ def test_duckdb_stream_of_qualified_table_skips_same_named_view(tmp_path):
     con.read_parquet(path, table_name="a")
     path.unlink()
 
-    assert con.sql("SELECT k FROM memory.main.a").execute().k.tolist() == [1, 2]
+    expr = con.sql("SELECT k FROM memory.main.a").into_backend(xo.connect())
+
+    assert expr.execute().k.tolist() == [1, 2]
 
 
 @pytest.mark.parametrize(
@@ -985,7 +987,7 @@ def test_duckdb_single_stream_on_the_connection(setup, sql, expected):
     con = xo.duckdb.connect()
     con.raw_sql(setup)
 
-    assert con.sql(sql).execute().k.tolist() == expected
+    assert con.sql(sql).into_backend(xo.connect()).execute().k.tolist() == expected
 
 
 def test_remote_table_scope_lists_its_tables_after_close():
@@ -1008,6 +1010,37 @@ def test_duckdb_stream_with_cte_named_like_a_read_view(tmp_path):
     con.read_parquet(path, table_name="cte")
     path.unlink()
 
-    expr = con.sql("WITH cte AS (SELECT 1 AS k) SELECT k FROM cte")
+    expr = con.sql("WITH cte AS (SELECT 1 AS k) SELECT k FROM cte").into_backend(
+        xo.connect()
+    )
 
     assert expr.execute().k.tolist() == [1]
+
+
+def test_duckdb_plain_stream_calls_temp_macro():
+    # a plain query runs on the connection, which sees its TEMP macros
+    con = xo.duckdb.connect()
+    con.create_table("a", pd.DataFrame({"k": [1, 2]}))
+    con.raw_sql("CREATE TEMP MACRO add_one(x) AS x + 1")
+
+    assert con.sql("SELECT add_one(k) AS k FROM a").execute().k.tolist() == [2, 3]
+
+
+def test_duckdb_plain_stream_beside_remote_stream_of_persistent_table():
+    con = xo.duckdb.connect()
+    t = con.create_table("a", pd.DataFrame({"k": [1, 2, 3], "v": [4, 5, 6]}))
+    expr = t.join(t.into_backend(con).select("k", w="v"), "k")
+
+    assert sorted(expr.execute().w) == [4, 5, 6]
+
+
+def test_duckdb_plain_stream_beside_remote_stream_on_the_connection_raises():
+    # the remote stream reads a user TEMP view, so it stays on the connection;
+    # the plain query next to it would empty it
+    con = xo.duckdb.connect()
+    con.raw_sql("CREATE TEMP VIEW a AS SELECT * FROM range(1, 4) t(k)")
+    t = con.table("a")
+    expr = t.join(t.into_backend(con), "k")
+
+    with pytest.raises(XorqError, match="one result per connection"):
+        expr.execute()

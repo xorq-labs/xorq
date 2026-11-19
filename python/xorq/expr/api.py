@@ -655,6 +655,7 @@ def to_pyarrow_batches(
     expr: ir.Expr,
     *,
     chunk_size: int = 1_000_000,
+    isolated: bool = False,
     **kwargs: Any,
 ):
     """Execute expression and return a RecordBatchReader.
@@ -671,6 +672,10 @@ def to_pyarrow_batches(
     ----------
     chunk_size
         Maximum number of rows in each returned record batch.
+    isolated
+        Whether later statements on the backend must leave the stream intact,
+        as for the streams the remote pass opens before reading any. Implied
+        when the remote pass replaced any table in ``expr``.
     kwargs
         Keyword arguments
 
@@ -691,7 +696,14 @@ def to_pyarrow_batches(
     try:
         con, _ = find_backend(expr.op(), use_default=True)
         span.set_attribute("engine", con.name)
-        reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+        # a query over the remote pass's placeholders runs beside the streams
+        # feeding them, and their cleanup runs statements on its backend
+        to_batches = (
+            con._to_isolated_pyarrow_batches  # xorq-style: disable=protected-access
+            if isolated or scope.table_count
+            else con.to_pyarrow_batches
+        )
+        reader = to_batches(expr, chunk_size=chunk_size, **kwargs)
     except Exception:
         scope.close()
         raise

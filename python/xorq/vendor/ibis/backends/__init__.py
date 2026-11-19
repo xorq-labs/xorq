@@ -302,6 +302,13 @@ class _FileIOHandler:
         """
         raise NotImplementedError
 
+    def _to_isolated_pyarrow_batches(
+        self, expr: ir.Expr, **kwargs: Any
+    ) -> pa.ipc.RecordBatchReader:
+        # a stream that later statements on this backend leave intact: the
+        # remote pass opens one per RemoteTable before reading any
+        return self.to_pyarrow_batches(expr, **kwargs)
+
     @util.experimental
     def to_torch(
         self,
