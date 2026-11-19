@@ -225,7 +225,7 @@ class Backend(IbisDuckDBBackend):
         )
 
     def _temp_view_oid(self, name: str) -> int:
-        (oid,) = self.con.execute(TEMP_VIEW_OID_SQL, {"name": name}).fetchone()
+        ((oid,),) = self.con.execute(TEMP_VIEW_OID_SQL, {"name": name}).fetchall()
         return oid
 
     @functools.cached_property
@@ -241,7 +241,7 @@ class Backend(IbisDuckDBBackend):
     def _in_transaction(self) -> bool:
         # each autocommit statement gets a new id; BEGIN ... COMMIT shares one
         first, second = (
-            self.con.execute("SELECT txid_current()").fetchone() for _ in range(2)
+            self.con.execute("SELECT txid_current()").fetchall() for _ in range(2)
         )
         return first == second
 
