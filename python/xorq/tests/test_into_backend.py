@@ -1044,3 +1044,15 @@ def test_duckdb_plain_stream_beside_remote_stream_on_the_connection_raises():
 
     with pytest.raises(XorqError, match="one result per connection"):
         expr.execute()
+
+
+def test_duckdb_plain_stream_while_remote_stream_on_the_connection_raises():
+    con = xo.duckdb.connect()
+    con.raw_sql("CREATE TEMP VIEW a AS SELECT * FROM range(1, 4) t(k)")
+    t = con.table("a")
+    reader = t.into_backend(xo.connect()).to_pyarrow_batches()
+
+    with pytest.raises(XorqError, match="one result per connection"):
+        t.execute()
+
+    assert sorted(reader.read_all()["k"].to_pylist()) == [1, 2, 3]
