@@ -1022,9 +1022,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             # registered as arrow, not DDL: SQL types can't spell LargeUtf8,
             # int8, timestamp time zones or structs
             ident = sg.to_identifier(name, quoted=True).sql(self.dialect)
+            empty = pa.RecordBatch.from_pylist([], schema.to_pyarrow())
             if overwrite:
                 self.con.deregister_table(ident)
-            empty = pa.RecordBatch.from_pylist([], schema.to_pyarrow())
             self.con.register_record_batches(ident, [[empty]])
             return self.table(name, database=database)
 

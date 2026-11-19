@@ -100,6 +100,17 @@ def test_create_table_from_schema_overwrite():
         con.create_table("t", schema=ibis.schema({"b": "string"}))
 
 
+def test_create_table_from_schema_failed_overwrite_keeps_table():
+    con = xo.connect()
+    con.create_table("t", pa.table({"a": [1]}))
+
+    with pytest.raises(ValueError, match="precision"):
+        con.create_table(
+            "t", schema=ibis.schema({"c": "decimal(77, 2)"}), overwrite=True
+        )
+    assert con.table("t").to_pyarrow() == pa.table({"a": [1]})
+
+
 @pytest.mark.parametrize(
     "keys",
     [
