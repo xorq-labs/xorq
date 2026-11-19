@@ -661,10 +661,13 @@ def _widen_reader(
 ) -> pa.RecordBatchReader:
     """Cast the columns ``schema`` declares as a WIDENED_DTYPES dtype to it."""
     target = pa.schema(
-        field.with_type(dtype.to_pyarrow())
-        if type(dtype := schema.get(field.name)) in WIDENED_DTYPES
-        else field
-        for field in reader.schema
+        (
+            field.with_type(dtype.to_pyarrow())
+            if type(dtype := schema.get(field.name)) in WIDENED_DTYPES
+            else field
+            for field in reader.schema
+        ),
+        metadata=reader.schema.metadata,
     )
     return reader if target == reader.schema else reader.cast(target)
 

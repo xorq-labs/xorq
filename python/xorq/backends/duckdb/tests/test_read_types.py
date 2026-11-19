@@ -11,6 +11,7 @@ import xorq.api as xo
 import xorq.expr.api
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.expr.api import _transform_expr as transform_expr
+from xorq.expr.api import _widen_reader as widen_reader
 from xorq.vendor import ibis
 
 
@@ -136,3 +137,12 @@ def test_to_pyarrow_batches_closes_scope_when_widening_fails(tmp_path, monkeypat
     with pytest.raises(pa.ArrowTypeError):
         expr.to_pyarrow_batches()
     assert [scope.closed for scope in scopes] == [True]
+
+
+def test_widened_reader_keeps_schema_metadata():
+    table = pa.table({"s": ["a"]}).replace_schema_metadata({b"pandas": b"{}"})
+
+    reader = widen_reader(table.to_reader(), ibis.schema({"s": dt.LargeString()}))
+
+    assert reader.schema.metadata == {b"pandas": b"{}"}
+    assert reader.read_all().column("s").type == pa.large_string()
