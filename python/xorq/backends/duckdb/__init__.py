@@ -207,8 +207,9 @@ class Backend(IbisDuckDBBackend):
         return bind_scope_to_reader(cursor, reader)
 
     def _post_connect(self, extensions: Sequence[str] | None = None) -> None:
-        # what xorq put in the TEMP catalog, by oid: the CREATE statement of a
-        # read_* view, or the object registered (weakly: duckdb holds it)
+        # what xorq put in the TEMP catalog: the oid and CREATE statement of a
+        # read_* view by name (a re-read replaces it), or the object
+        # registered by oid (weakly: duckdb holds it)
         self._xorq_views = {}
         self._xorq_objects = weakref.WeakValueDictionary()
         self._connection_stream = None
@@ -220,8 +221,9 @@ class Backend(IbisDuckDBBackend):
 
     def _create_temp_view(self, table_name, source) -> None:
         super()._create_temp_view(table_name, source)
-        self._xorq_views[self._temp_view_oid(table_name)] = (
-            self._get_temp_view_definition(table_name, source).sql(self.name)
+        self._xorq_views[table_name] = (
+            self._temp_view_oid(table_name),
+            self._get_temp_view_definition(table_name, source).sql(self.name),
         )
 
     def _temp_view_oid(self, name: str) -> int:
@@ -267,14 +269,11 @@ class Backend(IbisDuckDBBackend):
             for entry in (CatalogEntry(*row) for row in rows)
             if any(entry.is_named_by(table) for table in tables)
         )
+        views = dict(self._xorq_views.values())
         sources = {
             entry.oid: (entry.name, source)
             for entry in entries
-            if (
-                source := self._xorq_views.get(
-                    entry.oid, self._xorq_objects.get(entry.oid)
-                )
-            )
+            if (source := views.get(entry.oid, self._xorq_objects.get(entry.oid)))
             is not None
         }
         blockers = (
