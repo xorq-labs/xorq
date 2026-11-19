@@ -117,14 +117,8 @@ def test_deferred_read_parquet_streams_expression_schema(tmp_path, arrow_type, d
     assert reader.read_all().column("s").type == arrow_type
 
 
-def test_to_pyarrow_batches_closes_scope_when_widening_fails(tmp_path, monkeypatch):
-    path = tmp_path / "t.parquet"
-    pq.write_table(pa.table({"s": [1, 2]}), path)
-    expr = xo.deferred_read_parquet(
-        path=path,
-        con=xo.duckdb.connect(),
-        schema=ibis.schema({"s": dt.BinaryView()}),
-    )
+def test_to_pyarrow_batches_closes_scope_when_widening_fails(monkeypatch):
+    t = xo.duckdb.connect().create_table("t", pa.table({"s": [1, 2]}))
     scopes = []
 
     def capture(*args, **kwargs):
@@ -132,10 +126,14 @@ def test_to_pyarrow_batches_closes_scope_when_widening_fails(tmp_path, monkeypat
         scopes.append(scope)
         return transformed, scope
 
-    monkeypatch.setattr(xorq.expr.api, "_transform_expr", capture)
+    def fail(reader, schema):
+        raise pa.ArrowTypeError("cannot widen")
 
-    with pytest.raises(pa.ArrowTypeError):
-        expr.to_pyarrow_batches()
+    monkeypatch.setattr(xorq.expr.api, "_transform_expr", capture)
+    monkeypatch.setattr(xorq.expr.api, "_widen_reader", fail)
+
+    with pytest.raises(pa.ArrowTypeError, match="cannot widen"):
+        t.to_pyarrow_batches()
     assert [scope.closed for scope in scopes] == [True]
 
 
