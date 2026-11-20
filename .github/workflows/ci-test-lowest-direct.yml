@@ -100,7 +100,8 @@ jobs:
           --import-mode=importlib
           -m '(core or (xorq_flight and dep_floor)) and not uv_export and not slow'
           --ignore=python/xorq/catalog
-          --ignore=scripts
+          --ignore=scripts/tests
+          --ignore=scripts/style_tests
           -k 'not script_execution'
           -v --durations=20
           -n auto --dist=loadfile

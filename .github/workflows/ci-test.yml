@@ -146,7 +146,8 @@ jobs:
         run: just up-ci ${{ matrix.backend.services }}
 
       # Leaves out what other steps already run: bare_install (the bare-install
-      # step below) and scripts/ (ci-lint and ci-adr, on every pull request).
+      # step below), scripts/tests (ci-adr) and scripts/style_tests (ci-lint),
+      # the last two on every pull request.
       - name: pytest
         timeout-minutes: 20
         run: >
@@ -155,7 +156,8 @@ jobs:
           --cov --cov-report=xml
           -m '${{ matrix.backend.name }} and not slow and not bare_install'
           --ignore=python/xorq/catalog
-          --ignore=scripts
+          --ignore=scripts/tests
+          --ignore=scripts/style_tests
           -k 'not script_execution'
           -v --durations=20
           ${{ matrix.backend.parallel && '-n auto --dist=loadfile' || '' }}
