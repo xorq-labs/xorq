@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
         with:
           # The new-ADR checks diff against the merge base with the target
           # branch, which the default shallow clone does not contain.
@@ -61,10 +61,10 @@ jobs:
     steps:
       # Default shallow clone is enough: the tests build throwaway git
       # repositories under tmp_path rather than reading this one's history.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v7.6.0
         with:
           enable-cache: true
 
