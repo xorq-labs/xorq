@@ -116,7 +116,9 @@ def _write_one(base, key, n_batches, rows_per_batch, width, tag):
     """Module-level so it survives pickling into a spawned process."""
     # SIGTERM dumps every thread's stack to stderr instead of exiting, so a
     # writer the test gives up on shows where it was stuck before the SIGKILL.
-    faulthandler.register(signal.SIGTERM, all_threads=True)
+    # Windows has no faulthandler.register; there the writer just gets killed.
+    if hasattr(faulthandler, "register"):
+        faulthandler.register(signal.SIGTERM, all_threads=True)
     try:
         _storage(base).put(
             key,
