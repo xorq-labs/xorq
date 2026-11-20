@@ -9,9 +9,12 @@ successfully; `exists()` then reported that artifact as a cache hit forever.
 
 import datetime
 import errno
+import faulthandler
 import logging
 import multiprocessing as mp
 import os
+import signal
+import time
 import uuid
 from pathlib import Path
 
@@ -34,6 +37,9 @@ from xorq.config import options
 
 
 SCHEMA = pa.schema([("i", pa.int64()), ("s", pa.string())])
+# Both concurrent writers together: about 3s locally; each spawned child
+# re-imports xorq and pyarrow (under coverage in CI) before writing ~24MB.
+WRITERS_TIMEOUT_S = 240
 
 
 class _Reader:
@@ -108,6 +114,11 @@ def _lie_about_rows(monkeypatch):
 
 def _write_one(base, key, n_batches, rows_per_batch, width, tag):
     """Module-level so it survives pickling into a spawned process."""
+    # SIGTERM dumps every thread's stack to stderr instead of exiting, so a
+    # writer the test gives up on shows where it was stuck before the SIGKILL.
+    # Windows has no faulthandler.register; there the writer just gets killed.
+    if hasattr(faulthandler, "register"):
+        faulthandler.register(signal.SIGTERM, all_threads=True)
     try:
         _storage(base).put(
             key,
@@ -120,6 +131,13 @@ def _write_one(base, key, n_batches, rows_per_batch, width, tag):
         return f"{type(e).__name__}"
 
 
+def _join_within(processes: list[mp.process.BaseProcess], seconds: float) -> None:
+    """Join every process against one shared deadline, not one per process."""
+    deadline = time.monotonic() + seconds
+    for process in processes:
+        process.join(timeout=max(0, deadline - time.monotonic()))
+
+
 def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
     """The reported failure: two writers, one key, asymmetric payloads.
 
@@ -129,15 +147,36 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
     writers diverged in batch count, row count and string width.
     """
     key = "xorq_cache-concurrent"
+    # Plain processes rather than a Pool: Pool.__exit__ terminates its workers
+    # and then joins them with no timeout, which hung a CI worker until the job
+    # timeout. Every join here is bounded, including the one after SIGKILL,
+    # which cannot reap a child stuck in uninterruptible I/O.
     ctx = mp.get_context("spawn")
-    with ctx.Pool(2) as pool:
-        pool.starmap(
-            _write_one,
-            [
-                (str(tmp_path), key, 40, 5000, 120, "w0"),
-                (str(tmp_path), key, 12, 11000, 37, "w1"),
-            ],
+    writers = [
+        ctx.Process(target=_write_one, args=args)
+        for args in (
+            (str(tmp_path), key, 40, 5000, 120, "w0"),
+            (str(tmp_path), key, 12, 11000, 37, "w1"),
         )
+    ]
+    try:
+        for writer in writers:
+            writer.start()
+        _join_within(writers, WRITERS_TIMEOUT_S)
+    finally:
+        # also on a failed start or an interrupt: no child outlives the test.
+        # Signal every hung writer before waiting on any.
+        hung = [writer for writer in writers if writer.is_alive()]
+        for writer in hung:
+            writer.terminate()  # stack dump, see _write_one
+        _join_within(hung, 5)
+        for writer in hung:
+            writer.kill()
+        _join_within(hung, 10)
+    assert not hung, f"a writer did not finish within {WRITERS_TIMEOUT_S}s"
+    # _write_one swallows the loser's rename error, so a nonzero exit means the
+    # writer crashed (or never imported) and the race did not run.
+    assert [writer.exitcode for writer in writers] == [0, 0]
 
     published = _storage(tmp_path).get_path(key)
     assert published.exists(), "one writer must still publish a result"
