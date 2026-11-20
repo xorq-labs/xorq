@@ -131,6 +131,13 @@ def _write_one(base, key, n_batches, rows_per_batch, width, tag):
         return f"{type(e).__name__}"
 
 
+def _join_within(processes: list[mp.process.BaseProcess], seconds: float) -> None:
+    """Join every process against one shared deadline, not one per process."""
+    deadline = time.monotonic() + seconds
+    for process in processes:
+        process.join(timeout=max(0, deadline - time.monotonic()))
+
+
 def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
     """The reported failure: two writers, one key, asymmetric payloads.
 
@@ -155,18 +162,17 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
     try:
         for writer in writers:
             writer.start()
-        # one budget for both writers, not one per join
-        deadline = time.monotonic() + WRITERS_TIMEOUT_S
-        for writer in writers:
-            writer.join(timeout=max(0, deadline - time.monotonic()))
+        _join_within(writers, WRITERS_TIMEOUT_S)
     finally:
-        # also on a failed start or an interrupt: no child outlives the test
+        # also on a failed start or an interrupt: no child outlives the test.
+        # Signal every hung writer before waiting on any.
         hung = [writer for writer in writers if writer.is_alive()]
         for writer in hung:
             writer.terminate()  # stack dump, see _write_one
-            writer.join(timeout=5)
+        _join_within(hung, 5)
+        for writer in hung:
             writer.kill()
-            writer.join(timeout=10)
+        _join_within(hung, 10)
     assert not hung, f"a writer did not finish within {WRITERS_TIMEOUT_S}s"
     # _write_one swallows the loser's rename error, so a nonzero exit means the
     # writer crashed (or never imported) and the race did not run.
