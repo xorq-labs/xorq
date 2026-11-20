@@ -41,7 +41,7 @@ import pyarrow as pa
 import pytest
 import sqlglot
 import toolz
-from attrs import frozen
+from attrs import define, frozen
 from sqlglot.dialects.duckdb import DuckDB
 from xorq_dasher import fqn
 
@@ -1637,3 +1637,19 @@ def test_attrs_fallback_still_raises_for_plain_object():
 
     with pytest.raises(ValueError, match="No normalizer registered"):
         tokenize(Plain())
+
+
+@define(slots=False)
+class _DictAttrs:
+    a: int
+
+    @functools.cached_property
+    def doubled(self):
+        return self.a * 2
+
+
+def test_attrs_fallback_ignores_cached_property_on_dict_class():
+    obj = _DictAttrs(1)
+    before = tokenize(obj)
+    assert obj.doubled == 2
+    assert tokenize(obj) == before == tokenize(_DictAttrs(1))

@@ -46,7 +46,7 @@ def _extract_methodcaller_fields(
 
 
 def normalize_attrs(obj: object) -> tuple:
-    """Stable normalization for any ``attrs.frozen`` object.
+    """Normalize an attrs instance (frozen or mutable) by its declared fields.
 
     Applied by :func:`normalize_object_or_attrs` to attrs classes that do not
     define ``__dasher_tokenize__``.
@@ -55,7 +55,12 @@ def normalize_attrs(obj: object) -> tuple:
         raise TypeError(
             f"normalize_attrs expected an attrs class, got {type(obj).__name__!r}"
         )
-    return tuple(sorted(obj.__getstate__().items()))
+    # Read the declared fields, not ``__getstate__``: a ``slots=False`` class's
+    # state is its whole ``__dict__`` (cached_property values included), and
+    # Python 3.10 has no ``object.__getstate__`` at all.
+    return tuple(
+        sorted((a.name, getattr(obj, a.name)) for a in attrs.fields(type(obj)))
+    )
 
 
 def normalize_object_or_attrs(obj: object) -> tuple:
