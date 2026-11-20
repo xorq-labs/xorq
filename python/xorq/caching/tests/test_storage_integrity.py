@@ -141,16 +141,19 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
             (str(tmp_path), key, 12, 11000, 37, "w1"),
         )
     ]
-    for writer in writers:
-        writer.start()
-    # one budget for both writers, not one per join
-    deadline = time.monotonic() + 120
-    for writer in writers:
-        writer.join(timeout=max(0, deadline - time.monotonic()))
-    hung = [writer for writer in writers if writer.is_alive()]
-    for writer in hung:
-        writer.kill()
-        writer.join()
+    try:
+        for writer in writers:
+            writer.start()
+        # one budget for both writers, not one per join
+        deadline = time.monotonic() + 120
+        for writer in writers:
+            writer.join(timeout=max(0, deadline - time.monotonic()))
+    finally:
+        # also on a failed start or an interrupt: no child outlives the test
+        hung = [writer for writer in writers if writer.is_alive()]
+        for writer in hung:
+            writer.kill()
+            writer.join()
     assert not hung, "a writer did not finish within 120s"
     # _write_one swallows the loser's rename error, so a nonzero exit means the
     # writer crashed (or never imported) and the race did not run.
