@@ -287,8 +287,11 @@ every_storage_backend = pytest.mark.parametrize(
     "backend_type", STORAGE_BACKENDS, scope="session"
 )
 
-# For tests whose outcome cannot depend on the storage backend.
-git_storage_only = pytest.mark.parametrize("backend_type", ("git",))
+# For tests whose outcome cannot depend on the storage backend. Session scope,
+# like every_storage_backend, so session templates can request backend_type.
+git_storage_only = pytest.mark.parametrize(
+    "backend_type", (pytest.param("git", id="git"),), scope="session"
+)
 
 
 @pytest.fixture(scope="session", params=STORAGE_BACKENDS)
@@ -514,9 +517,8 @@ def runner():
     yield _AutoVenvCliRunner()
 
 
-@pytest.fixture
-def catalog_with_source_and_transform(catalog_path):
-    """Populate a catalog with a source entry and an unbound transform entry."""
+def _add_source_and_transform(catalog_path: str) -> tuple[str, str]:
+    """Add a source entry and an unbound transform entry; return their names."""
     catalog = Catalog.from_kwargs(path=catalog_path, init=False)
 
     source = xo.memtable(
@@ -529,7 +531,51 @@ def catalog_with_source_and_transform(catalog_path):
     transform = unbound.filter(unbound.amount > 0).select("user_id", "amount")
     transform_entry = catalog.add(transform, aliases=("trn",))
 
-    return catalog_path, source_entry.name, transform_entry.name
+    return source_entry.name, transform_entry.name
+
+
+@pytest.fixture(scope="session")
+def _source_and_transform_template(
+    tmp_path_factory: pytest.TempPathFactory,
+    backend_type: str,
+    _metadata_only_wheel: EntryWheel,
+) -> tuple[Path, str, str]:
+    root = tmp_path_factory.mktemp(f"source-and-transform-template-{backend_type}")
+    repo_path = root / "repo"
+    _init_catalog_repo(repo_path, backend_type)
+    # built inside whichever test asks first: pin env and cwd to the template's
+    # own root so that test's tmp_path state never ends up in the template
+    with (
+        entry_wheel_artifacts(_metadata_only_wheel),
+        pytest.MonkeyPatch.context() as mp,
+    ):
+        mp.setenv("XORQ_CONTENT_CACHE_DIR", str(root / "content-cache"))
+        mp.chdir(root)
+        return repo_path, *_add_source_and_transform(str(repo_path))
+
+
+@pytest.fixture
+def catalog_with_source_and_transform(
+    request: pytest.FixtureRequest, tmp_path: Path, backend_type: str
+) -> tuple[str, str, str]:
+    """Populate a catalog with a source entry and an unbound transform entry.
+
+    Copied from a per-session template: adding the two entries costs most of
+    an annex test's time. Built in place instead for a pointer catalog, whose
+    repo records its store's absolute path (a copy would share the template's
+    store), and for an ``installs_entry_wheel`` test, whose entries must carry
+    the installable wheel rather than the template's metadata-only one.
+    """
+    installs = request.node.get_closest_marker("installs_entry_wheel") is not None
+    if installs or backend_type == "pointer":
+        catalog_path = request.getfixturevalue("catalog_path")
+        return catalog_path, *_add_source_and_transform(catalog_path)
+    template_path, source_name, transform_name = request.getfixturevalue(
+        "_source_and_transform_template"
+    )
+    dst = tmp_path / "repo"
+    shutil.copytree(template_path, dst, symlinks=True)
+    return str(dst), source_name, transform_name
 
 
 @pytest.fixture

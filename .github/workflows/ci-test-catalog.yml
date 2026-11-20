@@ -85,7 +85,7 @@ jobs:
           --cov --cov-report=xml
           python/xorq/catalog/tests
           -m "$M_FILTER"
-          -v --durations=20 -n auto --dist=loadfile
+          -v --durations=20 -n auto --dist=worksteal
         working-directory: ${{ github.workspace }}
 
       - name: Upload coverage reports to Codecov
