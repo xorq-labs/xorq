@@ -543,7 +543,14 @@ def _source_and_transform_template(
     root = tmp_path_factory.mktemp(f"source-and-transform-template-{backend_type}")
     repo_path = root / "repo"
     _init_catalog_repo(repo_path, backend_type)
-    with entry_wheel_artifacts(_metadata_only_wheel):
+    # built inside whichever test asks first: pin env and cwd to the template's
+    # own root so that test's tmp_path state never ends up in the template
+    with (
+        entry_wheel_artifacts(_metadata_only_wheel),
+        pytest.MonkeyPatch.context() as mp,
+    ):
+        mp.setenv("XORQ_CONTENT_CACHE_DIR", str(root / "content-cache"))
+        mp.chdir(root)
         return repo_path, *_add_source_and_transform(str(repo_path))
 
 
