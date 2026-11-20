@@ -287,8 +287,11 @@ every_storage_backend = pytest.mark.parametrize(
     "backend_type", STORAGE_BACKENDS, scope="session"
 )
 
-# For tests whose outcome cannot depend on the storage backend.
-git_storage_only = pytest.mark.parametrize("backend_type", ("git",))
+# For tests whose outcome cannot depend on the storage backend. Session scope,
+# like every_storage_backend, so session templates can request backend_type.
+git_storage_only = pytest.mark.parametrize(
+    "backend_type", (pytest.param("git", id="git"),), scope="session"
+)
 
 
 @pytest.fixture(scope="session", params=STORAGE_BACKENDS)
