@@ -25,9 +25,11 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# `--import-mode=importlib`, which ci-test.yml passes, imports this module
-# without putting its directory on `sys.path`, so the sibling below is
-# unimportable by bare name. Same insert, same reason, as scripts/tests/.
+# A local whole-repo run (`uv run --no-sync pytest --import-mode=importlib`
+# from the repo root) imports this module without putting its directory on
+# `sys.path`, so the sibling below is unimportable by bare name. ci-lint's
+# plain `pytest scripts/style_tests` does not need it. Same insert, same
+# reason, as scripts/tests/.
 sys.path.insert(0, str(Path(__file__).parent))
 
 from fixtures import FIXTURES, SUPPORT  # noqa: E402  (path set above)

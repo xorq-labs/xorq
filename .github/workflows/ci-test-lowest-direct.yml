@@ -91,6 +91,8 @@ jobs:
 
       - uses: ./.github/actions/postgres
 
+      # Keeps bare_install: ci-test runs it on 3.12 only, and this is the one
+      # bare-wheel check on the other Pythons, whose dependency markers differ.
       - name: pytest
         timeout-minutes: 20
         run: >
@@ -98,6 +100,8 @@ jobs:
           --import-mode=importlib
           -m '(core or (xorq_flight and dep_floor)) and not uv_export and not slow'
           --ignore=python/xorq/catalog
+          --ignore=scripts/tests
+          --ignore=scripts/style_tests
           -k 'not script_execution'
           -v --durations=20
           -n auto --dist=loadfile
