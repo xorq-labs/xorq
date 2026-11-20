@@ -1018,17 +1018,18 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if obj is None and schema is None:
             raise ValueError("Either `obj` or `schema` must be specified")
 
+        quoted = self.compiler.quoted
+        target = sg.table(name, db=database, quoted=quoted)
         if obj is None:
             # registered as arrow, not DDL: SQL types can't spell LargeUtf8,
             # int8, timestamp time zones or structs
-            ident = sg.to_identifier(name, quoted=True).sql(self.dialect)
+            ident = target.sql(self.dialect)
             empty = pa.RecordBatch.from_pylist([], schema.to_pyarrow())
             if overwrite:
                 self.con.deregister_table(ident)
             self.con.register_record_batches(ident, [[empty]])
             return self.table(name, database=database)
 
-        quoted = self.compiler.quoted
         table = obj if isinstance(obj, ir.Expr) else ibis.memtable(obj, schema=schema)
 
         self._run_pre_execute_hooks(table)
@@ -1054,7 +1055,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         create_stmt = sge.Create(
             kind="TABLE",
-            this=sg.to_identifier(name, quoted=quoted),
+            this=target,
             expression=query,
             replace=overwrite,
         )
