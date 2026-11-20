@@ -9,9 +9,11 @@ successfully; `exists()` then reported that artifact as a cache hit forever.
 
 import datetime
 import errno
+import faulthandler
 import logging
 import multiprocessing as mp
 import os
+import signal
 import time
 import uuid
 from pathlib import Path
@@ -109,6 +111,9 @@ def _lie_about_rows(monkeypatch):
 
 def _write_one(base, key, n_batches, rows_per_batch, width, tag):
     """Module-level so it survives pickling into a spawned process."""
+    # SIGTERM dumps every thread's stack to stderr instead of exiting, so a
+    # writer the test gives up on shows where it was stuck before the SIGKILL.
+    faulthandler.register(signal.SIGTERM, all_threads=True)
     try:
         _storage(base).put(
             key,
@@ -153,6 +158,8 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
         # also on a failed start or an interrupt: no child outlives the test
         hung = [writer for writer in writers if writer.is_alive()]
         for writer in hung:
+            writer.terminate()  # stack dump, see _write_one
+            writer.join(timeout=5)
             writer.kill()
             writer.join(timeout=10)
     assert not hung, "a writer did not finish within 120s"
