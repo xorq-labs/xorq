@@ -30,9 +30,6 @@ from xorq.common.utils.attr_utils import (
     convert_sorted_kwargs_tuple,
     validate_kwargs_tuple,
 )
-from xorq.common.utils.dasher import (
-    normalize_attrs,
-)
 from xorq.common.utils.dispatch import FQNDispatch
 from xorq.common.utils.func_utils import (
     return_constant,
@@ -352,8 +349,6 @@ class Step:
             fit=fit, predict=predict, return_type=return_type, name=klass_name
         )
         return cls(typ=typ, name=name)
-
-    __dasher_tokenize__ = normalize_attrs
 
 
 @frozen

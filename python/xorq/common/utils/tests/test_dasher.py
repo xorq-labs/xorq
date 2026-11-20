@@ -41,6 +41,7 @@ import pyarrow as pa
 import pytest
 import sqlglot
 import toolz
+from attrs import frozen
 from sqlglot.dialects.duckdb import DuckDB
 from xorq_dasher import fqn
 
@@ -1372,6 +1373,7 @@ def test_extra_rules_fqn_strings() -> None:
         "xorq.common.utils.toolz_utils.curry": xo_curry,
         "sklearn.utils._param_validation._Constraint": _SklearnConstraint,
         "sklearn.utils._param_validation.Hidden": _SklearnHidden,
+        "builtins.object": object,
     }
     # Checked only where its driver extra is installed. Keyed on a string so
     # that the fqn is still compared against production below in every job,
@@ -1594,3 +1596,44 @@ def test_normalize_bigquery_databasetable_keys_on_last_modified() -> None:
     assert token[:-1] == _bigquery_base(dt)
     assert token[-1] == 1721000000000
     assert type(token[-1]) is int
+
+
+# --- attrs fallback ------------------------------------------------------------
+
+
+@frozen
+class _PlainAttrs:
+    a: int
+    b: str
+
+
+@frozen
+class _SelectiveAttrs:
+    a: int
+    noise: int
+
+    def __dasher_tokenize__(self):
+        return ("selective", self.a)
+
+
+def test_attrs_fallback_tokenizes_attrs_class_without_method():
+    assert tokenize(_PlainAttrs(1, "x")) == tokenize(_PlainAttrs(1, "x"))
+    assert tokenize(_PlainAttrs(1, "x")) != tokenize(_PlainAttrs(2, "x"))
+    assert tokenize(_PlainAttrs(1, "x")) != tokenize(_PlainAttrs(1, "y"))
+
+
+def test_attrs_fallback_keeps_manual_method():
+    assert tokenize(_SelectiveAttrs(1, noise=0)) == tokenize(
+        _SelectiveAttrs(1, noise=99)
+    )
+    assert tokenize(_SelectiveAttrs(1, noise=0)) != tokenize(
+        _SelectiveAttrs(2, noise=0)
+    )
+
+
+def test_attrs_fallback_still_raises_for_plain_object():
+    class Plain:
+        pass
+
+    with pytest.raises(ValueError, match="No normalizer registered"):
+        tokenize(Plain())
