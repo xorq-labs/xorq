@@ -238,7 +238,7 @@ def test_planning_failure_releases_resources(
     def boom(*args, **kwargs):
         raise RuntimeError("planning failed")
 
-    monkeypatch.setattr(type(target), "_to_isolated_pyarrow_batches", boom)
+    monkeypatch.setattr(type(target), "to_pyarrow_batches", boom)
     with pytest.raises(RuntimeError, match="planning failed"):
         to_pyarrow_batches(expr)
     assert_all_closed_once(recording_caches)

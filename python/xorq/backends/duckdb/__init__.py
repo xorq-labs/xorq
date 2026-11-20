@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import functools
 import threading
-import weakref
-from collections.abc import Mapping, Sequence, Set
+from collections.abc import Mapping
 from typing import Any
 
 import pyarrow as pa
@@ -27,81 +25,27 @@ __all__ = [
 ]
 
 
-# what each relation a query names is on the connection; a fresh cursor of it
-# sees the persistent ones only
-CATALOG_SQL = """
+# a fresh cursor of the connection sees none of its TEMP objects and LOCAL
+# settings, so it streams only what reads persistent tables alone
+RELATIONS_SQL = """
 SELECT * FROM (
-    SELECT 'table' AS kind, database_name, schema_name, table_name AS name,
-        table_oid AS oid, temporary
+    SELECT lower(table_name) AS name, NOT temporary AS persistent_table
     FROM duckdb_tables()
     UNION ALL
-    SELECT 'view', database_name, schema_name, view_name, view_oid, temporary
-    FROM duckdb_views() WHERE NOT internal
-) WHERE list_contains($names, lower(name))
+    SELECT lower(view_name), false FROM duckdb_views() WHERE NOT internal
+) WHERE list_contains($names, name)
 """
-# a registered object is a TEMP view too, with a new oid when replaced
-TEMP_VIEW_OID_SQL = (
-    "SELECT view_oid FROM duckdb_views() WHERE temporary AND view_name = $name"
-)
-SESSION_SETTINGS_SQL = (
+LOCAL_SETTINGS_SQL = (
     "SELECT name, value FROM duckdb_settings()"
     " WHERE scope = 'LOCAL' AND value IS NOT NULL"
 )
 
 
 @frozen
-class CatalogEntry:
-    kind: str
-    catalog: str
-    schema: str
-    name: str
-    oid: int
-    temporary: bool
-
-    def is_named_by(self, table: sge.Table) -> bool:
-        # duckdb names are case-insensitive
-        return (
-            table.name.lower() == self.name.lower()
-            and table.db.lower() in ("", self.schema.lower())
-            and table.catalog.lower() in ("", self.catalog.lower())
-        )
-
-
-def cursor_blocker(
-    table: sge.Table,
-    entries: tuple[CatalogEntry, ...],
-    ctes: frozenset[str],
-    xorq_oids: Set[int],
-) -> str | None:
-    """Why a fresh cursor can't read ``table`` as the connection does, or None:
-    it reads a persistent table, or a TEMP object xorq created and replays."""
-    if not isinstance(table.this, sge.Identifier):
-        return f"table function {table.this.sql('duckdb')}"
-    found = tuple(entry for entry in entries if entry.is_named_by(table))
-    # a TEMP object shadows every persistent one of its name
-    match tuple(entry for entry in found if entry.temporary) or found:
-        case () if table.name.lower() in ctes:
-            return None
-        case ():
-            return f"unknown relation {'.'.join(part.name for part in table.parts)}"
-        case (CatalogEntry(temporary=True) as entry, *_) if table.name.lower() in ctes:
-            return f"CTE named like TEMP {entry.kind} {entry.name}"
-        case (entry,) if entry.oid in xorq_oids:
-            return None
-        case (CatalogEntry(kind="table", temporary=True) as entry, *_):
-            return f"TEMP table {entry.name}"
-        case _ if all(entry.kind == "table" for entry in found):
-            return None
-        case (entry, *_):
-            return f"{'TEMP ' * entry.temporary}view {entry.name} not created by xorq"
-
-
-@frozen
 class ConnectionStream:
-    """A stream on the connection itself, live until read through or
-    collected: ``close`` is the hook ``bind_scope_to_reader`` calls."""
+    """A remote stream left on the connection, open until
+    ``bind_scope_to_reader`` closes it on read-through or collection."""
 
-    blockers: tuple[str, ...]
     closed: threading.Event = field(factory=threading.Event)
 
     def close(self) -> None:
@@ -136,6 +80,8 @@ def parse_column_type(name, typ, type_mapper) -> tuple[str, dt.DataType]:
 
 
 class Backend(IbisDuckDBBackend):
+    _connection_stream: ConnectionStream | None = None
+
     def execute(
         self,
         expr: ir.Expr,
@@ -158,7 +104,7 @@ class Backend(IbisDuckDBBackend):
         # replayable, so casting to the logical schema happens upstream, before
         # the StreamCache, in the remote pass (REMOTE_PASS / _make_remote_replacer).
         table_name = table_name or gen_name("read_record_batches")
-        self._register(table_name, source)
+        self.con.register(table_name, source)
         return self.table(table_name)
 
     def to_pyarrow_batches(
@@ -175,23 +121,6 @@ class Backend(IbisDuckDBBackend):
             expr, params=params, limit=limit
         ).fetch_arrow_reader(chunk_size)
 
-    def _check_no_connection_stream(self) -> None:
-        # Building any stream runs statements on the connection, so none may
-        # start while a remote stream left on it is open.
-        match self._connection_stream:
-            case ConnectionStream(blockers=blockers, closed=closed) if (
-                not closed.is_set()
-            ):
-                raise XorqError(
-                    "DuckDB streams one result per connection, and a stream on"
-                    " this connection is still open: it reads"
-                    f" {', '.join(blockers)}, which a separate cursor cannot see."
-                    " Another statement on the connection would silently empty"
-                    " that stream. Read persistent tables, create the data"
-                    " through xorq (read_* methods, memtables), or execute one"
-                    " side first."
-                )
-
     def _to_isolated_pyarrow_batches(
         self,
         expr: ir.Expr,
@@ -201,62 +130,52 @@ class Backend(IbisDuckDBBackend):
         chunk_size: int = 10_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
-        # duckdb keeps one pending result per connection: any later statement
-        # on ``self.con`` empties a stream on it without an error (GH #1733),
-        # so a remote stream goes on its own cursor whenever the cursor reads
-        # alike.
+        # duckdb keeps one pending result per connection: a later statement on
+        # it empties a stream there without an error (GH #1733), so a remote
+        # stream goes on its own cursor when the cursor reads alike
         self._check_no_connection_stream()
         sql = self._to_duckdb_sql(expr, params=params, limit=limit)
-        sources, blockers = self._cursor_sources(sql)
-        if blockers:
+        if not self._reads_persistent_tables_only(sql):
+            self._connection_stream = ConnectionStream()
             reader = self.con.sql(sql).fetch_arrow_reader(chunk_size)
-            self._connection_stream = ConnectionStream(blockers)
             return bind_scope_to_reader(self._connection_stream, reader)
         cursor = self.con.cursor()
-        for name, value in self._session_settings():
+        defaults = frozenset(cursor.execute(LOCAL_SETTINGS_SQL).fetchall())
+        settings = frozenset(self.con.execute(LOCAL_SETTINGS_SQL).fetchall())
+        for name, value in settings - defaults:
             cursor.execute(f"SET {name} = {sge.convert(value).sql(self.dialect)}")
-        for name, source in sources:
-            match source:
-                case str():
-                    cursor.execute(source)
-                case _:
-                    cursor.register(name, source)
         reader = cursor.sql(sql).fetch_arrow_reader(chunk_size)
         return bind_scope_to_reader(cursor, reader)
 
-    def _post_connect(self, extensions: Sequence[str] | None = None) -> None:
-        # what xorq put in the TEMP catalog: the oid and CREATE statement of a
-        # read_* view by name (a re-read replaces it), or the object
-        # registered by oid (weakly: duckdb holds it)
-        self._xorq_views = {}
-        self._xorq_objects = weakref.WeakValueDictionary()
-        self._connection_stream = None
-        super()._post_connect(extensions)
+    def _check_no_connection_stream(self) -> None:
+        match self._connection_stream:
+            case ConnectionStream(closed=closed) if not closed.is_set():
+                raise XorqError(
+                    "DuckDB streams one result per connection, and a remote"
+                    " stream on this connection is still open: it reads"
+                    " relations other than persistent tables, which a"
+                    " separate cursor cannot see. Another statement on the"
+                    " connection would silently empty that stream. Read"
+                    " persistent tables, or execute one side first."
+                )
 
-    def _register(self, name: str, obj: Any) -> None:
-        super()._register(name, obj)
-        self._xorq_objects[self._temp_view_oid(name)] = obj
-
-    def _create_temp_view(self, table_name, source) -> None:
-        super()._create_temp_view(table_name, source)
-        self._xorq_views[table_name] = (
-            self._temp_view_oid(table_name),
-            self._get_temp_view_definition(table_name, source).sql(self.name),
+    def _reads_persistent_tables_only(self, sql: str) -> bool:
+        try:
+            parsed = sg.parse_one(sql, read=self.dialect)
+        except sg.errors.ParseError:
+            return False
+        tables = tuple(parsed.find_all(sge.Table))
+        ctes = frozenset(cte.alias_or_name.lower() for cte in parsed.find_all(sge.CTE))
+        names = frozenset(table.name.lower() for table in tables) - ctes
+        # a qualified name still matches every relation of that name, so a
+        # TEMP object named like a persistent table keeps the stream here
+        found = self.con.execute(RELATIONS_SQL, {"names": list(names)}).fetchall()
+        return (
+            all(isinstance(table.this, sge.Identifier) for table in tables)
+            and frozenset(name for name, _ in found) == names
+            and all(persistent_table for _, persistent_table in found)
+            and not self._in_transaction()
         )
-
-    def _temp_view_oid(self, name: str) -> int:
-        ((oid,),) = self.con.execute(TEMP_VIEW_OID_SQL, {"name": name}).fetchall()
-        return oid
-
-    @functools.cached_property
-    def _cursor_settings(self) -> frozenset[tuple[str, str]]:
-        with self.con.cursor() as cursor:
-            return frozenset(cursor.execute(SESSION_SETTINGS_SQL).fetchall())
-
-    def _session_settings(self) -> frozenset[tuple[str, str]]:
-        """The connection's settings a fresh cursor lacks, e.g. ``TimeZone``."""
-        settings = self.con.execute(SESSION_SETTINGS_SQL).fetchall()
-        return frozenset(settings) - self._cursor_settings
 
     def _in_transaction(self) -> bool:
         # each autocommit statement gets a new id; BEGIN ... COMMIT shares one
@@ -264,41 +183,6 @@ class Backend(IbisDuckDBBackend):
             self.con.execute("SELECT txid_current()").fetchall() for _ in range(2)
         )
         return first == second
-
-    def _cursor_sources(
-        self, sql: str
-    ) -> tuple[tuple[tuple[str, Any], ...], tuple[str, ...]]:
-        """The xorq TEMP objects a cursor replays to read ``sql``, as (name,
-        CREATE statement or object), and why it can't read ``sql``: relations
-        it can't see or an open transaction."""
-        try:
-            parsed = sg.parse_one(sql, read=self.dialect)
-        except sg.errors.ParseError:
-            return (), ("SQL sqlglot cannot parse",)
-        tables = tuple(parsed.find_all(sge.Table))
-        ctes = frozenset(cte.alias_or_name.lower() for cte in parsed.find_all(sge.CTE))
-        rows = self.con.execute(
-            CATALOG_SQL, {"names": [table.name.lower() for table in tables]}
-        ).fetchall()
-        # the name filter in SQL ignores qualifiers: a TEMP view named like a
-        # qualified persistent table is neither read nor replayed
-        entries = tuple(
-            entry
-            for entry in (CatalogEntry(*row) for row in rows)
-            if any(entry.is_named_by(table) for table in tables)
-        )
-        views = dict(self._xorq_views.values())
-        sources = {
-            entry.oid: (entry.name, source)
-            for entry in entries
-            if (source := views.get(entry.oid, self._xorq_objects.get(entry.oid)))
-            is not None
-        }
-        blockers = (
-            *("an open transaction",) * self._in_transaction(),
-            *(cursor_blocker(table, entries, ctes, sources.keys()) for table in tables),
-        )
-        return tuple(sources.values()), tuple(dict.fromkeys(filter(None, blockers)))
 
     def _type_struct(self, mapping: Mapping[str, str | dt.DataType]) -> sge.Struct:
         type_mapper = self.compiler.type_mapper

@@ -674,8 +674,7 @@ def to_pyarrow_batches(
         Maximum number of rows in each returned record batch.
     isolated
         Whether later statements on the backend must leave the stream intact,
-        as for the streams the remote pass opens before reading any. Implied
-        when the remote pass replaced any table in ``expr``.
+        as for the streams the remote pass opens before reading any.
     kwargs
         Keyword arguments
 
@@ -696,11 +695,9 @@ def to_pyarrow_batches(
     try:
         con, _ = find_backend(expr.op(), use_default=True)
         span.set_attribute("engine", con.name)
-        # a query over the remote pass's placeholders runs beside the streams
-        # feeding them, and their cleanup runs statements on its backend
         to_batches = (
             con._to_isolated_pyarrow_batches  # xorq-style: disable=protected-access
-            if isolated or scope.table_count
+            if isolated
             else con.to_pyarrow_batches
         )
         reader = to_batches(expr, chunk_size=chunk_size, **kwargs)
