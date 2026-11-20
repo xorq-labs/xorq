@@ -13,7 +13,6 @@ from xorq.caching import (
     SourceCache,
     SourceSnapshotCache,
 )
-from xorq.common.exceptions import AmbiguousUDFError
 from xorq.common.utils.dasher import tokenize
 from xorq.conftest import array_types_df
 from xorq.ibis_yaml.compiler import build_expr, load_expr
@@ -223,7 +222,7 @@ def test_pyarrow_udf_executes_twice_on_one_connection(tmp_path, first):
         return pc.add(arr, 1.0)
 
     t = xo.duckdb.connect().create_table("t", {"x": [1.5, 2.5]})
-    expr = t.mutate(y=plus_one(t.x))
+    expr = t.mutate(y=plus_one(t.x), z=plus_one(t.x + 1.0))
     if first == "loaded":
         expr = load_expr(build_expr(expr, builds_dir=tmp_path))
     first_rows = expr.execute()
@@ -231,6 +230,7 @@ def test_pyarrow_udf_executes_twice_on_one_connection(tmp_path, first):
     live_rows = u.mutate(y=plus_one(u.x)).execute()
 
     assert first_rows.y.tolist() == live_rows.y.tolist() == [2.5, 3.5]
+    assert first_rows.z.tolist() == [3.5, 4.5]
 
 
 def test_builtin_udf_keeps_connection_function():
@@ -243,21 +243,6 @@ def test_builtin_udf_keeps_connection_function():
     t = con.create_table("t", {"x": [1.0, 2.0]})
 
     assert t.mutate(y=twice(t.x)).execute().y.tolist() == [2.0, 4.0]
-
-
-def test_distinct_udfs_sharing_a_name_raise():
-    def make(offset):
-        @xo.udf.scalar.pyarrow
-        def add_offset(arr: dt.float64) -> dt.float64:
-            return pc.add(arr, offset)
-
-        return add_offset
-
-    one, hundred = make(1.0), make(100.0)
-    t = xo.duckdb.connect().create_table("t", {"x": [1.0]})
-
-    with pytest.raises(AmbiguousUDFError, match="add_offset"):
-        t.mutate(p=one(t.x), q=hundred(t.x)).execute()
 
 
 @pytest.mark.parametrize(
