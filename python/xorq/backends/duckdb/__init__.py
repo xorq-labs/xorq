@@ -20,6 +20,9 @@ __all__ = [
     "Backend",
 ]
 
+# reader options that DuckDB types as a column name -> type STRUCT
+TYPE_MAPPING_OPTIONS = frozenset({"hive_types", "dtypes", "column_types"})
+
 
 def parse_column_type(name, typ, type_mapper) -> tuple[str, dt.DataType]:
     """DuckDB type string and ibis dtype for `typ`: an ibis dtype, an ibis type
@@ -111,6 +114,32 @@ class Backend(IbisDuckDBBackend):
             if mapping is not None
         }
 
+    def _type_kwargs(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
+        """Convert column-to-type reader options to the STRUCT DuckDB requires;
+        sqlglot would otherwise send a dict as a MAP."""
+        return {
+            **kwargs,
+            **self._type_options(
+                **{
+                    key: val
+                    for key, val in kwargs.items()
+                    if key in TYPE_MAPPING_OPTIONS and isinstance(val, Mapping)
+                }
+            ),
+        }
+
+    def read_parquet(
+        self,
+        paths: str | list[str] | tuple[str],
+        /,
+        *,
+        table_name: str | None = None,
+        **kwargs: Any,
+    ) -> ir.Table:
+        return super().read_parquet(
+            paths, table_name=table_name, **self._type_kwargs(kwargs)
+        )
+
     def read_csv(
         self,
         paths: str | list[str] | tuple[str],
@@ -132,7 +161,7 @@ class Backend(IbisDuckDBBackend):
             table_name=table_name,
             **{
                 "auto_detect": columns is None,
-                **kwargs,
+                **self._type_kwargs(kwargs),
                 **self._type_options(COLUMNS=columns, dtypes=types),
             },
         )
@@ -152,5 +181,8 @@ class Backend(IbisDuckDBBackend):
         return super().read_json(
             paths,
             table_name=table_name,
-            **{**kwargs, **self._type_options(COLUMNS=columns or None)},
+            **{
+                **self._type_kwargs(kwargs),
+                **self._type_options(COLUMNS=columns or None),
+            },
         )

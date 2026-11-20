@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
@@ -88,3 +90,34 @@ def test_read_csv_columns_and_types(tmp_path):
     assert t.execute().a.tolist() == [1, 2]
     t = con.read_csv(path, types={"a": "DECIMAL(10,2)"})
     assert duckdb_types(con, t) == {"a": "DECIMAL(10,2)", "b": "VARCHAR"}
+
+
+@readers
+def test_hive_types(tmp_path, method, filename):
+    (path := tmp_path / "k=1" / filename).parent.mkdir()
+    path.write_text("a\n1\n" if filename.endswith("csv") else '{"a": 1}\n')
+    con = xo.duckdb.connect()
+    t = getattr(con, method)(
+        tmp_path / "*" / filename, hive_partitioning=True, hive_types={"k": "VARCHAR"}
+    )
+    assert duckdb_types(con, t)["k"] == "VARCHAR"
+
+
+def test_read_parquet_hive_types(tmp_path):
+    (path := tmp_path / "k=1" / "t.parquet").parent.mkdir()
+    pq.write_table(pa.table({"a": [1]}), path)
+    con = xo.duckdb.connect()
+    t = con.read_parquet(
+        tmp_path / "*" / "t.parquet",
+        hive_partitioning=True,
+        hive_types={"k": "VARCHAR"},
+    )
+    assert duckdb_types(con, t)["k"] == "VARCHAR"
+
+
+@pytest.mark.parametrize("option", ["dtypes", "column_types"])
+def test_read_csv_type_option_aliases(tmp_path, option):
+    (path := tmp_path / "t.csv").write_text("a,b\n1,x\n")
+    con = xo.duckdb.connect()
+    t = con.read_csv(path, **{option: {"a": "VARCHAR"}})
+    assert duckdb_types(con, t) == {"a": "VARCHAR", "b": "VARCHAR"}
