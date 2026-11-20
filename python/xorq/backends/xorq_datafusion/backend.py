@@ -988,7 +988,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         obj: pd.DataFrame | pa.Table | ir.Table | None = None,
         *,
         schema: sch.Schema | None = None,
-        database: str | None = None,
+        database: tuple[str, str] | str | None = None,
         temp: bool = False,
         overwrite: bool = False,
     ) -> ir.Table:
@@ -1019,7 +1019,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             raise ValueError("Either `obj` or `schema` must be specified")
 
         quoted = self.compiler.quoted
-        target = sg.table(name, db=database, quoted=quoted)
+        catalog, db = self._to_catalog_db_tuple(self._to_sqlglot_table(database))
+        target = sg.table(name, db=db, catalog=catalog, quoted=quoted)
         if obj is None:
             # registered as arrow, not DDL: SQL types can't spell LargeUtf8,
             # int8, timestamp time zones or structs

@@ -191,11 +191,19 @@ def test_create_table_temp(kwargs):
         param({"schema": ibis.schema({"a": "int64"})}, id="schema"),
     ],
 )
-def test_create_table_in_database(kwargs):
+@pytest.mark.parametrize(
+    "database",
+    [
+        param("foo", id="name"),
+        param("datafusion.foo", id="dotted"),
+        param(("datafusion", "foo"), id="tuple"),
+    ],
+)
+def test_create_table_in_database(kwargs, database):
     con = xo.connect()
     con.create_database("foo")
 
-    t = con.create_table("tt", database="foo", **kwargs)
+    t = con.create_table("tt", database=database, **kwargs)
 
     assert t.schema() == ibis.schema({"a": "int64"})
     assert con.get_schema("tt", database="foo") == t.schema()
