@@ -232,6 +232,18 @@ def test_pyarrow_udf_executes_twice_on_one_connection(tmp_path, first):
     assert first_rows.y.tolist() == live_rows.y.tolist() == [2.5, 3.5]
 
 
+def test_builtin_udf_keeps_connection_function():
+    con = xo.duckdb.connect()
+    con.con.create_function("twice", lambda x: x * 2, ["DOUBLE"], "DOUBLE")
+
+    @xo.udf.scalar.builtin
+    def twice(x: dt.float64) -> dt.float64: ...
+
+    t = con.create_table("t", {"x": [1.0, 2.0]})
+
+    assert t.mutate(y=twice(t.x)).execute().y.tolist() == [2.0, 4.0]
+
+
 @pytest.mark.parametrize(
     "column",
     [
