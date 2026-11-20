@@ -1827,7 +1827,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                 self, f"_register_{udf_node.__input_type__.name.lower()}_udf"
             )
             with contextlib.suppress(duckdb.InvalidInputException):
-                con.remove_function(udf_node.__class__.__name__)
+                con.remove_function(udf_node.__func_name__)
 
             registration_func = register_func(udf_node)
             if registration_func is not None:

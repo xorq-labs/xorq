@@ -215,6 +215,23 @@ def test_pyarrow_udf_load_keeps_volatility(tmp_path):
     assert loaded.execute().r.nunique() == expr.execute().r.nunique() == 3
 
 
+@pytest.mark.parametrize("first", ["live", "loaded"])
+def test_pyarrow_udf_executes_twice_on_one_connection(tmp_path, first):
+    @xo.udf.scalar.pyarrow
+    def plus_one(arr: dt.float64) -> dt.float64:
+        return pc.add(arr, 1.0)
+
+    t = xo.duckdb.connect().create_table("t", {"x": [1.5, 2.5]})
+    expr = t.mutate(y=plus_one(t.x))
+    if first == "loaded":
+        expr = load_expr(build_expr(expr, builds_dir=tmp_path))
+    first_rows = expr.execute()
+    u = expr._find_backend().create_table("u", {"x": [1.5, 2.5]})
+    live_rows = u.mutate(y=plus_one(u.x)).execute()
+
+    assert first_rows.y.tolist() == live_rows.y.tolist() == [2.5, 3.5]
+
+
 @pytest.mark.parametrize(
     "column",
     [
