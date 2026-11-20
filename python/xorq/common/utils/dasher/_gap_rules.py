@@ -12,7 +12,9 @@ import operator
 import types
 from typing import TYPE_CHECKING
 
+import attrs
 import toolz
+from xorq_dasher.rules.fallback import normalize_object_fallback
 from xorq_dasher.rules.functions import normalize_function
 
 from xorq.common.utils.inspect_utils import get_partial_arguments
@@ -44,15 +46,31 @@ def _extract_methodcaller_fields(
 
 
 def normalize_attrs(obj: object) -> tuple:
-    """Stable normalization for any ``attrs.frozen`` object.
+    """Normalize an attrs instance (frozen or mutable) by its declared fields.
 
-    Used by classes that previously aliased ``__dask_tokenize__ = normalize_attrs``.
+    Applied by :func:`normalize_object_or_attrs` to attrs classes that do not
+    define ``__dasher_tokenize__``.
     """
     if not hasattr(type(obj), "__attrs_attrs__"):
         raise TypeError(
             f"normalize_attrs expected an attrs class, got {type(obj).__name__!r}"
         )
-    return tuple(sorted(obj.__getstate__().items()))
+    # Read the declared fields, not ``__getstate__``: a ``slots=False`` class's
+    # state is its whole ``__dict__`` (cached_property values included), and
+    # Python 3.10 has no ``object.__getstate__`` at all.
+    return tuple(
+        sorted((a.name, getattr(obj, a.name)) for a in attrs.fields(type(obj)))
+    )
+
+
+def normalize_object_or_attrs(obj: object) -> tuple:
+    """Fallback for ``builtins.object``: an attrs instance without its own
+    ``__dasher_tokenize__`` normalizes by its fields; anything else defers to
+    xorq_dasher's fallback (call ``__dasher_tokenize__`` or raise).
+    """
+    if attrs.has(type(obj)) and not hasattr(obj, "__dasher_tokenize__"):
+        return normalize_attrs(obj)
+    return normalize_object_fallback(obj)
 
 
 def normalize_lru_cache(func: functools._lru_cache_wrapper) -> tuple:
@@ -179,6 +197,7 @@ __all__ = [
     "normalize_lru_cache",
     "normalize_methodcaller",
     "normalize_numpy_dtype",
+    "normalize_object_or_attrs",
     "normalize_pandas_dataframe",
     "normalize_pandas_series",
     "normalize_property",

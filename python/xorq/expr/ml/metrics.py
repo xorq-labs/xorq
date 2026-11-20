@@ -22,7 +22,6 @@ from xorq.common.utils.attr_utils import (
     convert_sorted_kwargs_tuple,
     validate_kwargs_tuple,
 )
-from xorq.common.utils.dasher import normalize_attrs
 from xorq.common.utils.name_utils import make_name
 from xorq.expr.ml.enums import ResponseMethod
 
@@ -489,8 +488,6 @@ class MetricComputation:
             name=self.name,
         )
         return metric_udaf.on_expr(expr)
-
-    __dasher_tokenize__ = normalize_attrs
 
     @staticmethod
     def _coerce_ndarray(predictions):
