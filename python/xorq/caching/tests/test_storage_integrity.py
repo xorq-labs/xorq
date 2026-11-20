@@ -129,15 +129,26 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
     writers diverged in batch count, row count and string width.
     """
     key = "xorq_cache-concurrent"
+    # Plain processes rather than a Pool: Pool.__exit__ terminates its workers
+    # and then joins them with no timeout, which hung a CI worker until the job
+    # timeout. A bounded join followed by SIGKILL cannot hang.
     ctx = mp.get_context("spawn")
-    with ctx.Pool(2) as pool:
-        pool.starmap(
-            _write_one,
-            [
-                (str(tmp_path), key, 40, 5000, 120, "w0"),
-                (str(tmp_path), key, 12, 11000, 37, "w1"),
-            ],
+    writers = [
+        ctx.Process(target=_write_one, args=args)
+        for args in (
+            (str(tmp_path), key, 40, 5000, 120, "w0"),
+            (str(tmp_path), key, 12, 11000, 37, "w1"),
         )
+    ]
+    for writer in writers:
+        writer.start()
+    for writer in writers:
+        writer.join(timeout=120)
+    hung = [writer for writer in writers if writer.is_alive()]
+    for writer in hung:
+        writer.kill()
+        writer.join()
+    assert not hung, "a writer did not finish within 120s"
 
     published = _storage(tmp_path).get_path(key)
     assert published.exists(), "one writer must still publish a result"
