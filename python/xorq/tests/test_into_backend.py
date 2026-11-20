@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import itertools
 import operator
 import random
@@ -11,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from pytest import param
 
 import xorq.api as xo
@@ -805,3 +808,109 @@ def test_into_backend_projects_extra_physical_column():
         pd.DataFrame({"a": [1, 2, 3]}),
         check_dtype=False,
     )
+
+
+def test_into_backend_two_duckdb_streams_issue_snippet():
+    # GH #1733: two streams from one duckdb connection, opened before either
+    # is read
+    con = xo.duckdb.connect()
+    con.raw_sql(
+        "CREATE TABLE flights AS SELECT * FROM (VALUES (1, 'ATL'), (2, 'LAX'), (3, 'ATL')) t(id, origin)"
+    )
+    con.raw_sql(
+        "CREATE TABLE airports AS SELECT * FROM (VALUES ('ATL', 'Atlanta'), ('LAX', 'Los Angeles')) t(code, city)"
+    )
+
+    flights = con.table("flights")
+    airports = con.table("airports")
+
+    target = xo.connect()  # DataFusion
+    f = flights.into_backend(target)
+    a = airports.into_backend(target)
+    actual = f.inner_join(a, f.origin == a.code).execute()
+
+    assert sorted(actual.id) == [1, 2, 3]
+
+
+DUCKDB_ROWS = "SELECT * FROM range(3) t(k)"
+# kind -> SQL that creates relation {n} on a duckdb connection
+DUCKDB_RELATIONS = {
+    "table": "CREATE TABLE {n} AS {rows}",
+    "view_of_table": "CREATE TABLE {n}_t AS {rows}; CREATE VIEW {n} AS SELECT * FROM {n}_t",
+    "temp_table": "CREATE TEMP TABLE {n} AS {rows}",
+    "temp_view": "CREATE TEMP VIEW {n} AS {rows}",
+    "view_of_temp_view": "CREATE TEMP VIEW {n}_t AS {rows}; CREATE VIEW {n} AS SELECT * FROM {n}_t",
+    "view_of_table_function": "CREATE VIEW {n} AS {rows}",
+}
+# what a fresh cursor of the connection can read
+DUCKDB_CURSOR_READS = frozenset({"table", "view_of_table"})
+# where the streams go; resolved inside the test, so collection never needs duckdb
+DUCKDB_TARGETS = {
+    "datafusion": lambda src: xo.connect(),
+    "duckdb": lambda src: xo.duckdb.connect(),
+    "source": lambda src: src,
+}
+
+
+@given(
+    kinds=st.lists(st.sampled_from(sorted(DUCKDB_RELATIONS)), min_size=1, max_size=3),
+    target=st.sampled_from(sorted(DUCKDB_TARGETS)),
+)
+def test_into_backend_duckdb_streams_return_all_rows_or_raise(kinds, target):
+    # duckdb keeps one pending result per connection: streams over what a
+    # cursor reads return every row; any other mix may raise, never lose rows
+    src = xo.duckdb.connect()
+    for i, kind in enumerate(kinds):
+        src.raw_sql(DUCKDB_RELATIONS[kind].format(n=f"r{i}", rows=DUCKDB_ROWS))
+    into = DUCKDB_TARGETS[target](src)
+    expr = functools.reduce(
+        lambda left, right: left.union(right, distinct=False),
+        (src.table(f"r{i}").into_backend(into) for i in range(len(kinds))),
+    )
+    must_succeed = DUCKDB_CURSOR_READS.issuperset(kinds) or (
+        len(kinds) == 1 and target != "source"
+    )
+
+    try:
+        actual = expr.count().execute()
+    except XorqError as e:
+        assert not must_succeed, e
+        assert "one result per connection" in str(e)
+    else:
+        assert actual == 3 * len(kinds)
+
+
+def test_into_backend_duckdb_chain_back_into_source_raises():
+    # main hangs here: the source connection both streams and registers
+    src = xo.duckdb.connect()
+    t = src.create_table("a", pd.DataFrame({"k": [1, 2, 3]}))
+    expr = t.into_backend(src).into_backend(xo.connect()).into_backend(src)
+
+    with pytest.raises(XorqError, match="one result per connection"):
+        expr.execute()
+
+
+@pytest.mark.parametrize("timezone", [None, "America/New_York"])
+def test_into_backend_duckdb_stream_keeps_session_timezone(timezone):
+    src = xo.duckdb.connect()
+    if timezone is not None:
+        src.settings["TimeZone"] = timezone
+    expr = src.sql(
+        "SELECT CAST('2024-01-01 00:00:00' AS TIMESTAMPTZ) AS ts"
+    ).into_backend(xo.connect())
+
+    (actual,) = expr.execute().ts
+
+    assert actual == pd.Timestamp("2024-01-01", tz=timezone or "UTC")
+
+
+def test_duckdb_plain_stream_while_remote_stream_on_the_connection_raises():
+    con = xo.duckdb.connect()
+    con.raw_sql("CREATE TEMP VIEW a AS SELECT * FROM range(1, 4) t(k)")
+    t = con.table("a")
+    reader = t.into_backend(xo.connect()).to_pyarrow_batches()
+
+    with pytest.raises(XorqError, match="one result per connection"):
+        t.execute()
+
+    assert sorted(reader.read_all()["k"].to_pylist()) == [1, 2, 3]

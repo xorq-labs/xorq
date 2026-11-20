@@ -483,7 +483,9 @@ def _make_remote_replacer(
     def replacer(node, kwargs):
         if isinstance(node, RemoteTable):
             remote_expr = node.remote_expr
-            raw_reader = scope.adopt_reader(remote_expr.to_pyarrow_batches())
+            raw_reader = scope.adopt_reader(
+                remote_expr.to_pyarrow_batches(isolated=True)
+            )
             logical_schema = node.schema.to_pyarrow()
             casting_reader = project_and_cast_reader(raw_reader, logical_schema)
             cache = scope.adopt_cache(

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping
 from typing import Any
 
 import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
+from attr import field, frozen
 from batchcorder import StreamCache
 from parsy import ParseError
 
 import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.common.exceptions import XorqError
+from xorq.expr.remote_table_exec import bind_scope_to_reader
 from xorq.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
 from xorq.vendor.ibis.common.annotations import SignatureValidationError
 from xorq.vendor.ibis.expr import types as ir
@@ -19,6 +23,32 @@ from xorq.vendor.ibis.util import gen_name
 __all__ = [
     "Backend",
 ]
+
+
+# a fresh cursor of the connection sees none of its TEMP objects and LOCAL
+# settings, so it streams only what reads persistent relations alone
+RELATIONS_SQL = """
+SELECT * FROM (
+    SELECT lower(table_name) AS name, temporary, NULL AS sql FROM duckdb_tables()
+    UNION ALL
+    SELECT lower(view_name), temporary, sql FROM duckdb_views() WHERE NOT internal
+) WHERE list_contains($names, name)
+"""
+LOCAL_SETTINGS_SQL = (
+    "SELECT name, value FROM duckdb_settings()"
+    " WHERE scope = 'LOCAL' AND value IS NOT NULL"
+)
+
+
+@frozen
+class ConnectionStream:
+    """A remote stream left on the connection, open until
+    ``bind_scope_to_reader`` closes it on read-through or collection."""
+
+    closed: threading.Event = field(factory=threading.Event)
+
+    def close(self) -> None:
+        self.closed.set()
 
 
 def parse_column_type(name, typ, type_mapper) -> tuple[str, dt.DataType]:
@@ -49,6 +79,8 @@ def parse_column_type(name, typ, type_mapper) -> tuple[str, dt.DataType]:
 
 
 class Backend(IbisDuckDBBackend):
+    _connection_stream: ConnectionStream | None = None
+
     def execute(
         self,
         expr: ir.Expr,
@@ -83,9 +115,82 @@ class Backend(IbisDuckDBBackend):
         chunk_size: int = 10_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
+        self._check_no_connection_stream()
         return self._to_duckdb_relation(
             expr, params=params, limit=limit
         ).fetch_arrow_reader(chunk_size)
+
+    def _to_isolated_pyarrow_batches(
+        self,
+        expr: ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        chunk_size: int = 10_000,
+        **_: Any,
+    ) -> pa.ipc.RecordBatchReader:
+        # duckdb keeps one pending result per connection: a later statement on
+        # it empties a stream there without an error (GH #1733), so a remote
+        # stream goes on its own cursor when the cursor reads alike
+        self._check_no_connection_stream()
+        sql = self._to_duckdb_sql(expr, params=params, limit=limit)
+        if not (self._reads_persistent_relations(sql) and not self._in_transaction()):
+            self._connection_stream = ConnectionStream()
+            reader = self.con.sql(sql).fetch_arrow_reader(chunk_size)
+            return bind_scope_to_reader(self._connection_stream, reader)
+        cursor = self.con.cursor()
+        defaults = frozenset(cursor.execute(LOCAL_SETTINGS_SQL).fetchall())
+        settings = frozenset(self.con.execute(LOCAL_SETTINGS_SQL).fetchall())
+        for name, value in settings - defaults:
+            cursor.execute(f"SET {name} = {sge.convert(value).sql(self.dialect)}")
+        reader = cursor.sql(sql).fetch_arrow_reader(chunk_size)
+        return bind_scope_to_reader(cursor, reader)
+
+    def _check_no_connection_stream(self) -> None:
+        match self._connection_stream:
+            case ConnectionStream(closed=closed) if not closed.is_set():
+                raise XorqError(
+                    "DuckDB streams one result per connection, and a remote"
+                    " stream on this connection is still open: it reads"
+                    " relations other than persistent tables and views, which a"
+                    " separate cursor cannot see. Another statement on the"
+                    " connection would silently empty that stream. Read"
+                    " persistent tables or views, or execute one side first."
+                )
+
+    def _reads_persistent_relations(
+        self, sql: str, seen: frozenset[str] = frozenset()
+    ) -> bool:
+        try:
+            parsed = sg.parse_one(sql, read=self.dialect)
+        except sg.errors.ParseError:
+            return False
+        # a view's SQL is its CREATE statement; only its query reads relations
+        query = parsed.expression if isinstance(parsed, sge.Create) else parsed
+        tables = tuple(query.find_all(sge.Table))
+        ctes = frozenset(cte.alias_or_name.lower() for cte in query.find_all(sge.CTE))
+        names = frozenset(table.name.lower() for table in tables) - ctes
+        # a qualified name still matches every relation of that name, so a
+        # TEMP object named like a persistent one keeps the stream here
+        found = self.con.execute(RELATIONS_SQL, {"names": list(names)}).fetchall()
+        # a persistent view may read TEMP objects, which a cursor cannot see
+        return (
+            all(isinstance(table.this, sge.Identifier) for table in tables)
+            and frozenset(name for name, *_ in found) == names
+            and not any(temporary for _, temporary, _ in found)
+            and all(
+                self._reads_persistent_relations(view_sql, seen | {name})
+                for name, _, view_sql in found
+                if view_sql is not None and name not in seen
+            )
+        )
+
+    def _in_transaction(self) -> bool:
+        # each autocommit statement gets a new id; BEGIN ... COMMIT shares one
+        first, second = (
+            self.con.execute("SELECT txid_current()").fetchall() for _ in range(2)
+        )
+        return first == second
 
     def _type_struct(self, mapping: Mapping[str, str | dt.DataType]) -> sge.Struct:
         type_mapper = self.compiler.type_mapper

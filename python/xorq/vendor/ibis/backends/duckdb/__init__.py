@@ -1401,12 +1401,24 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         where performance might matter, and use the standard
         `duckdb_con.execute` everywhere else.
         """
+        return self.con.sql(
+            self._to_duckdb_sql(expr, params=params, limit=limit, **kwargs)
+        )
+
+    def _to_duckdb_sql(
+        self,
+        expr: ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        **kwargs: Any,
+    ) -> str:
         self._run_pre_execute_hooks(expr)
         table_expr = expr.as_table()
         sql = self.compile(table_expr, limit=limit, params=params, **kwargs)
         if table_expr.schema().geospatial:
             self._load_extensions(["spatial"])
-        return self.con.sql(sql)
+        return sql
 
     def to_pyarrow_batches(
         self,

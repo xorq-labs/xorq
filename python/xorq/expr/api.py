@@ -655,6 +655,7 @@ def to_pyarrow_batches(
     expr: ir.Expr,
     *,
     chunk_size: int = 1_000_000,
+    isolated: bool = False,
     **kwargs: Any,
 ):
     """Execute expression and return a RecordBatchReader.
@@ -671,6 +672,11 @@ def to_pyarrow_batches(
     ----------
     chunk_size
         Maximum number of rows in each returned record batch.
+    isolated
+        DuckDB only: open the stream on its own cursor when it reads only
+        persistent tables or views, so later statements on the connection
+        leave it intact. The remote pass sets it for the streams it opens
+        before reading any. Ignored by every other backend.
     kwargs
         Keyword arguments
 
@@ -691,7 +697,12 @@ def to_pyarrow_batches(
     try:
         con, _ = find_backend(expr.op(), use_default=True)
         span.set_attribute("engine", con.name)
-        reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+        to_batches = (
+            getattr(con, "_to_isolated_pyarrow_batches", con.to_pyarrow_batches)
+            if isolated
+            else con.to_pyarrow_batches
+        )
+        reader = to_batches(expr, chunk_size=chunk_size, **kwargs)
     except Exception:
         scope.close()
         raise
