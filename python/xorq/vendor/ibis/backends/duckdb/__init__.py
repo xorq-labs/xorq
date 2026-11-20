@@ -1821,8 +1821,16 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
     def _register_udfs(self, expr: ir.Expr) -> None:
         con = self.con
+        udf_nodes = expr.op().find(ops.ScalarUDF)
+        names = [
+            udf_class.__func_name__
+            for udf_class in {type(node) for node in udf_nodes}
+            if udf_class.__input_type__ != InputType.BUILTIN
+        ]
+        if duplicates := sorted({name for name in names if names.count(name) > 1}):
+            raise exc.AmbiguousUDFError(duplicates[0])
 
-        for udf_node in expr.op().find(ops.ScalarUDF):
+        for udf_node in udf_nodes:
             register_func = getattr(
                 self, f"_register_{udf_node.__input_type__.name.lower()}_udf"
             )
