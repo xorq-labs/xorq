@@ -873,13 +873,20 @@ def test_into_backend_two_duckdb_streams_union(target):
             lambda src, name: src.raw_sql(
                 f"CREATE VIEW {name} AS SELECT * FROM range(1, 4) t(k)"
             ),
-            id="persistent_view",
+            id="persistent_view_of_table_function",
+        ),
+        pytest.param(
+            lambda src, name: src.raw_sql(
+                f"CREATE TEMP VIEW {name}_t AS SELECT * FROM range(1, 4) t(k);"
+                f" CREATE VIEW {name} AS SELECT * FROM {name}_t"
+            ),
+            id="persistent_view_of_temp_view",
         ),
     ],
 )
 @pytest.mark.parametrize("target", DUCKDB_TARGETS)
 def test_into_backend_two_duckdb_streams_on_the_connection_raise(target, create):
-    # a stream that reads anything but persistent tables stays on the
+    # a stream that reads anything but persistent tables and views stays on the
     # connection: a second stream there would empty the first, so it raises
     # instead of returning 0 rows
     src = xo.duckdb.connect()
@@ -975,6 +982,18 @@ def test_duckdb_single_stream_on_the_connection(setup, sql, expected):
     con.raw_sql(setup)
 
     assert con.sql(sql).into_backend(xo.connect()).execute().k.tolist() == expected
+
+
+@pytest.mark.parametrize("target", DUCKDB_TARGETS)
+def test_into_backend_two_duckdb_streams_of_persistent_views(target):
+    src = xo.duckdb.connect()
+    src.create_table("t", pd.DataFrame({"k": [1, 2, 3]}))
+    src.raw_sql("CREATE VIEW v1 AS SELECT k FROM t; CREATE VIEW v2 AS SELECT k FROM v1")
+    target = target()
+    a = src.table("v1").into_backend(target)
+    b = src.table("v2").into_backend(target)
+
+    assert sorted(a.join(b, "k").execute().k) == [1, 2, 3]
 
 
 def test_duckdb_plain_stream_beside_remote_stream_of_persistent_table():

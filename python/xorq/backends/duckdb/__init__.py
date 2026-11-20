@@ -26,13 +26,12 @@ __all__ = [
 
 
 # a fresh cursor of the connection sees none of its TEMP objects and LOCAL
-# settings, so it streams only what reads persistent tables alone
+# settings, so it streams only what reads persistent relations alone
 RELATIONS_SQL = """
 SELECT * FROM (
-    SELECT lower(table_name) AS name, NOT temporary AS persistent_table
-    FROM duckdb_tables()
+    SELECT lower(table_name) AS name, temporary, NULL AS sql FROM duckdb_tables()
     UNION ALL
-    SELECT lower(view_name), false FROM duckdb_views() WHERE NOT internal
+    SELECT lower(view_name), temporary, sql FROM duckdb_views() WHERE NOT internal
 ) WHERE list_contains($names, name)
 """
 LOCAL_SETTINGS_SQL = (
@@ -135,7 +134,7 @@ class Backend(IbisDuckDBBackend):
         # stream goes on its own cursor when the cursor reads alike
         self._check_no_connection_stream()
         sql = self._to_duckdb_sql(expr, params=params, limit=limit)
-        if not self._reads_persistent_tables_only(sql):
+        if not (self._reads_persistent_relations(sql) and not self._in_transaction()):
             self._connection_stream = ConnectionStream()
             reader = self.con.sql(sql).fetch_arrow_reader(chunk_size)
             return bind_scope_to_reader(self._connection_stream, reader)
@@ -153,28 +152,37 @@ class Backend(IbisDuckDBBackend):
                 raise XorqError(
                     "DuckDB streams one result per connection, and a remote"
                     " stream on this connection is still open: it reads"
-                    " relations other than persistent tables, which a"
+                    " relations other than persistent tables and views, which a"
                     " separate cursor cannot see. Another statement on the"
                     " connection would silently empty that stream. Read"
-                    " persistent tables, or execute one side first."
+                    " persistent tables or views, or execute one side first."
                 )
 
-    def _reads_persistent_tables_only(self, sql: str) -> bool:
+    def _reads_persistent_relations(
+        self, sql: str, seen: frozenset[str] = frozenset()
+    ) -> bool:
         try:
             parsed = sg.parse_one(sql, read=self.dialect)
         except sg.errors.ParseError:
             return False
-        tables = tuple(parsed.find_all(sge.Table))
-        ctes = frozenset(cte.alias_or_name.lower() for cte in parsed.find_all(sge.CTE))
+        # a view's SQL is its CREATE statement; only its query reads relations
+        query = parsed.expression if isinstance(parsed, sge.Create) else parsed
+        tables = tuple(query.find_all(sge.Table))
+        ctes = frozenset(cte.alias_or_name.lower() for cte in query.find_all(sge.CTE))
         names = frozenset(table.name.lower() for table in tables) - ctes
         # a qualified name still matches every relation of that name, so a
-        # TEMP object named like a persistent table keeps the stream here
+        # TEMP object named like a persistent one keeps the stream here
         found = self.con.execute(RELATIONS_SQL, {"names": list(names)}).fetchall()
+        # a persistent view may read TEMP objects, which a cursor cannot see
         return (
             all(isinstance(table.this, sge.Identifier) for table in tables)
-            and frozenset(name for name, _ in found) == names
-            and all(persistent_table for _, persistent_table in found)
-            and not self._in_transaction()
+            and frozenset(name for name, *_ in found) == names
+            and not any(temporary for _, temporary, _ in found)
+            and all(
+                self._reads_persistent_relations(view_sql, seen | {name})
+                for name, _, view_sql in found
+                if view_sql is not None and name not in seen
+            )
         )
 
     def _in_transaction(self) -> bool:
