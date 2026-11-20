@@ -215,6 +215,36 @@ def test_pyarrow_udf_load_keeps_volatility(tmp_path):
     assert loaded.execute().r.nunique() == expr.execute().r.nunique() == 3
 
 
+@pytest.mark.parametrize("first", ["live", "loaded"])
+def test_pyarrow_udf_executes_twice_on_one_connection(tmp_path, first):
+    @xo.udf.scalar.pyarrow
+    def plus_one(arr: dt.float64) -> dt.float64:
+        return pc.add(arr, 1.0)
+
+    t = xo.duckdb.connect().create_table("t", {"x": [1.5, 2.5]})
+    expr = t.mutate(y=plus_one(t.x), z=plus_one(t.x + 1.0))
+    if first == "loaded":
+        expr = load_expr(build_expr(expr, builds_dir=tmp_path))
+    first_rows = expr.execute()
+    u = expr._find_backend().create_table("u", {"x": [1.5, 2.5]})
+    live_rows = u.mutate(y=plus_one(u.x)).execute()
+
+    assert first_rows.y.tolist() == live_rows.y.tolist() == [2.5, 3.5]
+    assert first_rows.z.tolist() == [3.5, 4.5]
+
+
+def test_builtin_udf_keeps_connection_function():
+    con = xo.duckdb.connect()
+    con.con.create_function("twice", lambda x: x * 2, ["DOUBLE"], "DOUBLE")
+
+    @xo.udf.scalar.builtin
+    def twice(x: dt.float64) -> dt.float64: ...
+
+    t = con.create_table("t", {"x": [1.0, 2.0]})
+
+    assert t.mutate(y=twice(t.x)).execute().y.tolist() == [2.0, 4.0]
+
+
 @pytest.mark.parametrize(
     "column",
     [
