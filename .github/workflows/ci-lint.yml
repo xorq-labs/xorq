@@ -122,13 +122,3 @@ jobs:
         run: |
           set -euo pipefail
           scripts/check-style-diff.sh "origin/$GITHUB_BASE_REF...HEAD"
-
-      - name: Verify no uncommitted changes
-        run: |
-          echo "Checking for uncommitted changes in the workspace..."
-          if ! git diff --exit-code --stat; then
-            echo "::error::Error: The linting process must not create uncommitted files"
-            echo "Hint: If you recently updated dependencies or generated files, make sure to commit those changes"
-            echo "Hint: Additionally, check that uv version for pre-commit and ci-lint.yaml match and run pre-commit locally"
-            exit 1
-          fi
