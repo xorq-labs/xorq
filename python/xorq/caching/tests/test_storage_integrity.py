@@ -149,6 +149,9 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
         writer.kill()
         writer.join()
     assert not hung, "a writer did not finish within 120s"
+    # _write_one swallows the loser's rename error, so a nonzero exit means the
+    # writer crashed (or never imported) and the race did not run.
+    assert [writer.exitcode for writer in writers] == [0, 0]
 
     published = _storage(tmp_path).get_path(key)
     assert published.exists(), "one writer must still publish a result"
