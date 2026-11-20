@@ -12,6 +12,7 @@ import errno
 import logging
 import multiprocessing as mp
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -142,8 +143,10 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
     ]
     for writer in writers:
         writer.start()
+    # one budget for both writers, not one per join
+    deadline = time.monotonic() + 120
     for writer in writers:
-        writer.join(timeout=120)
+        writer.join(timeout=max(0, deadline - time.monotonic()))
     hung = [writer for writer in writers if writer.is_alive()]
     for writer in hung:
         writer.kill()
