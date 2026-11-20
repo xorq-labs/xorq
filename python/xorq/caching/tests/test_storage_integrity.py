@@ -37,6 +37,9 @@ from xorq.config import options
 
 
 SCHEMA = pa.schema([("i", pa.int64()), ("s", pa.string())])
+# Both concurrent writers together: about 3s locally; each spawned child
+# re-imports xorq and pyarrow (under coverage in CI) before writing ~24MB.
+WRITERS_TIMEOUT_S = 240
 
 
 class _Reader:
@@ -151,7 +154,7 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
         for writer in writers:
             writer.start()
         # one budget for both writers, not one per join
-        deadline = time.monotonic() + 120
+        deadline = time.monotonic() + WRITERS_TIMEOUT_S
         for writer in writers:
             writer.join(timeout=max(0, deadline - time.monotonic()))
     finally:
@@ -162,7 +165,7 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
             writer.join(timeout=5)
             writer.kill()
             writer.join(timeout=10)
-    assert not hung, "a writer did not finish within 120s"
+    assert not hung, f"a writer did not finish within {WRITERS_TIMEOUT_S}s"
     # _write_one swallows the loser's rename error, so a nonzero exit means the
     # writer crashed (or never imported) and the race did not run.
     assert [writer.exitcode for writer in writers] == [0, 0]
