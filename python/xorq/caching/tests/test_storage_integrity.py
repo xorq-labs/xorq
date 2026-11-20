@@ -132,7 +132,8 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
     key = "xorq_cache-concurrent"
     # Plain processes rather than a Pool: Pool.__exit__ terminates its workers
     # and then joins them with no timeout, which hung a CI worker until the job
-    # timeout. A bounded join followed by SIGKILL cannot hang.
+    # timeout. Every join here is bounded, including the one after SIGKILL,
+    # which cannot reap a child stuck in uninterruptible I/O.
     ctx = mp.get_context("spawn")
     writers = [
         ctx.Process(target=_write_one, args=args)
@@ -153,7 +154,7 @@ def test_concurrent_writers_on_one_key_do_not_corrupt(tmp_path):
         hung = [writer for writer in writers if writer.is_alive()]
         for writer in hung:
             writer.kill()
-            writer.join()
+            writer.join(timeout=10)
     assert not hung, "a writer did not finish within 120s"
     # _write_one swallows the loser's rename error, so a nonzero exit means the
     # writer crashed (or never imported) and the race did not run.
