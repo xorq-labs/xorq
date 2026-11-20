@@ -673,8 +673,10 @@ def to_pyarrow_batches(
     chunk_size
         Maximum number of rows in each returned record batch.
     isolated
-        Whether later statements on the backend must leave the stream intact,
-        as for the streams the remote pass opens before reading any.
+        DuckDB only: open the stream on its own cursor when it reads only
+        persistent tables or views, so later statements on the connection
+        leave it intact. The remote pass sets it for the streams it opens
+        before reading any. Ignored by every other backend.
     kwargs
         Keyword arguments
 
@@ -696,7 +698,7 @@ def to_pyarrow_batches(
         con, _ = find_backend(expr.op(), use_default=True)
         span.set_attribute("engine", con.name)
         to_batches = (
-            con._to_isolated_pyarrow_batches  # xorq-style: disable=protected-access
+            getattr(con, "_to_isolated_pyarrow_batches", con.to_pyarrow_batches)
             if isolated
             else con.to_pyarrow_batches
         )
