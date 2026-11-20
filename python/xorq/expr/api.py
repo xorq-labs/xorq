@@ -13,6 +13,7 @@ import toolz
 
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
+import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import Backend
 from xorq.common.exceptions import XorqError
@@ -650,6 +651,27 @@ def _pandas_execute(con: BaseBackend, expr: ir.Expr, **kwargs: Any) -> "pd.DataF
         return con.execute(expr, **kwargs)
 
 
+# dtypes an engine may store as their base type (DuckDB: VARCHAR, BLOB); the
+# transform replaces a Read with the registered table, whose schema has the base
+WIDENED_DTYPES = frozenset((dt.LargeString, dt.BinaryView))
+
+
+def _widen_reader(
+    reader: pa.RecordBatchReader, schema: sch.Schema
+) -> pa.RecordBatchReader:
+    """Cast the columns ``schema`` declares as a WIDENED_DTYPES dtype to it."""
+    target = pa.schema(
+        (
+            field.with_type(dtype.to_pyarrow())
+            if type(dtype := schema.get(field.name)) in WIDENED_DTYPES
+            else field
+            for field in reader.schema
+        ),
+        metadata=reader.schema.metadata,
+    )
+    return reader if target == reader.schema else reader.cast(target)
+
+
 @tracer.start_as_current_span("to_pyarrow_batches")
 def to_pyarrow_batches(
     expr: ir.Expr,
@@ -687,11 +709,14 @@ def to_pyarrow_batches(
         span.set_attribute("engine", "flight")
         # chunk_size does not apply to to_rbr; kwargs carry no read kwargs here.
         return _flight_to_rbr(expr, params=params)
+    schema = expr.as_table().schema()
     expr, scope = _transform_expr(expr, params=params)
     try:
         con, _ = find_backend(expr.op(), use_default=True)
         span.set_attribute("engine", con.name)
-        reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+        reader = _widen_reader(
+            con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs), schema
+        )
     except Exception:
         scope.close()
         raise
