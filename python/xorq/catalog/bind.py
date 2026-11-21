@@ -61,7 +61,7 @@ def _validate_schema(source_schema, transform_schema, source_name, transform_nam
 def _validate_chain(source_schema, transforms):
     """Pre-validate the full transform chain before building expressions.
 
-    Checks that every transform has an UnboundTable and that schemas are
+    Checks that every transform has exactly one UnboundTable and that schemas are
     compatible through the chain: source → transform[0] → transform[1] → …
     """
     from xorq.catalog.catalog import CatalogEntry  # noqa: PLC0415
@@ -78,6 +78,11 @@ def _validate_chain(source_schema, transforms):
             raise ValueError(
                 f"transforms[{i}] ({entry.name!r}) has no UnboundTable "
                 f"(kind: {meta.kind}). Only unbound_expr entries can be used as transforms."
+            )
+        if meta.schema_in is None:
+            raise ValueError(
+                f"transforms[{i}] ({entry.name!r}) has more than one UnboundTable. "
+                "A transform takes exactly one input."
             )
         metas.append((entry.name, meta))
 
