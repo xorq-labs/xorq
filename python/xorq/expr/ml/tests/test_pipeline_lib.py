@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import operator
+from collections.abc import Callable
 from numbers import Real
 from pathlib import Path
 
@@ -13,8 +14,15 @@ import xorq.expr.datatypes as dt
 from xorq.caching import ParquetCache
 from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.ml.enums import ResponseMethod
-from xorq.expr.ml.pipeline_lib import Pipeline, Step, make_estimator_typ
+from xorq.expr.ml.pipeline_lib import (
+    FittedPipeline,
+    Pipeline,
+    Step,
+    do_into_backend,
+    make_estimator_typ,
+)
 from xorq.expr.relations import Tag
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.types import Expr
 
@@ -33,6 +41,7 @@ for submodule in (
     "cluster",
     "compose",
     "ensemble",
+    "feature_extraction.text",
     "feature_selection",
     "impute",
     "linear_model",
@@ -62,6 +71,7 @@ ColumnTransformer = sklearn.compose.ColumnTransformer
 SelectKBest = sklearn.feature_selection.SelectKBest
 f_classif = sklearn.feature_selection.f_classif
 FeatureUnion = sklearn.pipeline.FeatureUnion
+TfidfVectorizer = sklearn.feature_extraction.text.TfidfVectorizer
 OneHotEncoder = sklearn.preprocessing.OneHotEncoder
 StandardScaler = sklearn.preprocessing.StandardScaler
 BaseEstimator = sklearn.base.BaseEstimator
@@ -185,6 +195,182 @@ def test_score_expr_returns_metric(t, fitted_xorq_pipeline):
     score_expr = fitted_xorq_pipeline.score_expr(t)
     result = score_expr.execute()
     assert isinstance(result, Real)
+
+
+def _predict_raw_table() -> Expr:
+    return xo.memtable(
+        {
+            feature0: [1.0, 2.0, 3.0, 4.0],
+            feature1: [2.0, 1.0, 4.0, 3.0],
+            TARGET: [1.0, 3.0, 2.0, 4.0],
+            "other": [10, 20, 30, 40],
+        },
+        name="predict_raw_t",
+    )
+
+
+def _fit_predict_raw(*steps: BaseEstimator) -> tuple[Expr, FittedPipeline]:
+    t = _predict_raw_table()
+    fitted = xo.Pipeline.from_instance(sklearn.pipeline.make_pipeline(*steps)).fit(
+        t, features=features, target=TARGET
+    )
+    return t, fitted
+
+
+predict_raw_steps = pytest.mark.parametrize(
+    "make_steps",
+    (
+        pytest.param(lambda: (StandardScaler(), LinearRegression()), id="known-schema"),
+        pytest.param(
+            lambda: (OneHotEncoder(sparse_output=False), LinearRegression()),
+            id="kv-encoded",
+        ),
+        pytest.param(
+            lambda: (SimpleImputer(), StandardScaler(), LinearRegression()),
+            id="two-transforms",
+        ),
+    ),
+)
+
+
+@predict_raw_steps
+def test_predict_raw_in_mutate(
+    make_steps: Callable[[], tuple[BaseEstimator, ...]],
+) -> None:
+    t, fitted = _fit_predict_raw(*make_steps())
+    df = t.mutate(predicted=fitted.predict_raw(t)).execute()
+    expected = fitted.predict(t, name="predicted").execute()
+    assert tuple(df.columns) == (*t.columns, "predicted")
+    pd.testing.assert_frame_equal(df[list(t.columns)], t.execute())
+    np.testing.assert_allclose(df["predicted"], expected["predicted"])
+
+
+def _mixed_table() -> Expr:
+    return xo.memtable(
+        {
+            "cat": ["a", "b", "a", "c", "b", "c"],
+            "num": [1.0, 5.0, 2.0, 4.0, 3.0, 6.0],
+            "text": ["red fox", "blue sky", "red sky", "fox den", "blue den", "sky"],
+            TARGET: [1.0, 3.0, 2.0, 4.0, 2.5, 5.0],
+        },
+        name="predict_raw_mixed",
+    )
+
+
+@pytest.mark.parametrize(
+    "make_steps, step_features",
+    (
+        pytest.param(
+            lambda: (
+                ColumnTransformer(
+                    [
+                        ("cat", OneHotEncoder(sparse_output=False), ["cat"]),
+                        ("num", StandardScaler(), ["num"]),
+                    ]
+                ),
+                LinearRegression(),
+            ),
+            ("cat", "num"),
+            id="categorical-first-column-transformer",
+        ),
+        pytest.param(
+            lambda: (
+                TfidfVectorizer(),
+                LinearRegression(),
+            ),
+            ("text",),
+            id="tfidf",
+        ),
+        pytest.param(
+            lambda: (
+                StandardScaler(),
+                ColumnTransformer([("num", StandardScaler(), ["num"])]),
+                LinearRegression(),
+            ),
+            ("num",),
+            id="column-transformer-after-scaler",
+        ),
+    ),
+)
+def test_predict_raw_matches_predict_for_step_input_contracts(
+    make_steps: Callable[[], tuple[BaseEstimator, ...]],
+    step_features: tuple[str, ...],
+) -> None:
+    t = _mixed_table()
+    fitted = xo.Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(*make_steps())
+    ).fit(t, features=step_features, target=TARGET)
+    df = t.mutate(predicted=fitted.predict_raw(t)).execute()
+    expected = fitted.predict(t, name="predicted").execute()
+    np.testing.assert_allclose(df["predicted"], expected["predicted"])
+
+
+def test_predict_raw_two_pipelines_in_one_mutate() -> None:
+    t = _predict_raw_table()
+    other = t.mutate(**{TARGET: -t[TARGET]})
+
+    def fit(train: Expr) -> FittedPipeline:
+        return xo.Pipeline.from_instance(
+            sklearn.pipeline.make_pipeline(StandardScaler(), LinearRegression())
+        ).fit(train, features=features, target=TARGET)
+
+    first, second = fit(t), fit(other)
+    df = t.mutate(a=first.predict_raw(t), b=second.predict_raw(t)).execute()
+    np.testing.assert_allclose(df["a"], first.predict(t, name="a").execute()["a"])
+    np.testing.assert_allclose(df["b"], second.predict(t, name="b").execute()["b"])
+
+
+@predict_raw_steps
+def test_predict_raw_mutate_recovers_fitted_pipeline(
+    make_steps: Callable[[], tuple[BaseEstimator, ...]],
+) -> None:
+    t, fitted = _fit_predict_raw(*make_steps())
+    recovered = FittedPipeline.from_expr(t.mutate(predicted=fitted.predict_raw(t)))
+    assert tuple(type(s.instance) for s in recovered.fitted_steps) == tuple(
+        type(s.instance) for s in fitted.fitted_steps
+    )
+
+
+def test_predict_raw_mutate_then_cache(tmp_path: Path) -> None:
+    # the shape of the report: predictions added to the full table, then cached
+    t, fitted = _fit_predict_raw(StandardScaler(), LinearRegression())
+    cache = ParquetCache.from_kwargs(source=xo.connect(), base_path=tmp_path)
+    df = t.mutate(predicted=fitted.predict_raw(t)).cache(cache=cache).execute()
+    expected = fitted.predict(t, name="predicted").execute()
+    np.testing.assert_allclose(df["predicted"], expected["predicted"])
+
+
+def test_predict_raw_build_is_deterministic_and_loads(tmp_path: Path) -> None:
+    def make() -> Expr:
+        t, fitted = _fit_predict_raw(
+            SimpleImputer(), StandardScaler(), LinearRegression()
+        )
+        return t.mutate(predicted=fitted.predict_raw(t))
+
+    first, second = make(), make()
+    first_path = build_expr(first, builds_dir=tmp_path)
+    assert build_expr(second, builds_dir=tmp_path) == first_path
+    pd.testing.assert_frame_equal(load_expr(first_path).execute(), first.execute())
+
+
+def test_predict_raw_rejects_steps_not_chained(t) -> None:
+    # a hand-built pipeline whose last step also reads an input column
+    scaler = Step.from_instance_name(StandardScaler()).fit(t, features=(feature0,))
+    scaled = scaler.transform(t).pipe(do_into_backend)
+    regression = Step.from_instance_name(LinearRegression()).fit(
+        scaled, features=(feature0, feature1), target=TARGET
+    )
+    fitted = FittedPipeline((scaler, regression), t)
+    with pytest.raises(ValueError, match="use predict instead"):
+        fitted.predict_raw(t)
+
+
+def test_predict_raw_requires_predict_step(t) -> None:
+    fitted = xo.Pipeline.from_instance(
+        sklearn.pipeline.make_pipeline(StandardScaler())
+    ).fit(t, features=features)
+    with pytest.raises(ValueError, match="does not have a predict step"):
+        fitted.predict_raw(t)
 
 
 def test_fitted_step_transform_known_schema_unpacks():
