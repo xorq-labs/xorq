@@ -573,7 +573,7 @@ def catalog_with_source_and_transform(
     template_path, source_name, transform_name = request.getfixturevalue(
         "_source_and_transform_template"
     )
-    dst = tmp_path / "repo"
+    dst = tmp_path / "source-and-transform"
     shutil.copytree(template_path, dst, symlinks=True)
     return str(dst), source_name, transform_name
 
