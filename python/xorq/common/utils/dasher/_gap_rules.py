@@ -13,6 +13,7 @@ import types
 from typing import TYPE_CHECKING
 
 import attrs
+import numpy as np
 import toolz
 from xorq_dasher.rules.fallback import normalize_object_fallback
 from xorq_dasher.rules.functions import normalize_function
@@ -21,7 +22,6 @@ from xorq.common.utils.inspect_utils import get_partial_arguments
 
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
     from sklearn.utils._param_validation import (
         Hidden as _SklearnHidden,  # noqa: PLC2701
@@ -67,10 +67,45 @@ def normalize_object_or_attrs(obj: object) -> tuple:
     """Fallback for ``builtins.object``: an attrs instance without its own
     ``__dasher_tokenize__`` normalizes by its fields; anything else defers to
     xorq_dasher's fallback (call ``__dasher_tokenize__`` or raise).
+
+    numpy scalars and arrays (a RandomState's state is one) are handled here
+    rather than by their own rules: a new rule key moves the rules fingerprint
+    and with it every build hash, while these types used to raise.
     """
-    if attrs.has(type(obj)) and not hasattr(obj, "__dasher_tokenize__"):
-        return normalize_attrs(obj)
-    return normalize_object_fallback(obj)
+    match obj:
+        case _ if hasattr(obj, "__dasher_tokenize__"):
+            return normalize_object_fallback(obj)
+        case _ if attrs.has(type(obj)):
+            return normalize_attrs(obj)
+        # obj.dtype goes through the numpy.dtype rule, which keeps structured
+        # field names. ndarray subclasses (MaskedArray's mask, matrix) carry
+        # state the buffer does not, so only a plain ndarray goes here.
+        case _ if isinstance(obj, np.generic) or type(obj) is np.ndarray:
+            # the dtype names the type; type names are aliases and move
+            # between numpy majors (bool_ became bool)
+            kind = "ndarray" if isinstance(obj, np.ndarray) else "scalar"
+            return ("numpy", kind, obj.dtype, obj.shape, _numpy_values(obj))
+        case _:
+            return normalize_object_fallback(obj)
+
+
+def _numpy_values(obj: np.generic | np.ndarray) -> object:
+    """The content of a numpy value, without the padding its buffer may carry.
+
+    Raw bytes are exact and cheap, but a longdouble (x87 extended: 10 value
+    bytes in 12 or 16) and an aligned structured dtype carry padding that
+    numpy leaves uninitialised, so equal values can differ there. Those go by
+    value: str is numpy's shortest round-trip form of a longdouble, whose
+    .item() is itself. Tokens are exact bits otherwise, so -0.0 and 0.0, or
+    NaNs with different payloads, are different values here.
+    """
+    match obj.dtype:
+        case dtype if dtype.type in (np.longdouble, np.clongdouble):
+            return tuple(map(str, np.ravel(obj).tolist()))
+        case dtype if dtype.hasobject or dtype.names:
+            return obj.tolist()
+        case _:
+            return obj.tobytes()
 
 
 def normalize_lru_cache(func: functools._lru_cache_wrapper) -> tuple:

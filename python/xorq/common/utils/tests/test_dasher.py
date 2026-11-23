@@ -1653,3 +1653,87 @@ def test_attrs_fallback_ignores_cached_property_on_dict_class():
     before = tokenize(obj)
     assert obj.doubled == 2
     assert tokenize(obj) == before == tokenize(_DictAttrs(1))
+
+
+def test_numpy_values_tokenize_by_dtype_and_content() -> None:
+    """A longdouble tokenizes, and structured values with different field names differ."""
+    assert HASHER.tokenize(np.longdouble(1.5)) == HASHER.tokenize(np.longdouble(1.5))
+    assert HASHER.tokenize(np.longdouble(1.5)) != HASHER.tokenize(np.longdouble(2.5))
+    ab = np.array([(1, 2.0)], dtype=[("a", "i4"), ("b", "f4")])
+    xy = np.array([(1, 2.0)], dtype=[("x", "i4"), ("y", "f4")])
+    assert HASHER.tokenize(ab) != HASHER.tokenize(xy)
+    assert HASHER.tokenize(ab[0]) != HASHER.tokenize(xy[0])
+
+
+def _with_padding(value: np.generic | np.ndarray, fill: int) -> np.ndarray:
+    """A copy of *value* whose padding bytes are all *fill*."""
+    dtype = value.dtype
+    raw = bytearray(np.asarray(value).tobytes())
+    if dtype.type is np.longdouble:  # x87 extended: 10 value bytes
+        raw[10:] = bytes([fill]) * (dtype.itemsize - 10)
+    else:
+        taken = {
+            i
+            for name in dtype.names
+            for i in range(
+                dtype.fields[name][1], dtype.fields[name][1] + dtype[name].itemsize
+            )
+        }
+        for i in set(range(dtype.itemsize)) - taken:
+            raw[i] = fill
+    return np.frombuffer(bytes(raw), dtype=dtype)
+
+
+@pytest.mark.skipif(
+    not (np.finfo(np.longdouble).nmant == 63 and np.dtype(np.longdouble).itemsize > 10),
+    reason="longdouble is not a padded x87 extended float here",
+)
+def test_numpy_longdouble_tokenizes_without_its_padding() -> None:
+    zeros, junk = (_with_padding(np.longdouble(1.5), fill) for fill in (0x00, 0xAB))
+    assert zeros[0] == junk[0]
+    assert HASHER.tokenize(zeros[0]) == HASHER.tokenize(junk[0])
+    assert HASHER.tokenize(zeros) == HASHER.tokenize(junk)
+
+
+def test_numpy_aligned_struct_tokenizes_without_its_padding() -> None:
+    value = np.array([(1, 2.0)], dtype=np.dtype([("a", "u1"), ("b", "f8")], align=True))
+    zeros, junk = (_with_padding(value, fill) for fill in (0x00, 0xCD))
+    assert (zeros == junk).all()
+    assert HASHER.tokenize(zeros) == HASHER.tokenize(junk)
+    assert HASHER.tokenize(zeros[0]) == HASHER.tokenize(junk[0])
+
+
+def test_numpy_masked_array_is_refused_not_tokenized_without_its_mask() -> None:
+    """A MaskedArray's buffer alone would make these two different params one cache key."""
+    masked = np.ma.array([1, 2], mask=[0, 1])
+    unmasked = np.ma.array([1, 999999], mask=[0, 0])
+    for value in (masked, unmasked):
+        with pytest.raises(ValueError, match="No normalizer registered"):
+            HASHER.tokenize(value)
+
+
+def test_numpy_scalar_token_follows_its_dtype_not_its_type_name() -> None:
+    """Type names are aliases (longlong/int64) and move between numpy majors (bool_ became bool)."""
+    assert np.dtype(np.longlong) == np.dtype(np.int64)
+    assert HASHER.tokenize(np.longlong(1)) == HASHER.tokenize(np.int64(1))
+    assert HASHER.tokenize(np.int64(1)) != HASHER.tokenize(np.array(1, dtype=np.int64))
+
+
+class _TaggedArray(np.ndarray):
+    def __dasher_tokenize__(self) -> tuple:
+        return ("tagged", self.tobytes(), getattr(self, "tag", None))
+
+
+def test_numpy_subclass_dasher_tokenize_hook_wins() -> None:
+    """A numpy subclass's own __dasher_tokenize__ decides its token."""
+    first, second = (np.arange(3).view(_TaggedArray) for _ in range(2))
+    first.tag, second.tag = "a", "b"
+    assert HASHER.tokenize(first) != HASHER.tokenize(second)
+
+
+def test_numpy_object_field_scalar_tokenizes_by_content() -> None:
+    """A structured scalar with an object field changes token when the object changes."""
+    record = np.array([([1],)], dtype=[("a", object)])[0]
+    before = HASHER.tokenize(record)
+    record["a"].append(2)
+    assert HASHER.tokenize(record) != before
