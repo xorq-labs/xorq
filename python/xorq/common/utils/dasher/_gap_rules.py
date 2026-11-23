@@ -81,7 +81,10 @@ def normalize_object_or_attrs(obj: object) -> tuple:
         # field names. ndarray subclasses (MaskedArray's mask, matrix) carry
         # state the buffer does not, so only a plain ndarray goes here.
         case _ if isinstance(obj, np.generic) or type(obj) is np.ndarray:
-            return (type(obj).__qualname__, obj.dtype, obj.shape, _numpy_values(obj))
+            # the dtype names the type; type names are aliases and move
+            # between numpy majors (bool_ became bool)
+            kind = "ndarray" if isinstance(obj, np.ndarray) else "scalar"
+            return ("numpy", kind, obj.dtype, obj.shape, _numpy_values(obj))
         case _:
             return normalize_object_fallback(obj)
 

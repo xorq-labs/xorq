@@ -1712,6 +1712,13 @@ def test_numpy_masked_array_is_refused_not_tokenized_without_its_mask() -> None:
             HASHER.tokenize(value)
 
 
+def test_numpy_scalar_token_follows_its_dtype_not_its_type_name() -> None:
+    """Type names are aliases (longlong/int64) and move between numpy majors (bool_ became bool)."""
+    assert np.dtype(np.longlong) == np.dtype(np.int64)
+    assert HASHER.tokenize(np.longlong(1)) == HASHER.tokenize(np.int64(1))
+    assert HASHER.tokenize(np.int64(1)) != HASHER.tokenize(np.array(1, dtype=np.int64))
+
+
 class _TaggedArray(np.ndarray):
     def __dasher_tokenize__(self) -> tuple:
         return ("tagged", self.tobytes(), getattr(self, "tag", None))
