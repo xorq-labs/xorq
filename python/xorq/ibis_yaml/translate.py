@@ -264,17 +264,28 @@ def _numpy_scalar_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any
 def _random_state_to_yaml(
     obj: np.random.RandomState, context: TranslationContext
 ) -> dict:
-    bit_generator, key, pos, has_gauss, cached_gaussian = obj.get_state()
-    return freeze(
-        {
-            "op": "NumpyRandomState",
-            "bit_generator": bit_generator,
-            "key": base64.b64encode(key.astype("<u4").tobytes()).decode("ascii"),
-            "pos": int(pos),
-            "has_gauss": int(has_gauss),
-            "cached_gaussian": context.translate_to_yaml(float(cached_gaussian)),
-        }
-    )
+    # get_state() is the legacy tuple only on MT19937; other bit generators
+    # give a dict, which this op does not carry
+    match obj.get_state():
+        case {"bit_generator": other}:
+            raise NotImplementedError(
+                f"No translation rule for a RandomState on {other}; only MT19937"
+            )
+        case bit_generator, key, pos, has_gauss, cached_gaussian:
+            return freeze(
+                {
+                    "op": "NumpyRandomState",
+                    "bit_generator": bit_generator,
+                    "key": base64.b64encode(key.astype("<u4").tobytes()).decode(
+                        "ascii"
+                    ),
+                    "pos": int(pos),
+                    "has_gauss": int(has_gauss),
+                    "cached_gaussian": context.translate_to_yaml(
+                        float(cached_gaussian)
+                    ),
+                }
+            )
 
 
 @register_from_yaml_handler("NumpyRandomState")

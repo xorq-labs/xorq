@@ -2289,6 +2289,14 @@ def test_numpy_timedelta_param_is_refused_not_unit_stripped(value) -> None:
         translate_to_yaml(value, TranslationContext())
 
 
+def test_random_state_on_another_bit_generator_is_refused_by_name() -> None:
+    """Only MT19937 has the legacy state tuple the NumpyRandomState op writes."""
+    with pytest.raises(NotImplementedError, match="PCG64"):
+        translate_to_yaml(
+            np.random.RandomState(np.random.PCG64(0)), TranslationContext()
+        )
+
+
 def test_build_writes_cache_source_profile_used_nowhere_else(
     builds_dir, tmp_path, parquet_dir
 ):
