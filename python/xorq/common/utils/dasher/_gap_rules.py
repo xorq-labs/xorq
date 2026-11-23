@@ -13,6 +13,7 @@ import types
 from typing import TYPE_CHECKING
 
 import attrs
+import numpy as np
 import toolz
 from xorq_dasher.rules.fallback import normalize_object_fallback
 from xorq_dasher.rules.functions import normalize_function
@@ -21,7 +22,6 @@ from xorq.common.utils.inspect_utils import get_partial_arguments
 
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
     from sklearn.utils._param_validation import (
         Hidden as _SklearnHidden,  # noqa: PLC2701
@@ -72,15 +72,16 @@ def normalize_object_or_attrs(obj: object) -> tuple:
     rather than by their own rules: a new rule key moves the rules fingerprint
     and with it every build hash, while these types used to raise.
     """
-    import numpy as np  # noqa: PLC0415
-
     match obj:
         case _ if attrs.has(type(obj)) and not hasattr(obj, "__dasher_tokenize__"):
             return normalize_attrs(obj)
+        # obj.dtype goes through the numpy.dtype rule, which keeps structured
+        # field names; raw bytes keep longdouble exact (its .item() is itself)
         case np.generic():
-            return ("numpy.generic", obj.dtype.str, obj.item())
+            return ("numpy.generic", obj.dtype, obj.tobytes())
         case np.ndarray():
-            return ("numpy.ndarray", obj.dtype.str, obj.shape, obj.tolist())
+            values = obj.tolist() if obj.dtype.hasobject else obj.tobytes()
+            return ("numpy.ndarray", obj.dtype, obj.shape, values)
         case _:
             return normalize_object_fallback(obj)
 

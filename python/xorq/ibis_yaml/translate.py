@@ -232,18 +232,63 @@ def _float_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return float(yaml_dict["value"])
 
 
-# np.floating and np.str_ already go through the float and str rules; a
-# np.generic rule would outrank those in the MRO and change their yaml
+# np.float64 and np.str_ subclass float and str and keep those rules; a
+# np.generic or np.floating rule would outrank them in the MRO
 @translate_to_yaml.register(np.integer)
 @translate_to_yaml.register(np.bool_)
+@translate_to_yaml.register(np.float32)
+@translate_to_yaml.register(np.float16)
+def _numpy_scalar_to_yaml(obj: np.generic, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "NumpyScalar",
+            "dtype": obj.dtype.str,
+            "value": context.translate_to_yaml(obj.item()),
+        }
+    )
+
+
+@register_from_yaml_handler("NumpyScalar")
+def _numpy_scalar_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
+    return np.dtype(yaml_dict["dtype"]).type(
+        context.translate_from_yaml(yaml_dict["value"])
+    )
+
+
 @translate_to_yaml.register(np.random.RandomState)
-def _numpy_to_yaml(obj: Any, context: TranslationContext) -> dict:
-    return freeze({"op": "NumpyObject", "pickled": serialize_callable(obj)})
+def _random_state_to_yaml(
+    obj: np.random.RandomState, context: TranslationContext
+) -> dict:
+    bit_generator, key, pos, has_gauss, cached_gaussian = obj.get_state()
+    return freeze(
+        {
+            "op": "NumpyRandomState",
+            "bit_generator": bit_generator,
+            "key": base64.b64encode(key.astype("<u4").tobytes()).decode("ascii"),
+            "pos": int(pos),
+            "has_gauss": int(has_gauss),
+            "cached_gaussian": context.translate_to_yaml(float(cached_gaussian)),
+        }
+    )
 
 
-@register_from_yaml_handler("NumpyObject")
-def _numpy_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
-    return deserialize_callable(yaml_dict["pickled"])
+@register_from_yaml_handler("NumpyRandomState")
+def _random_state_from_yaml(
+    yaml_dict: dict, context: TranslationContext
+) -> np.random.RandomState:
+    random_state = np.random.RandomState()
+    random_state.set_state(
+        (
+            yaml_dict["bit_generator"],
+            np.frombuffer(base64.b64decode(yaml_dict["key"]), dtype="<u4").astype(
+                np.uint32
+            ),
+            yaml_dict["pos"],
+            yaml_dict["has_gauss"],
+            context.translate_from_yaml(yaml_dict["cached_gaussian"]),
+        )
+    )
+    return random_state
 
 
 @_translate_type.register(dt.Timestamp)

@@ -1653,3 +1653,13 @@ def test_attrs_fallback_ignores_cached_property_on_dict_class():
     before = tokenize(obj)
     assert obj.doubled == 2
     assert tokenize(obj) == before == tokenize(_DictAttrs(1))
+
+
+def test_numpy_values_tokenize_by_dtype_and_content() -> None:
+    """A longdouble tokenizes, and structured values with different field names differ."""
+    assert HASHER.tokenize(np.longdouble(1.5)) == HASHER.tokenize(np.longdouble(1.5))
+    assert HASHER.tokenize(np.longdouble(1.5)) != HASHER.tokenize(np.longdouble(2.5))
+    ab = np.array([(1, 2.0)], dtype=[("a", "i4"), ("b", "f4")])
+    xy = np.array([(1, 2.0)], dtype=[("x", "i4"), ("y", "f4")])
+    assert HASHER.tokenize(ab) != HASHER.tokenize(xy)
+    assert HASHER.tokenize(ab[0]) != HASHER.tokenize(xy[0])
