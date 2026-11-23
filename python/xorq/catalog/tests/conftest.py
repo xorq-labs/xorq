@@ -540,6 +540,9 @@ def _source_and_transform_template(
     backend_type: str,
     _metadata_only_wheel: EntryWheel,
 ) -> tuple[Path, str, str]:
+    # a pointer repo records its store's absolute path: every copy would share it
+    if backend_type == "pointer":
+        raise ValueError("a pointer catalog cannot be copied from a template")
     root = tmp_path_factory.mktemp(f"source-and-transform-template-{backend_type}")
     repo_path = root / "repo"
     _init_catalog_repo(repo_path, backend_type)
