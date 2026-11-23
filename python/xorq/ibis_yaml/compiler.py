@@ -912,12 +912,6 @@ class ExprDumper:
             plan.writer()
 
     def dump_expr(self) -> str:
-        from xorq.ibis_yaml.translate import (  # noqa: PLC0415
-            _ensure_sklearn_to_yaml_registered,
-        )
-
-        _ensure_sklearn_to_yaml_registered()
-
         # we will mutate the expr below
         expr = self.expr
 
