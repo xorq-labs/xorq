@@ -907,7 +907,7 @@ def test_rebuild_does_not_warn_when_the_target_holds_the_ancestor(
         source = catalog.add(build_path, aliases=("new",))
 
     with warnings.catch_warnings():
-        warnings.filterwarnings("error", message="rebuild: rebased_from")
+        warnings.filterwarnings("error", message="rebuild:")
         AddEntry(entry_hash=source.name, aliases=("new",)).do(
             catalog, target, RebuildContext(rebuild=True)
         )
