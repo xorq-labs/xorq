@@ -1665,6 +1665,44 @@ def test_numpy_values_tokenize_by_dtype_and_content() -> None:
     assert HASHER.tokenize(ab[0]) != HASHER.tokenize(xy[0])
 
 
+def _with_padding(value: np.generic | np.ndarray, fill: int) -> np.ndarray:
+    """A copy of *value* whose padding bytes are all *fill*."""
+    dtype = value.dtype
+    raw = bytearray(np.asarray(value).tobytes())
+    if dtype.type is np.longdouble:  # x87 extended: 10 value bytes
+        raw[10:] = bytes([fill]) * (dtype.itemsize - 10)
+    else:
+        taken = {
+            i
+            for name in dtype.names
+            for i in range(
+                dtype.fields[name][1], dtype.fields[name][1] + dtype[name].itemsize
+            )
+        }
+        for i in set(range(dtype.itemsize)) - taken:
+            raw[i] = fill
+    return np.frombuffer(bytes(raw), dtype=dtype)
+
+
+@pytest.mark.skipif(
+    not (np.finfo(np.longdouble).nmant == 63 and np.dtype(np.longdouble).itemsize > 10),
+    reason="longdouble is not a padded x87 extended float here",
+)
+def test_numpy_longdouble_tokenizes_without_its_padding() -> None:
+    zeros, junk = (_with_padding(np.longdouble(1.5), fill) for fill in (0x00, 0xAB))
+    assert zeros[0] == junk[0]
+    assert HASHER.tokenize(zeros[0]) == HASHER.tokenize(junk[0])
+    assert HASHER.tokenize(zeros) == HASHER.tokenize(junk)
+
+
+def test_numpy_aligned_struct_tokenizes_without_its_padding() -> None:
+    value = np.array([(1, 2.0)], dtype=np.dtype([("a", "u1"), ("b", "f8")], align=True))
+    zeros, junk = (_with_padding(value, fill) for fill in (0x00, 0xCD))
+    assert (zeros == junk).all()
+    assert HASHER.tokenize(zeros) == HASHER.tokenize(junk)
+    assert HASHER.tokenize(zeros[0]) == HASHER.tokenize(junk[0])
+
+
 class _TaggedArray(np.ndarray):
     def __dasher_tokenize__(self) -> tuple:
         return ("tagged", self.tobytes(), getattr(self, "tag", None))

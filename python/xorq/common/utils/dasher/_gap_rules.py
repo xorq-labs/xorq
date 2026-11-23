@@ -78,12 +78,29 @@ def normalize_object_or_attrs(obj: object) -> tuple:
         case _ if attrs.has(type(obj)):
             return normalize_attrs(obj)
         # obj.dtype goes through the numpy.dtype rule, which keeps structured
-        # field names; raw bytes keep longdouble exact (its .item() is itself)
+        # field names
         case np.generic() | np.ndarray():
-            values = obj.tolist() if obj.dtype.hasobject else obj.tobytes()
-            return (type(obj).__qualname__, obj.dtype, obj.shape, values)
+            return (type(obj).__qualname__, obj.dtype, obj.shape, _numpy_values(obj))
         case _:
             return normalize_object_fallback(obj)
+
+
+def _numpy_values(obj: np.generic | np.ndarray) -> object:
+    """The content of a numpy value, without the padding its buffer may carry.
+
+    Raw bytes are exact and cheap, but a longdouble (x87 extended: 10 value
+    bytes in 12 or 16) and an aligned structured dtype carry padding that
+    numpy leaves uninitialised, so equal values can differ there. Those go by
+    value: str is numpy's shortest round-trip form of a longdouble, whose
+    .item() is itself.
+    """
+    match obj.dtype:
+        case dtype if dtype.type in (np.longdouble, np.clongdouble):
+            return tuple(map(str, np.ravel(obj).tolist()))
+        case dtype if dtype.hasobject or dtype.names:
+            return obj.tolist()
+        case _:
+            return obj.tobytes()
 
 
 def normalize_lru_cache(func: functools._lru_cache_wrapper) -> tuple:
