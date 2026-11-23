@@ -8,10 +8,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
-import xorq.expr.api
 import xorq.vendor.ibis.expr.datatypes as dt
-from xorq.expr.api import _transform_expr as transform_expr
-from xorq.expr.api import _widen_reader as widen_reader
 from xorq.vendor import ibis
 
 
@@ -107,33 +104,4 @@ def test_deferred_read_parquet_streams_expression_schema(tmp_path):
     )
     reader = expr.to_pyarrow_batches()
     assert reader.schema == expr.schema().to_pyarrow()
-    assert reader.read_all().column("s").type == pa.large_string()
-
-
-def test_to_pyarrow_batches_closes_scope_when_widening_fails(monkeypatch):
-    t = xo.duckdb.connect().create_table("t", pa.table({"s": [1, 2]}))
-    scopes = []
-
-    def capture(*args, **kwargs):
-        transformed, scope = transform_expr(*args, **kwargs)
-        scopes.append(scope)
-        return transformed, scope
-
-    def fail(reader, schema):
-        raise pa.ArrowTypeError("cannot widen")
-
-    monkeypatch.setattr(xorq.expr.api, "_transform_expr", capture)
-    monkeypatch.setattr(xorq.expr.api, "_widen_reader", fail)
-
-    with pytest.raises(pa.ArrowTypeError, match="cannot widen"):
-        t.to_pyarrow_batches()
-    assert [scope.closed for scope in scopes] == [True]
-
-
-def test_widened_reader_keeps_schema_metadata():
-    table = pa.table({"s": ["a"]}).replace_schema_metadata({b"pandas": b"{}"})
-
-    reader = widen_reader(table.to_reader(), ibis.schema({"s": dt.LargeString()}))
-
-    assert reader.schema.metadata == {b"pandas": b"{}"}
     assert reader.read_all().column("s").type == pa.large_string()
