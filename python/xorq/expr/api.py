@@ -670,7 +670,15 @@ def _widen_reader(
         ),
         metadata=reader.schema.metadata,
     )
-    return reader if target == reader.schema else reader.cast(target)
+    # cast per batch: the generator keeps ``reader`` alive, while
+    # ``reader.cast`` drops it and fires a bound reader's weakref cleanup
+    return (
+        reader
+        if target == reader.schema
+        else pa.RecordBatchReader.from_batches(
+            target, (batch.cast(target) for batch in reader)
+        )
+    )
 
 
 @tracer.start_as_current_span("to_pyarrow_batches")
