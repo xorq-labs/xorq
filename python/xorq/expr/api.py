@@ -651,9 +651,10 @@ def _pandas_execute(con: BaseBackend, expr: ir.Expr, **kwargs: Any) -> "pd.DataF
         return con.execute(expr, **kwargs)
 
 
-# dtypes an engine may store as their base type (DuckDB: VARCHAR, BLOB); the
-# transform replaces a Read with the registered table, whose schema has the base
-WIDENED_DTYPES = frozenset((dt.LargeString, dt.BinaryView))
+# dtypes an engine may store as their base type (DuckDB: VARCHAR); the transform
+# replaces a Read with the registered table, whose schema has the base. BinaryView
+# is left out: pyarrow 18, the floor, cannot write binary_view to parquet.
+WIDENED_DTYPES = frozenset((dt.LargeString,))
 
 
 def _widen_reader(
