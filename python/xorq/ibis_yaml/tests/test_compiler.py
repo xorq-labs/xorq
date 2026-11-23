@@ -14,6 +14,7 @@ import tempfile
 import warnings
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -2229,6 +2230,49 @@ def test_duckdb_mutate_drop_join_roundtrip(builds_dir, parquet_dir):
             for e in (expr, roundtrip_expr)
         )
     )
+
+
+def test_nested_estimator_numpy_params_round_trip(builds_dir: pathlib.Path) -> None:
+    """A numpy integer and a RandomState param on a nested estimator build, load and refit."""
+    sk_compose = pytest.importorskip("sklearn.compose")
+    sk_ensemble = pytest.importorskip("sklearn.ensemble")
+    sk_pipeline = pytest.importorskip("sklearn.pipeline")
+    sk_preprocessing = pytest.importorskip("sklearn.preprocessing")
+    sk_tree = pytest.importorskip("sklearn.tree")
+
+    t = xo.memtable({"f": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0], "y": [0, 1, 0, 1, 0, 1]})
+    tree = sk_tree.DecisionTreeClassifier(
+        max_depth=np.int64(2), random_state=np.random.RandomState(0)
+    )
+    sk = sk_pipeline.Pipeline(
+        [
+            (
+                "ct",
+                sk_compose.ColumnTransformer(
+                    [("num", sk_preprocessing.StandardScaler(), ["f"])]
+                ),
+            ),
+            ("clf", sk_ensemble.BaggingClassifier(estimator=tree, n_estimators=2)),
+        ]
+    )
+    expr = xo.Pipeline.from_instance(sk).fit(t, features=("f",), target="y").predict(t)
+    loaded = load_expr(build_expr(expr, builds_dir=builds_dir))
+    pipeline = get_outermost_pipeline(loaded)
+    loaded_tree = pipeline.named_steps["clf"].estimator
+
+    assert loaded_tree.max_depth == 2
+    assert isinstance(loaded_tree.max_depth, np.integer)
+    assert np.array_equal(
+        loaded_tree.random_state.get_state()[1],
+        np.random.RandomState(0).get_state()[1],
+    )
+    refit = (
+        xo.Pipeline.from_instance(pipeline)
+        .fit(t, features=("f",), target="y")
+        .predict(t)
+        .execute()
+    )
+    assert len(refit) == 6
 
 
 def test_build_writes_cache_source_profile_used_nowhere_else(

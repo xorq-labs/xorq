@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import numpy as np
 import toolz
 
 import xorq.expr.datatypes as dt
@@ -229,6 +230,20 @@ def _float_to_yaml(dct: float, context: TranslationContext) -> dict:
 @register_from_yaml_handler("float")
 def _float_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return float(yaml_dict["value"])
+
+
+# np.floating and np.str_ already go through the float and str rules; a
+# np.generic rule would outrank those in the MRO and change their yaml
+@translate_to_yaml.register(np.integer)
+@translate_to_yaml.register(np.bool_)
+@translate_to_yaml.register(np.random.RandomState)
+def _numpy_to_yaml(obj: Any, context: TranslationContext) -> dict:
+    return freeze({"op": "NumpyObject", "pickled": serialize_callable(obj)})
+
+
+@register_from_yaml_handler("NumpyObject")
+def _numpy_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
+    return deserialize_callable(yaml_dict["pickled"])
 
 
 @_translate_type.register(dt.Timestamp)

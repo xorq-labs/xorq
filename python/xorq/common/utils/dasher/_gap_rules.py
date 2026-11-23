@@ -67,10 +67,22 @@ def normalize_object_or_attrs(obj: object) -> tuple:
     """Fallback for ``builtins.object``: an attrs instance without its own
     ``__dasher_tokenize__`` normalizes by its fields; anything else defers to
     xorq_dasher's fallback (call ``__dasher_tokenize__`` or raise).
+
+    numpy scalars and arrays (a RandomState's state is one) are handled here
+    rather than by their own rules: a new rule key moves the rules fingerprint
+    and with it every build hash, while these types used to raise.
     """
-    if attrs.has(type(obj)) and not hasattr(obj, "__dasher_tokenize__"):
-        return normalize_attrs(obj)
-    return normalize_object_fallback(obj)
+    import numpy as np  # noqa: PLC0415
+
+    match obj:
+        case _ if attrs.has(type(obj)) and not hasattr(obj, "__dasher_tokenize__"):
+            return normalize_attrs(obj)
+        case np.generic():
+            return ("numpy.generic", obj.dtype.str, obj.item())
+        case np.ndarray():
+            return ("numpy.ndarray", obj.dtype.str, obj.shape, obj.tolist())
+        case _:
+            return normalize_object_fallback(obj)
 
 
 def normalize_lru_cache(func: functools._lru_cache_wrapper) -> tuple:
