@@ -78,17 +78,19 @@ def _translate(name, remap):
     return remap.get(name, name)
 
 
-def _translate_ancestor(ancestor, remap):
-    """Translate a ``rebased_from`` ancestor through *remap*, warning when the
-    ancestor was not replayed: the stamp then keeps the source catalog's name.
+def _translate_ancestor(descendant, ancestor, remap, to_catalog):
+    """Translate *descendant*'s ``rebased_from`` *ancestor* through *remap*,
+    warning when the target holds neither it nor its replayed copy: the stamp
+    then keeps the source catalog's name.
     """
-    if ancestor not in remap:
+    translated = _translate(ancestor, remap)
+    if not to_catalog.contains(translated):
         warnings.warn(
-            f"rebuild: rebased_from ancestor {ancestor!r} was not replayed into "
-            "the target; the stamp keeps its source name",
-            stacklevel=3,
+            f"rebuild: {descendant!r} was rebased from {ancestor!r}, which is "
+            "not in the target; the stamp keeps its source name",
+            stacklevel=2,
         )
-    return _translate(ancestor, remap)
+    return translated
 
 
 @contextmanager
@@ -483,7 +485,9 @@ class AddEntry:
                 if (ancestor := source_entry.rebased_from) is not None:
                     stamp_rebased_from(
                         build_path,
-                        _translate_ancestor(ancestor, ctx.remap),
+                        _translate_ancestor(
+                            source_entry.name, ancestor, ctx.remap, to_catalog
+                        ),
                         swaps=source_entry.swapped_sources,
                     )
                 new_entry = to_catalog.add(

@@ -1,4 +1,5 @@
 import uuid
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -845,7 +846,8 @@ def test_rebuild_warns_on_unreplayed_ancestor(tmp_path, target_path):
         stamp_rebased_from(build_path, "not-in-this-catalog")
         catalog.add(build_path, aliases=("new",))
 
-    with pytest.warns(UserWarning, match="not-in-this-catalog"):
+    descendant = catalog.get_catalog_entry("new", maybe_alias=True)
+    with pytest.warns(UserWarning, match=f"{descendant.name}.*not-in-this-catalog"):
         target = _replay_rebuild(catalog, target_path)
 
     rebased = target.get_catalog_entry("new", maybe_alias=True)
@@ -888,3 +890,23 @@ def test_rebuild_names_the_entry_when_add_fails(rebased_catalog, target_path):
         AddEntry(entry_hash=source.name, aliases=("a/b",)).do(
             rebased_catalog, target, RebuildContext(rebuild=True)
         )
+
+
+def test_rebuild_does_not_warn_when_the_target_holds_the_ancestor(
+    tmp_path, target_path
+):
+    target = Catalog.from_repo_path(target_path, init=True)
+    ancestor = target.add(xo.memtable({"a": [1]}))
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    with build_expr_context(xo.memtable({"a": [1, 2]})) as build_path:
+        stamp_rebased_from(build_path, ancestor.name)
+        source = catalog.add(build_path, aliases=("new",))
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message="rebuild: rebased_from")
+        AddEntry(entry_hash=source.name, aliases=("new",)).do(
+            catalog, target, RebuildContext(rebuild=True)
+        )
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    assert rebased.rebased_from == ancestor.name
