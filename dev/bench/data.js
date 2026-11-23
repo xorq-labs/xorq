@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795441574064,
+  "lastUpdate": 1795443482693,
   "repoUrl": "https://github.com/xorq-labs/xorq",
   "entries": {
     "Benchmark": [
@@ -93812,6 +93812,212 @@ window.BENCHMARK_DATA = {
             "unit": "iter/sec",
             "range": "stddev: 0.18484341791326234",
             "extra": "mean: 1.089931353199995 sec\nrounds: 5"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mesejoleon@gmail.com",
+            "name": "Daniel Mesejo",
+            "username": "mesejo"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6703b07ef0960db1f061295c4351054b4cbee159",
+          "message": "fix(api): stream LargeString columns at their declared width (#2698)\n\n## What\n\n`to_pyarrow_batches` now casts columns the expression declares as\n`LargeString` back to `large_string` when the engine streams them\nnarrowed. Every other column is left as the engine streams it.\n\n## Why\n\nThe transform replaces a deferred read with the registered table, so the\nbackend only sees the engine's inferred schema. DuckDB stores\n`large_string` as VARCHAR, so `deferred_read_parquet(...,\ncon=xo.duckdb.connect(), schema=...)` reported `largestring` from\n`.schema()` but streamed `string`. `to_pyarrow()` already returned\n`large_string` because `__pyarrow_result__` casts the whole table.\n\nA cast inside the duckdb backend can't fix this: by the time it runs,\nthe declared type is gone. Casting the reader to the full expression\nschema was rejected because it breaks streams that work today. DuckDB\nintervals (`month_day_nano` to `duration`) and union columns typed\n`Unknown` (to `string`) both fail that cast, and `Unknown` columns would\nbe rewritten to string.\n\n## Verification\n\n```\nPYTHONPATH=$PWD/python pytest python/xorq/backends/duckdb/tests/test_read_types.py::test_deferred_read_parquet_streams_expression_schema\n```\n\n1 passed. With `python/xorq/expr/api.py` reverted to main it fails: `s:\nstring == s: large_string`.\n\nThe widen casts batch by batch instead of with `RecordBatchReader.cast`.\nThe latter drops the Python reader it wraps, and when that reader came\nfrom `bind_scope_to_reader` (duckdb's isolated stream over a temp view)\nits weakref cleanup closed the stream, so caching a `LargeString` read\ninto duckdb stored an empty table.\n`test_large_string.py::test_deferred_read_parquet_large_string_caches_into_duckdb[duckdb]`\nfails with `reader.cast` and passes now.\n\n`test_deferred_read_parquet_binary_view_round_trips_to_parquet` passes\non pyarrow 18.1.0 and fails there with `Unhandled type for Arrow to\nParquet schema conversion: binary_view` if `BinaryView` is widened.\n\n`backends/duckdb/tests`, `test_large_string.py`, `tests/test_api.py` and\n`expr/tests/test_{transform_scope,reader_count,stream_cache_contract}.py`:\n167 passed, 2 xpassed. The same read on xorq, pandas and datafusion\nconnections also streams `large_string` now, checked by hand.\n\nCost, timed locally (best of 5). When no column needs widening, the\nreader is returned untouched, and the per-call work of reading the\nschema and building the target is 0.14 ms on a 200-column expression\nwith 30 mutates. When a column does need it, the cast is applied per\nbatch while streaming. On 5M rows (64 MB) that adds 8.7 ms for `string`\nto `large_string`. `to_pyarrow()` already cast the whole table to the\nexpression schema, so it now gets batches at the right width and its own\ncast has nothing to do.\n\n## Not addressed\n\n- `BinaryView` is not widened: pyarrow 18, the floor, cannot write\n`binary_view` to parquet, so widening BLOB would break `to_parquet`\nthere.\n- Only top-level columns are widened. A `LargeString` nested in an array\nor struct still streams at whatever width the engine uses.\n- The Flight path (`FlightExpr`/`FlightUDXF` roots) is unchanged.\n- A column declared `LargeString` that the engine streams as a type that\ncan't be cast to it now raises `ArrowTypeError` from\n`to_pyarrow_batches()` instead of streaming the engine's type;\n`to_pyarrow()` already raised there. A wrong `schema=` on a read now\nfails earlier, in the engine's own cast.\n- #2507 casts a read to its recorded schema in `Read.make_dt`. DuckDB\ncompiles a cast to `LargeString` as VARCHAR, so its stream still needs\nthe widen here.\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-11-23T15:11:15+01:00",
+          "tree_id": "49effa5a78f30e64915cdcdd835bd27535f222fc",
+          "url": "https://github.com/xorq-labs/xorq/commit/6703b07ef0960db1f061295c4351054b4cbee159"
+        },
+        "date": 1795443477284,
+        "tool": "pytest",
+        "benches": [
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_help",
+            "value": 5.780236409755334,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0158537734523937",
+            "extra": "mean: 173.00330455555329 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_init",
+            "value": 2.705475882753886,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02826076434874624",
+            "extra": "mean: 369.6207407999907 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_add",
+            "value": 0.7668360279706729,
+            "unit": "iter/sec",
+            "range": "stddev: 0.1464362234001672",
+            "extra": "mean: 1.3040597514000012 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_list",
+            "value": 2.7215917750736085,
+            "unit": "iter/sec",
+            "range": "stddev: 0.02881511799834022",
+            "extra": "mean: 367.4320333999958 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_info",
+            "value": 2.6738210016777137,
+            "unit": "iter/sec",
+            "range": "stddev: 0.014516910983525607",
+            "extra": "mean: 373.9966135999907 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/catalog/tests/test_benchmark_cli.py::test_benchmark_catalog_check",
+            "value": 2.674198125660232,
+            "unit": "iter/sec",
+            "range": "stddev: 0.032948745511359255",
+            "extra": "mean: 373.94387139999594 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[simple_filter_agg]",
+            "value": 176.0906791371011,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006615260360943444",
+            "extra": "mean: 5.678892289474435 msec\nrounds: 228"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[pipeline_50_steps]",
+            "value": 3.28751037868669,
+            "unit": "iter/sec",
+            "range": "stddev: 0.18507116886775435",
+            "extra": "mean: 304.1815492000012 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/common/utils/tests/test_benchmark_dasher.py::test_benchmark_tokenize[nested_into_backend]",
+            "value": 10.142613908003396,
+            "unit": "iter/sec",
+            "range": "stddev: 0.030052047783293193",
+            "extra": "mean: 98.59391366666476 msec\nrounds: 9"
+          },
+          {
+            "name": "python/xorq/ibis_yaml/tests/test_benchmark.py::test_to_yaml_long_chain",
+            "value": 1.1205293610903289,
+            "unit": "iter/sec",
+            "range": "stddev: 0.17826863005995175",
+            "extra": "mean: 892.4353388000043 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/ibis_yaml/tests/test_benchmark.py::test_to_yaml_shared_remote_tables",
+            "value": 1.2585247656917034,
+            "unit": "iter/sec",
+            "range": "stddev: 0.141387372110653",
+            "extra": "mean: 794.5811058000004 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq]",
+            "value": 12.805955523706135,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006203715392233992",
+            "extra": "mean: 78.08866727272475 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.cli]",
+            "value": 9.975039178348867,
+            "unit": "iter/sec",
+            "range": "stddev: 0.006324662375189437",
+            "extra": "mean: 100.25023281818594 msec\nrounds: 11"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.ibis_yaml.packager]",
+            "value": 6.992277840229786,
+            "unit": "iter/sec",
+            "range": "stddev: 0.010048465932898",
+            "extra": "mean: 143.01491199999816 msec\nrounds: 8"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.internal]",
+            "value": 4.622355514356084,
+            "unit": "iter/sec",
+            "range": "stddev: 0.016586667520472855",
+            "extra": "mean: 216.33991519998972 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.logging_utils]",
+            "value": 4.330829959439402,
+            "unit": "iter/sec",
+            "range": "stddev: 0.011629179835436586",
+            "extra": "mean: 230.90262359999087 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.config]",
+            "value": 2.1472917890639,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08209336407649671",
+            "extra": "mean: 465.7028937999826 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.catalog.catalog]",
+            "value": 3.0407212896431117,
+            "unit": "iter/sec",
+            "range": "stddev: 0.021403100439796707",
+            "extra": "mean: 328.8693387999956 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.xorq_datafusion]",
+            "value": 1.6562238155569822,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09004565317243256",
+            "extra": "mean: 603.7831303999837 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.datatypes]",
+            "value": 1.7088103634531104,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08526419085813973",
+            "extra": "mean: 585.2024433999986 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.common.utils.defer_utils]",
+            "value": 1.3295039443321883,
+            "unit": "iter/sec",
+            "range": "stddev: 0.11077774455027015",
+            "extra": "mean: 752.1602355999789 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.relations]",
+            "value": 1.4985782433731358,
+            "unit": "iter/sec",
+            "range": "stddev: 0.08458350994561449",
+            "extra": "mean: 667.2991579999916 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.expr.api]",
+            "value": 1.1466925921141071,
+            "unit": "iter/sec",
+            "range": "stddev: 0.13882843908166928",
+            "extra": "mean: 872.0733062000022 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.flight]",
+            "value": 1.0833772693373716,
+            "unit": "iter/sec",
+            "range": "stddev: 0.09762881831887807",
+            "extra": "mean: 923.0394879999949 msec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.api]",
+            "value": 0.8213508467867416,
+            "unit": "iter/sec",
+            "range": "stddev: 0.15235094893903606",
+            "extra": "mean: 1.217506506399991 sec\nrounds: 5"
+          },
+          {
+            "name": "python/xorq/tests/test_benchmark_imports.py::test_benchmark_import[xorq.backends.pyiceberg]",
+            "value": 0.5264706105149144,
+            "unit": "iter/sec",
+            "range": "stddev: 0.0957236189932674",
+            "extra": "mean: 1.8994412603999877 sec\nrounds: 5"
           }
         ]
       }
