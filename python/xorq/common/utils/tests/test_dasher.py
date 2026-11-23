@@ -1675,3 +1675,11 @@ def test_numpy_subclass_dasher_tokenize_hook_wins() -> None:
     first, second = (np.arange(3).view(_TaggedArray) for _ in range(2))
     first.tag, second.tag = "a", "b"
     assert HASHER.tokenize(first) != HASHER.tokenize(second)
+
+
+def test_numpy_object_field_scalar_tokenizes_by_content() -> None:
+    """A structured scalar with an object field changes token when the object changes."""
+    record = np.array([([1],)], dtype=[("a", object)])[0]
+    before = HASHER.tokenize(record)
+    record["a"].append(2)
+    assert HASHER.tokenize(record) != before

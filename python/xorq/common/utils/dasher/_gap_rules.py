@@ -79,11 +79,9 @@ def normalize_object_or_attrs(obj: object) -> tuple:
             return normalize_attrs(obj)
         # obj.dtype goes through the numpy.dtype rule, which keeps structured
         # field names; raw bytes keep longdouble exact (its .item() is itself)
-        case np.generic():
-            return ("numpy.generic", obj.dtype, obj.tobytes())
-        case np.ndarray():
+        case np.generic() | np.ndarray():
             values = obj.tolist() if obj.dtype.hasobject else obj.tobytes()
-            return ("numpy.ndarray", obj.dtype, obj.shape, values)
+            return (type(obj).__qualname__, obj.dtype, obj.shape, values)
         case _:
             return normalize_object_fallback(obj)
 
