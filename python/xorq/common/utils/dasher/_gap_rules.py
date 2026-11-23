@@ -78,8 +78,9 @@ def normalize_object_or_attrs(obj: object) -> tuple:
         case _ if attrs.has(type(obj)):
             return normalize_attrs(obj)
         # obj.dtype goes through the numpy.dtype rule, which keeps structured
-        # field names
-        case np.generic() | np.ndarray():
+        # field names. ndarray subclasses (MaskedArray's mask, matrix) carry
+        # state the buffer does not, so only a plain ndarray goes here.
+        case _ if isinstance(obj, np.generic) or type(obj) is np.ndarray:
             return (type(obj).__qualname__, obj.dtype, obj.shape, _numpy_values(obj))
         case _:
             return normalize_object_fallback(obj)

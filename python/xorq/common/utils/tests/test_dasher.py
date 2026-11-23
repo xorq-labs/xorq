@@ -1703,6 +1703,15 @@ def test_numpy_aligned_struct_tokenizes_without_its_padding() -> None:
     assert HASHER.tokenize(zeros[0]) == HASHER.tokenize(junk[0])
 
 
+def test_numpy_masked_array_is_refused_not_tokenized_without_its_mask() -> None:
+    """A MaskedArray's buffer alone would make these two different params one cache key."""
+    masked = np.ma.array([1, 2], mask=[0, 1])
+    unmasked = np.ma.array([1, 999999], mask=[0, 0])
+    for value in (masked, unmasked):
+        with pytest.raises(ValueError, match="No normalizer registered"):
+            HASHER.tokenize(value)
+
+
 class _TaggedArray(np.ndarray):
     def __dasher_tokenize__(self) -> tuple:
         return ("tagged", self.tobytes(), getattr(self, "tag", None))
