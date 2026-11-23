@@ -569,6 +569,10 @@ def catalog_with_source_and_transform(
     repo records its store's absolute path (a copy would share the template's
     store), and for an ``installs_entry_wheel`` test, whose entries must carry
     the installable wheel rather than the template's metadata-only one.
+
+    The template is session-scoped, so a module that overrides ``backend_type``
+    with a function-scoped fixture gets ScopeMismatch here: mark its tests
+    ``git_storage_only`` instead.
     """
     installs = request.node.get_closest_marker("installs_entry_wheel") is not None
     if installs or backend_type == "pointer":
