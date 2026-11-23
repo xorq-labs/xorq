@@ -878,3 +878,13 @@ def test_rebuild_keeps_swapped_sources(tmp_path, target_path):
 
     rebased = target.get_catalog_entry("new", maybe_alias=True)
     assert rebased.swapped_sources == (swap,)
+
+
+def test_rebuild_names_the_entry_when_add_fails(rebased_catalog, target_path):
+    target = Catalog.from_repo_path(target_path, init=True)
+    source = rebased_catalog.get_catalog_entry("new", maybe_alias=True)
+
+    with pytest.raises(RuntimeError, match=f"failed to rebuild entry '{source.name}'"):
+        AddEntry(entry_hash=source.name, aliases=("a/b",)).do(
+            rebased_catalog, target, RebuildContext(rebuild=True)
+        )
