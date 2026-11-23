@@ -1663,3 +1663,15 @@ def test_numpy_values_tokenize_by_dtype_and_content() -> None:
     xy = np.array([(1, 2.0)], dtype=[("x", "i4"), ("y", "f4")])
     assert HASHER.tokenize(ab) != HASHER.tokenize(xy)
     assert HASHER.tokenize(ab[0]) != HASHER.tokenize(xy[0])
+
+
+class _TaggedArray(np.ndarray):
+    def __dasher_tokenize__(self) -> tuple:
+        return ("tagged", self.tobytes(), getattr(self, "tag", None))
+
+
+def test_numpy_subclass_dasher_tokenize_hook_wins() -> None:
+    """A numpy subclass's own __dasher_tokenize__ decides its token."""
+    first, second = (np.arange(3).view(_TaggedArray) for _ in range(2))
+    first.tag, second.tag = "a", "b"
+    assert HASHER.tokenize(first) != HASHER.tokenize(second)

@@ -73,7 +73,9 @@ def normalize_object_or_attrs(obj: object) -> tuple:
     and with it every build hash, while these types used to raise.
     """
     match obj:
-        case _ if attrs.has(type(obj)) and not hasattr(obj, "__dasher_tokenize__"):
+        case _ if hasattr(obj, "__dasher_tokenize__"):
+            return normalize_object_fallback(obj)
+        case _ if attrs.has(type(obj)):
             return normalize_attrs(obj)
         # obj.dtype goes through the numpy.dtype rule, which keeps structured
         # field names; raw bytes keep longdouble exact (its .item() is itself)
