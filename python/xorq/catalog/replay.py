@@ -38,10 +38,10 @@ from functools import cached_property, partial
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of, optional
 
+from xorq.catalog.catalog import stamp_rebased_from
 from xorq.catalog.constants import CATALOG_YAML_NAME
 from xorq.catalog.enums import CatalogInfix, CatalogTag, OnUnrebuiltBuilder
 from xorq.catalog.expr_utils import build_expr_context
-from xorq.catalog.rebase import stamp_rebased_from
 
 
 @frozen

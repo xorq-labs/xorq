@@ -73,7 +73,6 @@ committed locally, and `xorq catalog sync` publishes them.
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 import shutil
 import sys
@@ -101,8 +100,8 @@ from xorq.catalog.catalog import (
     CatalogPullError,
     SourceAt,
     SwappedSource,
+    stamp_rebased_from,
 )
-from xorq.catalog.constants import REBASED_FROM, SWAPPED_SOURCES
 from xorq.catalog.drift import (
     LeafReport,
     checkable_leaves,
@@ -922,22 +921,6 @@ def stage_bundle(catalog_entry: CatalogEntry, build_path: Path) -> None:
             f"{name} is unreadable: {format_error(e)}", RebaseFailure.UNREACHABLE
         ) from e
     (build_path / DumpFiles.requirements).write_bytes(requirements)
-
-
-def stamp_rebased_from(
-    build_path: Path, ancestor: str, swaps: tuple[SwappedSource, ...] = ()
-) -> None:
-    """Record ``ancestor``, and ``swaps`` if any, in ``build_path``'s
-    ``build_metadata.json``.
-
-    In the archive rather than only the sidecar: a catalog copy re-derives
-    each sidecar from its archive. The build hash reads ``expr.yaml`` only.
-    """
-    path = build_path / DumpFiles.build_metadata
-    metadata = json.loads(path.read_text()) | {REBASED_FROM: ancestor}
-    if swaps:
-        metadata[SWAPPED_SOURCES] = [swap.to_dict() for swap in swaps]
-    path.write_text(json.dumps(metadata, indent=2))
 
 
 # POSIX `rename(2)` replaces an empty directory, so `publish_build` claims the

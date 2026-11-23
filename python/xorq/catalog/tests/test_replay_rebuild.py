@@ -9,7 +9,12 @@ from click.testing import CliRunner
 import xorq.api as xo
 from xorq.catalog.backend import GitBackend, GitPointerBackend
 from xorq.catalog.bind import bind
-from xorq.catalog.catalog import Catalog, SourceAt, SwappedSource
+from xorq.catalog.catalog import (
+    Catalog,
+    SourceAt,
+    SwappedSource,
+    stamp_rebased_from,
+)
 from xorq.catalog.cli import cli
 from xorq.catalog.composer import ExprComposer
 from xorq.catalog.content_store import (
@@ -22,7 +27,6 @@ from xorq.catalog.content_store import (
 )
 from xorq.catalog.enums import CatalogTag
 from xorq.catalog.expr_utils import build_expr_context
-from xorq.catalog.rebase import stamp_rebased_from
 from xorq.catalog.replay import (
     AddAlias,
     AddEntry,
