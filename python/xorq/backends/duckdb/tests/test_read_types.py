@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
@@ -88,3 +90,30 @@ def test_read_csv_columns_and_types(tmp_path):
     assert t.execute().a.tolist() == [1, 2]
     t = con.read_csv(path, types={"a": "DECIMAL(10,2)"})
     assert duckdb_types(con, t) == {"a": "DECIMAL(10,2)", "b": "VARCHAR"}
+
+
+def test_deferred_read_parquet_streams_expression_schema(tmp_path):
+    path = tmp_path / "t.parquet"
+    pq.write_table(
+        pa.table({"id": [1, 2], "s": pa.array(["a", "b"], pa.large_string())}), path
+    )
+    expr = xo.deferred_read_parquet(
+        path=path,
+        con=xo.duckdb.connect(),
+        schema=ibis.schema({"id": "int64", "s": dt.LargeString()}),
+    )
+    reader = expr.to_pyarrow_batches()
+    assert reader.schema == expr.schema().to_pyarrow()
+    assert reader.read_all().column("s").type == pa.large_string()
+
+
+def test_deferred_read_parquet_binary_view_round_trips_to_parquet(tmp_path):
+    path, out = tmp_path / "t.parquet", tmp_path / "out.parquet"
+    pq.write_table(pa.table({"b": pa.array([b"a", None], pa.binary())}), path)
+    expr = xo.deferred_read_parquet(
+        path=path,
+        con=xo.duckdb.connect(),
+        schema=ibis.schema({"b": dt.BinaryView()}),
+    )
+    expr.to_parquet(out)
+    assert pq.read_table(out).column("b").to_pylist() == [b"a", None]
