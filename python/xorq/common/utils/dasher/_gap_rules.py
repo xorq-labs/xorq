@@ -96,7 +96,8 @@ def _numpy_values(obj: np.generic | np.ndarray) -> object:
     bytes in 12 or 16) and an aligned structured dtype carry padding that
     numpy leaves uninitialised, so equal values can differ there. Those go by
     value: str is numpy's shortest round-trip form of a longdouble, whose
-    .item() is itself.
+    .item() is itself. Tokens are exact bits otherwise, so -0.0 and 0.0, or
+    NaNs with different payloads, are different values here.
     """
     match obj.dtype:
         case dtype if dtype.type in (np.longdouble, np.clongdouble):
