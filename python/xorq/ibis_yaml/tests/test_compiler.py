@@ -8,6 +8,7 @@ import os
 import pathlib
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import warnings
@@ -48,6 +49,7 @@ from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.conftest import array_types_df
+from xorq.expr.ml.pipeline_lib import get_outermost_pipeline
 from xorq.expr.operations import _MISSING
 from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
@@ -2482,3 +2484,62 @@ def test_from_yaml_ignores_unreachable_node_definitions(compiler):
     restored = YamlExpressionTranslator.from_yaml(yaml_dict)
 
     assert restored.schema() == expr.schema()
+
+
+def test_build_without_an_estimator_does_not_import_sklearn(
+    tmp_path: pathlib.Path,
+) -> None:
+    """sklearn costs about half a second to import, and the test session
+    imports it at collection, so only a fresh interpreter can see a build
+    pull it in."""
+    pytest.importorskip("sklearn")
+    script = (
+        "import sys\n"
+        "import xorq.api as xo\n"
+        "from xorq.ibis_yaml.compiler import build_expr\n"
+        f"build_expr(xo.memtable({{'a': [1, 2]}}), builds_dir={str(tmp_path)!r})\n"
+        "print('sklearn' in sys.modules)\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.splitlines()[-1] == "False"
+
+
+def test_nested_sklearn_estimators_round_trip(tmp_path: pathlib.Path) -> None:
+    """A ColumnTransformer keeps its nested sklearn Pipeline as a step param,
+    so the estimator itself goes through expr.yaml and back."""
+    sk_compose = pytest.importorskip("sklearn.compose")
+    sk_impute = pytest.importorskip("sklearn.impute")
+    sk_pipeline = pytest.importorskip("sklearn.pipeline")
+    sk_preprocessing = pytest.importorskip("sklearn.preprocessing")
+
+    table = xo.memtable(
+        {"a": [1.0, None, 3.0, 4.0], "b": [0.5, 1.5, None, 2.0], "y": [0, 1, 0, 1]}
+    )
+    numeric = sk_pipeline.Pipeline(
+        [
+            ("impute", sk_impute.SimpleImputer(strategy="median")),
+            ("scale", sk_preprocessing.StandardScaler(with_mean=False)),
+        ]
+    )
+    sk = sk_pipeline.Pipeline(
+        [("columns", sk_compose.ColumnTransformer([("num", numeric, ["a", "b"])]))]
+    )
+    fitted = xo.Pipeline.from_instance(sk).fit(table, features=("a", "b"), target="y")
+    expr = fitted.transform(table)
+
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path))
+
+    ((_, columns),) = get_outermost_pipeline(loaded).steps
+    ((_, nested, _),) = columns.transformers
+    assert [(name, repr(step)) for name, step in nested.steps] == [
+        (name, repr(step)) for name, step in numeric.steps
+    ]
+    pd.testing.assert_frame_equal(loaded.execute(), expr.execute())

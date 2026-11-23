@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import base64
 import datetime
 import decimal
@@ -1367,34 +1368,33 @@ def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
     return Schema(toolz.valmap(context.translate_from_yaml, yaml_dict["value"]))
 
 
-# sklearn estimator YAML translation
-# to_yaml registration is deferred to avoid importing sklearn at module load time
-# (sklearn import costs ~0.48s due to scipy/joblib/numpy transitive deps)
+class _SklearnEstimator(abc.ABC):  # noqa: B024 (a virtual type, nothing to implement)
+    """Any class with sklearn.base.BaseEstimator in its MRO.
+
+    Matched by name, so a build whose expr holds no estimator never imports
+    sklearn (about half a second).
+    """
+
+    @classmethod
+    def __subclasshook__(cls, other: type) -> bool:
+        return (
+            "sklearn.base.BaseEstimator"
+            in (f"{k.__module__}.{k.__qualname__}" for k in other.__mro__)
+            or NotImplemented
+        )
 
 
-@functools.cache
-def _ensure_sklearn_to_yaml_registered():
-    try:
-        from sklearn.base import BaseEstimator  # noqa: PLC0415
-
-        @translate_to_yaml.register(BaseEstimator)
-        def _sklearn_estimator_to_yaml(
-            obj: BaseEstimator, context: TranslationContext
-        ) -> dict:
-            params = freeze(obj.get_params(deep=False))
-            return freeze(
-                {
-                    "op": "SklearnEstimator",
-                    "estimator_module": type(obj).__module__,
-                    "estimator_class": type(obj).__name__,
-                    "params": {
-                        k: context.translate_to_yaml(v) for k, v in params.items()
-                    },
-                }
-            )
-
-    except ImportError:
-        pass
+@translate_to_yaml.register(_SklearnEstimator)
+def _sklearn_estimator_to_yaml(obj: Any, context: TranslationContext) -> dict:
+    params = freeze(obj.get_params(deep=False))
+    return freeze(
+        {
+            "op": "SklearnEstimator",
+            "estimator_module": type(obj).__module__,
+            "estimator_class": type(obj).__name__,
+            "params": {k: context.translate_to_yaml(v) for k, v in params.items()},
+        }
+    )
 
 
 def _import_estimator_class(module: str, classname: str):
