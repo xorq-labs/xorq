@@ -1656,3 +1656,13 @@ def test_a_second_alias_is_refused_not_dropped(
         "a1",
         "a2",
     }
+
+
+@git_storage_only
+def test_source_and_transform_catalog_sits_beside_catalog_path(
+    catalog_path, catalog_with_source_and_transform
+):
+    path, source_name, transform_name = catalog_with_source_and_transform
+
+    assert path != catalog_path
+    assert {source_name, transform_name} <= set(Catalog.from_kwargs(path=path).list())
