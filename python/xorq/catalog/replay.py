@@ -38,8 +38,10 @@ from functools import cached_property, partial
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of, optional
 
+from xorq.catalog.catalog import stamp_rebased_from
 from xorq.catalog.constants import CATALOG_YAML_NAME
 from xorq.catalog.enums import CatalogInfix, CatalogTag, OnUnrebuiltBuilder
+from xorq.catalog.expr_utils import build_expr_context
 
 
 @frozen
@@ -74,6 +76,21 @@ def _translate(name, remap):
     path is :meth:`ExprComposer.with_inputs_translated`'s ``lookup``.
     """
     return remap.get(name, name)
+
+
+def _translate_ancestor(descendant, ancestor, remap, to_catalog):
+    """Translate *descendant*'s ``rebased_from`` *ancestor* through *remap*,
+    warning when the target holds neither it nor its replayed copy: the stamp
+    then keeps the source catalog's name.
+    """
+    translated = _translate(ancestor, remap)
+    if not to_catalog.contains(translated):
+        warnings.warn(
+            f"rebuild: {descendant!r} was rebased from {ancestor!r}, which is "
+            "not in the target; the stamp keeps its source name",
+            stacklevel=2,
+        )
+    return translated
 
 
 @contextmanager
@@ -463,12 +480,22 @@ class AddEntry:
                 to_catalog=to_catalog,
                 ctx=ctx,
             )
-            new_entry = to_catalog.add(
-                expr,
-                sync=False,
-                aliases=self.aliases,
-                exist_ok=True,
-            )
+            with build_expr_context(expr, relocate_reads=True) as build_path:
+                # A fresh build records no ancestor: stamp it, under its target name.
+                if (ancestor := source_entry.rebased_from) is not None:
+                    stamp_rebased_from(
+                        build_path,
+                        _translate_ancestor(
+                            source_entry.name, ancestor, ctx.remap, to_catalog
+                        ),
+                        swaps=source_entry.swapped_sources,
+                    )
+                new_entry = to_catalog.add(
+                    build_path,
+                    sync=False,
+                    aliases=self.aliases,
+                    exist_ok=True,
+                )
         except Exception as e:
             raise RuntimeError(
                 f"rebuild: failed to rebuild entry {source_entry.name!r}: {e}"

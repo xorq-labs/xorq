@@ -1413,6 +1413,22 @@ def read_swapped_sources(text: str) -> list[dict] | None:
         return None
 
 
+def stamp_rebased_from(
+    build_path: Path, ancestor: str, swaps: tuple[SwappedSource, ...] = ()
+) -> None:
+    """Record ``ancestor``, and ``swaps`` if any, in ``build_path``'s
+    ``build_metadata.json``.
+
+    In the archive rather than only the sidecar: a catalog copy re-derives
+    each sidecar from its archive. The build hash reads ``expr.yaml`` only.
+    """
+    path = build_path / DumpFiles.build_metadata
+    metadata = json.loads(path.read_text()) | {REBASED_FROM: ancestor}
+    if swaps:
+        metadata[SWAPPED_SOURCES] = [swap.to_dict() for swap in swaps]
+    path.write_text(json.dumps(metadata, indent=2))
+
+
 @frozen
 class CatalogAddition:
     """Encapsulates the operation of adding a build archive to a catalog.

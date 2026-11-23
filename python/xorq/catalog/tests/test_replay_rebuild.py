@@ -1,4 +1,5 @@
 import uuid
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -8,7 +9,12 @@ from click.testing import CliRunner
 import xorq.api as xo
 from xorq.catalog.backend import GitBackend, GitPointerBackend
 from xorq.catalog.bind import bind
-from xorq.catalog.catalog import Catalog
+from xorq.catalog.catalog import (
+    Catalog,
+    SourceAt,
+    SwappedSource,
+    stamp_rebased_from,
+)
 from xorq.catalog.cli import cli
 from xorq.catalog.composer import ExprComposer
 from xorq.catalog.content_store import (
@@ -20,6 +26,7 @@ from xorq.catalog.content_store import (
     parse_pointer,
 )
 from xorq.catalog.enums import CatalogTag
+from xorq.catalog.expr_utils import build_expr_context
 from xorq.catalog.replay import (
     AddAlias,
     AddEntry,
@@ -794,3 +801,116 @@ def test_rebuild_collision_records_remap_to_existing_entry(tmpdir, saved_registr
     assert ctx.remap[src_a.name] == tgt_a.name
     assert ctx.remap[src_b.name] == tgt_b.name
     assert {"ca", "cb"} <= set(target.list_aliases())
+
+
+def _register_filter_handler(threshold, override=False):
+    def reemit(tag_node, rebuild_subexpr):
+        inner = tag_node.parent.to_expr()
+        return inner.filter(inner.a > threshold)
+
+    register_tag_handler(
+        TagHandler(
+            tag_names=("rebased_handler",),
+            extract_metadata=lambda tag_node: {"type": "rebased_handler"},
+            reemit=reemit,
+        ),
+        override=override,
+    )
+
+
+@pytest.fixture
+def rebased_catalog(tmp_path, saved_registry):
+    # The ancestor rebuilds to a new hash (its handler changes before replay),
+    # so a correct stamp must name the ancestor's target hash, not its source one.
+    _register_filter_handler(0)
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    ancestor = catalog.add(
+        xo.memtable({"a": [1, 2]}).tag("rebased_handler"), aliases=("old",)
+    )
+    with build_expr_context(xo.memtable({"a": [1, 2, 3]})) as build_path:
+        stamp_rebased_from(build_path, ancestor.name)
+        catalog.add(build_path, aliases=("new",))
+    _register_filter_handler(1, override=True)
+    return catalog
+
+
+def test_rebuild_keeps_rebased_from(rebased_catalog, target_path):
+    target = _replay_rebuild(rebased_catalog, target_path)
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    ancestor = target.get_catalog_entry("old", maybe_alias=True)
+    source_ancestor = rebased_catalog.get_catalog_entry("old", maybe_alias=True)
+    assert ancestor.name != source_ancestor.name
+    assert rebased.rebased_from == ancestor.name
+
+
+def test_rebuild_warns_on_unreplayed_ancestor(tmp_path, target_path):
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    with build_expr_context(xo.memtable({"a": [1]})) as build_path:
+        stamp_rebased_from(build_path, "not-in-this-catalog")
+        catalog.add(build_path, aliases=("new",))
+
+    descendant = catalog.get_catalog_entry("new", maybe_alias=True)
+    with pytest.warns(UserWarning, match=f"{descendant.name}.*not-in-this-catalog"):
+        target = _replay_rebuild(catalog, target_path)
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    assert rebased.rebased_from == "not-in-this-catalog"
+
+
+def test_rebuild_maps_rebased_from_through_remap(rebased_catalog, target_path):
+    target = Catalog.from_repo_path(target_path, init=True)
+    moved = target.add(xo.memtable({"b": [1]}))
+    source = rebased_catalog.get_catalog_entry("new", maybe_alias=True)
+    remap = {source.rebased_from: moved.name}
+
+    AddEntry(entry_hash=source.name, aliases=("new",)).do(
+        rebased_catalog, target, RebuildContext(rebuild=True, remap=remap)
+    )
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    assert rebased.rebased_from == moved.name
+
+
+def test_rebuild_keeps_swapped_sources(tmp_path, target_path):
+    swap = SwappedSource(SourceAt("t1", "p1"), SourceAt("t2", "p2"))
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    ancestor = catalog.add(xo.memtable({"a": [1]}), aliases=("old",))
+    with build_expr_context(xo.memtable({"a": [1, 2]})) as build_path:
+        stamp_rebased_from(build_path, ancestor.name, swaps=(swap,))
+        catalog.add(build_path, aliases=("new",))
+
+    target = _replay_rebuild(catalog, target_path)
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    assert rebased.swapped_sources == (swap,)
+
+
+def test_rebuild_names_the_entry_when_add_fails(rebased_catalog, target_path):
+    target = Catalog.from_repo_path(target_path, init=True)
+    source = rebased_catalog.get_catalog_entry("new", maybe_alias=True)
+
+    with pytest.raises(RuntimeError, match=f"failed to rebuild entry '{source.name}'"):
+        AddEntry(entry_hash=source.name, aliases=("a/b",)).do(
+            rebased_catalog, target, RebuildContext(rebuild=True)
+        )
+
+
+def test_rebuild_does_not_warn_when_the_target_holds_the_ancestor(
+    tmp_path, target_path
+):
+    target = Catalog.from_repo_path(target_path, init=True)
+    ancestor = target.add(xo.memtable({"a": [1]}))
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    with build_expr_context(xo.memtable({"a": [1, 2]})) as build_path:
+        stamp_rebased_from(build_path, ancestor.name)
+        source = catalog.add(build_path, aliases=("new",))
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message="rebuild:")
+        AddEntry(entry_hash=source.name, aliases=("new",)).do(
+            catalog, target, RebuildContext(rebuild=True)
+        )
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    assert rebased.rebased_from == ancestor.name
