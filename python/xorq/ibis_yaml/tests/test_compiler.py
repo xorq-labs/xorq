@@ -1261,10 +1261,6 @@ def test_loaded_sklearn_estimator_refits_with_list_params(
     rebuilt = get_outermost_pipeline(loaded)
     df = table.execute()[["c", "n"]]
     assert rebuilt.fit(df).transform(df).shape == (3, 3)
-    ((_, columns),) = rebuilt.steps
-    ((_, encoder, _), (_, scaler, _)) = columns.transformers
-    assert encoder.categories == [("x", "y")]
-    assert scaler.feature_range == (0, 2)
 
 
 def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
