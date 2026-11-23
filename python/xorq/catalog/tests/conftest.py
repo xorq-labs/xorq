@@ -572,7 +572,9 @@ def catalog_with_source_and_transform(
 
     The template is session-scoped, so a module that overrides ``backend_type``
     with a function-scoped fixture gets ScopeMismatch here: mark its tests
-    ``git_storage_only`` instead.
+    ``git_storage_only`` instead. Annex copies share the template's annex
+    UUID; a test moving content between two of them must ``git annex reinit``
+    one first.
     """
     installs = request.node.get_closest_marker("installs_entry_wheel") is not None
     if installs or backend_type == "pointer":
