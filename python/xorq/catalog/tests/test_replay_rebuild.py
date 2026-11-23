@@ -8,7 +8,7 @@ from click.testing import CliRunner
 import xorq.api as xo
 from xorq.catalog.backend import GitBackend, GitPointerBackend
 from xorq.catalog.bind import bind
-from xorq.catalog.catalog import Catalog
+from xorq.catalog.catalog import Catalog, SourceAt, SwappedSource
 from xorq.catalog.cli import cli
 from xorq.catalog.composer import ExprComposer
 from xorq.catalog.content_store import (
@@ -864,3 +864,17 @@ def test_rebuild_maps_rebased_from_through_remap(rebased_catalog, target_path):
 
     rebased = target.get_catalog_entry("new", maybe_alias=True)
     assert rebased.rebased_from == moved.name
+
+
+def test_rebuild_keeps_swapped_sources(tmp_path, target_path):
+    swap = SwappedSource(SourceAt("t1", "p1"), SourceAt("t2", "p2"))
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    ancestor = catalog.add(xo.memtable({"a": [1]}), aliases=("old",))
+    with build_expr_context(xo.memtable({"a": [1, 2]})) as build_path:
+        stamp_rebased_from(build_path, ancestor.name, swaps=(swap,))
+        catalog.add(build_path, aliases=("new",))
+
+    target = _replay_rebuild(catalog, target_path)
+
+    rebased = target.get_catalog_entry("new", maybe_alias=True)
+    assert rebased.swapped_sources == (swap,)

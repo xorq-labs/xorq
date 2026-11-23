@@ -488,7 +488,11 @@ class AddEntry:
                 ) from e
             # A fresh build records no ancestor: stamp it, under its target name.
             if (ancestor := source_entry.rebased_from) is not None:
-                stamp_rebased_from(build_path, _translate_ancestor(ancestor, ctx.remap))
+                stamp_rebased_from(
+                    build_path,
+                    _translate_ancestor(ancestor, ctx.remap),
+                    swaps=source_entry.swapped_sources,
+                )
             new_entry = to_catalog.add(
                 build_path,
                 sync=False,
