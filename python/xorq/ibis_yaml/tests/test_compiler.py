@@ -1222,6 +1222,51 @@ def test_expr_metadata_sql_queries_degrades_on_malformed_entries() -> None:
     )
 
 
+def test_loaded_sklearn_estimator_refits_with_list_params(
+    tmp_path: pathlib.Path,
+) -> None:
+    """yaml freezes list params into tuples; the loaded estimator must give
+    back lists where sklearn validates for one and keep tuple params."""
+    sk_compose = pytest.importorskip("sklearn.compose")
+    sk_pipeline = pytest.importorskip("sklearn.pipeline")
+    sk_preprocessing = pytest.importorskip("sklearn.preprocessing")
+
+    table = xo.memtable({"c": ["x", "y", "x"], "n": [1.0, 2.0, 3.0], "t": [0, 1, 0]})
+    sk = sk_pipeline.Pipeline(
+        [
+            (
+                "columns",
+                sk_compose.ColumnTransformer(
+                    [
+                        (
+                            "cat",
+                            sk_preprocessing.OneHotEncoder(categories=[["x", "y"]]),
+                            ["c"],
+                        ),
+                        (
+                            "num",
+                            sk_preprocessing.MinMaxScaler(feature_range=(0, 2)),
+                            ["n"],
+                        ),
+                    ]
+                ),
+            )
+        ]
+    )
+    fitted = xo.Pipeline.from_instance(sk).fit(table, features=("c", "n"), target="t")
+    expr = fitted.transform(table)
+
+    loaded = load_expr(build_expr(expr, builds_dir=tmp_path))
+
+    rebuilt = get_outermost_pipeline(loaded)
+    df = table.execute()[["c", "n"]]
+    assert rebuilt.fit(df).transform(df).shape == (3, 3)
+    ((_, columns),) = rebuilt.steps
+    ((_, encoder, _), (_, scaler, _)) = columns.transformers
+    assert encoder.categories == [("x", "y")]
+    assert scaler.feature_range == (0, 2)
+
+
 def test_read_kwargs_contains_hash_path_and_read_path(builds_dir):
     t = xo.memtable({"a": [1, 2], "b": [3, 4]})
     build_path = build_expr(t, builds_dir=builds_dir)
