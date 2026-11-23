@@ -2492,6 +2492,7 @@ def test_build_without_an_estimator_does_not_import_sklearn(
     """sklearn costs about half a second to import, and the test session
     imports it at collection, so only a fresh interpreter can see a build
     pull it in."""
+    pytest.importorskip("sklearn")
     script = (
         "import sys\n"
         "import xorq.api as xo\n"
