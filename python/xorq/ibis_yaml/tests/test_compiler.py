@@ -2278,6 +2278,17 @@ def test_nested_estimator_numpy_params_round_trip(builds_dir: pathlib.Path) -> N
     assert len(refit) == 6
 
 
+@pytest.mark.parametrize(
+    "value",
+    [np.timedelta64(5, "ns"), np.timedelta64("NaT", "D")],
+    ids=["ns", "nat"],
+)
+def test_numpy_timedelta_param_is_refused_not_unit_stripped(value) -> None:
+    """np.timedelta64 is an np.signedinteger; writing its .item() would load it back without its unit."""
+    with pytest.raises(NotImplementedError, match="No translation rule"):
+        translate_to_yaml(value, TranslationContext())
+
+
 def test_build_writes_cache_source_profile_used_nowhere_else(
     builds_dir, tmp_path, parquet_dir
 ):

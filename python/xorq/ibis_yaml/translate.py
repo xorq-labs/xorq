@@ -248,6 +248,11 @@ def _numpy_scalar_to_yaml(obj: np.generic, context: TranslationContext) -> dict:
     )
 
 
+# np.timedelta64 is an np.signedinteger, but its .item() drops the unit;
+# send it back to the base rule rather than load it as a different value
+translate_to_yaml.register(np.timedelta64, translate_to_yaml.dispatch(object))
+
+
 @register_from_yaml_handler("NumpyScalar")
 def _numpy_scalar_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     return np.dtype(yaml_dict["dtype"]).type(
