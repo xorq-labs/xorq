@@ -105,3 +105,15 @@ def test_deferred_read_parquet_streams_expression_schema(tmp_path):
     reader = expr.to_pyarrow_batches()
     assert reader.schema == expr.schema().to_pyarrow()
     assert reader.read_all().column("s").type == pa.large_string()
+
+
+def test_deferred_read_parquet_binary_view_round_trips_to_parquet(tmp_path):
+    path, out = tmp_path / "t.parquet", tmp_path / "out.parquet"
+    pq.write_table(pa.table({"b": pa.array([b"a", None], pa.binary())}), path)
+    expr = xo.deferred_read_parquet(
+        path=path,
+        con=xo.duckdb.connect(),
+        schema=ibis.schema({"b": dt.BinaryView()}),
+    )
+    expr.to_parquet(out)
+    assert pq.read_table(out).column("b").to_pylist() == [b"a", None]
