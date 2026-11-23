@@ -1405,10 +1405,24 @@ def _import_estimator_class(module: str, classname: str):
     return getattr(mod, classname)
 
 
+def _thaw_sklearn_param(value: Any, constraint: Any) -> Any:
+    """yaml freezes list params into tuples: give a list back where sklearn
+    validates for a list and not a tuple (``feature_range`` stays a tuple)."""
+    match value, constraint:
+        case tuple(), [*options] if list in options and tuple not in options:
+            return list(value)
+        case _:
+            return value
+
+
 @register_from_yaml_handler("SklearnEstimator")
 def _sklearn_estimator_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     cls = _import_estimator_class(
         yaml_dict["estimator_module"], yaml_dict["estimator_class"]
     )
-    params = {k: context.translate_from_yaml(v) for k, v in yaml_dict["params"].items()}
+    constraints = getattr(cls, "_parameter_constraints", {})
+    params = {
+        k: _thaw_sklearn_param(context.translate_from_yaml(v), constraints.get(k))
+        for k, v in yaml_dict["params"].items()
+    }
     return cls(**params)
