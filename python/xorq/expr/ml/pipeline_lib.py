@@ -840,7 +840,7 @@ class Pipeline:
         try:
             from xorq.common.utils.name_utils import make_name  # noqa: PLC0415
 
-            training_hash = make_name("training", expr.op())
+            training_hash = make_name("training", expr)
         except Exception:
             import structlog  # noqa: PLC0415
 
