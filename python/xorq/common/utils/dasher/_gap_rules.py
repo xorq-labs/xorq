@@ -85,9 +85,11 @@ def normalize_object_or_attrs(obj: object) -> tuple:
         # numpy >= 1.25 names this class ``numpy._ArrayFunctionDispatcher``;
         # xorq_dasher keys its rule on private ``_multiarray_umath`` paths,
         # which never match. Older numpy dispatches through plain functions,
-        # which the function rule takes before this fallback.
+        # whose defaults carry the ``np._NoValue`` sentinel below.
         case _ if type(obj) is _NUMPY_DISPATCHER:
             return normalize_numpy_array_function_dispatcher(obj)
+        case _ if obj is np._NoValue:  # xorq-style: disable=protected-access
+            return ("numpy", "_NoValue")
         # obj.dtype goes through the numpy.dtype rule, which keeps structured
         # field names. ndarray subclasses (MaskedArray's mask, matrix) carry
         # state the buffer does not, so only a plain ndarray goes here.

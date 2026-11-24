@@ -1414,6 +1414,20 @@ def test_numpy_array_function_dispatchers_tokenize() -> None:
     assert make_expr(np.mean).ls.tokenized == mean
 
 
+def test_numpy_novalue_default_tokenizes() -> None:
+    # numpy < 1.25 exposes np.mean as a plain function with this default
+    def reduce(
+        x: object, keepdims: object = np._NoValue
+    ) -> object:  # xorq-style: disable=protected-access
+        return x
+
+    def other(x: object, keepdims: object = None) -> object:
+        return x
+
+    assert tokenize(reduce) == tokenize(reduce)
+    assert tokenize(reduce) != tokenize(other)
+
+
 # --- sklearn constraint normalizers -----------------------------------------
 
 
