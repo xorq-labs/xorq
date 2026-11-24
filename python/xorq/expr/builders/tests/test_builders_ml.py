@@ -250,3 +250,17 @@ def test_fit_training_hash_on_filtered_expr() -> None:
     assert None not in hashes
     assert hashes[0] != hashes[1]
     assert hashes[0] == hashes[2]
+
+
+def test_fit_training_hash_tracks_data() -> None:
+    pipeline = Pipeline.from_instance(make_pipeline(LinearRegression()))
+    first, second = (
+        pipeline.fit(
+            xo.memtable({"x": xs, "y": [1.0, 2.0, 3.0]}, name="hash_data"),
+            features=("x",),
+            target="y",
+        ).training_hash
+        for xs in ([1.0, 2.0, 3.0], [1.0, 2.0, 4.0])
+    )
+    assert None not in (first, second)
+    assert first != second
