@@ -255,12 +255,15 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         kwds["__func__"] = udf.make_dunder_func(
             config["fn"], kwargs_to_schema(kwargs, config.get("names"))
         )
-    elif {
-        "evaluate",
-        "evaluate_all",
-        "evaluate_all_with_rank",
-    } & config.keys():
-        kwds["__func__"] = property(fget=toolz.functoolz.return_none)
+    elif evaluate := next(
+        (
+            config[key]
+            for key in ("evaluate", "evaluate_all", "evaluate_all_with_rank")
+            if key in config
+        ),
+        None,
+    ):
+        kwds["__func__"] = udf.property_wrap_fn(evaluate)
 
     node = type(
         class_name,

@@ -400,3 +400,25 @@ def test_pandas_udf_non_identifier_columns_roundtrip(tmp_path, make_udf):
     loaded = load_expr(build_expr(expr, builds_dir=tmp_path / "builds"))
 
     pd.testing.assert_frame_equal(loaded.execute(), expr.execute())
+
+
+def test_udwf_fn_reaches_cache_key_after_roundtrip(compiler: object) -> None:
+    def ones(self, values, num_rows):
+        return pa.array([1.0] * num_rows)
+
+    def zeros(self, values, num_rows):
+        return pa.array([0.0] * num_rows)
+
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"x": [0.0, 1.0, 2.0]}), "t")
+    schema = ibis.schema({"x": dt.float64})
+    live = tuple(
+        t.mutate(w=pyarrow_udwf(fn, schema, dt.float64, name="w").on_expr(t))
+        for fn in (ones, zeros)
+    )
+    profiles = {con._profile.hash_name: con}
+    loaded = tuple(
+        compiler.from_yaml(compiler.to_yaml(expr), profiles=profiles) for expr in live
+    )
+    assert loaded[0].ls.tokenized != loaded[1].ls.tokenized
+    assert tuple(e.ls.tokenized for e in loaded) == tuple(e.ls.tokenized for e in live)
