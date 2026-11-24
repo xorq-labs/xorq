@@ -31,6 +31,7 @@ import inspect
 from typing import TYPE_CHECKING
 
 from xorq_dasher import DEFAULT_HASHER, Hasher, fqn
+from xorq_dasher.rules.other import normalize_numpy_array_function_dispatcher
 
 from xorq.common.utils.fingerprint_utils import (
     fingerprint_rule_pairs,
@@ -142,6 +143,12 @@ _EXTRA_RULES: tuple[tuple[str, object], ...] = (
     ("xorq.vendor.ibis.expr.operations.udf.ScalarUDF", _normalize_scalar_udf_xorq),
     ("pyarrow.lib.Table", normalize_pyarrow_table_canonical),
     ("numpy.dtype", normalize_numpy_dtype),
+    # numpy >= 1.25 reports this class's module as ``numpy``; xorq_dasher keys
+    # the rule on its private ``_multiarray_umath`` paths, which never match
+    (
+        "numpy._ArrayFunctionDispatcher",
+        normalize_numpy_array_function_dispatcher,
+    ),
     ("pandas.core.series.Series", normalize_pandas_series),
     ("pandas.core.frame.DataFrame", normalize_pandas_dataframe),
     ("xorq.common.utils.toolz_utils.curry", normalize_toolz_curry),

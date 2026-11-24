@@ -94,6 +94,9 @@ from xorq.vendor.ibis.expr.operations.udf import ScalarUDF
 from xorq.vendor.ibis.expr.types import Expr
 
 
+NUMPY_DISPATCHER_FQN = "numpy._ArrayFunctionDispatcher"
+
+
 try:
     from sklearn.metrics import accuracy_score, roc_auc_score
     from sklearn.utils._param_validation import HasMethods as _SklearnHasMethods
@@ -1380,6 +1383,9 @@ def test_extra_rules_fqn_strings() -> None:
     # and only the class-identity half is conditional.
     if (redshift_cls := redshift_backend()) is not None:
         expected[REDSHIFT_BACKEND_FQN] = redshift_cls
+    # numpy < 1.25 dispatches through plain functions, which need no rule
+    if (dispatcher := type(np.mean)) is not types.FunctionType:
+        expected[NUMPY_DISPATCHER_FQN] = dispatcher
 
     for literal, cls in expected.items():
         assert fqn(cls) == literal, (
@@ -1389,12 +1395,29 @@ def test_extra_rules_fqn_strings() -> None:
 
     production_fqns = {fqn_str for fqn_str, _ in _EXTRA_RULES}
     unchecked = production_fqns - set(expected)
-    assert unchecked <= {REDSHIFT_BACKEND_FQN}, (
+    assert unchecked <= {REDSHIFT_BACKEND_FQN, NUMPY_DISPATCHER_FQN}, (
         f"test/production mismatch: {production_fqns.symmetric_difference(set(expected))}"
     )
     assert not (set(expected) - production_fqns), (
         f"test names rules production does not register: {set(expected) - production_fqns}"
     )
+
+
+def test_numpy_array_function_dispatchers_tokenize() -> None:
+    t = xo.connect().register(pd.DataFrame({"x": [1.0, 2.0]}), "t")
+
+    def make_expr(reduce: Callable) -> Expr:
+        def summarize(df: pd.DataFrame, reduce: Callable = reduce) -> pd.Series:
+            return pd.Series([reduce(df["x"])] * len(df))
+
+        udf = make_pandas_udf(
+            summarize, xo.schema({"x": "float64"}), dt.float64, name="m"
+        )
+        return t.mutate(m=udf.on_expr(t))
+
+    mean, median = (make_expr(reduce).ls.tokenized for reduce in (np.mean, np.median))
+    assert mean != median
+    assert make_expr(np.mean).ls.tokenized == mean
 
 
 # --- sklearn constraint normalizers -----------------------------------------
