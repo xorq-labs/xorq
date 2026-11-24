@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING, Any, Callable, TypeGuard
 import toolz
 
 import xorq.vendor.ibis.expr.types as ir
-from xorq.common.utils.file_utils import normalize_read_path_md5sum
+from xorq.common.utils.file_utils import (
+    normalize_read_path_md5sum,
+)
+from xorq.common.utils.file_utils import (
+    # the stat opt-out, importable from here as it was when it was the default
+    normalize_read_path_stat as normalize_read_path_stat,
+)
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
