@@ -260,7 +260,7 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         "evaluate_all",
         "evaluate_all_with_rank",
     } & config.keys():
-        kwds["__func__"] = property(fget=toolz.functoolz.return_none)
+        kwds["__func__"] = udf.property_wrap_fn(config.get("evaluate"))
 
     node = type(
         class_name,

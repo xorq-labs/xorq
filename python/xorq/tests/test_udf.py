@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
 import pandas.testing as tm
 import pyarrow as pa
 import pytest
@@ -8,6 +10,7 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.types as ir
 from xorq import udf
+from xorq.caching import ParquetCache
 
 
 pc = pytest.importorskip("pyarrow.compute")
@@ -96,3 +99,47 @@ def test_builtin_agg_udf_filtered(con):
 def test_top_level_udf(method):
     assert hasattr(xo, method)
     assert hasattr(udf, method)
+
+
+def _cached_after(first: ir.Table, second: ir.Table, tmp_path) -> list:
+    cache = ParquetCache.from_kwargs(source=first._find_backend(), base_path=tmp_path)
+    first.cache(cache).execute()
+    return second.cache(cache).execute().iloc[:, -1].tolist()
+
+
+def test_post_process_fn_reaches_cache_key(tmp_path) -> None:
+    con = xo.connect()
+    t = con.register(pd.DataFrame({"x": [0.0, 1.0, 2.0]}), "t")
+    schema = xo.schema({"x": "float64"})
+    model = con.register(pd.DataFrame({"m": [b"x"]}), "m").m.first().as_table()
+
+    def fn(computed, df):
+        return pd.Series([float(computed)] * len(df))
+
+    first, second = (
+        t.mutate(
+            p=udf.make_pandas_expr_udf(
+                model, fn, schema, dt.float64, post_process_fn=pp, name="pp"
+            ).on_expr(t)
+        )
+        for pp in (lambda b: 1.0, lambda b: 2.0)
+    )
+    assert first.ls.tokenized != second.ls.tokenized
+    assert _cached_after(first, second, tmp_path) == [2.0, 2.0, 2.0]
+
+
+def test_pyarrow_udwf_fn_reaches_cache_key(tmp_path) -> None:
+    def ones(self, values, num_rows):
+        return pa.array(np.ones(num_rows))
+
+    def zeros(self, values, num_rows):
+        return pa.array(np.zeros(num_rows))
+
+    t = xo.connect().register(pd.DataFrame({"x": [0.0, 1.0, 2.0]}), "t")
+    schema = xo.schema({"x": "float64"})
+    first, second = (
+        t.mutate(w=udf.pyarrow_udwf(fn, schema, dt.float64, name="w").on_expr(t))
+        for fn in (ones, zeros)
+    )
+    assert first.ls.tokenized != second.ls.tokenized
+    assert _cached_after(first, second, tmp_path) == [0.0, 0.0, 0.0]

@@ -15,6 +15,7 @@ import logging
 from pathlib import PurePath
 from typing import TYPE_CHECKING
 
+import cloudpickle
 import xxhash
 
 from xorq.common.utils.dasher._canonical import normalize_inmemorytable_canonical
@@ -498,16 +499,22 @@ def _normalize_scalar_udf_xorq(udf):
         if computed_kwargs_expr is not None
         else None
     )
-    # volatility changes which rows appear; appended only when set so the
-    # hash of a UDF without it does not move
+    # volatility and post_process_fn change the result; each is appended only
+    # when set to a non-default, so the hash of a UDF without it does not move
+    # (cloudpickle.loads is make_pandas_expr_udf's default post_process_fn)
     volatility = udf.__config__.get("volatility")
+    post_process_fn = udf.__config__.get("post_process_fn", cloudpickle.loads)
     return (
-        "ibis.ScalarUDF",
-        typs,
-        udf.dtype,
-        udf.__func__,
-        cke_token,
-    ) + (() if volatility is None else (volatility,))
+        (
+            "ibis.ScalarUDF",
+            typs,
+            udf.dtype,
+            udf.__func__,
+            cke_token,
+        )
+        + (() if volatility is None else (volatility,))
+        + (() if post_process_fn is cloudpickle.loads else (post_process_fn,))
+    )
 
 
 def _normalize_expr_xorq(expr):

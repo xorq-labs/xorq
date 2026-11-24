@@ -1057,7 +1057,8 @@ def pyarrow_udwf(
     meta = {
         "dtype": return_type,
         "__input_type__": InputType.PYARROW,
-        "__func__": property(fget=toolz.functoolz.return_none),
+        # the window function itself, so the AggUDF rule hashes it
+        "__func__": property_wrap_fn(fn),
         "__config__": FrozenDict(
             input_types=tuple(datatype for datatype in schema.fields.values()),
             return_type=return_type,
