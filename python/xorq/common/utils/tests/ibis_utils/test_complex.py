@@ -1,15 +1,47 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pyarrow as pa
 import pytest
 
 from xorq.common.utils.ibis_utils import from_ibis
 
 
-BASE_URL = "https://pub-a45a6a332b4646f2a6f44775695c64df.r2.dev"
+if TYPE_CHECKING:
+    from ibis.backends import BaseBackend
+
+
+FLIGHT_COLUMNS = (
+    "origin destination flight_num flight_time tail_num dep_time arr_time "
+    "dep_delay arr_delay taxi_out taxi_in cancelled diverted id2"
+).split()
 
 
 @pytest.mark.slow(level=3)
-def test_complex_expr_from_boring_semantic_layer(ibis_con):
-    flights = ibis_con.read_parquet(f"{BASE_URL}/flights.parquet")
-    carriers = ibis_con.read_parquet(f"{BASE_URL}/carriers.parquet")
+def test_complex_expr_from_boring_semantic_layer(ibis_con: BaseBackend) -> None:
+    flights = ibis_con.create_table(
+        "complex_flights",
+        pa.table(
+            {
+                "carrier": ["AA", "AA", "UA"],
+                "distance": [100, 300, 600],
+                **{name: [0, 1, 2] for name in FLIGHT_COLUMNS},
+            }
+        ),
+        overwrite=True,
+    )
+    carriers = ibis_con.create_table(
+        "complex_carriers",
+        pa.table(
+            {
+                "code": ["AA", "UA"],
+                "name": ["American Airlines", "United Air Lines"],
+                "nickname": ["American", "United"],
+            }
+        ),
+        overwrite=True,
+    )
 
     # Join flights with carrier information
     flights_with_carriers = flights.inner_join(
@@ -80,5 +112,9 @@ def test_complex_expr_from_boring_semantic_layer(ibis_con):
 
     xorq_expr = from_ibis(top_carriers_by_distance_share)
 
-    assert xorq_expr is not None
-    assert not xorq_expr.execute().empty
+    result = xorq_expr.execute()
+    assert result.to_dict("list") == {
+        "nickname": ["United", "American"],
+        "flight_count": [1, 2],
+        "distance_share_percentage": [60.0, 40.0],
+    }
