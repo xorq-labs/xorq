@@ -86,8 +86,13 @@ def normalize_object_or_attrs(obj: object) -> tuple:
         # xorq_dasher keys its rule on private ``_multiarray_umath`` paths,
         # which never match. Older numpy dispatches through plain functions
         # that close over themselves, which the function rule cannot hash.
+        # The normalizer keys on name and module only, which is sound for
+        # numpy's own dispatchers (bodies change with the numpy version) but
+        # not for third-party ones, which keep raising.
         # ``np._NoValue`` is a default sentinel many numpy-facing functions use.
-        case _ if type(obj) is _NUMPY_DISPATCHER:
+        case _ if type(obj) is _NUMPY_DISPATCHER and (
+            obj.__module__.partition(".")[0] == "numpy"
+        ):
             return normalize_numpy_array_function_dispatcher(obj)
         case _ if obj is np._NoValue:  # xorq-style: disable=protected-access
             return ("numpy", "_NoValue")
