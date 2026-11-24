@@ -82,7 +82,18 @@ def file_digest(
         return _manual_file_digest(path, digest, size=size)
 
 
+def _dir_digest(path: Path) -> str:
+    # a directory read (a parquet dataset) is its files: their relative paths
+    # and contents, in a stable order
+    obj = hashlib.md5()
+    for p in sorted(p for p in path.rglob("*") if p.is_file()):
+        obj.update(f"{p.relative_to(path).as_posix()}\0{file_digest(p)}\0".encode())
+    return obj.hexdigest()
+
+
 def normalize_read_path_md5sum(path: str | Path) -> tuple[tuple[str, str], ...]:
+    if (p := Path(path)).is_dir():
+        return (("content-md5sum", _dir_digest(p)),)
     return (("content-md5sum", file_digest(path)),)
 
 

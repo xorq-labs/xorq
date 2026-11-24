@@ -333,6 +333,13 @@ def deferred_read_csv(
         The schema definition for the CSV data. If not provided, the schema will
         be inferred from the data by sampling the CSV file.
 
+    normalize_method : Callable, optional
+        The method that returns the values to be used in the hashing of the Read operation.
+        Defaults to the MD5 of the file contents; ``normalize_read_path_stat``
+        keys on mtime, size and inode instead. A build keeps this choice only
+        when ``table_name`` is given: reads with a generated name take the
+        build's ``read_normalize_method``.
+
     relocatable : bool, optional
         When True, ``xorq build`` will copy the backing file into the build
         artifact and rewrite the path so the archive is self-contained.
@@ -424,6 +431,10 @@ def deferred_read_parquet(
 
     normalize_method : Callable, optional
         The method that returns the values to be used in the hashing of the Read operation.
+        Defaults to the MD5 of the file contents; ``normalize_read_path_stat``
+        keys on mtime, size and inode instead. A build keeps this choice only
+        when ``table_name`` is given: reads with a generated name take the
+        build's ``read_normalize_method``.
 
     relocatable : bool, optional
         When True, ``xorq build`` will copy the backing file into the build

@@ -74,6 +74,13 @@ def test_normalize_read_path_md5sum(sample_file: Path) -> None:
     assert result == (("content-md5sum", CONTENT_MD5),)
 
 
+def test_normalize_read_path_md5sum_directory_follows_content(tmp_path: Path) -> None:
+    (tmp_path / "part-0.parquet").write_bytes(b"a")
+    before = normalize_read_path_md5sum(tmp_path)
+    (tmp_path / "part-0.parquet").write_bytes(b"bb")
+    assert normalize_read_path_md5sum(tmp_path) != before
+
+
 def test_normalize_read_path_stat(sample_file: Path) -> None:
     result = normalize_read_path_stat(sample_file)
     stat = sample_file.stat()
