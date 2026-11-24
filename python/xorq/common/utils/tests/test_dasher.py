@@ -1397,6 +1397,11 @@ def test_extra_rules_fqn_strings() -> None:
     )
 
 
+@pytest.mark.skipif(
+    np.lib.NumpyVersion(np.__version__) < "1.25.0",
+    reason="before numpy 1.25, np.mean is a plain function whose closure holds "
+    "itself, and the function rule recurses on it",
+)
 def test_numpy_array_function_dispatchers_tokenize() -> None:
     t = xo.connect().register(pd.DataFrame({"x": [1.0, 2.0]}), "t")
 
