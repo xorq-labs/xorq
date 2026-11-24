@@ -652,3 +652,22 @@ def test_rejects_timeseries_split_without_order_by(
             target=TARGET,
             cv=TimeSeriesSplit(n_splits=4),
         )
+
+
+def test_fold_expr_key_tracks_the_splitter(
+    classification_data: Expr, classifier_pipeline: Pipeline
+) -> None:
+    def fold_token(cv: object) -> str:
+        return deferred_cross_val_score(
+            classifier_pipeline,
+            classification_data,
+            FEATURES,
+            TARGET,
+            cv=cv,
+            random_seed=RANDOM_SEED,
+        ).fold_expr.ls.tokenized
+
+    seeded = fold_token(KFold(n_splits=3, shuffle=True, random_state=0))
+    assert seeded == fold_token(KFold(n_splits=3, shuffle=True, random_state=0))
+    assert seeded != fold_token(KFold(n_splits=3, shuffle=True, random_state=1))
+    assert fold_token(KFold(n_splits=3)) != fold_token(KFold(n_splits=5))

@@ -155,21 +155,22 @@ def _make_fold_udwf(cv, fold_index, features, target, expr):
 
     table_schema = expr.schema()
     schema_cols = tuple((col, table_schema[col]) for col in (*features, target))
+    n_features = len(features)
 
     @pyarrow_udwf(
         schema=ibis.schema(schema_cols),
         return_type=dt.int8,
         cv_bytes=cv_bytes,
         fold_index=fold_index,
-        n_features=len(features),
+        n_features=n_features,
         name=f"cv_fold_{fold_index}",
     )
     def assign_fold(self, values, num_rows):
-        import cloudpickle as cp  # noqa: PLC0415
-
-        cv_splitter = cp.loads(self.cv_bytes)
-        n_feat = self.n_features
-        fold_i = self.fold_index
+        # read from the closure, not self: the cache key hashes this
+        # function (closure included) but not the UDWF's config kwargs
+        cv_splitter = cloudpickle.loads(cv_bytes)
+        n_feat = n_features
+        fold_i = fold_index
 
         # values[:n_feat] are feature columns, values[n_feat] is target
         X = np.column_stack([v.to_numpy(zero_copy_only=False) for v in values[:n_feat]])

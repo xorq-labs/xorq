@@ -501,7 +501,10 @@ def _normalize_scalar_udf_xorq(udf):
     )
     # volatility and post_process_fn change the result; each is appended only
     # when set to a non-default, so the hash of a UDF without it does not move
-    # (cloudpickle.loads is make_pandas_expr_udf's default post_process_fn)
+    # (cloudpickle.loads is make_pandas_expr_udf's default post_process_fn:
+    # xorq.expr.udf.unwrap_model is bound to it. Compared here rather than
+    # imported so the dasher does not import xorq.expr; if unwrap_model ever
+    # stops being cloudpickle.loads, every ML UDF hash moves.)
     volatility = udf.__config__.get("volatility")
     post_process_fn = udf.__config__.get("post_process_fn", cloudpickle.loads)
     return (
