@@ -20,6 +20,8 @@ def get_sqlite_stats(dt):
         dt.name,
         dt.namespace.database or "main",
     )
+    # qualified: an unqualified name resolves to temp or main first
+    table = f"{_quote(schema)}.{_quote(name)}"
     ((kind, without_rowid),) = query(
         "SELECT type, wr FROM pragma_table_list(?) WHERE schema = ? COLLATE NOCASE",
         (name, schema),
@@ -32,7 +34,7 @@ def get_sqlite_stats(dt):
             # its definition
             return query(
                 f"SELECT COUNT(*), (SELECT sql FROM {_quote(schema)}.sqlite_master"
-                f" WHERE name = ?) FROM '{name}'",
+                f" WHERE name = ?) FROM {table}",
                 (name,),
             ).fetchone()
         case (_, _, 0):
@@ -41,7 +43,7 @@ def get_sqlite_stats(dt):
             ((stamp,),) = query(
                 "SELECT name FROM pragma_table_info(?, ?) WHERE pk = 1", (name, schema)
             ).fetchall()
-    return query(f"SELECT COUNT(*), MAX({_quote(stamp)}) FROM '{name}'").fetchone()
+    return query(f"SELECT COUNT(*), MAX({_quote(stamp)}) FROM {table}").fetchone()
 
 
 @frozen

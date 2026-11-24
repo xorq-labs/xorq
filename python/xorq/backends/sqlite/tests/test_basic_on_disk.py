@@ -135,6 +135,29 @@ def test_cache_over_attached_table_shadowed_in_main(tmp_path, alias, database):
     assert expr.execute()["a"].tolist() == [2, 3]
 
 
+@pytest.mark.parametrize(
+    ("alias", "database"),
+    [("other", "other"), ("o'reilly", ("o'reilly",))],
+)
+@pytest.mark.parametrize("column", ["id", "a"])
+def test_cache_over_shadowed_attached_table_sees_insert(
+    tmp_path, alias, database, column
+):
+    xo.sqlite.connect(str(tmp_path / "other.sqlite")).create_table(
+        "t", xo.memtable({column: [1, 2, 3]})
+    )
+    con = SqliteBackend().connect(str(tmp_path / "main.sqlite"))
+    con.attach(alias, tmp_path / "other.sqlite")
+    con.create_table("t", xo.memtable({column: [9]}))
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    expr = con.table("t", database=database).order_by(column).cache(cache=cache)
+    assert expr.execute()[column].tolist() == [1, 2, 3]
+
+    con.raw_sql(f'INSERT INTO "{alias}".t VALUES (4)')
+
+    assert expr.execute()[column].tolist() == [1, 2, 3, 4]
+
+
 def test_cache_over_view_without_id_column_sees_redefinition(tmp_path):
     con = xo.sqlite.connect(str(tmp_path / "lite.db"))
     con.create_table("t", xo.memtable({"a": [1, 2, 3]}))
