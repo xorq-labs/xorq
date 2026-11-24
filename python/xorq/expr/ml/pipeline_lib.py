@@ -840,12 +840,13 @@ class Pipeline:
         try:
             from xorq.common.utils.name_utils import make_name  # noqa: PLC0415
 
-            training_hash = make_name("training", expr.op())
+            training_hash = make_name("training", expr)
         except Exception:
             import structlog  # noqa: PLC0415
 
             structlog.get_logger().warning(
                 "failed to compute training_hash, provenance will be unavailable",
+                exc_info=True,
             )
             training_hash = None
         expr = expr.tag(

@@ -235,3 +235,32 @@ def test_fit_training_hash_failure_degrades_gracefully(monkeypatch):
     )
     fitted = pipeline.fit(train, target="target")
     assert fitted.training_hash is None
+
+
+def test_fit_training_hash_on_filtered_expr() -> None:
+    t = xo.memtable(
+        {"a": [1, 2, 3], "x": [1.0, 2.0, 3.0], "y": [1.0, 2.0, 3.0]},
+        name="hash_filter",
+    )
+    pipeline = Pipeline.from_instance(make_pipeline(LinearRegression()))
+    hashes = tuple(
+        pipeline.fit(train, features=("x",), target="y").training_hash
+        for train in (t.filter(t.a < 3), t.filter(t.a > 1), t.filter(t.a < 3))
+    )
+    assert None not in hashes
+    assert hashes[0] != hashes[1]
+    assert hashes[0] == hashes[2]
+
+
+def test_fit_training_hash_tracks_data() -> None:
+    pipeline = Pipeline.from_instance(make_pipeline(LinearRegression()))
+    first, second = (
+        pipeline.fit(
+            xo.memtable({"x": xs, "y": [1.0, 2.0, 3.0]}, name="hash_data"),
+            features=("x",),
+            target="y",
+        ).training_hash
+        for xs in ([1.0, 2.0, 3.0], [1.0, 2.0, 4.0])
+    )
+    assert None not in (first, second)
+    assert first != second
