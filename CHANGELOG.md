@@ -8,6 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Details
 
+## [0.5.1] - 2026-11-24
+### Details
+#### Changed
+- Expose Profile and Profiles as xorq.profiles and on xorq.api by @mesejo in [#2684](https://github.com/xorq-labs/xorq/pull/2684)
+- Drop the no-op uncommitted-changes guard by @mesejo in [#2701](https://github.com/xorq-labs/xorq/pull/2701)
+- Tokenize attrs classes without __dasher_tokenize__ by their fields by @mesejo in [#2704](https://github.com/xorq-labs/xorq/pull/2704)
+- Stop re-running bare_install and scripts/ tests in the core runs by @mesejo in [#2707](https://github.com/xorq-labs/xorq/pull/2707)
+- Build without importing sklearn by @mesejo in [#2708](https://github.com/xorq-labs/xorq/pull/2708)
+- Cut the annex job's wall time by @mesejo in [#2706](https://github.com/xorq-labs/xorq/pull/2706)
+- Key deferred local reads on content md5 by default by @mesejo in [#2716](https://github.com/xorq-labs/xorq/pull/2716)
+
+#### Fixed
+- Run each exchange task on its own thread by @mesejo in [#2687](https://github.com/xorq-labs/xorq/pull/2687)
+- Flight_serve names the tables unless exactly one unbinds by @mesejo in [#2685](https://github.com/xorq-labs/xorq/pull/2685)
+- Write catalog state files atomically by @mesejo in [#2686](https://github.com/xorq-labs/xorq/pull/2686)
+- Map large_string and binary_view columns to SQL types by @mesejo in [#2541](https://github.com/xorq-labs/xorq/pull/2541)
+- Keep LargeString when inferring a parquet schema by @mesejo in [#2507](https://github.com/xorq-labs/xorq/pull/2507)
+- Create schema-only tables with LargeString columns by @mesejo in [#2697](https://github.com/xorq-labs/xorq/pull/2697)
+- Keep an entry's mtime when staging and getting it by @mesejo in [#2690](https://github.com/xorq-labs/xorq/pull/2690)
+- Stream on a cursor when every relation is allow-listed by @mesejo in [#2699](https://github.com/xorq-labs/xorq/pull/2699)
+- Create_table honours database= by @mesejo in [#2702](https://github.com/xorq-labs/xorq/pull/2702)
+- Bound the concurrent-writers test's process wait by @mesejo in [#2705](https://github.com/xorq-labs/xorq/pull/2705)
+- Give loaded sklearn estimators their list params back by @mesejo in [#2709](https://github.com/xorq-labs/xorq/pull/2709)
+- Build nested sklearn estimators with numpy params by @mesejo in [#2710](https://github.com/xorq-labs/xorq/pull/2710)
+- Stream LargeString columns at their declared width by @mesejo in [#2698](https://github.com/xorq-labs/xorq/pull/2698)
+- Replay --rebuild keeps rebased_from by @mesejo in [#2692](https://github.com/xorq-labs/xorq/pull/2692)
+- Key udxf command on its schemas by @mesejo in [#2711](https://github.com/xorq-labs/xorq/pull/2711)
+- Hash the training expr in Pipeline.fit by @mesejo in [#2712](https://github.com/xorq-labs/xorq/pull/2712)
+- Stamp cache keys from the table's own database by @mesejo in [#2713](https://github.com/xorq-labs/xorq/pull/2713)
+- Build test_complex tables in-test, not from R2 by @mesejo in [#2717](https://github.com/xorq-labs/xorq/pull/2717)
+- Tokenize numpy array-function dispatchers by @mesejo in [#2714](https://github.com/xorq-labs/xorq/pull/2714)
+- Key post_process_fn and udwf function in cache key by @mesejo in [#2715](https://github.com/xorq-labs/xorq/pull/2715)
+
+#### Removed
+- Remove a python UDF by its function name before re-registering by @mesejo in [#2703](https://github.com/xorq-labs/xorq/pull/2703)
+
 ## [0.5.0] - 2026-11-17
 ### Details
 #### Changed
