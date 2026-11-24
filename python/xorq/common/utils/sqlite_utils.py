@@ -15,12 +15,20 @@ from xorq.vendor.ibis.backends.sqlite import _quote
 
 
 def get_sqlite_stats(dt):
-    (query, name, schema) = (
-        dt.source.con.execute,
-        dt.name,
-        dt.namespace.database or "main",
+    (query, name) = (dt.source.con.execute, dt.name)
+    # an unqualified table compiles to an unqualified read, which SQLite
+    # resolves to temp before main: stamp the schema that read hits
+    (schema,) = (
+        (dt.namespace.database,)
+        if dt.namespace.database
+        else query(
+            "SELECT schema FROM pragma_table_list(?)"
+            " WHERE schema IN ('temp', 'main') ORDER BY schema = 'main' LIMIT 1",
+            (name,),
+        ).fetchone()
     )
-    # qualified: an unqualified name resolves to temp or main first
+    # qualified so the stats read hits that schema, not whatever the bare
+    # name would resolve to
     table = f"{_quote(schema)}.{_quote(name)}"
     ((kind, without_rowid),) = query(
         "SELECT type, wr FROM pragma_table_list(?) WHERE schema = ? COLLATE NOCASE",

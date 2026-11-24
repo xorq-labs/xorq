@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from pathlib import Path
+
 import pytest
 
 import xorq.api as xo
@@ -156,6 +160,25 @@ def test_cache_over_shadowed_attached_table_sees_insert(
     con.raw_sql(f'INSERT INTO "{alias}".t VALUES (4)')
 
     assert expr.execute()[column].tolist() == [1, 2, 3, 4]
+
+
+@pytest.mark.parametrize(
+    "column", [pytest.param("id", id="id"), pytest.param("a", id="rowid")]
+)
+def test_cache_over_temp_table_shadowing_main_sees_insert(
+    tmp_path: Path, column: str
+) -> None:
+    con = xo.sqlite.connect(str(tmp_path / "main.sqlite"))
+    con.create_table("t", xo.memtable({column: [1, 2, 3]}))
+    con.raw_sql(f"CREATE TEMP TABLE t ({column} INTEGER)")
+    con.raw_sql("INSERT INTO temp.t VALUES (9)")
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    expr = con.table("t").order_by(column).cache(cache=cache)
+    assert expr.execute()[column].tolist() == [9]
+
+    con.raw_sql("INSERT INTO temp.t VALUES (10)")
+
+    assert expr.execute()[column].tolist() == [9, 10]
 
 
 def test_cache_over_view_without_id_column_sees_redefinition(tmp_path):
