@@ -1,6 +1,8 @@
 import functools
 import pickle
 
+import cloudpickle
+import pyarrow as pa
 import toolz
 from attr import (
     field,
@@ -18,6 +20,7 @@ from toolz.curried import (
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ibis_ops
+import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq_datafusion import connect
 from xorq.caching import (
     ParquetCache,
@@ -49,8 +52,32 @@ from xorq.expr.ml.structer import (
     Structer,
 )
 from xorq.expr.relations import HashingTag, Tag
+from xorq.expr.udf import make_pandas_expr_udf
 from xorq.ibis_yaml.utils import freeze
+from xorq.vendor.ibis.expr.api import struct
 from xorq.vendor.ibis.expr.types.core import Expr
+
+
+def _as_table(expr):
+    return expr if isinstance(expr, ir.Table) else expr.as_table()
+
+
+def _unpickle_models(models):
+    return tuple(map(cloudpickle.loads, models.values()))
+
+
+@toolz.curry
+def _predict_steps(models, df, transforms, predict):
+    # each transform returns what its UDF returns inside `predict`: a struct,
+    # whose fields become the next step's columns, or one KV-encoded column
+    for (transform, name), model in zip(transforms, models):
+        array = transform(model, df)
+        df = (
+            pa.Table.from_struct_array(array)
+            if pa.types.is_struct(array.type)
+            else pa.table({name: array})
+        ).to_pandas()
+    return predict(models[-1], df)
 
 
 def do_into_backend(expr, con=None):
@@ -412,12 +439,12 @@ class FittedStep:
         return get_predict_return_type(self)
 
     @functools.cached_property
-    def _deferred_fit_transform(self):
+    def deferred_fit_transform(self):
         assert self.is_transform
         return DeferredFitOther.from_fitted_step(self, mode="transform")
 
     @functools.cached_property
-    def _deferred_fit_predict(self):
+    def deferred_fit_predict(self):
         assert self.is_predict
         return DeferredFitOther.from_fitted_step(self, mode="predict")
 
@@ -425,9 +452,9 @@ class FittedStep:
     def _deferred_fit_other(self):
         # Backward compat: prefer transform, fall back to predict
         return (
-            self._deferred_fit_transform
+            self.deferred_fit_transform
             if self.is_transform
-            else self._deferred_fit_predict
+            else self.deferred_fit_predict
         )
 
     @property
@@ -440,13 +467,11 @@ class FittedStep:
 
     @property
     def deferred_transform(self):
-        return (
-            self._deferred_fit_transform.deferred_other if self.is_transform else None
-        )
+        return self.deferred_fit_transform.deferred_other if self.is_transform else None
 
     @property
     def deferred_predict(self):
-        return self._deferred_fit_predict.deferred_other if self.is_predict else None
+        return self.deferred_fit_predict.deferred_other if self.is_predict else None
 
     @property
     def deferred_predict_proba(self):
@@ -1160,6 +1185,78 @@ class FittedPipeline:
             str(FittedPipelineTagKey.PREDICT),
             **self.get_tag_kwargs(FittedPipelineTagKey.PREDICT)
             | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
+        )
+
+    def predict_raw(self, expr, name=None):
+        """Return the predictions for `expr` as a column of `expr`.
+
+        Unlike `predict`, which returns a new table, the result can be added
+        to `expr` with `mutate`; the pipeline tags ride on the column's model
+        input, so the pipeline stays recoverable from the mutated table.
+
+        Parameters
+        ----------
+        expr
+            The table holding the first step's feature columns.
+        name
+            The column's name; defaults to the name `predict` gives it.
+
+        Returns
+        -------
+        Expr
+            A column of `expr`.
+
+        Examples
+        --------
+        >>> t.mutate(predicted=fitted.predict_raw(t))  # doctest: +SKIP
+        """
+        if not self.is_predict:
+            raise ValueError("Pipeline does not have a predict step")
+        for prev, step in toolz.sliding_window(2, self.fitted_steps):
+            outputs = prev.structer.get_output_columns(prev.dest_col or "transformed")
+            if step.features != outputs:
+                raise ValueError(
+                    f"step {step.step.name!r} consumes {step.features}, not exactly "
+                    f"the previous step's outputs {outputs}; use predict instead"
+                )
+        con = connect()
+        models = tuple(
+            model.select(**{f"m{i}": model[0]}).into_backend(con)
+            for i, model in enumerate(
+                _as_table(deferred.deferred_model)
+                for deferred in (
+                    *(s.deferred_fit_transform for s in self.transform_steps),
+                    self.predict_step.deferred_fit_predict,
+                )
+            )
+        )
+        joined = functools.reduce(lambda left, right: left.cross_join(right), models)
+        models_expr = joined.select(
+            models=struct({c: joined[c] for c in joined.columns})
+        ).tag(
+            str(FittedPipelineTagKey.PREDICT),
+            **self.get_tag_kwargs(FittedPipelineTagKey.PREDICT)
+            | self.get_tag_kwargs(FittedPipelineTagKey.ALL_STEPS),
+        )
+        features = self.fitted_steps[0].features
+        fn = _predict_steps(
+            transforms=tuple(
+                (s.deferred_fit_transform.bound_other, s.dest_col or "transformed")
+                for s in self.transform_steps
+            ),
+            predict=self.predict_step.deferred_fit_predict.bound_other,
+        )
+        return (
+            make_pandas_expr_udf(
+                computed_kwargs_expr=models_expr,
+                fn=fn,
+                schema=expr.select(features).schema(),
+                return_type=self.predict_step.predict_return_type,
+                post_process_fn=_unpickle_models,
+                name=make_name("pipeline_predict", models_expr),
+            )
+            .on_expr(expr)
+            .name(name or self.predict_step.dest_col or ResponseMethod.PREDICT.value)
         )
 
     @toolz.curry

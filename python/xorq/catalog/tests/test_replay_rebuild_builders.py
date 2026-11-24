@@ -11,6 +11,7 @@ delegates to registered ``TagHandler`` rebuild protocols:
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import xorq.api as xo
@@ -361,6 +362,43 @@ def test_rebuild_fitted_pipeline_roundtrip_predictions_match(tmpdir):
 
     tgt_df = tgt_entry.expr.execute().reset_index(drop=True)
     pd.testing.assert_frame_equal(src_df, tgt_df, check_exact=False)
+
+
+def test_rebuild_predict_raw_mutate_roundtrip_predictions_match(tmp_path: Path) -> None:
+    """A table with a ``predict_raw`` column rebuilds like ``predict`` does:
+    the pipeline tag on the column's model input is found and re-emitted, and
+    the rebuilt entry predicts the same values."""
+    linear_model = pytest.importorskip("sklearn.linear_model")
+    sklearn_pipeline = pytest.importorskip("sklearn.pipeline")
+    preprocessing = pytest.importorskip("sklearn.preprocessing")
+
+    train = xo.memtable(
+        {
+            "feature_0": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "feature_1": [5.0, 4.0, 3.0, 2.0, 1.0],
+            "target": [0.0, 1.0, 0.0, 1.0, 0.0],
+        },
+        name="ml_train",
+    )
+    fitted = Pipeline.from_instance(
+        sklearn_pipeline.make_pipeline(
+            preprocessing.StandardScaler(), linear_model.LinearRegression()
+        )
+    ).fit(train, target="target")
+    mutated = train.mutate(predicted=fitted.predict_raw(train))
+
+    catalog = Catalog(backend=GitBackend(repo=Catalog.init_repo_path(tmp_path / "src")))
+    src_df = catalog.add(mutated, aliases=("preds",)).expr.execute()
+
+    target = _replay_rebuild(catalog, tmp_path / "tgt")
+    tgt_expr = target.get_catalog_entry("preds", maybe_alias=True).expr
+
+    assert FittedPipeline.from_expr(tgt_expr).pipeline == fitted.pipeline
+    pd.testing.assert_frame_equal(
+        tgt_expr.execute().reset_index(drop=True),
+        src_df.reset_index(drop=True),
+        check_exact=False,
+    )
 
 
 def test_rebuild_rejects_fitted_pipeline_with_catalog_training(tmpdir):

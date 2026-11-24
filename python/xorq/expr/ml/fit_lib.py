@@ -202,6 +202,16 @@ class DeferredFitOther:
         )
 
     @property
+    def bound_other(self):
+        # the function deferred_other runs on each batch, given the model
+        return self._inner_other(
+            other=self.other,
+            features=self.features,
+            return_type=self.return_type,
+            encoded_cols=self.encoded_cols,
+        )
+
+    @property
     def deferred_model_udaf_other(self):
         return (self.deferred_model, self.model_udaf, self.deferred_other)
 
