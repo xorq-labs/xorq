@@ -32,6 +32,7 @@ def _cached_file_digest(
     dev: int,
     ino: int,
     mtime_ns: int,
+    ctime_ns: int,
     size: int,
     algorithm: str = "md5",
     chunk_size: int = 2**20,
@@ -58,11 +59,14 @@ def file_digest(
         st = p.stat()
         algo = _digest_to_algorithm(digest)
         if algo is not None:
+            # ctime moves on every write and os.utime cannot set it back, so a
+            # same-size rewrite that restores mtime still misses the memo
             return _cached_file_digest(
                 str(p.resolve()),
                 st.st_dev,
                 st.st_ino,
                 st.st_mtime_ns,
+                st.st_ctime_ns,
                 st.st_size,
                 algo,
                 size,
@@ -84,9 +88,15 @@ def file_digest(
 
 def _dir_digest(path: Path) -> str:
     # a directory read (a parquet dataset) is its files: their relative paths
-    # and contents, in a stable order
+    # and contents, in a stable order. Names starting with "." or "_"
+    # (_SUCCESS, .crc) are skipped, as pyarrow and datafusion skip them
     obj = hashlib.md5()
-    for p in sorted(p for p in path.rglob("*") if p.is_file()):
+    for p in sorted(
+        p
+        for p in path.rglob("*")
+        if p.is_file()
+        and not any(part.startswith((".", "_")) for part in p.relative_to(path).parts)
+    ):
         obj.update(f"{p.relative_to(path).as_posix()}\0{file_digest(p)}\0".encode())
     return obj.hexdigest()
 

@@ -336,9 +336,10 @@ def deferred_read_csv(
     normalize_method : Callable, optional
         The method that returns the values to be used in the hashing of the Read operation.
         Defaults to the MD5 of the file contents; ``normalize_read_path_stat``
-        keys on mtime, size and inode instead. A build keeps this choice only
-        when ``table_name`` is given: reads with a generated name take the
-        build's ``read_normalize_method``.
+        keys on mtime, size and inode instead. A build relocates local reads by
+        default and keys them on MD5 whatever this is set to; the choice
+        survives a build only with ``relocate_reads=False`` and an explicit
+        ``table_name``.
 
     relocatable : bool, optional
         When True, ``xorq build`` will copy the backing file into the build
@@ -432,9 +433,10 @@ def deferred_read_parquet(
     normalize_method : Callable, optional
         The method that returns the values to be used in the hashing of the Read operation.
         Defaults to the MD5 of the file contents; ``normalize_read_path_stat``
-        keys on mtime, size and inode instead. A build keeps this choice only
-        when ``table_name`` is given: reads with a generated name take the
-        build's ``read_normalize_method``.
+        keys on mtime, size and inode instead. A build relocates local reads by
+        default and keys them on MD5 whatever this is set to; the choice
+        survives a build only with ``relocate_reads=False`` and an explicit
+        ``table_name``.
 
     relocatable : bool, optional
         When True, ``xorq build`` will copy the backing file into the build

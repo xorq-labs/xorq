@@ -1,11 +1,9 @@
 import functools
 import itertools
-import json
 import os
 import pathlib
 import shutil
-import subprocess
-import sys
+import time
 from collections.abc import Callable
 from types import SimpleNamespace
 
@@ -562,29 +560,14 @@ def test_read_csv_schema_kwargs(backend_name, keyword):
     assert read_csv_schema_kwargs(con, None) == {}
 
 
-_HASH_CHILD = """
-import json, sys
-import xorq.api as xo
-from xorq.common.utils.dasher import tokenize
-from xorq.common.utils.provenance_utils import get_expr_hash
-expr = xo.deferred_read_csv(sys.argv[1], xo.connect())
-print(json.dumps([tokenize(expr), get_expr_hash(expr)]))
-"""
-
-
-def _default_read_hashes(path: pathlib.Path) -> tuple[str, str]:
-    # a fresh process per call: a new run, with no in-process digest memo
-    proc = subprocess.run(
-        [sys.executable, "-c", _HASH_CHILD, str(path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return tuple(json.loads(proc.stdout.splitlines()[-1]))
+def _default_read_token(path: pathlib.Path) -> str:
+    return tokenize(xo.deferred_read_csv(path, xo.connect()))
 
 
 def _rewrite_in_place_keeping_stat(path: pathlib.Path) -> None:
     st = path.stat()
+    # step past the kernel's timestamp granularity so ctime moves
+    time.sleep(0.05)
     with path.open("r+b") as fh:
         fh.write(b"x\n2\n")
     os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
@@ -608,7 +591,7 @@ def test_default_read_identity_follows_content(
 ) -> None:
     path = tmp_path / "t.csv"
     path.write_bytes(b"x\n1\n")
-    before = _default_read_hashes(path)
+    before = _default_read_token(path)
     change(path)
-    after = _default_read_hashes(path)
+    after = _default_read_token(path)
     assert (before == after) is same_data
