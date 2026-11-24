@@ -208,7 +208,7 @@ def test_deferred_read_builtins_accepted(
     path = tmp_path / filename
     writer(pd.DataFrame({"a": [1, 2, 3]}), path)
     con = xo.connect()
-    t = reader(path, con, table_name="t")
+    t = reader(path, con, table_name="t", normalize_method=normalize_read_path_stat)
     assert t.op().normalize_method is normalize_read_path_stat
     # relocatable forces md5sum, still registry-resolvable
     t2 = reader(path, con, table_name="t2", relocatable=True)

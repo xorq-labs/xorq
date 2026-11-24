@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
+import time
 import zipfile
 from pathlib import Path
 
@@ -72,6 +74,38 @@ def test_manual_file_digest_with_file_like_object() -> None:
 def test_normalize_read_path_md5sum(sample_file: Path) -> None:
     result = normalize_read_path_md5sum(sample_file)
     assert result == (("content-md5sum", CONTENT_MD5),)
+
+
+def test_normalize_read_path_md5sum_directory_follows_content(tmp_path: Path) -> None:
+    (tmp_path / "part-0.parquet").write_bytes(b"a")
+    before = normalize_read_path_md5sum(tmp_path)
+    (tmp_path / "part-0.parquet").write_bytes(b"bb")
+    assert normalize_read_path_md5sum(tmp_path) != before
+
+
+def test_normalize_read_path_md5sum_directory_ignores_hidden_files(
+    tmp_path: Path,
+) -> None:
+    # pyarrow and datafusion skip names starting with "." or "_" in a dataset
+    (tmp_path / "part-0.parquet").write_bytes(b"a")
+    before = normalize_read_path_md5sum(tmp_path)
+    (tmp_path / "_SUCCESS").write_bytes(b"")
+    (tmp_path / ".part-0.parquet.crc").write_bytes(b"crc")
+    assert normalize_read_path_md5sum(tmp_path) == before
+
+
+def test_normalize_read_path_md5sum_same_stat_rewrite_in_process(
+    sample_file: Path,
+) -> None:
+    before = normalize_read_path_md5sum(sample_file)
+    stat = sample_file.stat()
+    # file timestamps tick at kernel clock granularity (a few ms); step past
+    # one so the rewrite's ctime differs from the original's
+    time.sleep(0.05)
+    sample_file.write_bytes(CONTENT.upper())
+    os.utime(sample_file, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert sample_file.stat().st_size == stat.st_size
+    assert normalize_read_path_md5sum(sample_file) != before
 
 
 def test_normalize_read_path_stat(sample_file: Path) -> None:

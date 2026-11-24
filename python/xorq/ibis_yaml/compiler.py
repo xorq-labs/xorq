@@ -46,7 +46,6 @@ from xorq.common.utils.defer_utils import (
 )
 from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
-    normalize_read_path_stat,
 )
 from xorq.common.utils.graph_utils import (
     exclusively_pinned_leaves,
@@ -410,7 +409,7 @@ def _sanitize_generated_names(expr, normalize_method):
     return op.to_expr()
 
 
-def canonicalize_expr(expr, read_normalize_method=normalize_read_path_stat):
+def canonicalize_expr(expr, read_normalize_method=normalize_read_path_md5sum):
     """Single normalization pass: deterministic names and canonical profile IDs.
 
     Both the YAML serialization path (ExprDumper) and the hashing path
@@ -646,7 +645,7 @@ class ExprDumper:
     relocate_reads = field(validator=instance_of(bool), default=True)
     read_normalize_method = field(
         validator=[is_callable(), _validate_normalize_method],
-        default=normalize_read_path_stat,
+        default=normalize_read_path_md5sum,
     )
 
     def __attrs_post_init__(self) -> None:

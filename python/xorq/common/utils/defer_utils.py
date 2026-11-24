@@ -11,7 +11,10 @@ import toolz
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.file_utils import (
     normalize_read_path_md5sum,
-    normalize_read_path_stat,
+)
+from xorq.common.utils.file_utils import (
+    # the stat opt-out, importable from here as it was when it was the default
+    normalize_read_path_stat as normalize_read_path_stat,
 )
 from xorq.common.utils.inspect_utils import (
     get_arguments,
@@ -303,7 +306,7 @@ def deferred_read_csv(
     con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
-    normalize_method: Callable = normalize_read_path_stat,
+    normalize_method: Callable = normalize_read_path_md5sum,
     relocatable: bool = False,
     **kwargs: Any,
 ) -> ir.Table:
@@ -335,6 +338,14 @@ def deferred_read_csv(
     schema : Schema, optional
         The schema definition for the CSV data. If not provided, the schema will
         be inferred from the data by sampling the CSV file.
+
+    normalize_method : Callable, optional
+        The method that returns the values to be used in the hashing of the Read operation.
+        Defaults to the MD5 of the file contents; ``normalize_read_path_stat``
+        keys on mtime, size and inode instead. A build relocates local reads by
+        default and keys them on MD5 whatever this is set to; the choice
+        survives a build only with ``relocate_reads=False`` and an explicit
+        ``table_name``.
 
     relocatable : bool, optional
         When True, ``xorq build`` will copy the backing file into the build
@@ -402,7 +413,7 @@ def deferred_read_parquet(
     con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
-    normalize_method: Callable = normalize_read_path_stat,
+    normalize_method: Callable = normalize_read_path_md5sum,
     relocatable: bool = False,
     **kwargs: Any,
 ) -> ir.Table:
@@ -427,6 +438,11 @@ def deferred_read_parquet(
 
     normalize_method : Callable, optional
         The method that returns the values to be used in the hashing of the Read operation.
+        Defaults to the MD5 of the file contents; ``normalize_read_path_stat``
+        keys on mtime, size and inode instead. A build relocates local reads by
+        default and keys them on MD5 whatever this is set to; the choice
+        survives a build only with ``relocate_reads=False`` and an explicit
+        ``table_name``.
 
     relocatable : bool, optional
         When True, ``xorq build`` will copy the backing file into the build
