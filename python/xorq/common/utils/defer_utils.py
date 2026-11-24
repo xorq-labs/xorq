@@ -9,10 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, TypeGuard
 import toolz
 
 import xorq.vendor.ibis.expr.types as ir
-from xorq.common.utils.file_utils import (
-    normalize_read_path_md5sum,
-    normalize_read_path_stat,
-)
+from xorq.common.utils.file_utils import normalize_read_path_md5sum
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
@@ -303,7 +300,7 @@ def deferred_read_csv(
     con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
-    normalize_method: Callable = normalize_read_path_stat,
+    normalize_method: Callable = normalize_read_path_md5sum,
     relocatable: bool = False,
     **kwargs: Any,
 ) -> ir.Table:
@@ -402,7 +399,7 @@ def deferred_read_parquet(
     con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
-    normalize_method: Callable = normalize_read_path_stat,
+    normalize_method: Callable = normalize_read_path_md5sum,
     relocatable: bool = False,
     **kwargs: Any,
 ) -> ir.Table:
