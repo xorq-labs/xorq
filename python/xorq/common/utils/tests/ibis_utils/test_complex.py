@@ -12,10 +12,10 @@ if TYPE_CHECKING:
     from ibis.backends import BaseBackend
 
 
-FLIGHT_COLUMNS = (
-    "origin destination flight_num flight_time tail_num dep_time arr_time "
-    "dep_delay arr_delay taxi_out taxi_in cancelled diverted id2"
-).split()
+STRING_COLUMNS = ("origin", "destination", "flight_num", "tail_num")
+TIMESTAMP_COLUMNS = ("dep_time", "arr_time")
+INT_COLUMNS = ("flight_time", "dep_delay", "arr_delay", "taxi_out", "taxi_in", "id2")
+BOOL_COLUMNS = ("cancelled", "diverted")
 
 
 @pytest.mark.slow(level=3)
@@ -26,7 +26,13 @@ def test_complex_expr_from_boring_semantic_layer(ibis_con: BaseBackend) -> None:
             {
                 "carrier": ["AA", "AA", "UA"],
                 "distance": [100, 300, 600],
-                **{name: [0, 1, 2] for name in FLIGHT_COLUMNS},
+                **{name: ["a", "b", "c"] for name in STRING_COLUMNS},
+                **{
+                    name: pa.array([0, 1, 2], type=pa.timestamp("us"))
+                    for name in TIMESTAMP_COLUMNS
+                },
+                **{name: [0, 1, 2] for name in INT_COLUMNS},
+                **{name: [False, True, False] for name in BOOL_COLUMNS},
             }
         ),
         overwrite=True,
