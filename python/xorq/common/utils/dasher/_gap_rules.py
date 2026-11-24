@@ -17,6 +17,7 @@ import numpy as np
 import toolz
 from xorq_dasher.rules.fallback import normalize_object_fallback
 from xorq_dasher.rules.functions import normalize_function
+from xorq_dasher.rules.other import normalize_numpy_array_function_dispatcher
 
 from xorq.common.utils.inspect_utils import get_partial_arguments
 
@@ -45,6 +46,9 @@ def _extract_methodcaller_fields(
     return constructor_args[0], constructor_args[1:], {}
 
 
+_NUMPY_DISPATCHER = type(np.mean)
+
+
 def normalize_attrs(obj: object) -> tuple:
     """Normalize an attrs instance (frozen or mutable) by its declared fields.
 
@@ -68,15 +72,22 @@ def normalize_object_or_attrs(obj: object) -> tuple:
     ``__dasher_tokenize__`` normalizes by its fields; anything else defers to
     xorq_dasher's fallback (call ``__dasher_tokenize__`` or raise).
 
-    numpy scalars and arrays (a RandomState's state is one) are handled here
-    rather than by their own rules: a new rule key moves the rules fingerprint
-    and with it every build hash, while these types used to raise.
+    numpy scalars and arrays (a RandomState's state is one) and numpy's
+    array-function dispatchers (``np.mean``) are handled here rather than by
+    their own rules: a new rule key moves the rules fingerprint and with it
+    every build hash, while these types used to raise.
     """
     match obj:
         case _ if hasattr(obj, "__dasher_tokenize__"):
             return normalize_object_fallback(obj)
         case _ if attrs.has(type(obj)):
             return normalize_attrs(obj)
+        # numpy >= 1.25 names this class ``numpy._ArrayFunctionDispatcher``;
+        # xorq_dasher keys its rule on private ``_multiarray_umath`` paths,
+        # which never match. Older numpy dispatches through plain functions,
+        # which the function rule takes before this fallback.
+        case _ if type(obj) is _NUMPY_DISPATCHER:
+            return normalize_numpy_array_function_dispatcher(obj)
         # obj.dtype goes through the numpy.dtype rule, which keeps structured
         # field names. ndarray subclasses (MaskedArray's mask, matrix) carry
         # state the buffer does not, so only a plain ndarray goes here.
