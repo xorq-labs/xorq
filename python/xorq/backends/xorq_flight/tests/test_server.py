@@ -5,6 +5,7 @@ import shutil
 import sys
 import threading
 import time
+from collections.abc import Callable
 
 import pandas as pd
 import pyarrow as pa
@@ -416,6 +417,50 @@ def test_ctor_exchanger_registration():
             dummy_udxf.command,
             xo.memtable({"dummy": [0]}, schema=schema_in),
         )
+
+
+@pytest.mark.parametrize(
+    "make_schemas",
+    [
+        pytest.param(lambda schema: (schema, schema), id="static"),
+        pytest.param(
+            lambda schema: (lambda s: s == schema, lambda s: schema), id="callable"
+        ),
+    ],
+)
+def test_udxfs_sharing_process_df_are_served_separately(
+    make_schemas: Callable,
+) -> None:
+    def process_df(df):
+        return df
+
+    udxfs = {
+        typ: E.make_udxf(
+            process_df, *make_schemas(xo.schema({"x": typ})), name="passthrough"
+        )
+        for typ in ("int64", "float64")
+    }
+    with FlightServer(exchangers=tuple(udxfs.values())) as server:
+        for typ, udxf in udxfs.items():
+            data = pa.table({"x": pa.array([1, 2, 3], type=pa.type_for_alias(typ))})
+            _, out = server.client.do_exchange_batches(udxf.command, data.to_reader())
+            assert out.read_all().equals(data)
+
+
+def test_udxf_accepts_callable_object_schemas() -> None:
+    class AcceptAll:
+        def __call__(self, schema):
+            return True
+
+    class SameSchema:
+        def __call__(self, schema):
+            return schema
+
+    udxf = E.make_udxf(lambda df: df, AcceptAll(), SameSchema(), name="passthrough")
+    data = pa.table({"x": [1, 2, 3]})
+    with FlightServer(exchangers=(udxf,)) as server:
+        _, out = server.client.do_exchange_batches(udxf.command, data.to_reader())
+        assert out.read_all().equals(data)
 
 
 @pytest.mark.parametrize(
