@@ -15,11 +15,21 @@ from xorq.vendor.ibis.backends.sqlite import _quote
 
 
 def get_sqlite_stats(dt):
-    (query, name, schema) = (
-        dt.source.con.execute,
-        dt.name,
-        dt.namespace.database or "main",
+    (query, name) = (dt.source.con.execute, dt.name)
+    # an unqualified table compiles to an unqualified read, which SQLite
+    # resolves to temp before main: stamp the schema that read hits
+    (schema,) = (
+        (dt.namespace.database,)
+        if dt.namespace.database
+        else query(
+            "SELECT schema FROM pragma_table_list(?)"
+            " WHERE schema IN ('temp', 'main') ORDER BY schema = 'main' LIMIT 1",
+            (name,),
+        ).fetchone()
     )
+    # qualified so the stats read hits that schema, not whatever the bare
+    # name would resolve to
+    table = f"{_quote(schema)}.{_quote(name)}"
     ((kind, without_rowid),) = query(
         "SELECT type, wr FROM pragma_table_list(?) WHERE schema = ? COLLATE NOCASE",
         (name, schema),
@@ -32,7 +42,7 @@ def get_sqlite_stats(dt):
             # its definition
             return query(
                 f"SELECT COUNT(*), (SELECT sql FROM {_quote(schema)}.sqlite_master"
-                f" WHERE name = ?) FROM '{name}'",
+                f" WHERE name = ?) FROM {table}",
                 (name,),
             ).fetchone()
         case (_, _, 0):
@@ -41,7 +51,7 @@ def get_sqlite_stats(dt):
             ((stamp,),) = query(
                 "SELECT name FROM pragma_table_info(?, ?) WHERE pk = 1", (name, schema)
             ).fetchall()
-    return query(f"SELECT COUNT(*), MAX({_quote(stamp)}) FROM '{name}'").fetchone()
+    return query(f"SELECT COUNT(*), MAX({_quote(stamp)}) FROM {table}").fetchone()
 
 
 @frozen
