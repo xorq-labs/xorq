@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import decimal
 import functools
+import importlib
 import numbers
 import operator
 import pathlib
@@ -1395,6 +1396,61 @@ def test_extra_rules_fqn_strings() -> None:
     assert not (set(expected) - production_fqns), (
         f"test names rules production does not register: {set(expected) - production_fqns}"
     )
+
+
+@pytest.mark.skipif(
+    np.lib.NumpyVersion(np.__version__) < "1.25.0",
+    reason="before numpy 1.25, np.mean is a plain function whose closure holds "
+    "itself, and the function rule recurses on it",
+)
+def test_numpy_array_function_dispatchers_tokenize() -> None:
+    t = xo.connect().register(pd.DataFrame({"x": [1.0, 2.0]}), "t")
+
+    def make_expr(reduce: Callable) -> Expr:
+        def summarize(df: pd.DataFrame, reduce: Callable = reduce) -> pd.Series:
+            return pd.Series([reduce(df["x"])] * len(df))
+
+        udf = make_pandas_udf(
+            summarize, xo.schema({"x": "float64"}), dt.float64, name="m"
+        )
+        return t.mutate(m=udf.on_expr(t))
+
+    mean, median = (make_expr(reduce).ls.tokenized for reduce in (np.mean, np.median))
+    assert mean != median
+    assert make_expr(np.mean).ls.tokenized == mean
+    assert tokenize(np.linalg.norm) != tokenize(np.fft.fft)
+
+
+@pytest.mark.skipif(
+    np.lib.NumpyVersion(np.__version__) < "1.25.0",
+    reason="before numpy 1.25, dispatchers are plain functions",
+)
+def test_third_party_array_function_dispatcher_is_refused() -> None:
+    overrides = importlib.import_module(
+        "numpy._core.overrides"
+        if np.lib.NumpyVersion(np.__version__) >= "2.0.0"
+        else "numpy.core.overrides"
+    )
+
+    @overrides.array_function_dispatch(lambda x: (x,), module="mylib")
+    def foo(x: object) -> object:
+        return x
+
+    # keyed by name and module only, two bodies would share a token
+    with pytest.raises(ValueError, match="No normalizer registered"):
+        tokenize(foo)
+
+
+def test_numpy_novalue_default_tokenizes() -> None:
+    # numpy < 1.25 exposes np.mean as a plain function with this default
+    def reduce(x: object, keepdims: object = np._NoValue) -> object:
+        return x
+
+    def other(x: object, keepdims: object = None) -> object:
+        return x
+
+    assert tokenize(reduce) == tokenize(reduce)
+    assert tokenize(reduce) != tokenize(other)
 
 
 # --- sklearn constraint normalizers -----------------------------------------
