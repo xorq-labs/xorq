@@ -425,6 +425,14 @@ def process_batch(process_df, calc_schema_out, batch, metadata=None, **kwargs):
             )
 
 
+def _token_or_none(schema: object) -> str | None:
+    # a callable object may have no dasher normalizer: it keys as None
+    try:
+        return tokenize(schema)
+    except ValueError:
+        return None
+
+
 def make_udxf(
     process_df,
     maybe_schema_in,
@@ -485,10 +493,12 @@ def make_udxf(
             "schema_in_condition": schema_in_condition,
             "calc_schema_out": calc_schema_out,
             "description": description or name,
-            # key on the static schemas only: a callable schema may be an
-            # object dasher has no normalizer for
             "command": command
-            or tokenize(process_df, schema_in_required, out_schema, name, do_wraps),
+            or tokenize(
+                process_df,
+                *map(_token_or_none, (maybe_schema_in, maybe_schema_out)),
+                do_wraps,
+            ),
             # read by decompile, which cannot recover it from the pickled class
             "process_df_source": _source_of(process_df),
         },

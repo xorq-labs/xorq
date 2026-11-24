@@ -5,6 +5,7 @@ import shutil
 import sys
 import threading
 import time
+from collections.abc import Callable
 
 import pandas as pd
 import pyarrow as pa
@@ -418,16 +419,24 @@ def test_ctor_exchanger_registration():
         )
 
 
-def test_udxfs_sharing_process_df_are_served_separately() -> None:
+@pytest.mark.parametrize(
+    "make_schemas",
+    [
+        pytest.param(lambda schema: (schema, schema), id="static"),
+        pytest.param(
+            lambda schema: (lambda s: s == schema, lambda s: schema), id="callable"
+        ),
+    ],
+)
+def test_udxfs_sharing_process_df_are_served_separately(
+    make_schemas: Callable,
+) -> None:
     def process_df(df):
         return df
 
     udxfs = {
         typ: E.make_udxf(
-            process_df,
-            xo.schema({"x": typ}),
-            xo.schema({"x": typ}),
-            name=f"as_{typ}",
+            process_df, *make_schemas(xo.schema({"x": typ})), name="passthrough"
         )
         for typ in ("int64", "float64")
     }
