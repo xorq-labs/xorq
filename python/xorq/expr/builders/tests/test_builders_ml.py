@@ -245,7 +245,8 @@ def test_fit_training_hash_on_filtered_expr() -> None:
     pipeline = Pipeline.from_instance(make_pipeline(LinearRegression()))
     hashes = tuple(
         pipeline.fit(train, features=("x",), target="y").training_hash
-        for train in (t.filter(t.a < 3), t.filter(t.a > 1))
+        for train in (t.filter(t.a < 3), t.filter(t.a > 1), t.filter(t.a < 3))
     )
     assert None not in hashes
     assert hashes[0] != hashes[1]
+    assert hashes[0] == hashes[2]
