@@ -418,6 +418,26 @@ def test_ctor_exchanger_registration():
         )
 
 
+def test_udxfs_sharing_process_df_are_served_separately() -> None:
+    def process_df(df):
+        return df
+
+    udxfs = {
+        typ: E.make_udxf(
+            process_df,
+            xo.schema({"x": typ}),
+            xo.schema({"x": typ}),
+            name=f"as_{typ}",
+        )
+        for typ in ("int64", "float64")
+    }
+    with FlightServer(exchangers=tuple(udxfs.values())) as server:
+        for typ, udxf in udxfs.items():
+            data = pa.table({"x": pa.array([1, 2, 3], type=pa.type_for_alias(typ))})
+            _, out = server.client.do_exchange_batches(udxf.command, data.to_reader())
+            assert out.read_all().equals(data)
+
+
 @pytest.mark.parametrize(
     "expr",
     [
