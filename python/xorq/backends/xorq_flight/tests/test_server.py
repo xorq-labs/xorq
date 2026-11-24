@@ -438,6 +438,22 @@ def test_udxfs_sharing_process_df_are_served_separately() -> None:
             assert out.read_all().equals(data)
 
 
+def test_udxf_accepts_callable_object_schemas() -> None:
+    class AcceptAll:
+        def __call__(self, schema):
+            return True
+
+    class SameSchema:
+        def __call__(self, schema):
+            return schema
+
+    udxf = E.make_udxf(lambda df: df, AcceptAll(), SameSchema(), name="passthrough")
+    data = pa.table({"x": [1, 2, 3]})
+    with FlightServer(exchangers=(udxf,)) as server:
+        _, out = server.client.do_exchange_batches(udxf.command, data.to_reader())
+        assert out.read_all().equals(data)
+
+
 @pytest.mark.parametrize(
     "expr",
     [

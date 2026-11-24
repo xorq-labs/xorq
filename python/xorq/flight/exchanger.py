@@ -485,8 +485,10 @@ def make_udxf(
             "schema_in_condition": schema_in_condition,
             "calc_schema_out": calc_schema_out,
             "description": description or name,
+            # key on the static schemas only: a callable schema may be an
+            # object dasher has no normalizer for
             "command": command
-            or tokenize(process_df, maybe_schema_in, maybe_schema_out, name, do_wraps),
+            or tokenize(process_df, schema_in_required, out_schema, name, do_wraps),
             # read by decompile, which cannot recover it from the pickled class
             "process_df_source": _source_of(process_df),
         },
