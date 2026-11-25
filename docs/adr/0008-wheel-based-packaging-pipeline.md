@@ -40,14 +40,9 @@ An earlier version of this pipeline built sdists (`uv build --sdist`), then pass
 
 This replaces the `pip-compile` / `pip freeze` workflow. The `--locked` flag asserts that `uv.lock` is up-to-date with `pyproject.toml`, erroring if not — unlike `--frozen`, which would skip this validation. The lock file is the single source of truth for resolved versions; the export is a deterministic projection of it. Because both lock and export use uv's resolver, there is no resolver mismatch between the lock step and the install step.
 
-#### Sync-check is byte-exact
+#### Sync-check compares requirement lines
 
-When both `uv.lock` and `requirements.txt` are present in the project, `WheelPackager._write_requirements_path` re-runs `uv export` and compares its output byte-for-byte against the existing `requirements.txt`. Any divergence — including whitespace, ordering, or format changes — raises `RuntimeError`. **This is intentional** and it *will* trip:
-
-- Whenever `uv.lock` changes without re-exporting `requirements.txt`.
-- Whenever the running `uv` is a different version than the one that last produced `requirements.txt`, if that version changed `uv export`'s output format.
-
-The strict check prevents silently running with stale requirements. The resolution is mechanical: delete the in-tree `requirements.txt` (the packager will regenerate it) or re-run `uv export` manually. Downstream tooling that uses templates or vendored projects should either re-export before building or omit `requirements.txt` entirely and let the packager regenerate it from `uv.lock`.
+When both `uv.lock` and `requirements.txt` are present in the project, `WheelPackager._write_requirements_path` re-runs `uv export`, bundles that output, and compares its non-comment lines against those of the existing `requirements.txt`. The bundled file never comes from the in-tree copy, so a stale `requirements.txt` cannot reach a build; a mismatch is a `UserWarning` naming the `uv export` command that re-syncs the in-tree file. Comments, the `uv export` header and `# via` annotations do not count as drift, so a `requirements.txt` exported without `--no-header --no-annotate` (the form `xorq init` templates shipped) builds silently. An earlier revision compared the two files byte-for-byte and raised, which aborted every first build of such a template.
 
 #### `uv.lock` determines `requirements.txt`
 
