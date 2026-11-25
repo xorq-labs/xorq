@@ -27,6 +27,7 @@ from xorq.catalog.tests.conftest import git_storage_only
 from xorq.cli import cli as top_cli
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.enums import DumpFiles
+from xorq.vendor.ibis.expr import operations as ops
 
 
 # The uv end-to-end tests below are git_storage_only: they exercise uv
@@ -535,6 +536,55 @@ def test_run_cached_two_entries(runner, catalog_with_source_and_transform, tmp_p
     )
     assert result.exit_code == 0, result.output
     assert "user_id" in result.output
+
+
+@pytest.fixture
+def catalog_with_join_transform(
+    catalog_with_source_and_transform: tuple[str, str, str],
+) -> str:
+    """Add an unbound entry joining two UnboundTables (not a one-input transform)."""
+    catalog_path, _, _ = catalog_with_source_and_transform
+    catalog = Catalog.from_kwargs(path=catalog_path, init=False)
+    a = ops.UnboundTable(name="a", schema={"user_id": "int64"}).to_expr()
+    b = ops.UnboundTable(name="b", schema={"user_id": "int64"}).to_expr()
+    catalog.add(a.join(b, "user_id"), aliases=("join",))
+    return catalog_path
+
+
+def test_run_cached_rejects_multi_input_transform(
+    runner: CliRunner, catalog_with_join_transform: str, tmp_path: Path
+) -> None:
+    """The --cache-dir compose path validates the chain like the plain path."""
+    result = runner.invoke(
+        cli,
+        [
+            "--path",
+            catalog_with_join_transform,
+            "run-cached",
+            "src",
+            "join",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "-o",
+            "-",
+            "-f",
+            "csv",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "A transform takes exactly one input" in result.output
+
+
+def test_run_piped_into_multi_input_entry_fails_clearly(
+    runner: CliRunner, catalog_with_join_transform: str
+) -> None:
+    result = runner.invoke(
+        cli,
+        ["--path", catalog_with_join_transform, "run", "join", "-o", "-", "-f", "csv"],
+        input=b"not arrow",
+    )
+    assert result.exit_code != 0
+    assert "piped input can bind only a single-input entry" in result.output
 
 
 def test_run_cached_snapshot_type(runner, catalog_with_source_and_transform, tmp_path):

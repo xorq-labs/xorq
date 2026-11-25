@@ -238,7 +238,7 @@ Unbound expressions are the foundation of several Xorq features:
 
 - **Flight UDXFs**: Define a transformation template that runs on an Arrow Flight server. The input data is streamed as record batches, and the unbound expression describes what to do with it.
 - **Serialization**: The expression YAML format stores unbound expressions so they can be loaded and bound to a different backend later.
-- **Schema validation**: `ExprMetadata` exposes `schema_in` (the UnboundTable's schema) and `schema_out` (the result schema), enabling compile-time checks before execution.
+- **Schema validation**: `ExprMetadata` exposes `schema_in` (the UnboundTable's schema) and `schema_out` (the result schema), enabling compile-time checks before execution. An expression with several UnboundTables (a join of two templates, say) is still an `UnboundExpr`, but its `schema_in` is `None`: it cannot be used as a single-input transform.
 
 The `.ls.metadata` accessor returns the `ExprMetadata` for any expression:
 
