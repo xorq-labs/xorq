@@ -57,6 +57,7 @@ from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.common import (
     Registry,
     TranslationContext,
+    node_ref_and_data_key,
     reachable_node_refs,
     translate_to_yaml,
     warm_translate_to_yaml,
@@ -2556,6 +2557,15 @@ def test_plain_dict_document_with_a_column_named_op_loads(compiler):
     assert compiler.from_yaml(plain).schema() == expr.schema()
 
 
+def test_plain_dict_document_with_a_column_named_node_ref_loads(compiler):
+    # a Project's values mapping keys "node_ref" to a column node, not a ref
+    t = ibis.table({"a": "int64"}, name="t")
+    expr = t.select(node_ref=t.a + 1)
+    plain = json.loads(json.dumps(compiler.to_yaml(expr), default=str))
+
+    assert compiler.from_yaml(plain).schema() == expr.schema()
+
+
 def test_map_literal_does_not_reach_unused_node_definition(compiler):
     value = {"node_ref": "@unused"}
     expr = ibis.literal(value, type="map<string, string>")
@@ -2577,6 +2587,29 @@ def test_parameter_default_does_not_reach_node_definition():
     param = {"op": "NamedScalarParameter", "default": {"node_ref": "@unused"}}
 
     assert reachable_node_refs(registry, param) == ()
+
+
+def test_ref_naming_no_registered_node_is_skipped():
+    registry = Registry(nodes={"@a": {"op": "DatabaseTable", "profile": "missing"}})
+    yaml_obj = {"x": {"node_ref": "@missing"}, "y": {"node_ref": "@a"}}
+
+    assert reachable_node_refs(registry, yaml_obj) == ("@a",)
+
+
+@pytest.mark.parametrize(
+    ("mapping", "expected"),
+    [
+        pytest.param({"node_ref": "@a"}, ("@a", None), id="str-ref"),
+        pytest.param({"node_ref": {"op": "Field"}}, (None, None), id="non-str-ref"),
+        pytest.param({"op": "Literal"}, (None, "value"), id="str-op-in-data-keys"),
+        pytest.param({"op": "NamedScalarParameter"}, (None, "default"), id="param-op"),
+        pytest.param({"op": "Field"}, (None, None), id="str-op-not-in-data-keys"),
+        pytest.param({"op": {"op": "Literal"}}, (None, None), id="non-str-op"),
+        pytest.param({}, (None, None), id="empty"),
+    ],
+)
+def test_node_ref_and_data_key(mapping, expected):
+    assert node_ref_and_data_key(mapping) == expected
 
 
 def test_from_yaml_ignores_unreachable_node_definitions(compiler):

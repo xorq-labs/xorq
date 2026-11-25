@@ -145,6 +145,22 @@ class Registry:
 DATA_KEYS = MappingProxyType({"Literal": "value", "NamedScalarParameter": "default"})
 
 
+def node_ref_and_data_key(mapping: Mapping) -> tuple[str | None, str | None]:
+    """The ref one mapping holds and the key under it whose value is data.
+
+    Either is None when the mapping has none. Key names alone do not decide
+    either: a column named ``node_ref`` or ``op`` keys a mapping too, so a ref
+    is only a string under ``node_ref`` and an op only a string under ``op``.
+    Whether the ref names a registered node is the caller's to decide.
+    """
+    node_ref = mapping.get(RefEnum.node_ref)
+    op = mapping.get(NodeKey.op)
+    return (
+        node_ref if isinstance(node_ref, str) else None,
+        DATA_KEYS.get(op) if isinstance(op, str) else None,
+    )
+
+
 def _child_node_refs(registry: Registry, yaml_obj) -> list[str]:
     """The registered node refs directly under yaml_obj, without entering them."""
     refs = []
@@ -152,12 +168,11 @@ def _child_node_refs(registry: Registry, yaml_obj) -> list[str]:
     while pending:
         match value := pending.pop():
             case Mapping():
-                node_ref = value.get(RefEnum.node_ref)
-                if isinstance(node_ref, str) and node_ref in registry.nodes:
+                node_ref, data_key = node_ref_and_data_key(value)
+                # a missing ref (None) is looked up too: only a hand-edited
+                # document has a null key under definitions.nodes
+                if node_ref in registry.nodes:
                     refs.append(node_ref)
-                # "op" can also name a column, whose value is a mapping
-                op = value.get(NodeKey.op)
-                data_key = DATA_KEYS.get(op) if isinstance(op, str) else None
                 pending.extend(child for key, child in value.items() if key != data_key)
             case tuple() | list():
                 pending.extend(value)
