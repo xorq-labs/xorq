@@ -2,11 +2,9 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "rangeStrategy": "widen",
   "extends": [
-    "config:recommended", ":disableDependencyDashboard"
+    "config:recommended", ":disableDependencyDashboard", "group:all"
   ],
   "semanticCommits": "enabled",
-  "lockFileMaintenance": { "enabled": true },
-  "updateLockFiles": true,
   "enabledManagers": [
     "docker-compose",
     "dockerfile",
@@ -22,8 +20,9 @@
       "automerge": false
     },
     {
-      "matchPackageNames": ["ruff", "astral-sh/ruff-pre-commit"],
-      "groupName": "ruff"
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["dependency-groups"],
+      "rangeStrategy": "update-lockfile"
     },
     {
       "matchManagers": ["pep621"],
@@ -33,6 +32,10 @@
     {
       "matchManagers": ["github-actions"],
       "matchPackageNames": "actions/setup-python",
+      "enabled": false
+    },
+    {
+      "matchUpdateTypes": ["pin", "pinDigest"],
       "enabled": false
     }
   ],
