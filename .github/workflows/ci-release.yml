@@ -35,4 +35,4 @@ jobs:
       - name: publish package
         run: |
           uv build
-          uv publish --trusted-publishing always
+          uv publish --check-url https://pypi.org/simple/ --trusted-publishing always
