@@ -1,4 +1,4 @@
-# ADR-XXXX: Register one-shot Arrow streams as StreamCache values and key them by content
+# ADR-2721: Register one-shot Arrow streams as StreamCache values and key them by content
 
 - **Status:** Proposed
 - **Date:** 2026-11-26
