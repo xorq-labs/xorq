@@ -1,11 +1,17 @@
 import datetime
 import decimal
+import pickle
+import subprocess
+import sys
 
 import pytest
 
 import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.ibis_yaml.common import TranslationContext
 from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
+from xorq.ibis_yaml.translate import make_context, translate_to_yaml
 
 
 def test_unbound_table(t, compiler):
@@ -205,3 +211,49 @@ def test_table_perserves_namespace(compiler):
     yaml_dict = compiler.to_yaml(expr)
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.op().namespace == expr.op().namespace
+
+
+def test_issue_1546_snippet_cannot_reach_an_empty_dispatcher():
+    # the snippet from #1546, verbatim, in an interpreter that has imported
+    # nothing else: common must offer no dispatcher to call before the rules
+    # exist, so it fails at the import, not with "No translation rule"
+    code = """
+import xorq.expr.datatypes as dt
+from xorq.ibis_yaml.common import safe_translate_to_yaml
+safe_translate_to_yaml(dt.Boolean(), None)
+"""
+    result = subprocess.run(
+        (sys.executable, "-c", code), capture_output=True, text=True, check=False
+    )
+    assert result.returncode != 0
+    assert "ImportError" in result.stderr, result.stderr
+    assert "No translation rule" not in result.stderr
+
+
+def test_context_round_trips_a_dtype():
+    context = make_context()
+    dtype = dt.Boolean()
+    assert context.translate_from_yaml(context.translate_to_yaml(dtype)) == dtype
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({}, id="no-translators"),
+        pytest.param({"to_yaml": None, "from_yaml": None}, id="none-translators"),
+    ],
+)
+def test_context_without_translators_is_refused(kwargs: dict) -> None:
+    with pytest.raises(TypeError):
+        TranslationContext(**kwargs)
+
+
+def test_context_translates_after_a_pickle_round_trip():
+    context = pickle.loads(pickle.dumps(make_context()))
+    dtype = dt.Int64()
+    assert context.translate_from_yaml(context.translate_to_yaml(dtype)) == dtype
+
+
+def test_no_rule_can_be_added_after_import():
+    with pytest.raises(AttributeError):
+        translate_to_yaml.register(complex, lambda value, context: {})

@@ -8,12 +8,11 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.rules as rlz
 from xorq.expr.relations import FlightExpr, FlightUDXF
 from xorq.ibis_yaml.common import (
+    FromYaml,
+    ToYaml,
     TranslationContext,
     deserialize_callable,
-    register_from_yaml_handler,
     serialize_callable,
-    translate_from_yaml,
-    translate_to_yaml,
 )
 from xorq.ibis_yaml.enums import RefEnum, RegistryEnum
 from xorq.ibis_yaml.utils import freeze
@@ -22,7 +21,6 @@ from xorq.vendor.ibis.common.annotations import Argument
 from xorq.vendor.ibis.common.collections import FrozenDict
 
 
-@translate_to_yaml.register(ops.ScalarUDF)
 def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
     input_type = getattr(op.__class__, "__input_type__", None)
 
@@ -57,7 +55,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
             "func_name": op.__func_name__,
             "input_type": str(input_type),
             "args": [compiler.translate_to_yaml(arg) for arg in op.args],
-            "type": translate_to_yaml(op.dtype, None),
+            "type": compiler.to_yaml(op.dtype, None),
             "pickle": serialize_callable(op.__func__),
             "module": op.__module__,
             "class_name": op.__func_name__,
@@ -68,7 +66,6 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
     )
 
 
-@register_from_yaml_handler("ScalarUDF")
 def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     encoded_fn = yaml_dict.get("pickle")
     if not encoded_fn:
@@ -76,7 +73,7 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     fn = deserialize_callable(encoded_fn)
 
     args_yaml = yaml_dict.get("args", [])
-    args = [translate_from_yaml(arg, compiler) for arg in args_yaml]
+    args = [compiler.translate_from_yaml(arg) for arg in args_yaml]
     if not args:
         raise ValueError("ScalarUDF requires at least one argument")
 
@@ -120,7 +117,7 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
             else FrozenDict()
         ),
         "__udf_namespace__": (
-            translate_from_yaml(yaml_dict["namespace"], compiler)
+            compiler.translate_from_yaml(yaml_dict["namespace"])
             if "namespace" in yaml_dict
             else ops.Namespace()
         ),
@@ -138,7 +135,6 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     return node(*args).to_expr()
 
 
-@translate_to_yaml.register(dict)
 def _dict_to_yaml(dct: dict, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -148,7 +144,6 @@ def _dict_to_yaml(dct: dict, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("dict")
 def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     dct = {
         key: context.translate_from_yaml(value)
@@ -157,7 +152,6 @@ def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return dct
 
 
-@translate_to_yaml.register(ops.Namespace)
 def _namespace_to_yaml(ns: ops.Namespace, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -167,12 +161,10 @@ def _namespace_to_yaml(ns: ops.Namespace, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("Namespace")
 def _namespace_from_yaml(yaml_dict: dict, compiler: any) -> any:
     return ops.Namespace(**yaml_dict["dict"])
 
 
-@translate_to_yaml.register(ops.udf.InputType)
 def _inputtype_to_yaml(it: ops.udf.InputType, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -182,7 +174,6 @@ def _inputtype_to_yaml(it: ops.udf.InputType, context: TranslationContext) -> di
     )
 
 
-@register_from_yaml_handler("InputType")
 def _inputtype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return getattr(ops.udf.InputType, yaml_dict["name"])
 
@@ -210,7 +201,6 @@ def kwargs_to_schema(kwargs, names=None):
     )
 
 
-@translate_to_yaml.register(ops.udf.AggUDF)
 def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
     require_input_types((ops.udf.InputType.PYARROW,), op)
     kwargs = make_op_kwargs(op)
@@ -235,10 +225,9 @@ def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
     )
 
 
-@register_from_yaml_handler("AggUDF")
 def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     (kwargs, meta) = (
-        translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
+        compiler.translate_from_yaml(yaml_dict[name]) for name in ("kwargs", "meta")
     )
     fields = {
         argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
@@ -273,7 +262,6 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     return node(**kwargs).to_expr()
 
 
-@translate_to_yaml.register(udf.ExprScalarUDF)
 def _exprscalarudf_to_yaml(op: udf.ExprScalarUDF, compiler: Any) -> dict:
     require_input_types((ops.udf.InputType.PYARROW,), op)
     kwargs = make_op_kwargs(op)
@@ -298,10 +286,9 @@ def _exprscalarudf_to_yaml(op: udf.ExprScalarUDF, compiler: Any) -> dict:
     )
 
 
-@register_from_yaml_handler(udf.ExprScalarUDF.__name__)
-def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
+def _exprscalarudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     (kwargs, meta) = (
-        translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
+        compiler.translate_from_yaml(yaml_dict[name]) for name in ("kwargs", "meta")
     )
     fields = {
         argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
@@ -329,7 +316,6 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     return node(**kwargs).to_expr()
 
 
-@translate_to_yaml.register(FlightExpr)
 def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
     unbound_expr_yaml = context.translate_to_yaml(op.unbound_expr)
@@ -345,11 +331,10 @@ def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
             "make_connection": make_connection_pickle,
             "do_instrument_reader": op.do_instrument_reader,
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
-@register_from_yaml_handler("FlightExpr")
 def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
     name = yaml_dict.get("name")
     input_expr_yaml = yaml_dict.get("input_expr")
@@ -378,7 +363,6 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
     ).to_expr()
 
 
-@translate_to_yaml.register(FlightUDXF)
 def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
     udxf_pickle = serialize_callable(op.udxf)
@@ -395,11 +379,10 @@ def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
             "make_connection": make_connection_pickle,
             "do_instrument_reader": op.do_instrument_reader,
         }
-        | context.registry.register_schema(op.schema)
+        | context.register_schema(op.schema)
     )
 
 
-@register_from_yaml_handler("FlightUDXF")
 def flight_udxf_from_yaml(yaml_dict: Dict, context: Any) -> Any:
     name = yaml_dict.get("name")
     input_expr_yaml = yaml_dict.get("input_expr")
@@ -425,3 +408,30 @@ def flight_udxf_from_yaml(yaml_dict: Dict, context: Any) -> Any:
         name=name,
         do_instrument_reader=do_instrument_reader,
     ).to_expr()
+
+
+TO_YAML_RULES: FrozenDict[type, ToYaml] = FrozenDict(
+    {
+        ops.ScalarUDF: _scalar_udf_to_yaml,
+        dict: _dict_to_yaml,
+        ops.Namespace: _namespace_to_yaml,
+        ops.udf.InputType: _inputtype_to_yaml,
+        ops.udf.AggUDF: _aggudf_to_yaml,
+        udf.ExprScalarUDF: _exprscalarudf_to_yaml,
+        FlightExpr: flight_expr_to_yaml,
+        FlightUDXF: flight_udxf_to_yaml,
+    }
+)
+
+FROM_YAML_RULES: FrozenDict[str, FromYaml] = FrozenDict(
+    {
+        "ScalarUDF": _scalar_udf_from_yaml,
+        "dict": _dict_from_yaml,
+        "Namespace": _namespace_from_yaml,
+        "InputType": _inputtype_from_yaml,
+        "AggUDF": _aggudf_from_yaml,
+        udf.ExprScalarUDF.__name__: _exprscalarudf_from_yaml,
+        "FlightExpr": flight_expr_from_yaml,
+        "FlightUDXF": flight_udxf_from_yaml,
+    }
+)

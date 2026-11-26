@@ -56,9 +56,7 @@ from xorq.expr.relations import CachedNode, CacheTag, Read, RemoteTable
 from xorq.expr.udf import ExprScalarUDF
 from xorq.ibis_yaml.common import (
     Registry,
-    TranslationContext,
     reachable_node_refs,
-    translate_to_yaml,
     warm_translate_to_yaml,
 )
 from xorq.ibis_yaml.compiler import (
@@ -80,7 +78,7 @@ from xorq.ibis_yaml.compiler import (
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.enums import NodeKey, ReadKwarg, RegistryEnum, WritePhase
 from xorq.ibis_yaml.sql import find_relations, sql_query_deps
-from xorq.ibis_yaml.translate import warn_on_local_path
+from xorq.ibis_yaml.translate import make_context, translate_to_yaml, warn_on_local_path
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.types.core import ExprMetadata
@@ -2327,15 +2325,13 @@ def test_nested_estimator_numpy_params_round_trip(builds_dir: pathlib.Path) -> N
 def test_numpy_timedelta_param_is_refused_not_unit_stripped(value) -> None:
     """np.timedelta64 is an np.signedinteger; writing its .item() would load it back without its unit."""
     with pytest.raises(NotImplementedError, match="No translation rule"):
-        translate_to_yaml(value, TranslationContext())
+        translate_to_yaml(value, make_context())
 
 
 def test_random_state_on_another_bit_generator_is_refused_by_name() -> None:
     """Only MT19937 has the legacy state tuple the NumpyRandomState op writes."""
     with pytest.raises(NotImplementedError, match="PCG64"):
-        translate_to_yaml(
-            np.random.RandomState(np.random.PCG64(0)), TranslationContext()
-        )
+        translate_to_yaml(np.random.RandomState(np.random.PCG64(0)), make_context())
 
 
 def test_build_writes_cache_source_profile_used_nowhere_else(
@@ -2413,7 +2409,7 @@ def test_to_yaml_round_trips_an_expr_nested_in_tag_metadata() -> None:
 
 
 def _translate(expr: ibis.Expr, warm: bool) -> tuple:
-    context = TranslationContext()
+    context = make_context()
     with SnapshotStrategy().normalization_context(expr):
         if warm:
             warm_translate_to_yaml(expr.op(), context)

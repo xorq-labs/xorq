@@ -112,15 +112,14 @@ def translation_context(doc: dict) -> TranslationContext:
     pinned for the life of the process, once per entry over a ``check-sources``
     sweep.
     """
-    from xorq.ibis_yaml.common import Registry, TranslationContext  # noqa: PLC0415
-    from xorq.ibis_yaml.compiler import _ensure_translate_registered  # noqa: PLC0415
+    from xorq.ibis_yaml.common import Registry  # noqa: PLC0415
+    from xorq.ibis_yaml.translate import make_context  # noqa: PLC0415
 
-    _ensure_translate_registered()
     definitions = get_doc_key(doc, DocKey.definitions)
     # A registry section a newer xorq added is not ours to pass along: drop it
     # rather than let `Registry.__init__` raise an unnamed TypeError.
     known = {k: v for k, v in definitions.items() if k in SCHEMA_REGISTRY_KEYS}
-    return TranslationContext(registry=Registry(**known))
+    return make_context(registry=Registry(**known))
 
 
 def get_node_def(nodes: dict, ref: str) -> dict:
