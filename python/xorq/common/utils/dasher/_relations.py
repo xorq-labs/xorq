@@ -251,13 +251,11 @@ def _normalize_datafusion_databasetable_xorq(dt):
         )
     if ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
         return normalize_memory_databasetable_canonical(dt)
-    # DataFusion 55 plans a registered record batch reader as StreamingTableExec
+    # DataFusion 55 plans a registered record batch reader as StreamingTableExec.
+    # Readers are registered as StreamCache values, so hashing the rows reads a
+    # copy and leaves the table intact for execution.
     if ep_str.startswith("StreamingTableExec") or "PyRecordBatchProviderExec" in ep_str:
-        return (
-            "ibis.DatabaseTable.datafusion.recordbatch",
-            normalize_ibis_schema(dt.schema),
-            dt.name,
-        )
+        return normalize_memory_databasetable_canonical(dt)
     if ep_str.startswith("EmptyExec"):
         raise ValueError("No data to cache")
     raise ValueError(f"unrecognized DataFusion execution plan: {ep_str!r}")

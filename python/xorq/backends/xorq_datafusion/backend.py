@@ -566,7 +566,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             case pa.RecordBatchReader():
                 if "ordering" in kwargs:
                     kwargs["sort_order"] = self._translate_sort(kwargs.pop("ordering"))
-                source = drop_pandas_schema_metadata(source)
+                # A reader is read-once. Registering it as a StreamCache makes
+                # the table a value that can be read again, so computing its
+                # cache key (which reads the rows) does not use up the data.
+                source = StreamCache(drop_pandas_schema_metadata(source))
                 self.con.register_record_batch_reader(table_ident, source, **kwargs)
             case ds.Dataset():
                 source = drop_pandas_schema_metadata(source)
@@ -585,7 +588,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 # DataFusion records here.
                 self.con.register_record_batch_reader(
                     table_ident,
-                    drop_pandas_schema_metadata(source.to_pyarrow_batches()),
+                    StreamCache(
+                        drop_pandas_schema_metadata(source.to_pyarrow_batches())
+                    ),
                 )
             case Table():
                 self.con.register_table(table_ident, source)
@@ -800,10 +805,13 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
               query and cannot cast, so ``schema`` must be ``None`` or equal
               to its schema.
             - ``pa.Table`` — converted to batches via ``to_batches()``.
-            - ``pa.RecordBatchReader`` — consumed directly; schema taken from
-              the reader.
+            - ``pa.RecordBatchReader`` — schema taken from the reader.
             - Any ``Iterable[pa.RecordBatch]`` (list, tuple, generator) —
-              schema inferred from the first batch. Empty iterables raise
+              schema inferred from the first batch.
+
+            The last three are read once, so they are registered behind a
+            ``StreamCache``: the table can be executed more than once, and
+            computing its cache key does not use up its rows. Empty iterables raise
               ``ValueError`` because no schema can be inferred. ``pa.Table``
               and ``pa.RecordBatchReader`` may be empty (schema is already
               known).
@@ -895,7 +903,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             case _:
                 raise TypeError(f"unsupported source type: {type(source).__name__}")
         if registered is None:
-            registered = _casting_reader(target_schema, batches)
+            # The casting reader is read-once; a StreamCache over it can be
+            # read again, by a second execution or by computing the cache key.
+            registered = StreamCache(_casting_reader(target_schema, batches))
         # Build the ir.Table after registering; if that build fails, deregister
         # so a failed call never leaves a half-registered table behind. Applies
         # to every source type, not just the lazy StreamCache path.

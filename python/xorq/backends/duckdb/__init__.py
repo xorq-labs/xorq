@@ -103,6 +103,10 @@ class Backend(IbisDuckDBBackend):
         # replayable, so casting to the logical schema happens upstream, before
         # the StreamCache, in the remote pass (REMOTE_PASS / _make_remote_replacer).
         table_name = table_name or gen_name("read_record_batches")
+        if isinstance(source, pa.RecordBatchReader):
+            # A reader is read-once; computing the cache key reads the rows, so
+            # register a StreamCache that later scans can read again.
+            source = StreamCache(source)
         self.con.register(table_name, source)
         return self.table(table_name)
 

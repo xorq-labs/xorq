@@ -4,6 +4,7 @@ import inspect
 import pathlib
 import time
 import uuid
+from collections.abc import Callable
 from datetime import timedelta
 
 import pyarrow as pa
@@ -294,6 +295,52 @@ def test_cache_key_over_record_batches():
     )
     t = (con := xo.connect()).register(batches, table_name="batches")
     assert SourceCache.from_kwargs(source=con).calc_key(t) is not None
+
+
+def _doubled_from_reader(
+    values: list[int], tmp_path: pathlib.Path
+) -> tuple[xo.Table, ParquetCache]:
+    schema = pa.schema({"x": pa.int64()})
+    reader = pa.RecordBatchReader.from_batches(
+        schema, [pa.record_batch({"x": values}, schema=schema)]
+    )
+    t = (con := xo.connect()).register(reader, "rb")
+    cache = ParquetCache.from_kwargs(source=con, base_path=tmp_path)
+    return t.mutate(y=t.x * 2), cache
+
+
+def test_record_batch_reader_cache_key_tracks_rows(tmp_path: pathlib.Path) -> None:
+    first, cache = _doubled_from_reader([1, 2, 3], tmp_path)
+    assert first.cache(cache).execute().y.tolist() == [2, 4, 6]
+
+    second, cache = _doubled_from_reader([10, 20, 30, 40], tmp_path)
+    assert second.cache(cache).execute().y.tolist() == [20, 40, 60, 80]
+
+
+def test_record_batch_reader_executes_after_key(tmp_path: pathlib.Path) -> None:
+    expr, cache = _doubled_from_reader([1, 2, 3], tmp_path)
+    cache.calc_key(expr)
+    assert expr.execute().y.tolist() == [2, 4, 6]
+    assert expr.execute().y.tolist() == [2, 4, 6]
+
+
+@pytest.mark.parametrize(
+    "make_source",
+    [
+        pytest.param(lambda table: table, id="table"),
+        pytest.param(
+            lambda table: pa.RecordBatchReader.from_batches(
+                table.schema, table.to_batches()
+            ),
+            id="reader",
+        ),
+        pytest.param(lambda table: iter(table.to_batches()), id="iterable"),
+    ],
+)
+def test_read_record_batches_executes_twice(make_source: Callable) -> None:
+    table = pa.table({"x": [1, 2]})
+    t = xo.connect().read_record_batches(make_source(table), table_name="t")
+    assert [len(t.execute()) for _ in range(2)] == [2, 2]
 
 
 def test_parquet_remote_to_local(con, alltypes, tmp_path):

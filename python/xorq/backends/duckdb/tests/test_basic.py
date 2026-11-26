@@ -1,3 +1,4 @@
+import pathlib
 import random
 
 import numpy as np
@@ -259,3 +260,26 @@ def test_create_table_from_arrow_large_types(duckdb_con, column):
     t = duckdb_con.create_table("large_types", pa.table({"c": column}), overwrite=True)
 
     assert t.to_pyarrow().column("c").to_pylist() == column.to_pylist()
+
+
+def _doubled_from_reader(values: list[int]) -> xo.Table:
+    schema = pa.schema({"x": pa.int64()})
+    reader = pa.RecordBatchReader.from_batches(
+        schema, [pa.record_batch({"x": values}, schema=schema)]
+    )
+    t = xo.duckdb.connect().read_record_batches(reader, table_name="rb")
+    return t.mutate(y=t.x * 2)
+
+
+def test_record_batch_reader_executes_after_key() -> None:
+    expr = _doubled_from_reader([1, 2, 3])
+    tokenize(expr)
+    assert expr.execute().y.tolist() == [2, 4, 6]
+    assert expr.execute().y.tolist() == [2, 4, 6]
+
+
+def test_record_batch_reader_cache_key_tracks_rows(tmp_path: pathlib.Path) -> None:
+    for values in ([1, 2, 3], [10, 20, 30, 40]):
+        expr = _doubled_from_reader(values)
+        cache = ParquetCache.from_kwargs(source=xo.connect(), base_path=tmp_path)
+        assert expr.cache(cache).execute().y.tolist() == [2 * v for v in values]
