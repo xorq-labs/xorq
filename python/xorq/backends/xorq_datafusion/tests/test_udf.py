@@ -333,6 +333,7 @@ def test_udf_on_int8_literal_expr(make_target, expected):
     ("typ", "arrow_type"),
     [
         pytest.param(dt.int8, "Int8", id="int8"),
+        pytest.param(dt.Int8(nullable=False), "Int8", id="int8-non-nullable"),
         pytest.param(dt.uint8, "UInt8", id="uint8"),
         pytest.param(dt.uint16, "UInt16", id="uint16"),
         pytest.param(dt.uint32, "UInt32", id="uint32"),
