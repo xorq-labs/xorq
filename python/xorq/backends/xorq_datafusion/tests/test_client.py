@@ -53,19 +53,34 @@ def test_create_table(con):
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    ("kwargs", "expected"),
     [
-        param({"schema": ibis.schema({"a": "!int64", "b": "string"})}, id="schema"),
+        param(
+            {"schema": ibis.schema({"a": "!int64", "b": "string"})},
+            ibis.schema({"a": "!int64", "b": "string"}),
+            id="schema",
+        ),
         param(
             {"obj": pa.table({"a": pa.array([], pa.int64())})},
+            ibis.schema({"a": "int64"}),
             id="empty-pyarrow",
+        ),
+        param(
+            {
+                "obj": pd.DataFrame(
+                    {
+                        "k": pd.Series([], dtype="int64"),
+                        "v": pd.Series([], dtype="float64"),
+                    }
+                )
+            },
+            ibis.schema({"k": "int64", "v": "float64"}),
+            id="empty-pandas",
         ),
     ],
 )
-def test_create_empty_table(kwargs):
-    con = xo.connect()
-    expected = kwargs.get("schema") or ibis.schema(kwargs["obj"].schema)
-    t = con.create_table("t", **kwargs)
+def test_create_empty_table(kwargs: dict, expected: ibis.Schema) -> None:
+    t = xo.connect().create_table("t", **kwargs)
 
     assert t.schema() == expected
     assert t.count().execute() == 0
