@@ -24,7 +24,7 @@ jobs:
     steps:
       # The tests build throwaway git repositories and copy the fragments in;
       # they read nothing from this one's history.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
 
       # bash, git, awk and install are on the runner; direnv is not, so the
       # secrets case checks only that no template line is refused (see the
