@@ -239,6 +239,25 @@ def test_insert_overwrite_unqualified() -> None:
     assert con.table("u").to_pyarrow().to_pydict() == {"x": [1]}
 
 
+def test_insert_overwrite_from_target() -> None:
+    con = xo.connect()
+    t = con.create_table("s", pa.table({"x": [1, 2, 3]}))
+
+    con.insert("s", t.filter(t.x > 1), overwrite=True)
+
+    assert con.table("s").to_pyarrow().to_pydict() == {"x": [2, 3]}
+
+
+def test_insert_overwrite_bad_source_keeps_rows() -> None:
+    con = xo.connect()
+    con.create_table("k", pa.table({"x": [1, 2]}))
+
+    with pytest.raises(ValueError, match="Column count"):
+        con.insert("k", pa.table({"y": ["a"], "z": [1]}), overwrite=True)
+
+    assert con.table("k").to_pyarrow().to_pydict() == {"x": [1, 2]}
+
+
 def test_drop_table_with_qualified_database():
     con = xo.connect()
     con.create_table("tp", pa.table({"a": [1]}))
