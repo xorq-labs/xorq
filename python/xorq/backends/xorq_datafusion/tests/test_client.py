@@ -60,11 +60,22 @@ def test_create_table(con):
             {"obj": pa.table({"a": pa.array([], pa.int64())})},
             id="empty-pyarrow",
         ),
+        param(
+            {
+                "obj": pd.DataFrame(
+                    {
+                        "k": pd.Series([], dtype="int64"),
+                        "v": pd.Series([], dtype="float64"),
+                    }
+                )
+            },
+            id="empty-pandas",
+        ),
     ],
 )
-def test_create_empty_table(kwargs):
+def test_create_empty_table(kwargs: dict) -> None:
     con = xo.connect()
-    expected = kwargs.get("schema") or ibis.schema(kwargs["obj"].schema)
+    expected = kwargs.get("schema") or ibis.memtable(kwargs["obj"]).schema()
     t = con.create_table("t", **kwargs)
 
     assert t.schema() == expected
