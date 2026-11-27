@@ -114,6 +114,15 @@ def _sql_misspells(dtype):
             return dtype.is_int8() or dtype.is_unsigned_integer()
 
 
+def _arrow_field_name(name):
+    # the arrow type parser has no escape for a double quote in a field name
+    if '"' in name:
+        raise com.UnsupportedOperationError(
+            f"DataFusion cannot arrow_cast to a struct field named {name!r}"
+        )
+    return name
+
+
 def _arrow_type(dtype):
     # fields stay nullable, as with SQL CAST: arrow cannot cast a nullable
     # struct field to a non-null one
@@ -132,6 +141,10 @@ def _arrow_type(dtype):
             return "Binary"
         case dt.Date():
             return "Date32"
+        case dt.Time():
+            return "Time64(Nanosecond)"
+        case dt.Null():
+            return "Null"
         case dt.Timestamp():
             return _timestamp_arrow_type(dtype)
         case dt.Decimal():
@@ -145,7 +158,8 @@ def _arrow_type(dtype):
             )
         case dt.Struct():
             fields = ", ".join(
-                f'"{name}": {_arrow_type(typ)}' for name, typ in dtype.items()
+                f'"{_arrow_field_name(name)}": {_arrow_type(typ)}'
+                for name, typ in dtype.items()
             )
             return f"Struct({fields})"
         case _:
@@ -207,6 +221,11 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.MapValues: "map_values",
     }
 
+    def cast(self, arg, to):
+        if _sql_misspells(to):
+            return self.f.arrow_cast(sge.convert(arg), _arrow_type(to))
+        return super().cast(arg, to)
+
     def _to_timestamp(self, value, target_dtype, literal=False):
         str_value = str(value) if literal else value
         return self.f.arrow_cast(str_value, _timestamp_arrow_type(target_dtype))
@@ -264,8 +283,6 @@ class DataFusionCompiler(SQLGlotCompiler):
 
         if isinstance(to, LargeString):
             return self.f.arrow_cast(arg, "LargeUtf8")
-        if _sql_misspells(to):
-            return self.f.arrow_cast(arg, _arrow_type(to))
 
         return self.cast(arg, to)
 

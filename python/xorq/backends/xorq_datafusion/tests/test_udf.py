@@ -420,3 +420,20 @@ def test_nested_narrow_int_cast(make_value, typ, arrow_type, expected):
 
     assert result["value"].to_pylist() == expected
     assert set(result["computed_type"].to_pylist()) == {arrow_type}
+
+
+@pytest.mark.parametrize(
+    ("typ", "arrow_type"),
+    [
+        pytest.param("int8", "Int8", id="int8"),
+        pytest.param("uint8", "UInt8", id="uint8"),
+        pytest.param("array<uint16>", "List(UInt16)", id="array-uint16"),
+    ],
+)
+def test_narrow_int_null_literal(typ, arrow_type):
+    t = xo.memtable({"a": [1]})
+    null = xo.literal(None, typ)
+    result = t.select(value=null, computed_type=null.typeof()).to_pyarrow()
+
+    assert result["value"].to_pylist() == [None]
+    assert result["computed_type"].to_pylist() == [arrow_type]
