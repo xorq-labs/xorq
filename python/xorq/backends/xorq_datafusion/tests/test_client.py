@@ -1,6 +1,7 @@
 import pandas as pd
 import pyarrow as pa
 import pytest
+from batchcorder_datafusion import TeeTableProvider
 from pytest import param
 
 import xorq.api as xo
@@ -354,7 +355,9 @@ def test_default_catalog_and_schema_from_session(kwargs, catalog, database):
     assert "t" in con.list_tables(database=(catalog, database))
 
     con.drop_table("t")
-    con.read_record_batches(pa.table({"a": [1]}).to_reader(), table_name="tmp")
+    con.read_record_batches(
+        TeeTableProvider(pa.table({"a": [1]}).to_reader()), table_name="tmp"
+    )
     con.drop_table("tmp")
 
     assert not {"t", "tmp"} & set(con.list_tables())
