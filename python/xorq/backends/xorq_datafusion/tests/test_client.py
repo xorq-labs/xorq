@@ -277,3 +277,24 @@ def test_mixed_case_database_in_mixed_case_catalog():
 
     con.drop_database("Foo", catalog="Cat")
     assert "Foo" not in con.list_databases(catalog="Cat")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        param({"obj": pa.table({"a": [2]})}, {"a": [2]}, id="obj"),
+        param({"schema": ibis.schema({"a": "int64"})}, {"a": []}, id="schema"),
+    ],
+)
+@pytest.mark.parametrize("database", ["foo", "Foo"])
+def test_create_table_overwrite_in_database(kwargs, expected, database):
+    con = xo.connect()
+    con.create_table("tt", obj=pa.table({"a": [9]}))
+    con.create_database(database)
+    con.create_table("tt", obj=pa.table({"a": [1]}), database=database)
+
+    t = con.create_table("tt", database=database, overwrite=True, **kwargs)
+
+    assert xo.execute(t).to_dict("list") == expected
+    assert con.list_tables(database=database) == ["tt"]
+    assert xo.execute(con.table("tt")).to_dict("list") == {"a": [9]}
