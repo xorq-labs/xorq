@@ -20,16 +20,6 @@ def stub_con_with_table(stub_con):
     return stub_con
 
 
-def test_current_catalog_not_implemented(stub_con):
-    with pytest.raises(NotImplementedError):
-        stub_con.current_catalog
-
-
-def test_current_database_not_implemented(stub_con):
-    with pytest.raises(NotImplementedError):
-        stub_con.current_database
-
-
 def test_drop_catalog_unsupported(stub_con):
     with pytest.raises(com.UnsupportedOperationError):
         stub_con.drop_catalog("nonexistent")

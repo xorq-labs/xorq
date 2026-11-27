@@ -321,3 +321,38 @@ def test_create_table_overwrite_in_database(kwargs, expected, database):
     assert xo.execute(t).to_dict("list") == expected
     assert con.list_tables(database=database) == ["tt"]
     assert xo.execute(con.table("tt")).to_dict("list") == {"a": [9]}
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        param({"obj": pa.table({"a": [1]})}, id="obj"),
+        param({"schema": ibis.schema({"a": "int64"})}, id="schema"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("catalog", "database"),
+    [
+        param("cat", "sch", id="custom"),
+        param("datafusion", "public", id="default"),
+    ],
+)
+def test_default_catalog_and_schema_from_session(kwargs, catalog, database):
+    config = xo.SessionConfig().with_default_catalog_and_schema(catalog, database)
+    con = xo.connect(config)
+
+    t = con.create_table("t", **kwargs)
+
+    assert (con.current_catalog, con.current_database) == (catalog, database)
+    assert t.schema() == ibis.schema({"a": "int64"})
+    assert con.table("t").schema() == t.schema()
+    assert con.get_schema("t") == t.schema()
+    assert con.get_schema("t", catalog=catalog, database=database) == t.schema()
+    assert database in con.list_databases()
+    assert "t" in con.list_tables()
+    assert "t" in con.list_tables(database=database)
+    assert "t" in con.list_tables(database=(catalog, database))
+
+    con.drop_table("t")
+
+    assert "t" not in con.list_tables()
