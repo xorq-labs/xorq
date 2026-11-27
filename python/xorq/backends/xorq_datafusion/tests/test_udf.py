@@ -327,3 +327,27 @@ def test_udf_on_int8_literal_expr(make_target, expected):
 
     assert flagged.target.type() == dt.int8
     assert xo.execute(expr)["doubled"].tolist() == expected
+
+
+@pytest.mark.parametrize(
+    ("typ", "arrow_type"),
+    [
+        pytest.param(dt.int8, "Int8", id="int8"),
+        pytest.param(dt.uint8, "UInt8", id="uint8"),
+        pytest.param(dt.uint16, "UInt16", id="uint16"),
+        pytest.param(dt.uint32, "UInt32", id="uint32"),
+        pytest.param(dt.uint64, "UInt64", id="uint64"),
+    ],
+)
+def test_udf_on_int8_cast(typ, arrow_type):
+    @udf.scalar.pyarrow
+    def double(target: typ) -> typ:
+        return pc.add(target, target)
+
+    t = xo.memtable({"a": [1, 2, 3]})
+    cast = t.a.cast(typ)
+    expr = t.select(doubled=double(cast), computed_type=cast.typeof())
+    result = xo.execute(expr)
+
+    assert result["doubled"].tolist() == [2, 4, 6]
+    assert set(result["computed_type"]) == {arrow_type}
