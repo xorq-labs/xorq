@@ -225,6 +225,37 @@ def test_create_table_in_database(kwargs, database):
     assert "tt" not in con.list_tables()
 
 
+@pytest.mark.parametrize(
+    ("name", "database"),
+    [
+        param("foo", "foo", id="name"),
+        param("foo", "datafusion.foo", id="dotted"),
+        param("foo", ("datafusion", "foo"), id="tuple"),
+        param("Foo", "Foo", id="mixed-case"),
+    ],
+)
+def test_list_tables_in_database(name, database):
+    con = xo.connect()
+    con.create_database(name)
+    con.create_table("tt", schema=ibis.schema({"a": "int64"}), database=database)
+
+    assert con.list_tables(database=database) == ["tt"]
+    assert con.list_tables(like="^x", database=database) == []
+    assert "tt" not in con.list_tables()
+
+
+@pytest.mark.parametrize(
+    "database",
+    [
+        param("nope", id="database"),
+        param("nope.foo", id="catalog"),
+        param(("datafusion", "nope"), id="tuple"),
+    ],
+)
+def test_list_tables_in_database_missing(database: tuple[str, str] | str) -> None:
+    assert xo.connect().list_tables(database=database) == []
+
+
 def test_mixed_case_database_round_trips():
     con = xo.connect()
     con.create_database("Foo")
