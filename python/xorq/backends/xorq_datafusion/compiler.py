@@ -169,7 +169,7 @@ def _arrow_type(dtype):
             return f"Struct({fields})"
         case _:
             # geospatial types are geoarrow extension types, which arrow_cast
-            # cannot spell
+            # cannot spell; unknown types have no arrow spelling at all
             raise com.UnsupportedOperationError(
                 f"DataFusion cannot cast to {dtype} through arrow_cast"
             )
