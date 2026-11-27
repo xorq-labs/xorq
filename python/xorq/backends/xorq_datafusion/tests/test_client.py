@@ -208,3 +208,16 @@ def test_create_table_in_database(kwargs, database):
     assert t.schema() == ibis.schema({"a": "int64"})
     assert con.get_schema("tt", database="foo") == t.schema()
     assert "tt" not in con.list_tables()
+
+
+def test_mixed_case_database_round_trips():
+    con = xo.connect()
+    con.create_database("Foo")
+    assert "Foo" in con.list_databases()
+    con.create_table("tt", obj=pa.table({"a": [1]}), database="Foo")
+
+    assert xo.execute(con.table("tt", database="Foo")).to_dict("list") == {"a": [1]}
+
+    con.drop_table("tt", database="Foo")
+    con.drop_database("Foo")
+    assert "Foo" not in con.list_databases()

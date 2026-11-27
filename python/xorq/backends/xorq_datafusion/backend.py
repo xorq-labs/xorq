@@ -448,14 +448,14 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     def create_database(
         self, name: str, catalog: str | None = None, force: bool = False
     ) -> None:
-        db_name = sg.table(name, db=catalog)
+        db_name = sg.table(name, db=catalog, quoted=self.compiler.quoted)
         with self._safe_raw_sql(sge.Create(kind="SCHEMA", this=db_name, exists=force)):
             pass
 
     def drop_database(
         self, name: str, catalog: str | None = None, force: bool = False
     ) -> None:
-        db_name = sg.table(name, db=catalog)
+        db_name = sg.table(name, db=catalog, quoted=self.compiler.quoted)
         with self._safe_raw_sql(sge.Drop(kind="SCHEMA", this=db_name, exists=force)):
             pass
 
