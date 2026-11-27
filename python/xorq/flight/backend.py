@@ -266,6 +266,8 @@ class Backend(SQLBackend, NoUrl):
 
     def get_exchange(self, command):
         exchanger = self.con.do_action_one(GetExchangeAction.name, action_body=command)
+        if exchanger is None:
+            raise ValueError(f"unknown exchange {command!r}")
 
         if isinstance(exchanger, UnboundExprExchanger):
             # Use the user-provided `command` rather than `exchanger.command`:
