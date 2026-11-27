@@ -411,18 +411,21 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if not overwrite:
             super().insert(table_name, obj, database=(catalog, db))
             return
-        # nothing is transactional here: materialize the source (it may read
-        # the target) and plan the insert (a bad source raises here) before
-        # any rows are deleted
-        source = ibis.memtable(obj.to_pyarrow() if isinstance(obj, ir.Table) else obj)
-        self._run_pre_execute_hooks(source)
-        planned = self.raw_sql(
-            self._build_insert_from_table(
-                target=table_name, source=source, db=db, catalog=catalog
-            )
+        # nothing is transactional here: run the insert into a scratch table of
+        # the target's schema first, so a source that reads the target, or one
+        # that fails to plan or cast, raises before any rows are deleted
+        staged = gen_name("insert_overwrite")
+        self.create_table(
+            staged, schema=self.get_schema(table_name, catalog=catalog, database=db)
         )
-        self.truncate_table(table_name, database=(catalog, db))
-        planned.collect()
+        try:
+            super().insert(
+                staged, obj.to_pyarrow() if isinstance(obj, ir.Table) else obj
+            )
+            self.truncate_table(table_name, database=(catalog, db))
+            super().insert(table_name, self.table(staged), database=(catalog, db))
+        finally:
+            self.drop_table(staged)
 
     def truncate_table(
         self, name: str, database: str | None = None, schema: str | None = None

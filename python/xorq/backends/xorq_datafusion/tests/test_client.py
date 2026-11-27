@@ -264,6 +264,8 @@ def test_insert_overwrite_bad_source_keeps_rows() -> None:
 
     with pytest.raises(ValueError, match="Column count"):
         con.insert("k", pa.table({"y": ["a"], "z": [1]}), overwrite=True)
+    with pytest.raises(ValueError, match="Cannot cast string 'invalid'"):
+        con.insert("k", pa.table({"x": ["invalid"]}), overwrite=True)
 
     assert con.table("k").to_pyarrow().to_pydict() == {"x": [1, 2]}
 
