@@ -1,4 +1,4 @@
-"""What a client sees when its input does not fit an exchange's schema."""
+"""What a client sees when its input does not fit an exchange."""
 
 from __future__ import annotations
 
@@ -20,3 +20,11 @@ def test_mismatched_input_schema_names_the_required_schema() -> None:
             server.client.do_exchange_batches(udxf.command, wrong.to_reader())
 
     assert str(schema) in str(excinfo.value)
+
+
+def test_unknown_exchange_names_the_command() -> None:
+    with FlightServer() as server:
+        with pytest.raises(ValueError, match="unknown exchange 'nonexistent'"):
+            server.client.do_exchange_batches(
+                "nonexistent", pa.table({"a": [1]}).to_reader()
+            )

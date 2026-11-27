@@ -358,6 +358,8 @@ class FlightClient:
 
         def get_output_schema(command, reader):
             (dct,) = self.do_action("query-exchange", command, options=self._options)
+            if dct is None:
+                raise ValueError(f"unknown exchange {command!r}")
             schema_in = ibis.schema(reader.schema)
             if not dct["schema-in-condition"](schema_in):
                 raise ValueError(
