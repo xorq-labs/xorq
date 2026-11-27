@@ -73,6 +73,10 @@ __all__ = [
 ]
 
 
+_DEFAULT_CATALOG = "datafusion.catalog.default_catalog"
+_DEFAULT_SCHEMA = "datafusion.catalog.default_schema"
+
+
 def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
     missing = set(schema.names) - set(batch.schema.names)
     if missing:
@@ -401,21 +405,28 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # this table"; an unqualified name resolves in the default namespace,
         # so check that one and name the view instead
         unqualified = schema is None and database is None
-        if unqualified and table_kind(self._default_schema, table_name) == "view":
+        if unqualified and table_kind(self._schema, table_name) == "view":
             raise ValueError(f"cannot insert into {table_name!r}: it is a view")
         super().insert(
             table_name, obj, schema=schema, database=database, overwrite=overwrite
         )
 
+    def _settings(self, *names: str) -> dict[str, str]:
+        query = (
+            sg.select(C.name, C.value)
+            .from_(sg.table("df_settings", db="information_schema"))
+            .where(C.name.isin(*names))
+        )
+        result = self.con.sql(query.sql(self.dialect)).to_pydict()
+        return dict(zip(result["name"], result["value"]))
+
     @property
     def current_catalog(self) -> str:
-        raise NotImplementedError("DataFusion backend does not support current_catalog")
+        return self._settings(_DEFAULT_CATALOG)[_DEFAULT_CATALOG]
 
     @property
     def current_database(self) -> str:
-        raise NotImplementedError(
-            "DataFusion backend does not support current_database"
-        )
+        return self._settings(_DEFAULT_SCHEMA)[_DEFAULT_SCHEMA]
 
     def list_catalogs(self, like: str | None = None) -> list[str]:
         code = (
@@ -445,7 +456,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self, like: str | None = None, catalog: str | None = None
     ) -> list[str]:
         return self._filter_with_like(
-            self.con.catalog(catalog if catalog is not None else "datafusion").names(),
+            self.con.catalog(
+                self.current_catalog if catalog is None else catalog
+            ).names(),
             like=like,
         )
 
@@ -483,14 +496,13 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         list[str]
             The table names in `database` that match the pattern `like`.
         """
-        if database is None:
-            return self._filter_with_like(self.con.tables(), like)
-        catalog, db = self._to_catalog_db_tuple(self._to_sqlglot_table(database))
+        catalog, db = (
+            (None, None)
+            if database is None
+            else self._to_catalog_db_tuple(self._to_sqlglot_table(database))
+        )
         try:
-            ctx_catalog = (
-                self.con.catalog(catalog) if catalog is not None else self.con.catalog()
-            )
-            names = ctx_catalog.database(db).names()
+            names = self._schema(catalog, db).names()
         except KeyError:
             # an absent catalog or database holds no tables, as on the
             # information_schema backends
@@ -504,18 +516,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         catalog: str | None = None,
         database: str | None = None,
     ) -> sch.Schema:
-        if catalog is not None:
-            catalog = self.con.catalog(catalog)
-        else:
-            catalog = self.con.catalog()
-
-        if database is not None:
-            database = catalog.database(database)
-        else:
-            database = catalog.database()
-
-        table = database.table(table_name)
-        return sch.schema(table.schema)
+        return sch.schema(self._schema(catalog, database).table(table_name).schema)
 
     def register(
         self,
@@ -928,8 +929,17 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             self.con.deregister_table(table_ident)
             raise
 
-    def _default_schema(self) -> Any:
-        return self.con.catalog().database()
+    def _schema(self, catalog: str | None = None, database: str | None = None) -> Any:
+        """The session schema `catalog.database`, each part defaulting to the
+        session's configured default, read in one settings query."""
+        defaults = (
+            self._settings(_DEFAULT_CATALOG, _DEFAULT_SCHEMA)
+            if catalog is None or database is None
+            else {}
+        )
+        return self.con.catalog(
+            defaults[_DEFAULT_CATALOG] if catalog is None else catalog
+        ).database(defaults[_DEFAULT_SCHEMA] if database is None else database)
 
     def drop_table(
         self,
@@ -941,7 +951,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # the default schema is deregistered here. With ``database`` given the
         # call goes to DROP, which leaves a temporary table in place.
         if database is None and deregister_temporary_table(
-            self.con, self._default_schema, name, quoted=self.compiler.quoted
+            self.con, self._schema, name, quoted=self.compiler.quoted
         ):
             return
         super().drop_table(name, database=database, force=force)
