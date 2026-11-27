@@ -219,6 +219,26 @@ def test_insert_database(kwargs: dict) -> None:
     assert con.table("t", database="analytics").to_pyarrow().to_pydict() == {"a": [1]}
 
 
+def test_insert_overwrite_qualified() -> None:
+    con = xo.connect()
+    con.raw_sql("CREATE SCHEMA a")
+    con.raw_sql("CREATE TABLE a.t (x BIGINT)")
+    con.insert("t", pa.table({"x": [5, 6]}), database="a")
+
+    con.insert("t", pa.table({"x": [1]}), database="a", overwrite=True)
+
+    assert con.table("t", database="a").to_pyarrow().to_pydict() == {"x": [1]}
+
+
+def test_insert_overwrite_unqualified() -> None:
+    con = xo.connect()
+    con.create_table("u", pa.table({"x": [5, 6]}))
+
+    con.insert("u", pa.table({"x": [1]}), overwrite=True)
+
+    assert con.table("u").to_pyarrow().to_pydict() == {"x": [1]}
+
+
 def test_drop_table_with_qualified_database():
     con = xo.connect()
     con.create_table("tp", pa.table({"a": [1]}))
