@@ -466,23 +466,28 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     def list_tables(
         self,
         like: str | None = None,
-        database: str | None = None,
+        database: tuple[str, str] | str | None = None,
     ) -> list[str]:
-        """Return the list of table names in the current database.
+        """Return the list of table names in a database.
 
         Parameters
         ----------
         like
             A pattern in Python's regex format.
         database
-            Unused in the datafusion backend.
+            The database to list, as ``"db"``, ``"catalog.db"`` or
+            ``("catalog", "db")``. Defaults to the current database.
 
         Returns
         -------
         list[str]
-            The list of the table names that match the pattern `like`.
+            The table names in `database` that match the pattern `like`.
         """
-        return self._filter_with_like(self.con.tables(), like)
+        if database is None:
+            return self._filter_with_like(self.con.tables(), like)
+        catalog, db = self._to_catalog_db_tuple(self._to_sqlglot_table(database))
+        ctx_catalog = self.con.catalog(catalog) if catalog else self.con.catalog()
+        return self._filter_with_like(ctx_catalog.database(db).names(), like)
 
     def get_schema(
         self,
