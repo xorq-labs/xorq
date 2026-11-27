@@ -428,7 +428,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     def create_catalog(self, name: str, force: bool = False) -> None:
         with self._safe_raw_sql(
-            sge.Create(kind="DATABASE", this=sg.to_identifier(name), exists=force)
+            sge.Create(
+                kind="DATABASE",
+                this=sg.to_identifier(name, quoted=self.compiler.quoted),
+                exists=force,
+            )
         ):
             pass
 

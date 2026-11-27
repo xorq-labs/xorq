@@ -221,3 +221,13 @@ def test_mixed_case_database_round_trips():
     con.drop_table("tt", database="Foo")
     con.drop_database("Foo")
     assert "Foo" not in con.list_databases()
+
+
+def test_mixed_case_database_in_mixed_case_catalog():
+    con = xo.connect()
+    con.create_catalog("Cat")
+    con.create_database("Foo", catalog="Cat")
+    assert "Foo" in con.list_databases(catalog="Cat")
+
+    con.drop_database("Foo", catalog="Cat")
+    assert "Foo" not in con.list_databases(catalog="Cat")
