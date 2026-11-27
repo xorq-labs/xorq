@@ -61,6 +61,11 @@ def test_create_table_invalid_inputs(flight_server, obj):
         backend.create_table("bad_tbl", obj)
 
 
+def test_get_exchange_unknown_command_raises(flight_server):
+    with pytest.raises(ValueError, match="'typo'"):
+        flight_server.con.get_exchange("typo")
+
+
 def test_backend_get_flight_udxf():
     flight_url = make_flight_url(None, scheme="grpc+tls")
     tls_kwargs = TLSKwargs.from_common_name(verify_client=False)
