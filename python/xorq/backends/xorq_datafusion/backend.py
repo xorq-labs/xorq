@@ -414,9 +414,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         # nothing is transactional here: materialize the source (it may read
         # the target) and plan the insert (a bad source raises here) before
         # any rows are deleted
-        source = ibis.memtable(
-            self.to_pyarrow(obj) if isinstance(obj, ir.Table) else obj
-        )
+        source = ibis.memtable(obj.to_pyarrow() if isinstance(obj, ir.Table) else obj)
         self._run_pre_execute_hooks(source)
         planned = self.raw_sql(
             self._build_insert_from_table(

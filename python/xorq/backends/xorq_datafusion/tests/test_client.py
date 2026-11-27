@@ -248,6 +248,16 @@ def test_insert_overwrite_from_target() -> None:
     assert con.table("s").to_pyarrow().to_pydict() == {"x": [2, 3]}
 
 
+def test_insert_overwrite_from_other_connection() -> None:
+    src, dst = xo.connect(), xo.connect()
+    src.create_table("t", pa.table({"x": [1, 2]}))
+    dst.create_table("t", pa.table({"x": [9]}))
+
+    dst.insert("t", src.table("t"), overwrite=True)
+
+    assert dst.table("t").to_pyarrow().to_pydict() == {"x": [1, 2]}
+
+
 def test_insert_overwrite_bad_source_keeps_rows() -> None:
     con = xo.connect()
     con.create_table("k", pa.table({"x": [1, 2]}))
