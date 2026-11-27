@@ -5,6 +5,7 @@ import xorq.api as xo
 from xorq.flight import FlightServer
 from xorq.flight.enums import UploadMode
 from xorq.flight.server import parse_put_command, put_table
+from xorq.vendor.ibis.backends import BaseBackend
 
 
 CONNECTS = {
@@ -96,6 +97,20 @@ def test_write_mode_create_over_flight_refuses_existing_table(con):
         server.client.upload_table("t", FIRST, mode="create")
         with pytest.raises(pa.ArrowException, match="already exists"):
             server.client.upload_table("t", SECOND, mode="create")
+
+
+def test_upload_reader_failing_mid_stream_writes_nothing(con: BaseBackend) -> None:
+    def batches():
+        yield from FIRST.to_batches()
+        raise RuntimeError("reader failed mid-stream")
+
+    reader = pa.RecordBatchReader.from_batches(FIRST.schema, batches())
+    with FlightServer(make_connection=lambda: con) as server:
+        with pytest.raises(RuntimeError, match="reader failed mid-stream"):
+            server.client.upload_batches("t", reader)
+        server.client.upload_table("u", SECOND)
+        tables = server.con.list_tables()
+    assert "u" in tables and "t" not in tables
 
 
 def test_write_mode_unknown_fails_before_upload():

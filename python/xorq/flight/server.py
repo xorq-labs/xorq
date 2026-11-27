@@ -15,7 +15,7 @@ from xorq.common.utils.enums import IngestMode
 from xorq.common.utils.func_utils import (
     maybe_log_excepts,
 )
-from xorq.flight.enums import UploadMode
+from xorq.flight.enums import UPLOAD_ABORTED, UploadMode
 from xorq.flight.metrics import (
     InstrumentedReader,
     InstrumentedWriter,
@@ -204,21 +204,24 @@ def put_table(
 
 
 def uncancelled_batches(
-    reader: pa.RecordBatchReader, context: pa.flight.ServerCallContext
+    reader: pa.flight.MetadataRecordBatchReader, context: pa.flight.ServerCallContext
 ) -> pa.RecordBatchReader:
-    """``reader``'s batches, copied, failing at the end if the client left.
+    """``reader``'s batches, copied, failing if the client aborted or left.
 
     Flight ends an upload's stream the same way whether the client finished
     it or went away (killed, disconnected, past its deadline), so draining
     the reader is no proof the upload is whole. The call context tells the
-    two apart; raising instead of ending keeps a cut-off upload from being
-    written or committed.
+    two apart, and a client whose own source failed sends
+    ``UPLOAD_ABORTED`` before closing; raising instead of ending keeps a
+    cut-off upload from being written or committed.
     """
     manager = pa.default_cpu_memory_manager()
 
     def batches():
-        for batch in reader:
-            yield batch.copy_to(manager)
+        for chunk in reader:
+            if chunk.app_metadata == UPLOAD_ABORTED:
+                raise pa.flight.FlightCancelledError("the client aborted the upload")
+            yield chunk.data.copy_to(manager)
         if context.is_cancelled():
             raise pa.flight.FlightCancelledError("the client cancelled the upload")
 
@@ -432,8 +435,8 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             If ``mode`` is not a ``UploadMode`` value, before the stream is
             read.
         pyarrow.flight.FlightCancelledError
-            If the client went away before finishing the upload, raised at the
-            end of the stream (``uncancelled_batches``).
+            If the client aborted the upload (its source failed) or went
+            away before finishing it (``uncancelled_batches``).
         pyarrow.ArrowException
             If the upload stream fails while it is read (external). In both
             cases nothing is written: a buffered write happens only after the
@@ -455,7 +458,9 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
               so a client that can reach ``do_put`` can run arbitrary code on
               the server. Restrict access with the server's auth middleware.
         """
-        reader = instrument_reader(reader, rec, direction="in")
+        reader = instrument_reader(
+            uncancelled_batches(reader, context), rec, direction="in"
+        )
 
         table, kwargs, mode = parse_put_command(loads(descriptor.command))
         mode = None if mode is None else UploadMode(mode)
@@ -463,13 +468,11 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             ingest = None if kwargs else self._conn.upload_ingest(table)
         match ingest:
             case None:
-                data = uncancelled_batches(reader, context).read_all()
+                data = reader.read_all()
                 with self.lock:
                     put_table(self._conn, table, data, mode, **kwargs)
             case _:
-                ingest(
-                    table, uncancelled_batches(reader, context), mode=INGEST_MODES[mode]
-                )
+                ingest(table, reader, mode=INGEST_MODES[mode])
 
     @maybe_log_excepts
     def do_action(self, context, action):
