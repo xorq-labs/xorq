@@ -188,9 +188,12 @@ def test_insert_into_qualified_view_names_the_view(database):
     con = xo.connect()
     con.raw_sql("CREATE SCHEMA a")
     con.raw_sql("CREATE VIEW a.v AS SELECT 1 AS x")
+    con.raw_sql("CREATE TABLE a.t (x BIGINT)")
 
     with pytest.raises(ValueError, match="cannot insert into 'v': it is a view"):
         con.insert("v", pa.table({"x": [1]}), database=database)
+    con.insert("t", pa.table({"x": [1]}), database=database)
+    assert con.table("t", database="a").count().execute() == 1
 
 
 @pytest.mark.parametrize(

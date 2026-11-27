@@ -6,8 +6,8 @@ from typing import Any, Callable
 import sqlglot as sg
 
 
-def table_kind(default_schema: Callable[[], Any], name: str) -> str | None:
-    """The kind of table ``name`` in the schema ``default_schema()`` returns.
+def table_kind(get_schema: Callable[[], Any], name: str) -> str | None:
+    """The kind of table ``name`` in the schema ``get_schema()`` returns.
 
     ``"physical"``, ``"view"`` or ``"temporary"`` (a ``TeeTableProvider``);
     ``None`` when there is no such table or the schema cannot be looked up
@@ -17,7 +17,7 @@ def table_kind(default_schema: Callable[[], Any], name: str) -> str | None:
     and schema; datafusion-python uses ``ctx.catalog().schema()``.
     """
     with contextlib.suppress(Exception):
-        return default_schema().table(name).kind
+        return get_schema().table(name).kind
     return None
 
 
