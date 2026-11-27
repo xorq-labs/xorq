@@ -76,3 +76,19 @@ def test_list_temp_tables_by_default(sqlite_con):
     sqlite_con.create_table(name, schema={"a": "int"}, temp=True)
     assert name in sqlite_con.list_tables(database="temp")
     assert name in sqlite_con.list_tables()
+
+
+@pytest.mark.parametrize(
+    "table_name",
+    ["pk", "name", "type", "notnull", "ordinary", "with space", 'with"quote', "it's"],
+)
+def test_table_named_like_pragma_table_info_column(tmp_path, table_name):
+    con = xo.sqlite.connect(str(tmp_path / "pragma.db"))
+    quoted = '"{}"'.format(table_name.replace('"', '""'))
+    con.raw_sql(f"CREATE TABLE {quoted} (k TEXT PRIMARY KEY, a INTEGER NOT NULL)")
+    con.raw_sql(f"INSERT INTO {quoted} VALUES ('x', 1)")
+
+    t = con.table(table_name)
+
+    assert t.schema() == ibis.schema({"k": "string", "a": "!int64"})
+    assert t.execute().to_dict("records") == [{"k": "x", "a": 1}]
