@@ -547,3 +547,16 @@ def test_parquet_ttl_snapshot_cache(ls_con, batting, tmp_path):
     time.sleep(seconds)
     assert not expr.ls.cache_exists()
     assert expr.count().execute() == n_rows
+
+
+def test_source_cache_under_session_default_catalog():
+    config = xo.SessionConfig().with_default_catalog_and_schema("cat", "sch")
+    con = xo.connect(config)
+    t = con.create_table("t", pa.table({"a": [1, 2, 3]}))
+    expr = t.filter(t.a > 1).cache(cache=SourceCache.from_kwargs(source=con))
+
+    assert not expr.ls.cache_exists()
+    assert expr.execute().a.tolist() == [2, 3]
+    assert expr.ls.cache_exists()
+    assert any(name.startswith(KEY_PREFIX) for name in con.list_tables())
+    assert expr.execute().a.tolist() == [2, 3]
