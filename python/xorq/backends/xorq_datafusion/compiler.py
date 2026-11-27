@@ -145,6 +145,8 @@ def _arrow_type(dtype):
             return "Time64(Nanosecond)"
         case dt.Null():
             return "Null"
+        case dt.Interval():
+            return "Interval(MonthDayNano)"
         case dt.Timestamp():
             return _timestamp_arrow_type(dtype)
         case dt.Decimal():

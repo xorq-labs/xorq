@@ -411,6 +411,13 @@ def test_try_cast_narrow_int(typ, arrow_type, expected):
             [[{"x": 1}], [{"x": 2}]],
             id="array-struct-uint64",
         ),
+        pytest.param(
+            lambda t: xo.struct({"x": t.a, "i": xo.interval(days=1)}),
+            "struct<x: int8, i: interval('D')>",
+            'Struct("x": Int8, "i": Interval(MonthDayNano))',
+            [{"x": 1, "i": (0, 1, 0)}, {"x": 2, "i": (0, 1, 0)}],
+            id="struct-int8-interval",
+        ),
     ],
 )
 def test_nested_narrow_int_cast(make_value, typ, arrow_type, expected):
