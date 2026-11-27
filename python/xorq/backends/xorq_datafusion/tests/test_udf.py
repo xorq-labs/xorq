@@ -418,6 +418,13 @@ def test_try_cast_narrow_int(typ, arrow_type, expected):
             [{"x": 1, "i": (0, 1, 0)}, {"x": 2, "i": (0, 1, 0)}],
             id="struct-int8-interval",
         ),
+        pytest.param(
+            lambda t: xo.struct({"x": t.a, "b": t.s.cast("binary")}),
+            dt.Struct({"x": dt.uint8, "b": dt.BinaryView()}),
+            'Struct("x": UInt8, "b": BinaryView)',
+            [{"x": 1, "b": b"p"}, {"x": 2, "b": b"q"}],
+            id="struct-uint8-binaryview",
+        ),
     ],
 )
 def test_nested_narrow_int_cast(make_value, typ, arrow_type, expected):

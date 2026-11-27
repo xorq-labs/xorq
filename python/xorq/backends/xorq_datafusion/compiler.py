@@ -137,6 +137,8 @@ def _arrow_type(dtype):
             return "LargeUtf8"
         case dt.String():
             return "Utf8"
+        case dt.BinaryView():
+            return "BinaryView"
         case dt.Binary():
             return "Binary"
         case dt.Date():
