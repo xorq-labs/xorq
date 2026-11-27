@@ -185,8 +185,17 @@ class FlightClient:
 
         return reader
 
-    def upload(self, table_name, expr, **kwargs):
-        return self.upload_batches(table_name, expr.to_pyarrow_batches(), **kwargs)
+    def upload(
+        self,
+        table_name: str,
+        expr: Any,
+        mode: UploadMode | str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Execute ``expr`` locally and upload its batches; see ``upload_table``."""
+        return self.upload_batches(
+            table_name, expr.to_pyarrow_batches(), mode=mode, **kwargs
+        )
 
     def upload_table(
         self,

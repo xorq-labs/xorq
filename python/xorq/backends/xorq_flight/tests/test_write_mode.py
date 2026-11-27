@@ -79,11 +79,16 @@ def test_write_mode_over_flight(con, mode, expected):
     assert actual.num_rows == expected
 
 
-def test_upload_expr_over_flight(con):
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    ((None, [1, 2, 3]), ("append", [1, 2, 3]), ("replace", [3])),
+)
+def test_upload_expr_over_flight(con, mode, expected):
     with FlightServer(make_connection=lambda: con) as server:
-        server.client.upload("t", xo.memtable({"a": [1, 2]}))
+        server.client.upload("t", xo.memtable(FIRST.to_pydict()))
+        server.client.upload("t", xo.memtable(SECOND.to_pydict()), mode=mode)
         actual = server.client.execute(server.con.table("t"))
-    assert actual.to_pydict() == {"a": [1, 2]}
+    assert sorted(actual["a"].to_pylist()) == expected
 
 
 def test_write_mode_create_over_flight_refuses_existing_table(con):
