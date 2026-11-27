@@ -211,6 +211,9 @@ class DataFusionCompiler(SQLGlotCompiler):
 
         if isinstance(to, LargeString):
             return self.f.arrow_cast(arg, "LargeUtf8")
+        # the SQL type names map int8 to SMALLINT and have no unsigned integers
+        if to.is_unsigned_integer() or to.is_int8():
+            return self.f.arrow_cast(arg, _narrow_int_arrow_type(to))
 
         return self.cast(arg, to)
 
