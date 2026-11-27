@@ -276,3 +276,54 @@ def test_only_misspelled_casts_use_arrow_cast(typ, uses_arrow_cast):
     sql = xo.to_sql(t.select(v=value.cast(typ))).upper()
 
     assert ("ARROW_CAST" in sql) == uses_arrow_cast
+
+
+@pytest.mark.parametrize(
+    ("typ", "value", "arrow_type", "expected"),
+    [
+        pytest.param(
+            "decimal(10, 2)",
+            "1.5",
+            "Decimal128(10, 2)",
+            [decimal.Decimal("1.50"), None],
+            id="decimal",
+        ),
+        pytest.param(
+            "timestamp",
+            "2024-01-02 03:04:05",
+            "Timestamp(µs)",
+            [datetime.datetime(2024, 1, 2, 3, 4, 5), None],
+            id="timestamp",
+        ),
+        pytest.param(
+            LargeString(), "1.5", "LargeUtf8", ["1.5", "x"], id="large-string"
+        ),
+    ],
+)
+def test_try_cast_arrow_types(
+    typ: str | dt.DataType, value: str, arrow_type: str, expected: list
+) -> None:
+    t = xo.memtable({"s": [value, "x"]})
+    cast = t.s.try_cast(typ)
+    result = t.select(value=cast, computed_type=cast.typeof()).to_pyarrow()
+
+    assert result["value"].to_pylist() == expected
+    assert set(result["computed_type"].to_pylist()) == {arrow_type}
+
+
+@pytest.mark.parametrize(
+    ("typ", "expected"),
+    [
+        pytest.param(
+            dt.Array(dt.Decimal(10, 2)),
+            [decimal.Decimal("1.50"), None],
+            id="array-decimal",
+        ),
+        pytest.param(dt.Array(LargeString()), ["1.5", "x"], id="array-large-string"),
+    ],
+)
+def test_try_cast_arrow_types_nested(typ: dt.DataType, expected: list) -> None:
+    t = xo.memtable({"a": [["1.5", "x"]]})
+    result = t.select(v=t.a.try_cast(typ)).to_pyarrow()
+
+    assert result["v"].to_pylist() == [expected]

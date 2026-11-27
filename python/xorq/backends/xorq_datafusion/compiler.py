@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import contextlib
 import math
+from collections.abc import Callable
 from functools import partial, reduce
 from itertools import starmap
 
@@ -101,17 +102,29 @@ def _decimal_arrow_type(dtype):
     return f"{PyArrowType.from_ibis(dtype)}".capitalize()
 
 
-def _sql_misspells(dtype):
-    # the SQL type names map int8 to SMALLINT and have no unsigned integers
+def _any_leaf(predicate: Callable[[dt.DataType], bool], dtype: dt.DataType) -> bool:
     match dtype:
         case dt.Array(value_type=value_type):
-            return _sql_misspells(value_type)
+            return _any_leaf(predicate, value_type)
         case dt.Map(key_type=key_type, value_type=value_type):
-            return _sql_misspells(key_type) or _sql_misspells(value_type)
+            return _any_leaf(predicate, key_type) or _any_leaf(predicate, value_type)
         case dt.Struct():
-            return any(map(_sql_misspells, dtype.types))
+            return any(_any_leaf(predicate, typ) for typ in dtype.types)
         case _:
-            return dtype.is_int8() or dtype.is_unsigned_integer()
+            return predicate(dtype)
+
+
+def _sql_misspells(dtype: dt.DataType) -> bool:
+    # the SQL type names map int8 to SMALLINT and have no unsigned integers
+    return _any_leaf(lambda d: d.is_int8() or d.is_unsigned_integer(), dtype)
+
+
+def _sql_lacks(dtype: dt.DataType) -> bool:
+    # SQL CAST has no large string, defaults decimal precision and timestamp unit
+    return _any_leaf(
+        lambda d: d.is_decimal() or d.is_timestamp() or isinstance(d, LargeString),
+        dtype,
+    )
 
 
 def _arrow_field_name(name):
@@ -283,18 +296,12 @@ class DataFusionCompiler(SQLGlotCompiler):
             return sg.cast(
                 self.f.concat(self.cast(arg, dt.string), f" {unit}"), "interval"
             )
-        if to.is_timestamp():
-            return self._to_timestamp(arg, to)
-        if to.is_decimal():
-            return self.f.arrow_cast(arg, _decimal_arrow_type(to))
-
-        if isinstance(to, LargeString):
-            return self.f.arrow_cast(arg, "LargeUtf8")
-
+        if _sql_lacks(to):
+            return self.f.arrow_cast(arg, _arrow_type(to))
         return self.cast(arg, to)
 
     def visit_TryCast(self, op, *, arg, to):
-        if _sql_misspells(to):
+        if _sql_misspells(to) or _sql_lacks(to):
             return self.f.arrow_try_cast(arg, _arrow_type(to))
         return super().visit_TryCast(op, arg=arg, to=to)
 
