@@ -486,8 +486,16 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if database is None:
             return self._filter_with_like(self.con.tables(), like)
         catalog, db = self._to_catalog_db_tuple(self._to_sqlglot_table(database))
-        ctx_catalog = self.con.catalog(catalog) if catalog else self.con.catalog()
-        return self._filter_with_like(ctx_catalog.database(db).names(), like)
+        try:
+            ctx_catalog = (
+                self.con.catalog(catalog) if catalog is not None else self.con.catalog()
+            )
+            names = ctx_catalog.database(db).names()
+        except KeyError:
+            # an absent catalog or database holds no tables, as on the
+            # information_schema backends
+            names = ()
+        return self._filter_with_like(names, like)
 
     def get_schema(
         self,
