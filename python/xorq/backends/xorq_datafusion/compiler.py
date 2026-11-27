@@ -12,6 +12,7 @@ import sqlglot.expressions as sge
 from sqlglot import exp, transforms
 from sqlglot.dialects import Postgres
 from sqlglot.dialects.dialect import rename_func
+from sqlglot.generator import Generator
 
 import xorq.common.exceptions as com
 import xorq.expr.datatypes as dt
@@ -72,6 +73,7 @@ class DataFusion(Postgres):
             sge.ArrayContains: rename_func("array_has"),
             sge.ArraySize: rename_func("array_length"),
             sge.IntDiv: _int_div_sql,
+            sge.TryCast: Generator.trycast_sql,
         }
 
         TYPE_MAPPING = Postgres.Generator.TYPE_MAPPING.copy() | {
@@ -102,34 +104,48 @@ def _decimal_arrow_type(dtype):
     return f"{PyArrowType.from_ibis(dtype)}".capitalize()
 
 
-def _any_leaf(predicate: Callable[[dt.DataType], bool], dtype: dt.DataType) -> bool:
+def _any_type(predicate: Callable[[dt.DataType], bool], dtype: dt.DataType) -> bool:
     match dtype:
         case dt.Array(value_type=value_type):
-            return _any_leaf(predicate, value_type)
+            children = (value_type,)
         case dt.Map(key_type=key_type, value_type=value_type):
-            return _any_leaf(predicate, key_type) or _any_leaf(predicate, value_type)
+            children = (key_type, value_type)
         case dt.Struct():
-            return any(_any_leaf(predicate, typ) for typ in dtype.types)
+            children = dtype.types
         case _:
-            return predicate(dtype)
+            children = ()
+    return predicate(dtype) or any(_any_type(predicate, typ) for typ in children)
 
 
 def _sql_misspells(dtype: dt.DataType) -> bool:
     # the SQL type names map int8 to SMALLINT and have no unsigned integers
-    return _any_leaf(lambda d: d.is_int8() or d.is_unsigned_integer(), dtype)
+    return _any_type(lambda d: d.is_int8() or d.is_unsigned_integer(), dtype)
 
 
 def _sql_lacks(dtype: dt.DataType) -> bool:
-    # SQL CAST has no large string, defaults decimal precision and timestamp unit
-    return _any_leaf(
-        lambda d: d.is_decimal() or d.is_timestamp() or isinstance(d, LargeString),
+    # DataFusion's SQL CAST cannot parse STRUCT<...> or spell map, large string,
+    # uuid, json, inet or geospatial types, and it defaults decimal precision
+    # and timestamp unit
+    return _any_type(
+        lambda d: (
+            d.is_struct()
+            or d.is_map()
+            or d.is_decimal()
+            or d.is_timestamp()
+            or d.is_uuid()
+            or d.is_json()
+            or d.is_inet()
+            or d.is_geospatial()
+            or isinstance(d, LargeString)
+        ),
         dtype,
     )
 
 
 def _arrow_field_name(name):
-    # the arrow type parser has no escape for a double quote in a field name
-    if '"' in name:
+    # the arrow type parser has no escape for a double quote or a backslash
+    # in a field name
+    if '"' in name or "\\" in name:
         raise com.UnsupportedOperationError(
             f"DataFusion cannot arrow_cast to a struct field named {name!r}"
         )

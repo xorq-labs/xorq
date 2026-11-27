@@ -252,9 +252,10 @@ def test_nested_narrow_int_cast_out_of_range_raises():
         xo.array([t.a * 200]).cast("array<uint8>").execute()
 
 
-def test_struct_field_name_with_double_quote_raises():
+@pytest.mark.parametrize("name", ['a"b', "a\\b"], ids=["double-quote", "backslash"])
+def test_struct_field_name_unspellable_in_arrow_raises(name):
     t = xo.memtable({"a": [1]})
-    cast = xo.struct({'a"b': t.a}).cast(dt.Struct({'a"b': dt.uint8}))
+    cast = xo.struct({name: t.a}).cast(dt.Struct({name: dt.int32}))
 
     with pytest.raises(UnsupportedOperationError, match="struct field named"):
         xo.to_sql(cast)
@@ -264,11 +265,11 @@ def test_struct_field_name_with_double_quote_raises():
     ("typ", "uses_arrow_cast"),
     [
         pytest.param("array<int16>", False, id="array-int16"),
-        pytest.param("struct<x: int32, y: string>", False, id="struct-int32"),
+        pytest.param("struct<x: int32, y: string>", True, id="struct-int32"),
         pytest.param("array<uint8>", True, id="array-uint8"),
     ],
 )
-def test_only_misspelled_casts_use_arrow_cast(typ, uses_arrow_cast):
+def test_only_sql_unspellable_casts_use_arrow_cast(typ, uses_arrow_cast):
     t = xo.memtable({"a": [1]})
     value = (
         xo.struct({"x": t.a, "y": "s"}) if typ.startswith("struct") else xo.array([t.a])
@@ -327,3 +328,83 @@ def test_try_cast_arrow_types_nested(typ: dt.DataType, expected: list) -> None:
     result = t.select(v=t.a.try_cast(typ)).to_pyarrow()
 
     assert result["v"].to_pylist() == [expected]
+
+
+@pytest.mark.parametrize("typ", ["uuid", "json", "inet"])
+def test_cast_to_string_backed_type(typ):
+    t = xo.memtable({"s": ["00000000-0000-0000-0000-000000000000"]})
+    cast = t.s.cast(typ)
+    result = t.select(value=cast, computed_type=cast.typeof()).to_pyarrow()
+
+    assert result["value"].to_pylist() == ["00000000-0000-0000-0000-000000000000"]
+    assert result["computed_type"].to_pylist() == ["Utf8"]
+
+
+@pytest.mark.parametrize("typ", ["geometry", "geography"])
+def test_cast_to_geospatial_raises(typ):
+    t = xo.memtable({"g": [b"\x01"]})
+
+    with pytest.raises(
+        UnsupportedOperationError, match=f"cannot cast to geospatial:{typ}"
+    ):
+        xo.to_sql(t.g.cast(typ))
+
+
+@pytest.mark.parametrize(
+    ("make_value", "typ", "value", "expected"),
+    [
+        pytest.param(lambda t: t.s, "float64", "1.5", [1.5, None], id="float64"),
+        pytest.param(lambda t: t.s, "int64", "1", [1, None], id="int64"),
+        pytest.param(lambda t: t.s, "boolean", "true", [True, None], id="boolean"),
+        pytest.param(
+            lambda t: xo.array([t.s]),
+            "array<float64>",
+            "1.5",
+            [[1.5], [None]],
+            id="array-float64",
+        ),
+    ],
+)
+def test_try_cast_sql_unparseable_is_null(make_value, typ, value, expected):
+    t = xo.memtable({"s": [value, "x"]})
+
+    assert (
+        t.select(v=make_value(t).try_cast(typ)).to_pyarrow()["v"].to_pylist()
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("make_value", "typ", "arrow_type", "expected"),
+    [
+        pytest.param(
+            lambda t: xo.struct({"x": t.a, "y": t.s}),
+            "struct<x: int32, y: string>",
+            'Struct("x": Int32, "y": Utf8)',
+            [{"x": 1, "y": "p"}],
+            id="struct",
+        ),
+        pytest.param(
+            lambda t: xo.array([xo.struct({"x": t.a})]),
+            "array<struct<x: float64>>",
+            'List(Struct("x": Float64))',
+            [[{"x": 1.0}]],
+            id="array-struct",
+        ),
+        pytest.param(
+            lambda t: xo.map(xo.array(["k"]), xo.array([t.a])),
+            "map<string, float64>",
+            'Map("entries": non-null Struct("key": non-null Utf8, "value": Float64), unsorted)',
+            [[("k", 1.0)]],
+            id="map",
+        ),
+    ],
+)
+@pytest.mark.parametrize("method", ["cast", "try_cast"])
+def test_struct_and_map_cast(make_value, typ, arrow_type, expected, method):
+    t = xo.memtable({"a": [1], "s": ["p"]})
+    cast = getattr(make_value(t), method)(typ)
+    result = t.select(value=cast, computed_type=cast.typeof()).to_pyarrow()
+
+    assert result["value"].to_pylist() == expected
+    assert result["computed_type"].to_pylist() == [arrow_type]
