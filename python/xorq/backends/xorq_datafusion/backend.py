@@ -73,6 +73,10 @@ __all__ = [
 ]
 
 
+_DEFAULT_CATALOG = "datafusion.catalog.default_catalog"
+_DEFAULT_SCHEMA = "datafusion.catalog.default_schema"
+
+
 def _select_and_cast(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
     missing = set(schema.names) - set(batch.schema.names)
     if missing:
@@ -407,22 +411,22 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             table_name, obj, schema=schema, database=database, overwrite=overwrite
         )
 
-    def _setting(self, name: str) -> str:
+    def _settings(self, *names: str) -> dict[str, str]:
         query = (
-            sg.select(C.value)
+            sg.select(C.name, C.value)
             .from_(sg.table("df_settings", db="information_schema"))
-            .where(C.name.eq(sge.convert(name)))
+            .where(C.name.isin(*names))
         )
-        (value,) = self.con.sql(query.sql(self.dialect)).to_pydict()["value"]
-        return value
+        result = self.con.sql(query.sql(self.dialect)).to_pydict()
+        return dict(zip(result["name"], result["value"]))
 
     @property
     def current_catalog(self) -> str:
-        return self._setting("datafusion.catalog.default_catalog")
+        return self._settings(_DEFAULT_CATALOG)[_DEFAULT_CATALOG]
 
     @property
     def current_database(self) -> str:
-        return self._setting("datafusion.catalog.default_schema")
+        return self._settings(_DEFAULT_SCHEMA)[_DEFAULT_SCHEMA]
 
     def list_catalogs(self, like: str | None = None) -> list[str]:
         code = (
@@ -927,10 +931,15 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     def _schema(self, catalog: str | None = None, database: str | None = None) -> Any:
         """The session schema `catalog.database`, each part defaulting to the
-        session's configured default."""
+        session's configured default, read in one settings query."""
+        defaults = (
+            self._settings(_DEFAULT_CATALOG, _DEFAULT_SCHEMA)
+            if catalog is None or database is None
+            else {}
+        )
         return self.con.catalog(
-            self.current_catalog if catalog is None else catalog
-        ).database(self.current_database if database is None else database)
+            defaults[_DEFAULT_CATALOG] if catalog is None else catalog
+        ).database(defaults[_DEFAULT_SCHEMA] if database is None else database)
 
     def drop_table(
         self,

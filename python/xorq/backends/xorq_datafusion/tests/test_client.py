@@ -354,5 +354,7 @@ def test_default_catalog_and_schema_from_session(kwargs, catalog, database):
     assert "t" in con.list_tables(database=(catalog, database))
 
     con.drop_table("t")
+    con.read_record_batches(pa.table({"a": [1]}).to_reader(), table_name="tmp")
+    con.drop_table("tmp")
 
-    assert "t" not in con.list_tables()
+    assert not {"t", "tmp"} & set(con.list_tables())
