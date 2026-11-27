@@ -60,7 +60,8 @@ def test_read_type_reaches_duckdb(
 
 
 # one case per rejection path: parse error, parser TypeError, empty string,
-# unrepresentable nested, a subtype the mapper raises on, an `unknown` DataType
+# unrepresentable nested, a subtype the mapper raises on, a geotype DuckDB
+# lacks, an `unknown` DataType
 @readers
 @pytest.mark.parametrize(
     "typ",
@@ -70,6 +71,7 @@ def test_read_type_reaches_duckdb(
         "",
         "BIT[]",
         "GEOMETRY(FOO)",
+        "geography",
         dt.unknown,
     ],
     ids=repr,
