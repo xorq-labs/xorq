@@ -181,7 +181,11 @@ def test_insert_into_view_names_the_view():
         param({"database": "analytics"}, id="name"),
         param({"database": "datafusion.analytics"}, id="dotted"),
         param({"database": ("datafusion", "analytics")}, id="tuple"),
-        param({"schema": "analytics"}, id="schema"),
+        param(
+            {"schema": "analytics"},
+            marks=pytest.mark.filterwarnings("ignore::FutureWarning"),
+            id="schema",
+        ),
     ],
 )
 def test_insert_database(kwargs: dict) -> None:
