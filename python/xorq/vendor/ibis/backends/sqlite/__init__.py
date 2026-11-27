@@ -680,7 +680,7 @@ class Backend(SQLBackend, UrlFromPath):
         self._run_pre_execute_hooks(obj)
 
         query = self._build_insert_from_table(
-            target=table_name, source=obj, catalog=database
+            target=table_name, source=obj, db=database
         )
         insert_stmt = query.sql(self.name)
 

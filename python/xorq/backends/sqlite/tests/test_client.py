@@ -31,6 +31,17 @@ def test_attach_file(tmp_path):
     assert foo_tables == bar_tables
 
 
+def test_insert_database(tmp_path: Path) -> None:
+    dbpath = str(tmp_path / "attached.db")
+    xo.sqlite.connect(dbpath).create_table("t", schema=ibis.schema({"a": "int64"}))
+    con = xo.sqlite.connect()
+    con.attach("other", dbpath)
+
+    con.insert("t", {"a": [1]}, database="other")
+
+    assert con.table("t", database="other").to_pyarrow().to_pydict() == {"a": [1]}
+
+
 @pytest.mark.parametrize(
     "url, ext",
     [

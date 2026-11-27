@@ -175,6 +175,29 @@ def test_insert_into_view_names_the_view():
     assert con.table("t").count().execute() == 2
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        param({"database": "analytics"}, id="name"),
+        param({"database": "datafusion.analytics"}, id="dotted"),
+        param({"database": ("datafusion", "analytics")}, id="tuple"),
+        param(
+            {"schema": "analytics"},
+            marks=pytest.mark.filterwarnings("ignore::FutureWarning"),
+            id="schema",
+        ),
+    ],
+)
+def test_insert_database(kwargs: dict) -> None:
+    con = xo.connect()
+    con.raw_sql("CREATE SCHEMA analytics")
+    con.raw_sql("CREATE TABLE analytics.t (a BIGINT)")
+
+    con.insert("t", pa.table({"a": [1]}), **kwargs)
+
+    assert con.table("t", database="analytics").to_pyarrow().to_pydict() == {"a": [1]}
+
+
 def test_drop_table_with_qualified_database():
     con = xo.connect()
     con.create_table("tp", pa.table({"a": [1]}))
