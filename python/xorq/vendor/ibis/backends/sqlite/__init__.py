@@ -263,13 +263,14 @@ class Backend(SQLBackend, UrlFromPath):
 
         quoted = self.compiler.quoted
         quoted_db = sg.to_identifier(database, quoted=quoted)
-        quoted_table = sg.to_identifier(table_name, quoted=quoted)
 
         sql = (
             sg.select("name", "type", sg.to_identifier("notnull", quoted=quoted))
             .from_(
                 sge.Table(
-                    this=self.compiler.f.anon.pragma_table_info(quoted_table),
+                    this=self.compiler.f.anon.pragma_table_info(
+                        sge.convert(table_name)
+                    ),
                     db=quoted_db,
                 )
             )
