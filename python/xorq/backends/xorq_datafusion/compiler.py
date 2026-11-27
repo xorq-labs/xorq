@@ -135,7 +135,8 @@ def _arrow_type(dtype):
             return "Boolean"
         case LargeString():
             return "LargeUtf8"
-        case dt.String():
+        case dt.String() | dt.UUID() | dt.JSON() | dt.INET() | dt.MACADDR():
+            # PyArrowType.from_ibis stores these as pa.string()
             return "Utf8"
         case dt.BinaryView():
             return "BinaryView"
@@ -167,6 +168,8 @@ def _arrow_type(dtype):
             )
             return f"Struct({fields})"
         case _:
+            # geospatial types are geoarrow extension types, which arrow_cast
+            # cannot spell; unknown types have no arrow spelling at all
             raise com.UnsupportedOperationError(
                 f"DataFusion cannot cast to {dtype} through arrow_cast"
             )
