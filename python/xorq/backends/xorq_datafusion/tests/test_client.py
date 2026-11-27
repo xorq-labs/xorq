@@ -361,3 +361,16 @@ def test_default_catalog_and_schema_from_session(kwargs, catalog, database):
     con.drop_table("tmp")
 
     assert not {"t", "tmp"} & set(con.list_tables())
+
+
+def test_default_schema_set_at_runtime():
+    con = xo.connect()
+    con.create_database("other")
+    con.raw_sql("SET datafusion.catalog.default_schema = 'other'").collect()
+
+    t = con.create_table("t", schema=ibis.schema({"a": "int64"}))
+
+    assert con.current_database == "other"
+    assert con.get_schema("t") == t.schema()
+    assert con.list_tables() == ["t"]
+    assert "t" not in con.list_tables(database="public")
