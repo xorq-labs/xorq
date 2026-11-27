@@ -289,6 +289,7 @@ def test_mixed_case_database_in_mixed_case_catalog():
 @pytest.mark.parametrize("database", ["foo", "Foo"])
 def test_create_table_overwrite_in_database(kwargs, expected, database):
     con = xo.connect()
+    con.create_table("tt", obj=pa.table({"a": [9]}))
     con.create_database(database)
     con.create_table("tt", obj=pa.table({"a": [1]}), database=database)
 
@@ -296,4 +297,4 @@ def test_create_table_overwrite_in_database(kwargs, expected, database):
 
     assert xo.execute(t).to_dict("list") == expected
     assert con.list_tables(database=database) == ["tt"]
-    assert "tt" not in con.list_tables()
+    assert xo.execute(con.table("tt")).to_dict("list") == {"a": [9]}
