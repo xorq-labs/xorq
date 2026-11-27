@@ -59,3 +59,17 @@ def t():
 )
 def test_temporal_op_executes(t, make_expr, expected):
     assert make_expr(t).execute().tolist() == [expected]
+
+
+def test_month_delta_keeps_null_operand():
+    con = xo.datafusion.connect()
+    t = con.create_table(
+        "t_null",
+        {
+            "d": [datetime.date(2024, 1, 15), None, datetime.date(2024, 1, 1)],
+            "d2": [datetime.date(2024, 4, 15), datetime.date(2024, 1, 1), None],
+        },
+    )
+    result = t.d2.delta(t.d, "month").execute()
+    assert result.isna().tolist() == [False, True, True]
+    assert result.iloc[0] == 3

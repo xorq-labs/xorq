@@ -145,7 +145,7 @@ def _compute_interval(unit, start, end):
         case "month":
             return pa.array(
                 [
-                    v.months
+                    None if v is None else v.months
                     for v in pc.month_day_nano_interval_between(start, end).tolist()
                 ],
                 type=pa.int64(),

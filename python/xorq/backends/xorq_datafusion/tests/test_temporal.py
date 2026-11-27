@@ -942,3 +942,15 @@ def test_time_from_hms(con):
     t = xo.memtable({"h": [1, 23], "m": [2, 59], "s": [3, 0]})
     result = con.execute(xo.time(t.h, t.m, t.s))
     assert result.tolist() == [datetime.time(1, 2, 3), datetime.time(23, 59)]
+
+
+def test_month_delta_keeps_null_operand(con):
+    t = xo.memtable(
+        {
+            "d": [datetime.date(2024, 1, 15), None, datetime.date(2024, 1, 1)],
+            "d2": [datetime.date(2024, 4, 15), datetime.date(2024, 1, 1), None],
+        }
+    )
+    result = con.execute(t.d2.delta(t.d, "month"))
+    assert result.isna().tolist() == [False, True, True]
+    assert result.iloc[0] == 3
