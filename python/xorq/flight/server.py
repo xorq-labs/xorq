@@ -221,7 +221,8 @@ def uncancelled_batches(
         for chunk in reader:
             if chunk.app_metadata == UPLOAD_ABORTED:
                 raise pa.flight.FlightCancelledError("the client aborted the upload")
-            yield chunk.data.copy_to(manager)
+            if chunk.data is not None:
+                yield chunk.data.copy_to(manager)
         if context.is_cancelled():
             raise pa.flight.FlightCancelledError("the client cancelled the upload")
 
@@ -438,9 +439,9 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             If the client aborted the upload (its source failed) or went
             away before finishing it (``uncancelled_batches``).
         pyarrow.ArrowException
-            If the upload stream fails while it is read (external). In both
-            cases nothing is written: a buffered write happens only after the
-            whole stream has been read, and a streamed ingest is not
+            If the upload stream fails while it is read (external). In each
+            of these cases nothing is written: a buffered write happens only
+            after the whole stream has been read, and a streamed ingest is not
             committed.
         adbc_driver_manager.Error
             On the streamed path, whatever the ingest raises (``create`` on an
