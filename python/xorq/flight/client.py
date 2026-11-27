@@ -186,9 +186,7 @@ class FlightClient:
         return reader
 
     def upload(self, table_name, expr, **kwargs):
-        return self.upload_batches(
-            self, table_name, expr.to_pyarrow_batches(), **kwargs
-        )
+        return self.upload_batches(table_name, expr.to_pyarrow_batches(), **kwargs)
 
     def upload_table(
         self,

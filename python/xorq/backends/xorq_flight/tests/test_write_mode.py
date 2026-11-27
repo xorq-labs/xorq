@@ -79,6 +79,13 @@ def test_write_mode_over_flight(con, mode, expected):
     assert actual.num_rows == expected
 
 
+def test_upload_expr_over_flight(con):
+    with FlightServer(make_connection=lambda: con) as server:
+        server.client.upload("t", xo.memtable({"a": [1, 2]}))
+        actual = server.client.execute(server.con.table("t"))
+    assert actual.to_pydict() == {"a": [1, 2]}
+
+
 def test_write_mode_create_over_flight_refuses_existing_table(con):
     with FlightServer(make_connection=lambda: con) as server:
         server.client.upload_table("t", FIRST, mode="create")
