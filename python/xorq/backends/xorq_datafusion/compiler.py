@@ -89,6 +89,89 @@ def _narrow_int_arrow_type(dtype):
     return None
 
 
+def _timestamp_arrow_type(dtype):
+    unit = dtype.unit.name.capitalize() if dtype.scale is not None else "Microsecond"
+    tz = f'Some("{dtype.timezone}")' if dtype.timezone is not None else "None"
+    return f"Timestamp({unit}, {tz})"
+
+
+def _decimal_arrow_type(dtype):
+    from xorq.vendor.ibis.formats.pyarrow import PyArrowType  # noqa: PLC0415
+
+    return f"{PyArrowType.from_ibis(dtype)}".capitalize()
+
+
+def _sql_misspells(dtype):
+    # the SQL type names map int8 to SMALLINT and have no unsigned integers
+    match dtype:
+        case dt.Array(value_type=value_type):
+            return _sql_misspells(value_type)
+        case dt.Map(key_type=key_type, value_type=value_type):
+            return _sql_misspells(key_type) or _sql_misspells(value_type)
+        case dt.Struct():
+            return any(map(_sql_misspells, dtype.types))
+        case _:
+            return dtype.is_int8() or dtype.is_unsigned_integer()
+
+
+def _arrow_field_name(name):
+    # the arrow type parser has no escape for a double quote in a field name
+    if '"' in name:
+        raise com.UnsupportedOperationError(
+            f"DataFusion cannot arrow_cast to a struct field named {name!r}"
+        )
+    return name
+
+
+def _arrow_type(dtype):
+    # fields stay nullable, as with SQL CAST: arrow cannot cast a nullable
+    # struct field to a non-null one
+    match dtype:
+        case dt.Integer():
+            return _narrow_int_arrow_type(dtype) or "Int64"
+        case dt.Floating():
+            return f"Float{dtype.nbytes * 8}"
+        case dt.Boolean():
+            return "Boolean"
+        case LargeString():
+            return "LargeUtf8"
+        case dt.String():
+            return "Utf8"
+        case dt.BinaryView():
+            return "BinaryView"
+        case dt.Binary():
+            return "Binary"
+        case dt.Date():
+            return "Date32"
+        case dt.Time():
+            return "Time64(Nanosecond)"
+        case dt.Null():
+            return "Null"
+        case dt.Interval():
+            return "Interval(MonthDayNano)"
+        case dt.Timestamp():
+            return _timestamp_arrow_type(dtype)
+        case dt.Decimal():
+            return _decimal_arrow_type(dtype)
+        case dt.Array(value_type=value_type):
+            return f"List({_arrow_type(value_type)})"
+        case dt.Map(key_type=key_type, value_type=value_type):
+            return (
+                f'Map("entries": non-null Struct("key": non-null {_arrow_type(key_type)}, '
+                f'"value": {_arrow_type(value_type)}), unsorted)'
+            )
+        case dt.Struct():
+            fields = ", ".join(
+                f'"{_arrow_field_name(name)}": {_arrow_type(typ)}'
+                for name, typ in dtype.items()
+            )
+            return f"Struct({fields})"
+        case _:
+            raise com.UnsupportedOperationError(
+                f"DataFusion cannot cast to {dtype} through arrow_cast"
+            )
+
+
 class DataFusionCompiler(SQLGlotCompiler):
     __slots__ = ()
 
@@ -142,19 +225,14 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.MapValues: "map_values",
     }
 
+    def cast(self, arg, to):
+        if _sql_misspells(to):
+            return self.f.arrow_cast(sge.convert(arg), _arrow_type(to))
+        return super().cast(arg, to)
+
     def _to_timestamp(self, value, target_dtype, literal=False):
-        tz = (
-            f'Some("{timezone}")'
-            if (timezone := target_dtype.timezone) is not None
-            else "None"
-        )
-        unit = (
-            target_dtype.unit.name.capitalize()
-            if target_dtype.scale is not None
-            else "Microsecond"
-        )
         str_value = str(value) if literal else value
-        return self.f.arrow_cast(str_value, f"Timestamp({unit}, {tz})")
+        return self.f.arrow_cast(str_value, _timestamp_arrow_type(target_dtype))
 
     def visit_NonNullLiteral(self, op, *, value, dtype):
         if dtype.is_decimal():
@@ -205,17 +283,17 @@ class DataFusionCompiler(SQLGlotCompiler):
         if to.is_timestamp():
             return self._to_timestamp(arg, to)
         if to.is_decimal():
-            from xorq.vendor.ibis.formats.pyarrow import PyArrowType  # noqa: PLC0415
-
-            return self.f.arrow_cast(arg, f"{PyArrowType.from_ibis(to)}".capitalize())
+            return self.f.arrow_cast(arg, _decimal_arrow_type(to))
 
         if isinstance(to, LargeString):
             return self.f.arrow_cast(arg, "LargeUtf8")
-        # the SQL type names map int8 to SMALLINT and have no unsigned integers
-        if to.is_unsigned_integer() or to.is_int8():
-            return self.f.arrow_cast(arg, _narrow_int_arrow_type(to))
 
         return self.cast(arg, to)
+
+    def visit_TryCast(self, op, *, arg, to):
+        if _sql_misspells(to):
+            return self.f.arrow_try_cast(arg, _arrow_type(to))
+        return super().visit_TryCast(op, arg=arg, to=to)
 
     def visit_Arbitrary(self, op, *, arg, where):
         cond = ~arg.is_(NULL)
