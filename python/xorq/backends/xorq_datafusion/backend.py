@@ -408,7 +408,36 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
         if table_kind(lambda: self._schema(catalog, db), table_name) == "view":
             raise ValueError(f"cannot insert into {table_name!r}: it is a view")
-        super().insert(table_name, obj, database=(catalog, db), overwrite=overwrite)
+        if not overwrite:
+            super().insert(table_name, obj, database=(catalog, db))
+            return
+        # nothing is transactional here: run the insert into a scratch table of
+        # the target's schema first, so a source that reads the target, or one
+        # that fails to plan or cast, raises before any rows are deleted
+        staged = gen_name("insert_overwrite")
+        self.create_table(
+            staged, schema=self.get_schema(table_name, catalog=catalog, database=db)
+        )
+        try:
+            super().insert(
+                staged, obj.to_pyarrow() if isinstance(obj, ir.Table) else obj
+            )
+            self.truncate_table(table_name, database=(catalog, db))
+            super().insert(table_name, self.table(staged), database=(catalog, db))
+        finally:
+            self.drop_table(staged)
+
+    def truncate_table(
+        self, name: str, database: str | None = None, schema: str | None = None
+    ) -> None:
+        # datafusion rejects TRUNCATE and INSERT OVERWRITE for a memory table;
+        # DELETE FROM empties it in place
+        catalog, db = self._to_catalog_db_tuple(
+            self._warn_and_create_table_loc(database, schema)
+        )
+        target = sg.table(name, db=db, catalog=catalog, quoted=self.compiler.quoted)
+        with self._safe_raw_sql(sge.delete(target)):
+            pass
 
     def _settings(self, *names: str) -> dict[str, str]:
         query = (

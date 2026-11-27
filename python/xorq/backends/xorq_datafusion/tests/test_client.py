@@ -219,6 +219,57 @@ def test_insert_database(kwargs: dict) -> None:
     assert con.table("t", database="analytics").to_pyarrow().to_pydict() == {"a": [1]}
 
 
+def test_insert_overwrite_qualified() -> None:
+    con = xo.connect()
+    con.raw_sql("CREATE SCHEMA a")
+    con.raw_sql("CREATE TABLE a.t (x BIGINT)")
+    con.insert("t", pa.table({"x": [5, 6]}), database="a")
+
+    con.insert("t", pa.table({"x": [1]}), database="a", overwrite=True)
+
+    assert con.table("t", database="a").to_pyarrow().to_pydict() == {"x": [1]}
+
+
+def test_insert_overwrite_unqualified() -> None:
+    con = xo.connect()
+    con.create_table("u", pa.table({"x": [5, 6]}))
+
+    con.insert("u", pa.table({"x": [1]}), overwrite=True)
+
+    assert con.table("u").to_pyarrow().to_pydict() == {"x": [1]}
+
+
+def test_insert_overwrite_from_target() -> None:
+    con = xo.connect()
+    t = con.create_table("s", pa.table({"x": [1, 2, 3]}))
+
+    con.insert("s", t.filter(t.x > 1), overwrite=True)
+
+    assert con.table("s").to_pyarrow().to_pydict() == {"x": [2, 3]}
+
+
+def test_insert_overwrite_from_other_connection() -> None:
+    src, dst = xo.connect(), xo.connect()
+    src.create_table("t", pa.table({"x": [1, 2]}))
+    dst.create_table("t", pa.table({"x": [9]}))
+
+    dst.insert("t", src.table("t"), overwrite=True)
+
+    assert dst.table("t").to_pyarrow().to_pydict() == {"x": [1, 2]}
+
+
+def test_insert_overwrite_bad_source_keeps_rows() -> None:
+    con = xo.connect()
+    con.create_table("k", pa.table({"x": [1, 2]}))
+
+    with pytest.raises(ValueError, match="Column count"):
+        con.insert("k", pa.table({"y": ["a"], "z": [1]}), overwrite=True)
+    with pytest.raises(ValueError, match="Cannot cast string 'invalid'"):
+        con.insert("k", pa.table({"x": ["invalid"]}), overwrite=True)
+
+    assert con.table("k").to_pyarrow().to_pydict() == {"x": [1, 2]}
+
+
 def test_drop_table_with_qualified_database():
     con = xo.connect()
     con.create_table("tp", pa.table({"a": [1]}))
