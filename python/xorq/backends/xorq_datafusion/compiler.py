@@ -143,8 +143,9 @@ def _sql_lacks(dtype: dt.DataType) -> bool:
 
 
 def _arrow_field_name(name):
-    # the arrow type parser has no escape for a double quote in a field name
-    if '"' in name:
+    # the arrow type parser has no escape for a double quote or a backslash
+    # in a field name
+    if '"' in name or "\\" in name:
         raise com.UnsupportedOperationError(
             f"DataFusion cannot arrow_cast to a struct field named {name!r}"
         )

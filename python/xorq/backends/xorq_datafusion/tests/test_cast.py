@@ -252,9 +252,10 @@ def test_nested_narrow_int_cast_out_of_range_raises():
         xo.array([t.a * 200]).cast("array<uint8>").execute()
 
 
-def test_struct_field_name_with_double_quote_raises():
+@pytest.mark.parametrize("name", ['a"b', "a\\b"], ids=["double-quote", "backslash"])
+def test_struct_field_name_unspellable_in_arrow_raises(name):
     t = xo.memtable({"a": [1]})
-    cast = xo.struct({'a"b': t.a}).cast(dt.Struct({'a"b': dt.uint8}))
+    cast = xo.struct({name: t.a}).cast(dt.Struct({name: dt.int32}))
 
     with pytest.raises(UnsupportedOperationError, match="struct field named"):
         xo.to_sql(cast)
