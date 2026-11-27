@@ -402,14 +402,13 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     def insert(self, table_name, obj, schema=None, database=None, overwrite=False):
         # datafusion's own error for a view is "Insert into not implemented for
-        # this table"; an unqualified name resolves in the default namespace,
-        # so check that one and name the view instead
-        unqualified = schema is None and database is None
-        if unqualified and table_kind(self._schema, table_name) == "view":
-            raise ValueError(f"cannot insert into {table_name!r}: it is a view")
-        super().insert(
-            table_name, obj, schema=schema, database=database, overwrite=overwrite
+        # this table"; check the target's namespace and name the view instead
+        catalog, db = self._to_catalog_db_tuple(
+            self._warn_and_create_table_loc(database, schema)
         )
+        if table_kind(lambda: self._schema(catalog, db), table_name) == "view":
+            raise ValueError(f"cannot insert into {table_name!r}: it is a view")
+        super().insert(table_name, obj, database=(catalog, db), overwrite=overwrite)
 
     def _settings(self, *names: str) -> dict[str, str]:
         query = (
