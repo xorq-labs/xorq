@@ -114,6 +114,11 @@ def _sql_misspells(dtype):
             return dtype.is_int8() or dtype.is_unsigned_integer()
 
 
+def _sql_lacks(dtype):
+    # SQL CAST has no large string, defaults decimal precision and timestamp unit
+    return dtype.is_decimal() or dtype.is_timestamp() or isinstance(dtype, LargeString)
+
+
 def _arrow_field_name(name):
     # the arrow type parser has no escape for a double quote in a field name
     if '"' in name:
@@ -280,18 +285,12 @@ class DataFusionCompiler(SQLGlotCompiler):
             return sg.cast(
                 self.f.concat(self.cast(arg, dt.string), f" {unit}"), "interval"
             )
-        if to.is_timestamp():
-            return self._to_timestamp(arg, to)
-        if to.is_decimal():
-            return self.f.arrow_cast(arg, _decimal_arrow_type(to))
-
-        if isinstance(to, LargeString):
-            return self.f.arrow_cast(arg, "LargeUtf8")
-
+        if _sql_lacks(to):
+            return self.f.arrow_cast(arg, _arrow_type(to))
         return self.cast(arg, to)
 
     def visit_TryCast(self, op, *, arg, to):
-        if _sql_misspells(to):
+        if _sql_misspells(to) or _sql_lacks(to):
             return self.f.arrow_try_cast(arg, _arrow_type(to))
         return super().visit_TryCast(op, arg=arg, to=to)
 
