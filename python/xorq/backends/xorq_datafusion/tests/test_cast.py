@@ -157,6 +157,10 @@ _ts = [datetime.datetime(2024, 1, 1, 12), datetime.datetime(2024, 1, 2, 12)]
         pytest.param("b", dt.boolean, "Boolean", [False, True], id="boolean"),
         pytest.param("s", dt.string, "Utf8", ["p", "q"], id="string"),
         pytest.param("s", LargeString(), "LargeUtf8", ["p", "q"], id="largestring"),
+        pytest.param("s", dt.uuid, "Utf8", ["p", "q"], id="uuid"),
+        pytest.param("s", dt.json, "Utf8", ["p", "q"], id="json"),
+        pytest.param("s", dt.inet, "Utf8", ["p", "q"], id="inet"),
+        pytest.param("s", dt.macaddr, "Utf8", ["p", "q"], id="macaddr"),
         pytest.param(
             "d",
             dt.date,
@@ -204,6 +208,18 @@ def test_nested_narrow_int_cast_keeps_sibling_type(
     assert set(result["computed_type"].to_pylist()) == {
         f'Struct("x": UInt8, "y": {arrow_type})'
     }
+
+
+def test_nested_narrow_int_cast_to_geospatial_raises():
+    t = xo.memtable({"a": [1], "g": [b"\x01"]})
+    cast = xo.struct({"x": t.a, "g": t.g}).cast(
+        dt.Struct({"x": dt.uint8, "g": dt.geometry})
+    )
+
+    with pytest.raises(
+        UnsupportedOperationError, match="cannot cast to geospatial:geometry"
+    ):
+        t.select(value=cast).to_pyarrow()
 
 
 @pytest.mark.parametrize(
